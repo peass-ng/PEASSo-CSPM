@@ -131,6 +131,16 @@ def policy_documents(data, *, _parse=None):
 
 
 _DEFAULT_POLICY_DOCUMENTS = policy_documents
+_DEFAULT_SEALED_POLICY_DOCUMENT = _sealed_policy_document
+# Exhaustive root fields visited by the policy parser above. Policy-free native
+# records do not need a node identifier or an empty per-record cache entry.
+_POLICY_SURFACE_KEYS = frozenset({
+    'PolicyDocument', 'Document', 'Policy', 'policy', 'AssumeRolePolicyDocument',
+    'Attributes', 'Domain', 'Table', 'PolicyDetails', 'ResourcePolicy',
+    'AccessPolicy', 'AccessPolicies', 'policyText', 'DomainStatus', 'Identity',
+    'document', 'policyDocument', 'UserPolicyList', 'GroupPolicyList',
+    'RolePolicyList', 'PolicyVersionList', 'PolicySources',
+})
 
 
 def _decoded_policy_view(doc):
@@ -143,6 +153,11 @@ def _decoded_policy_view(doc):
 
 
 def _resource_policy_documents(resource):
+    data = resource['data']
+    if (policy_documents is _DEFAULT_POLICY_DOCUMENTS and document is _DEFAULT_DOCUMENT
+            and _sealed_policy_document is _DEFAULT_SEALED_POLICY_DOCUMENT
+            and type(data) in (dict, FrozenDict) and _POLICY_SURFACE_KEYS.isdisjoint(data)):
+        return ()
     def documents():
         if _CONTEXT.get() is not None and type(resource["data"]) is FrozenDict:
             # Encoded native policies decode into mutable trees. Seal those

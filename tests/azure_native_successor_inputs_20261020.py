@@ -3,11 +3,13 @@ from copy import deepcopy
 from functools import lru_cache
 import json
 import gzip
+import hashlib
 from pathlib import Path
 
 from peaso.checks.facts import MemoIndex
 
 PATH = Path(__file__).parent / 'fixtures/azure_storage_native_fixes_20261020.json'
+CURRENT_GENERIC_SHA256 = '2dad45304498ed5f1ffa3f235689b4789dcbc674af0544465548701f79b351ca'
 
 
 @lru_cache(maxsize=1)
@@ -112,6 +114,23 @@ def _native_rows():
             cases = rows.setdefault(cid, {})
             assert branch not in cases, (cid, branch)
             cases[branch] = {**captured, 'status': next(iter(expected))}
+    # Fresh normal-collector witnesses supersede only these two stale generic
+    # fixtures. Historical native captures and admission receipts stay intact.
+    current = PATH.with_name('azure_current_generic_native_witnesses_20261024.json.gz')
+    raw = current.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == CURRENT_GENERIC_SHA256
+    captured = json.loads(gzip.decompress(raw))
+    root = Path(__file__).resolve().parents[1]
+    for name, expected in captured['source_sha256'].items():
+        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected, name
+    expected_pairs = {(cid, branch) for cid in (
+        'azure_storage_account_10_3_4_7_02943e9',
+        'azure.review.acr.selected_image_secret_indicators') for branch in ('pass', 'fail')}
+    assert {(r['check_id'], r['branch']) for r in captured['records']} == expected_pairs
+    assert len(captured['records']) == len(expected_pairs)
+    for record in captured['records']:
+        rows.setdefault(record['check_id'], {})[record['branch']] = {
+            **record, 'status': record['branch'].upper()}
     return rows
 
 

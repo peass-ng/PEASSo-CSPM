@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 
 MAX_BATCH_ITEMS = 128
@@ -55,7 +56,48 @@ def _prepare_trufflehog_batch(items, timeout):
     payloads = list(dict.fromkeys(payload for payload, _ in items))
     total = sum(map(len, payloads))
     if not _volatile_shm_available(total):
-        return None
+        # A full 64 MiB content batch cannot fit a default 64 MiB /dev/shm
+        # with the required safety margin. Keep the original per-source scan
+        # semantics while staging smaller bounded groups in the same tmpfs.
+        limit = MAX_BATCH_BYTES // 2
+        while limit >= 1024 * 1024 and not _volatile_shm_available(limit):
+            limit //= 2
+        if limit < 1024 * 1024 or any(len(payload) > limit for payload in payloads):
+            return None
+        deadline = time.monotonic() + timeout
+        prepared, pending, pending_bytes = {}, [], 0
+        output_bytes, outputs = 0, set()
+        for item in items:
+            if pending and pending_bytes + len(item[0]) > limit:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('content batch deadline')
+                group = _prepare_trufflehog_batch(pending, remaining)
+                if group is None:
+                    return None
+                for value in group.values():
+                    if id(value) not in outputs:
+                        outputs.add(id(value)); output_bytes += len(value)
+                if output_bytes > scanning.MAX_OUTPUT:
+                    raise ValueError('scanner output bound')
+                prepared.update(group)
+                pending, pending_bytes = [], 0
+            pending.append(item)
+            pending_bytes += len(item[0])
+        if pending:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('content batch deadline')
+            group = _prepare_trufflehog_batch(pending, remaining)
+            if group is None:
+                return None
+            for value in group.values():
+                if id(value) not in outputs:
+                    outputs.add(id(value)); output_bytes += len(value)
+            if output_bytes > scanning.MAX_OUTPUT:
+                raise ValueError('scanner output bound')
+            prepared.update(group)
+        return prepared
     with tempfile.TemporaryDirectory(prefix='peaso-scan-', dir='/dev/shm') as directory:
         os.chmod(directory, 0o700)
         paths = {}

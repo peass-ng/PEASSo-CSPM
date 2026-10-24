@@ -235,7 +235,7 @@ def build(sources_root):
 
 
 def validate_manifest(data):
-    from peaso.checks import CHECKS, HACKTRICKS
+    from peaso.checks import CHECKS, HACKTRICKS, resolve_check_id
     registry = {c.id: c for c in CHECKS}
     ids = set()
     for row in data["checks"]:
@@ -250,7 +250,10 @@ def validate_manifest(data):
             if row["disposition"] != "rejected" or row["native_checks"] or not isinstance(row.get("manual_requirement"), dict) or not row["manual_requirement"].get("question"):
                 raise ValueError("manual attestation requires source question and rejection as automated check")
         if row["disposition"] in ("ported", "merged"):
-            if not row["native_checks"] or any(cid not in registry for cid in row["native_checks"]):
+            # The pinned upstream manifest retains historical native IDs.
+            # Exact duplicate aliases still require their registered survivor;
+            # arbitrary missing IDs remain an error.
+            if not row["native_checks"] or any(resolve_check_id(cid) not in registry for cid in row["native_checks"]):
                 raise ValueError("supported reference requires real native evaluator")
         elif row["native_checks"]:
             raise ValueError("pending/rejected reference must not claim support")

@@ -4,6 +4,8 @@ import gzip
 import hashlib
 import inspect
 import json
+import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +19,9 @@ AUTHORIZATION_IDS = frozenset('k8s.ports.' + kind +
 AKS_IDS = frozenset({'azure_aks_cluster_7_2_1_6_93c4fab',
                      'azure_aks_cluster_aks_cluster_rbac_enabled_db12524'})
 PINS = {
-    'peaso/checks/k8s_ports_components.py': '460178158b6797d2683b840b57c3d69e2a64ad6288118a6c6cad3d6c36786aeb',
+    'peaso/unused_network_gcp.py': 'c400e93b47669dc157cb62be05e4baeef46e1fa429dab70237db74ca21e665db',
+    'peaso/checks/claude_gcp_k8s_compute.py': '071adbccfe52668da08440632d9f5d3ef4b74781a8ba8570442b02a7fdc69952',
+    'peaso/checks/k8s_ports_components.py': '0b717883a125ed880899da71f58053d6b59756c8f18f0b5ea5b9f4d44fd5538e',
     'peaso/checks/azure_aks_legacy_projection_review_20261020_fixtures.json': '7e4233f962bc14aa19ddeb4cf9f9c0d3d26a78ca0f600dde3600fa372e06e3a6',
     'docs/check-review/aws-workload-commands-current-native-witnesses-20261020.json.gz': 'b7e7e7d00d2aec8dfd2ffe386fa29a2918436de0aac572866a140fc5bc791a10',
     'docs/check-review/gcp-cloudrun-job-image-current-native-witnesses-20261020.json.gz': 'fcefb8902ed785450b974a54bbefd938ed436042b5da2719412f0c3f9b085670',
@@ -33,22 +37,59 @@ def checked(path):
     return raw
 
 
+def current_annotation_admission():
+    """Use the installed finite successor; historical proof stays unmodified."""
+    from peaso.checks import k8s_annotation_native_admission_20261020 as original
+    from peaso.checks import k8s_annotation_native_source_successor_20261021 as successor
+    successor._self_proof()
+    raw, _ = successor._source_proofs()
+    successor._current_functions(raw)
+    installed = sys.modules.get(successor._PRIVATE_NAME)
+    assert isinstance(installed, types.ModuleType)
+    assert installed.__file__ == original.__file__
+    assert installed._trusted_definition is not original._trusted_definition
+    return installed
+
+
+def current_kubelet_admission():
+    from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as successor
+    successor._receipt()
+    installed = sys.modules.get(successor.PRIVATE_NAME)
+    assert isinstance(installed, types.ModuleType)
+    assert installed.proof is current_annotation_admission()
+    return installed
+
+
 def current_cases(check, historical):
     result = deepcopy(historical)
+    if check.id == 'gcp.claude.firewall.default_rules_not_open':
+        checked('peaso/checks/claude_gcp_k8s_compute.py')
+        # The rule's native VPC must belong to the scope used for evaluation.
+        # Historical items declared projects/p but omitted that authority.
+        for branch in ('pass', 'fail'):
+            assert result[branch]['network'] == 'projects/p/global/networks/default'
+            result[branch + '_index'] = {'context': {'provider':'gcp','scope':'projects/p'}}
+    if check.id in {'gcp.network.http_proxy_forwarding_rule_reference',
+                     'gcp.network.https_proxy_forwarding_rule_reference'}:
+        checked('peaso/unused_network_gcp.py')
+        # An empty local reference set cannot exclude a cross-project consumer.
+        # Preserve the historical fixture while testing its current UNKNOWN.
+        assert 'unknown' not in result and 'unknown_index' not in result
+        result['unknown'] = result.pop('fail')
+        result['unknown_index'] = result.pop('fail_index')
     if check.id in AUTHORIZATION_IDS:
         from peaso.checks import k8s_ports_components as ports
         checked('peaso/checks/k8s_ports_components.py')
-        # Same current-only correction already proved by component memoization
-        # and finding-clarity tests: RBAC is not a supported kubelet mode.
+        # The current native fixture already declares the supported kubelet
+        # mode; require that declaration rather than rewriting its evidence.
         _, containers = ports.pod_spec(result['pass'], check.kind)
         flags = containers[0]['_component_config']['flags']
-        assert flags['authorization-mode'] == 'RBAC'
-        flags['authorization-mode'] = 'Webhook'
+        assert flags['authorization-mode'] == 'Webhook'
     from peaso.checks import k8s_annotation_native_admission_20261020 as annotation
     if check.id in annotation.IDS:
         # This validates the actual current admission, source and native fixture
         # hashes; caller annotations_complete is deliberately not accepted.
-        _, native = annotation._reviewed_inputs()
+        _, native = current_annotation_admission()._reviewed_inputs()
         result.update(deepcopy(native[check.id]))
     if check.id in AKS_IDS:
         native = json.loads(checked(
@@ -124,7 +165,7 @@ def assert_kubelet_empty_contract(check, finding):
     assert check.id in admission.IDS and len(admission.IDS) == 8
     checked('peaso/checks/k8s_kubelet_configmap_review_20261020.py')
     checked('peaso/checks/k8s_kubelet_configmap_admission_log_successor_20261020.json')
-    admission.reviewed_inputs()  # Also proves current executing callback code.
+    current_kubelet_admission().reviewed_inputs()  # Proves the installed source-aware callback lineage.
     assert getattr(check.evaluate, admission.MARK) == check.id
     assert inspect.unwrap(check.evaluate).evaluate_empty_inventory is candidate.evaluate_empty
     assert finding['status'] == 'UNKNOWN'

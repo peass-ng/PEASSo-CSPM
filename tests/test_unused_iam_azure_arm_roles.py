@@ -196,10 +196,15 @@ def test_builtin_is_not_applicable_and_shared_native_memo_joins_once(monkeypatch
 
 
 @pytest.mark.parametrize('mode',['empty','bound','eligibility','binding_denied','partial_positive','filter_injection','resource_limit','foreign_binding'])
-def test_real_shared_reader_collects_only_authorized_native_gets_and_preserves_failure(mode):
+def test_real_shared_reader_collects_only_authorized_native_gets_and_preserves_failure(mode,monkeypatch):
     from urllib.parse import urlsplit
     from peaso.collectors.azure import _Reader
     from peaso.collectors import azure_unused_arm_roles_20261021 as producer
+    from datetime import datetime
+    # Bind this native collection to the fixed snapshot clock. Letting wall
+    # time advance made valid captures fail the unchanged one-day freshness guard.
+    monkeypatch.setattr(producer,'datetime',SimpleNamespace(
+        now=lambda tz:datetime.fromisoformat(NOW.replace('Z','+00:00')).astimezone(tz)))
     reader=_Reader({'retries':0,'concurrency':1,**({'max_resources':1} if mode=='resource_limit' else {})})
     item,index=fixture()
     reader.collections=[deepcopy(index['collections']['role_definition'][0])]
@@ -235,10 +240,13 @@ def test_real_shared_reader_collects_only_authorized_native_gets_and_preserves_f
 
 
 @pytest.mark.parametrize('outside',[False,True])
-def test_real_management_hierarchy_collects_descendant_scopes_only_when_all_subscriptions_are_selected(outside):
+def test_real_management_hierarchy_collects_descendant_scopes_only_when_all_subscriptions_are_selected(outside,monkeypatch):
     from urllib.parse import urlsplit
     from peaso.collectors.azure import _Reader
     from peaso.collectors import azure_unused_arm_roles_20261021 as producer
+    from datetime import datetime
+    monkeypatch.setattr(producer,'datetime',SimpleNamespace(
+        now=lambda tz:datetime.fromisoformat(NOW.replace('Z','+00:00')).astimezone(tz)))
     reader=_Reader({'retries':0,'concurrency':1});item,index=fixture(sc=MG,assignable=[MG])
     reader.collections=[deepcopy(index['collections']['role_definition'][0])];calls=[]
     def request(url,*,audience=contract.ARM,body=None):

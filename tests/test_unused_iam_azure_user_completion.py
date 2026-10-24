@@ -136,8 +136,14 @@ def test_adapter_paginates_and_records_denial_without_inactivity():
     assert reader.collections[0]['items'][0]['source']['status'] == 'denied'
 
 
-def test_collector_receipt_evaluates_current_directory_user():
+def test_collector_receipt_evaluates_current_directory_user(monkeypatch):
     item, index = case('fail')
+    from datetime import datetime
+    from types import SimpleNamespace
+    # This fixture intentionally uses a fixed snapshot. Keep native proof
+    # capture at that instant rather than bypassing its freshness requirement.
+    captured=datetime.fromisoformat(index['context']['created_at'].replace('Z','+00:00'))
+    monkeypatch.setattr(producer,'datetime',SimpleNamespace(now=lambda tz:captured.astimezone(tz)))
     class Reader:
         collections = []
         def pages(self, request, url, *, audience, next_key):

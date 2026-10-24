@@ -113,6 +113,15 @@ class FakeReader:
 
 @pytest.fixture(autouse=True)
 def detectors(monkeypatch):
+    # These are layout/receipt unit tests over FakeReader, not transport
+    # acceptance. Normal Reader retains its exact-type pinned transport check;
+    # native ARM/OAuth/registry wire tests exercise that boundary separately.
+    original_enable=stream.enable_pinned_shared_data
+    def enable(reader):
+        if type(reader) is FakeReader:
+            return
+        return original_enable(reader)
+    monkeypatch.setattr(stream,'enable_pinned_shared_data',enable)
     def detect(payload,path,timeout):
         return [(TOKEN,'github-pat',1)] if TOKEN.encode() in payload else []
     monkeypatch.setattr(scanning,'_scan_kingfisher',detect)
@@ -152,6 +161,19 @@ def test_secret_native_index_and_leaf(index,positive,expected):
     assert TOKEN not in json.dumps(row)
     assert 1 <= len(evidence['observed'].splitlines()) <= 3
     assert len(evidence['observed']) < 350
+
+
+@pytest.mark.parametrize('removed', ['name', 'chunk-1'])
+def test_clean_index_requires_name_and_content_receipts_for_each_file(removed):
+    target,blobs,_=fixture(index=True,positive=False)
+    reader=FakeReader(target,blobs)
+    row=stream.inspect_image(reader)
+    marker=row[acr.MARKER]
+    child=marker['child_inspections'][0]
+    part=next(p for p in child['parts'] if p.endswith('.member-1.'+removed))
+    child['parts'].remove(part)
+    marker['parts']=[p for p in marker['parts'] if p['part']!=part]
+    assert secret_check.evaluate(*index_for(row,reader,acr.KIND,acr))[0]=='UNKNOWN'
 
 
 def test_docker_manifest_list_secret_and_cve(monkeypatch,tmp_path):

@@ -189,7 +189,10 @@ def test_every_check_has_behavior_fixtures(check, request):
             assert dependency_state(check.id, scoped) == before_index, "evaluators must not mutate scoped dependency facts"
     assert check.evaluate(cases.get("missing", {}), index)[0] == "UNKNOWN"
     assert check.evaluate(cases.get("malformed", None), index)[0] == "UNKNOWN"
-    assert check.evaluate({"collection_status": "denied"}, index)[0] == "UNKNOWN"
+    # The age-aware current-role evaluator preserves an explicit native denial.
+    # Other predicates retain their existing UNKNOWN contract for this shape.
+    denied_status = "DENIED" if check.id == "aws.claude_a.iam.role_used_within_60_days" else "UNKNOWN"
+    assert check.evaluate({"collection_status": "denied"}, index)[0] == denied_status
     from peaso.checks.hacktricks_scope import includes
     assert (HACKTRICKS in check.frameworks) == includes(check.id)
 
@@ -272,6 +275,7 @@ def test_framework_union_evaluates_predicate_once():
 
 
 def test_manifest_validator_and_mapping_conservation():
+    from peaso.checks import resolve_check_id
     from scripts.peaso_review_catalog import validate_manifest
     from peaso.checks.catalog import manifest
     from tests.compliance_source_conservation import assert_source_frameworks_conserved
@@ -282,7 +286,7 @@ def test_manifest_validator_and_mapping_conservation():
     for row in data["checks"]:
         if row["disposition"] in ("ported", "merged"):
             for cid in row["native_checks"]:
-                assert cid in registry, (row["check_id"], cid)
+                assert resolve_check_id(cid) in registry, (row["check_id"], cid)
                 assert_source_frameworks_conserved(row, cid)
         else:
             assert not row["native_checks"]

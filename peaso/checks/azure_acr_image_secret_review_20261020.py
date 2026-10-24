@@ -93,19 +93,28 @@ def evaluate(item,index):
         if not complete_blob_receipts(receipts,[desc]):raise ValueError('blob occurrence receipts')
         parts=m['parts'];versions={'kingfisher':KINGFISHER_VERSION,'trufflehog':TRUFFLEHOG_VERSION}
         if not isinstance(parts,list) or not m['regular_files']+2<=len(parts)<=MAX_PARTS or parts[0].get('part')!='manifest' or parts[1].get('part')!='config':raise ValueError('parts')
-        names=[]
+        names=[];member_parts={}
         for pos,p in enumerate(parts):
             if (set(p)!={'part','bytes','complete','engines'} or type(p['bytes']) is not int or not 0<=p['bytes']<=MAX_LAYER
                     or p['complete'] is not True or not isinstance(p['part'],str)):raise ValueError('part')
             if pos>=2:
                 match=re.fullmatch(r'layer-([1-9][0-9]*)\.member-([1-9][0-9]*)\.(?:name|chunk-[1-9][0-9]*)',p['part'])
                 if not match or int(match[1])>len(desc)-1 or int(match[2])>m['members']:raise ValueError('member')
+                member_parts.setdefault((int(match[1]),int(match[2])),[]).append(p['part'].split('.')[-1])
             es=p['engines']
             if (not isinstance(es,list) or len(es)!=2 or {e.get('engine') for e in es}!=set(versions)
                     or any(set(e)!={'engine','version','status'} or e.get('version')!=versions.get(e.get('engine')) or e.get('status')!='complete' for e in es)):
                 raise ValueError('engines')
             names.append(p['part'])
         if len(names)!=len(set(names)) or parts[0]['bytes']!=manifest['bytes'] or parts[1]['bytes']!=desc[0]['size']:raise ValueError('part binding')
+        # Every regular file, including an empty file, produces its name and
+        # at least chunk-1. A retained filename alone cannot prove its contents
+        # were inspected. Preserve the producer's consecutive chunk order.
+        if (len(member_parts)!=m['regular_files']
+                or {member for layer,member in member_parts}!=set(range(1,m['regular_files']+1))
+                or any(parts!=['name']+['chunk-'+str(n) for n in range(1,len(parts))]
+                    or len(parts)<2 for parts in member_parts.values())):
+            raise ValueError('incomplete file parts')
         leaks=m['leaks']
         if (not isinstance(leaks,list) or merge_leaks(leaks)!=leaks or len(leaks)>MAX_LEAKS
                 or sum(len(l['locations']) for l in leaks)>MAX_LOCATIONS
@@ -220,6 +229,18 @@ def _evaluate_index(item,collection,index,scope,meta,ident,m):
                     or record['parts'][:2]!=[prefix+'.manifest',prefix+'.config']
                     or any(part not in names or not part.startswith(prefix+'.') for part in record['parts'])):
                 raise ValueError('child part binding')
+            if complete:
+                member_parts={}
+                for part in record['parts'][2:]:
+                    match=re.fullmatch(re.escape(prefix)+r'\.layer-([1-9][0-9]*)\.member-([1-9][0-9]*)\.(name|chunk-[1-9][0-9]*)',part)
+                    if not match or int(match[1])>len(record['descriptors'])-1:
+                        raise ValueError('child member identity')
+                    member_parts.setdefault((int(match[1]),int(match[2])),[]).append(match[3])
+                if (len(member_parts)!=record['regular_files']
+                        or {member for layer,member in member_parts}!=set(range(1,record['regular_files']+1))
+                        or any(parts!=['name']+['chunk-'+str(n) for n in range(1,len(parts))]
+                            or len(parts)<2 for parts in member_parts.values())):
+                    raise ValueError('incomplete child file parts')
             witnessed.update(record['parts'])
         if ('scan_partial' in m and (m['skipped_files']<sum(c['skipped_files'] for c in inspections)
                 or graph['complete'] is True and m['skipped_files']!=sum(c['skipped_files'] for c in inspections))

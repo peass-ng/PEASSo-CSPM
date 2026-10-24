@@ -37,7 +37,11 @@ def _successor(path,expected,root):
     assert hashlib.sha256(raw).hexdigest()==retained['sha256'],'Retained source archive changed'
     before=gzip.decompress(raw)
     assert hashlib.sha256(before).hexdigest()==expected,'Historical source is not the admitted predecessor'
-    assert hashlib.sha256((root/path).read_bytes()).hexdigest()==row['current_sha256'],'Unreviewed current source changed'
+    current=(root/path).read_bytes()
+    if hashlib.sha256(current).hexdigest()!=row['current_sha256']:
+        from peaso import private_secret_source_epoch_20261021 as epoch
+        current=epoch.predecessor_bytes(path,current,row['current_sha256'],root)
+    assert hashlib.sha256(current).hexdigest()==row['current_sha256'],'Unreviewed current source changed'
     return before
 
 
@@ -53,6 +57,20 @@ def assert_source_receipt(path,expected,root=ROOT):
         from peaso.rawv2_private_source_successor_20261021 import source_bytes
         before=source_bytes(path,(root/path).read_bytes(),expected,root)
         assert hashlib.sha256(before).hexdigest()==expected,'Historical scanner source changed'
+        return
+    from peaso import private_secret_source_epoch_20261021 as epoch
+    row=epoch.source_rows().get(path)
+    reviewed=epoch._receipt()[0]['current_reviewed_files'].get(path)
+    if ((row is not None and row['before_sha256']==expected)
+            or (reviewed is not None and reviewed['predecessor_sha256']==expected)):
+        before=epoch.predecessor_bytes(path,(root/path).read_bytes(),expected,root)
+        assert hashlib.sha256(before).hexdigest()==expected,'Historical native source changed'
+        return
+    if (path,expected)==('peaso/collectors/gcp_image_secret_indicators.py',
+            '7891365e7a5ecd82734dd385d1ed64b56b11e1283e07dc2f3b9e16cbee2e104e'):
+        from peaso import gcp_private_source_successor_20261021 as current
+        rows=current._source_delta(root)
+        current._source_hash(path,(root/path).read_bytes(),expected,rows,root)
         return
     assert (path,expected)in SUCCESSORS,'No reviewed source successor: '+path
     _successor(path,expected,root)

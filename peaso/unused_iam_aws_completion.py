@@ -9,6 +9,13 @@ import hashlib
 import json
 
 
+def _permission_set_unresolved(permission, reason):
+    return "UNKNOWN", {"permission_set_arn": permission, "reason": reason,
+        "summary": reason +
+        "\nThe permission set has incomplete or inconsistent recorded consumer identities."
+        "\nIt is unclear which users could receive its permissions and reach account data."}
+
+
 def evaluate_permission_set(row):
     if not isinstance(row, dict) or not isinstance(row.get("PermissionSetArn"), str):
         return "UNKNOWN", {"summary": "Permission-set identity is unresolved."}
@@ -17,6 +24,41 @@ def evaluate_permission_set(row):
     provisioned = row.get("ProvisionedAccounts")
     if not isinstance(assignments, list) or not isinstance(provisioned, list):
         return "UNKNOWN", {"summary": "Permission-set consumer inventory is unresolved."}
+    # Producer rows bind every retained consumer to the organization account
+    # universe. Validate that shape before allowing a positive declaration.
+    accounts = row.get("OrganizationAccounts")
+    proof = row.get("_provenance")
+    permission_match = re.fullmatch(
+        r"arn:(aws(?:-[a-z0-9]+)*):sso:::permissionSet/((?:sso)?ins-[A-Za-z0-9.-]{16})/ps-[A-Za-z0-9./-]{16}",
+        permission,
+    )
+    if (permission_match is None or not isinstance(accounts, list) or not accounts
+            or any(not isinstance(a, str) or not re.fullmatch(r"[0-9]{12}", a) for a in accounts)
+            or len(set(accounts)) != len(accounts) or not isinstance(proof, dict)
+            or proof.get("read_only", True) is not True
+            or row.get("status") not in ("collected", "partial", "denied", "unknown", "timeout")):
+        return _permission_set_unresolved(permission, 'Permission-set consumer identity or organization binding is malformed.')
+    if "InstanceArn" in row and row["InstanceArn"] != (
+            "arn:" + permission_match[1] + ":sso:::instance/" + permission_match[2]):
+        return _permission_set_unresolved(permission, 'Permission-set instance identity disagrees with its ARN.')
+    if (any(not isinstance(a, str) or a not in accounts for a in provisioned)
+            or len(set(provisioned)) != len(provisioned)):
+        return _permission_set_unresolved(permission, 'Permission-set provisioned account identity is malformed.')
+    states = row.get("ProvisioningStates")
+    if (not isinstance(states, dict) or set(states) != set(provisioned)
+            or any(v not in ("latest_provisioned", "latest_not_provisioned") for v in states.values())):
+        return _permission_set_unresolved(permission, 'Permission-set provisioning states disagree with its accounts.')
+    seen = set()
+    for assignment in assignments:
+        if (not isinstance(assignment, dict) or assignment.get("AccountId") not in accounts
+                or assignment.get("PrincipalType") not in ("USER", "GROUP")
+                or not isinstance(assignment.get("PrincipalId"), str)
+                or not re.fullmatch(r"(?:[0-9a-f]{10}-)?[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", assignment["PrincipalId"])):
+            return _permission_set_unresolved(permission, 'Permission-set assignment identity is malformed.')
+        key = assignment["AccountId"], assignment["PrincipalType"], assignment["PrincipalId"]
+        if key in seen:
+            return _permission_set_unresolved(permission, 'Permission-set assignment identity is duplicated.')
+        seen.add(key)
     if assignments or provisioned:
         accounts = sorted(set(provisioned) | {a["AccountId"] for a in assignments if isinstance(a, dict) and isinstance(a.get("AccountId"), str)})
         return "PASS", {"permission_set_arn": permission, "consumer_accounts": accounts,

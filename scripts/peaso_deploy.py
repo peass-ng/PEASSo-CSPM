@@ -56,6 +56,13 @@ RUNTIME_ADMISSION_INPUTS = {
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
+    'tests/test_missing_control_evidence_boundaries.py',
+    'tests/test_secret_batch_tmpfs_capacity.py',
+    'docs/secret-batch-capacity-and-native-qualification.md',
+    'tests/test_current_generic_native_witnesses_20261024.py',
+    'tests/fixtures/azure_current_generic_native_witnesses_20261024.json.gz',
+    'tests/test_iam_policy_free_native_records.py',
+    'docs/iam-policy-free-inventory-performance.md',
     'docs/registry-image-evidence-review-20261024.md',
     'tests/test_azure_acr_frozen_engine_20261024.py',
     'tests/test_gcp_image_stream_redirect_20261024.py',

@@ -186,7 +186,9 @@ def ingress(item, index):
         paths = http.get('paths', []) if isinstance(http, dict) else None
         if not isinstance(paths, list):
             raise Unavailable('Ingress HTTP paths are malformed')
-        backends.extend(path.get('backend') for path in paths if isinstance(path, dict))
+        if any(not isinstance(path, dict) for path in paths):
+            raise Unavailable('Ingress HTTP path is malformed')
+        backends.extend(path.get('backend') for path in paths)
     names = []
     for backend in backends:
         if not isinstance(backend, dict):
@@ -241,6 +243,8 @@ def networkpolicy(item, index):
         raise Unavailable('NetworkPolicy podSelector is unavailable')
     _available(spec, ('podSelector',))
     selector = spec['podSelector']
+    # Validate expression syntax even when the current Pod inventory is empty.
+    _selector_matches(selector, {})
     pods, complete = _rows(index, 'pod')
     matches = [p['metadata']['name'] for p in pods if p['metadata']['namespace'] == meta['namespace']
                and _selector_matches(selector, p['metadata'].get('labels', {}))]

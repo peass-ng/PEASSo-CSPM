@@ -24,7 +24,7 @@ import sysconfig
 from types import CodeType, FunctionType, MethodType, ModuleType
 import zipfile
 
-_RECEIPT_SHA256 = "3d9c72705f9a9708ae411345ee0c67a3850d85cc9d58c45c3ee302fc899bdaca"
+_RECEIPT_SHA256 = "71becacdbb96ed1639a38f2c45e021cdd9079bc0d5d1dad742f8e2e579c53fad"
 _SELF_SHA256 = "3ec95c5ece3c4761ee872cccc2d5dacb5a80cf2a93c22d482876017a36c34240"
 _ARCHIVE_SHA256 = "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0"
 _HELPER_SHA256 = "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a"

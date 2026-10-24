@@ -50,6 +50,14 @@ def _current(item, index, kind):
     proof = item.get('_provenance')
     if not isinstance(proof, dict) or proof.get('read_only') is not True or proof.get('representation') != 'full' or proof.get('source_operation') != 'get':
         raise Unavailable('complete read-only ARM GET is unavailable')
+    # Current collectors stamp capture identity. Enforce any declared capture
+    # binding while retaining historical native witnesses without these fields.
+    metadata = index.get('context', {}).get('metadata', {})
+    envelope = index['collections'][kind][0]
+    capture_fields = ('credential_context_id', 'customer_context_id')
+    if (any(key in metadata or key in proof for key in capture_fields)
+            or any(key in envelope.get('_provenance', {}) for key in capture_fields)):
+        _capture(item, envelope, index)
     return rid
 
 

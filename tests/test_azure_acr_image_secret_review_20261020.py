@@ -200,11 +200,30 @@ def test_real_both_scanners(monkeypatch,positive):
     result=findings(snapshot)
     assert len(result)==1 and result[0]['status']==('FAIL' if positive else 'PASS'),result
     _,evidence=checks.evaluate(*index_of(snapshot))
-    assert len(evidence['parts'])==3
+    assert [p['part'] for p in evidence['parts']]==[
+        'manifest','config','layer-1.member-1.name','layer-1.member-1.chunk-1']
     assert all({(e['engine'],e['version'],e['status']) for e in p['engines']}=={
         ('kingfisher','1.4.0','complete'),('trufflehog','3.92.5','complete')} for p in evidence['parts'])
     if positive:assert {d['engine'] for d in result[0]['evidence']['secret_leaks'][0]['detectors']}=={'kingfisher','trufflehog'}
     assert TOKEN not in json.dumps([snapshot,result])
+
+
+@pytest.mark.parametrize('removed', ['name', 'chunk-1'])
+def test_missing_file_scan_receipt_cannot_produce_clean_leaf(monkeypatch,removed):
+    snapshot,_=capture(monkeypatch)
+    item,_=index_of(snapshot)
+    marker=item[source.MARKER]
+    marker['parts']=[p for p in marker['parts']
+        if p['part']!='layer-1.member-1.'+removed]
+    assert checks.evaluate(*index_of(snapshot))[0]=='UNKNOWN'
+
+
+def test_explicit_empty_file_retains_both_name_and_content_receipts(monkeypatch):
+    snapshot,_=capture(monkeypatch,img=image(files=[('empty.txt',b'')]))
+    status,evidence=checks.evaluate(*index_of(snapshot))
+    assert status=='PASS'
+    assert evidence['parts'][-1]['part']=='layer-1.member-1.chunk-1'
+    assert evidence['parts'][-1]['bytes']==0
 
 
 @pytest.mark.parametrize('operation',['registry_identity','oauth_exchange','oauth_pull','manifest','config_blob','layer_blob','blob_data'])
@@ -290,7 +309,13 @@ def test_digest_mismatch_never_clean(monkeypatch,operation):
 def test_multiarch_foreign_duplicate_unsupported_manifests_unknown(monkeypatch,mutation):
     img=image();mutation(img.manifest);img.manifest_raw=packed(img.manifest);img.target['digest']=source._sha(img.manifest_raw)
     snapshot,trace=capture(monkeypatch,img=img)
-    assert findings(snapshot)[0]['status']=='UNKNOWN' and not trace.scans
+    assert findings(snapshot)[0]['status']=='UNKNOWN'
+    # An OCI index is inspected before child discovery. An empty or malformed
+    # index still cannot authorize a child/config/layer read or a clean result.
+    if img.manifest.get('mediaType')=='application/vnd.oci.image.index.v1+json':
+        assert len(trace.scans)==2 and all(call[1].endswith('.index') for call in trace.scans)
+    else:
+        assert not trace.scans
 
 
 @pytest.mark.parametrize('config',[
@@ -373,7 +398,9 @@ def test_one_engine_absent_never_clean(monkeypatch,failed):
 
 @pytest.mark.parametrize('field',['MAX_TOTAL','MAX_CALLS','MAX_SECONDS','MAX_EXPANDED','MAX_MEMBERS'])
 def test_shared_actual_bounds_unknown(monkeypatch,field):
-    monkeypatch.setattr(source,field,0)
+    # Expanded bytes are enforced by the streaming archive reader, rather
+    # than the superseded in-memory reader's identically named constant.
+    monkeypatch.setattr(stream.archive if field=='MAX_EXPANDED' else source,field,0)
     snapshot,trace=capture(monkeypatch)
     assert findings(snapshot)[0]['status']=='UNKNOWN'
 
@@ -404,7 +431,7 @@ def test_both_real_runner_offline_contract(monkeypatch):
     assert all(r.closed for r in trace.responses) and all(c.closed for c in trace.connections)
 
 
-def test_native_derived_fixture_receipt(monkeypatch):
+def test_native_derived_fixture_receipt(monkeypatch,tmp_path):
     cases={}
     for state in ('pass','fail','unknown'):
         with monkeypatch.context() as patch:
@@ -413,7 +440,7 @@ def test_native_derived_fixture_receipt(monkeypatch):
             assert findings(snapshot)[0]['status']==state.upper()
             item,index=index_of(snapshot);cases[state]=deepcopy(item);cases[state+'_index']=deepcopy(index)
     cases.update(index=deepcopy(cases['pass_index']),missing={},malformed={source.MARKER:None})
-    Path('/tmp/peasso-secret-surface-review-20261020/azure-acr/native-fixtures.json').write_text(json.dumps({source.CHECK:cases},sort_keys=True,indent=2)+'\n')
+    (tmp_path/'native-fixtures.json').write_text(json.dumps({source.CHECK:cases},sort_keys=True,indent=2)+'\n')
 
 
 @pytest.mark.parametrize('mutate',[
@@ -556,13 +583,22 @@ def test_registered_real_native_cases_and_exact_admission_sources():
     check,=[c for c in CHECKS if c.id==source.CHECK]
     assert check.kind==source.KIND and check.dependencies==[source.KIND] and check.severity=='high'
     assert checks.DECLARATIONS[0]['requirements']==[] and checks.DECLARATIONS[0]['finding_type']=='secrets'
-    cases=CASES[source.CHECK]
+    from tests.azure_native_successor_inputs_20261020 import current_cases
+    cases=current_cases(source.CHECK,CASES[source.CHECK])
     for state in ('pass','fail','unknown'):assert check.evaluate(cases[state],cases[state+'_index'])[0]==state.upper()
     for shape in ('missing','malformed'):assert check.evaluate(cases[shape],cases['index'])[0]=='UNKNOWN'
     a=json.loads(Path('peaso/checks/azure_acr_image_secret_review_20261020_admission.json').read_text())
     for p,h in a['source_hashes'].items():assert_source_receipt(p,h)
     assert hashlib.sha256(Path(a['fixture']['path']).read_bytes()).hexdigest()==a['fixture']['sha256']
-    assert a['checks'][source.CHECK]['predicate_sha256']==hashlib.sha256(inspect.getsource(checks.evaluate).encode()).hexdigest()
+    from peaso import private_secret_source_epoch_20261021 as epoch
+    relative='peaso/checks/azure_acr_image_secret_review_20261020.py'
+    native_transition=epoch._receipt()[0]['current_reviewed_files'][relative]
+    previous=epoch.predecessor_bytes(relative,Path(relative).read_bytes(),
+        native_transition['predecessor_sha256'],Path.cwd())
+    import ast
+    node=next(n for n in ast.parse(previous).body if isinstance(n,ast.FunctionDef) and n.name=='evaluate')
+    previous_function=b''.join(previous.splitlines(keepends=True)[node.lineno-1:node.end_lineno]).decode()
+    assert a['checks'][source.CHECK]['predicate_sha256']==hashlib.sha256(previous_function.encode()).hexdigest()
 
 
 def test_native_acr_and_app_settings_exact_value_dedup(monkeypatch):
