@@ -178,13 +178,13 @@ export function App() {
     partialResult,
   );
   const insightCounts = useInsightCounts(scanId, demo, !!scanId && !!current && hasResult(current), aiAvailable, report.data);
-  const partialSequence = report.data?.publication?.state === "partial" ? `${report.data.publication.sequence ?? ""}:${JSON.stringify(report.data.publication.ai_stages || {})}` : undefined;
+  const publicationRevision = report.data?.publication ? `${report.data.publication.state}:${report.data.publication.sequence ?? ""}:${JSON.stringify(report.data.publication.ai_stages || {})}` : undefined;
   useEffect(() => {
-    if (!scanId || partialSequence === undefined) return;
+    if (!scanId || publicationRevision === undefined) return;
     void client.invalidateQueries({ predicate: (query) => query.queryKey[0] === (demo ? "demo" : "live") &&
       query.queryKey.some((part) => typeof part === "string" &&
         (part === scanId || part.includes(`/scans/${scanId}/`))) });
-  }, [client, demo, scanId, partialSequence]);
+  }, [client, demo, scanId, publicationRevision]);
   const pageInfo = pages.find((p) => p.label === page) || pages[0];
   function navigate(p: string) {
     p = normalizePage(p);

@@ -31,6 +31,32 @@ def _expired_exception(exc):
     return error.get("Code") in _EXPIRED_CODES or getattr(exc, "code", None) in _EXPIRED_CODES
 
 
+def _expired_iam_report_error(envelope):
+    """Read only the collector-owned IAM report status, never policy/app JSON."""
+    if (not isinstance(envelope, dict) or envelope.get("service") != "iam"
+            or envelope.get("type") not in {"iam_user", "iam_group", "iam_role", "iam_policy"}):
+        return None
+    account = str(envelope.get("scope", "")).split("/", 1)[0]
+    kind = envelope["type"].removeprefix("iam_")
+    for item in envelope.get("items", ()):
+        if not isinstance(item, dict):
+            continue
+        arn = item.get("Arn")
+        match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):" + kind + r"/.+", arn) if isinstance(arn, str) else None
+        if match is None or match.group(1) != account:
+            continue
+        state = item.get("ServicesLastAccessedStatus")
+        if (not isinstance(state, dict)
+                or state.get("collection_status") not in {"denied", "unknown", "timeout", "partial", "malformed", "not_collected"}
+                or state.get("operation", "iam:GetServiceLastAccessedDetails") != "iam:GetServiceLastAccessedDetails"
+                or state.get("principal_arn", arn) != arn):
+            continue
+        error = state.get("error")
+        if isinstance(error, dict) and error.get("code") in {"ExpiredToken", "ExpiredTokenException", "RequestExpired"}:
+            return {"code": error["code"]}
+    return None
+
+
 def _expired_snapshot(snapshot):
     """Only explicit provider expiry codes qualify; ordinary denial stays denied."""
     for envelope in snapshot.get("collections", ()):
@@ -39,7 +65,29 @@ def _expired_snapshot(snapshot):
             return True
         if any(item.get("code") in _EXPIRED_CODES for item in error.get("additional_errors", ()) if isinstance(item, dict)):
             return True
+        if snapshot.get("provider") == "aws" and _expired_iam_report_error(envelope):
+            return True
     return False
+
+
+def _retryable_expired_snapshot(snapshot):
+    """Keep IAM facts but leave an expired attached report unfinished for resume."""
+    if snapshot.get("provider") != "aws":
+        return snapshot
+    rows = None
+    for index, envelope in enumerate(snapshot.get("collections", ())):
+        if envelope.get("status") not in {"collected", "empty"}:
+            continue
+        error = _expired_iam_report_error(envelope)
+        if error is None:
+            continue
+        if rows is None:
+            rows = list(snapshot["collections"])
+        original_error = envelope.get("error")
+        if isinstance(original_error, dict) and original_error:
+            error = dict(original_error, additional_errors=[*original_error.get("additional_errors", ()), error])
+        rows[index] = dict(envelope, status="partial", error=error)
+    return dict(snapshot, collections=rows) if rows is not None else snapshot
 
 
 def _resume_prior(checkpoint_session, prior):
@@ -426,6 +474,8 @@ def _process(role, request, connection):
             del ai_credentials
             from peaso.snapshot import nothing_readable
             expired = _expired_snapshot(snapshot)
+            if expired:
+                snapshot = _retryable_expired_snapshot(snapshot)
             if nothing_readable(snapshot) and not expired:
                 # Every read failed (expired/wrong credentials): fail the scan instead of publishing an empty assessment.
                 failure_reasons = _curated_target_reasons(snapshot, request["connector"])
@@ -462,15 +512,23 @@ def _process(role, request, connection):
             native_sequence = int(request.get("checkpoint_sequence", 0)) + 1
             sections = snapshot.get("metadata", {}).get("sections", {})
             sections = sections if isinstance(sections, dict) else {}
-            native_value = dict(value, publication={"state": "partial", "phase": "analyzing",
-                                                    "sequence": native_sequence, "sections": sections})
+            from peaso.ai.pipeline import review_scan
+            ai_disabled = selectors.get("ai_enabled", True) is False
+            if ai_disabled:
+                # The disabled branch is deterministic and performs no provider
+                # or model work. Include its actual result in the first durable
+                # native bundle instead of rebuilding every export afterward.
+                value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
+                                          deadline=request.get("deadline"), context=request.get("ai_context"))
+            native_value = dict(value, publication={"state": "final" if ai_disabled else "partial",
+                "phase": "completed" if ai_disabled else "analyzing",
+                "sequence": native_sequence, "sections": sections})
             native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot)
             connection.send(("__checkpoint__", {"sequence": native_sequence,
                 "stage": "analyzer_native", "snapshot_ref": request["snapshot_ref"],
                 "report_ref": native_reference, "kind": None, "scope": None}))
             if connection.recv() != ("__checkpoint_ack__", native_sequence, True):
                 raise RuntimeError("native analysis checkpoint rejected")
-            from peaso.ai.pipeline import review_scan
             if request.get("refresh_stage_results"):
                 connection.send(("__stage_results__", None))
                 reply = connection.recv()
@@ -479,14 +537,19 @@ def _process(role, request, connection):
                     raise RuntimeError("progressive stage result handoff rejected")
                 request["stage_results"] = reply[1]
             reused_stages = _reusable_stages(artifacts, tenant, sections, request.get("stage_results"))
-            value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
-                                      deadline=request.get("deadline"), context=request.get("ai_context"),
-                                      reused_stages=reused_stages)
-            from peaso.ai.network import with_findings
-            value = with_findings(value, value["ai"].get("network", {}).get("findings", []))
-            value["publication"] = {"state": "final", "phase": "completed", "sequence": native_sequence,
-                                    "sections": sections}
-            reference = publish_report(publication_artifacts, tenant, ident, value, snapshot)
+            if ai_disabled:
+                # Acknowledgement and progressive-stage fencing above remain
+                # mandatory. The exact final native bundle is already durable.
+                reference = native_reference
+            else:
+                value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
+                                          deadline=request.get("deadline"), context=request.get("ai_context"),
+                                          reused_stages=reused_stages)
+                from peaso.ai.network import with_findings
+                value = with_findings(value, value["ai"].get("network", {}).get("findings", []))
+                value["publication"] = {"state": "final", "phase": "completed", "sequence": native_sequence,
+                                        "sections": sections}
+                reference = publish_report(publication_artifacts, tenant, ident, value, snapshot)
         # Large evidence/report objects never cross the supervisor process pipe.
         connection.send((True, reference))
     except BaseException as exc:

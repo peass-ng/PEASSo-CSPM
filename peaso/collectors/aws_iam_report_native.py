@@ -28,6 +28,9 @@ def service_reports(requests, session, region, arns, *, granularity=None):
         job_bindings = getattr(requests, "_sla_job_bindings", None)
         if job_bindings is None:
             job_bindings = requests._sla_job_bindings = {}
+        principal_jobs = getattr(requests, "_sla_principal_jobs", None)
+        if principal_jobs is None:
+            principal_jobs = requests._sla_principal_jobs = {}
     ordered = sorted(set(arns))
     if not ordered:
         return {}
@@ -60,9 +63,15 @@ def service_reports(requests, session, region, arns, *, granularity=None):
             requests.check_deadline()
             if time.monotonic() >= deadline:
                 raise ReadFailure("timeout", "service_report_batch_timeout")
-            generated = requests.call(session, "iam", region, "generate_service_last_accessed_details",
-                                      Arn=arn, Granularity=granularity)
-            job = generated.get("JobId")
+            principal_key = (id(session), region, granularity, arn)
+            with requests._lock:
+                job = principal_jobs.get(principal_key)
+                if job is not None and job_bindings.get((id(session), region, job)) != arn:
+                    raise ReadFailure("malformed", "service_report_resume_binding_invalid")
+            if job is None:
+                generated = requests.call(session, "iam", region, "generate_service_last_accessed_details",
+                                          Arn=arn, Granularity=granularity)
+                job = generated.get("JobId")
             if not isinstance(job, str) or not re.fullmatch(r"[A-Za-z0-9-]{36}", job):
                 raise ReadFailure("malformed", "service_report_job_id_invalid")
             binding = (id(session), region, job)
@@ -70,6 +79,9 @@ def service_reports(requests, session, region, arns, *, granularity=None):
                 if binding in job_bindings and job_bindings[binding] != arn:
                     raise ReadFailure("malformed", "service_report_job_id_reused")
                 job_bindings[binding] = arn
+                if principal_key in principal_jobs and principal_jobs[principal_key] != job:
+                    raise ReadFailure("malformed", "service_report_principal_job_changed")
+                principal_jobs[principal_key] = job
             response = None
             for poll in range(60):
                 requests.check_deadline()

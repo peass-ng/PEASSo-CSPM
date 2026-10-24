@@ -16,6 +16,7 @@ import threading
 import time
 import math
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -2790,6 +2791,14 @@ def collect(connector, requirements=None):
     ordinary_workers = requests.workers - content_workers
     from .aws_access_analyzer_lifecycle import AnalyzerLifecycle
     from .aws_image_capture_20261022 import capture_scope
+    from .aws_iam_usage_extension import register_context, start_account_usage, join_account_usage
+    usage_overlap = "access_analyzer" in wanted and bool({"iam_user", "iam_role"} & wanted)
+    if usage_overlap:
+        # Set ACTION_LEVEL before IAM workers can issue their first report;
+        # account contexts also authorize bounded early finalization jobs.
+        for session, identity in contexts:
+            if identity["Account"] not in region_discovery_errors:
+                register_context(requests, session, identity, regions_for(identity["Account"]))
     metadata["access_analyzer_lifecycle"] = []
     if "access_analyzer" in wanted:
         metadata["collection"] = "read-only-with-temporary-access-analyzers"
@@ -2814,6 +2823,19 @@ def collect(connector, requirements=None):
                 # pagination; one job reads them instead of four blocked workers.
                 selected_iam = sorted(iam_kinds & wanted)
                 iam_future = pool.submit(_iam, requests, session, regions_for(identity["Account"])[0], set(selected_iam)) if selected_iam else None
+                if iam_future is not None and usage_overlap:
+                    def start_usage(done, session=session, identity=identity):
+                        if done.cancelled():
+                            return
+                        try:
+                            seed = done.result()
+                        except Exception:
+                            return  # Native IAM collection retains its own failure.
+                        start_account_usage(requests, session, identity,
+                            regions_for(identity["Account"])[0], seed)
+                    usage_context = copy_context()
+                    iam_future.add_done_callback(lambda done, callback=start_usage, context=usage_context:
+                        context.run(callback, done))
                 for kind in sorted(GLOBAL_TYPES - {"vpc_account_inventory", "config_account_region_coverage"}):
                     if kind in wanted:
                         if kind in iam_kinds:
@@ -2985,6 +3007,8 @@ def collect(connector, requirements=None):
                 if sum(len(values) for values in automatic_configuration_redactions.values()) > aws_selected_configuration_secret_indicators.MAX_REDACTION_DESCRIPTORS:
                     automatic_configuration_overflow = True
             requests.configuration_content_redaction_overflow |= automatic_configuration_overflow
+    if usage_overlap:
+        join_account_usage(collections)
     collections.sort(key=lambda c: (c["scope"], c["type"]))
     from peaso.collectors.aws_lambda_role_usage import summarize_lambda_role_usage
     metadata["lambda_execution_role_usage"] = summarize_lambda_role_usage(

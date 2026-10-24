@@ -65,7 +65,7 @@ def collect(module,connector,requirements):
     parameters=options.get("compliance_parameters")
     policy=options.get("compliance_policy")
     if not aliases and not gaps and parameters is None and policy is None:return snapshot
-    collections=copy.deepcopy(snapshot['collections'])
+    collections=list(snapshot['collections'])
     for alias,source in aliases.items():
         for envelope in snapshot['collections']:
             if envelope['type']==source:
