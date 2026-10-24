@@ -152,9 +152,12 @@ def validate(snapshot, *, read_only=False):
 
 
 def make_snapshot(provider, scopes, collections, *, created_at=None, metadata=None):
-    return validate(seal({"schema_version": SCHEMA_VERSION, "provider": provider,
+    # This builder owns the new document and has no inherited digest to verify.
+    # validate() already makes the independent copy, checks the full structure,
+    # and computes its canonical digest. Sealing first repeated both operations.
+    return validate({"schema_version": SCHEMA_VERSION, "provider": provider,
         "scopes": list(scopes), "created_at": created_at or datetime.now(timezone.utc).isoformat(),
-        "collections": collections, "metadata": metadata or {}}))
+        "collections": collections, "metadata": metadata or {}})
 
 
 def resource_id(provider, kind, scope, item):

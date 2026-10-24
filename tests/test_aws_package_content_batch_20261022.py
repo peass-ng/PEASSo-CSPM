@@ -35,9 +35,9 @@ def test_zip_prepares_bounded_original_members_and_scans_each_path(monkeypatch):
     monkeypatch.setattr(package, '_prepared_batch', prepared)
     monkeypatch.setattr(package, '_scan', scan)
     monkeypatch.setattr(package, '_DEFAULT_SCAN', scan)
-    files = [(f'file-{i}.txt', f'value={i}'.encode()) for i in range(35)]
+    files = [(f'file-{i}.txt', f'value={i}'.encode()) for i in range(package.BATCH_ITEMS + 3)]
     assert package.scan_zip(_zip(files), SimpleNamespace(check_deadline=lambda: None))[0] == []
-    assert [len(group) for group in groups] == [32, 3]
+    assert [len(group) for group in groups] == [package.BATCH_ITEMS, 3]
     assert [item for group in groups for item in group] == [(payload, name) for name, payload in files]
     assert scanned == [(payload, name) for name, payload in files]
 

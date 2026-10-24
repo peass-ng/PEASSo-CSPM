@@ -1992,7 +1992,7 @@ def _referenced_full_grants(source_node, inventory, provider, cache):
     return cache[ref]
 
 
-def expand_report(report, snapshot=None):
+def expand_report(report, snapshot=None, *, _inventory=None):
     """Schema 1.1 -> 1.0: inline native data by reference (objects are shared, never copied).
     The input report is not modified; the snapshot comes from the argument or report["snapshot"]."""
     if report.get("schema_version") != REPORT_SCHEMA_VERSION:
@@ -2003,7 +2003,7 @@ def expand_report(report, snapshot=None):
     if snapshot.get("snapshot_id") != report.get("snapshot_id"):
         raise ValueError("snapshot does not match the report snapshot_id")
     from .analysis.iam import policy_documents
-    inventory = {resource["id"]: resource for resource in resources(snapshot)}
+    inventory = {resource["id"]: resource for resource in (resources(snapshot) if _inventory is None else _inventory)}
     by_native = {(r["scope"], r["type"], r["native_id"]): r for r in inventory.values()}
     out = {key: value for key, value in hydrate_frameworks(report).items() if key != "native_data"}
     out["schema_version"] = SCHEMA_VERSION

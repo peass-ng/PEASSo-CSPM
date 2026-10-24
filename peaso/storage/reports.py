@@ -172,8 +172,13 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
     json_reference = artifacts.put(tenant, ident, "report", presented)
     from peaso.engine import REPORT_SCHEMA_VERSION, expand_report
     embeddable = snapshot is not None and report.get("schema_version") == REPORT_SCHEMA_VERSION and snapshot.get("snapshot_id") == report.get("snapshot_id")
+    # Prepare this snapshot's native inventory once for Markdown, resource
+    # chunks and least privilege. It is never retained beyond this publication.
+    if embeddable:
+        from peaso.snapshot import resources as snapshot_resources
+        inventory = snapshot_resources(snapshot)
     # The Markdown download keeps native configuration facts inline (schema 1.0 view).
-    markdown_reference = artifacts.put_text(tenant, ident, "markdown", render_markdown(expand_report(presented, snapshot) if embeddable else presented))
+    markdown_reference = artifacts.put_text(tenant, ident, "markdown", render_markdown(expand_report(presented, snapshot, _inventory=inventory) if embeddable else presented))
     manifest = {"bundle_version": 1, "report_grouping": "check-v1", "report_json": json_reference, "report_markdown": markdown_reference,
                 "summary": {k: v for k, v in report.items() if k not in {"resources", "findings", "coverage", "graphs", "snapshot", "check_frameworks", "check_meta", "check_meta_encoding", "remediation_templates"}},
                 "finding_chunks": [], "coverage_chunks": [], "coverage_chunk_counts": [],
@@ -223,11 +228,8 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
         manifest["coverage_chunk_counts"].append(len(group))
     if embeddable:
         from peaso.least_privilege import project as project_least_privilege
-        from peaso.snapshot import resources as snapshot_resources
-        # Native data is frozen by resources(). Share its preparation between
-        # these consumers, then release it before later projections. No state
-        # survives the publication or crosses a snapshot revision.
-        inventory = snapshot_resources(snapshot)
+        # The same immutable inventory was used for Markdown above. No state
+        # survives this publication or crosses a snapshot revision.
         manifest["resource_chunks"] = resource_chunks(artifacts, tenant, ident, report, snapshot, _inventory=inventory)
         projection = project_least_privilege(report["provider"], inventory, snapshot=snapshot)
         if report['provider'] == 'aws':
