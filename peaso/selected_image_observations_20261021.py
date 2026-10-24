@@ -65,6 +65,24 @@ def _canonical_scan(raw, provider, scope, *, pod=False):
     return scan
 
 
+def _preserve_evaluated_pod_positive(scan):
+    """Keep exact typed positives from an evaluated FAIL; drop clean coverage."""
+    if (type(scan) is not dict or scan.get('status') not in ('PASS', 'UNKNOWN')
+            or type(scan.get('findings')) is not list or not scan['findings']):
+        return scan
+    # Called only after an exact evaluated Pod/cloud-Pod FAIL association and
+    # immutable child-image binding. Validate the full existing presentation
+    # schema before normalizing the contradictory summary, never its findings.
+    candidate = dict(scan, status='FAIL', complete=False, scan_complete=False,
+                     coverage_status='UNKNOWN')
+    image = candidate['image']
+    _, _, identity, findings, _ = _scan({'provider': image['provider'],
+        'scope': image['scope'], 'scan': candidate})
+    for finding in findings:
+        _vulnerability(finding, identity['manifest_digest'])
+    return candidate
+
+
 def _child_scans(marker, provider, scope, kind):
     """Project only children bound to the evaluated native index marker."""
     holder = marker.get('image') if kind in (
@@ -115,7 +133,8 @@ def _child_scans(marker, provider, scope, kind):
                 'k8s_selected_registry_image_vulnerabilities',
                 'azure_selected_aks_pod_image_vulnerabilities',
                 'gke_selected_pod_image_vulnerabilities'))
-            output.append(scan if scan.get('status') in ('PASS', 'FAIL') else None)
+            output.append(scan if scan.get('status') in ('PASS', 'FAIL') or
+                scan.get('status') == 'UNKNOWN' and scan.get('findings') else None)
         except (KeyError, TypeError, ValueError, AttributeError):
             output.append(None)
     if len(scans) != len(graph['children']) or graph['complete'] is not True:
@@ -280,6 +299,12 @@ def metadata_for_report(snapshot, report):
                     child_scans = [_canonical_scan(raw, provider, scope,
                         pod=collection['type'] in ('k8s_selected_registry_image_vulnerabilities',
                             'azure_selected_aks_pod_image_vulnerabilities', 'gke_selected_pod_image_vulnerabilities'))]
+                if (accepted[key] == 'FAIL' and collection['type'] in (
+                        'k8s_selected_registry_image_vulnerabilities',
+                        'azure_selected_aks_pod_image_vulnerabilities',
+                        'gke_selected_pod_image_vulnerabilities')):
+                    child_scans = [_preserve_evaluated_pod_positive(scan)
+                                   if scan is not None else None for scan in child_scans]
                 if (accepted[key] == 'PASS' and any(s is None or s.get('status') != 'PASS' for s in child_scans)
                         or accepted[key] == 'FAIL' and not any(s is not None and s.get('status') == 'FAIL' for s in child_scans)):
                     raise ValueError('scan_and_evaluated_status_differ')

@@ -56,6 +56,11 @@ RUNTIME_ADMISSION_INPUTS = {
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
+    'tests/test_secret_scanning_batch_metrics.py',
+    'tests/test_federation_identity_conflicts.py',
+    'tests/test_selected_image_contradictory_cves.py',
+    'tests/test_native_pod_cve_positive_pipeline.py',
+    'tests/test_checkpoint_copy_privacy.py',
     'tests/test_analyzer_disabled_publication.py',
     'tests/test_bulk_evidence_single_copy.py',
     'tests/test_iam_early_overlap.py',

@@ -188,10 +188,14 @@ def evaluate(item, index, kind):
                     return unknown
             if findings != [f for scan in scans for f in scan['findings']][:10000]:
                 return unknown
-        if findings and vuln.get('status') == 'FAIL':
+        if findings and vuln.get('status') in ('FAIL', 'PASS', 'UNKNOWN'):
             child = findings[0]['image_digest']
+            # Native image/finding bindings above remain valid when a summary
+            # status contradicts recorded positives; only completeness is lost.
+            contradiction = vuln.get('status') != 'FAIL'
             return 'FAIL', {'observed': 'Trivy found HIGH or CRITICAL package vulnerabilities in the selected Pod image.',
-                'vulnerabilities': findings, 'complete': stable and vuln.get('complete') is True}
+                'vulnerabilities': findings, 'complete': stable and vuln.get('complete') is True and not contradiction,
+                **({'coverage_status': 'UNKNOWN'} if contradiction else {})}
         if (stable and vuln.get('status') == 'PASS' and vuln.get('complete') is True
                 and vuln.get('scan_complete') is True and vuln.get('coverage_status') == 'COMPLETE'
                 and vuln.get('database', {}).get('fresh') is True):

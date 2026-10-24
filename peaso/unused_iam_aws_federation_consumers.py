@@ -120,13 +120,21 @@ def _roles(index, scope, account, targets):
         rows, source = records(index, 'iam_role', scope)
         consumers = {arn: [] for arn in targets}
         unresolved = []
-        seen_ids, seen_arns = set(), set()
+        # A conflicting duplicate must not leave the first row certified as a
+        # consumer. Count raw native identity keys before accepting any trust;
+        # malformed unrelated roles still do not invalidate a unique consumer.
+        identity_counts = {'RoleId': {}, 'Arn': {}}
+        for role in rows:
+            if isinstance(role, dict):
+                for field_name, counts in identity_counts.items():
+                    value = role.get(field_name)
+                    if isinstance(value, str):
+                        counts[value] = counts.get(value, 0) + 1
         for role in rows:
             try:
                 name, stable, arn = _role_identity(role, account)
-                if stable in seen_ids or arn in seen_arns:
+                if identity_counts['RoleId'][stable] != 1 or identity_counts['Arn'][arn] != 1:
                     raise EvidenceError('native IAM role identity is duplicated')
-                seen_ids.add(stable); seen_arns.add(arn)
                 for target in _trust(role, targets):
                     consumers[target].append({'role_arn': arn, 'role_id': stable, 'role_name': name})
             except EvidenceError as exc:

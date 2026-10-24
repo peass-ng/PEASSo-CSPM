@@ -333,7 +333,7 @@ class CheckpointSession:
         envelope = next(reversed(self.collections.values()))
         from .secret_evidence import _lock as private_evidence_lock
         with private_evidence_lock:
-            raw = self._snapshot([copy.deepcopy(envelope)], sequence=sequence)
+            raw = self._snapshot([envelope], sequence=sequence)
             raw['metadata']['incremental']['data_revision'] = self.collection_revisions[(envelope['type'], envelope['scope'])]
             delta = validate(self.public_snapshot(seal(raw)))
         try:
@@ -348,7 +348,9 @@ class CheckpointSession:
             raise TypeError("collection envelope must be an object")
         from .secret_evidence import _lock as private_evidence_lock
         with private_evidence_lock:
-            one = self._snapshot([copy.deepcopy(envelope)], sequence=self.next_sequence + 1)
+            # make_snapshot owns the independent structural copy. Copying the
+            # same native envelope before that repeated a complete traversal.
+            one = self._snapshot([envelope], sequence=self.next_sequence + 1)
             one = validate(self.public_snapshot(one))
         public_envelope = one["collections"][0]
         key = (public_envelope["type"], public_envelope["scope"])
@@ -378,7 +380,7 @@ class CheckpointSession:
             return
         entries = sorted(self.pending.values(), key=lambda entry: entry[0])
         end = self.next_sequence
-        raw = self._snapshot([copy.deepcopy(row) for _, row, _ in entries], sequence=end)
+        raw = self._snapshot([row for _, row, _ in entries], sequence=end)
         raw['metadata']['incremental']['batch_revisions'] = [revision for revision, _, _ in entries]
         from .secret_evidence import _lock as private_evidence_lock
         with private_evidence_lock:

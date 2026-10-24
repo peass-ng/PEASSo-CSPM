@@ -332,6 +332,9 @@ def _collector_checkpoint_publisher(artifacts, publication_artifacts, tenant, id
 
 def _process(role, request, connection):
     connection = _SynchronizedPipe(connection)
+    if role == "collector":
+        from peaso.secret_scanning_batch import configure_metrics
+        configure_metrics(connection.send)
     # Provider exceptions and third-party libraries must never log credentials.
     with open(os.devnull, "w") as sink:
         os.dup2(sink.fileno(), 1)
@@ -381,6 +384,7 @@ def _process(role, request, connection):
                 def public_checkpoint(raw):
                     public = seal(redact(secret_capture.public_snapshot(raw),
                                          tuple(credential_values(connector.get("auth", {})))))
+                    changed = False
                     if request.get("ai_enabled", True):
                         try:
                             entries = ai_access.peek()
@@ -389,9 +393,13 @@ def _process(role, request, connection):
                                 reference = _cached_ai_access_reference(artifacts, tenant, ident,
                                     bound, ai_access_cache, Path(request.get('ai_context', {}).get('identity_dir') or Settings().identity_dir))
                                 public.setdefault("metadata", {})["ai_access_reference"] = reference
+                                changed = True
                         except Exception:
                             public.setdefault("metadata", {})["ai_access_status"] = "unavailable"
-                    return seal(public)
+                            changed = True
+                    # The first seal already binds every redacted native fact.
+                    # Recompute only when the access metadata changed afterward.
+                    return seal(public) if changed else public
 
                 checkpoint = _collector_checkpoint_publisher(artifacts, publication_artifacts,
                     tenant, ident, secret_capture, private_checkpoint, connection)
@@ -758,6 +766,12 @@ class Worker:
                             if self.role != "analyzer" or stage_poll is None or stage_results_pending:
                                 raise RuntimeError("unexpected progressive stage result request")
                             stage_results_pending = True
+                            result = None
+                            continue
+                        if isinstance(result, tuple) and len(result) == 2 and result[0] == "__content_metrics__":
+                            from peaso.secret_scanning_batch import record_metrics
+                            if self.role == "collector":
+                                record_metrics(result[1], LOGGER)
                             result = None
                             continue
                         if isinstance(result, tuple) and len(result) == 2 and result[0] == "__progress__":

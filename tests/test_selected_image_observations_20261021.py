@@ -100,7 +100,17 @@ def test_foreign_scan_and_contradictory_status_are_gaps(kind):
     assert metadata_for_report(snapshot, report)['observations'] == [None]
     snapshot, report, scan = case(kind)
     scan['status'] = 'PASS'
-    assert metadata_for_report(snapshot, report)['observations'] == [None]
+    projected = metadata_for_report(snapshot, report)
+    if kind in ('k8s_selected_registry_image_vulnerabilities',
+                'azure_selected_aks_pod_image_vulnerabilities',
+                'gke_selected_pod_image_vulnerabilities'):
+        # A trusted evaluated FAIL and independently valid typed positives
+        # survive a contradictory clean summary, with unknown coverage.
+        result = build_report(projected['observations'], selected=True)
+        assert len(result['rows']) == 1 and result['coverage'] == 'UNKNOWN'
+        assert result['rows'][0]['vulnerability_id'] == scan['findings'][0]['vulnerability_id']
+    else:
+        assert projected['observations'] == [None]
 
 
 def test_existing_observations_survive_and_missing_selected_assets_leave_gap():
