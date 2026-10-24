@@ -271,6 +271,8 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         from peaso.server.schedule_credentials import scheduling_eligibility
         data["scheduling"] = scheduling_eligibility(data["provider"], auth["auth"],
             input_mode=data.get("input_mode"), options=auth.get("options", {}), proof=auth.get("scheduling_proof"), hosted=settings.auth_mode == "cognito")
+        from peaso.content_scan_selection import configured_checks
+        data['content_scan_checks'] = configured_checks(data['provider'], auth.get('options', {}))
         data["auth"] = {"configured": bool(auth["auth"]), "fields": sorted(auth["auth"])}
         onboarding = onboarding_details(auth["auth"]) if include_onboarding else None
         if onboarding:
@@ -917,6 +919,13 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
             raise HTTPException(422, "Invalid idempotency key")
         owned = store.connector(user.tenant_id, body.connector_id)
         validate_selectors(body.model_dump(), json.loads(owned["data"])["provider"])
+        from peaso.content_scan_selection import prepare_request
+        try:
+            prepared = prepare_request(json.loads(owned['data'])['provider'],
+                cipher.decrypt(owned['auth']).get('options', {}), body.model_dump())
+            body = body.model_copy(update={'content_checks': prepared['content_checks']})
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
         from peaso.ai.providers import review_disabled
         if body.ai_enabled and review_disabled(store, account.tenant_id):
             body = body.model_copy(update={'ai_enabled': False})
@@ -2110,6 +2119,13 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         owned = store.connector(user.tenant_id, body.connector_id)
         require_schedule_credentials(user, body.connector_id)
         validate_selectors(body.model_dump(), json.loads(owned["data"])["provider"])
+        from peaso.content_scan_selection import prepare_request
+        try:
+            prepared = prepare_request(json.loads(owned['data'])['provider'],
+                cipher.decrypt(owned['auth']).get('options', {}), body.model_dump())
+            body = body.model_copy(update={'content_checks': prepared['content_checks']})
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
         if body.ai_enabled:
             from peaso.ai.auth import require_local_codex
             require_local_codex(settings, store, account.tenant_id)
@@ -2127,6 +2143,13 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         if body.enabled is not False:
             require_schedule_credentials(user, body.connector_id or current["connector_id"])
         patch = body.model_dump(exclude_none=True, exclude={"enabled", "next_run_at"})
+        owned = store.connector(user.tenant_id, body.connector_id or current['connector_id'])
+        from peaso.content_scan_selection import prepare_request
+        try:
+            prepared = prepare_request(json.loads(owned['data'])['provider'], cipher.decrypt(owned['auth']).get('options', {}), dict(current, **patch))
+            patch['content_checks'] = prepared['content_checks']
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
         effective_ai = body.ai_enabled if body.ai_enabled is not None else current.get('ai_enabled', True)
         if effective_ai and (body.ai_enabled is True or body.enabled is not False):
             from peaso.ai.auth import require_local_codex

@@ -21,6 +21,7 @@ export type Category =
   | "asset_management"
   | "patch_management";
 export type Connector = {
+  content_scan_checks?: { leaks: string[]; images: string[] };
   scheduling?: { allowed: boolean; reason: string };
   id: string;
   name: string;
@@ -217,6 +218,9 @@ export type Schedule = {
   rules?: ScheduleRule[];
   timezone?: string;
   checks?: string[];
+  content_checks?: string[];
+  leaks_enabled?: boolean;
+  images_enabled?: boolean;
   enabled: boolean;
   next_run_at?: string;
 };

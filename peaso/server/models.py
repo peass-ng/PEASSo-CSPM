@@ -54,6 +54,9 @@ class ScanCreate(StrictModel):
     connector_id: str = Field(min_length=1, max_length=100)
     categories: list[str] = Field(default_factory=list, max_length=100)
     checks: list[str] = Field(default_factory=list, max_length=10000)
+    content_checks: list[str] = Field(default_factory=list, max_length=10000)
+    leaks_enabled: StrictBool | None = None
+    images_enabled: StrictBool | None = None
     frameworks: list[str] = Field(default_factory=list, max_length=100)
 
 
@@ -127,6 +130,9 @@ class SchedulePatch(StrictModel):
     connector_id: str | None = Field(default=None, min_length=1, max_length=100)
     categories: list[str] | None = Field(default=None, max_length=100)
     checks: list[str] | None = Field(default=None, max_length=10000)
+    content_checks: list[str] | None = Field(default=None, max_length=10000)
+    leaks_enabled: StrictBool | None = None
+    images_enabled: StrictBool | None = None
     frameworks: list[str] | None = Field(default=None, max_length=100)
     interval_hours: float | None = Field(default=None, ge=1, le=8760)
     rules: list[ScheduleRule] | None = Field(default=None, min_length=1, max_length=20)

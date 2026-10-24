@@ -486,12 +486,12 @@ def validate_connector(provider, auth, options, settings, *, server_external_id=
             raise HTTPException(422, 'Selected GCS archives require scoped immutable targets, supported formats and at most 10 combined object/archive targets') from None
     if 'selected_artifact_images' in options:
         try:
-            if provider != 'gcp' or not scopes or len(scopes) != 1:
-                raise ValueError('One exact GCP project is required')
-            from peaso.collectors.gcp_image_secret_indicators import normalize_selected
-            normalize_selected(options['selected_artifact_images'], scopes[0])
+            if provider != 'gcp':
+                raise ValueError('GCP project scopes are required')
+            from peaso.gcp_image_selection_20261021 import OPTION, grouped_selections
+            grouped_selections({**options, OPTION: options['selected_artifact_images']}, scopes or [])
         except Exception:
-            raise HTTPException(422, 'Selected images require one explicit project scope and 1–4 immutable Artifact Registry image references') from None
+            raise HTTPException(422, 'Selected images require explicit project scopes and 1–4 immutable Artifact Registry image references belonging to those projects') from None
     if 'selected_gcs_objects' in options:
         try:
             if provider != 'gcp':

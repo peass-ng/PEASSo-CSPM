@@ -2,6 +2,7 @@
 import json
 from collections import Counter
 from peaso.reports import render_markdown
+from peaso.runtime_metrics import span as _runtime_span
 
 CHUNK_BYTES = 2 * 1024 * 1024
 _SUMMARY_FIELDS = frozenset({"id", "category", "check_id", "title", "provider", "service", "resource_id",
@@ -158,7 +159,8 @@ def publish_report(artifacts, tenant, ident, report, snapshot=None):
 
 def _publish_report(artifacts, tenant, ident, report, snapshot=None):
     from peaso.secret_evidence import without_private_values
-    report = without_private_values(report)
+    with _runtime_span("publication.normalize.private"):
+        report = without_private_values(report)
     # Optional image scans have a separately scoped safe artifact. Keep raw
     # scanner/transport DTOs out of public report summaries and downloads.
     report = dict(report)
@@ -167,8 +169,10 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
             if key != "image_vulnerability_scan"}
     from peaso.finding_groups import group_report
     from peaso.ai.finding_reviews import apply_report_reviews
-    report = apply_report_reviews(report)
-    presented = group_report(report)
+    with _runtime_span("publication.normalize.reviews"):
+        report = apply_report_reviews(report)
+    with _runtime_span("publication.normalize.group"):
+        presented = group_report(report)
     json_reference = artifacts.put(tenant, ident, "report", presented)
     from peaso.engine import REPORT_SCHEMA_VERSION, expand_report
     embeddable = snapshot is not None and report.get("schema_version") == REPORT_SCHEMA_VERSION and snapshot.get("snapshot_id") == report.get("snapshot_id")
@@ -176,9 +180,16 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
     # chunks and least privilege. It is never retained beyond this publication.
     if embeddable:
         from peaso.snapshot import resources as snapshot_resources
-        inventory = snapshot_resources(snapshot)
+        with _runtime_span("publication.inventory"):
+            inventory = snapshot_resources(snapshot)
     # The Markdown download keeps native configuration facts inline (schema 1.0 view).
-    markdown_reference = artifacts.put_text(tenant, ident, "markdown", render_markdown(expand_report(presented, snapshot, _inventory=inventory) if embeddable else presented))
+    with _runtime_span("publication.expand_native"):
+        markdown_view = expand_report(presented, snapshot, _inventory=inventory) if embeddable else presented
+    with _runtime_span("publication.markdown"):
+        markdown = render_markdown(markdown_view)
+    del markdown_view
+    markdown_reference = artifacts.put_text(tenant, ident, "markdown", markdown)
+    del markdown
     manifest = {"bundle_version": 1, "report_grouping": "check-v1", "report_json": json_reference, "report_markdown": markdown_reference,
                 "summary": {k: v for k, v in report.items() if k not in {"resources", "findings", "coverage", "graphs", "snapshot", "check_frameworks", "check_meta", "check_meta_encoding", "remediation_templates"}},
                 "finding_chunks": [], "coverage_chunks": [], "coverage_chunk_counts": [],
@@ -186,8 +197,9 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
     from peaso.image_findings_storage import attach_to_manifest
     metadata = snapshot.get("metadata", {}) if isinstance(snapshot, dict) else {}
     from peaso.selected_image_observations_20261021 import metadata_for_report
-    image_metadata = metadata_for_report(snapshot, report) if isinstance(snapshot, dict) else None
-    manifest = attach_to_manifest(manifest, artifacts, tenant, ident, image_metadata)
+    with _runtime_span("publication.normalize.private"):
+        image_metadata = metadata_for_report(snapshot, report) if isinstance(snapshot, dict) else None
+        manifest = attach_to_manifest(manifest, artifacts, tenant, ident, image_metadata)
     if isinstance(report.get("ai"), dict):
         manifest["ai_review"] = artifacts.put(tenant, ident, "ai-review", report["ai"])
         manifest["summary"]["ai"] = {key: report["ai"][key] for key in ("status", "reason", "coverage", "auth_source") if key in report["ai"]}
@@ -213,47 +225,54 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
         manifest["check_meta_encoding"] = report["check_meta_encoding"]
     manifest["remediation_templates"] = report.get("remediation_templates", {})
     encoded = callable(getattr(artifacts, '_put_json_bytes', None))
-    prepared = _prepared_findings(artifacts, tenant, ident, report.get('findings', []),
-        check_frameworks=check_frameworks, check_meta=check_meta, check_meta_encoding=report.get('check_meta_encoding'),
-        remediation_templates=report.get('remediation_templates'))
-    if not encoded:
-        # Preserve the existing detail-write order for legacy/custom stores.
-        prepared = list(prepared)
-    for group, body in _artifact_chunks(artifacts, prepared, preencoded=encoded):
-        detail = _put_chunk(artifacts, tenant, ident, "findings", group, body)
-        index = artifacts.put(tenant, ident, "finding-index", {"items": [finding_summary(item) for item in group]})
-        manifest["finding_chunks"].append({"reference": detail, "index_reference": index, "first_id": group[0]["id"], "last_id": group[-1]["id"], "count": len(group)})
-    for group, body in _artifact_chunks(artifacts, report.get("coverage", [])):
-        manifest["coverage_chunks"].append(_put_chunk(artifacts, tenant, ident, "coverage", group, body))
-        manifest["coverage_chunk_counts"].append(len(group))
+    with _runtime_span("publication.chunk.findings"):
+        prepared = _prepared_findings(artifacts, tenant, ident, report.get('findings', []),
+            check_frameworks=check_frameworks, check_meta=check_meta, check_meta_encoding=report.get('check_meta_encoding'),
+            remediation_templates=report.get('remediation_templates'))
+        if not encoded:
+            # Preserve the existing detail-write order for legacy/custom stores.
+            prepared = list(prepared)
+        for group, body in _artifact_chunks(artifacts, prepared, preencoded=encoded):
+            detail = _put_chunk(artifacts, tenant, ident, "findings", group, body)
+            index = artifacts.put(tenant, ident, "finding-index", {"items": [finding_summary(item) for item in group]})
+            manifest["finding_chunks"].append({"reference": detail, "index_reference": index, "first_id": group[0]["id"], "last_id": group[-1]["id"], "count": len(group)})
+    with _runtime_span("publication.chunk.coverage"):
+        for group, body in _artifact_chunks(artifacts, report.get("coverage", [])):
+            manifest["coverage_chunks"].append(_put_chunk(artifacts, tenant, ident, "coverage", group, body))
+            manifest["coverage_chunk_counts"].append(len(group))
     if embeddable:
         from peaso.least_privilege import project as project_least_privilege
         # The same immutable inventory was used for Markdown above. No state
         # survives this publication or crosses a snapshot revision.
-        manifest["resource_chunks"] = resource_chunks(artifacts, tenant, ident, report, snapshot, _inventory=inventory)
-        projection = project_least_privilege(report["provider"], inventory, snapshot=snapshot)
-        if report['provider'] == 'aws':
-            from peaso.least_privilege_permissions import permission_input_filter
-            selected = permission_input_filter('aws', projection['items'])
-            manifest['least_privilege_permission_inputs'] = artifacts.put(tenant, ident, 'least-privilege', {
-                'snapshot_id': report['snapshot_id'], 'provider': 'aws',
-                'items': [row for row in inventory if selected(row)]})
+        with _runtime_span("publication.chunk.resources"):
+            manifest["resource_chunks"] = resource_chunks(artifacts, tenant, ident, report, snapshot, _inventory=inventory)
+        with _runtime_span("publication.projection.least_privilege"):
+            projection = project_least_privilege(report["provider"], inventory, snapshot=snapshot)
+            if report['provider'] == 'aws':
+                from peaso.least_privilege_permissions import permission_input_filter
+                selected = permission_input_filter('aws', projection['items'])
+                manifest['least_privilege_permission_inputs'] = artifacts.put(tenant, ident, 'least-privilege', {
+                    'snapshot_id': report['snapshot_id'], 'provider': 'aws',
+                    'items': [row for row in inventory if selected(row)]})
         del inventory
         manifest["least_privilege"] = artifacts.put(tenant, ident, "least-privilege", projection)
-    for kind in ("network", "iam"):
-        graph = report.get("graphs", {}).get(kind, {"nodes": [], "edges": []})
-        manifest["graphs"][kind] = artifacts.put(tenant, ident, "graph-" + kind, graph)
-    from peaso.analysis import project_graph
-    manifest["graph_projections"] = {kind: artifacts.put(tenant, ident, "graph-" + kind, project_graph(report.get("graphs", {}).get(kind, {"nodes": [], "edges": []}), 500)) for kind in ("network", "iam")}
-    # The privesc map is already aggregated: never pass it through project_graph (it would drop aggregates).
-    privesc_graph = report.get("graphs", {}).get("privesc", {"nodes": [], "edges": []})
-    manifest["graphs"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_graph)
-    manifest["graph_projections"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_projection(privesc_graph, 500))
+    with _runtime_span("publication.projection.graphs"):
+        for kind in ("network", "iam"):
+            graph = report.get("graphs", {}).get(kind, {"nodes": [], "edges": []})
+            manifest["graphs"][kind] = artifacts.put(tenant, ident, "graph-" + kind, graph)
+        from peaso.analysis import project_graph
+        manifest["graph_projections"] = {kind: artifacts.put(tenant, ident, "graph-" + kind, project_graph(report.get("graphs", {}).get(kind, {"nodes": [], "edges": []}), 500)) for kind in ("network", "iam")}
+        # The privesc map is already aggregated: never pass it through project_graph (it would drop aggregates).
+        privesc_graph = report.get("graphs", {}).get("privesc", {"nodes": [], "edges": []})
+        manifest["graphs"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_graph)
+        manifest["graph_projections"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_projection(privesc_graph, 500))
     if snapshot is not None:
         from peaso.analysis.reachability import network_snapshot
         from peaso.snapshot import seal
-        scoped = network_snapshot(snapshot)
-        # Imported ancestor metadata never controls report authorization or binding.
-        scoped["metadata"]["original_snapshot_id"] = report["snapshot_id"]
-        manifest["network_snapshot"] = artifacts.put(tenant, ident, "network-snapshot", seal(scoped))
-    return artifacts.put(tenant, ident, "manifest", manifest)
+        with _runtime_span("publication.projection.network_snapshot"):
+            scoped = network_snapshot(snapshot)
+            # Imported ancestor metadata never controls report authorization or binding.
+            scoped["metadata"]["original_snapshot_id"] = report["snapshot_id"]
+            manifest["network_snapshot"] = artifacts.put(tenant, ident, "network-snapshot", seal(scoped))
+    with _runtime_span("publication.manifest.commit"):
+        return artifacts.put(tenant, ident, "manifest", manifest)

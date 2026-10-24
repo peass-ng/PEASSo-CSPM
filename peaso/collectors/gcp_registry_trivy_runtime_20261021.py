@@ -134,27 +134,63 @@ def enrich(collector):
     from peaso.trivy_database_20261021 import database_lease, DatabaseUnavailable
     from peaso import trivy_container_runner_20261020 as trivy
     import subprocess
-    scope, = collector.scopes
-    try:
-        with database_lease(enabled=True) as cache:
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+    groups = selection_api.grouped_selections({**collector.options, OPTION: targets}, list(collector.scopes))
+    selected_scopes = [scope for scope, references in groups.items() if references]
+
+    def unavailable(scope, references, reason):
+        return {'kind': KIND, 'check_id': CHECK_ID, 'status': 'UNKNOWN', 'complete': False,
+            'rows': [{'immutable_reference': ref, 'status': 'UNKNOWN', 'complete': False,
+                      'reason': reason, 'vulnerability_record': None,
+                      'source_requests': [], 'source_ledger': []} for ref in references],
+            'observations': [None for _ in references]}
+
+    def collect_scope(scope, cache):
+        references = groups[scope]
+        try:
             cli = next((path for path in (trivy.DEFAULT_CLI, '/opt/homebrew/bin/trivy')
                         if Path(path).is_file()), trivy.DEFAULT_CLI)
-            result = collect_selected(collector.transport, scope=scope, targets=targets,
-                                      db_cache=cache, cli=cli)
+            return collect_selected(collector.transport, scope=scope, targets=references,
+                                    db_cache=cache, cli=cli)
+        except (DatabaseUnavailable, OSError, subprocess.SubprocessError):
+            return unavailable(scope, references, 'database_unavailable')
+
+    results = {}
+    try:
+        with database_lease(enabled=True) as cache:
+            # Each exact native project has its own readers/receipts; share only
+            # the read-only database lease and the connector's authenticated transport.
+            workers = min(2, len(selected_scopes), max(1, int(collector.options.get('concurrency', 4))))
+            if workers > 1:
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='gcp-registry-project') as pool:
+                    futures = {scope: pool.submit(copy_context().run, collect_scope, scope, cache)
+                               for scope in selected_scopes}
+                    results = {scope: futures[scope].result() for scope in selected_scopes}
+            else:
+                results = {scope: collect_scope(scope, cache) for scope in selected_scopes}
     except (DatabaseUnavailable, OSError, subprocess.SubprocessError):
-        result={'kind':KIND,'check_id':CHECK_ID,'status':'UNKNOWN','complete':False,
-                'rows':[{'immutable_reference':ref,'status':'UNKNOWN','complete':False,
-                         'reason':'database_unavailable','vulnerability_record':None,
-                         'source_requests':[],'source_ledger':[]} for ref in targets],
-                'observations':[None for _ in targets]}
-    collector.registry_image_vulnerability_result = result
-    items=[{'name':r['immutable_reference'],'_resource_id':r['immutable_reference'],
-            'native_id':r['immutable_reference'],'RegistryImageVulnerabilityReview':deepcopy(r)}
-           for r in result['rows']]
-    collector.collections[(KIND,scope)]={'type':KIND,'scope':scope,'service':SERVICE,
-        'status':'collected' if result['complete'] else 'partial',
-        'coverage_status':'collected' if result['complete'] else 'partial','items':items,
-        'source_requests':[rid for r in result['rows'] for rid in r['source_requests']]}
+        for scope in selected_scopes:
+            results.setdefault(scope, unavailable(scope, groups[scope], 'database_unavailable'))
+    rows, observations = [], []
+    for scope in collector.scopes:
+        result = results.get(scope)
+        if result is None:
+            collector.collections[(KIND, scope)] = {'type': KIND, 'scope': scope, 'service': SERVICE,
+                'status': 'empty', 'coverage_status': 'empty', 'items': [], 'source_requests': []}
+            continue
+        rows.extend(result['rows']); observations.extend(result['observations'])
+        items = [{'name': row['immutable_reference'], '_resource_id': row['immutable_reference'],
+                  'native_id': row['immutable_reference'], 'RegistryImageVulnerabilityReview': deepcopy(row)}
+                 for row in result['rows']]
+        collector.collections[(KIND, scope)] = {'type': KIND, 'scope': scope, 'service': SERVICE,
+            'status': 'collected' if result['complete'] else 'partial',
+            'coverage_status': 'collected' if result['complete'] else 'partial', 'items': items,
+            'source_requests': [rid for row in result['rows'] for rid in row['source_requests']]}
+    complete = len(rows) == len(targets) and all(row['complete'] for row in rows)
+    collector.registry_image_vulnerability_result = {'kind': KIND, 'check_id': CHECK_ID,
+        'status': 'FAIL' if any(row['status'] == 'FAIL' for row in rows) else 'PASS' if complete else 'UNKNOWN',
+        'complete': complete, 'rows': rows, 'observations': observations}
 
 
 def finish_metadata(collector, metadata):

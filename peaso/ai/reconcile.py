@@ -35,9 +35,9 @@ def reconcile_scan(store, artifacts, tenant, scan_id, expected_report, *, source
     import json
     selectors = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
     snapshot = artifacts.get(tenant, row['snapshot'])
-    report = evaluate_snapshot(snapshot, categories=selectors.get('categories') or None,
+    report = evaluate_snapshot(snapshot, categories=selectors.get('categories') if selectors.get('content_checks') else selectors.get('categories') or None,
         checks=selectors.get('checks') or None, frameworks=selectors.get('frameworks') or None,
-        include_not_applicable=True)
+        include_not_applicable=True, content_checks=selectors.get('content_checks'))
     if report['snapshot_id'] != prior.get('snapshot_id'):
         raise ValueError('Snapshot binding changed')
     # These are explicit operator decisions, not model-provided instructions.

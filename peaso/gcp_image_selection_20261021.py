@@ -44,10 +44,11 @@ def selections(options, scopes):
         raise ValueError('image_vulnerability_scans_must_be_boolean')
     if OPTION not in options:
         return []
-    if (len(scopes) != 1 or type(scopes[0]) is not str
-            or not re.fullmatch(r'projects/[a-z][a-z0-9-]{4,61}[a-z0-9]', scopes[0])
+    if (not 1 <= len(scopes) <= 1000 or any(type(scope) is not str
+            or not re.fullmatch(r'projects/[a-z][a-z0-9-]{4,61}[a-z0-9]', scope) for scope in scopes)
+            or len(set(scopes)) != len(scopes)
             or any(options.get(k) for k in ('all_projects', 'discover_projects', 'all_hierarchy'))):
-        raise ValueError('one_exact_project_without_discovery_required')
+        raise ValueError('explicit_projects_without_discovery_required')
     refs = options[OPTION]
     if type(refs) is not list or not 1 <= len(refs) <= MAX_IMAGES:
         raise ValueError('bounded_registry_selection_required')
@@ -56,7 +57,16 @@ def selections(options, scopes):
         if type(reference) is not str or reference.startswith('https://') or reference != reference.lower():
             raise ValueError('literal_immutable_registry_reference_required')
         uri, repository, digest, image_id=parse(reference)
-        if not repository.startswith(scopes[0]+'/') or reference in seen:
+        if '/'.join(repository.split('/')[:2]) not in scopes or reference in seen:
             raise ValueError('foreign_or_duplicate_registry_image')
         seen.add(reference)
     return list(refs)
+
+
+def grouped_selections(options, scopes):
+    """Partition validated immutable references by their exact explicit project."""
+    groups = {scope: [] for scope in scopes}
+    for reference in selections(options, scopes):
+        _, repository, _, _ = parse(reference)
+        groups['/'.join(repository.split('/')[:2])].append(reference)
+    return groups

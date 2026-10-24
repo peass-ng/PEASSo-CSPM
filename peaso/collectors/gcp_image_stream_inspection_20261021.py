@@ -345,7 +345,12 @@ def enrich(collector, *, reader_factory=None):
     if (options.get('content_secret_scans') is not True or not isinstance(kinds, (list, tuple))
             or 'artifact_image' not in kinds):
         return
+    from peaso.gcp_image_selection_20261021 import OPTION, grouped_selections
+    selected_groups = (grouped_selections({**options, OPTION: options['selected_artifact_images']}, collector.scopes)
+                       if 'selected_artifact_images' in options else {})
     for scope in collector.scopes:
+        if not selected_groups.get(scope) and 'selected_cloudrun_services' not in options:
+            continue
         images = collector.collections.get(('artifact_image', scope))
         if not isinstance(images, dict):
             continue
@@ -357,7 +362,7 @@ def enrich(collector, *, reader_factory=None):
                    for c in (images, repos, projects)):
                 raise ValueError('native parent inventories incomplete')
             run_proof, run_plan = None, None
-            requested = list(options.get('selected_artifact_images', []))
+            requested = list(selected_groups.get(scope, []))
             if 'selected_cloudrun_services' in options:
                 from . import gcp_cloudrun_image_inspection as run_sources
                 run_plan, run_proof = run_sources.prepare(collector, scope, images['items'],

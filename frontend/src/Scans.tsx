@@ -436,10 +436,15 @@ export function LaunchForm({
   const codex = useApi<{ available: boolean; disabled?: boolean; isolation_available?: boolean }>("/ai/codex", demo);
   const aiAvailable = !demo && codex.data?.available === true;
   const [checks, setChecks] = useState(schedule?.checks?.join(", ") || "");
+  const [leaksEnabled, setLeaksEnabled] = useState(schedule ? (schedule.content_checks || []).some(id => !id.includes("vulnerabil")) : true);
+  const [imagesEnabled, setImagesEnabled] = useState(schedule ? (schedule.content_checks || []).some(id => id.includes("vulnerabil")) : true);
   const [frameworks, setFrameworks] = useState<string[]>(schedule?.frameworks || []);
   const [frameworkSearch, setFrameworkSearch] = useState("");
   const frameworkPicker = useRef<HTMLDetailsElement>(null);
   const selectedConnector = connectors.find((item) => item.id === connector);
+  const leakChecks = selectedConnector?.content_scan_checks?.leaks || [];
+  const imageChecks = selectedConnector?.content_scan_checks?.images || [];
+  const contentChecks = [...(leaksEnabled ? leakChecks : []), ...(imagesEnabled ? imageChecks : [])];
   const availableFrameworks = frameworkChoices(catalog.data, selectedConnector?.provider);
   const matchingFrameworks = availableFrameworks.filter((choice) =>
     !frameworks.includes(choice.value) && `${choice.label} ${choice.value}`.toLocaleLowerCase().includes(frameworkSearch.trim().toLocaleLowerCase()));
@@ -482,8 +487,8 @@ export function LaunchForm({
     e.preventDefault();
     if (!connector) return setError("Choose a connector first.");
     if (resumePrevious) { resumeMutation.mutate(previous.id); return; }
-    if (!selected.length)
-      return setError("Select at least one assessment category.");
+    if (!selected.length && !contentChecks.length)
+      return setError("Select at least one assessment category or content analysis.");
     if (isSchedule && rules.some(rule => !rule.time || (rule.frequency === "weekly" && !rule.weekdays?.length)))
       return setError("Choose a time for each rule and at least one weekday for every weekly rule.");
     const aiWorkSelected = aiPrioritiesEnabled || selected.includes("exposure") ||
@@ -495,6 +500,9 @@ export function LaunchForm({
       ai_priorities_enabled: aiPrioritiesEnabled,
       ai_network_enabled: aiNetworkEnabled,
       categories: selected,
+      content_checks: contentChecks,
+      leaks_enabled: leaksEnabled && leakChecks.length > 0,
+      images_enabled: imagesEnabled && imageChecks.length > 0,
       checks: checks
         .split(",")
         .map((s) => s.trim())
@@ -620,6 +628,8 @@ export function LaunchForm({
                 setSelected(event.target.checked ? [...selected, category.id] : selected.filter((id) => id !== category.id))} />
               {category.id === "network" ? "Network Map" : category.id === "privesc" ? "Privilege Escalation Map" : category.label}
             </label>)}
+            <label className="checkbox"><input type="checkbox" checked={leaksEnabled && !!leakChecks.length} disabled={!leakChecks.length} onChange={event => setLeaksEnabled(event.target.checked)} />Leaks <small>{leakChecks.length ? "Selected scopes and configured targets" : "Configure exact content targets in the connector"}</small></label>
+            <label className="checkbox"><input type="checkbox" checked={imagesEnabled && !!imageChecks.length} disabled={!imageChecks.length} onChange={event => setImagesEnabled(event.target.checked)} />Image CVEs <small>{imageChecks.length ? "Configured image targets" : "Configure exact image targets in the connector"}</small></label>
             <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled && aiNetworkEnabled && selected.includes("network")}
               disabled={!aiAvailable || !aiEnabled || !selected.includes("network")}
               onChange={(event) => setAiNetworkEnabled(event.target.checked)} />Network Architecture <small>Uses AI and Network Map</small></label>

@@ -9,6 +9,7 @@ import re
 import uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Protocol
+from peaso.runtime_metrics import span as _runtime_span, add_bytes as _runtime_bytes
 
 
 class ArtifactStore(Protocol):
@@ -58,11 +59,15 @@ class FileArtifacts:
             shutil.rmtree(directory)
 
     def put(self, tenant, job_id, kind, value):
-        return self._write(tenant, job_id, kind, json.dumps(value, separators=(",", ":"), allow_nan=False))
+        with _runtime_span("artifact.serialize"):
+            body = json.dumps(value, separators=(",", ":"), allow_nan=False)
+        return self._write(tenant, job_id, kind, body)
 
     def put_secret_evidence(self, tenant, job_id, value):
         from peaso.secret_evidence import private_reference
-        return self._write(tenant, job_id, 'secret-evidence', json.dumps(value, separators=(',', ':')),
+        with _runtime_span("artifact.serialize"):
+            body = json.dumps(value, separators=(',', ':'))
+        return self._write(tenant, job_id, 'secret-evidence', body,
                            reference=private_reference(tenant, job_id))
 
     def put_text(self, tenant, job_id, kind, value):
@@ -76,20 +81,22 @@ class FileArtifacts:
         # A killed writer may leave its temp file behind. A fresh name lets
         # a reclaimed scan replace the same private artifact safely.
         temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
-        try:
-            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w") as stream:
-                stream.write(value)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temp, path)
-            directory = os.open(path.parent, os.O_RDONLY)
+        with _runtime_span("artifact.file.write"):
             try:
-                os.fsync(directory)
+                fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w") as stream:
+                    stream.write(value)
+                    stream.flush()
+                    _runtime_bytes("artifact.file.write", stream.buffer.tell())
+                    os.fsync(stream.fileno())
+                os.replace(temp, path)
+                directory = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
             finally:
-                os.close(directory)
-        finally:
-            temp.unlink(missing_ok=True)
+                temp.unlink(missing_ok=True)
         return reference
 
     def get(self, tenant, reference):
@@ -133,12 +140,16 @@ class S3Artifacts:
                     raise RuntimeError("Some scan artifacts could not be deleted; retry")
 
     def put(self, tenant, job_id, kind, value):
-        body = json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+        with _runtime_span("artifact.serialize"):
+            body = json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+            _runtime_bytes("artifact.serialize", len(body))
         return self._put(tenant, job_id, kind, body, "application/json")
 
     def put_secret_evidence(self, tenant, job_id, value):
         from peaso.secret_evidence import private_reference
-        body = json.dumps(value, separators=(',', ':')).encode()
+        with _runtime_span("artifact.serialize"):
+            body = json.dumps(value, separators=(',', ':')).encode()
+            _runtime_bytes("artifact.serialize", len(body))
         return self._put(tenant, job_id, 'secret-evidence', body, 'application/json',
                          reference=private_reference(tenant, job_id))
 
@@ -158,11 +169,15 @@ class S3Artifacts:
         encryption = {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": self.kms_key} if self.kms_key else {"ServerSideEncryption": "AES256"}
         encoding = {}
         if len(body) >= 64 * 1024:
-            compressed = gzip.compress(body, compresslevel=1, mtime=0)
+            with _runtime_span("artifact.compress"):
+                compressed = gzip.compress(body, compresslevel=1, mtime=0)
+                _runtime_bytes("artifact.compress", len(body))
             if len(compressed) < len(body):
                 encoding = {"ContentEncoding": "gzip", "Metadata": {"peaso-uncompressed-bytes": str(len(body))}}
                 body = compressed
-        self.client.put_object(Bucket=self.bucket, Key="artifacts/" + reference, Body=body, ContentType=content_type, **encoding, **encryption)
+        with _runtime_span("artifact.s3.put"):
+            self.client.put_object(Bucket=self.bucket, Key="artifacts/" + reference, Body=body, ContentType=content_type, **encoding, **encryption)
+            _runtime_bytes("artifact.s3.put", len(body))
 
     def batch(self, *, workers=4, max_pending_bytes=16 * 1024 * 1024):
         """Bounded uploads; a manifest is written only after all prior writes succeed."""
@@ -179,7 +194,10 @@ class S3Artifacts:
         return json.loads(self._get_bytes(tenant, reference))
 
     def put_text(self, tenant, job_id, kind, value):
-        return self._put(tenant, job_id, kind, value.encode(), "text/markdown")
+        with _runtime_span("artifact.serialize"):
+            body = value.encode()
+            _runtime_bytes("artifact.serialize", len(body))
+        return self._put(tenant, job_id, kind, body, "text/markdown")
 
     def get_text(self, tenant, reference):
         return self._get_bytes(tenant, reference).decode()
@@ -237,14 +255,15 @@ class _S3WriteBatch:
             raise self.error
 
     def _drain(self):
-        completed, _ = wait(self.pending, return_when=FIRST_COMPLETED)
-        for future in completed:
-            self.pending_bytes -= self.pending.pop(future)
-            try:
-                future.result()
-            except BaseException as exc:
-                self.error = exc
-                raise
+        with _runtime_span("artifact.batch.wait"):
+            completed, _ = wait(self.pending, return_when=FIRST_COMPLETED)
+            for future in completed:
+                self.pending_bytes -= self.pending.pop(future)
+                try:
+                    future.result()
+                except BaseException as exc:
+                    self.error = exc
+                    raise
 
     def flush(self):
         self._check_open()
@@ -277,7 +296,9 @@ class _S3WriteBatch:
         return reference
 
     def put(self, tenant, job_id, kind, value):
-        body = json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+        with _runtime_span("artifact.serialize"):
+            body = json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+            _runtime_bytes("artifact.serialize", len(body))
         return self._submit(tenant, job_id, kind, body, "application/json")
 
     def _put_json_bytes(self, tenant, job_id, kind, body):
@@ -286,7 +307,10 @@ class _S3WriteBatch:
         return self._submit(tenant, job_id, kind, body, "application/json")
 
     def put_text(self, tenant, job_id, kind, value):
-        return self._submit(tenant, job_id, kind, value.encode(), "text/markdown")
+        with _runtime_span("artifact.serialize"):
+            body = value.encode()
+            _runtime_bytes("artifact.serialize", len(body))
+        return self._submit(tenant, job_id, kind, body, "text/markdown")
 
     def __exit__(self, exc_type, exc, traceback):
         try:
@@ -295,7 +319,8 @@ class _S3WriteBatch:
         finally:
             self.closed = True
             try:
-                self.pool.shutdown(wait=True, cancel_futures=True)
+                with _runtime_span("artifact.batch.wait"):
+                    self.pool.shutdown(wait=True, cancel_futures=True)
             finally:
                 self.pending.clear()
                 self.pending_bytes = 0

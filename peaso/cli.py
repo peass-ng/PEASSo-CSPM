@@ -173,14 +173,16 @@ def _execute(args, selectors):
         for key, value in selectors.items():
             if value is not None:
                 request[key] = value
-        effective_selectors = {key: request.get(key) for key in ("categories", "checks", "frameworks")}
+        from .content_scan_selection import normalize_request, capture_checks, effective_options
+        request = normalize_request(request)
+        effective_selectors = {key: request.get(key) for key in ("categories", "checks", "frameworks", "content_checks")}
         include = bool(args.include_not_applicable)
         if args.command == 'scan':
             request['include_not_applicable'] = include
             if related:
                 request['related_snapshots'] = related
-        from .secret_evidence import capture, EphemeralCipher, checks_for_request
-        with capture(EphemeralCipher(), options=options, selected_checks=checks_for_request(request)) as secret_capture:
+        from .secret_evidence import capture, EphemeralCipher
+        with capture(EphemeralCipher(), options=effective_options(request), selected_checks=capture_checks(request)) as secret_capture:
             snapshot = collect_snapshot(request)
         snapshot = secret_capture.public_snapshot(snapshot)
         if args.command == 'scan':

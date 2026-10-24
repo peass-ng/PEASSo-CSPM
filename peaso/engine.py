@@ -191,6 +191,23 @@ def _privesc_selected(provider, categories, checks, frameworks):
 
 # These optional readers require an explicit named check and selected content.
 EXPLICIT_CONTENT_CHECK_IDS = frozenset({
+    'gcp.review.appengine.deployment_source_secret_indicators',
+    'gcp.review.artifactregistry.selected_file_secret_indicators',
+    'gcp.review.batch.selected_mounted_script_source_secret_indicators',
+    'gcp.review.bigquery.selected_routine_secret_indicators',
+    'gcp.review.cloudbuild.artifact_secret_indicators',
+    'gcp.review.cloudbuild.stored_log_secret_indicators',
+    'gcp.review.clouddeploy.release_source_secret_indicators',
+    'gcp.review.cloudtasks.selected_payload_secret_indicators',
+    'gcp.review.dataflow.selected_package_referenced_source_secret_indicators',
+    'gcp.review.dataform.selected_file_secret_indicators',
+    'gcp.review.dataproc.selected_initialization_referenced_source_secret_indicators',
+    'gcp.review.dataproc.selected_job_referenced_source_secret_indicators',
+    'gcp.review.gke_workload.literal_configuration_secret_indicators',
+    'gcp.review.sourcerepo.selected_file_secret_indicators',
+    'gcp.review.storage.selected_archive_secret_indicators',
+    'gcp.review.storage.selected_object_secret_indicators',
+    'gcp.review.workbench.selected_referenced_source_secret_indicators_20261020',
     'aws.review.build_deployment.referenced_source_secret_indicators',
     'aws.review.ecr_public.selected_image_high_vulnerabilities',
     'aws.review.ecr_public.selected_image_secret_indicators',
@@ -215,8 +232,8 @@ EXPLICIT_CONTENT_CHECK_IDS = frozenset({
 })
 
 
-def _selection(provider, categories, checks, frameworks):
-    selected_categories = list(CATEGORIES) if not categories else _string_list(categories, "categories")
+def _selection(provider, categories, checks, frameworks, *, content_checks=None):
+    selected_categories = ([] if categories == [] and content_checks else list(CATEGORIES)) if not categories else _string_list(categories, "categories")
     if any(category not in CATEGORIES for category in selected_categories):
         raise ValueError("unsupported category")
     registry = _registry()
@@ -249,6 +266,15 @@ def _selection(provider, categories, checks, frameworks):
     selected = [c for c in registry if c.provider == provider and c.category in selected_categories
         and (checks is None or c.id in checks) and (frameworks is None or (set(c.frameworks) | set(getattr(c, "framework_ids", []))).intersection(frameworks))]
     selected = [c for c in selected if c.id not in EXPLICIT_CONTENT_CHECK_IDS or checks is not None and c.id in checks]
+    if content_checks:
+        from .content_scan_selection import known_content_checks
+        content_checks = _string_list(content_checks, 'content_checks')
+        allowed = known_content_checks(provider)
+        if set(content_checks) - allowed:
+            raise ValueError('Unsupported content check for selected provider')
+        known = {check.id for check in selected}
+        selected.extend(check for check in registry if check.provider == provider
+                        and check.id in content_checks and check.id not in known)
     return selected_categories, selected
 
 
@@ -261,6 +287,7 @@ def _string_list(value, name):
 def _request(request):
     if not isinstance(request, dict):
         raise ValueError("scan request must be an object")
+    from .content_scan_selection import named_checks, normalize_request, validate_content_checks
     # API compatibility accepts either a connector or the complete scan request.
     connector = request.get("connector", request if "provider" in request else None)
     if not isinstance(connector, dict) or connector.get("provider") not in PROVIDERS:
@@ -270,7 +297,15 @@ def _request(request):
             raise ValueError("connector " + field + " must be an object")
     if "scopes" in connector:
         _string_list(connector["scopes"], "scopes")
-    _selection(connector["provider"], request.get("categories"), request.get("checks"), request.get("frameworks"))
+    request = normalize_request(request)
+    if request.get('leaks_enabled') is False or request.get('images_enabled') is False:
+        connector = dict(connector, options=dict(connector.get('options', {})))
+        if request.get('leaks_enabled') is False:
+            connector['options']['content_secret_scans'] = False
+        if request.get('images_enabled') is False:
+            connector['options']['image_vulnerability_scans'] = False
+    validate_content_checks(connector['provider'], connector.get('options', {}), request.get('content_checks') or [])
+    _selection(connector["provider"], request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get('content_checks'))
     content_options = connector.get('options', {})
     from .gcp_image_selection_20261021 import OPTION as REGISTRY_CVE_OPTION, selections as registry_cve_selection
     if REGISTRY_CVE_OPTION in content_options:
@@ -278,71 +313,71 @@ def _request(request):
             raise ValueError('Selected registry images require GCP')
         registry_cve_selection(content_options, connector.get('scopes', []))
     from .collectors.aws_workload_command_runtime_20261020 import targets as workload_command_targets
-    workload_command_targets(content_options, connector.get('scopes', []), request.get('checks') or [], connector['provider'])
+    workload_command_targets(content_options, connector.get('scopes', []), named_checks(request), connector['provider'])
     from .collectors.gcp_cloudrun_job_image_runtime_20261020 import validate_request as validate_cloudrun_job_images
-    validate_cloudrun_job_images(connector, request)
+    validate_cloudrun_job_images(connector, dict(request, checks=named_checks(request)))
     from .collectors.gcp_workerpool_image_runtime_20261021 import validate_request as validate_workerpool_images
-    validate_workerpool_images(connector, request)
+    validate_workerpool_images(connector, dict(request, checks=named_checks(request)))
     from .gcp_appengine_flex_image_selection_20261021 import selected as selected_flex_images
     if connector['provider'] == 'gcp':
-        selected_flex_images(content_options, connector.get('scopes', []), request.get('checks') or [])
+        selected_flex_images(content_options, connector.get('scopes', []), named_checks(request))
     from .collectors.gcp_developerconnect_file_runtime_20261021 import validate_request as validate_developerconnect_files
-    validate_developerconnect_files(connector, request)
+    validate_developerconnect_files(connector, dict(request, checks=named_checks(request)))
     from .collectors.gcp_job_image_vulnerability_runtime_20261021 import validate_request as validate_job_image_vulnerabilities
     if connector['provider'] == 'gcp':
-        validate_job_image_vulnerabilities(connector, request)
+        validate_job_image_vulnerabilities(connector, dict(request, checks=named_checks(request)))
     from .aws_image_selection_20261021 import validate_request as validate_aws_image_vulnerabilities
-    validate_aws_image_vulnerabilities(connector, request)
+    validate_aws_image_vulnerabilities(connector, dict(request, checks=named_checks(request)))
     from .collectors.azure_function_package_integration_20261020 import preflight as package_preflight
-    package_preflight(content_options, connector.get('scopes', []), request.get('checks') or [], provider=connector['provider'])
+    package_preflight(content_options, connector.get('scopes', []), named_checks(request), provider=connector['provider'])
     from .collectors.aws_codebuild_buildspec_runtime_20261020 import targets as codebuild_inline_targets
-    codebuild_inline_targets(content_options, connector.get('scopes', []), request.get('checks') or [], connector['provider'])
+    codebuild_inline_targets(content_options, connector.get('scopes', []), named_checks(request), connector['provider'])
     if 'selected_aws_s3_sources' in content_options and connector['provider'] != 'aws':
         raise ValueError('Selected S3 sources require AWS provider')
     from .collectors.gcp_dataflow_batch_source_runtime_20261020 import preflight as selected_job_preflight
-    selected_job_preflight(content_options, connector.get('scopes', []), request.get('checks') or [], connector['provider'])
+    selected_job_preflight(content_options, connector.get('scopes', []), named_checks(request), connector['provider'])
     from .collectors.gcp_workbench_source_runtime_20261020 import source as workbench_source, preflight as workbench_preflight, CHECK as WORKBENCH_SOURCE_CHECK
-    workbench_named = [cid for cid in (request.get('checks') or []) if cid == WORKBENCH_SOURCE_CHECK]
+    workbench_named = [cid for cid in (named_checks(request)) if cid == WORKBENCH_SOURCE_CHECK]
     if workbench_source.OPTION in content_options or (content_options.get('content_secret_scans') is True and workbench_named):
         if connector['provider'] != 'gcp':
             raise ValueError('Selected Workbench sources require GCP provider')
         workbench_preflight(content_options, connector.get('scopes', []), workbench_named)
     from .collectors.gcp_dataproc_source_runtime_20261020 import source as dataproc_source, preflight as dataproc_preflight, CHECKS as DATAPROC_SOURCE_CHECKS
-    dataproc_named = [cid for cid in (request.get('checks') or []) if cid in DATAPROC_SOURCE_CHECKS]
+    dataproc_named = [cid for cid in (named_checks(request)) if cid in DATAPROC_SOURCE_CHECKS]
     if dataproc_source.OPTION in content_options or (content_options.get('content_secret_scans') is True and dataproc_named):
         if connector['provider'] != 'gcp':
             raise ValueError('Selected Dataproc sources require GCP provider')
         dataproc_preflight(content_options, connector.get('scopes', []), dataproc_named)
     from .collectors.azure_selected_declaration_secret_indicators import PROFILES as DECLARATION_PROFILES, selected_targets as declaration_targets
-    declaration_named = [p['kind'] for p in DECLARATION_PROFILES.values() if p['check'] in (request.get('checks') or [])]
+    declaration_named = [p['kind'] for p in DECLARATION_PROFILES.values() if p['check'] in (named_checks(request))]
     if any(p['option'] in content_options for p in DECLARATION_PROFILES.values()) or (content_options.get('content_secret_scans') is True and declaration_named):
         if connector['provider'] != 'azure':
             raise ValueError('Selected Azure declarations require Azure provider')
         declaration_targets({**content_options, '_content_secret_scan_kinds': declaration_named}, connector.get('scopes', []))
     from .collectors.azure_selected_log_sample_secret_indicators import PROFILES as LOG_SAMPLE_PROFILES, selected_targets as log_sample_targets
-    log_sample_named = [p['kind'] for p in LOG_SAMPLE_PROFILES.values() if p['check'] in (request.get('checks') or [])]
+    log_sample_named = [p['kind'] for p in LOG_SAMPLE_PROFILES.values() if p['check'] in (named_checks(request))]
     if any(p['option'] in content_options for p in LOG_SAMPLE_PROFILES.values()) or (content_options.get('content_secret_scans') is True and log_sample_named):
         if connector['provider'] != 'azure':
             raise ValueError('Selected Azure log samples require Azure provider')
         log_sample_targets({**content_options, '_content_secret_scan_kinds': log_sample_named}, connector.get('scopes', []))
     from .collectors.azure_ml_selected_job_secret_indicators import KIND as ML_JOB_KIND, CHECK as ML_JOB_CHECK, OPTION as ML_JOB_OPTION, selected_targets as ml_job_targets
-    if ML_JOB_OPTION in content_options or (content_options.get('content_secret_scans') is True and ML_JOB_CHECK in (request.get('checks') or [])):
+    if ML_JOB_OPTION in content_options or (content_options.get('content_secret_scans') is True and ML_JOB_CHECK in (named_checks(request))):
         if connector['provider'] != 'azure':
             raise ValueError('Selected Azure ML jobs require Azure provider')
-        ml_job_targets({**content_options, '_content_secret_scan_kinds': [ML_JOB_KIND] if ML_JOB_CHECK in (request.get('checks') or []) else []}, connector.get('scopes', []))
+        ml_job_targets({**content_options, '_content_secret_scan_kinds': [ML_JOB_KIND] if ML_JOB_CHECK in (named_checks(request)) else []}, connector.get('scopes', []))
     from .collectors.azure_databricks_notebook_secret_indicators import KIND as NOTEBOOK_KIND, CHECK as NOTEBOOK_CHECK, OPTION as NOTEBOOK_OPTION, FILE_OPTION as DATABRICKS_FILE_OPTION, RUN_OPTION as DATABRICKS_RUN_OPTION, selected_targets as notebook_targets
-    if any(key in content_options for key in (NOTEBOOK_OPTION,DATABRICKS_FILE_OPTION,DATABRICKS_RUN_OPTION)) or (content_options.get('content_secret_scans') is True and NOTEBOOK_CHECK in (request.get('checks') or [])):
+    if any(key in content_options for key in (NOTEBOOK_OPTION,DATABRICKS_FILE_OPTION,DATABRICKS_RUN_OPTION)) or (content_options.get('content_secret_scans') is True and NOTEBOOK_CHECK in (named_checks(request))):
         if connector['provider'] != 'azure':
             raise ValueError('Selected Azure Databricks content requires Azure provider')
-        notebook_targets({**content_options, '_content_secret_scan_kinds': [NOTEBOOK_KIND] if NOTEBOOK_CHECK in (request.get('checks') or []) else []}, connector.get('scopes', []))
+        notebook_targets({**content_options, '_content_secret_scan_kinds': [NOTEBOOK_KIND] if NOTEBOOK_CHECK in (named_checks(request)) else []}, connector.get('scopes', []))
     from .collectors.azure_ml_selected_asset_secret_indicators import PROFILES as ML_ASSET_PROFILES, selected_targets as ml_asset_targets
-    ml_asset_named = [p['kind'] for p in ML_ASSET_PROFILES.values() if p['check'] in (request.get('checks') or [])]
+    ml_asset_named = [p['kind'] for p in ML_ASSET_PROFILES.values() if p['check'] in (named_checks(request))]
     if any(p['option'] in content_options for p in ML_ASSET_PROFILES.values()) or (content_options.get('content_secret_scans') is True and ml_asset_named):
         if connector['provider'] != 'azure':
             raise ValueError('Selected Azure ML assets require Azure provider')
         ml_asset_targets({**content_options, '_content_secret_scan_kinds': ml_asset_named}, connector.get('scopes', []))
     from .collectors.azure_function_settings_declarations_20261020 import OPTION as FUNCTION_SETTINGS_OPTION, CHECKS as FUNCTION_SETTINGS_CHECKS, preflight as function_settings_preflight
-    function_named = [cid for cid in (request.get('checks') or []) if cid in FUNCTION_SETTINGS_CHECKS]
+    function_named = [cid for cid in (named_checks(request)) if cid in FUNCTION_SETTINGS_CHECKS]
     if FUNCTION_SETTINGS_OPTION in content_options or (content_options.get('content_secret_scans') is True and function_named):
         if connector['provider'] != 'azure':
             raise ValueError('Selected Function settings require Azure provider')
@@ -357,13 +392,13 @@ def _request(request):
         from .collectors.aws_ecs_environment_file_secret_indicators import selected_targets as ecs_file_targets, KIND as ECS_FILE_KIND, CHECK as ECS_FILE_CHECK, OPTION as ECS_FILE_OPTION
         from .collectors.aws_workload_referenced_source_indicators import selected_targets as workload_targets, KIND as WORKLOAD_KIND, CHECK as WORKLOAD_CHECK, OPTION as WORKLOAD_OPTION
         from .collectors.aws_build_deployment_referenced_source_indicators import selected_targets as build_targets, KIND as BUILD_KIND, CHECK as BUILD_CHECK, OPTION as BUILD_OPTION
-        if ECS_FILE_OPTION in content_options or (content_options.get('content_secret_scans') is True and ECS_FILE_CHECK in (request.get('checks') or [])):
-            ecs_file_targets({**content_options, '_content_secret_scan_kinds': [ECS_FILE_KIND] + ([WORKLOAD_KIND] if WORKLOAD_CHECK in (request.get('checks') or []) else []) + ([BUILD_KIND] if BUILD_CHECK in (request.get('checks') or []) else []) + ([S3_SOURCE_KIND] if S3_SOURCE_CHECK in (request.get('checks') or []) else [])}, connector.get('scopes', []))
-        if WORKLOAD_OPTION in content_options or (content_options.get('content_secret_scans') is True and WORKLOAD_CHECK in (request.get('checks') or [])):
-            workload_targets({**content_options, '_content_secret_scan_kinds': [WORKLOAD_KIND] + ([ECS_FILE_KIND] if ECS_FILE_CHECK in (request.get('checks') or []) else []) + ([BUILD_KIND] if BUILD_CHECK in (request.get('checks') or []) else []) + ([S3_SOURCE_KIND] if S3_SOURCE_CHECK in (request.get('checks') or []) else [])}, connector.get('scopes', []))
-        if BUILD_OPTION in content_options or (content_options.get('content_secret_scans') is True and BUILD_CHECK in (request.get('checks') or [])):
-            build_targets({**content_options, '_content_secret_scan_kinds': [BUILD_KIND] + ([ECS_FILE_KIND] if ECS_FILE_CHECK in (request.get('checks') or []) else []) + ([WORKLOAD_KIND] if WORKLOAD_CHECK in (request.get('checks') or []) else []) + ([S3_SOURCE_KIND] if S3_SOURCE_CHECK in (request.get('checks') or []) else [])}, connector.get('scopes', []))
-        if S3_SOURCE_OPTION in content_options or (content_options.get('content_secret_scans') is True and S3_SOURCE_CHECK in (request.get('checks') or [])):
+        if ECS_FILE_OPTION in content_options or (content_options.get('content_secret_scans') is True and ECS_FILE_CHECK in (named_checks(request))):
+            ecs_file_targets({**content_options, '_content_secret_scan_kinds': [ECS_FILE_KIND] + ([WORKLOAD_KIND] if WORKLOAD_CHECK in (named_checks(request)) else []) + ([BUILD_KIND] if BUILD_CHECK in (named_checks(request)) else []) + ([S3_SOURCE_KIND] if S3_SOURCE_CHECK in (named_checks(request)) else [])}, connector.get('scopes', []))
+        if WORKLOAD_OPTION in content_options or (content_options.get('content_secret_scans') is True and WORKLOAD_CHECK in (named_checks(request))):
+            workload_targets({**content_options, '_content_secret_scan_kinds': [WORKLOAD_KIND] + ([ECS_FILE_KIND] if ECS_FILE_CHECK in (named_checks(request)) else []) + ([BUILD_KIND] if BUILD_CHECK in (named_checks(request)) else []) + ([S3_SOURCE_KIND] if S3_SOURCE_CHECK in (named_checks(request)) else [])}, connector.get('scopes', []))
+        if BUILD_OPTION in content_options or (content_options.get('content_secret_scans') is True and BUILD_CHECK in (named_checks(request))):
+            build_targets({**content_options, '_content_secret_scan_kinds': [BUILD_KIND] + ([ECS_FILE_KIND] if ECS_FILE_CHECK in (named_checks(request)) else []) + ([WORKLOAD_KIND] if WORKLOAD_CHECK in (named_checks(request)) else []) + ([S3_SOURCE_KIND] if S3_SOURCE_CHECK in (named_checks(request)) else [])}, connector.get('scopes', []))
+        if S3_SOURCE_OPTION in content_options or (content_options.get('content_secret_scans') is True and S3_SOURCE_CHECK in (named_checks(request))):
             s3_source_targets({**content_options, '_content_secret_scan_kinds': [S3_SOURCE_KIND]}, connector.get('scopes', []))
         if 'content_secret_scans' in content_options and type(content_options['content_secret_scans']) is not bool:
             raise ValueError('content_secret_scans must be a boolean')
@@ -372,31 +407,31 @@ def _request(request):
         if CONFIG_CONTENT_OPTION in content_options:
             configuration_content_targets({**content_options, '_content_secret_scan_kinds': [CONFIG_CONTENT_KIND]}, connector.get('scopes', []))
     from .collectors.k8s_selected_registry_image_20261021 import OPTION as K8S_IMAGE_OPTION, ALLOWLIST as K8S_IMAGE_ALLOWLIST, selected_targets as k8s_image_targets, registry_credentials as k8s_image_credentials, SECRET_CHECK as K8S_IMAGE_SECRET_CHECK, VULN_CHECK as K8S_IMAGE_VULN_CHECK
-    if (K8S_IMAGE_OPTION in content_options or K8S_IMAGE_ALLOWLIST in content_options) and connector['provider'] != 'k8s':
+    if K8S_IMAGE_OPTION in content_options and connector['provider'] != 'k8s':
         raise ValueError('Selected Kubernetes registry images require Kubernetes provider')
     if connector['provider'] == 'k8s':
-        k8s_targets = k8s_image_targets(content_options, connector.get('scopes', []), request.get('checks') or [])
+        k8s_targets = k8s_image_targets(content_options, connector.get('scopes', []), named_checks(request))
         k8s_image_credentials(connector.get('auth', {}), k8s_targets, content_options.get(K8S_IMAGE_ALLOWLIST, []))
     if 'selected_k8s_flux_artifacts' in content_options and connector['provider'] != 'k8s':
         raise ValueError('Selected Flux artifacts require Kubernetes provider')
     if connector['provider'] == 'k8s':
         from .collectors.k8s_selected_flux_artifact_20261021 import selected_targets as flux_targets
-        flux_targets(content_options, connector.get('scopes', []), request.get('checks') or [])
+        flux_targets(content_options, connector.get('scopes', []), named_checks(request))
     if 'selected_k8s_metadata_resources' in content_options and connector['provider'] != 'k8s':
         raise ValueError('Selected Kubernetes metadata requires Kubernetes provider')
     if connector['provider'] == 'k8s':
         from .collectors.k8s_selected_metadata_runtime_20261020 import preflight as k8s_metadata_preflight
-        k8s_metadata_preflight(content_options, connector.get('scopes', []), request.get('checks') or [])
+        k8s_metadata_preflight(content_options, connector.get('scopes', []), named_checks(request))
         from .collectors.k8s_literal_secret_indicators import selected_targets as k8s_literal_targets, KIND as K8S_LITERAL_KIND, CHECK as K8S_LITERAL_CHECK, OPTION as K8S_LITERAL_OPTION
         if ('content_secret_scans' in content_options and type(content_options['content_secret_scans']) is not bool):
             raise ValueError('content_secret_scans must be a boolean')
         if K8S_LITERAL_OPTION in content_options:
             k8s_literal_targets({**content_options, '_content_secret_scan_kinds': [K8S_LITERAL_KIND]}, connector.get('scopes', []))
         from .collectors.k8s_selected_text_content import selected_targets as k8s_text_targets, KIND as K8S_TEXT_KIND, CHECK as K8S_TEXT_CHECK, OPTION as K8S_TEXT_OPTION
-        if K8S_TEXT_OPTION in content_options or (content_options.get('content_secret_scans') is True and K8S_TEXT_CHECK in (request.get('checks') or [])):
-            k8s_text_targets({**content_options, '_content_secret_scan_kinds': [K8S_TEXT_KIND] if K8S_TEXT_CHECK in (request.get('checks') or []) else []}, connector.get('scopes', []))
+        if K8S_TEXT_OPTION in content_options or (content_options.get('content_secret_scans') is True and K8S_TEXT_CHECK in (named_checks(request))):
+            k8s_text_targets({**content_options, '_content_secret_scan_kinds': [K8S_TEXT_KIND] if K8S_TEXT_CHECK in (named_checks(request)) else []}, connector.get('scopes', []))
         from .collectors.k8s_selected_log_sample_secret_indicators import selected_targets as k8s_log_targets, KIND as K8S_LOG_KIND, CHECK as K8S_LOG_CHECK, OPTION as K8S_LOG_OPTION
-        if K8S_LOG_OPTION in content_options or (content_options.get('content_secret_scans') is True and K8S_LOG_CHECK in (request.get('checks') or [])):
+        if K8S_LOG_OPTION in content_options or (content_options.get('content_secret_scans') is True and K8S_LOG_CHECK in (named_checks(request))):
             k8s_log_targets({**content_options, '_content_secret_scan_kinds': [K8S_LOG_KIND]}, connector.get('scopes', []))
     if connector['provider'] == 'azure':
         from .collectors.azure_app_settings_secret_indicators import selected_targets as azure_settings_targets, KIND as AZURE_SETTINGS_KIND, CHECK as AZURE_SETTINGS_CHECK, OPTION as AZURE_SETTINGS_OPTION
@@ -406,25 +441,25 @@ def _request(request):
             azure_settings_targets({**content_options, '_content_secret_scan_kinds': [AZURE_SETTINGS_KIND]}, connector.get('scopes', []))
         from .collectors.azure_acr_image_secret_indicators import selected_targets as azure_acr_targets, KIND as AZURE_ACR_KIND, CHECK as AZURE_ACR_CHECK, OPTION as AZURE_ACR_OPTION
         from .collectors.azure_acr_image_vulnerabilities_20261021 import selected_targets as azure_acr_vuln_targets, KIND as AZURE_ACR_VULN_KIND, CHECK as AZURE_ACR_VULN_CHECK, OPTION as AZURE_ACR_VULN_OPTION
-        if AZURE_ACR_OPTION in content_options or (content_options.get('content_secret_scans') is True and AZURE_ACR_CHECK in (request.get('checks') or [])):
+        if AZURE_ACR_OPTION in content_options or (content_options.get('content_secret_scans') is True and AZURE_ACR_CHECK in (named_checks(request))):
             azure_acr_targets({**content_options, '_content_secret_scan_kinds': [AZURE_ACR_KIND]}, connector.get('scopes', []))
-        if AZURE_ACR_VULN_OPTION in content_options or (content_options.get('image_vulnerability_scans') is True and AZURE_ACR_VULN_CHECK in (request.get('checks') or [])):
+        if AZURE_ACR_VULN_OPTION in content_options or (content_options.get('image_vulnerability_scans') is True and AZURE_ACR_VULN_CHECK in (named_checks(request))):
             azure_acr_vuln_targets(content_options, connector.get('scopes', []))
         from .collectors.azure_selected_configuration_secret_indicators import selected_targets as azure_configuration_targets, KIND as AZURE_CONFIG_KIND, CHECK as AZURE_CONFIG_CHECK, OPTION as AZURE_CONFIG_OPTION
         if AZURE_CONFIG_OPTION in content_options:
             azure_configuration_targets({**content_options, '_content_secret_scan_kinds': [AZURE_CONFIG_KIND]}, connector.get('scopes', []))
         from .collectors.azure_selected_storage_secret_indicators import selected_targets as storage_targets, KIND as STORAGE_KIND, CHECK as STORAGE_CHECK, OPTION as STORAGE_OPTION
-        if STORAGE_OPTION in content_options or (content_options.get('content_secret_scans') is True and STORAGE_CHECK in (request.get('checks') or [])):
+        if STORAGE_OPTION in content_options or (content_options.get('content_secret_scans') is True and STORAGE_CHECK in (named_checks(request))):
             storage_targets({**content_options, '_content_secret_scan_kinds': [STORAGE_KIND]}, connector.get('scopes', []))
         from .collectors.azure_flex_deployment_archives_20261021 import selected_targets as flex_targets, KIND as FLEX_KIND, CHECK as FLEX_CHECK, OPTION as FLEX_OPTION
-        if FLEX_OPTION in content_options or (content_options.get('content_secret_scans') is True and FLEX_CHECK in (request.get('checks') or [])):
-            flex_targets({**content_options, '_content_secret_scan_kinds':[FLEX_KIND] if FLEX_CHECK in (request.get('checks') or []) else [],
-                '_azure_flex_named_checks':[FLEX_CHECK] if FLEX_CHECK in (request.get('checks') or []) else []},connector.get('scopes',[]))
+        if FLEX_OPTION in content_options or (content_options.get('content_secret_scans') is True and FLEX_CHECK in (named_checks(request))):
+            flex_targets({**content_options, '_content_secret_scan_kinds':[FLEX_KIND] if FLEX_CHECK in (named_checks(request)) else [],
+                '_azure_flex_named_checks':[FLEX_CHECK] if FLEX_CHECK in (named_checks(request)) else []},connector.get('scopes',[]))
         from .collectors.azure_devops_selected_content_secret_indicators import selected_targets as devops_targets, KIND as DEVOPS_KIND, CHECK as DEVOPS_CHECK, OPTION as DEVOPS_OPTION
-        if DEVOPS_OPTION in content_options or (content_options.get('content_secret_scans') is True and DEVOPS_CHECK in (request.get('checks') or [])):
+        if DEVOPS_OPTION in content_options or (content_options.get('content_secret_scans') is True and DEVOPS_CHECK in (named_checks(request))):
             devops_targets({**content_options, '_content_secret_scan_kinds': [DEVOPS_KIND]}, connector.get('scopes', []), connector.get('auth', {}))
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.artifactregistry.selected_file_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.artifactregistry.selected_file_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_artifact_file_secret_indicators import normalize_selection, KIND as ARTIFACT_FILE_KIND, Incomplete as ArtifactFileIncomplete
         try:
             normalize_selection({**content_options, '_content_secret_scan_kinds': [ARTIFACT_FILE_KIND]}, connector.get('scopes', []))
@@ -432,11 +467,11 @@ def _request(request):
             raise ValueError('Artifact file inspection requires exact scoped file names, expected SHA256 and supported formats') from None
     if connector['provider'] == 'gcp' and 'selected_gke_pod_images' in content_options:
         from .gcp_gke_image_selection_20261021 import selected as selected_gke_images, kubernetes_auth as gke_image_auth, registry_auth as gke_registry_auth
-        selected_images = selected_gke_images(content_options, connector.get('scopes', []), request.get('checks') or [])
+        selected_images = selected_gke_images(content_options, connector.get('scopes', []), named_checks(request))
         gke_image_auth(connector.get('auth', {}), selected_images)
         gke_registry_auth(connector.get('auth', {}), selected_images, content_options.get('selected_registry_hosts', []))
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.gke_workload.literal_configuration_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.gke_workload.literal_configuration_secret_indicators' in (named_checks(request))):
         from types import SimpleNamespace
         from .collectors.gcp_gke_literal_secret_indicators import selected as gke_selected, KIND as GKE_KIND
         try:
@@ -446,7 +481,7 @@ def _request(request):
         except Exception:
             raise ValueError('GKE content inspection requires exact scoped cluster selections and optional namespace mapping') from None
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.dataform.selected_file_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.dataform.selected_file_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_dataform_secret_indicators import selected_targets as dataform_targets, KIND as DATAFORM_KIND, Incomplete as DataformIncomplete
         try:
             dataform_targets({**content_options, '_content_secret_scan_kinds': [DATAFORM_KIND]}, connector.get('scopes', []))
@@ -456,7 +491,7 @@ def _request(request):
             and type(content_options['content_secret_scans']) is not bool):
         raise ValueError('content_secret_scans must be a boolean')
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.storage.selected_archive_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.storage.selected_archive_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_selected_archive_secret_indicators import normalize_selection, KIND
         try:
             normalize_selection({**content_options, '_content_secret_scan_kinds': [KIND]}, connector.get('scopes', []))
@@ -465,7 +500,7 @@ def _request(request):
         except Exception:
             raise ValueError('Selected archive inspection requires exact scoped object generations, supported formats and at most 10 combined object/archive targets') from None
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.storage.selected_object_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.storage.selected_object_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_selected_object_secret_indicators import selected_targets, KIND, Incomplete
         try:
             selected_targets({**content_options, '_content_secret_scan_kinds': [KIND]}, connector.get('scopes', []))
@@ -473,7 +508,7 @@ def _request(request):
             raise ValueError('Selected object inspection requires exact project, bucket, object and generation targets in the requested project scopes') from None
     image_options = connector.get('options', {})
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.cloudbuild.stored_log_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.cloudbuild.stored_log_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_cloudbuild_log_secret_indicators import selected_builds, KIND, Incomplete
         try:
             selected_builds({**content_options, '_content_secret_scan_kinds': [KIND]}, connector.get('scopes', []))
@@ -483,51 +518,52 @@ def _request(request):
         from .collectors.gcp_selected_task_routine_secret_indicators import SPECS as task_routine_specs, selected_targets as task_routine_targets, Incomplete as TaskRoutineIncomplete
         for kind, spec in task_routine_specs.items():
             if spec['option'] in content_options or (content_options.get('content_secret_scans') is True
-                    and spec['check'] in (request.get('checks') or [])):
+                    and spec['check'] in (named_checks(request))):
                 try:
                     task_routine_targets({**content_options, 'content_secret_scans': True,
                         '_content_secret_scan_kinds': [kind]}, connector.get('scopes', []), kind)
                 except TaskRoutineIncomplete:
                     raise ValueError('Task/routine inspection requires 1-8 exact unique names in one matching project-ID scope') from None
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.sourcerepo.selected_file_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.sourcerepo.selected_file_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_sourcerepo_secret_indicators import selected_targets, KIND, Incomplete
         try:
             selected_targets({**content_options, '_content_secret_scan_kinds': [KIND]}, connector.get('scopes', []))
         except Incomplete:
             raise ValueError('Source Repository inspection requires one exact project, repository, commit and bounded file selection') from None
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.clouddeploy.release_source_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.clouddeploy.release_source_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_clouddeploy_source_secret_indicators import selected_releases, KIND, Incomplete
         try:
             selected_releases({**content_options, '_content_secret_scan_kinds': [KIND]}, connector.get('scopes', []))
         except Incomplete:
             raise ValueError('Cloud Deploy source inspection requires bounded exact same-project Release names') from None
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.cloudbuild.artifact_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.cloudbuild.artifact_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_cloudbuild_artifact_secret_indicators import selected_builds, KIND, Incomplete
         try:
             selected_builds({**content_options, '_content_secret_scan_kinds': [KIND]}, connector.get('scopes', []))
         except Incomplete:
             raise ValueError('Cloud Build artifact inspection requires bounded exact same-project Build names') from None
     if (connector['provider'] == 'gcp' and content_options.get('content_secret_scans') is True
-            and 'gcp.review.appengine.deployment_source_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.appengine.deployment_source_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_appengine_source_secret_indicators import selected_versions, KIND, Incomplete
         try:
             selected_versions({**content_options, '_content_secret_scan_kinds': [KIND]}, connector.get('scopes', []))
         except Incomplete:
             raise ValueError('App Engine source inspection requires bounded exact same-project Version names') from None
     if (connector['provider'] == 'gcp' and image_options.get('content_secret_scans') is True
-            and 'gcp.review.artifact_image.content_secret_indicators' in (request.get('checks') or [])):
+            and 'gcp.review.artifact_image.content_secret_indicators' in (named_checks(request))):
         from .collectors.gcp_image_secret_indicators import normalize_selected
         image_scopes = connector.get('scopes', [])
-        if len(image_scopes) != 1 or not image_scopes[0].startswith('projects/'):
-            raise ValueError('selected image inspection requires one explicit project scope')
+        if not image_scopes or any(not scope.startswith('projects/') for scope in image_scopes):
+            raise ValueError('selected image inspection requires explicit project scopes')
         if 'selected_cloudrun_services' in image_options:
             from .collectors.gcp_cloudrun_image_inspection import validate_selection
             validate_selection(image_options['selected_cloudrun_services'], image_scopes)
         if 'selected_artifact_images' in image_options or 'selected_cloudrun_services' not in image_options:
-            normalize_selected(image_options.get('selected_artifact_images'), image_scopes[0])
+            from .gcp_image_selection_20261021 import OPTION, grouped_selections
+            grouped_selections({**image_options, OPTION: image_options.get('selected_artifact_images')}, image_scopes)
     return copy.deepcopy(connector)
 
 
@@ -537,6 +573,8 @@ def _full_selection(provider, categories, selected):
 
 
 def collect_snapshot(request):
+    from .content_scan_selection import named_checks, normalize_request
+    request = normalize_request(request)
     connector = _request(request)
     collection_callback = request.get("_collection_callback")
     if collection_callback is not None:
@@ -573,16 +611,16 @@ def collect_snapshot(request):
     # predicate as an internal collector fact signal without adding a fake
     # inventory type to the public collection plan.
     if connector["provider"] == "aws":
-        _, selected = _selection("aws", request.get("categories"), request.get("checks"), request.get("frameworks"))
+        _, selected = _selection("aws", request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))
         from .collectors.aws_image_vulnerability_runtime_20261021 import issue_engine_grant as grant_aws_image_vulnerabilities
         grant_aws_image_vulnerabilities(connector.setdefault('options', {}), connector.get('scopes', []),
-            [check.id for check in selected if check.id in (request.get('checks') or [])])
+            [check.id for check in selected if check.id in (named_checks(request))])
         from .collectors.aws_ecr_public_image_runtime_20261021 import issue_engine_grant as grant_ecr_public_image
         grant_ecr_public_image(connector.setdefault('options', {}), connector.get('scopes', []),
-            [check.id for check in selected if check.id in (request.get('checks') or [])])
+            [check.id for check in selected if check.id in (named_checks(request))])
         from .collectors.aws_workload_image_secret_native_20261021 import issue_engine_grant as grant_workload_image_secrets
         grant_workload_image_secrets(connector.setdefault('options', {}), connector.get('scopes', []),
-            [check.id for check in selected if check.id in (request.get('checks') or [])])
+            [check.id for check in selected if check.id in (named_checks(request))])
         connector.setdefault("options", {})["_ecr_latest_scan_requested"] = any(
             check.id == "aws.c2b.ecr.latest_image_no_medium_plus_findings" for check in selected)
         connector.setdefault('options', {})['_ec2_clock_metric_requested'] = any(
@@ -619,7 +657,7 @@ def collect_snapshot(request):
             'aws.review.lambda_layer_version.package_content_secret_indicators': 'lambda_layer_version',
             'aws.review.ecr_repository.package_content_secret_indicators': 'ecr_repository',
         }
-        named = set(request.get('checks') or [])
+        named = set(named_checks(request))
         connector.setdefault('options', {})['_content_secret_scan_kinds'] = sorted({
             content_kinds[c.id] for c in selected if c.id in named and c.id in content_kinds})
         from .collectors.aws_codebuild_buildspec_runtime_20261020 import issue_engine_grant as grant_codebuild_inline, CHECK as CODEBUILD_INLINE_CHECK, KIND as CODEBUILD_INLINE_KIND
@@ -631,7 +669,7 @@ def collect_snapshot(request):
             connector['options']['_content_secret_scan_kinds'].append(WORKLOAD_COMMAND_KIND)
         grant_workload_commands(connector['options'], connector.get('scopes', []), [c.id for c in selected if c.id in named])
     if connector["provider"] == "gcp":
-        _, selected = _selection("gcp", request.get("categories"), request.get("checks"), request.get("frameworks"))
+        _, selected = _selection("gcp", request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))
         content_kinds = {
             'gcp.review.dataflow.selected_package_referenced_source_secret_indicators': 'dataflow_selected_package_source',
             'gcp.review.cloudrun_job.declared_image_secret_indicators': 'cloudrun_job_declared_image',
@@ -677,7 +715,7 @@ def collect_snapshot(request):
             'gcp.review.cloudbuild_trigger.literal_configuration_secret_indicators': 'cloudbuild_trigger',
             'gcp.review.cloudbuild_build.literal_configuration_secret_indicators': 'cloudbuild_build',
         }
-        named = set(request.get('checks') or [])
+        named = set(named_checks(request))
         from .gcp_gke_image_selection_20261021 import SECRET_CHECK as GKE_IMAGE_SECRET_CHECK, VULN_CHECK as GKE_IMAGE_VULN_CHECK
         connector.setdefault('options', {})['_gke_image_named_checks'] = [cid for cid in named if cid in (GKE_IMAGE_SECRET_CHECK, GKE_IMAGE_VULN_CHECK)]
         from .gcp_appengine_flex_image_selection_20261021 import SECRET_CHECK as FLEX_SECRET_CHECK, VULN_CHECK as FLEX_VULN_CHECK
@@ -699,18 +737,18 @@ def collect_snapshot(request):
         grant_registry_cves(connector['options'], connector.get('scopes', []), [c.id for c in selected if c.id in named])
     if connector["provider"] == "k8s":
         from .collectors.k8s_selected_registry_image_20261021 import SECRET_CHECK as K8S_IMAGE_SECRET_CHECK, VULN_CHECK as K8S_IMAGE_VULN_CHECK
-        connector.setdefault('options', {})['_registry_image_named_checks'] = [cid for cid in (request.get('checks') or []) if cid in (K8S_IMAGE_SECRET_CHECK, K8S_IMAGE_VULN_CHECK)]
+        connector.setdefault('options', {})['_registry_image_named_checks'] = [cid for cid in (named_checks(request)) if cid in (K8S_IMAGE_SECRET_CHECK, K8S_IMAGE_VULN_CHECK)]
         from .collectors.k8s_selected_flux_artifact_20261021 import CHECK as FLUX_CHECK
-        connector.setdefault('options', {})['_flux_artifact_named_checks'] = [FLUX_CHECK] if FLUX_CHECK in (request.get('checks') or []) else []
+        connector.setdefault('options', {})['_flux_artifact_named_checks'] = [FLUX_CHECK] if FLUX_CHECK in (named_checks(request)) else []
         from .collectors.k8s_selected_metadata_runtime_20261020 import authorize as authorize_k8s_metadata
-        authorize_k8s_metadata(connector.setdefault('options', {}), connector.get('scopes', []), request.get('checks') or [])
+        authorize_k8s_metadata(connector.setdefault('options', {}), connector.get('scopes', []), named_checks(request))
         from .collectors.k8s_literal_secret_indicators import KIND as K8S_LITERAL_KIND, CHECK as K8S_LITERAL_CHECK
         from .collectors.k8s_selected_log_sample_secret_indicators import KIND as K8S_LOG_KIND, CHECK as K8S_LOG_CHECK
         from .collectors.k8s_selected_text_content import KIND as K8S_TEXT_KIND, CHECK as K8S_TEXT_CHECK
         connector.setdefault('options', {})['_content_secret_scan_kinds'] = [kind for cid, kind in (
-            (K8S_LITERAL_CHECK, K8S_LITERAL_KIND), (K8S_LOG_CHECK, K8S_LOG_KIND), (K8S_TEXT_CHECK, K8S_TEXT_KIND)) if cid in (request.get('checks') or [])]
+            (K8S_LITERAL_CHECK, K8S_LITERAL_KIND), (K8S_LOG_CHECK, K8S_LOG_KIND), (K8S_TEXT_CHECK, K8S_TEXT_KIND)) if cid in (named_checks(request))]
     if connector["provider"] == "azure":
-        _, selected = _selection("azure", request.get("categories"), request.get("checks"), request.get("frameworks"))
+        _, selected = _selection("azure", request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))
         from .collectors.azure_app_settings_secret_indicators import KIND as AZURE_SETTINGS_KIND, CHECK as AZURE_SETTINGS_CHECK
         from .collectors.azure_acr_image_secret_indicators import KIND as AZURE_ACR_KIND, CHECK as AZURE_ACR_CHECK
         from .collectors.azure_selected_aks_image_20261021 import KIND as AKS_IMAGE_KIND, CHECK as AKS_IMAGE_CHECK, VULN_KIND as AKS_VULN_KIND, VULN_CHECK as AKS_VULN_CHECK
@@ -726,16 +764,16 @@ def collect_snapshot(request):
         from .collectors.azure_synapse_selected_notebook_secret_indicators import KIND as SYNAPSE_NOTEBOOK_KIND, CHECK as SYNAPSE_NOTEBOOK_CHECK
         from .collectors.azure_ml_selected_asset_secret_indicators import PROFILES as ML_ASSET_PROFILES
         azure_content_pairs = ((AZURE_SETTINGS_CHECK,AZURE_SETTINGS_KIND),(AZURE_ACR_CHECK,AZURE_ACR_KIND),(AKS_IMAGE_CHECK,AKS_IMAGE_KIND),(AZURE_CONFIG_CHECK,AZURE_CONFIG_KIND),(STORAGE_CHECK,STORAGE_KIND),(FLEX_CHECK,FLEX_KIND),(DEVOPS_CHECK,DEVOPS_KIND)) + tuple((p['check'],p['kind']) for p in DECLARATION_PROFILES.values()) + tuple((p['check'],p['kind']) for p in LOG_SAMPLE_PROFILES.values()) + ((ML_JOB_CHECK,ML_JOB_KIND),(NOTEBOOK_CHECK,NOTEBOOK_KIND),(SYNAPSE_NOTEBOOK_CHECK,SYNAPSE_NOTEBOOK_KIND)) + tuple((p['check'],p['kind']) for p in ML_ASSET_PROFILES.values())
-        connector.setdefault('options', {})['_content_secret_scan_kinds'] = sorted(kind for cid,kind in azure_content_pairs if cid in (request.get('checks') or []))
-        connector['options']['_azure_flex_named_checks']=[FLEX_CHECK] if FLEX_CHECK in (request.get('checks') or []) else []
-        connector['options']['_azure_aks_image_named_checks'] = [cid for cid in (request.get('checks') or []) if cid in (AKS_IMAGE_CHECK, AKS_VULN_CHECK)]
-        connector['options']['_image_vulnerability_scan_kinds'] = [AZURE_ACR_VULN_KIND] if (connector['options'].get('image_vulnerability_scans') is True and AZURE_ACR_VULN_CHECK in (request.get('checks') or [])) else []
+        connector.setdefault('options', {})['_content_secret_scan_kinds'] = sorted(kind for cid,kind in azure_content_pairs if cid in (named_checks(request)))
+        connector['options']['_azure_flex_named_checks']=[FLEX_CHECK] if FLEX_CHECK in (named_checks(request)) else []
+        connector['options']['_azure_aks_image_named_checks'] = [cid for cid in (named_checks(request)) if cid in (AKS_IMAGE_CHECK, AKS_VULN_CHECK)]
+        connector['options']['_image_vulnerability_scan_kinds'] = [AZURE_ACR_VULN_KIND] if (connector['options'].get('image_vulnerability_scans') is True and AZURE_ACR_VULN_CHECK in (named_checks(request))) else []
         from .collectors.azure_function_settings_declarations_20261020 import CHECKS as FUNCTION_SETTINGS_CHECKS
-        connector.setdefault('options', {})['_azure_function_settings_checks'] = [cid for cid in (request.get('checks') or []) if cid in FUNCTION_SETTINGS_CHECKS]
-        connector.setdefault('options', {})['_azure_app_service_runtime_checks'] = [c.id for c in selected if c.id == 'azure.review.app_service.runtime_support_declared' and c.id in (request.get('checks') or [])]
+        connector.setdefault('options', {})['_azure_function_settings_checks'] = [cid for cid in (named_checks(request)) if cid in FUNCTION_SETTINGS_CHECKS]
+        connector.setdefault('options', {})['_azure_app_service_runtime_checks'] = [c.id for c in selected if c.id == 'azure.review.app_service.runtime_support_declared' and c.id in (named_checks(request))]
         from .collectors.azure_function_package_integration_20261020 import issue_engine_grant as grant_package_source, KIND as PACKAGE_KIND
         grant_package_source(connector['options'], connector.get('scopes', []),
-            [c.id for c in selected if c.id in (request.get('checks') or [])])
+            [c.id for c in selected if c.id in (named_checks(request))])
         connector.setdefault("options", {})["_azure_database_native_requested"] = any(
             check.id in {"azure_firewall_policy_sqlserver_unrestricted_inbound_access_c12f86d",
                          "azure_sql_server_sqlserver_unrestricted_inbound_access_9b32c6a",
@@ -761,7 +799,7 @@ def collect_snapshot(request):
             collection_callback(collection)
     emit_progress(phase="collecting", provider=connector["provider"], completed=len(snapshot["collections"]),
                   total=len(snapshot["collections"]), resources=sum(len(c["items"]) for c in snapshot["collections"]), dynamic_total=False)
-    snapshot["metadata"]["collection_plan"] = {"mode": "collect_all" if options.get("collect_all") else "explicit_inventories" if "inventories" in options else "full_default" if _full_selection(connector["provider"], *_selection(connector["provider"], request.get("categories"), request.get("checks"), request.get("frameworks"))) else "dependencies", "requirements": requirements,
+    snapshot["metadata"]["collection_plan"] = {"mode": "collect_all" if options.get("collect_all") else "explicit_inventories" if "inventories" in options else "full_default" if _full_selection(connector["provider"], *_selection(connector["provider"], request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))) else "dependencies", "requirements": requirements,
         "categories": request.get("categories") or list(CATEGORIES), "checks": request.get("checks") or "all_selected", "frameworks": request.get("frameworks") or "all_selected"}
     return validate(seal(snapshot))
 
@@ -797,9 +835,11 @@ def _selected_graph_categories(categories, native, analyzed, explicit_categories
 
 
 def plan_collection(request, *, _runtime_connector=None):
+    from .content_scan_selection import named_checks, normalize_request
+    request = normalize_request(request)
     connector = _request(request)
     provider = connector["provider"]
-    categories, checks = _selection(provider, request.get("categories"), request.get("checks"), request.get("frameworks"))
+    categories, checks = _selection(provider, request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))
     from .collectors import supported_types
     from .analysis import REQUIRED_TYPES, privesc_required_types
     from .checks.native_only import automated_inventory_types
@@ -850,13 +890,16 @@ def plan_collection(request, *, _runtime_connector=None):
         # The full default plan keeps inventories used by graphs, cards and resource views.
         # Bulk event streams and the AWS-owned managed policy library are opt-in
         # when no selected check or analysis consumer declares them.
-        return sorted(available - BULK_STREAM_TYPES.get(provider, frozenset())
+        named = set(named_checks(request))
+        explicit_required = {kind for check in checks if check.id in named
+            for kind in getattr(check, "dependencies", [check.kind])}
+        return sorted(available - (BULK_STREAM_TYPES.get(provider, frozenset()) - explicit_required)
                       - ({"iam_managed_policy"} if provider == "aws" and "iam_managed_policy" not in required else set()))
     from .collectors.bulk_evidence import declared_types, expand_native_requirements
     required = expand_native_requirements(provider, required)
     # Explicit check selections can request declared evidence contracts; the
     # dispatcher records unavailable projections as not_collected, never empty.
-    if request.get('checks') or request.get('frameworks'):
+    if request.get('checks') or request.get('frameworks') or request.get('content_checks'):
         available |= declared_types(provider)
     return sorted(required & available)
 
@@ -1368,7 +1411,7 @@ def _azure_tenant_group_collection_authorized(scope, metadata, collection):
 
 
 def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, timings=None, include_not_applicable=True,
-                      related_snapshots=None, *, completed_graph_sections=None):
+                      related_snapshots=None, *, completed_graph_sections=None, content_checks=None):
     """timings: optional dict that receives wall-clock timings; they never enter the deterministic report.
 
     related_snapshots: other-provider snapshots of the same scan group (e.g. the GCP project of a GKE
@@ -1383,18 +1426,22 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     per-check counts in finding_aggregates (stats.by_status still counts every result). Scan entry points
     (CLI, run_scan, the worker) default to False; this library default stays True for compatibility."""
     from .checks.facts import MemoIndex
+    from .runtime_metrics import span as _runtime_span
     collapse = _FindingAggregator(not include_not_applicable)
     emit_progress(phase="evaluating", provider=snapshot.get("provider") if isinstance(snapshot, dict) else None,
                   completed=0, total=None, dynamic_total=True)
-    snapshot = validate(snapshot, read_only=True)
+    with _runtime_span('engine.validate'):
+        snapshot = validate(snapshot, read_only=True)
     provider = snapshot["provider"]
     related = _related_snapshots(snapshot, related_snapshots)
-    selected_categories, selected = _selection(provider, categories, checks, frameworks)
+    selected_categories, selected = _selection(provider, categories, checks, frameworks, content_checks=content_checks)
     graph_only_checkpoint = completed_graph_sections is not None and checks == []
     if graph_only_checkpoint:
         selected = []
-    inventory = resources(snapshot)
-    index = _index(snapshot, inventory)
+    with _runtime_span('engine.resources'):
+        inventory = resources(snapshot)
+    with _runtime_span('engine.index'):
+        index = _index(snapshot, inventory)
     coverage, findings = [], []
     for collection in snapshot["collections"]:
         retirement = _retired_collection_evidence(provider, snapshot, collection)
@@ -1499,149 +1546,150 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     automatic_batch_adapter = None
     if evaluation_metadata.get('automatic_workload_environment_batches'):
         from .checks import automatic_workload_batch as automatic_batch_adapter
-    for settled_checks, check in enumerate(selected):
-        emit_progress(phase="evaluating", provider=provider, completed=settled_checks,
-                      total=len(selected), resources=len(inventory), dynamic_total=False)
-        check_frameworks = list(check.frameworks)
-        emit_finding = _finding_factory(check, provider, check_frameworks)
-        if getattr(check, "target", "resource") == "scope":
-            for scope in _scope_check_scopes(snapshot, check):
-                scoped = scoped_index(scope)
-                management_only = _aws_management_account_only_evidence(snapshot, check.id, scope)
-                incomplete = [{"type": kind, "status": "not_collected"} for kind in check.dependencies if not scoped["collections"].get(kind)]
-                incomplete += [{"type": kind, "status": c["status"]} for kind in check.dependencies for c in scoped["collections"].get(kind, []) if c["status"] not in ("collected", "empty")]
-                if management_only:
-                    status, evidence = "NOT_APPLICABLE", management_only
-                elif incomplete:
-                    status, evidence = "DENIED" if any(row["status"] == "denied" for row in incomplete) else "UNKNOWN", {"reason": "required scoped inventory incomplete", "dependencies": incomplete, "target": "scope"}
-                    empty_dependencies = getattr(check, "empty_applicability_dependencies", ())
-                    empty_applicable = bool(empty_dependencies) and set(empty_dependencies) <= set(check.dependencies) and all(
-                        scoped["collections"].get(kind) and all(
-                            collection["status"] == "empty" and collection["items"] == []
-                            for collection in scoped["collections"][kind])
-                        for kind in empty_dependencies)
-                    if getattr(check, "allow_incomplete_failure", False) or empty_applicable:
-                        # A conclusive violation or an explicitly empty target
-                        # inventory may resolve the check. Their independent
-                        # opt-ins can never produce PASS from incomplete data.
+    with _runtime_span('engine.native_checks'):
+        for settled_checks, check in enumerate(selected):
+            emit_progress(phase="evaluating", provider=provider, completed=settled_checks,
+                          total=len(selected), resources=len(inventory), dynamic_total=False)
+            check_frameworks = list(check.frameworks)
+            emit_finding = _finding_factory(check, provider, check_frameworks)
+            if getattr(check, "target", "resource") == "scope":
+                for scope in _scope_check_scopes(snapshot, check):
+                    scoped = scoped_index(scope)
+                    management_only = _aws_management_account_only_evidence(snapshot, check.id, scope)
+                    incomplete = [{"type": kind, "status": "not_collected"} for kind in check.dependencies if not scoped["collections"].get(kind)]
+                    incomplete += [{"type": kind, "status": c["status"]} for kind in check.dependencies for c in scoped["collections"].get(kind, []) if c["status"] not in ("collected", "empty")]
+                    if management_only:
+                        status, evidence = "NOT_APPLICABLE", management_only
+                    elif incomplete:
+                        status, evidence = "DENIED" if any(row["status"] == "denied" for row in incomplete) else "UNKNOWN", {"reason": "required scoped inventory incomplete", "dependencies": incomplete, "target": "scope"}
+                        empty_dependencies = getattr(check, "empty_applicability_dependencies", ())
+                        empty_applicable = bool(empty_dependencies) and set(empty_dependencies) <= set(check.dependencies) and all(
+                            scoped["collections"].get(kind) and all(
+                                collection["status"] == "empty" and collection["items"] == []
+                                for collection in scoped["collections"][kind])
+                            for kind in empty_dependencies)
+                        if getattr(check, "allow_incomplete_failure", False) or empty_applicable:
+                            # A conclusive violation or an explicitly empty target
+                            # inventory may resolve the check. Their independent
+                            # opt-ins can never produce PASS from incomplete data.
+                            try:
+                                observed_status, observed_evidence = check.evaluate(scoped["context"], scoped)
+                                if (observed_status == "FAIL" and getattr(check, "allow_incomplete_failure", False)
+                                        and isinstance(observed_evidence, dict)):
+                                    status = "FAIL"
+                                    evidence = {**observed_evidence, "incomplete_dependencies": incomplete}
+                                elif observed_status == "NOT_APPLICABLE" and empty_applicable and isinstance(observed_evidence, dict):
+                                    status = "NOT_APPLICABLE"
+                                    evidence = {**observed_evidence, "incomplete_dependencies": incomplete,
+                                                "empty_applicability_dependencies": list(empty_dependencies)}
+                            except (KeyError, TypeError, ValueError, AttributeError, IndexError, OverflowError):
+                                pass
+                    else:
                         try:
-                            observed_status, observed_evidence = check.evaluate(scoped["context"], scoped)
-                            if (observed_status == "FAIL" and getattr(check, "allow_incomplete_failure", False)
-                                    and isinstance(observed_evidence, dict)):
-                                status = "FAIL"
-                                evidence = {**observed_evidence, "incomplete_dependencies": incomplete}
-                            elif observed_status == "NOT_APPLICABLE" and empty_applicable and isinstance(observed_evidence, dict):
-                                status = "NOT_APPLICABLE"
-                                evidence = {**observed_evidence, "incomplete_dependencies": incomplete,
-                                            "empty_applicability_dependencies": list(empty_dependencies)}
-                        except (KeyError, TypeError, ValueError, AttributeError, IndexError, OverflowError):
-                            pass
-                else:
-                    try:
-                        status, evidence = check.evaluate(scoped["context"], scoped)
-                        if status not in ("PASS", "FAIL", "UNKNOWN", "DENIED", "MANUAL", "NOT_APPLICABLE") or not isinstance(evidence, dict):
-                            raise ValueError("invalid scoped check result")
-                    except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
-                        status, evidence = "UNKNOWN", {"reason": "missing or malformed scoped facts", "error_kind": type(exc).__name__}
-                findings.extend(collapse([emit_finding(scope, "scope:" + scope, check.kind, status, evidence)]))
-                coverage.append({"level": "check", "check_id": check.id, "type": check.kind, "scope": scope,
-                    "target": "scope", "status": "unknown" if status in ("UNKNOWN", "DENIED") else "manual" if status == "MANUAL" else "evaluated",
-                    "by_status": {status: 1}, "reason": _unknown_coverage_reason([{"status": status, "evidence": evidence}])
-                    if status in ("UNKNOWN", "DENIED") else "Scoped presence/aggregate evaluation over collected facts."})
-            continue
-        check_findings = []
-        collections = index["collections"].get(check.kind, [])
-        # Global inventories may use native account/global scope; their explicit envelope is authoritative.
-        if not collections:
-            from .check_scope import evaluation_scope
-            missing_scopes = snapshot["scopes"] or ["unknown"]
-            if evaluation_scope(check) == "global_resource":
-                accounts = sorted({scope.split("/", 1)[0] for scope in missing_scopes
-                    if re.fullmatch(r"[0-9]{12}/(?:global|[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+)", scope)})
-                missing_scopes = [account + "/global" for account in accounts] or missing_scopes
-            collections = [{"type": check.kind, "scope": scope, "service": check.kind, "status": "not_collected", "items": []} for scope in missing_scopes]
-        for collection in collections:
-            scope, collection_status = collection["scope"], collection["status"]
-            management_only = _aws_management_account_only_evidence(snapshot, check.id, scope)
-            scope_account = scope.split("/", 1)[0]
-            global_binding_conflict = bool(provider == "aws" and collection.get("global") is True
-                and re.fullmatch(r"[0-9]{12}", scope_account)
-                and (collection.get("account_id") not in (None, scope_account)
-                     or any(item.get("AccountId") not in (None, scope_account)
-                            for item in collection["items"])))
-            retirement = _retired_collection_evidence(provider, snapshot, collection)
-            psp_absence = (_psp_resource_absence_evidence(provider, snapshot, collection)
-                if check.id in _PSP_RESOURCE_CHECK_IDS and check.kind == "podsecuritypolicy"
-                and getattr(check, "target", "resource") == "resource" else None)
-            unsupported_region = _unsupported_aws_region(snapshot, collection)
-            scope_findings = []
-            prepared_automatic = (automatic_batch_adapter.prepare(scoped_index(scope), check.id)
-                if automatic_batch_adapter is not None else None)
-            for resource in by_scope.get((check.kind, scope), []):
-                # The rule index is scoped; foreign subscriptions/namespaces cannot satisfy a check.
-                scoped = scoped_index(scope)
-                try:
-                    # Sealed native data is a read-only view: checks share it instead of deep-copying it.
-                    if global_binding_conflict:
-                        raise ValueError("contradictory AWS global account provenance")
-                    status, evidence = (("NOT_APPLICABLE", management_only) if management_only else
-                        automatic_batch_adapter.evaluate_prepared(resource["data"], scoped, check.evaluate, prepared_automatic)
-                        if prepared_automatic is not None else check.evaluate(resource["data"], scoped))
-                    if status not in ("PASS", "FAIL", "UNKNOWN", "DENIED", "EMPTY", "MANUAL", "NOT_APPLICABLE") or not isinstance(evidence, dict):
-                        raise ValueError("invalid check result")
-                except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
-                    status, evidence = "UNKNOWN", {"reason": "missing or malformed provider facts", "error_kind": type(exc).__name__}
-                scope_findings.append(emit_finding(scope, resource["id"], resource["service"], status, evidence))
-            unavailable = (collection_status not in ("collected", "empty") and not psp_absence and not unsupported_region and not management_only) or bool(retirement and retirement[0] == "unknown")
-            empty_evaluated = False
-            if (not retirement and not scope_findings and collection_status == "empty"
-                    and collection.get("type") == check.kind and collection.get("scope") == scope
-                    and collection.get("items") == []):
-                # Private opt-in for controls whose scoped decision is meaningful
-                # without a primary resource. No incomplete collection can enter.
-                callback, visited, empty_callback = check.evaluate, set(), None
-                for _ in range(8):
-                    if callback is None or id(callback) in visited:
-                        break
-                    visited.add(id(callback))
-                    candidate = getattr(callback, "evaluate_empty_inventory", None)
-                    if callable(candidate):
-                        empty_callback = candidate
-                        break
-                    callback = getattr(callback, "__wrapped__", None)
-                if empty_callback is not None:
-                    try:
-                        if sum(c.get("scope") == scope for c in collections) != 1:
-                            raise ValueError("ambiguous empty primary inventory")
-                        outcome = empty_callback(scoped_index(scope)["context"], freeze(collection))
-                        if outcome is not None:
-                            status, evidence = outcome
+                            status, evidence = check.evaluate(scoped["context"], scoped)
                             if status not in ("PASS", "FAIL", "UNKNOWN", "DENIED", "MANUAL", "NOT_APPLICABLE") or not isinstance(evidence, dict):
-                                raise ValueError("invalid empty inventory decision")
-                            evidence = {**evidence, "evaluation_target": "scope", "empty_primary_inventory": check.kind}
+                                raise ValueError("invalid scoped check result")
+                        except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
+                            status, evidence = "UNKNOWN", {"reason": "missing or malformed scoped facts", "error_kind": type(exc).__name__}
+                    findings.extend(collapse([emit_finding(scope, "scope:" + scope, check.kind, status, evidence)]))
+                    coverage.append({"level": "check", "check_id": check.id, "type": check.kind, "scope": scope,
+                        "target": "scope", "status": "unknown" if status in ("UNKNOWN", "DENIED") else "manual" if status == "MANUAL" else "evaluated",
+                        "by_status": {status: 1}, "reason": _unknown_coverage_reason([{"status": status, "evidence": evidence}])
+                        if status in ("UNKNOWN", "DENIED") else "Scoped presence/aggregate evaluation over collected facts."})
+                continue
+            check_findings = []
+            collections = index["collections"].get(check.kind, [])
+            # Global inventories may use native account/global scope; their explicit envelope is authoritative.
+            if not collections:
+                from .check_scope import evaluation_scope
+                missing_scopes = snapshot["scopes"] or ["unknown"]
+                if evaluation_scope(check) == "global_resource":
+                    accounts = sorted({scope.split("/", 1)[0] for scope in missing_scopes
+                        if re.fullmatch(r"[0-9]{12}/(?:global|[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+)", scope)})
+                    missing_scopes = [account + "/global" for account in accounts] or missing_scopes
+                collections = [{"type": check.kind, "scope": scope, "service": check.kind, "status": "not_collected", "items": []} for scope in missing_scopes]
+            for collection in collections:
+                scope, collection_status = collection["scope"], collection["status"]
+                management_only = _aws_management_account_only_evidence(snapshot, check.id, scope)
+                scope_account = scope.split("/", 1)[0]
+                global_binding_conflict = bool(provider == "aws" and collection.get("global") is True
+                    and re.fullmatch(r"[0-9]{12}", scope_account)
+                    and (collection.get("account_id") not in (None, scope_account)
+                         or any(item.get("AccountId") not in (None, scope_account)
+                                for item in collection["items"])))
+                retirement = _retired_collection_evidence(provider, snapshot, collection)
+                psp_absence = (_psp_resource_absence_evidence(provider, snapshot, collection)
+                    if check.id in _PSP_RESOURCE_CHECK_IDS and check.kind == "podsecuritypolicy"
+                    and getattr(check, "target", "resource") == "resource" else None)
+                unsupported_region = _unsupported_aws_region(snapshot, collection)
+                scope_findings = []
+                prepared_automatic = (automatic_batch_adapter.prepare(scoped_index(scope), check.id)
+                    if automatic_batch_adapter is not None else None)
+                for resource in by_scope.get((check.kind, scope), []):
+                    # The rule index is scoped; foreign subscriptions/namespaces cannot satisfy a check.
+                    scoped = scoped_index(scope)
+                    try:
+                        # Sealed native data is a read-only view: checks share it instead of deep-copying it.
+                        if global_binding_conflict:
+                            raise ValueError("contradictory AWS global account provenance")
+                        status, evidence = (("NOT_APPLICABLE", management_only) if management_only else
+                            automatic_batch_adapter.evaluate_prepared(resource["data"], scoped, check.evaluate, prepared_automatic)
+                            if prepared_automatic is not None else check.evaluate(resource["data"], scoped))
+                        if status not in ("PASS", "FAIL", "UNKNOWN", "DENIED", "EMPTY", "MANUAL", "NOT_APPLICABLE") or not isinstance(evidence, dict):
+                            raise ValueError("invalid check result")
+                    except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
+                        status, evidence = "UNKNOWN", {"reason": "missing or malformed provider facts", "error_kind": type(exc).__name__}
+                    scope_findings.append(emit_finding(scope, resource["id"], resource["service"], status, evidence))
+                unavailable = (collection_status not in ("collected", "empty") and not psp_absence and not unsupported_region and not management_only) or bool(retirement and retirement[0] == "unknown")
+                empty_evaluated = False
+                if (not retirement and not scope_findings and collection_status == "empty"
+                        and collection.get("type") == check.kind and collection.get("scope") == scope
+                        and collection.get("items") == []):
+                    # Private opt-in for controls whose scoped decision is meaningful
+                    # without a primary resource. No incomplete collection can enter.
+                    callback, visited, empty_callback = check.evaluate, set(), None
+                    for _ in range(8):
+                        if callback is None or id(callback) in visited:
+                            break
+                        visited.add(id(callback))
+                        candidate = getattr(callback, "evaluate_empty_inventory", None)
+                        if callable(candidate):
+                            empty_callback = candidate
+                            break
+                        callback = getattr(callback, "__wrapped__", None)
+                    if empty_callback is not None:
+                        try:
+                            if sum(c.get("scope") == scope for c in collections) != 1:
+                                raise ValueError("ambiguous empty primary inventory")
+                            outcome = empty_callback(scoped_index(scope)["context"], freeze(collection))
+                            if outcome is not None:
+                                status, evidence = outcome
+                                if status not in ("PASS", "FAIL", "UNKNOWN", "DENIED", "MANUAL", "NOT_APPLICABLE") or not isinstance(evidence, dict):
+                                    raise ValueError("invalid empty inventory decision")
+                                evidence = {**evidence, "evaluation_target": "scope", "empty_primary_inventory": check.kind}
+                                empty_evaluated = True
+                        except Exception as exc:
+                            status, evidence = "UNKNOWN", {"reason": "empty inventory decision unavailable",
+                                "error_kind": type(exc).__name__, "evaluation_target": "scope", "empty_primary_inventory": check.kind}
                             empty_evaluated = True
-                    except Exception as exc:
-                        status, evidence = "UNKNOWN", {"reason": "empty inventory decision unavailable",
-                            "error_kind": type(exc).__name__, "evaluation_target": "scope", "empty_primary_inventory": check.kind}
-                        empty_evaluated = True
-                    if empty_evaluated:
-                        scope_findings.append(emit_finding(scope, "scope:" + scope,
-                            collection.get("service", check.kind), status, evidence))
-            if unavailable or not scope_findings:
-                status = "UNKNOWN" if retirement and retirement[0] == "unknown" else "NOT_APPLICABLE" if retirement or psp_absence or unsupported_region or management_only else "DENIED" if collection_status == "denied" else "EMPTY" if collection_status == "empty" else "UNKNOWN"
-                scope_findings.append(emit_finding(scope, "inventory:" + check.kind, collection.get("service", check.kind), status,
-                    retirement[1] if retirement else psp_absence if psp_absence else _unsupported_aws_region_evidence(collection) if unsupported_region else management_only if management_only else {"collection_status": collection_status, "reason": collection.get("error", {}).get("code", "no collected resources"),
-                     "semantics": "Inventory coverage, not a resource security pass."}))
-            check_findings.extend(scope_findings)
-            counts = dict(Counter(f["status"] for f in scope_findings))
-            check_status = "not_applicable" if management_only or unsupported_region else "partial" if unavailable and collection_status == "partial" else "denied" if collection_status == "denied" else "unknown" if unavailable or counts.get("UNKNOWN") or counts.get("DENIED") else "empty" if collection_status == "empty" else "manual" if counts.get("MANUAL") else "evaluated"
-            if empty_evaluated:
-                check_status = "unknown" if counts.get("UNKNOWN") or counts.get("DENIED") else "manual" if counts.get("MANUAL") else "evaluated"
-            coverage.append({"level": "check", "check_id": check.id, "type": check.kind, "scope": scope,
-                **({"target": "scope"} if empty_evaluated else {}),
-                "status": check_status, "by_status": counts, "reason": _unknown_coverage_reason(scope_findings, collection_status=collection_status)
-                if check_status in ("unknown", "denied", "partial") and not retirement and not psp_absence else retirement[1]["reason"] if retirement else psp_absence["reason"] if psp_absence else ""})
-        findings.extend(collapse(_dedupe_cross_scope(check_findings, native_ids, provider)))
+                        if empty_evaluated:
+                            scope_findings.append(emit_finding(scope, "scope:" + scope,
+                                collection.get("service", check.kind), status, evidence))
+                if unavailable or not scope_findings:
+                    status = "UNKNOWN" if retirement and retirement[0] == "unknown" else "NOT_APPLICABLE" if retirement or psp_absence or unsupported_region or management_only else "DENIED" if collection_status == "denied" else "EMPTY" if collection_status == "empty" else "UNKNOWN"
+                    scope_findings.append(emit_finding(scope, "inventory:" + check.kind, collection.get("service", check.kind), status,
+                        retirement[1] if retirement else psp_absence if psp_absence else _unsupported_aws_region_evidence(collection) if unsupported_region else management_only if management_only else {"collection_status": collection_status, "reason": collection.get("error", {}).get("code", "no collected resources"),
+                         "semantics": "Inventory coverage, not a resource security pass."}))
+                check_findings.extend(scope_findings)
+                counts = dict(Counter(f["status"] for f in scope_findings))
+                check_status = "not_applicable" if management_only or unsupported_region else "partial" if unavailable and collection_status == "partial" else "denied" if collection_status == "denied" else "unknown" if unavailable or counts.get("UNKNOWN") or counts.get("DENIED") else "empty" if collection_status == "empty" else "manual" if counts.get("MANUAL") else "evaluated"
+                if empty_evaluated:
+                    check_status = "unknown" if counts.get("UNKNOWN") or counts.get("DENIED") else "manual" if counts.get("MANUAL") else "evaluated"
+                coverage.append({"level": "check", "check_id": check.id, "type": check.kind, "scope": scope,
+                    **({"target": "scope"} if empty_evaluated else {}),
+                    "status": check_status, "by_status": counts, "reason": _unknown_coverage_reason(scope_findings, collection_status=collection_status)
+                    if check_status in ("unknown", "denied", "partial") and not retirement and not psp_absence else retirement[1]["reason"] if retirement else psp_absence["reason"] if psp_absence else ""})
+            findings.extend(collapse(_dedupe_cross_scope(check_findings, native_ids, provider)))
     emit_progress(phase="evaluating", provider=provider, completed=len(selected), total=len(selected),
                   resources=len(inventory), dynamic_total=False)
     # Native predicate count is known, but graph/manual/post-processing work
@@ -1655,8 +1703,9 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
         if analysis_selected:
             from .analysis import analyze_findings
             expected_ids = {c["id"] for c in analysis_selected}
-            analyzed = [f for f in analyze_findings(snapshot, inventory, index, include_manual_only=False,
-                categories={c["category"] for c in analysis_selected}) if f["check_id"] in expected_ids and f["category"] in selected_categories]
+            with _runtime_span('engine.analysis'):
+                analyzed = [f for f in analyze_findings(snapshot, inventory, index, include_manual_only=False,
+                    categories={c["category"] for c in analysis_selected}) if f["check_id"] in expected_ids and f["category"] in selected_categories]
             # Group once (order kept) instead of rescanning every analyzed finding per analysis check.
             analyzed_by_check = defaultdict(list)
             for f in analyzed:
@@ -1677,8 +1726,9 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
         if graph_categories:
             from .analysis import build_graphs
             # The report keeps the complete (uncollapsed) graph; bounded views are server-side projections.
-            built = build_graphs(snapshot, inventory, index, max_nodes=None, collapse_unreferenced=not include_not_applicable,
-                graph_kinds={"network" if category == "network" else "iam" for category in graph_categories})
+            with _runtime_span('engine.graphs'):
+                built = build_graphs(snapshot, inventory, index, max_nodes=None, collapse_unreferenced=not include_not_applicable,
+                    graph_kinds={"network" if category == "network" else "iam" for category in graph_categories})
             for graph, category in (("network", "network"), ("iam", "iam_graph")):
                 if category in graph_categories:
                     graphs[graph] = built[graph]
@@ -1689,7 +1739,8 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     graphs.setdefault("privesc", {"nodes": [], "edges": []})
     privesc_filter = None if graph_only_checkpoint else _privesc_selected(provider, selected_categories, checks, frameworks)
     if privesc_filter is not None:
-        privesc_findings, privesc_coverage, graphs["privesc"], privesc_stats, privesc_timing = _run_privesc(snapshot, privesc_filter, related)
+        with _runtime_span('engine.privesc'):
+            privesc_findings, privesc_coverage, graphs["privesc"], privesc_stats, privesc_timing = _run_privesc(snapshot, privesc_filter, related)
         if timings is not None:
             timings["privesc"] = privesc_timing
         findings.extend(collapse(privesc_findings))
@@ -2147,11 +2198,13 @@ def scan(request):
 
     request["include_not_applicable"] (default False) keeps per-resource NOT_APPLICABLE / EMPTY rows;
     request["related_snapshots"] (optional) are other-provider snapshots joined by the privesc evaluator."""
+    from .content_scan_selection import normalize_request
+    request = normalize_request(request)
     snapshot = collect_snapshot(request)
     timings = {}
     report = evaluate_snapshot(snapshot, request.get("categories"), request.get("checks"), request.get("frameworks"), timings=timings,
                                include_not_applicable=bool(request.get("include_not_applicable", False)),
-                               related_snapshots=request.get("related_snapshots"))
+                               related_snapshots=request.get("related_snapshots"), content_checks=request.get("content_checks"))
     if timings:
         report["timings"] = timings
     return report, snapshot

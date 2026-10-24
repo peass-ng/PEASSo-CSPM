@@ -95,7 +95,7 @@ def _self_proof():
                 'historical_guard_sha256', 'historical_receipt_sha256',
                 'collector_before_sha256', 'collector_after_sha256', 'helper_sha256',
                 'snapshot_sha256',
-                'ids', 'capture_enabled', 'collector_globals'}
+                'ids', 'capture_enabled', 'collector_globals', 'engine_plan_admission'}
     if (set(receipt) != required or receipt['schema'] != 'finite-k8s-annotation-successor-v1'
             or receipt['ids'] != list(historical.IDS) or receipt['capture_enabled'] is not False
             or receipt['historical_guard_sha256'] != GUARD_SHA
@@ -296,6 +296,40 @@ def _namespace():
         raise
 
 
+def _engine_plan_source():
+    """Authenticate one reviewed planner successor through the existing owner."""
+    row = json.loads(RECEIPT.read_text(), object_pairs_hook=historical._pairs)['engine_plan_admission']
+    if set(row) != {'current_fragment_sha256', 'predecessor_fragment_sha256',
+                    'predecessor_source', 'defaults', 'kwdefaults'}:
+        raise RuntimeError('Annotation engine planner receipt changed')
+    path = ROOT / 'peaso/engine.py'
+    raw = path.read_bytes()
+    owner = importlib.import_module('peaso.checks.private_secret_shared_source_successor_20261021')
+    if (sys.modules.get(owner.__name__) is not owner
+            or Path(owner.__file__).resolve() != ROOT / 'peaso/checks/private_secret_shared_source_successor_20261021.py'):
+        raise RuntimeError('Annotation engine source owner changed')
+    # This verifies current whole-file bytes and reconstructs its immutable
+    # predecessor using the already admitted, exact current transition.
+    owner._private_before('peaso/engine.py', raw, ROOT)
+    text = raw.decode('utf-8'); lines = text.splitlines(keepends=True)
+    nodes = [node for node in ast.parse(text).body
+             if isinstance(node, ast.FunctionDef) and node.name == 'plan_collection']
+    if len(nodes) != 1:
+        raise RuntimeError('Annotation engine planner source is ambiguous')
+    node = nodes[0]
+    current = ''.join(lines[node.lineno - 1:node.end_lineno])
+    prior = row['predecessor_source']
+    expected = historical._source_receipt()['compiled_sources']['peaso/engine.py']
+    if (_sha(current.encode()) != row['current_fragment_sha256']
+            or _sha(prior.encode()) != row['predecessor_fragment_sha256']
+            or row['predecessor_fragment_sha256'] != expected['functions']['plan_collection']['source_sha256']
+            or text.count(current) != 1):
+        raise RuntimeError('Annotation engine planner exact transition changed')
+    previous = text.replace(current, prior, 1).encode('utf-8')
+    scoped = historical._verified_source('peaso/engine.py', previous, expected)
+    return row, raw, scoped
+
+
 def install():
     _self_proof()
     raw, before = _source_proofs()
@@ -339,6 +373,11 @@ def install():
             if candidate_raw != current_raw or historical_raw != before:
                 raise RuntimeError('Successor collector source view changed')
             return original_source_view(relative, historical_raw, expected)
+        if relative == 'peaso/engine.py':
+            _, current_raw, previous_source = _engine_plan_source()
+            if candidate_raw != current_raw:
+                raise RuntimeError('Annotation engine source view changed')
+            return original_source_view(relative, previous_source, expected)
         return original_source_view(relative, candidate_raw, expected)
 
     def trusted_definition(function):
@@ -350,6 +389,27 @@ def install():
             if function is not current[function.__name__]:
                 raise RuntimeError('Successor collector callable binding changed')
             return 'peaso/collectors/k8s.py', old_definitions[function.__name__]
+        if (isinstance(function, types.FunctionType)
+                and function.__globals__.get('__name__') == 'peaso.engine'
+                and function.__qualname__ == 'plan_collection'):
+            row, current_raw, previous_source = _engine_plan_source()
+            module = sys.modules.get('peaso.engine')
+            current = [(record, code) for record, code in historical._compiled_source(
+                current_raw, str(ROOT / 'peaso/engine.py'), sys.flags.optimize)
+                if record['qualname'] == 'plan_collection']
+            previous = [(record, code) for record, code in historical._compiled_source(
+                previous_source, str(ROOT / 'peaso/engine.py'), sys.flags.optimize)
+                if record['qualname'] == 'plan_collection']
+            if (module is None or function is not vars(module).get('plan_collection')
+                    or function.__globals__ is not vars(module) or function.__closure__ is not None
+                    or function.__module__ != 'peaso.engine'
+                    or function.__code__.co_filename != str(ROOT / 'peaso/engine.py')
+                    or len(current) != 1 or len(previous) != 1
+                    or _shape(function.__code__) != _shape(current[0][1])
+                    or repr(function.__defaults__) != row['defaults']
+                    or repr(function.__kwdefaults__) != row['kwdefaults']):
+                raise RuntimeError('Annotation engine planner live binding changed')
+            return 'peaso/engine.py', previous[0][0]
         return original_attestor(function)
 
     namespace._verified_source = source_view

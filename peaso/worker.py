@@ -18,6 +18,8 @@ from peaso.server.config import Settings
 from peaso.storage import SQLiteStore, FileArtifacts, S3Artifacts, StoreError
 from peaso.storage.runtime import stores, WorkflowDispatcher
 
+from peaso.runtime_metrics import span as _runtime_span
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -303,35 +305,42 @@ def _collector_checkpoint_publisher(artifacts, publication_artifacts, tenant, id
         artifacts.put_secret_evidence(tenant, ident, document)
 
     def checkpoint(snapshot, report, sequence):
-        with handoff_lock:
-            commit_private()
-        snapshot_ref = artifacts.put(tenant, ident, "snapshot", snapshot)
-        if report is not None:
-            from peaso.storage.reports import publish_report
-            report_ref = publish_report(publication_artifacts, tenant, ident,
-                                        without_private_values(redact_report(report)), snapshot)
-        else:
-            report_ref = None
-        batch = (report is None and 'batch_revisions' in
-                 snapshot.get('metadata', {}).get('incremental', {}))
-        envelope = snapshot["collections"][0] if report is None and not batch else None
-        with handoff_lock:
-            if report is not None:
-                # Capture may advance while the public report is built. Never
-                # overwrite a newer private document with an older publisher.
+        with _runtime_span("worker.public_checkpoint"):
+            with handoff_lock:
                 commit_private()
-            connection.send(("__checkpoint__", {"sequence": sequence, "stage": "collector",
-                "snapshot_ref": snapshot_ref, "report_ref": report_ref,
-                "kind": '__checkpoint_batch__' if batch else envelope["type"] if envelope else None,
-                "scope": str(sequence) if batch else envelope["scope"] if envelope else None}))
-            if connection.recv() != ("__checkpoint_ack__", sequence, True):
-                raise RuntimeError("checkpoint lease or publication rejected")
+            snapshot_ref = artifacts.put(tenant, ident, "snapshot", snapshot)
+            if report is not None:
+                from peaso.storage.reports import publish_report
+                report_ref = publish_report(publication_artifacts, tenant, ident,
+                                            without_private_values(redact_report(report)), snapshot)
+            else:
+                report_ref = None
+            batch = (report is None and 'batch_revisions' in
+                     snapshot.get('metadata', {}).get('incremental', {}))
+            envelope = snapshot["collections"][0] if report is None and not batch else None
+            with handoff_lock:
+                if report is not None:
+                    # Capture may advance while the public report is built. Never
+                    # overwrite a newer private document with an older publisher.
+                    commit_private()
+                connection.send(("__checkpoint__", {"sequence": sequence, "stage": "collector",
+                    "snapshot_ref": snapshot_ref, "report_ref": report_ref,
+                    "kind": '__checkpoint_batch__' if batch else envelope["type"] if envelope else None,
+                    "scope": str(sequence) if batch else envelope["scope"] if envelope else None}))
+                if connection.recv() != ("__checkpoint_ack__", sequence, True):
+                    raise RuntimeError("checkpoint lease or publication rejected")
 
     return checkpoint
 
 
 def _process(role, request, connection):
     connection = _SynchronizedPipe(connection)
+    from peaso import runtime_metrics
+    runtime_metrics.configure(connection.send, role=role)
+    aws_metrics = None
+    if role == "collector" and request.get("connector", {}).get("provider") == "aws":
+        from peaso.aws_call_metrics import install as install_aws_metrics
+        aws_metrics = install_aws_metrics(connection.send)
     if role == "collector":
         from peaso.secret_scanning_batch import configure_metrics
         configure_metrics(connection.send)
@@ -368,12 +377,13 @@ def _process(role, request, connection):
             if request.get("ai_enabled", True):
                 # Scope labels do not restrict AWS or shared GCP credentials.
                 ai_access.begin(allow_live=ai_access.may_capture_live(connector))
-            from peaso.secret_evidence import capture, checks_for_request
+            from peaso.secret_evidence import capture
+            from peaso.content_scan_selection import capture_checks, effective_options
             from peaso.private_evidence_checkpoint import PrivateEvidenceCheckpoint
             private_checkpoint = PrivateEvidenceCheckpoint()
             evidence_cipher = CredentialCipher(Path(request.get('ai_context', {}).get('identity_dir') or Settings().identity_dir))
-            with capture(evidence_cipher, tenant=tenant, scan_id=ident, options=connector.get('options'),
-                         selected_checks=checks_for_request(request)) as secret_capture:
+            with capture(evidence_cipher, tenant=tenant, scan_id=ident, options=effective_options(request),
+                         selected_checks=capture_checks(request)) as secret_capture:
                 from peaso.incremental import CheckpointSession
                 from peaso.secret_evidence import _lock as private_evidence_lock, without_private_values
                 if request.get("checkpoint_refs"):
@@ -450,7 +460,8 @@ def _process(role, request, connection):
                                 snapshot = make_snapshot(prior["provider"], prior["scopes"], saved_rows,
                                     created_at=prior["created_at"], metadata=prior.get("metadata"))
                             else:
-                                snapshot = collect_snapshot(request)
+                                with _runtime_span('worker.collect'):
+                                    snapshot = collect_snapshot(request)
                         if saved_rows and remaining:
                             from peaso.collectors.resume import merge
                             snapshot = merge(snapshot, saved_rows, prior)
@@ -469,7 +480,8 @@ def _process(role, request, connection):
                     del checkpoint_session
             # Separate encrypted per-scan object; no reference or value enters
             # the native snapshot, public report, supervisor pipe or AI context.
-            snapshot = secret_capture.public_snapshot(snapshot)
+            with _runtime_span('worker.redact'):
+                snapshot = secret_capture.public_snapshot(snapshot)
             artifacts.put_secret_evidence(tenant, ident, private_checkpoint.document(secret_capture))
             if request.get("ai_enabled", True) and ai_credentials:
                 try:
@@ -489,7 +501,8 @@ def _process(role, request, connection):
                 failure_reasons = _curated_target_reasons(snapshot, request["connector"])
                 raise PermissionError("no collection was readable with the connector credentials")
             snapshot.setdefault("metadata", {})["input_mode"] = request["connector"].get("input_mode", "live")
-            value = seal(redact(snapshot, tuple(credential_values(request["connector"].get("auth", {})))))
+            with _runtime_span('worker.final_snapshot'):
+                value = seal(redact(snapshot, tuple(credential_values(request["connector"].get("auth", {})))))
             reference = artifacts.put(tenant, ident, "snapshot", value)
             if expired:
                 resume_reference = reference
@@ -506,13 +519,16 @@ def _process(role, request, connection):
                     continue
                 related.append(item)
                 sources[item.get("snapshot_id")] = {"scan_id": entry["scan_id"], "connector_id": entry["connector_id"]}
-            report = evaluate_snapshot(snapshot, categories=selectors.get("categories") or None,
-                           checks=selectors.get("checks") or None, frameworks=selectors.get("frameworks") or None,
-                           include_not_applicable=bool(selectors.get("include_not_applicable", False)),
-                           related_snapshots=related)
+            with _runtime_span('worker.evaluate'):
+                report = evaluate_snapshot(snapshot, categories=selectors.get("categories") if selectors.get("content_checks") else selectors.get("categories") or None,
+                               checks=selectors.get("checks") or None, frameworks=selectors.get("frameworks") or None,
+                               content_checks=selectors.get("content_checks"),
+                               include_not_applicable=bool(selectors.get("include_not_applicable", False)),
+                               related_snapshots=related)
             for row in report.get("related_snapshots", []):
                 row.update(sources.get(row["snapshot_id"], {}))
-            value = redact_report(report)
+            with _runtime_span('worker.redact'):
+                value = redact_report(report)
             value["input_mode"] = snapshot.get("metadata", {}).get("input_mode", "live")
             from peaso.storage.cost import runtime_estimate
             value["runtime"] = runtime_estimate(request["timeline"])
@@ -526,12 +542,14 @@ def _process(role, request, connection):
                 # The disabled branch is deterministic and performs no provider
                 # or model work. Include its actual result in the first durable
                 # native bundle instead of rebuilding every export afterward.
-                value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
-                                          deadline=request.get("deadline"), context=request.get("ai_context"))
+                with _runtime_span('worker.ai'):
+                    value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
+                                              deadline=request.get("deadline"), context=request.get("ai_context"))
             native_value = dict(value, publication={"state": "final" if ai_disabled else "partial",
                 "phase": "completed" if ai_disabled else "analyzing",
                 "sequence": native_sequence, "sections": sections})
-            native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot)
+            with _runtime_span('worker.final_publish'):
+                native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot)
             connection.send(("__checkpoint__", {"sequence": native_sequence,
                 "stage": "analyzer_native", "snapshot_ref": request["snapshot_ref"],
                 "report_ref": native_reference, "kind": None, "scope": None}))
@@ -550,15 +568,20 @@ def _process(role, request, connection):
                 # mandatory. The exact final native bundle is already durable.
                 reference = native_reference
             else:
-                value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
-                                          deadline=request.get("deadline"), context=request.get("ai_context"),
-                                          reused_stages=reused_stages)
+                with _runtime_span('worker.ai'):
+                    value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
+                                              deadline=request.get("deadline"), context=request.get("ai_context"),
+                                              reused_stages=reused_stages)
                 from peaso.ai.network import with_findings
                 value = with_findings(value, value["ai"].get("network", {}).get("findings", []))
                 value["publication"] = {"state": "final", "phase": "completed", "sequence": native_sequence,
                                         "sections": sections}
-                reference = publish_report(publication_artifacts, tenant, ident, value, snapshot)
+                with _runtime_span('worker.final_publish'):
+                    reference = publish_report(publication_artifacts, tenant, ident, value, snapshot)
         # Large evidence/report objects never cross the supervisor process pipe.
+        if aws_metrics is not None:
+            aws_metrics.close()
+        runtime_metrics.flush()
         connection.send((True, reference))
     except BaseException as exc:
         if isinstance(exc, CredentialExpired) or _expired_exception(exc):
@@ -576,8 +599,14 @@ def _process(role, request, connection):
             code = "collector_timeout"
         else:
             code = "provider_error"
+        if aws_metrics is not None:
+            aws_metrics.close()
+        runtime_metrics.flush()
         connection.send((False, code, _safe_failure_details(exc), failure_reasons, resume_reference))
     finally:
+        if aws_metrics is not None:
+            aws_metrics.close()
+        runtime_metrics.close()
         connection.close()
 
 
@@ -766,6 +795,17 @@ class Worker:
                             if self.role != "analyzer" or stage_poll is None or stage_results_pending:
                                 raise RuntimeError("unexpected progressive stage result request")
                             stage_results_pending = True
+                            result = None
+                            continue
+                        if isinstance(result, tuple) and len(result) == 2 and result[0] == "__aws_metrics__":
+                            if self.role == "collector":
+                                from peaso.aws_call_metrics import record_metrics as record_aws_metrics
+                                record_aws_metrics(result[1], LOGGER)
+                            result = None
+                            continue
+                        if isinstance(result, tuple) and len(result) == 2 and result[0] == "__runtime_metrics__":
+                            from peaso.runtime_metrics import record
+                            record(result[1], LOGGER)
                             result = None
                             continue
                         if isinstance(result, tuple) and len(result) == 2 and result[0] == "__content_metrics__":

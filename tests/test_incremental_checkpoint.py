@@ -26,7 +26,11 @@ def _session(monkeypatch, tmp_path, *, second=False, fail_second=False, **batch_
     image = SimpleNamespace(id="test.image", category="vulnerability", kind="image",
                             dependencies=("image",))
     checks = [hardening, image] if second else [hardening]
-    monkeypatch.setattr(engine, "_selection", lambda *args: ([c.category for c in checks], checks))
+    def selected(*args, content_checks=None):
+        # This legacy fixture intentionally selects ordinary checks only.
+        assert content_checks in (None, [])
+        return [c.category for c in checks], checks
+    monkeypatch.setattr(engine, "_selection", selected)
     monkeypatch.setattr(engine, "_analysis_selection", lambda *args: [])
     monkeypatch.setattr(engine, "_privesc_selected", lambda *args: None)
     analysis = types.ModuleType("peaso.analysis")

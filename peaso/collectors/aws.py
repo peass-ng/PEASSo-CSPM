@@ -557,7 +557,9 @@ class Requests:
                         ready = max(now, self._activity_next_read.get(rate_key, now))
                         self._activity_next_read[rate_key] = ready + 0.5
                     if ready > now:
-                        self._sleep(ready - now)
+                        from peaso.runtime_metrics import span as _runtime_span
+                        with _runtime_span("aws.rate_limit.cloudtrail"):
+                            self._sleep(ready - now)
                 report_key = (id(session), "iam-access-report") if service == "iam" and operation in {"generate_service_last_accessed_details", "get_service_last_accessed_details"} else None
                 if report_key:
                     with self._lock:
@@ -565,7 +567,9 @@ class Requests:
                         ready = max(now, self._report_next.get(report_key, now))
                         self._report_next[report_key] = ready + self._report_interval.get(report_key, 0.1)
                     if ready > now:
-                        self._sleep(ready - now)
+                        from peaso.runtime_metrics import span as _runtime_span
+                        with _runtime_span("aws.rate_limit.iam"):
+                            self._sleep(ready - now)
                 self.check_deadline()
                 with self._lock:
                     if self.max_calls is not None and self.calls >= self.max_calls:
@@ -747,10 +751,12 @@ class Requests:
                     delay = max(fallback, provider_minimum or 0.0)
                     if self.deadline is not None and time.monotonic() + delay >= self.deadline:
                         raise ReadFailure("timeout", "retry_wait_exceeds_deadline")
-                    if self.cancel_event is not None and self._sleep is time.sleep and callable(getattr(self.cancel_event, "wait", None)):
-                        self.cancel_event.wait(delay)
-                    else:
-                        self._sleep(delay)
+                    from peaso.runtime_metrics import span as _runtime_span
+                    with _runtime_span("aws.retry_wait"):
+                        if self.cancel_event is not None and self._sleep is time.sleep and callable(getattr(self.cancel_event, "wait", None)):
+                            self.cancel_event.wait(delay)
+                        else:
+                            self._sleep(delay)
                     self.check_deadline()
         except Exception as exc:
             failure = _failure(exc)
@@ -2461,312 +2467,316 @@ def collect(connector, requirements=None):
         total=progress_total, resources=total_items, dynamic_total=False)
 
     def global_job(session, identity, kind):
-        account = identity["Account"]
-        region = regions_for(account)[0]
-        if kind in FETCHERS:
-            return regional_job(session, identity, region, kind)
-        if kind == "aws_account":
-            return ReadResult([identity])
-        if kind == "aws_account_configuration":
-            return _account_configuration(requests, session, region, identity)
-        if kind == "config_delegated_administrator":
-            read = requests.pages(session, "organizations", region, "list_delegated_administrators", "DelegatedAdministrators", ServicePrincipal="config.amazonaws.com")
-            read.items = [{"Id": original["Id"]} for original in read.items]
-            return read
-        if kind == "config_account_aggregator_inventory":
-            if account in region_discovery_errors:
-                failure = region_discovery_errors[account]
-                return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
-            if explicit_regions:
-                return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
-            items, failure = [], None
-            for observed_region in regions_for(account):
-                read = regional_job(session, identity, observed_region, "config_aggregator")
-                items.extend({**original, "SourceRegion": observed_region} for original in read.items)
-                if read.status not in {"collected", "empty"}:
-                    failure = ReadFailure((read.error or {}).get("cause_status", read.status), (read.error or {}).get("code", "account_aggregator_inventory_incomplete"))
-            if failure:
-                return ReadResult(items, "partial" if items else failure.status, {"code": failure.code, "cause_status": failure.status})
-            return ReadResult(items, "collected" if items else "empty")
-        if kind == "cloudtrail_account_inventory":
-            if account in region_discovery_errors:
-                failure = region_discovery_errors[account]
-                return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
-            if explicit_regions:
-                return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
-            observations, malformed, failure = {}, [], None
-            for observed_region in regions_for(account):
-                read = regional_job(session, identity, observed_region, "cloudtrail")
-                for original in read.items:
-                    if not isinstance(original, dict) or not isinstance(original.get("TrailARN"), str) or not original["TrailARN"]:
-                        failure = ReadFailure("malformed", "malformed_account_trail")
-                        malformed.append({"SourceRegion": observed_region, "NativeObservation": original})
+        from peaso.runtime_metrics import span as _runtime_span
+        with _runtime_span("collection.job"):
+            account = identity["Account"]
+            region = regions_for(account)[0]
+            if kind in FETCHERS:
+                return regional_job(session, identity, region, kind)
+            if kind == "aws_account":
+                return ReadResult([identity])
+            if kind == "aws_account_configuration":
+                return _account_configuration(requests, session, region, identity)
+            if kind == "config_delegated_administrator":
+                read = requests.pages(session, "organizations", region, "list_delegated_administrators", "DelegatedAdministrators", ServicePrincipal="config.amazonaws.com")
+                read.items = [{"Id": original["Id"]} for original in read.items]
+                return read
+            if kind == "config_account_aggregator_inventory":
+                if account in region_discovery_errors:
+                    failure = region_discovery_errors[account]
+                    return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
+                if explicit_regions:
+                    return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
+                items, failure = [], None
+                for observed_region in regions_for(account):
+                    read = regional_job(session, identity, observed_region, "config_aggregator")
+                    items.extend({**original, "SourceRegion": observed_region} for original in read.items)
+                    if read.status not in {"collected", "empty"}:
+                        failure = ReadFailure((read.error or {}).get("cause_status", read.status), (read.error or {}).get("code", "account_aggregator_inventory_incomplete"))
+                if failure:
+                    return ReadResult(items, "partial" if items else failure.status, {"code": failure.code, "cause_status": failure.status})
+                return ReadResult(items, "collected" if items else "empty")
+            if kind == "cloudtrail_account_inventory":
+                if account in region_discovery_errors:
+                    failure = region_discovery_errors[account]
+                    return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
+                if explicit_regions:
+                    return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
+                observations, malformed, failure = {}, [], None
+                for observed_region in regions_for(account):
+                    read = regional_job(session, identity, observed_region, "cloudtrail")
+                    for original in read.items:
+                        if not isinstance(original, dict) or not isinstance(original.get("TrailARN"), str) or not original["TrailARN"]:
+                            failure = ReadFailure("malformed", "malformed_account_trail")
+                            malformed.append({"SourceRegion": observed_region, "NativeObservation": original})
+                            continue
+                        item = {**original, "SourceRegion": observed_region}
+                        observations.setdefault(item["TrailARN"], []).append(item)
+                    if read.status not in {"collected", "empty"}:
+                        failure = ReadFailure((read.error or {}).get("cause_status", read.status), (read.error or {}).get("code", "account_trail_inventory_incomplete"))
+                trails = []
+                for arn, copies in observations.items():
+                    # Keep every native observation; a dict overwrite would erase a
+                    # second home row before the signed uniqueness gate sees it.
+                    homes = [row for row in copies if row.get("SourceRegion") == row.get("HomeRegion")]
+                    selected = homes[0] if homes else copies[0]
+                    identity_fields = ("TrailARN", "Name", "HomeRegion", "IsOrganizationTrail", "IsMultiRegionTrail")
+                    consistent = all(all(row.get(field) == selected.get(field) for field in identity_fields) for row in copies)
+                    arn_parts = re.fullmatch(r"arn:aws(?:-[a-z0-9-]+)?:cloudtrail:([a-z0-9-]+):([0-9]{12}):trail/[^/]+", arn)
+                    home = selected.get("HomeRegion")
+                    if (len(homes) != 1 or not consistent or arn_parts is None or
+                            arn_parts.group(1) != home or not isinstance(selected.get("Name"), str) or not selected["Name"] or
+                            (arn_parts.group(2) != account and selected.get("IsOrganizationTrail") is not True)):
+                        failure = ReadFailure("malformed", "ambiguous_account_trail")
+                    selected = {**selected, "_account_trail_observations": copies}
+                    # identity comes only from this session's GetCallerIdentity;
+                    # a declared AccountId on a trail is not an account binding.
+                    selected["_account_trail_binding"] = {
+                        "caller_account_id": account, "identity_operation": "sts:GetCallerIdentity",
+                        "describe_operation": "cloudtrail:DescribeTrails", "include_shadow_trails": True,
+                        "trail_arn": arn, "capture_observed_at": requests.observed_at.isoformat(),
+                    }
+                    trails.append(selected)
+                # Reuse the strict native, read-only IAM simulation. Its rows are
+                # bound to a single home-region trail, role, and log group; an
+                # incomplete regional read never supplies permission evidence.
+                permission_rows = {}
+                for home_region in ({row.get("HomeRegion") for row in trails
+                                    if row.get("SourceRegion") == row.get("HomeRegion") and
+                                    row.get("Status", {}).get("IsLogging") is True and
+                                    row.get("IsOrganizationTrail") is False and type(row.get("IsMultiRegionTrail")) is bool and
+                                    row.get("CloudWatchLogsRoleArn") and row.get("CloudWatchLogsLogGroupArn")}
+                                    if "cloudtrail_delivery_role_scope" in wanted else set()):
+                    if not isinstance(home_region, str):
                         continue
-                    item = {**original, "SourceRegion": observed_region}
-                    observations.setdefault(item["TrailARN"], []).append(item)
-                if read.status not in {"collected", "empty"}:
-                    failure = ReadFailure((read.error or {}).get("cause_status", read.status), (read.error or {}).get("code", "account_trail_inventory_incomplete"))
-            trails = []
-            for arn, copies in observations.items():
-                # Keep every native observation; a dict overwrite would erase a
-                # second home row before the signed uniqueness gate sees it.
-                homes = [row for row in copies if row.get("SourceRegion") == row.get("HomeRegion")]
-                selected = homes[0] if homes else copies[0]
-                identity_fields = ("TrailARN", "Name", "HomeRegion", "IsOrganizationTrail", "IsMultiRegionTrail")
-                consistent = all(all(row.get(field) == selected.get(field) for field in identity_fields) for row in copies)
-                arn_parts = re.fullmatch(r"arn:aws(?:-[a-z0-9-]+)?:cloudtrail:([a-z0-9-]+):([0-9]{12}):trail/[^/]+", arn)
-                home = selected.get("HomeRegion")
-                if (len(homes) != 1 or not consistent or arn_parts is None or
-                        arn_parts.group(1) != home or not isinstance(selected.get("Name"), str) or not selected["Name"] or
-                        (arn_parts.group(2) != account and selected.get("IsOrganizationTrail") is not True)):
-                    failure = ReadFailure("malformed", "ambiguous_account_trail")
-                selected = {**selected, "_account_trail_observations": copies}
-                # identity comes only from this session's GetCallerIdentity;
-                # a declared AccountId on a trail is not an account binding.
-                selected["_account_trail_binding"] = {
-                    "caller_account_id": account, "identity_operation": "sts:GetCallerIdentity",
-                    "describe_operation": "cloudtrail:DescribeTrails", "include_shadow_trails": True,
-                    "trail_arn": arn, "capture_observed_at": requests.observed_at.isoformat(),
-                }
-                trails.append(selected)
-            # Reuse the strict native, read-only IAM simulation. Its rows are
-            # bound to a single home-region trail, role, and log group; an
-            # incomplete regional read never supplies permission evidence.
-            permission_rows = {}
-            for home_region in ({row.get("HomeRegion") for row in trails
-                                if row.get("SourceRegion") == row.get("HomeRegion") and
-                                row.get("Status", {}).get("IsLogging") is True and
-                                row.get("IsOrganizationTrail") is False and type(row.get("IsMultiRegionTrail")) is bool and
-                                row.get("CloudWatchLogsRoleArn") and row.get("CloudWatchLogsLogGroupArn")}
-                                if "cloudtrail_delivery_role_scope" in wanted else set()):
-                if not isinstance(home_region, str):
-                    continue
-                read = regional_job(session, identity, home_region, "cloudtrail_delivery_role_scope")
-                permission_rows[home_region] = read
-            for trail in trails:
-                read = permission_rows.get(trail.get("HomeRegion"))
-                if read is not None and read.status not in {"collected", "empty"}:
-                    trail.setdefault("_coverage", {})["CloudWatchLogsRole"] = {
-                        "status": read.status, "code": (read.error or {}).get("code", "delivery_role_scope_incomplete")}
-                rows = read.items if read is not None and read.status in {"collected", "empty"} else []
-                matches = [row for row in rows if row.get("_provenance", {}).get("trail_arn") == trail.get("TrailARN") and
-                           row.get("role_arn") == trail.get("CloudWatchLogsRoleArn") and
-                           row.get("log_group_arn") == trail.get("CloudWatchLogsLogGroupArn")]
-                if len(matches) == 1:
-                    trail["CloudWatchLogsRole"] = matches[0]
-            trails.extend(malformed)
-            if failure:
-                return ReadResult(trails, "partial" if trails else failure.status, {"code": failure.code, "cause_status": failure.status})
-            return ReadResult(trails, "collected" if trails else "empty")
-        if kind == "macie2_account_classification_job_inventory":
-            if account in region_discovery_errors:
-                failure = region_discovery_errors[account]
-                return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
-            if explicit_regions:
-                return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
-            # Every enabled Region gets a row carrying its own read status, so a
-            # failed Region leaves only buckets homed there unknown.
-            rows = []
-            for observed_region in regions_for(account):
-                # Same single-flight cached reads as the regional inventory.
-                read = regional_job(session, identity, observed_region, "macie2_classification_job")
-                state = (read.error or {}).get("code") if read.status == "empty" else None
-                jobs = {"collection_status": read.status, "items": read.items}
-                if read.error:
-                    jobs["error"] = {"code": (read.error or {}).get("code")}
-                rows.append({"id": f"macie-jobs/{account}/{observed_region}", "SourceRegion": observed_region,
-                    "ServiceState": state if state in SERVICE_STATE_CODES else "available" if read.status in {"collected", "empty"} else "unavailable",
-                    "Jobs": jobs})
-            return ReadResult(rows, "collected" if rows else "empty")
-        if kind == "metric_alarm_account_inventory":
-            # Every enabled Region gets a row with its own metric filter, alarm and
-            # subscription read status (aws_facts_gap.metric_alarm_rows).
-            if account in region_discovery_errors:
-                failure = region_discovery_errors[account]
-                return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
-            if explicit_regions:
-                return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
-            from .aws_facts_gap import metric_alarm_rows
-            return metric_alarm_rows(regional_job, session, identity, regions_for(account))
-        if kind == "bucket":
-            return _buckets(requests, session, region)
-        if kind == "iam_customer_policy":
-            from .aws_customer_policies import collect as collect_customer_policies
-            return collect_customer_policies(requests, session, region, account)
-        if kind == "iam_managed_policy":
-            from .aws_all_policies import collect as collect_all_policies
-            return collect_all_policies(requests, session, region, account)
-        if kind in {"iam_user", "iam_group", "iam_role", "iam_policy"}:
-            return _iam(requests, session, region, {kind})[kind]
-        if kind == "iam_account_summary":
-            return _single(requests, session, region, "iam", "get_account_summary")
-        if kind == "iam_password_policy":
-            return _single(requests, session, region, "iam", "get_account_password_policy", absent=("NoSuchEntity",))
-        if kind == "iam_credential_report":
-            return _credentials_report(requests, session, region)
-        if kind == "iam_access_key":
-            return _access_keys(requests, session, region)
-        if kind == "s3_account_public_access_block":
-            return _single(requests, session, region, "s3control", "get_public_access_block", AccountId=account, absent=("NoSuchPublicAccessBlockConfiguration",))
-        if kind == "organization_account":
-            if org_inventory is not None and account == base_account:
-                return org_inventory
-            return requests.pages(session, "organizations", region, "list_accounts", "Accounts")
-        if kind == "organization_parent":
-            if "organization_account" in wanted:
-                from .aws_organization_ou_native import collect as collect_organization_ou
-                return collect_organization_ou(requests, session, region, account,
-                    account_inventory=org_inventory if account == base_account else None)
-            return _organization_parents(requests, session, region, account)
-        if kind == "scp_policy":
-            return _scp_policies(requests, session, region, account)
-        if kind in SPECS:
-            # Global extension specs share the exact same native read/enrich
-            # dispatcher as regional specs, rather than falling through.
-            return regional_job(session, identity, region, kind)
-        return ReadResult([], "not_collected", {"code": "unsupported_inventory"})
+                    read = regional_job(session, identity, home_region, "cloudtrail_delivery_role_scope")
+                    permission_rows[home_region] = read
+                for trail in trails:
+                    read = permission_rows.get(trail.get("HomeRegion"))
+                    if read is not None and read.status not in {"collected", "empty"}:
+                        trail.setdefault("_coverage", {})["CloudWatchLogsRole"] = {
+                            "status": read.status, "code": (read.error or {}).get("code", "delivery_role_scope_incomplete")}
+                    rows = read.items if read is not None and read.status in {"collected", "empty"} else []
+                    matches = [row for row in rows if row.get("_provenance", {}).get("trail_arn") == trail.get("TrailARN") and
+                               row.get("role_arn") == trail.get("CloudWatchLogsRoleArn") and
+                               row.get("log_group_arn") == trail.get("CloudWatchLogsLogGroupArn")]
+                    if len(matches) == 1:
+                        trail["CloudWatchLogsRole"] = matches[0]
+                trails.extend(malformed)
+                if failure:
+                    return ReadResult(trails, "partial" if trails else failure.status, {"code": failure.code, "cause_status": failure.status})
+                return ReadResult(trails, "collected" if trails else "empty")
+            if kind == "macie2_account_classification_job_inventory":
+                if account in region_discovery_errors:
+                    failure = region_discovery_errors[account]
+                    return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
+                if explicit_regions:
+                    return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
+                # Every enabled Region gets a row carrying its own read status, so a
+                # failed Region leaves only buckets homed there unknown.
+                rows = []
+                for observed_region in regions_for(account):
+                    # Same single-flight cached reads as the regional inventory.
+                    read = regional_job(session, identity, observed_region, "macie2_classification_job")
+                    state = (read.error or {}).get("code") if read.status == "empty" else None
+                    jobs = {"collection_status": read.status, "items": read.items}
+                    if read.error:
+                        jobs["error"] = {"code": (read.error or {}).get("code")}
+                    rows.append({"id": f"macie-jobs/{account}/{observed_region}", "SourceRegion": observed_region,
+                        "ServiceState": state if state in SERVICE_STATE_CODES else "available" if read.status in {"collected", "empty"} else "unavailable",
+                        "Jobs": jobs})
+                return ReadResult(rows, "collected" if rows else "empty")
+            if kind == "metric_alarm_account_inventory":
+                # Every enabled Region gets a row with its own metric filter, alarm and
+                # subscription read status (aws_facts_gap.metric_alarm_rows).
+                if account in region_discovery_errors:
+                    failure = region_discovery_errors[account]
+                    return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
+                if explicit_regions:
+                    return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
+                from .aws_facts_gap import metric_alarm_rows
+                return metric_alarm_rows(regional_job, session, identity, regions_for(account))
+            if kind == "bucket":
+                return _buckets(requests, session, region)
+            if kind == "iam_customer_policy":
+                from .aws_customer_policies import collect as collect_customer_policies
+                return collect_customer_policies(requests, session, region, account)
+            if kind == "iam_managed_policy":
+                from .aws_all_policies import collect as collect_all_policies
+                return collect_all_policies(requests, session, region, account)
+            if kind in {"iam_user", "iam_group", "iam_role", "iam_policy"}:
+                return _iam(requests, session, region, {kind})[kind]
+            if kind == "iam_account_summary":
+                return _single(requests, session, region, "iam", "get_account_summary")
+            if kind == "iam_password_policy":
+                return _single(requests, session, region, "iam", "get_account_password_policy", absent=("NoSuchEntity",))
+            if kind == "iam_credential_report":
+                return _credentials_report(requests, session, region)
+            if kind == "iam_access_key":
+                return _access_keys(requests, session, region)
+            if kind == "s3_account_public_access_block":
+                return _single(requests, session, region, "s3control", "get_public_access_block", AccountId=account, absent=("NoSuchPublicAccessBlockConfiguration",))
+            if kind == "organization_account":
+                if org_inventory is not None and account == base_account:
+                    return org_inventory
+                return requests.pages(session, "organizations", region, "list_accounts", "Accounts")
+            if kind == "organization_parent":
+                if "organization_account" in wanted:
+                    from .aws_organization_ou_native import collect as collect_organization_ou
+                    return collect_organization_ou(requests, session, region, account,
+                        account_inventory=org_inventory if account == base_account else None)
+                return _organization_parents(requests, session, region, account)
+            if kind == "scp_policy":
+                return _scp_policies(requests, session, region, account)
+            if kind in SPECS:
+                # Global extension specs share the exact same native read/enrich
+                # dispatcher as regional specs, rather than falling through.
+                return regional_job(session, identity, region, kind)
+            return ReadResult([], "not_collected", {"code": "unsupported_inventory"})
 
     def regional_job(session, identity, region, kind):
-        if kind == ecr_public_image.KIND:
-            return ecr_public_image.collect_scope(requests, session, identity, region, public_targets, secret=public_secret, vuln=public_vuln)
-        if kind == image_vulnerabilities.KIND:
-            return image_vulnerabilities.collect_scope(requests, session, identity, region, image_targets)
-        if kind == workload_image_secrets.KIND:
-            return workload_image_secrets.collect_collection(requests, session, identity, region, secret_image_targets)
-        if kind == "access_analyzer":
-            return analyzer_lifecycle.collect(session, identity, region, ENRICHERS[kind])
-        if kind == 'lightsail_bucket' and lightsail_iam_only:
-            from .aws_lightsail_iam_native import bucket_metadata
-            return bucket_metadata(requests, session, region, identity['Account'])
-        from peaso.aws_service_lifecycle import retired_collection_error
-        retired = retired_collection_error(kind, requests.observed_at)
-        if retired is not None:
-            # A full-shutdown service has no current resource inventory. Keep
-            # the exact kind and reason in the snapshot without calling its SDK.
-            return ReadResult([], "empty", retired)
-        if kind == "ec2_regional_settings":
-            read = _ec2_regional_settings(requests, session, region)
-        elif kind == "aws_cloudtrail_activity":
-            read = _cloudtrail_activity(requests, session, region)
-        elif kind in {"aws_identity_center_user", "aws_identity_center_permission_set"}:
-            read = _identity_center(requests, session, region, kind)
-        elif kind == "gameliftstreams_stream_session":
-            read = _gameliftstreams_shell_sessions(
-                requests, session, region, identity["Account"], identity["Arn"].split(":")[1])
-        elif kind == aws_lambda_environment_secret_indicators.KIND:
-            read = aws_lambda_environment_secret_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
-        elif kind == aws_selected_configuration_secret_indicators.KIND:
-            read = aws_selected_configuration_secret_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
-        elif kind == aws_s3_selected_source_secret_indicators.KIND:
-            read = aws_s3_selected_source_secret_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
-        elif kind == aws_ecs_environment_file_secret_indicators.KIND:
-            read = aws_ecs_environment_file_secret_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
-        elif kind == aws_workload_referenced_source_indicators.KIND:
-            read = aws_workload_referenced_source_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
-        elif kind == aws_build_deployment_referenced_source_indicators.KIND:
-            read = aws_build_deployment_referenced_source_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
-        elif kind == codebuild_inline.KIND:
-            read = codebuild_inline.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
-        elif kind in FETCHERS:
-            read = FETCHERS[kind](requests, session, region, identity["Account"])
-            if not isinstance(read, ReadResult):
-                return ReadResult([], "malformed", {"code": "malformed_extension_result"})
-        else:
-            service, operation, expression = SPECS[kind]
-            args = {"Owners": ["self"], "IncludeDeprecated": True, "IncludeDisabled": True} if kind == "ec2_image" else {"OwnerIds": ["self"]} if kind == "ebs_snapshot" else {"includeShadowTrails": True} if kind == "cloudtrail" else {"MaxResults": 1000} if kind == "sqs_queue" else {}
-            read = _single(requests, session, region, service, operation, **args) if expression is None else requests.pages(session, service, region, operation, expression, **args)
-        try:
-            if kind == "transit_gateway_route_table":
-                for item in read.items:
-                    table_id = item.get("TransitGatewayRouteTableId")
-                    if not isinstance(table_id, str) or not table_id:
-                        continue
-                    routes = [requests.pages(session, "ec2", region, "search_transit_gateway_routes", "Routes",
-                        TransitGatewayRouteTableId=table_id,
-                        Filters=[{"Name": "type", "Values": [route_type]}])
-                        for route_type in ("static", "propagated")]
-                    route_items = [route for result in routes for route in result.items]
-                    complete = all(result.status in {"collected", "empty"} for result in routes)
-                    item["RouteInventory"] = {"collection_status": ("collected" if route_items else "empty") if complete else "partial",
-                        "items": route_items, "queries": ["type=static", "type=propagated"],
-                        **({"error": {"code": "transit_gateway_routes_incomplete",
-                            "sources": [result.error for result in routes if result.error]}} if not complete else {})}
-                    associations = requests.pages(session, "ec2", region, "get_transit_gateway_route_table_associations",
-                        "Associations", TransitGatewayRouteTableId=table_id)
-                    item["AssociationInventory"] = {"collection_status": associations.status,
-                        "items": associations.items,
-                        **({"error": associations.error} if associations.error else {})}
-            read.items = _enrich(requests, session, region, kind, read.items, account=identity["Account"], partition=identity["Arn"].split(":")[1])
-            if kind == "cloudtrail":
-                for item in read.items:
-                    item["_provenance"] = {"operation": "cloudtrail:DescribeTrails", "native_response_complete": True}
-                    _documented_omission(item, "CloudWatchLogsLogGroupArn", "", "cloudtrail:DescribeTrails")
-                    _documented_omission(item, "CloudWatchLogsRoleArn", "", "cloudtrail:DescribeTrails")
-                    _documented_omission(item, "S3KeyPrefix", "", "cloudtrail:DescribeTrails")
-            if kind == "instance":
-                for item in read.items:
-                    item["_provenance"] = {"operation": "ec2:DescribeInstances", "native_response_complete": True}
-            if kind == "config_aggregator":
-                for item in read.items:
-                    item["_provenance"] = {"operation": "config:DescribeConfigurationAggregators", "native_response_complete": True}
-            if kind == "log_group":
-                for item in read.items:
-                    item["_provenance"] = {"operation": "logs:DescribeLogGroups", "native_response_complete": True}
-            if kind == "elasticache_replication_group" and read.status == "collected" and not read.error:
-                # DescribeReplicationGroups returns an unprojected ReplicationGroups
-                # record. Its documented omitted SnapshotRetentionLimit default is
-                # meaningful only when every page was read successfully.
-                for item in read.items:
-                    if not isinstance(item, dict) or item.get("collection_status") not in (None, "collected"):
-                        continue
-                    coverage = item.get("_coverage", {})
-                    if not isinstance(coverage, dict) or any(not isinstance(value, dict) or value.get("status") not in ("collected", "empty") for value in coverage.values()):
-                        continue
-                    provenance = item.get("_provenance", {})
-                    if not isinstance(provenance, dict) or provenance.get("operation") not in (None, "elasticache:DescribeReplicationGroups"):
-                        continue
-                    item["_provenance"] = {**provenance, "operation": "elasticache:DescribeReplicationGroups", "native_response_complete": True}
-            if kind in ENRICHERS:
-                read.items = ENRICHERS[kind](requests, session, region, read.items)
-                if read.items and read.status not in {"collected", "partial"}:
-                    # Independent setting reads can add rows to an unavailable
-                    # parent inventory. They never prove parent completeness.
-                    # Preserve the failure and per-row coverage as partial data;
-                    # the strict snapshot invariant remains unchanged.
-                    cause = read.status
-                    read.status = "partial"
-                    read.error = {**(read.error or {}),
-                                  "code": (read.error or {}).get("code", "incomplete_parent_inventory"),
-                                  "cause_status": cause}
-            from .aws_workload_detail_identity import bind_workload_details
-            read.items = bind_workload_details(kind, read.items, identity["Account"], region, identity["Arn"].split(":")[1])
-            if kind == "cloudfront_distribution":
-                prefix = "arn:" + identity["Arn"].split(":")[1] + ":cloudfront::" + identity["Account"] + ":distribution/"
-                if any(not isinstance(item.get("Id"), str) or not item["Id"]
-                        or item.get("ARN") != prefix + item["Id"] for item in read.items):
-                    return ReadResult([], "malformed", {"code": "cloudfront_distribution_identity_mismatch"})
-            if kind == "lambda_function":
-                for item in read.items:
-                    configuration = item.get("Configuration", {})
-                    if isinstance(configuration, dict) and configuration.get("collection_status") == "collected":
-                        for field, empty_value in (("DeadLetterConfig", {}), ("VpcConfig", {"VpcId": ""})):
-                            if field not in item:
-                                if field in configuration:
-                                    item[field] = copy.deepcopy(configuration[field])
-                                else:
-                                    _documented_omission(item, field, empty_value, "lambda:GetFunctionConfiguration")
-                        vpc = item.get("VpcConfig")
-                        if isinstance(vpc, dict) and "VpcId" not in vpc:
-                            _documented_omission(vpc, "VpcId", "", "lambda:GetFunctionConfiguration")
-                        from .aws_lambda_omission_native import normalize_documented_omissions
-                        normalize_documented_omissions(item)
-        except Exception as exc:
-            failure = _failure(exc)
-            # Retain original valid dictionary evidence, mark incomplete detail.
-            read.items = [x for x in read.items if isinstance(x, dict)]
-            read.status = "partial" if read.items else failure.status
-            read.error = {"code": failure.code}
-        return read
+        from peaso.runtime_metrics import span as _runtime_span
+        with _runtime_span("collection.job"):
+            if kind == ecr_public_image.KIND:
+                return ecr_public_image.collect_scope(requests, session, identity, region, public_targets, secret=public_secret, vuln=public_vuln)
+            if kind == image_vulnerabilities.KIND:
+                return image_vulnerabilities.collect_scope(requests, session, identity, region, image_targets)
+            if kind == workload_image_secrets.KIND:
+                return workload_image_secrets.collect_collection(requests, session, identity, region, secret_image_targets)
+            if kind == "access_analyzer":
+                return analyzer_lifecycle.collect(session, identity, region, ENRICHERS[kind])
+            if kind == 'lightsail_bucket' and lightsail_iam_only:
+                from .aws_lightsail_iam_native import bucket_metadata
+                return bucket_metadata(requests, session, region, identity['Account'])
+            from peaso.aws_service_lifecycle import retired_collection_error
+            retired = retired_collection_error(kind, requests.observed_at)
+            if retired is not None:
+                # A full-shutdown service has no current resource inventory. Keep
+                # the exact kind and reason in the snapshot without calling its SDK.
+                return ReadResult([], "empty", retired)
+            if kind == "ec2_regional_settings":
+                read = _ec2_regional_settings(requests, session, region)
+            elif kind == "aws_cloudtrail_activity":
+                read = _cloudtrail_activity(requests, session, region)
+            elif kind in {"aws_identity_center_user", "aws_identity_center_permission_set"}:
+                read = _identity_center(requests, session, region, kind)
+            elif kind == "gameliftstreams_stream_session":
+                read = _gameliftstreams_shell_sessions(
+                    requests, session, region, identity["Account"], identity["Arn"].split(":")[1])
+            elif kind == aws_lambda_environment_secret_indicators.KIND:
+                read = aws_lambda_environment_secret_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
+            elif kind == aws_selected_configuration_secret_indicators.KIND:
+                read = aws_selected_configuration_secret_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
+            elif kind == aws_s3_selected_source_secret_indicators.KIND:
+                read = aws_s3_selected_source_secret_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
+            elif kind == aws_ecs_environment_file_secret_indicators.KIND:
+                read = aws_ecs_environment_file_secret_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
+            elif kind == aws_workload_referenced_source_indicators.KIND:
+                read = aws_workload_referenced_source_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
+            elif kind == aws_build_deployment_referenced_source_indicators.KIND:
+                read = aws_build_deployment_referenced_source_indicators.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
+            elif kind == codebuild_inline.KIND:
+                read = codebuild_inline.collect_selected(requests, session, region, identity, options, connector.get('scopes') or [])
+            elif kind in FETCHERS:
+                read = FETCHERS[kind](requests, session, region, identity["Account"])
+                if not isinstance(read, ReadResult):
+                    return ReadResult([], "malformed", {"code": "malformed_extension_result"})
+            else:
+                service, operation, expression = SPECS[kind]
+                args = {"Owners": ["self"], "IncludeDeprecated": True, "IncludeDisabled": True} if kind == "ec2_image" else {"OwnerIds": ["self"]} if kind == "ebs_snapshot" else {"includeShadowTrails": True} if kind == "cloudtrail" else {"MaxResults": 1000} if kind == "sqs_queue" else {}
+                read = _single(requests, session, region, service, operation, **args) if expression is None else requests.pages(session, service, region, operation, expression, **args)
+            try:
+                if kind == "transit_gateway_route_table":
+                    for item in read.items:
+                        table_id = item.get("TransitGatewayRouteTableId")
+                        if not isinstance(table_id, str) or not table_id:
+                            continue
+                        routes = [requests.pages(session, "ec2", region, "search_transit_gateway_routes", "Routes",
+                            TransitGatewayRouteTableId=table_id,
+                            Filters=[{"Name": "type", "Values": [route_type]}])
+                            for route_type in ("static", "propagated")]
+                        route_items = [route for result in routes for route in result.items]
+                        complete = all(result.status in {"collected", "empty"} for result in routes)
+                        item["RouteInventory"] = {"collection_status": ("collected" if route_items else "empty") if complete else "partial",
+                            "items": route_items, "queries": ["type=static", "type=propagated"],
+                            **({"error": {"code": "transit_gateway_routes_incomplete",
+                                "sources": [result.error for result in routes if result.error]}} if not complete else {})}
+                        associations = requests.pages(session, "ec2", region, "get_transit_gateway_route_table_associations",
+                            "Associations", TransitGatewayRouteTableId=table_id)
+                        item["AssociationInventory"] = {"collection_status": associations.status,
+                            "items": associations.items,
+                            **({"error": associations.error} if associations.error else {})}
+                read.items = _enrich(requests, session, region, kind, read.items, account=identity["Account"], partition=identity["Arn"].split(":")[1])
+                if kind == "cloudtrail":
+                    for item in read.items:
+                        item["_provenance"] = {"operation": "cloudtrail:DescribeTrails", "native_response_complete": True}
+                        _documented_omission(item, "CloudWatchLogsLogGroupArn", "", "cloudtrail:DescribeTrails")
+                        _documented_omission(item, "CloudWatchLogsRoleArn", "", "cloudtrail:DescribeTrails")
+                        _documented_omission(item, "S3KeyPrefix", "", "cloudtrail:DescribeTrails")
+                if kind == "instance":
+                    for item in read.items:
+                        item["_provenance"] = {"operation": "ec2:DescribeInstances", "native_response_complete": True}
+                if kind == "config_aggregator":
+                    for item in read.items:
+                        item["_provenance"] = {"operation": "config:DescribeConfigurationAggregators", "native_response_complete": True}
+                if kind == "log_group":
+                    for item in read.items:
+                        item["_provenance"] = {"operation": "logs:DescribeLogGroups", "native_response_complete": True}
+                if kind == "elasticache_replication_group" and read.status == "collected" and not read.error:
+                    # DescribeReplicationGroups returns an unprojected ReplicationGroups
+                    # record. Its documented omitted SnapshotRetentionLimit default is
+                    # meaningful only when every page was read successfully.
+                    for item in read.items:
+                        if not isinstance(item, dict) or item.get("collection_status") not in (None, "collected"):
+                            continue
+                        coverage = item.get("_coverage", {})
+                        if not isinstance(coverage, dict) or any(not isinstance(value, dict) or value.get("status") not in ("collected", "empty") for value in coverage.values()):
+                            continue
+                        provenance = item.get("_provenance", {})
+                        if not isinstance(provenance, dict) or provenance.get("operation") not in (None, "elasticache:DescribeReplicationGroups"):
+                            continue
+                        item["_provenance"] = {**provenance, "operation": "elasticache:DescribeReplicationGroups", "native_response_complete": True}
+                if kind in ENRICHERS:
+                    read.items = ENRICHERS[kind](requests, session, region, read.items)
+                    if read.items and read.status not in {"collected", "partial"}:
+                        # Independent setting reads can add rows to an unavailable
+                        # parent inventory. They never prove parent completeness.
+                        # Preserve the failure and per-row coverage as partial data;
+                        # the strict snapshot invariant remains unchanged.
+                        cause = read.status
+                        read.status = "partial"
+                        read.error = {**(read.error or {}),
+                                      "code": (read.error or {}).get("code", "incomplete_parent_inventory"),
+                                      "cause_status": cause}
+                from .aws_workload_detail_identity import bind_workload_details
+                read.items = bind_workload_details(kind, read.items, identity["Account"], region, identity["Arn"].split(":")[1])
+                if kind == "cloudfront_distribution":
+                    prefix = "arn:" + identity["Arn"].split(":")[1] + ":cloudfront::" + identity["Account"] + ":distribution/"
+                    if any(not isinstance(item.get("Id"), str) or not item["Id"]
+                            or item.get("ARN") != prefix + item["Id"] for item in read.items):
+                        return ReadResult([], "malformed", {"code": "cloudfront_distribution_identity_mismatch"})
+                if kind == "lambda_function":
+                    for item in read.items:
+                        configuration = item.get("Configuration", {})
+                        if isinstance(configuration, dict) and configuration.get("collection_status") == "collected":
+                            for field, empty_value in (("DeadLetterConfig", {}), ("VpcConfig", {"VpcId": ""})):
+                                if field not in item:
+                                    if field in configuration:
+                                        item[field] = copy.deepcopy(configuration[field])
+                                    else:
+                                        _documented_omission(item, field, empty_value, "lambda:GetFunctionConfiguration")
+                            vpc = item.get("VpcConfig")
+                            if isinstance(vpc, dict) and "VpcId" not in vpc:
+                                _documented_omission(vpc, "VpcId", "", "lambda:GetFunctionConfiguration")
+                            from .aws_lambda_omission_native import normalize_documented_omissions
+                            normalize_documented_omissions(item)
+            except Exception as exc:
+                failure = _failure(exc)
+                # Retain original valid dictionary evidence, mark incomplete detail.
+                read.items = [x for x in read.items if isinstance(x, dict)]
+                read.status = "partial" if read.items else failure.status
+                read.error = {"code": failure.code}
+            return read
 
     iam_kinds = {"iam_user", "iam_group", "iam_role", "iam_policy"}
     # CloudTrail LookupEvents is rate limited per account and Region (2 TPS,

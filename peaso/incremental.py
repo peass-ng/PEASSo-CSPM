@@ -40,11 +40,12 @@ class CheckpointSession:
         self.provider = connector["provider"]
         self.request = request
         self.requested_scopes = list(connector.get("scopes") or [])
-        self.categories = request.get("categories") or list(CATEGORIES)
+        self.content_checks = request.get("content_checks") or []
+        self.categories = request.get("categories", []) if self.content_checks else request.get("categories") or list(CATEGORIES)
         self.explicit_checks = request.get("checks")
         self.frameworks = request.get("frameworks")
         _, self.native_checks = _selection(self.provider, self.categories,
-                                           self.explicit_checks, self.frameworks)
+                                           self.explicit_checks, self.frameworks, content_checks=self.content_checks)
         self.analysis_checks = _analysis_selection(self.provider, self.categories,
                                                     self.explicit_checks, self.frameworks)
         self.graph_categories = _selected_graph_categories(self.categories, self.native_checks,
@@ -473,7 +474,8 @@ class CheckpointSession:
             from .engine import evaluate_snapshot
             report = evaluate_snapshot(snapshot, categories=self.categories, checks=ready,
                                        frameworks=self.frameworks, include_not_applicable=False,
-                                       completed_graph_sections=graph_sections)
+                                       completed_graph_sections=graph_sections,
+                                       content_checks=[cid for cid in self.content_checks if cid in ready])
             report = self._filter_report(report, complete, sequence=sequence, collections=collections, sections=sections)
             self.on_checkpoint(snapshot, report, sequence)
             with self.lock:

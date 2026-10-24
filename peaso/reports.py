@@ -40,8 +40,69 @@ class _RemediationTextMemo:
         return escaped
 
 
+from peaso.snapshot import FrozenDict as _JSONFrozenDict, FrozenList as _JSONFrozenList
+
+# The optional native JSON encoder is already supplied by supported Pydantic
+# runtimes. Older installations retain the exact stdlib path below.
+try:
+    from pydantic_core import to_json as _core_pretty_json
+except ImportError:
+    _core_pretty_json = None
+if _core_pretty_json is not None:
+    try:
+        if _core_pretty_json({'a': 'é'}, indent=2, ensure_ascii=False).decode('utf-8') != json.dumps(
+                {'a': 'é'}, indent=2, sort_keys=True, ensure_ascii=False):
+            _core_pretty_json = None
+    except (TypeError, ValueError, UnicodeError, OverflowError, RecursionError):
+        _core_pretty_json = None
+
+
+def _strict_pretty_tree(value, active, depth=0):
+    # Sorting plain trees once avoids the interpreted pretty-JSON encoder.
+    # Exact immutable snapshot views have the same JSON representation; other
+    # subclasses, coercions, floats and unusual values keep stdlib semantics.
+    kind = type(value)
+    if kind is str:
+        value.encode('utf-8')  # lone surrogates require the original encoder
+        return value
+    if value is None or kind is bool:
+        return value
+    if kind is int:
+        if not -(1 << 63) <= value < (1 << 64):
+            raise ValueError('stdlib JSON integer handling required')
+        return value
+    if kind not in (dict, list, _JSONFrozenDict, _JSONFrozenList) or depth >= 64:
+        raise ValueError('stdlib JSON encoding required')
+    identity = id(value)
+    if identity in active:
+        raise ValueError('stdlib JSON cycle handling required')
+    active.add(identity)
+    try:
+        if kind is dict or kind is _JSONFrozenDict:
+            keys = list(value)
+            for key in keys:
+                if type(key) is not str:
+                    raise ValueError('stdlib JSON key handling required')
+                key.encode('utf-8')
+            return {key: _strict_pretty_tree(value[key], active, depth + 1) for key in sorted(keys)}
+        return [_strict_pretty_tree(item, active, depth + 1) for item in value]
+    finally:
+        active.remove(identity)
+
+
+def _pretty_json(value):
+    if _core_pretty_json is not None:
+        try:
+            return _core_pretty_json(_strict_pretty_tree(value, set()),
+                                     indent=2, ensure_ascii=False).decode('utf-8')
+        except (TypeError, ValueError, UnicodeError, OverflowError, RecursionError):
+            pass
+    # Keep the original output and exceptions for every unsupported value.
+    return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+
+
 def _json_block(value):
-    text = json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+    text = _pretty_json(value)
     longest = max((len(m.group()) for m in re.finditer(r"`+", text)), default=0)
     fence = "`" * max(3, longest + 1)
     return [fence + "json", text, fence, ""]
