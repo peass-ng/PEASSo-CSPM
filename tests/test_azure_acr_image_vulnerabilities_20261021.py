@@ -113,7 +113,8 @@ def test_collector_requires_trusted_fresh_database_lease(proposal,monkeypatch,tm
     _,trace=existing.capture(monkeypatch,img=img,collect=False)
     cache=tmp_path/'trusted-current'
     acquired=[]
-    def acquire(stack,*,enabled,cancel):
+    def acquire(stack,*,enabled,cancel,diagnostics=None):
+        assert type(diagnostics) is dict
         assert enabled is True
         cancel()
         acquired.append(True)
@@ -322,11 +323,14 @@ def test_azure_collection_hook_is_default_off_and_emits_unknown_without_db(propo
     native.collect(outer,Poison(),[existing.SCOPE],{native.KIND},{})
     assert outer.collections==[]
     from peaso.collectors import selected_image_trivy_database_20261021 as database
-    monkeypatch.setattr(database,'acquire',lambda stack,*,enabled,cancel:None)
+    monkeypatch.setattr(database,'acquire',lambda stack,*,enabled,cancel,diagnostics=None:None)
     native.collect(outer,Poison(),[existing.SCOPE],{native.KIND},
         options(native,existing.image().target))
     assert len(outer.collections)==1 and outer.collections[0][0]==native.KIND
     assert outer.collections[0][3][0][native.MARKER]['status']=='UNKNOWN'
+    diagnostic=outer.acr_image_vulnerability_metadata['image_database_diagnostics']
+    assert diagnostic['phases']['offline_validation']['reason']=='offline_database_not_fresh'
+    assert diagnostic['phases']['offline_validation']['status']=='unavailable'
 
 @pytest.mark.parametrize('outcome', ['FAIL', 'UNKNOWN'])
 def test_images_findings_native_projection_and_unknown_slot(proposal, monkeypatch, tmp_path, outcome):

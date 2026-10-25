@@ -18,6 +18,7 @@ from peaso import container_image_archive_20261020 as archive
 from peaso import oci_index_20261021 as oci_index
 from peaso.secret_evidence import alias_path, scan_with_source, source_context
 from peaso.secret_scanning import merge_leaks, scan_content
+from peaso.secret_scanning_batch import prepared_content_batch, MAX_BATCH_ITEMS, MAX_BATCH_BYTES
 from . import azure_acr_image_secret_indicators as native
 
 WINDOW = 1024 * 1024
@@ -317,6 +318,58 @@ def inspect_image(reader):
                 'bytes':len(raw),'complete':True,'engines':config_outcome['engines']})
             marker['expanded_bytes']+=len(raw);record['expanded_bytes']=len(raw)
             nodes={};path_budget=[0];budget=[len(raw)]
+            pending=[];pending_bytes=0;pending_charge=0
+            def partial_file(file):
+                nonlocal scan_partial,skipped_files
+                if file['failed']:return
+                complete_parts=[p for p in marker['parts'][file['parts']:]
+                    if p.get('complete') is True]
+                marker['parts'][file['parts']:]=complete_parts
+                completed_paths={reader.ident+'.'+p['part'] for p in complete_parts}
+                kept=[]
+                for leak in leaks[file['leaks']:]:
+                    locations=[loc for loc in leak.get('locations',())
+                        if loc.get('path') in completed_paths]
+                    if locations:kept.append({**leak,'locations':locations})
+                leaks[file['leaks']:]=kept
+                file['failed']=True
+                scan_partial=True;record['scan_partial']=True
+                skipped_files+=1;record['skipped_files']+=1
+            def flush():
+                nonlocal pending,pending_bytes,pending_charge,scanned
+                if not pending:return
+                reader.check()
+                remaining=reader.state['deadline']-time.monotonic()
+                if remaining<1:raise native.Incomplete('scanner_deadline')
+                entries,pending=pending,[]
+                pending_bytes=pending_charge=0
+                with prepared_content_batch([(payload,path) for payload,path,_,_,_,_ in entries],
+                        timeout=min(30,remaining)):
+                    for payload,path,layer,options,file,charge in entries:
+                        if file['failed']:continue
+                        if file['parts'] is None:
+                            file['parts']=len(marker['parts']);file['leaks']=len(leaks)
+                        scanned+=charge
+                        try:scan(payload,path,layer,**options)
+                        except Exception as exc:
+                            if isinstance(exc,native.Incomplete) and str(exc)=='scanners_incomplete':
+                                partial_file(file)
+                            else:
+                                # Reading ahead must not advance public counters
+                                # beyond the file the serial scanner would stop on.
+                                marker['regular_files']=file['global_number']
+                                record['regular_files']=file['number']
+                                raise
+            def queue(payload,path,layer,file,*,charge=0,**options):
+                nonlocal pending_bytes,pending_charge
+                reader.check()
+                if file['failed']:return
+                if pending and (len(pending)>=MAX_BATCH_ITEMS
+                        or pending_bytes+len(payload)>MAX_BATCH_BYTES):
+                    flush()
+                if file['failed']:return
+                pending.append((payload,path,layer,options,file,charge))
+                pending_bytes+=len(payload);pending_charge+=charge
             with tempfile.TemporaryDirectory(prefix='peaso-azure-acr-') as directory:
                 root=Path(directory)
                 for number,(layer,diff) in enumerate(zip(layers,decoded['rootfs']['diff_ids'])):
@@ -335,13 +388,16 @@ def inspect_image(reader):
                         if node[0] not in ('file','hardlink') or node[1][3]!=number:continue
                         marker['regular_files']+=1;record['regular_files']+=1
                         base=prefix+'.layer-'+str(number+1)+'.member-'+str(record['regular_files'])
-                        before_file_parts=len(marker['parts']);before_file_leaks=len(leaks)
+                        file={'parts':None,'leaks':None,'failed':False,
+                              'number':record['regular_files'],'global_number':marker['regular_files']}
                         try:
-                            scan(name.encode('utf-8'),base+'.name',layer['digest'],original_path=name,child_digest=digest)
+                            queue(name.encode('utf-8'),base+'.name',layer['digest'],file,original_path=name,child_digest=digest)
                             def observe(original,stream,length,layer_index):
-                                nonlocal scanned
-                                if length>MAX_FILE_SCAN or scanned+length>MAX_IMAGE_SCAN:
-                                    raise native.Incomplete('file_scan_bound')
+                                if length>MAX_FILE_SCAN or scanned+pending_charge+length>MAX_IMAGE_SCAN:
+                                    flush()
+                                    if file['failed']:return
+                                    if length>MAX_FILE_SCAN or scanned+length>MAX_IMAGE_SCAN:
+                                        raise native.Incomplete('file_scan_bound')
                                 offset=0;overlap=b'';chunk_no=0
                                 while offset<length:
                                     reader.check();chunk=stream.read(min(WINDOW,length-offset))
@@ -351,30 +407,24 @@ def inspect_image(reader):
                                         raise native.Incomplete('nested_archive_uninspected')
                                     if any((value<32 and value not in (9,10,13)) or value==127 for value in chunk):
                                         raise native.Incomplete('binary_file_uninspected')
-                                    chunk_no+=1;offset+=len(chunk);scanned+=len(chunk)
-                                    scan(overlap+chunk,base+'.chunk-'+str(chunk_no),layer['digest'],
-                                         original_path=original,child_digest=digest)
+                                    chunk_no+=1;offset+=len(chunk)
+                                    queue(overlap+chunk,base+'.chunk-'+str(chunk_no),layer['digest'],file,
+                                         charge=len(chunk),original_path=original,child_digest=digest)
+                                    if file['failed']:return
                                     overlap=(overlap+chunk)[-OVERLAP:]
-                                if length==0:scan(b'',base+'.chunk-1',layer['digest'],original_path=original,child_digest=digest)
+                                if length==0:queue(b'',base+'.chunk-1',layer['digest'],file,original_path=original,child_digest=digest)
                             archive._visit_node(name,node,observe,reader.check)
-                        except native.Incomplete as exc:
-                            if str(exc) not in ('nested_archive_uninspected','binary_file_uninspected','scanners_incomplete'):
+                        except Exception as exc:
+                            if _abort_code(exc):raise
+                            # A later binary/archive error must not discard
+                            # earlier complete chunks queued for this file.
+                            flush()
+                            if file['failed']:continue
+                            if not isinstance(exc,native.Incomplete) or str(exc) not in (
+                                    'nested_archive_uninspected','binary_file_uninspected','scanners_incomplete'):
                                 raise
-                            # Keep completed prefix chunks and their exact
-                            # locations. An incomplete chunk cannot be a
-                            # witness, even if a detector emitted a match.
-                            complete_parts=[p for p in marker['parts'][before_file_parts:]
-                                if p.get('complete') is True]
-                            marker['parts'][before_file_parts:]=complete_parts
-                            completed_paths={reader.ident+'.'+p['part'] for p in complete_parts}
-                            kept=[]
-                            for leak in leaks[before_file_leaks:]:
-                                locations=[loc for loc in leak.get('locations',())
-                                    if loc.get('path') in completed_paths]
-                                if locations:kept.append({**leak,'locations':locations})
-                            leaks[before_file_leaks:]=kept
-                            scan_partial=True;record['scan_partial']=True
-                            skipped_files+=1;record['skipped_files']+=1
+                            partial_file(file)
+                    flush()
             if not record['regular_files']:raise native.Incomplete('no_layer_files')
             record['parts']=[p['part'] for p in marker['parts'][before_parts:]]
             if index_mode:marker['child_inspections'].append(record)

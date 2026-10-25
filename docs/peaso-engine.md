@@ -143,6 +143,12 @@ Final native analysis publishes its report before waiting for already-running AI
 
 Selected Kubernetes image file names and content windows use bounded detector batches, preserving the original per-part source, paths, order, native read count and cancellation behavior. In one pinned Linux two-file OCI comparison, wall time fell from 18.728 to 11.256 seconds with identical normalized output and three native reads; this is a detector consumer benchmark, not a whole-scan latency claim.
 
+Selected Azure ACR file names and content windows also share bounded TruffleHog batches. Each result still passes through its original per-source detector and private-evidence context, and complete prefix matches survive later incomplete files. A pinned Linux comparison of two exported qualification images reduced detector time from 698.49 to 104.01 seconds with identical public and private semantic hashes; registry download and whole-scan latency were outside that measurement.
+
 Raw checkpoint durability and cumulative report uploads use separate critical sections. A slow report cannot hold up the collector's next raw batch acknowledgment. Encrypted private evidence writes and each supervisor exchange stay serialized, with a fresh private-evidence commit before exposing a completed report; raw sequence and published-report sequence retain their separate monotonic fences.
+
+Image database provisioning records `image.database.acquire` and `image.database.download` through the worker runtime metrics. Azure selected-image metadata also records bounded phase durations and classified failures in `image_database_diagnostics`; it never includes subprocess output, URLs, credentials or local paths. An unavailable or stale database still produces UNKNOWN, and the existing freshness, disk, download and lease limits remain enforced.
+
+AI review preserves a normalized, source-bound Kingfisher or TruffleHog detection as FAIL when the remaining image content has incomplete coverage. The original detector evidence remains intact; incomplete inspection describes coverage rather than removing a demonstrated match.
 
 Large Top 15 SQLite contexts are transported as deterministic gzip when they exceed 64 MiB, retaining every record. The existing 256 MiB agent transport limit remains unchanged. The role-free sandbox streams the database back to a private SQLite file before agent startup, with a 2 GiB expansion limit, CRC/header validation and exclusive no-follow files; corrupt or oversized inputs fail before the agent runs. Small contexts retain the existing format.

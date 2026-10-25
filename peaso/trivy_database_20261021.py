@@ -8,7 +8,9 @@ unavailable evidence, never a clean vulnerability result.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
+from contextvars import ContextVar
+from functools import wraps
 import fcntl
 import datetime as dt
 import json
@@ -39,6 +41,134 @@ class DatabaseUnavailable(RuntimeError):
     pass
 
 
+# Only fixed classifications and bounded numeric aggregates leave this module.
+# The context is private to this acquisition and is never derived from options.
+_DIAGNOSTICS = ContextVar("trivy_database_diagnostics", default=None)
+_REASONS = {
+    "DB timestamp missing": "timestamp_missing",
+    "DB timestamp invalid": "timestamp_invalid",
+    "DB timestamp has no timezone": "timestamp_timezone_missing",
+    "DB files missing or linked": "files_missing_or_linked",
+    "DB size is outside provisioning bounds": "database_size_limit",
+    "DB meta page is truncated": "database_header_truncated",
+    "DB bbolt meta page is invalid": "database_header_invalid",
+    "DB metadata size is outside provisioning bounds": "metadata_size_limit",
+    "DB files unreadable or metadata invalid": "metadata_unreadable_or_invalid",
+    "DB schema is not version 2": "schema_unsupported",
+    "DB is older than 24 hours or future dated": "database_stale_or_future",
+    "DB NextUpdate has passed": "database_expired",
+    "download staging contains excessive or linked entries": "staging_entries_or_links",
+    "download exceeded cache size limit": "download_size_limit",
+    "download staging contains an unsupported entry": "staging_entry_unsupported",
+    "download exhausted reserved disk headroom": "download_disk_reserve",
+    "cache root must not be linked": "cache_root_linked",
+    "generation directory must not be linked": "generations_linked",
+    "insufficient free disk for bounded DB refresh": "refresh_disk_headroom",
+    "current DB pointer missing": "cache_pointer_missing",
+    "current DB pointer escapes generation directory": "cache_pointer_escaped",
+    "DB cache is busy": "lease_busy",
+    "fresh_offline_database_required": "offline_database_not_fresh",
+}
+_PHASES = frozenset({"lease_acquisition", "cache_validation", "refresh",
+                     "download", "database_validation", "offline_validation"})
+
+
+def _classification(exc):
+    if exc is None:
+        return "ok", None
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "download_timeout", None
+    if isinstance(exc, subprocess.CalledProcessError):
+        code = exc.returncode
+        return "download_process_failed", code if type(code) is int and -255 <= code <= 255 else None
+    if isinstance(exc, FileNotFoundError):
+        return "file_or_executable_missing", None
+    if isinstance(exc, PermissionError):
+        return "filesystem_permission_denied", None
+    if isinstance(exc, DatabaseUnavailable):
+        # Never stringify a foreign exception or emit an unrecognized message.
+        message = exc.args[0] if exc.args and type(exc.args[0]) is str else None
+        return _REASONS.get(message, "database_unavailable"), None
+    if type(exc) is ValueError and exc.args == ("fresh_offline_database_required",):
+        return "offline_database_not_fresh", None
+    if isinstance(exc, OSError):
+        return "filesystem_error", None
+    return "validation_failed", None
+
+
+@contextmanager
+def _runtime_phase(phase):
+    # Keep the already-approved bounded worker metrics transport. No direct log
+    # handler, subprocess output or additional IPC protocol is introduced.
+    labels = {"lease_acquisition": "image.database.acquire",
+              "download": "image.database.download"}
+    manager = None
+    if phase in labels:
+        try:
+            from peaso.runtime_metrics import span
+            manager = span(labels[phase])
+            manager.__enter__()
+        except Exception:
+            manager = None
+    exception = (None, None, None)
+    try:
+        yield
+    except BaseException:
+        exception = sys.exc_info()
+        raise
+    finally:
+        if manager is not None:
+            try:
+                manager.__exit__(*exception)
+            except Exception:
+                pass
+
+
+@contextmanager
+def diagnostic_phase(phase, diagnostics=None):
+    """Bounded, nonfatal diagnostics; no paths, output, parameters or values."""
+    with _runtime_phase(phase):
+        sink = _DIAGNOSTICS.get() if diagnostics is None else diagnostics
+        if type(sink) is not dict or phase not in _PHASES:
+            yield
+            return
+        started = time.monotonic()
+        error = None
+        try:
+            yield
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            try:
+                reason, code = _classification(error)
+                # Aggregate a fixed number of phases, never append per-image rows.
+                phases = sink.setdefault("phases", {})
+                if type(phases) is dict:
+                    previous = phases.get(phase, {})
+                    calls = previous.get("calls", 0) if type(previous) is dict else 0
+                    elapsed = previous.get("wall_ms", 0) if type(previous) is dict else 0
+                    row = {"calls": min(1_000_000, calls + 1),
+                           "wall_ms": min(86_400_000, elapsed + max(0, round((time.monotonic()-started)*1000))),
+                           "status": "ok" if error is None else "unavailable", "reason": reason}
+                    if code is not None:
+                        row["exit_code"] = code
+                    phases[phase] = row
+            except Exception:
+                # A diagnostic failure cannot change DB admission or scan outcomes.
+                pass
+
+
+def _diagnosed(phase):
+    def decorate(function):
+        @wraps(function)
+        def call(*args, **kwargs):
+            with diagnostic_phase(phase):
+                return function(*args, **kwargs)
+        return call
+    return decorate
+
+
 def _timestamp(value: object) -> dt.datetime:
     if not isinstance(value, str):
         raise DatabaseUnavailable("DB timestamp missing")
@@ -51,6 +181,7 @@ def _timestamp(value: object) -> dt.datetime:
     return parsed.astimezone(UTC)
 
 
+@_diagnosed("database_validation")
 def validate_db(cache: Path, now: dt.datetime | None = None) -> dict:
     """Reject absent, malformed, unsupported, expired, or stale DBs."""
     now = now or dt.datetime.now(UTC)
@@ -114,6 +245,7 @@ def _size(path: Path) -> int:
     return total
 
 
+@_diagnosed("download")
 def _download(argv: list[str], staging: Path, env: dict[str, str]) -> None:
     """Observe total staging usage while running, retaining per-file OS limits.
 
@@ -154,6 +286,7 @@ def _download(argv: list[str], staging: Path, env: dict[str, str]) -> None:
         process.wait()
 
 
+@_diagnosed("refresh")
 def refresh(root: Path, *, trivy: str = "trivy", now: dt.datetime | None = None) -> Path:
     """Download to a private cache, then atomically switch the current pointer."""
     now = now or dt.datetime.now(UTC)
@@ -215,6 +348,7 @@ def refresh(root: Path, *, trivy: str = "trivy", now: dt.datetime | None = None)
             shutil.rmtree(generation)
 
 
+@_diagnosed("cache_validation")
 def current_cache(root: Path, now: dt.datetime | None = None) -> Path:
     current = root / "current"
     if not current.is_symlink():
@@ -227,7 +361,7 @@ def current_cache(root: Path, now: dt.datetime | None = None) -> Path:
 
 
 @contextmanager
-def database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
+def _database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
                    trivy="/usr/local/bin/trivy", force_refresh=False):
     """Refresh once when selected; hold an exclusive lease through offline reads.
 
@@ -267,6 +401,24 @@ def database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
             yield cache.resolve(strict=True)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+@contextmanager
+def database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
+                   trivy="/usr/local/bin/trivy", force_refresh=False, diagnostics=None):
+    """Original lease semantics, with optional acquisition-only diagnostics."""
+    token = _DIAGNOSTICS.set(diagnostics)
+    try:
+        with ExitStack() as stack:
+            # This duration excludes image consumers but includes lease waiting,
+            # refresh and both validation passes. Nested phases expose each cost.
+            with diagnostic_phase("lease_acquisition"):
+                cache = stack.enter_context(_database_lease(
+                    enabled=enabled, cache_root=cache_root, trivy=trivy,
+                    force_refresh=force_refresh))
+            yield cache
+    finally:
+        _DIAGNOSTICS.reset(token)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -53,6 +53,12 @@ def assert_source_receipt(path,expected,root=ROOT):
         before=predecessor_bytes(path,(root/path).read_bytes(),expected,root)
         assert hashlib.sha256(before).hexdigest()==expected,'Historical native source changed'
         return
+    if (path, expected) == ('peaso/collectors/aws_package_content_indicators.py',
+            'ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6'):
+        from peaso.rawv2_private_source_successor_20261021 import source_bytes
+        before = source_bytes(path, (root / path).read_bytes(), expected, root)
+        assert hashlib.sha256(before).hexdigest() == expected, 'Historical package source changed'
+        return
     if (path,expected)==RAWV2_SCANNER_SOURCE:
         from peaso.rawv2_private_source_successor_20261021 import source_bytes
         before=source_bytes(path,(root/path).read_bytes(),expected,root)

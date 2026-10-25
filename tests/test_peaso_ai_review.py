@@ -554,31 +554,50 @@ def test_dynamo_ai_auth_compare_and_swap():
 @pytest.mark.parametrize('provider', ['aws', 'gcp', 'azure', 'k8s'])
 def test_worker_persists_captured_access_with_separate_key(provider, environment, monkeypatch):
     import multiprocessing
+    # Initialize the real native registry before replacing its collector I/O.
+    import peaso.checks
     from peaso.snapshot import make_snapshot
     from peaso.worker import _process
     settings, _, artifacts = environment
+    scope, native_kind = {
+        'aws': ('123456789012/us-east-1', 'instance'),
+        'gcp': ('projects/fixture-project', 'network'),
+        'azure': ('/subscriptions/11111111-1111-1111-1111-111111111111', 'resource_group'),
+        'k8s': ('fixture-cluster', 'pod'),
+    }[provider]
     def collect(_):
-        scope = '123456789012/us-east-1' if provider == 'aws' else 'fixture'
         if provider == 'aws':
             access.remember('aws', '123456789012', {'format': 'aws-session', 'account_id': '123456789012',
                             'aws_session_token': 'captured-session-token'})
         else:
             access.bearer(provider, 'fixture-audience', 'captured-session-token')
-        return make_snapshot(provider, [scope], [{'type': 'fixture', 'scope': scope, 'status': 'collected', 'items': [{'id': 'one'}]}])
+        return make_snapshot(provider, [scope], [{'type': native_kind, 'scope': scope, 'status': 'collected', 'items': [{'id': 'one'}]}])
     monkeypatch.setattr('peaso.engine.collect_snapshot', collect)
     # This fixture exercises captured-key persistence, not live AWS identity.
     monkeypatch.setattr('peaso.worker._verify_aws_credentials', lambda connector: None)
     context = multiprocessing.get_context('fork')
     parent, child = context.Pipe(duplex=False)
     request = {'artifact_config': {'mode': 'file', 'root': str(artifacts.root)}, 'tenant_id': 'alice', 'scan_id': 'a' * 32,
-               'connector': {'provider': provider, 'auth': {}, 'options': {}}, 'ai_context': {'identity_dir': str(settings.identity_dir)}}
+               'connector': {'provider': provider, 'auth': {}, 'options': {}, 'scopes': [scope]}, 'ai_context': {'identity_dir': str(settings.identity_dir)}}
     process = context.Process(target=_process, args=('collector', request, child))
     try:
         process.start()
         child.close()
-        assert parent.poll(10)
-        success, reference, *rest = parent.recv()
-        assert success, rest
+        deadline = time.monotonic() + 30
+        for _ in range(256):
+            remaining = deadline - time.monotonic()
+            assert remaining > 0 and parent.poll(remaining), 'Worker did not produce a terminal result'
+            event = parent.recv()
+            if (isinstance(event, tuple) and len(event) == 2
+                    and event[0] in {'__runtime_metrics__', '__progress__'}):
+                assert isinstance(event[1], dict)
+                continue
+            assert isinstance(event, tuple) and len(event) >= 2 and type(event[0]) is bool
+            success, reference, *rest = event
+            assert success, rest
+            break
+        else:
+            pytest.fail('Worker emitted too many nonterminal frames')
         snapshot = artifacts.get('alice', reference)
         if provider == 'aws':
             # Shared AWS identities are deliberately excluded from shell agents.

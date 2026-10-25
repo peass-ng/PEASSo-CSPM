@@ -17,6 +17,7 @@ from peaso import container_image_archive_20261020 as archive
 from peaso import oci_index_20261021 as oci_index
 from peaso import image_findings
 from peaso import trivy_container_runner_20261020 as trivy
+from peaso.trivy_database_20261021 import diagnostic_phase
 from . import azure_acr_image_secret_indicators as acr
 from . import azure_acr_image_stream_inspection_20261021 as stream
 
@@ -348,7 +349,7 @@ def _unavailable_row(scope,target,reason):
 
 def collect_native(outer,transport,scopes,options,*,db_cache=DEFAULT_DB_CACHE,
         cli=trivy.DEFAULT_CLI,runner=None,scratch_parent=None,
-        database_check=None):
+        database_check=None, database_diagnostics=None):
     """No credential or network access before an explicit named-check selection."""
     targets=selected_targets(options,scopes)
     result={'schema':SCHEMA,'authorized':enabled(options),'status':'UNKNOWN',
@@ -359,9 +360,10 @@ def collect_native(outer,transport,scopes,options,*,db_cache=DEFAULT_DB_CACHE,
     _require(bool(targets),'exact_acr_vulnerability_selection_required')
     checker=database_check or trivy.database_state
     try:
-        state=checker(db_cache)
-        _require(type(state) is dict and state.get('fresh') is True,
-                 'fresh_offline_database_required')
+        with diagnostic_phase('offline_validation', database_diagnostics):
+            state=checker(db_cache)
+            _require(type(state) is dict and state.get('fresh') is True,
+                     'fresh_offline_database_required')
     except Exception:
         result['reason']='offline_database_unavailable'
         for scope in scopes:
@@ -403,10 +405,14 @@ def collect(reader,transport,scopes,wanted,options,*,cli=trivy.DEFAULT_CLI):
     reader.acr_image_vulnerability_metadata=metadata
     if not enabled(options):return
     from . import selected_image_trivy_database_20261021 as database
+    diagnostics={}
+    metadata['image_database_diagnostics']=diagnostics
     with ExitStack() as lease_stack:
-        db_cache=database.acquire(lease_stack,enabled=True,cancel=reader.check_cancelled)
+        db_cache=database.acquire(lease_stack,enabled=True,cancel=reader.check_cancelled,
+            diagnostics=diagnostics)
         result=collect_native(reader,transport,scopes,options,db_cache=db_cache,cli=cli,
-            database_check=(lambda _: {'fresh':False}) if db_cache is None else None)
+            database_check=(lambda _: {'fresh':False}) if db_cache is None else None,
+            database_diagnostics=diagnostics)
     metadata[KIND+'_receipts']=result['receipts']
     metadata['image_vulnerability_scan']={'selected':True,
         'observations':deepcopy(result['observations'])}

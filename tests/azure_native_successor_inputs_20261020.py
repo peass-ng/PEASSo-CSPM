@@ -12,6 +12,20 @@ PATH = Path(__file__).parent / 'fixtures/azure_storage_native_fixes_20261020.jso
 CURRENT_GENERIC_SHA256 = '2dad45304498ed5f1ffa3f235689b4789dcbc674af0544465548701f79b351ca'
 
 
+def _current_acr_stream_predecessor(name, raw):
+    """Project only the exact reviewed batched stream to its retained witness source."""
+    if (name != 'peaso/collectors/azure_acr_image_stream_inspection_20261021.py'
+            or hashlib.sha256(raw).hexdigest() != '27228bceb4446654a8655af4f2f6e5e560c87e556ceb25046659039f16dee600'):
+        return raw
+    import base64
+    import zlib
+    inverse = json.loads(zlib.decompress(base64.b64decode('eNqVVst2ozgQ/RfWLIRAgBa9MEws41cSpwNYOVnwmAbb4HBiCMZfPyUetrtn5jS9cPm4dFWPW7fAb2+EUlmnuixJ7/KbYupEl7Gia0rnwCoyTLmz0jZ381CdZ3797Vt/aGJxaBJZunNSJJwUbjw9D04FCaeCjCGugkRcjODqYjKgsKLKnZUiNm3i2erovxyMNnF9AxEBwmgIhXHnEFXgc7b1TgMS6+0BhUq8cxbu0hP3pp9RcxgApiEAFEM+vE7DZMihaqIxVbuWq1GBJNCFFOa06pwEKcKJr2QRjFsH1L/F01PvVFuUTq8oQ3ChG1eHAWdgDbV3aIYJ5LRWelTX+61HKu49f/ZN7IOZWwVDE5op2tdMFf3ShGaKQYAlQ1iqQhMaJTcHDAkTRIZKiGIAY0QxlV9iQY9wFdrDA1IVuiCqqQpCHnqUCkrorBTnr9WLR/bDgd4eAJ+hb524v8m6Aw2LuIY+lEQMISliKteSqK7JnZWcxlpyz60dtv4awnDbqiPQR+AnyRanSpiXF4dNK/CjgLlFtLOyv9l0H08+Esee/P7TWKcQWo9Z9hUeV5XzMK0cllVbTMuInbOYvfZ5TvA9rUANyGHzzGEPi1Hx7VUS4wyFuXuJmjrhPoeZWgXfWanDNhDf3ceMNg5zy8DfIJh7sn2xyq2/2Qe2Ni7HHT/XvQQKTbmzUnRRwsi2YJudJLInVwCVOytBRWXvFGIFKxSRl1mUnY7X1XTLHff4V5S/DhFa+Qgr+aqVRsfN5TFDI3kRn5aHepnHWTy51m0YcmelOb41Nm8OSeCvEnc2V7g7MglT0v/vwv3RJwT5d/a+C3pTgPujv/zH0+BTWsMkP2AABiRMOXObZZ4duEfQoomqeVPWXhMDZo7mCkp4DkqYTZLA05J/519TezeK1U/uW+jJLeOR+FYYIXPToLEK0EL32FRuRPE8O3GXdv5LET8mI7er5eP8BZuDAo9WQogho3uHQdyd2LxV22uXmxy5//wxx3f4Jjot7P7JpyMEr4vWSv+d6AbU5M5KzqAr+EnkzkqQtuIYRGTH7Xhabf1M+UFIIWbpBSr6g1az/Od2i3YUy3xaR8yFh1RqLHZFS+PSju8fPMfH/O6eioqRo/vtqJ480P/seZx0Z+3Lp5Mby9LwL+U1Sm4E6nJnJf69bLi3hoSbcF7fAIYAKKh9HVb9MhVbrz763yHS0c1GdnUJcCYYO/iYFyCOy+KCzo/wXwQm1PApbDMui2hmiQXLA3hNRk0cC4z0/v4POtubFw==')))
+    for start, end, prior in reversed(inverse):
+        raw = raw[:start] + base64.b64decode(prior) + raw[end:]
+    assert hashlib.sha256(raw).hexdigest() == '4f51b5162e6809840049aaa6f6528018d4c99f60b01d869759f50df961e0beeb'
+    return raw
+
+
 @lru_cache(maxsize=1)
 def _native_rows():
     rows = json.loads(PATH.read_text())['cases']
@@ -122,7 +136,7 @@ def _native_rows():
     captured = json.loads(gzip.decompress(raw))
     root = Path(__file__).resolve().parents[1]
     for name, expected in captured['source_sha256'].items():
-        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected, name
+        assert hashlib.sha256(_current_acr_stream_predecessor(name, (root / name).read_bytes())).hexdigest() == expected, name
     expected_pairs = {(cid, branch) for cid in (
         'azure_storage_account_10_3_4_7_02943e9',
         'azure.review.acr.selected_image_secret_indicators') for branch in ('pass', 'fail')}

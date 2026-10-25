@@ -104,7 +104,8 @@ def _digest(path):
     if path.resolve() in (root / 'peaso/collectors/aws_image_vulnerability_native_20261021.py',
                           root / 'peaso/collectors/aws_package_content_indicators.py',
                           root / 'peaso/secret_scanning_batch.py',
-                          root / 'peaso/trivy_container_runner_20261020.py'):
+                          root / 'peaso/trivy_container_runner_20261020.py',
+                          root / 'peaso/trivy_database_20261021.py'):
         from . import private_secret_shared_source_successor_20261021 as image_source
         image_source._private_self()
         relative = str(path.resolve().relative_to(root))
