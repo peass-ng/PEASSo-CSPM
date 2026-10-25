@@ -69,6 +69,7 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/fixtures/ai-secret-positive-redacted.json',
     'tests/test_azure_acr_prepared_batch_20261025.py',
     'tests/test_reconcile_related_snapshots_20261025.py',
+    'tests/test_api_secret_positive_conservation_20261025.py',
     'tests/test_completed_section_refresh_20261025.py',
     'tests/test_automatic_content_capabilities.py',
     'tests/test_aws_call_metrics.py',

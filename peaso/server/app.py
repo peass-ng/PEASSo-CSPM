@@ -1182,10 +1182,79 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         facets = {"services": set(), "statuses": set(), "frameworks": set()}
         facet_checks = set()
         groups = [finding_index(tenant, row["report"], tuple(chunk["index_reference"] for chunk in bundle["finding_chunks"]))] if bundle.get("bundle_version") == 1 else [bundle.get("findings", [])]
-        from peaso.ai.finding_reviews import apply_review
+        from peaso.ai.finding_reviews import apply_review, _concrete_secret_observation
+        # Index cards omit native detector evidence. Hydrate only canonical
+        # secret candidates whose AI correction could hide a demonstrated match.
+        # These public chunks never decrypt private secret values.
+        secret_chunk_reference, secret_chunk_items = None, {}
+        secret_detail_reference, secret_detail_value = None, None
+        original_secret_reviews = bundle["_finding_reviews"]
+
+        def secret_candidate(value):
+            nonlocal secret_chunk_reference, secret_chunk_items
+            nonlocal secret_detail_reference, secret_detail_value
+            fingerprint = value.get("secret_fingerprint")
+            category = value.get("category", (meta.get(value.get("check_id")) or {}).get("category"))
+            review = bundle["_finding_reviews"].get((category, value.get("id")))
+            if (bundle.get("bundle_version") != 1 or not isinstance(fingerprint, str)
+                    or not re.fullmatch(r"[a-f0-9]{64}", fingerprint)
+                    or value.get("id") != "secret-" + fingerprint
+                    or value.get("resource_id") != "secret:" + fingerprint
+                    or value.get("scanner_status", value.get("status")) != "FAIL"
+                    or not review or review["verdict"] == "FAIL"):
+                return value
+            from peaso.storage.artifacts import check_reference, job_prefix
+            prefix = job_prefix(tenant, ident)
+            def owned_get(reference):
+                check_reference(tenant, reference)
+                if not reference.startswith(prefix):
+                    raise ValueError("Secret finding evidence does not belong to this scan")
+                return artifacts.get(tenant, reference)
+            for chunk in bundle.get("finding_chunks", []):
+                if not chunk["first_id"] <= value["id"] <= chunk["last_id"]:
+                    continue
+                reference = chunk["reference"]
+                if reference != secret_chunk_reference:
+                    # Index rows and manifest chunks share native ID order.
+                    # Release the previous payload before loading the next one.
+                    secret_chunk_items = {}
+                    secret_detail_reference, secret_detail_value = None, None
+                    secret_chunk_items = {item["id"]: item for item in owned_get(reference)["items"]}
+                    secret_chunk_reference = reference
+                full = secret_chunk_items.get(value["id"])
+                if not isinstance(full, dict):
+                    continue
+                if full.get("_detail_reference"):
+                    detail = full["_detail_reference"]
+                    if detail != secret_detail_reference:
+                        secret_detail_value = None
+                        secret_detail_value = owned_get(detail)
+                        secret_detail_reference = detail
+                    full = secret_detail_value
+                if (not isinstance(full, dict) or any(full.get(key) != value.get(key)
+                        for key in ("id", "check_id", "provider", "scope", "resource_id", "secret_fingerprint"))
+                        or full.get("scanner_status", full.get("status")) != "FAIL"):
+                    return value
+                if not _concrete_secret_observation(full):
+                    return value
+                preserved = apply_review(full, bundle["_finding_reviews"], meta)
+                # Later list-card formatting intentionally strips evidence and
+                # reapplies reviews. Bind this request's effective index only;
+                # never mutate cached review maps or the original AI artifact.
+                if bundle["_finding_reviews"] is original_secret_reviews:
+                    bundle["_finding_reviews"] = dict(original_secret_reviews)
+                bundle["_finding_reviews"][(category, value["id"])] = dict(review, verdict="FAIL", reason="")
+                overlay = dict(value)
+                overlay.pop("evidence_summary", None)
+                for key in ("status", "scanner_status", "ai_review", "evidence_summary"):
+                    if key in preserved:
+                        overlay[key] = preserved[key]
+                return overlay
+            return value
+
         for group in groups:
             for value in group:
-                value = apply_review(value, bundle["_finding_reviews"], meta)
+                value = apply_review(secret_candidate(value), bundle["_finding_reviews"], meta)
                 category = field(value, "category")
                 if filters["category"] is None or str(category if category is not missing else "").lower() in filters["category"]:
                     service_value = field(value, "service")

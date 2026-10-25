@@ -1592,7 +1592,7 @@
     "peaso/server/__main__.py": "1030c9a852d7fbc23cece83cdc838d2fdb6bc80c799822d4396ed3aa41bfd3a5",
     "peaso/server/access_check.py": "c50bd537e42500316db7f59336a0a7f9492bcf2afc68693b3168550840bcfaa7",
     "peaso/server/acr_image_selection_static_20261021.py": "99ac8a385f94fcbd529ff6582c20209bc699d1c3d4aeb7ce1a1233b99a227cdd",
-    "peaso/server/app.py": "adadc7a92919c590822e05fbc4cde25a055e84d36122614671e044d0db1db955",
+    "peaso/server/app.py": "78374b08943cde9b4ee4e768e566210c00b9db0d88991a21f1cbe47af2808e56",
     "peaso/server/attack_logs.py": "10ecddd95f0605f5448ca77438b2041c25405d2e73b3ec36b5aa43af1e188651",
     "peaso/server/aws_access_requirements.py": "5440560f68b7a31551a6ba634bd2897fb8a80ac87c7822039fe1e2731dddba79",
     "peaso/server/aws_selector_logs.py": "a1c811ecc964a2fd39ebf7f35251ce82a4d09d0febbdfee3b3b122b49afd9bed",
@@ -1775,7 +1775,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1670,
-  "python_source_sha256": "7a0aa841d0978b84e39b0f55092e61857709f7d8e821e11c74f12a4f5e903d84",
+  "python_source_sha256": "d704102009b26e8a58d34170ea935ff289333d93743a5b6a5227a30ddf32f9bc",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269"
 }
