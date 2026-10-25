@@ -67,7 +67,23 @@ def secret_values(value):
 PUBLIC_AUTH_FIELDS = {"provider", "method", "profile", "context", "region_name", "role_arn", "external_id", "target_principal", "impersonate_service_account", "tenant_id", "client_id", "account", "quota_project", "server", "cluster_id", "in_cluster", "session_name", "role_session_name", "token_uri", "client_email", "type", "project_id", "private_key_id", "auth_uri", "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain", "name", "namespace", "current-context", "apiVersion", "kind"}
 
 
-def credential_values(value, *, _seen=None, _depth=0):
+def _registry_private_fields(entry):
+    """Separate routing identities in the exact explicit registry auth schema."""
+    if type(entry) is not dict:
+        return None
+    method = entry.get('method')
+    private = {'username', 'password'} if method == 'basic' else {'token'}
+    if (method not in ('basic', 'bearer')
+            or set(entry) != {'host', 'repository', 'method'} | private
+            or any(type(value) is not str or not value for value in entry.values())
+            or not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,252}(?::[0-9]{1,5})?', entry['host'])
+            or not re.fullmatch(r'[a-z0-9][a-z0-9._/-]{0,255}', entry['repository'])
+            or any(part in {'', '.', '..'} for part in entry['repository'].split('/'))):
+        return None  # Unknown documents retain the conservative extraction.
+    return private
+
+
+def credential_values(value, *, _seen=None, _depth=0, _registry_entry=False):
     """Extract credentials without treating provider/method/identity names as secrets."""
     if _seen is None:
         _seen = set()
@@ -79,8 +95,15 @@ def credential_values(value, *, _seen=None, _depth=0):
             raise ValueError('credential document structure exceeds limits')
         _seen.add(identity)
     if isinstance(value, dict):
+        private = _registry_private_fields(value) if _registry_entry else None
         for key, item in value.items():
+            if private is not None and key not in private:
+                continue
             if key in PUBLIC_AUTH_FIELDS:
+                continue
+            if key == 'registry_auth' and type(item) is list:
+                yield from credential_values(item, _seen=_seen, _depth=_depth + 1,
+                                             _registry_entry=True)
                 continue
             if isinstance(item, (dict, list)):
                 yield from credential_values(item, _seen=_seen, _depth=_depth + 1)
@@ -101,7 +124,8 @@ def credential_values(value, *, _seen=None, _depth=0):
                 yield item
     elif isinstance(value, list):
         for item in value:
-            yield from credential_values(item, _seen=_seen, _depth=_depth + 1)
+            yield from credential_values(item, _seen=_seen, _depth=_depth + 1,
+                                         _registry_entry=_registry_entry)
     elif isinstance(value, str) and value:
         yield value
 

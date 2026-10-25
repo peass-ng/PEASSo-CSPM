@@ -353,8 +353,11 @@ def review_concurrency():
     if not 1 <= requested <= 6:
         raise ValueError('invalid_ai_concurrency')
     # Admission estimate, not an enforced per-process memory limit. Current
-    # analyzer usage is already included in the cgroup's used memory.
-    capacity = max(0, (available_memory() - 128 * 1024**2) // (512 * 1024**2))
+    # analyzer usage is already included in the cgroup's used memory. A
+    # Fargate agent runs in its own task; locally it only stages its input
+    # bundle and polls, so it reserves far less than a local agent process.
+    per_agent = (128 if isolation.remote() else 512) * 1024**2
+    capacity = max(0, (available_memory() - 128 * 1024**2) // per_agent)
     return min(requested, capacity)
 
 

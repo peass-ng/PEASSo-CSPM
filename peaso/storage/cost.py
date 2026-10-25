@@ -7,7 +7,7 @@ import time
 
 def worker_resources():
     """Match prospective Terraform sizes; explicit deployment values win."""
-    defaults = {"collector": (1.0, 6.0), "analyzer": (0.5, 4.0)}
+    defaults = {"collector": (4.0, 16.0), "analyzer": (1.0, 8.0)}
     return {stage: {"vcpu": float(os.getenv(f"PEASO_{stage.upper()}_VCPU", str(cpu))),
                     "memory_gib": float(os.getenv(f"PEASO_{stage.upper()}_MEMORY_GIB", str(memory)))}
             for stage, (cpu, memory) in defaults.items()}

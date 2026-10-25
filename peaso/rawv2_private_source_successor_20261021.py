@@ -52,8 +52,15 @@ def _root(root=None):
     return Path(root or Path(__file__).resolve().parents[1]).resolve()
 
 
+_RECEIPT_PROVEN = {}
+
+
 def _receipt(root):
+    from peaso.source_attestation_mode import repeat
     root = _root(root)
+    proven = _RECEIPT_PROVEN.get(str(root))
+    if not repeat(proven):
+        return marshal.loads(proven)
     raw = (root / RECEIPT).read_bytes()
     if _digest(raw) != RECEIPT_SHA256:
         raise RuntimeError('RawV2 successor receipt changed')
@@ -98,6 +105,7 @@ def _receipt(root):
                 or repr(function.__defaults__) != row['defaults']
                 or repr(function.__kwdefaults__) != row['kwdefaults']):
             raise RuntimeError('RawV2 successor helper callable changed: ' + name)
+    _RECEIPT_PROVEN[str(root)] = marshal.dumps(receipt)
     return receipt
 
 
