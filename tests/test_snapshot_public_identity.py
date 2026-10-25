@@ -184,3 +184,29 @@ def test_reviewed_global_node_clock_and_exact_azure_intermediate_jobs():
 def test_native_azure_resource_and_graph_parent_scope_routing(scope):
     raw = make_snapshot('azure', [scope], [{'type': 'diagnostic_setting', 'scope': scope, 'status': 'empty', 'items': []}])
     assert validate(public_snapshot_adapter(privacy([scope]), provider='azure')(raw))['collections'][0]['scope'] == scope
+
+
+def test_aws_account_root_preserves_bound_regional_and_global_collections():
+    account = '123456789012'
+    raw = make_snapshot('aws', [account], [
+        {'type': 'vpc', 'scope': account + '/us-east-1', 'status': 'empty', 'items': []},
+        {'type': 'vpc', 'scope': account + '/us-west-2', 'status': 'empty', 'items': []},
+        {'type': 'iam_password_policy', 'scope': account + '/global', 'status': 'empty', 'items': []}])
+    public = validate(public_snapshot_adapter(privacy([account]), provider='aws')(raw))
+    assert public['scopes'] == [account]
+    assert [row['scope'] for row in public['collections']] == [row['scope'] for row in raw['collections']]
+
+
+def test_aws_region_scope_does_not_authorize_another_region():
+    raw = make_snapshot('aws', ['123456789012/us-east-1'], [
+        {'type': 'vpc', 'scope': '123456789012/us-west-2', 'status': 'empty', 'items': []}])
+    with pytest.raises(ValueError, match='outside the snapshot'):
+        public_snapshot_adapter(seal, provider='aws')(raw)
+
+
+def test_aws_account_root_does_not_authorize_a_foreign_account():
+    for scope in ('999999999999/us-east-1', '999999999999/global'):
+        raw = make_snapshot('aws', ['123456789012'], [
+            {'type': 'vpc', 'scope': scope, 'status': 'empty', 'items': []}])
+        with pytest.raises(ValueError, match='outside the snapshot'):
+            public_snapshot_adapter(seal, provider='aws')(raw)

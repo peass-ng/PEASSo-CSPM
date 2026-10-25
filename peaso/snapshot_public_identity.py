@@ -59,7 +59,7 @@ def _canonical_scope(provider, scope):
         # Kubernetes identity authority is exact connector membership below.
         return False
     patterns = {
-        'aws': r'[0-9]{12}/(?:global|[a-z]{2}(?:-[a-z]+)+-[0-9]+)',
+        'aws': r'[0-9]{12}(?:/(?:global|[a-z]{2}(?:-[a-z]+)+-[0-9]+))?',
         'gcp': r'(?:\*|(?:projects|organizations|folders)/[A-Za-z0-9][A-Za-z0-9._:-]{0,127})',
     }
     return re.fullmatch(patterns[provider], scope) is not None
@@ -110,8 +110,9 @@ def public_snapshot_adapter(callback, *, provider, trusted_scopes=()):
             scope = row.get('scope')
             global_clock = provider == 'k8s' and row['type'] == 'node_clock' and scope == '*'
             if (not valid_scope(scope) and not global_clock) or (provider == 'k8s' and scope not in canonical_scopes and not global_clock) or (provider == 'aws'
-                    and scope not in canonical_scopes and not (scope.endswith('/global')
-                    and scope.split('/')[0] in accounts)):
+                    and scope not in canonical_scopes
+                    and not (scope.endswith('/global') and scope.split('/')[0] in accounts)
+                    and scope.split('/')[0] not in canonical_scopes):
                 raise ValueError('Native collection scope is outside the snapshot')
             identities.append((row['type'], scope))
         public = callback(snapshot)
