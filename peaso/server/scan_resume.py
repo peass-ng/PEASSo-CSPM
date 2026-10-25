@@ -399,6 +399,13 @@ def prove_section_refresh(row, store, artifacts, sections):
     specs = [_REFRESH_SPECS[provider][section] for section in sections]
     if any(spec[0] not in named for spec in specs):
         raise StoreError(409, 'The requested section was not explicitly selected in the original scan')
+    # Both ACR consumers share one scan-local capture namespace. Refreshing
+    # only one would unbind the other retained result when metadata is merged.
+    # Closure is allowed only for consumers explicitly selected originally.
+    if provider == 'azure' and all(_REFRESH_SPECS[provider][section][0] in named
+                                   for section in ('images', 'leaks')):
+        sections = ['images', 'leaks']
+        specs = [_REFRESH_SPECS[provider][section] for section in sections]
     prefix = job_prefix(row['tenant'], row['id'])
     for reference in (row['snapshot'], row['report']):
         check_reference(row['tenant'], reference)

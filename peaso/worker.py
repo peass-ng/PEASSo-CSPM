@@ -407,7 +407,8 @@ def _process(role, request, connection):
                 validate_resume_proof(proof, artifacts, tenant, ident,
                                       request["connector"], request.get("checkpoint_refs", []))
             _verify_aws_credentials(request.get("connector", {}))
-            from peaso.engine import collect_snapshot
+            with _runtime_span('worker.startup'):
+                from peaso.engine import collect_snapshot
             from peaso.snapshot import seal
             connector = request.get("connector", {})
             refresh_state = None
@@ -581,7 +582,8 @@ def _process(role, request, connection):
                 resume_reference = reference
                 raise CredentialExpired
         else:
-            from peaso.engine import evaluate_snapshot
+            with _runtime_span('worker.startup'):
+                from peaso.engine import evaluate_snapshot
             selectors = request["selectors"]
             snapshot = artifacts.get(tenant, request["snapshot_ref"])
             related, sources = [], {}

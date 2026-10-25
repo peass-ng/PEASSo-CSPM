@@ -1,4 +1,5 @@
 {
+  "azure_refresh_capture_closure_review": "Azure refresh includes both ACR images/leaks only when both were selected originally, preserving shared capture authority without provenance relabeling; no new SDK clients/services.",
   "collection_coverage_review": "Scope-bound collection status/count summaries for AI reviewers, indexed once per fingerprint/batch preparation; explicit empty inventory conserved, unavailable/truncated data not interpreted as absence. No native objects, provider errors or new SDK operations.30 direct SDK sites/15 services unchanged.",
   "files": {
     "bluepeass/__init__.py": "fff49f1e2d98dd47b0327cd5be60cf58255a914dfd1c29b35a9aeb2bd8aae5de",
@@ -1625,7 +1626,7 @@
     "peaso/server/remediation_presentation_static_20261020.py": "d989960c6feb0339e95aa1f55c6228972c4ae9035d6a7e2406db588675123b31",
     "peaso/server/report_projection_static_20261020.py": "2e8a0d573b338683790eb31ed68408b237aab35c7312979bf85bb025bf3c73ff",
     "peaso/server/scan_names.py": "bc807595f0006516ba2996df566ab0705d2bafb64afed85e39b1366414114a74",
-    "peaso/server/scan_resume.py": "9c010069a122caa2157735d3e941f951e643eb31343124d74b0748b891ac62d8",
+    "peaso/server/scan_resume.py": "274f99ace89d914f125b154822f88c6dce17e40125a853338e106c77aebf2207",
     "peaso/server/schedule_credentials.py": "f90a9ce4669674ddecaede805cfe322d88fc0d96bbc357e352e30f54939c4cf1",
     "peaso/server/scheduler_handler.py": "1228e2ef457a4e79263e0d4daa3c2aed8773c78b2f277c59e3fba963b019922f",
     "peaso/server/service_labels_static_20261020.py": "4098e118b519b0042981b1efee39588b93c1832a69395814b468b56b7f2a5f47",
@@ -1668,7 +1669,7 @@
     "peaso/unused_network_gcp.py": "c400e93b47669dc157cb62be05e4baeef46e1fa429dab70237db74ca21e665db",
     "peaso/unused_network_hardening.py": "afaa1e50bc08b1db3df45473ef9bd8cd87ba7738fab7bef9c912ed9e7eef2991",
     "peaso/unused_network_k8s_20261021.py": "4638fcea694768e70223a9e7cdddd37c6521f7ff438ac207e4e3fdce89f15035",
-    "peaso/worker.py": "3e5c431ba417717d2014b8d420158931d912036b21f559761dbb0e20fdea9d21",
+    "peaso/worker.py": "01e8e91db3433c20a316fed7eee0a481e5bc7751f868f3f3144c31c38d5fefb2",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
     "scripts/cloud_permission_risks.py": "81da211c3f374714634956f8b33d1dd3b525078a59fd6496635a7bae33b6b0bb"
@@ -1777,7 +1778,8 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1671,
-  "python_source_sha256": "d697904eb0046b467df70349396778154a0c868547ca6c83cd0082717d55e2a3",
+  "python_source_sha256": "e89f4223df3e38eb75831a0b6a536ed222e2e81444f6729a4d649835e7dcc437",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
-  "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269"
+  "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
+  "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
 }
