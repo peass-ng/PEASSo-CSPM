@@ -10698,14 +10698,14 @@
       "qualname": "peaso.collectors.azure.AzureTransport.request_xml",
       "path": "peaso/collectors/azure.py",
       "first_line": 697,
-      "function_sha256": "aef72ad975ce706cabb5b0bf1a76a7b02c7613abe4e19d78bc0a52528656ccb1",
+      "function_sha256": "e2a3a385b79667e24f9768e921cf6ce734fdf419a40ce3822fef20ca0ff74499",
       "module_sha256": "6ee0dee5b5b09fdafbecf79e6fb17df248d29a3c8c9d26ce3161be428eec8fed"
     },
     "peaso.collectors.azure.AzureTransport.request_blob_inventory:bed4af927bc4ffba": {
       "qualname": "peaso.collectors.azure.AzureTransport.request_blob_inventory",
       "path": "peaso/collectors/azure.py",
       "first_line": 719,
-      "function_sha256": "bed4af927bc4ffba68ebe78f3fe7e13abc1d44e2b1537c2f3a197167a465f349",
+      "function_sha256": "02c89cb0ea459aa580c50c244a74410c6a57cd58bef32f4b8c6d8611e3e378e4",
       "module_sha256": "6ee0dee5b5b09fdafbecf79e6fb17df248d29a3c8c9d26ce3161be428eec8fed"
     },
     "peaso.collectors.azure._Reader._read:0d682b1b4517962f": {

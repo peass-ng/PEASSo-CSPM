@@ -11,6 +11,7 @@ import hashlib
 import ipaddress
 import json
 import re
+import threading
 import time
 from urllib.parse import parse_qsl, urlsplit
 from urllib.request import Request, build_opener
@@ -111,6 +112,8 @@ class NetworkQueries:
         self.calls = 0
         self.bytes = 0
         self.proofs = []
+        # Effective-route reads may share one query budget across threads.
+        self._budget_lock = threading.Lock()
 
     def _url(self, url, parent, kind, nsg_ids, *, initial):
         if not isinstance(url, str) or any(ord(c) < 33 for c in url):unavailable('unsafe_network_metadata_query')
@@ -140,7 +143,7 @@ class NetworkQueries:
         return ARM + path + ('?' + parsed.query if parsed.query else '')
 
     def _response(self, url, parent, kind, nsg_ids, *, initial, body=None):
-        from .azure import _NoRedirect
+        from .azure import _native_open
         _id(parent, self.scope, 'vnet' if kind == 'admin' else 'nic')
         for nsg in nsg_ids:_id(nsg, self.scope, 'nsg')
         url = self._url(url, parent, kind, nsg_ids, initial=initial)
@@ -152,18 +155,21 @@ class NetworkQueries:
             elif body is not None:unavailable('unsafe_network_metadata_body')
         elif body is not None:unavailable('unsafe_network_metadata_body')
         self.reader.check_cancelled()
-        if self.clock()-self.started >= 120 or self.calls >= 300:unavailable('network_query_budget')
-        self.calls += 1
+        with self._budget_lock:
+            if self.clock()-self.started >= 120 or self.calls >= 300:unavailable('network_query_budget')
+            self.calls += 1
         token = self.transport.token(ARM)
         data = json.dumps(body).encode() if body is not None else None
         req = Request(url, data=data, headers={'Authorization':'Bearer '+token,'Accept':'application/json',
                       'Content-Type':'application/json'}, method='POST' if initial else 'GET')
-        with build_opener(_NoRedirect()).open(req, timeout=min(20,max(0.1,120-(self.clock()-self.started)))) as response:
+        with _native_open(req, min(20,max(0.1,120-(self.clock()-self.started))), build_opener) as response:
             status = response.status
             headers = {k:response.headers[k] for k in ('Location','Retry-After','ETag','x-ms-request-id') if k in response.headers}
             raw = response.read(8*1024*1024+1)
-        self.bytes += len(raw)
-        if len(raw)>8*1024*1024 or self.bytes>32*1024*1024:unavailable('network_query_body_budget')
+        with self._budget_lock:
+            self.bytes += len(raw)
+            total = self.bytes
+        if len(raw)>8*1024*1024 or total>32*1024*1024:unavailable('network_query_body_budget')
         if status not in (200,202):unavailable('network_query_status_unavailable')
         result = json.loads(raw) if raw else None
         if result is not None and not isinstance(result,dict):unavailable('network_query_response_invalid')
@@ -171,7 +177,7 @@ class NetworkQueries:
 
     def get(self, url, *, body=None, audience=ARM):
         """Bound authoritative inventory bytes before parsing, without generic GET caching."""
-        from .azure import _NoRedirect
+        from .azure import _native_open
         if (body is not None or audience != ARM or not isinstance(url,str)
                 or any(ord(char)<33 for char in url)):unavailable('unsafe_network_inventory_get')
         p = urlsplit(url)
@@ -197,15 +203,18 @@ class NetworkQueries:
         if matched is None or query['api-version']!=matched[0] or not matched[1] and set(query)!={'api-version'}:
             unavailable('unsafe_network_inventory_get')
         self.reader.check_cancelled()
-        if self.clock()-self.started>=120 or self.calls>=300:unavailable('network_query_budget')
-        self.calls += 1
+        with self._budget_lock:
+            if self.clock()-self.started>=120 or self.calls>=300:unavailable('network_query_budget')
+            self.calls += 1
         token = self.transport.token(ARM)
         req = Request(url,headers={'Authorization':'Bearer '+token,'Accept':'application/json'},method='GET')
-        with build_opener(_NoRedirect()).open(req,timeout=min(20,max(0.1,120-(self.clock()-self.started)))) as response:
+        with _native_open(req,min(20,max(0.1,120-(self.clock()-self.started))),build_opener) as response:
             status = response.status
             raw = response.read(8*1024*1024+1)
-        self.bytes += len(raw)
-        if len(raw)>8*1024*1024 or self.bytes>32*1024*1024:unavailable('network_query_body_budget')
+        with self._budget_lock:
+            self.bytes += len(raw)
+            total = self.bytes
+        if len(raw)>8*1024*1024 or total>32*1024*1024:unavailable('network_query_body_budget')
         if status!=200:unavailable('network_inventory_status_unavailable')
         value = json.loads(raw)
         if not isinstance(value,dict):unavailable('network_inventory_response_invalid')
@@ -214,7 +223,8 @@ class NetworkQueries:
             'response_sha256':hashlib.sha256(raw).hexdigest()})
         return value
 
-    def pages(self, kind, parent, *, nsg_ids=()):
+    def pages(self, kind, parent, *, nsg_ids=(), proof_sink=None):
+        proofs = self.proofs if proof_sink is None else proof_sink
         if kind not in SUFFIXES:unavailable('unsafe_network_metadata_operation')
         _id(parent,self.scope,'vnet' if kind=='admin' else 'nic')
         url = ARM+parent+'/'+SUFFIXES[kind]+'?api-version='+VERSION
@@ -241,7 +251,7 @@ class NetworkQueries:
             if response.status != 200 or not isinstance(response.data,dict) or not isinstance(response.data.get('value'),list):
                 unavailable('network_query_incomplete')
             if any(not isinstance(v,dict) for v in response.data['value']):unavailable('network_query_response_invalid')
-            self.proofs.append({'source_operation':SUFFIXES[kind],'resource_id':parent,
+            proofs.append({'source_operation':SUFFIXES[kind],'resource_id':parent,
                 'api_version':VERSION,'read_only':True,'representation':'full',
                 'observed_at':datetime.now(timezone.utc).isoformat(),
                 'response_sha256':hashlib.sha256(json.dumps(response.data,sort_keys=True,separators=(',',':')).encode()).hexdigest()})

@@ -12766,7 +12766,7 @@
       "complete_semantic_review_certified": false,
       "live_cloud_validation_certified": false,
       "receipt": "docs/check-review/aws-lambda-environment-secret-implementation-20261020.json",
-      "receipt_sha256": "1fb5f88fb027783f0bd49f4aaffb0b554da91ab892590d065de6e5b05cbdebc5",
+      "receipt_sha256": "2dac4d96602d4faddb68e4ef72cfce496c9770c14f659b8b97f15f79242edb2a",
       "producer_review": "separate_bounded_native_reader_acceptance"
     },
     {

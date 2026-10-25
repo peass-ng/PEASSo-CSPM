@@ -231,7 +231,7 @@
   ],
   "ledger": {
     "path": "docs/check-review/azure-function-package-final-ledger-20261020.json",
-    "sha256": "ae83d7c90f2b7e3f49186d391aa1a7c954474bb2ac2cec9d59febc3612779fad"
+    "sha256": "b6cbd864ae5c7291734f5c4aa1407a3cb7335ddef0322dbab2d559a47dd70d38"
   },
   "evidence": [
     {

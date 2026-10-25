@@ -168,7 +168,7 @@
   "source_and_receipt_proofs": [
     {
       "path": "docs/check-review/azure-storage-native-review-20261020.json",
-      "sha256": "dc4a583d29ffb1aedb24297de42e5b91a72aa2a77072906e3eae483eafd9212b",
+      "sha256": "e7e5f2a19dc56406ccd9610c2d9eeb3187be9de0a37bbf1f8d21fcbc120719d0",
       "bytes": 1528044
     },
     {
@@ -178,7 +178,7 @@
     },
     {
       "path": "docs/check-review/azure-storage-native-fixes-20261020.json",
-      "sha256": "a777fbaea42649afbf85ad4f717dc3819c293eba814c6cf4ee61d10c932b1e10",
+      "sha256": "021860b822c988440ba4f1c4edb86b00484107a2ceeec41ad8195ae9977a9eb4",
       "bytes": 474417
     },
     {

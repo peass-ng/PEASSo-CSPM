@@ -246,7 +246,7 @@
       },
       {
         "path": "docs/check-review/azure-master-predicate-attestation-errata-20261020.json",
-        "sha256": "57385dc31747dba7ab7553e2c213838afb68100d48444580eb6107f04b3db313"
+        "sha256": "1de6ceb284293f23a530e382bb08a46d08a667290a5cc84f7ef9cfcb0cfe8fcb"
       },
       {
         "path": "tests/test_azure_k8s_current_review_bindings_20261020.py",

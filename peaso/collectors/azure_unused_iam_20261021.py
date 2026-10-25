@@ -22,7 +22,7 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
     collect_roles(reader, request, scopes, wanted, transport, credential_context_id, customer_context_id)
     if KIND not in wanted:
         return
-    from .azure import _safe_error
+    from .azure import _safe_error, ordered_parallel
     try:
         tenant = guid(getattr(transport, 'verified_tenant', None))
         if guid(getattr(transport, 'tenant', None)) != tenant:
@@ -52,8 +52,8 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
             # Shared reader errors are already sanitized; preserve denied versus unknown.
             result['error'] = collection['error']
         native.append(result)
-    reports = []
-    for name, endpoint in REPORTS.items():
+    def read_report(spec):
+        name, endpoint = spec
         source = {'name': name, 'endpoint': endpoint, 'audience': GRAPH, 'method': 'GET',
                   'body': None, 'items': [], 'status': 'not_collected', 'integrity_error': False}
         seen = set()
@@ -71,12 +71,19 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
         except Exception as exc:
             status, error = _safe_error(exc)
             source.update(status='partial' if source['items'] else status, error=error, integrity_error=isinstance(exc, ValueError))
+        return source
+    # Independent activity reports run bounded in parallel, kept in REPORTS order.
+    reports = []
+    for ok, source in ordered_parallel(reader, read_report, list(REPORTS.items())):
+        if not ok:
+            raise source
         reports.append(source)
     # Graph v1.0 has a documented service-principal membership omission.
     # Reuse positive membership evidence, but verify candidate empty static
     # groups with beta before treating absence as an empty group.
     groups = {guid(row['id']): row for c in native if c['type'] == 'directory_group'
               and c['scope'].casefold() == scope for row in c['items']}
+    candidates = []
     for source in native:
         if source['type'] != 'directory_membership' or source['status'] != 'empty':
             continue
@@ -84,7 +91,10 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
         group = groups.get(group_id.casefold())
         if not group or 'DynamicMembership' in group.get('groupTypes', []) or group.get('visibility') == 'HiddenMembership':
             continue
-        endpoint = '/beta/groups/' + guid(group_id) + '/members?$select=id'
+        candidates.append((source, '/beta/groups/' + guid(group_id) + '/members?$select=id'))
+    def verify_members(candidate):
+        # Each candidate mutates only its own membership source.
+        source, endpoint = candidate
         source.update(endpoint=endpoint, membership_api='beta', method='GET', items=[])
         seen = set()
         try:
@@ -100,6 +110,9 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
         except Exception as exc:
             status, error = _safe_error(exc)
             source.update(status='partial' if source['items'] else status, error=error)
+    for ok, value in ordered_parallel(reader, verify_members, candidates):
+        if not ok:
+            raise value
     record = {'id': scope + '/unusedIamEvidence', 'schema': SCHEMA, 'native_collections': native,
               'reports': reports, '_provenance': proof}
     # Source failures stay typed inside the projection; one denied activity API

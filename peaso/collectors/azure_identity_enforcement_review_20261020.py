@@ -68,7 +68,7 @@ def _rows(reader, request, endpoint, *, graph=True, opaque=False):
 def collect(reader, request, scopes, wanted, transport, credential_context_id, customer_context_id):
     if KIND not in wanted:
         return
-    from .azure import _safe_error
+    from .azure import _safe_error, ordered_parallel
     tenant = getattr(transport, 'verified_tenant', None)
     try:
         tenant = _guid(tenant)
@@ -83,7 +83,9 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
              'adapter': ADAPTER, 'endpoint': 'native-input-projection',
              'observed_at': datetime.now(timezone.utc).isoformat()}
     sources = []
-    def read(name, endpoint, *, graph=True, opaque=False, singleton=False):
+    pending = []
+    def fetch(spec):
+        name, endpoint, graph, opaque, singleton = spec
         source = {'name': name, 'endpoint': endpoint, 'audience': GRAPH if graph else ARM,
                   'method': 'GET', 'body': None, 'items': [], 'status': 'not_collected'}
         try:
@@ -97,8 +99,18 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
             source['status'] = 'collected' if source['items'] else 'empty'
         except Exception as exc:
             source['status'], source['error'] = _safe_error(exc)
-        sources.append(source)
         return source
+    def read(name, endpoint, *, graph=True, opaque=False, singleton=False):
+        pending.append((name, endpoint, graph, opaque, singleton))
+    def settle():
+        # Independent per-subject reads run bounded in parallel; sources keep
+        # the exact serial request order.
+        specs = list(pending)
+        pending.clear()
+        for ok, source in ordered_parallel(reader, fetch, specs):
+            if not ok:
+                raise source
+            sources.append(source)
     # These exact SW18 source APIs and its temporal/identity helpers are reused;
     # the raw sources are retained, not its consumer-specific resolved flags.
     for name, endpoint in GRAPH_READS.items():
@@ -129,6 +141,7 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
             # elsewhere in the tenant. Denial of this root query stays UNKNOWN.
             read('arm_' + name + ':' + pid,
                  '/providers/Microsoft.Authorization/' + operation + '?' + urlencode({'api-version': version, '$filter': "principalId eq '" + pid + "'"}), graph=False)
+    settle()
     # Authenticate each returned ARM subscription/management-group scope using
     # a native parent read; never guess a subscription's tenant from the token.
     bound = set()
@@ -145,6 +158,7 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
             if parent and parent.casefold() not in bound:
                 bound.add(parent.casefold())
                 read('binding:' + parent.casefold(), parent + '?api-version=' + ('2022-12-01' if match else '2020-05-01'), graph=False, singleton=True)
+    settle()
     row = {'id': scope + '#identity-enforcement', 'native_collections': native,
            'sources': sources, '_provenance': proof}
     reader.run([(KIND, scope, 'Microsoft.Graph', lambda: iter([[row]]))])

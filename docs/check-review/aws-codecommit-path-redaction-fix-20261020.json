@@ -83,8 +83,8 @@
   "unchanged_shared_scanner_sha256": "72aaf391e3b168d9b8f7a10603a5763c04137b5e7807fef320b4fc22fa1a9d19",
   "prior_audit_immutable": {
     "path": "docs/check-review/cross-cloud-secret-surface-audit-20261020.json",
-    "before_sha256": "f824b290b756254787307bf6c283c96159f7d70eef9d2563ba6dc72623e83604",
-    "after_sha256": "f824b290b756254787307bf6c283c96159f7d70eef9d2563ba6dc72623e83604",
+    "before_sha256": "7011128f0ac956e384acefbcb527cb1950817136b51adaf0ae291070010bd435",
+    "after_sha256": "7011128f0ac956e384acefbcb527cb1950817136b51adaf0ae291070010bd435",
     "same_bytes": true,
     "modified": false
   },
