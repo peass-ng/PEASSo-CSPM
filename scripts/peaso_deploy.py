@@ -62,6 +62,7 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_detector_call_metrics.py',
     'tests/test_rawv2_package512_bootstrap_20261025.py',
     'tests/test_snapshot_public_identity.py',
+    'tests/test_k8s_clock_checkpoint_scope_20261025.py',
     'tests/test_completed_section_refresh_20261025.py',
     'tests/test_automatic_content_capabilities.py',
     'tests/test_aws_call_metrics.py',

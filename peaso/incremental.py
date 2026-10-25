@@ -127,7 +127,11 @@ class CheckpointSession:
     def _snapshot(self, envelopes, *, sequence=None, sections=None):
         # Only observed, exact native scopes enter this partial view. The
         # explicit scope boundary is retained separately for coverage.
-        scopes = sorted({row["scope"] for row in envelopes}) or self.requested_scopes
+        # A global clock envelope is cluster evidence, not a wildcard target.
+        # Keep it intact while deriving only selected namespaces/context scopes.
+        scopes = sorted({row["scope"] for row in envelopes
+            if not (self.provider == "k8s" and row["type"] == "node_clock"
+                    and row["scope"] == "*")}) or self.requested_scopes
         # Only the completed collector can supply final, validated context.
         # Keep the checkpoint's partial/section fences authoritative even if
         # collector metadata happens to contain keys with the same names.
