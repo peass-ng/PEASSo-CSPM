@@ -26,7 +26,10 @@ for plan in PLANS.values():
         if identity in READS and READS[identity] != step['key']:
             raise ValueError('Conflicting network API response roots')
         READS[identity] = step['key']
+        # identity_fields compose the resource id; retained_fields are only
+        # kept through metadata projection for downstream evaluation.
         READ_IDENTITIES.setdefault(identity, set()).update([plan['identity'], *plan.get('identity_fields', []),
+            *plan.get('retained_fields', []),
             *step.get('exports', {}).values(), *plan.get('detail', {}).get('arguments', {}).values()])
 READS.update({(plan['service'], plan['operation']): plan['key'] for plan in DETAIL_ENRICHERS.values()})
 READS['ec2', 'describe_vpc_attribute'] = None

@@ -184,3 +184,17 @@ def test_attachment_ids_are_not_names_composites_or_comma_separated_references()
     for name, value in [('NetworkResourceId', 'sg-one/vpc-two'), ('NetworkName', 'vpc-one'), ('SubnetIds', 'subnet-one,subnet-two')]:
         assert list(aws_attachment({'path': name, 'name': name, 'value': value})) == []
     assert list(aws_attachment({'path': 'VpcEndpointServiceId', 'name': 'VpcEndpointServiceId', 'value': 'vpce-svc-one'}))[0][1] == 'vpc_endpoint_service'
+
+
+def test_flink_applications_sharing_an_execution_role_keep_distinct_arn_identities():
+    role = 'arn:aws:iam::111111111111:role/flink-exec'
+    arn = 'arn:aws:kinesisanalytics:us-east-1:111111111111:application/{}'.format
+    client = NativeClient({'list_applications': {'ApplicationSummaries': [
+            {'ApplicationName': name, 'ApplicationARN': arn(name)} for name in ('one', 'two')]},
+        'describe_application': lambda a: {'ApplicationDetail': {'ApplicationName': a['ApplicationName'],
+            'ApplicationARN': arn(a['ApplicationName']), 'ApplicationMode': 'STREAMING', 'ServiceExecutionRole': role}}})
+    result = FETCHERS['flink_application'](Requests({'retry_attempts': 1}), Session(client), 'us-east-1', '111111111111')
+    assert result.status == 'collected', result.error
+    assert [row['NetworkResourceId'] for row in result.items] == [arn('one'), arn('two')]
+    # Privesc evaluation still receives the retained mode and execution role.
+    assert all(row['ApplicationMode'] == 'STREAMING' and row['ServiceExecutionRole'] == role for row in result.items)
