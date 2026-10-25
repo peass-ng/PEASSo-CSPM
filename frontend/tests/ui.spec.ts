@@ -1160,7 +1160,7 @@ test('Help documents API authentication, filterable routes and complete report d
   await expect(page.getByRole('heading', { name: 'Access your data through the API' })).toBeVisible();
   await expect(page.getByText('API keys allow personal-account GET/HEAD reads.', { exact: false })).toBeVisible();
   await expect(page.locator('.docs-code').first()).toContainText('Authorization: Bearer $CSPM_API_KEY');
-  await expect(page.locator('.docs-api-table tbody tr')).toHaveCount(27);
+  await expect(page.locator('.docs-api-table tbody tr')).toHaveCount(28);
   await page.getByRole('textbox', { name: 'Search API endpoints' }).fill('/findings');
   await expect(page.locator('.docs-api-table tbody tr')).toHaveCount(2);
   await expect(page.locator('.docs-api-table')).toContainText('/scans/{scan_id}/findings/{finding_id}');

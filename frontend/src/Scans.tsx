@@ -80,7 +80,9 @@ export function Scans({
   const names = scanNames(items(scansQuery.data), items(connectorsQuery.data));
   const [launch, setLaunch] = useState(false);
   const [schedule, setSchedule] = useState<Schedule | null | undefined>();
-  const [inspect, setInspect] = useState<Scan>();
+  const [inspected, setInspect] = useState<Scan>();
+  // The list is polled; show the latest state of the scan whose details are open.
+  const inspect = inspected && (items(scansQuery.data).find((s) => s.id === inspected.id) ?? inspected);
   const [remove, setRemove] = useState<Scan>();
   const [error, setError] = useState("");
   function refresh() {
@@ -485,6 +487,7 @@ export function LaunchForm({
   });
   function submit(e: FormEvent) {
     e.preventDefault();
+    setError("");
     if (!connector) return setError("Choose a connector first.");
     if (resumePrevious) { resumeMutation.mutate(previous.id); return; }
     if (!selected.length && !contentChecks.length)
