@@ -656,7 +656,9 @@ def _process(role, request, connection):
         # Large evidence/report objects never cross the supervisor process pipe.
         if aws_metrics is not None:
             aws_metrics.close()
-        runtime_metrics.flush()
+        # Stop the heartbeat and emit the final frame before the terminal
+        # result: the supervisor stops reading once it receives the result.
+        runtime_metrics.close()
         connection.send((True, reference))
     except BaseException as exc:
         if isinstance(exc, CredentialExpired) or _expired_exception(exc):
@@ -676,7 +678,9 @@ def _process(role, request, connection):
             code = "provider_error"
         if aws_metrics is not None:
             aws_metrics.close()
-        runtime_metrics.flush()
+        # Stop the heartbeat and emit the final frame before the terminal
+        # result: the supervisor stops reading once it receives the result.
+        runtime_metrics.close()
         connection.send((False, code, _safe_failure_details(exc), failure_reasons, resume_reference))
     finally:
         if detector_metrics is not None:
@@ -1013,7 +1017,10 @@ def main():
         if args.role != "analyzer" or not args.tenant_id or not args.scan_id:
             parser.error("--progressive requires analyzer role and one tenant/scan selector")
         from .progressive_analyzer import run_progressive
-        if run_progressive(worker, args.tenant_id, args.scan_id) != "completed":
+        status = run_progressive(worker, args.tenant_id, args.scan_id)
+        if status != "completed":
+            # The workflow only sees the exit code; name the terminal status.
+            LOGGER.warning("Progressive analyzer ended with scan status %s", status)
             raise SystemExit(1)
         return
     if args.once:

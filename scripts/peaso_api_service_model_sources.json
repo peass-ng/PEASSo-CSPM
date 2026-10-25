@@ -1610,7 +1610,7 @@
     "peaso/server/content_selection_preflight_20261021.py": "0fe9b0ff1299408e732fd33ef8f7325a0eb87e857a18ece3b42e3c189c3041aa",
     "peaso/server/entra_attack_logs.py": "b6805b72b0ffd1b3843d6348b58321fed66ab15bcffc8d2bdc91533015e3b141",
     "peaso/server/evidence_static.py": "653336efb6d2b3c3ae267d7991deed43865508542e46f3e5b6ea5df018a22c9e",
-    "peaso/server/finding_groups_static_20261021.py": "b92f3c0acdd36544837a3c7f88f3f4b5063d772df24e533fca77edd39b689a3a",
+    "peaso/server/finding_groups_static_20261021.py": "e1ee1fb2bd1b574b14e585fc371d2741dd788ee8981355aced1261a6c21c31e7",
     "peaso/server/finding_types_static_20261020.py": "081503b5a6275961b692f514fb1590dc46b81e1249f90e01d93e872b1ffbefce",
     "peaso/server/gcp_attack_logs.py": "78046b81fe898de2faeec19fadd5087df65bc4731f61dc8ea88ce13807ec7aef",
     "peaso/server/gcp_audit_options_static_20261021.py": "fa806f3787e084e8b9f0831e0260d0611f9dc95f1ae39be04de5dc2d040ce110",
@@ -1671,7 +1671,7 @@
     "peaso/unused_network_gcp.py": "c400e93b47669dc157cb62be05e4baeef46e1fa429dab70237db74ca21e665db",
     "peaso/unused_network_hardening.py": "afaa1e50bc08b1db3df45473ef9bd8cd87ba7738fab7bef9c912ed9e7eef2991",
     "peaso/unused_network_k8s_20261021.py": "4638fcea694768e70223a9e7cdddd37c6521f7ff438ac207e4e3fdce89f15035",
-    "peaso/worker.py": "01e8e91db3433c20a316fed7eee0a481e5bc7751f868f3f3144c31c38d5fefb2",
+    "peaso/worker.py": "41f409fc919bc411754e8795660c73bad7ca57edae2c9df1f82c127136450ec0",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
     "scripts/cloud_permission_risks.py": "81da211c3f374714634956f8b33d1dd3b525078a59fd6496635a7bae33b6b0bb"
@@ -1780,7 +1780,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1672,
-  "python_source_sha256": "aa4eecde510d0d0cf0a32fb15df6caa6426e5177ba588d521e3f888409d531b3",
+  "python_source_sha256": "a14a5930abc31ef11432d85db13964d9d968c1d24c0b8ac427ec23f63a4491fe",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

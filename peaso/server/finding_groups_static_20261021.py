@@ -2,9 +2,9 @@
 # imports and regionless roster loader differ; focused AST/output parity binds
 # every other function to the native source. No evaluator/admission changes.
 from pathlib import Path
-SOURCE_SHA256 = '3bf8ee3254dc5cecbd36b72619c8d8698c0d4f625f6de7fe9e32692feb7e9ac7'
+SOURCE_SHA256 = '988d84b1d701b8e22163fa77c58302e7f1761f388578666887160111eb494be0'
 NATIVE_GENERATION = '6b6ee759234d7e2dad978342838cb3af4e1fe767'
-REGIONLESS_SHA256 = '89a6885c7048302ac83d2616fcb171bb1a8ee1ce7ac729d63500ec68bc64ac07'
+REGIONLESS_SHA256 = 'ebc38d9d7d22575e52e5cc4bdecb609cc12ba2ca621413d8a415b775786eadfd'
 
 """One check card with lossless underlying observations and explicit mixed verdicts."""
 from collections import Counter, defaultdict
@@ -161,6 +161,12 @@ def group_findings(findings, *, observations=False):
 def summary(group):
     counts = group.get("status_counts", {})
     status = group.get("status", "UNKNOWN")
+    if group.get("check_id") == "analysis.exposed_privileged_workload" and status == "FAIL":
+        number = group.get("affected_asset_count", 0)
+        noun = "workload" if number == 1 else "workloads"
+        return (f"{number} {noun} are linked to configured public entry points and use identities with recorded high-impact grants.\n"
+            "If one of these workloads is compromised, its identity could be used against resources covered by those grants.\n"
+            "That may affect the people or data those resources serve.")
     affected = counts.get(status, 0) + (counts.get("DENIED", 0) if status == "UNKNOWN" else 0)
     noun = "assets" if group.get("affected_asset_count") else "scopes"
     number = group.get("affected_asset_count") or len(group.get("affected_scopes", [])) or affected
