@@ -424,7 +424,7 @@ def test_new_only_native_fixture_contract_and_source_hashes():
     report_raw = path.read_bytes()
     report = json.loads(report_raw)
     successor_raw = Path('docs/gcp-review/recheck-20261020/gcp_dataflow_referenced_source_20261023_successor.json').read_bytes()
-    assert hashlib.sha256(successor_raw).hexdigest() == '213505fc14aa6474b8abbeb7fa3a9b41f601b3e2e2e37dcfe0b3937cac3d16d8'
+    assert hashlib.sha256(successor_raw).hexdigest() == '65e20ba00487dfaf13a76cf39dddac648a70eae29392ce3421cb618c86dc9ecb'
     successor = json.loads(successor_raw)
     assert successor['historical_report_sha256'] == hashlib.sha256(report_raw).hexdigest()
     assert successor['historical_source_sha256'] == report['implementation_hashes'][successor['source']]

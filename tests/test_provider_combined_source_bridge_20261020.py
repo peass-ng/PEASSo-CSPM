@@ -446,7 +446,7 @@ REVIEWED_CURRENT_CHANGES = {'peaso/ai/access.py': {'after_sha256': 'ab7d0ff1b899
  'peaso/collectors/gcp_log_secret_indicators.py': {'after_sha256': '742707093416635c370b49b5f4d4ceb7aa6ead869a7d3748e1ee3698a4ab8268',
                                                    'after_size': 16108,
                                                    'before_sha256': '7600114140eef746787981f73b18b47910c0d82797662050f2a6944306b7b161'},
- 'peaso/collectors/gcp_network_catalog.py': {'after_sha256': '8660fd5145330841700973db042604dc7dd5d2fcf1a249102ebc70d117db8130',
+ 'peaso/collectors/gcp_network_catalog.py': {'after_sha256': 'c98251b502ef4bee29bc78d1e45675fb5c1e8d70cc689a37bb2133950f97a301',
                                              'after_size': 23319,
                                              'before_sha256': 'ee993a57728ce4e41a183d19942de76a9907f2532ade9cd1cafd2d303630682f'},
  'peaso/collectors/gcp_notebook_airflow_secret_indicators.py': {'after_sha256': '8317f2883f819d07d88b05a5714e119a241c3f0a2200a9d54e47ba24d8f28684',

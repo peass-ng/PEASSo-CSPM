@@ -229,10 +229,16 @@ def pipeline_pages(collector, scope):
     locations_url = f"https://appengine.googleapis.com/v1/apps/{quote(project, safe='')}/locations"
     for locations, location_request in collector.pages(locations_url, scope, key="locations"):
         yield [], location_request
+        # Region identities are checked in order before any pipeline read.
+        regions, failure = [], None
         for location in locations:
             region = location.get("locationId") if isinstance(location, dict) else None
             if not isinstance(region, str) or not _REGION.fullmatch(region):
-                raise ReadError("malformed", "dataflow_pipeline_location")
+                failure = ReadError("malformed", "dataflow_pipeline_location")
+                break
+            regions.append(region)
+
+        def region_pages(region):
             url = (f"https://datapipelines.googleapis.com/v1/projects/{quote(project, safe='')}"
                    f"/locations/{quote(region, safe='')}/pipelines")
             for pipelines, list_request in collector.pages(url, scope, key="pipelines",
@@ -246,3 +252,7 @@ def pipeline_pages(collector, scope):
                     if result is not None:
                         projected.append(result)
                 yield projected, list_request
+        from .gcp_fanout import fanout_pages
+        yield from fanout_pages(collector, regions, region_pages)
+        if failure is not None:
+            raise failure

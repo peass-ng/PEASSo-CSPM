@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from .gcp import ReadError
+from .gcp_fanout import fanout_pages
 
 
 def scope_jobs(collector, scope):
@@ -26,7 +27,8 @@ def scope_jobs(collector, scope):
                     locations.add(location)
             yield [], request_id
         seen = set()
-        for location in sorted(locations):
+
+        def location_pages(location):
             parent = scope + '/locations/' + location
 
             def keep(row, location=location):
@@ -67,6 +69,8 @@ def scope_jobs(collector, scope):
                             raise ReadError('malformed', 'privateca_pool_policy_missing')
                         yield [{**pool, 'iamPolicy': policies[0],
                                 '_coverage': {'iamPolicy': {'status': 'collected'}}}], policy_request
+
+        yield from fanout_pages(collector, sorted(locations), location_pages)
 
     return [('ca_pool', scope, 'privateca', fetch)]
 

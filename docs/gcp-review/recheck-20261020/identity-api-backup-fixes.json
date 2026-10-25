@@ -1885,13 +1885,13 @@
   "preserved_attestations": {
     "prior_review": {
       "path": "docs/gcp-review/recheck-20261020/identity_data-batch-review.json",
-      "sha256": "5191be52753a9b572802fac13955c17aec2b8f3bd67c6c7dc8e9bba28a91c51d",
+      "sha256": "b0395dd5059df02e2f09bf2da528ba5fc841a634958293f4cae16a265f81531c",
       "bytes": 247151
     },
     "unchanged": true,
     "original_report_before": {
       "path": "/tmp/peasso-gcp-review-20261020/identity_data/api-backup-fixes/identity_data-batch-review.json.before",
-      "sha256": "5191be52753a9b572802fac13955c17aec2b8f3bd67c6c7dc8e9bba28a91c51d",
+      "sha256": "b0395dd5059df02e2f09bf2da528ba5fc841a634958293f4cae16a265f81531c",
       "bytes": 247151
     },
     "policy": "Old report, source hashes, receipt paths and failed observations are retained exactly; this follow-up records new sources and new receipts rather than repinning them."

@@ -7,7 +7,7 @@
   "scope": "Exactly native57-data SQL/BigQuery identity, numeric project-ID routing, documented SQL IP enum and MySQL field applicability defects.",
   "predecessor_report": {
     "path": "docs/gcp-review/recheck-20261020/native57-data-review.json",
-    "sha256": "7a3e9787616d75e8de45f7fa1273d1bef6b87fb285d74421e9aff1b3629f9a48",
+    "sha256": "027e2308cd2ac4f1346a828af563a6e4bb2ebd327980bc764d41595da552f151",
     "bytes": 447664
   },
   "summary": {
@@ -5678,7 +5678,7 @@
   "preservation_checks": [
     {
       "path": "docs/gcp-review/recheck-20261020/native57-data-review.json",
-      "sha256": "7a3e9787616d75e8de45f7fa1273d1bef6b87fb285d74421e9aff1b3629f9a48",
+      "sha256": "027e2308cd2ac4f1346a828af563a6e4bb2ebd327980bc764d41595da552f151",
       "bytes": 447664
     },
     {

@@ -5,7 +5,7 @@
   "scope": "Local-only new unregistered optional Dataflow package reader and pure evaluator; no integration, commit, push, deploy, authentication or live cloud calls.",
   "reconciliation_predecessor": {
     "path": "docs/gcp-review/recheck-20261020/current-source-reconciliation-20261020.json",
-    "sha256": "6e6fbdf6acff57100cfe468b851e075b967d0884c7da3ba0ed6faf866f912535",
+    "sha256": "603b9e467d9bc7eda42ad11228c0078c9b98101aa049e81217da363f659f444b",
     "record_path": [
       "secret_surface_reconciliation",
       3

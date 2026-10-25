@@ -5,7 +5,7 @@
   ],
   "current_source_sha256": "e9b4d073084291fdbfad7b84752a69ed0bb62c0bb46e2b2df9b9ca8d46860cbe",
   "current_test_normalized_sha256": "2f115a4c69faa1f7ac4b0d8e8bc9452f8c5b78efeee913f4c3bdbb5c35500e52",
-  "historical_report_sha256": "d8ea4060252f4f98802182a636254590df60e5b0cea41cd5c9e72eb200de9c46",
+  "historical_report_sha256": "c6562354273cb050fe3ee32ba8e3f073a6fa39a051be9cbcd4d97cf03976f0ac",
   "historical_source_sha256": "c638e6ad782b475e9d6bc2ee93aed1bc57da67281bbb53ffa364935f84c6ad59",
   "historical_test_sha256": "d2afae932cc0ffb90ea6f9dd6ef97b8c8c77f523b842c12d7ab36c9df0211ff7",
   "schema": "gcp-dataflow-referenced-source-successor/v1",

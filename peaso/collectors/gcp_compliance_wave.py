@@ -103,18 +103,21 @@ def located(collector, scope, service, version, segment, key, option):
     if (not isinstance(locations, list) or not locations or len(locations) > 100 or
             any(not isinstance(x, str) or not re.fullmatch(r'[a-z0-9-]+', x) for x in locations)):
         raise ReadError('unavailable', 'location_coverage_unresolved')
-    failures = []
-    for location in dict.fromkeys(locations):
+    from .gcp_fanout import location_fanout
+
+    def location_pages(location):
         prefix = f'{scope}/locations/{location}/{segment}/'
         def checked(item):
             if not isinstance(item.get('name'), str) or not item['name'].startswith(prefix):
                 raise ReadError('malformed', 'location_resource_identity_mismatch')
             return {**item, '_representation': 'full'}
-        try:
-            yield from collector.pages(
-                f'https://{service}.googleapis.com/{version}/{scope}/locations/{location}/{segment}',
-                scope, key=key, transform=checked)
-        except ReadError as exc:
+        return collector.pages(
+            f'https://{service}.googleapis.com/{version}/{scope}/locations/{location}/{segment}',
+            scope, key=key, transform=checked)
+    failures = []
+    for _location, pages, exc in location_fanout(collector, dict.fromkeys(locations), location_pages):
+        yield from pages
+        if exc is not None:
             if getattr(exc, 'request_id', None):
                 yield [], exc.request_id
             failures.append(exc)

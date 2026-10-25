@@ -53,7 +53,7 @@
   },
   "historical_gcp_conservation": {
     "path": "docs/check-review/gcp-current-ledger-source-conservation-20261020.json",
-    "sha256": "4359bc9fd55fdb429ff933c9470bd7d7eb8df6904d6a59a2167049c66d6a2879"
+    "sha256": "3272cbf2d02fddd10ad9f2d1675ebba2e457e05d55efb6dabf22920cf1f9bc2c"
   },
   "historical_function_erratum": {
     "path": "docs/check-review/gcp-function-current-ledger-erratum-20261020.json",

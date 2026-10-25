@@ -8,7 +8,7 @@
   "scope": "Exactly AWS selected command literals1 and GCP Cloud Run Job declared image1 current review bookkeeping",
   "source_conservation": {
     "path": "docs/check-review/commands-job-current-ledger-source-conservation-20261020.json",
-    "sha256": "47c78ae99de0c8b609b921fe5f23e5eb74b23c200f38f86558457e452e72dd72"
+    "sha256": "c7b5ccbcbf5c4478c7a82212dafb52251aa91eee22be054ec64f839dea94e9e2"
   },
   "current_acceptances": {
     "aws.review.workload.selected_command_literal_secret_indicators": {
@@ -241,12 +241,12 @@
     "docs/evidence-reviews/aws.json": "6dd7dc6a3eec10b001081b930d8c5966cf7ac41182c384767cdaaf3040e05f7b",
     "docs/evidence-reviews/gcp.json": "e541d439776a541992b52950b04b011cb41966eae441bdb51b9d6a141c740e55",
     "tests/test_gcp_workbench_current_acceptance_20261020.py": "613908d38869dd9815ad587f2c0394aa12e686b8218b53d496f07ef5e773c0d4",
-    "tests/test_gcp_current_source_reconciliation_20261020.py": "9d8c02b7865515954f2a161600ecc30a4738f8031a7dc83f610ad6f30266b0ec"
+    "tests/test_gcp_current_source_reconciliation_20261020.py": "179984be7ebc5f0c73c0294a656350499e02926217bffd306198eb996fb9787b"
   },
   "preserved_source_epochs": {
     "historical_gcp_conservation": {
       "path": "docs/check-review/gcp-current-ledger-source-conservation-20261020.json",
-      "sha256": "4359bc9fd55fdb429ff933c9470bd7d7eb8df6904d6a59a2167049c66d6a2879"
+      "sha256": "3272cbf2d02fddd10ad9f2d1675ebba2e457e05d55efb6dabf22920cf1f9bc2c"
     },
     "function_erratum": {
       "path": "docs/check-review/gcp-function-current-ledger-erratum-20261020.json",

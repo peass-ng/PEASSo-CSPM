@@ -156,7 +156,7 @@
     },
     "batch_independent_review": {
       "report": "docs/gcp-review/recheck-20261020/gcp_batch_independent_review_20261020_report.json",
-      "sha256": "8353970606956e6d3aa113aa03a4f17f7446955d3515a50677ec895eeb992397",
+      "sha256": "c643811c1dca8bb3175d157c8bdecedeb019b14a5670b5236fede4d2012c172f",
       "bytes": 16327,
       "historical_failed": 1,
       "historical_passed": 19,

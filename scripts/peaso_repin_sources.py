@@ -19,6 +19,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HEX64 = re.compile(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])")
 DIGEST_LINE = re.compile(rb"(?m)^(\w+) = (['\"])[0-9a-f]{64}\2$")
+# Historical records: their digests describe earlier releases (or inverse
+# deltas back to them) and must keep the values they were written with.
+FROZEN = frozenset((
+    'docs/check-review/azure-network-platform-1-native-review-20261020.json',
+    'peaso/private_secret_source_epoch_20261021.json',
+    'tests/fixtures/post_dfaf_integration/historical-release-manifests.json',
+    'tests/fixtures/post_dfaf_integration/sprint_source_changes.json',
+    'tests/test_native_admission_cpu_successor_20261020.py',
+))
 
 
 def _sha(raw: bytes) -> str:
@@ -77,12 +86,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--base', default='HEAD')
     parser.add_argument('--max-rounds', type=int, default=30)
+    parser.add_argument('--prior-tree', help='copy of the tree after an earlier re-pin whose digests must also be mapped')
     args = parser.parse_args()
     tracked = [p for p in _git('ls-files', '-z').decode().split('\0')
-               if p and p.endswith(('.py', '.json', '.txt', '.toml', '.yaml', '.yml', '.md'))]
+               if p and p not in FROZEN and p.endswith(('.py', '.json', '.txt', '.toml', '.yaml', '.yml', '.md'))]
     seen: dict[str, list[dict[str, str]]] = {}
     for round_ in range(args.max_rounds):
         changed = [p for p in _git('diff', '--name-only', args.base).decode().split() if (ROOT / p).exists()]
+        if args.prior_tree:
+            # A file restored to its base still left its snapshot digest behind.
+            prior = Path(args.prior_tree)
+            changed += sorted({str(p.relative_to(prior)) for p in prior.rglob('*') if p.is_file()}
+                              - set(changed))
         mapping: dict[str, str] = {}
         for rel in changed:
             try:
@@ -90,7 +105,12 @@ def main() -> int:
             except subprocess.CalledProcessError:
                 continue
             new = _projections((ROOT / rel).read_bytes())
-            history = seen.setdefault(rel, [_projections(old_raw)])
+            if rel not in seen:
+                seen[rel] = [_projections(old_raw)]
+                # A snapshot of an earlier partial re-pin also left digests behind.
+                if args.prior_tree and (Path(args.prior_tree) / rel).is_file():
+                    seen[rel].append(_projections((Path(args.prior_tree) / rel).read_bytes()))
+            history = seen[rel]
             # Earlier rounds leave intermediate digests behind; map them too.
             for old in history:
                 for key, digest in old.items():

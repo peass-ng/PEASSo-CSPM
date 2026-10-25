@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from .gcp import ReadError
+from .gcp_fanout import location_fanout
 
 
 HOST = 'https://dataplex.googleapis.com/v1/'
@@ -47,28 +48,49 @@ def scope_jobs(collector, scope):
                         raise ReadError('malformed', 'dataplex_location_duplicate')
                     locations.add(match[2])
         seen = set()
-        for region in sorted(locations):
+
+        def region_pages(region):
             parent = scope + '/locations/' + region
             for page, request_id in collector.pages(HOST + parent + '/lakes', scope,
                                                     key='lakes', response_validator=_complete_page):
+                yield page, request_id
+
+        # Lake listings fan out per region; identity checks, duplicate checks
+        # and policy reads replay in region order as before.
+        for region, pages, error in location_fanout(collector, sorted(locations), region_pages):
+            parent = scope + '/locations/' + region
+            for page, request_id in pages:
                 yield [], request_id
-                for lake in page:
-                    name = lake.get('name')
-                    match = LAKE.fullmatch(name) if isinstance(name, str) else None
-                    if not match or match[2] != region:
-                        raise ReadError('malformed', 'dataplex_lake_identity_invalid')
-                    _project(collector, scope, match[1])
-                    canonical = parent + '/lakes/' + match[3]
-                    if canonical in seen:
-                        raise ReadError('malformed', 'dataplex_lake_duplicate')
-                    seen.add(canonical)
-                    state = lake.get('state')
-                    if state not in STATES:
-                        raise ReadError('malformed', 'dataplex_lake_state_invalid')
-                    projected = {'name': canonical, 'state': state}
-                    yield [collector.hydrate(
-                        projected, 'iamPolicy', HOST + canonical + ':getIamPolicy', scope,
-                        params={'options.requestedPolicyVersion': 3})], request_id
+                # Lakes before the first invalid one are still kept.
+                lakes, failure = [], None
+                try:
+                    for lake in page:
+                        name = lake.get('name')
+                        match = LAKE.fullmatch(name) if isinstance(name, str) else None
+                        if not match or match[2] != region:
+                            raise ReadError('malformed', 'dataplex_lake_identity_invalid')
+                        _project(collector, scope, match[1])
+                        canonical = parent + '/lakes/' + match[3]
+                        if canonical in seen:
+                            raise ReadError('malformed', 'dataplex_lake_duplicate')
+                        seen.add(canonical)
+                        state = lake.get('state')
+                        if state not in STATES:
+                            raise ReadError('malformed', 'dataplex_lake_state_invalid')
+                        lakes.append({'name': canonical, 'state': state})
+                except ReadError as exc:
+                    failure = exc
+                def policy(projected):
+                    return collector.hydrate(
+                        projected, 'iamPolicy', HOST + projected['name'] + ':getIamPolicy', scope,
+                        params={'options.requestedPolicyVersion': 3})
+                parallel = getattr(collector, 'parallel', None)
+                for hydrated in (parallel(policy, lakes) if parallel else map(policy, lakes)):
+                    yield [hydrated], request_id
+                if failure is not None:
+                    raise failure
+            if error is not None:
+                raise error
 
     return [('dataplex_privesc_lake', scope, 'dataplex', fetch)]
 

@@ -18,7 +18,7 @@ import zlib
 
 from . import private_secret_source_epoch_20261021 as _epoch
 
-_RECEIPT_SHA256 = "ece1343f8df042df408f5ce33f44536017e59ff54bd212a709a63d489681f78d"
+_RECEIPT_SHA256 = "af5488bea6ae63e4afa3fca7c42ff31ca372f706757f7e1cb5641fb684055a65"
 _SELF_SHA256 = "1786d46e17984c9f0455095b3fa87e899dc0a7f99dca8296c26a2d2a32bc5e7c"
 _ROOT = Path(__file__).resolve().parent.parent
 

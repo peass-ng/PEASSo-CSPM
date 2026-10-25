@@ -3,6 +3,7 @@
 import re
 
 from .gcp import ReadError
+from .gcp_fanout import fanout_pages
 
 
 KINDS = ("workstations_cluster", "workstations_config", "workstations_workstation")
@@ -30,7 +31,8 @@ def scope_jobs(collector, scope):
         for locations, request_id in collector.pages(root + "/locations", scope, key="locations",
                                                       response_validator=complete):
             yield [], request_id
-            for location in locations:
+
+            def location_pages(location):
                 name = location.get("name") if isinstance(location, dict) else None
                 if not isinstance(name, str) or not name.startswith(scope + "/locations/"):
                     raise ReadError("malformed", "workstations_location_identity_missing")
@@ -63,6 +65,8 @@ def scope_jobs(collector, scope):
                                         item, "iamPolicy",
                                         f"https://workstations.googleapis.com/v1/{item['name']}:getIamPolicy",
                                         scope), workstations), workstation_request
+
+            yield from fanout_pages(collector, locations, location_pages)
 
     return [(kind, scope, "workstations", lambda kind=kind: fetch(kind))
             for kind in KINDS if kind in collector.needed]

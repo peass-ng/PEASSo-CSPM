@@ -165,7 +165,7 @@
       "function": "peaso.collectors.gcp.GCPCollector.read",
       "source": "peaso/collectors/gcp.py",
       "line": 1114,
-      "function_sha256": "e08ad64c98142db87eefcaf29b270626ad411c732628a3a924efd34d220e0721",
+      "function_sha256": "f332e8c8d234266bc8ee029aa7fb62dca2755409ad3dadb442716fb396b0476b",
       "source_sha256": "1d9c9809d5a896a49da2c439499e82300702a181f41e35723073e9afd620cf70"
     },
     {

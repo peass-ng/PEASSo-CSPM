@@ -1,5 +1,5 @@
 {
-  "origin_report_sha256": "0d15ed1d459102d377fe51f8a62799ce752ca07b03b0d3a6a25b65b9b675b8f1",
+  "origin_report_sha256": "11abc6cc6f1621cec6fa5850ad79172ab1ba61d873dd1b59316a678912d42731",
   "checks": {
     "gcp_gke_small_cluster_auto_upgrade": {
       "before": "    @_signed('gcp_gke_small_cluster_auto_upgrade', 'vulnerability', 'gke_cluster', 'Small GKE cluster lacks node auto upgrade', 'medium', 'Enable nodePools[].management.autoUpgrade on every node pool in clusters with fewer than three target nodes.', ['gke_cluster', 'instance_group_manager'])\n    def gke_small_cluster_auto_upgrade(item, index):\n        return _gke(item, index)\n",

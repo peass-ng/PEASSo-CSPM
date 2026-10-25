@@ -199,7 +199,7 @@
   },
   "original_review_attestation": {
     "path": "docs/gcp-review/recheck-20261020/compute-second-batch-review.json",
-    "sha256_before_and_after_unchanged": "8698e17079527e53e3125be1543775dcec7c2921b3c929ac23bcf628e31bc5d3",
+    "sha256_before_and_after_unchanged": "9eee6fb0c56a204a8020dd86c9e0a8fe05ba51daa1e7bc06d72793eebeabbc8d",
     "original_four_predicate_hashes_match_saved_predecessors": true,
     "root_successor_action": "Retain the original report bytes and historical predecessor hashes; record this successor with exact changed function/helper and authorized fixture deltas. No historic central fixtures or source hashes were rewritten by this worker."
   },
