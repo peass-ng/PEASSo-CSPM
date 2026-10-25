@@ -225,12 +225,25 @@ _PROFILE_FILTERS = {
 }
 
 
+# These readers discover exact literal targets from scoped native workload
+# inventory when their selector option is absent. An explicit empty selector
+# still means no selected targets; unsupported content readers stay gated.
+_AUTOMATIC_NATIVE_CHECKS = frozenset({
+    'aws.review.lambda.selected_environment_secret_indicators',
+    'aws.review.configuration.selected_content_secret_indicators',
+    'azure.review.app_service.selected_app_settings_secret_indicators',
+    'azure.review.configuration.selected_content_secret_indicators',
+    'k8s.review.selected_literals.secret_indicators',
+})
+
+
 def configured_checks(provider, options):
     result = {'leaks': [], 'images': []}
     for owner, option, stage, check in ROWS:
         flag = 'content_secret_scans' if stage == 'leaks' else 'image_vulnerability_scans'
         if (owner == provider and options.get(flag) is True
-                and (option is None or type(options.get(option)) is list and options[option])):
+                and (option is None or type(options.get(option)) is list and options[option]
+                     or check in _AUTOMATIC_NATIVE_CHECKS and option not in options)):
             profile = _PROFILE_FILTERS.get(check)
             if profile and not any(type(row) is dict and row.get('profile') == profile for row in options[option]):
                 continue

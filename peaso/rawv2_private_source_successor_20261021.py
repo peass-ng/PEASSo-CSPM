@@ -73,9 +73,10 @@ def _receipt(root):
     if not path.is_relative_to(root / 'peaso') or Path(__file__).resolve() != path:
         raise RuntimeError('RawV2 successor helper path changed')
     source = path.read_bytes()
-    predecessor = _private_epoch.predecessor_bytes(
-        'peaso/rawv2_private_source_successor_20261021.py', source,
-        '3ef9840685cc94829a12c7c54693da901ac6ddb691f493e53290255c5224d940', root)
+    from peaso.checks import private_secret_shared_source_successor_20261021 as current
+    current._private_self()
+    predecessor = current.rawv2_bootstrap_source(
+        source, '3ef9840685cc94829a12c7c54693da901ac6ddb691f493e53290255c5224d940', root)
     normalized, count = re.subn(
         rb"(?m)^(RECEIPT_SHA256|BRIDGE_RECEIPT_SHA256) = '[0-9a-f]{64}'$",
         lambda match: match.group(1) + b" = '" + b'0' * 64 + b"'", predecessor)
@@ -338,6 +339,15 @@ def source_bytes(name, raw, expected, root=None):
         return _private_epoch.predecessor_bytes(SCANNER, raw, SCANNER_MIDDLE, _root(root))
     if _digest(raw) == expected:
         return raw
+    if (name == 'peaso/collectors/aws_package_content_indicators.py'
+            and expected == 'ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6'):
+        from peaso.checks import private_secret_shared_source_successor_20261021 as current
+        current._private_self()
+        return current.rawv2_package_source(raw, expected, _root(root))
+    if (name == 'peaso/collectors/azure_selected_storage_secret_indicators.py'
+            and expected == '59db1280c49909db57368b7e4e61e846f5f2c8ee1b323c6b2204f2110646beda'):
+        from peaso import private_reviewed_collector_successor_20261022 as reviewed
+        return reviewed.predecessor_bytes(name, raw, expected, _root(root))
     return _private_epoch.predecessor_bytes(name, raw, expected, _root(root))
 
 

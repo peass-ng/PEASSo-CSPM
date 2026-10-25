@@ -28,7 +28,7 @@ from peaso import gcp_private_source_successor_20261021 as gcp_source
 RECEIPT = 'gcp_cloudrun_job_image_workbench_source_successor_20261020.json'
 RECEIPT_SHA256 = '2a9fac82c1097446f350ff92354882e25fbce5e98b52a5e21ba7fd0a4c462d9e'
 PRIVATE_RECEIPT = 'gcp_private_workbench_head3_source_successor_20261021.json'
-PRIVATE_RECEIPT_SHA256 = '5adf257f71afc6dd586864e95c6bcd0299be4aeb7a2720fde702a4231502451a'
+PRIVATE_RECEIPT_SHA256 = '7ac69deeec21f156e0af5d1cab15896f1b007f0d03aafc30ff655f9d24589f11'
 
 
 def _private_self(root):
@@ -57,7 +57,13 @@ def _private_self(root):
     }
     for name, (module, key) in pins.items():
         file = (root / name).resolve()
-        if not file.is_relative_to(root / 'peaso') or hashlib.sha256(file.read_bytes()).hexdigest() != receipt[key]:
+        data = file.read_bytes()
+        if (name == 'peaso/rawv2_private_source_successor_20261021.py'
+                and hashlib.sha256(data).hexdigest() != receipt[key]):
+            from . import private_secret_shared_source_successor_20261021 as current
+            current._private_self()
+            data = current.rawv2_bootstrap_source(data, receipt[key], root)
+        if not file.is_relative_to(root / 'peaso') or hashlib.sha256(data).hexdigest() != receipt[key]:
             raise RuntimeError('Private Workbench dependency changed: ' + name)
         if module is not None and (sys.modules.get(module.__name__) is not module
                 or Path(module.__file__).resolve() != file):

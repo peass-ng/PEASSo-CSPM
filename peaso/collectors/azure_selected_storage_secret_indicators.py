@@ -337,21 +337,51 @@ def final_snapshot(reader,snapshot):
         from peaso.snapshot import seal
         try:
             if getattr(reader,'storage_source_secret_overflow',False):raise Incomplete('redaction_bound')
-            stack=[(snapshot,0)];nodes=total=0
-            while stack:
-                value,depth=stack.pop();nodes+=1
-                if nodes>65536 or depth>32:raise Incomplete('redaction_bound')
-                if isinstance(value,str):
-                    if len(value)>MAX_REDACTION_BYTES:raise Incomplete('redaction_bound')
-                    total+=len(value.encode())
-                elif isinstance(value,dict):
-                    if len(value)>65536:raise Incomplete('redaction_bound')
-                    stack.extend((child,depth+1) for pair in value.items() for child in pair)
-                elif isinstance(value,list):
-                    if len(value)>65536:raise Incomplete('redaction_bound')
-                    stack.extend((child,depth+1) for child in value)
-                if total>MAX_REDACTION_BYTES:raise Incomplete('redaction_bound')
-            safe=redact_matches(snapshot,values)
+            class BatchLimit(Exception):
+                pass
+            def measure(value, depth):
+                stack=[(value,depth)];nodes=total=0
+                while stack:
+                    member,level=stack.pop();nodes+=1
+                    if level>32:raise Incomplete('redaction_bound')
+                    if nodes>65536:raise BatchLimit()
+                    if isinstance(member,str):
+                        if len(member)>MAX_REDACTION_BYTES:raise Incomplete('redaction_bound')
+                        size=len(member.encode())
+                        if size>MAX_REDACTION_BYTES:raise Incomplete('redaction_bound')
+                        total+=size
+                    elif isinstance(member,dict):
+                        if len(member)>65536:raise Incomplete('redaction_bound')
+                        stack.extend((child,level+1) for pair in member.items() for child in pair)
+                    elif isinstance(member,list):
+                        if len(member)>65536:raise Incomplete('redaction_bound')
+                        stack.extend((child,level+1) for child in member)
+                    if total>MAX_REDACTION_BYTES:raise BatchLimit()
+            def scrub(original, depth=0):
+                try:
+                    measure(original,depth)
+                except BatchLimit:
+                    # Native evidence can itself contain complete inventories.
+                    # Split containers, never strings or uninspected fields.
+                    if isinstance(original,dict):
+                        output,changed={},[]
+                        for key,member in original.items():
+                            safe_key,safe_member=scrub(key,depth+1),scrub(member,depth+1)
+                            output[safe_key]=safe_member
+                            if key!='_coverage' and (safe_key!=key or safe_member!=member):changed.append(safe_key)
+                        if changed:
+                            coverage=output.get('_coverage',{})
+                            coverage=dict(coverage) if isinstance(coverage,dict) else {}
+                            for key in changed:coverage[key]={'status':'unknown','reason':'detected_secret_redacted'}
+                            output['_coverage']=coverage
+                        return output
+                    if isinstance(original,list):
+                        if len(original)==1:return [scrub(original[0],depth+1)]
+                        middle=len(original)//2
+                        return scrub(original[:middle],depth)+scrub(original[middle:],depth)
+                    raise Incomplete('redaction_bound')
+                return redact_matches(original,values)
+            safe=scrub(snapshot)
             reader.collections[:]=deepcopy(safe['collections'])
             reader.storage_source_secret_metadata=redact_matches(reader.storage_source_secret_metadata,values)
             return seal(safe)

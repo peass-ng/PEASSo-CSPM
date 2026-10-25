@@ -134,7 +134,7 @@ class SQLiteStore:
                                      ("partial_snapshot", "TEXT"), ("partial_report", "TEXT"),
                                      ("partial_report_sequence", "INTEGER NOT NULL DEFAULT 0"),
                                      ("resume_attempt", "INTEGER NOT NULL DEFAULT 0"),
-                                     ("resume_phase", "TEXT"), ("queued_at", "REAL")):
+                                     ("resume_phase", "TEXT"), ("queued_at", "REAL"), ("native_refresh", "TEXT")):
                 if name not in columns:
                     db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
             db.execute("UPDATE jobs SET queued_at=created WHERE queued_at IS NULL")
@@ -373,7 +373,7 @@ class SQLiteStore:
         with self.transaction() as db:
             return self._enqueue(db, tenant, request, limit, timeout, idem, time.time() if now is None else now)
 
-    def resume_job(self, tenant, ident, expected_connector, now=None):
+    def resume_job(self, tenant, ident, expected_connector, now=None, *, refresh=None):
         """Reset one recoverable row atomically; keep selectors and all evidence refs."""
         from peaso.server.scan_resume import resume_stage
         now = time.time() if now is None else now
@@ -381,7 +381,9 @@ class SQLiteStore:
             row = db.execute("SELECT * FROM jobs WHERE tenant=? AND id=?", (tenant, ident)).fetchone()
             if not row:
                 raise StoreError(404, "Scan not found")
-            stage = resume_stage(dict(row))
+            from peaso.server.scan_resume import consume_section_refresh
+            refresh_plan = consume_section_refresh(refresh, dict(row)) if refresh is not None else None
+            stage = 'collector' if refresh_plan is not None else resume_stage(dict(row))
             if stage is None:
                 raise StoreError(409, "This scan has no recoverable work")
             connector = self.connector(tenant, row["connector_id"], db)
@@ -390,12 +392,13 @@ class SQLiteStore:
                 raise StoreError(409, "Connector changed; check access and retry")
             status = "queued"
             db.execute("UPDATE jobs SET status=?,connector=?,deadline=?,queued_at=?,admitted_at=NULL,owner=NULL,lease=NULL,"
-                       "resume_attempt=resume_attempt+1,resume_phase=?,"
+                       "resume_attempt=resume_attempt+1,resume_phase=?,native_refresh=?,"
                        "error=NULL,error_code=NULL,error_stage=NULL,progress_details=NULL,history=? "
                        "WHERE tenant=? AND id=?",
                        (status, json.dumps({"data": json.loads(connector["data"]), "auth": connector["auth"]}),
                         now + QUEUE_WAIT_SECONDS, now,
-                        stage, history(row, status, now), tenant, ident))
+                        stage, json.dumps(refresh_plan) if refresh_plan is not None else None,
+                        history(row, status, now), tenant, ident))
             return self.public_job(db.execute("SELECT * FROM jobs WHERE tenant=? AND id=?", (tenant, ident)).fetchone())
 
     @staticmethod

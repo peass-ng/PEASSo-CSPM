@@ -10,6 +10,7 @@ AZURE2='/subscriptions/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
 TARGET=dict(registry_id=AZURE+'/resourceGroups/qualification/providers/Microsoft.ContainerRegistry/registries/registry1',repository='qualification/positive',digest='sha256:'+'a'*64)
 LEAK='azure.review.acr.selected_image_secret_indicators'
 IMAGE='azure.review.acr.selected_image_high_critical_vulnerabilities'
+AUTO={'azure.review.app_service.selected_app_settings_secret_indicators','azure.review.configuration.selected_content_secret_indicators'}
 
 def request(**extra):
  value={'connector':{'provider':'azure','scopes':[AZURE,AZURE2], 'options':dict(content_secret_scans=True,image_vulnerability_scans=True,selected_azure_acr_images=[TARGET],selected_azure_acr_image_vulnerabilities=[TARGET])},'categories':list(engine.CATEGORIES),'checks':[],'frameworks':[]}
@@ -33,7 +34,7 @@ def test_configured_capability_requires_exact_opt_in(provider,option,check,stage
 def test_feature_flags_derive_only_configured_exact_checks(leaks,images):
  raw=request(leaks_enabled=leaks,images_enabled=images);before=deepcopy(raw)
  effective=selection.normalize_request(raw)
- assert set(effective['content_checks'])==({LEAK} if leaks else set())|({IMAGE} if images else set())
+ assert set(effective['content_checks'])==({LEAK}|AUTO if leaks else set())|({IMAGE} if images else set())
  assert raw==before
  assert effective['categories']==raw['categories'] and effective['checks']==[]
  assert effective['frameworks']==[]
@@ -66,9 +67,9 @@ def test_content_only_ignores_hardening_framework_category_filters():
  raw=request(categories=[],frameworks=['CIS'],leaks_enabled=True,images_enabled=True)
  effective=selection.normalize_request(raw)
  categories,native=engine._selection('azure',effective['categories'],[],effective['frameworks'],content_checks=effective['content_checks'])
- assert categories==[] and {c.id for c in native}=={LEAK,IMAGE}
+ assert categories==[] and {c.id for c in native}=={LEAK,IMAGE}|AUTO
  assert {'acr_selected_image','acr_selected_image_vulnerabilities'}<=set(engine.plan_collection(raw))
- assert selection.capture_checks(effective)=={LEAK,IMAGE}
+ assert selection.capture_checks(effective)=={LEAK,IMAGE}|AUTO
 
 
 def test_content_only_reaches_real_evaluator_without_hardening_selection():
@@ -133,7 +134,9 @@ def test_native_reference_and_environment_capabilities_need_opt_in_not_extra_sel
  assert 'aws.review.lambda_function.package_content_secret_indicators' in aws
  assert 'aws_cis_ec2_userdata_embedded_secrets' in aws
  assert 'aws.review.ecs_task_definition.configuration_secret_indicators' not in aws
- assert 'aws.review.lambda.selected_environment_secret_indicators' not in aws
+ assert {'aws.review.lambda.selected_environment_secret_indicators',
+         'aws.review.configuration.selected_content_secret_indicators'} <= aws
+ assert not selection.configured_checks('aws',{'content_secret_scans':False})['leaks']
  assert not selection.configured_checks('azure',{'image_vulnerability_scans':True})['images']
 
 

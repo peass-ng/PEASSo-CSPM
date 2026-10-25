@@ -16,6 +16,8 @@ The supervisor logs `peaso runtime metrics` with fixed stage labels and numeric 
 
 Content-batch diagnostics separately record preparation time, caller-body time, prepared/serial lookup counts, byte/window counts and fixed fallback reasons. Caller-body time may include multiple detector operations; it is not an individual detector CPU measurement. SDK latency does not measure subsequent consumption of a streaming response. Artifact S3 timing measures its synchronous request; numeric declared response bytes are not downloaded-image byte counts.
 
+Kingfisher timing separates acquisition of its original mutex (`secret.kingfisher.lock_wait`) from the SDK/native Rust call (`secret.kingfisher.native`). The lock remains serialized. Prepared TruffleHog execution has its own `secret.trufflehog.prepared_process` span, including first-use tool validation; serial fallback subprocesses are not included in that label. Parent-process CPU may include native Rust detector work, so it must not be described as Python CPU.
+
 ## Reading the measurements
 
 Compare the elapsed critical path with active spans and the slowest stages first. High thread CPU points to local computation. High wall time with low thread CPU can indicate network, subprocess, lock, queue or backpressure waits; distinguish those using the narrower spans and SDK counters. Sustained throttling/retry counts identify retry pressure. Separate application pacing from SDK latency before raising concurrency.

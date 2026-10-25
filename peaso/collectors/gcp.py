@@ -440,6 +440,15 @@ class Credentials:
                     kwargs["timeout"] = min(kwargs.get("timeout", self.timeout), self.timeout)
                     return self.request(*args, **kwargs)
                 self.credential.before_request(request, "GET", "https://cloudasset.googleapis.com/", headers)
+                authorization_keys = [key for key in headers
+                                      if isinstance(key, str) and key.lower() == "authorization"]
+                if authorization_keys:
+                    authorization = headers[authorization_keys[0]]
+                    if any(headers[key] != authorization for key in authorization_keys[1:]):
+                        raise ValueError("conflicting authorization headers")
+                    for key in authorization_keys:
+                        del headers[key]
+                    headers["Authorization"] = authorization
                 return headers
             except ReadError as exc:
                 self.failure = exc

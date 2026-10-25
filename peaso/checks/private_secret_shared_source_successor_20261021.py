@@ -67,7 +67,7 @@ from . import gcp_positive_conservation_shared_source_successor_20261020 as _pri
 _PRIVATE_SOURCE_RECORDS = (('peaso/collectors/aws_additional_secret_indicators.py', 'e2cfc9bcd839b1a7a803580b549b3d02d8a67757274551a0afc4130e5d184787', ('_scan', 'codebuild_indicator')), ('peaso/collectors/aws_code_log_content_indicators.py', '06fd10cdc45542e15e31d4e735256fa62b3733c805dc5eb1865b7e3923013355', ('project_response',)), ('peaso/collectors/aws_codebuild_buildspec_source_20261020.py', '4890d8a97cd86cdcee0df334956531432ae26ec2f6a1758f1ecb858e7f778bce', ('collect',)), ('peaso/collectors/aws_configuration_payload_secret_indicators.py', 'eef6d7241cc5f09f9560c427fa9f336a636d1996130f0eb5b05d17377883fdc9', ('marker', 'project_response')), ('peaso/collectors/aws_configuration_secret_indicators.py', 'cbeb631ac665dea0c221a3ad370d21000b8c458a33072b4f0d5c855bedbc147c', ('_indicators', 'lambda_indicators')), ('peaso/collectors/aws_lambda_environment_secret_indicators.py', '2fce27977e83ba4f9abc6baa6ac78d4ff5e0e4a2b8b27d52d333a0458e67f289', ('project_response',)), ('peaso/collectors/aws_package_content_indicators.py', 'ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6', ('_image', '_lambda', '_layer', '_scan')), ('peaso/collectors/aws_s3_selected_source_secret_indicators.py', 'b040a3b23746561fe913b1bd985669a0820fdde72b12fd864c5f6b5b894e3053', ('_scan_part', 'collect_selected')), ('peaso/collectors/aws_selected_configuration_secret_indicators.py', 'c7a87afb1fc02740979a34efa2a03141d4e0daddbfdda1e45c604507c31c450f', ('collect_selected', 'project_response')), ('peaso/collectors/aws_user_data_secret_indicators.py', '077b5d258d6728c0b712935d34899c0feb27e3d11f758a81e793a6a240016205', ('project', 'scan_selected_content')), ('peaso/collectors/aws_workload_command_source_20261020.py', 'c5c5c24b7fbd4b696903d38b6e84a02ad3ebfa35616e6378a67afb97b8ae757e', ('collect',)), ('peaso/collectors/azure.py', 'd27a5f2b861fef622c20bff80bf5e8f559d7f5d70604606643eb9267254101e5', ('AzureTransport',)), ('peaso/collectors/azure_acr_image_secret_indicators.py', '8e9c55f0fcee045b9c283554e7e5908f8ef1aff5225bfd3eb6a4e037b1a0995d', ('_scan_bytes', '_scan_json', 'inspect_image')), ('peaso/collectors/azure_app_settings_secret_indicators.py', 'f7fed346ff359f463e72cff63f4de9e1971e2aeef2223ed8b338c91c7520248b', ('_scan',)), ('peaso/collectors/azure_databricks_notebook_secret_indicators.py', '6eed83bf1d6b6e8055dabb1c0cee052f1b7c636121c742e74b8727bc23b4b222', ('_scan',)), ('peaso/collectors/azure_devops_git_native.py', '7b01f9f26acae14414d33b42095caad14adaf4644b3706fde2120e170b4c2c63', ('collect', 'project_response')), ('peaso/collectors/azure_devops_selected_content_secret_indicators.py', '3def2355bfad985b1543022cc14443677dd6ed37928a4d1109eeffb741fb5434', ('_part', '_scan')), ('peaso/collectors/azure_ml_selected_asset_secret_indicators.py', 'e5d98f9692035b60342526497ca70076a06cdafd3dbf8bfc0aa706ea70f2486f', ('_one',)), ('peaso/collectors/azure_ml_selected_job_secret_indicators.py', 'a0644628612d680fea88a9dcedca7541f1560278fc5d4ea116710739035143c3', ('_scan',)), ('peaso/collectors/azure_selected_configuration_secret_indicators.py', '570bf399805ef12cd647007d43ea450f1138244d58c4326972842c42281d7604', ('_scan',)), ('peaso/collectors/azure_selected_declaration_secret_indicators.py', '31b9a452cc530f4ceee89b1ca5b6892217eeea82d1699b9c86126e3fd9bdc6f2', ('_scan',)), ('peaso/collectors/azure_selected_log_sample_secret_indicators.py', 'fd07ef51f86ef4ed6889c62c532de732f69f7c76e568c08db6d39271094718f8', ('_scan',)), ('peaso/collectors/azure_selected_storage_secret_indicators.py', '59db1280c49909db57368b7e4e61e846f5f2c8ee1b323c6b2204f2110646beda', ('_inspect', '_scan')), ('peaso/collectors/gcp.py', 'f7554a0e905d712242bfd2826866517bbc410b1a4aa9e3ef195c75c07df37e96', ('Transport',)), ('peaso/collectors/gcp_additional_literal_secret_indicators.py', '0bfb934509a3ae9cd00f826371bbc1d7a7999d755d62a2234f1da650cc9ca492', ('scan_row',)), ('peaso/collectors/gcp_appengine_source_secret_indicators.py', '5f0dc6ceb82d853f10f4af47858504ae09b266e50800f49ecf8724238385ad61', ('collect_sources',)), ('peaso/collectors/gcp_artifact_file_secret_indicators.py', 'da4edfdac77dda5c80891ac7d812c1859e536e4786360b8d5656f64af289d4ff', ('_inspect',)), ('peaso/collectors/gcp_batch_referenced_source_20261020.py', 'c0bb32c6b0f8aaa0975ec3ed28875b2618ab8c2a674e16b41173e21ba4082921', ('collect',)), ('peaso/collectors/gcp_cloudrun_v2_job_declared_images_20261020.py', '91e6118e969286fd577eea11c65f5f2129e4711604c45414f601fbeb71ed0f51', ('_inspect',)), ('peaso/collectors/gcp_composer_source_secret_indicators.py', '2b357152018fc33b6cf31bba99ac52c2bd5bd9390a9c9c60233c26b66915f903', ('collect_sources',)), ('peaso/collectors/gcp_configuration_secret_indicators.py', '8c573da30b8bf20c1dfa88d450e44caf0935aa68f831fef941ef58f832901549', ('project_response',)), ('peaso/collectors/gcp_dataflow_referenced_source_20261020.py', 'c638e6ad782b475e9d6bc2ee93aed1bc57da67281bbb53ffa364935f84c6ad59', ('inspect_payload',)), ('peaso/collectors/gcp_dataform_secret_indicators.py', 'ca02f4a3025442421b25433a7930f157cb9ffd01295c8a07b8dce1d8a9428a70', ('collect_selected_files',)), ('peaso/collectors/gcp_dataproc_referenced_source_secret_indicators.py', '75f3bb777dd00bb154f24de0f459994fefbced29262c91ec17967618f54801f0', ('collect_sources',)), ('peaso/collectors/gcp_function_secret_indicators.py', 'f0107e484b39ca361710b0c838c07eb861fe8701239f79e91b41230a211b58c3', ('_scan_function',)), ('peaso/collectors/gcp_function_secret_pairs_20261020.py', 'e6f344088f0fbbbb50ff782852495cc9c23a874448e9b732543027e01e068598', ('_scan_function',)), ('peaso/collectors/gcp_gke_literal_secret_indicators.py', '9939b98e6393d33fc105d9f1f6ece556f697d19a69f6064149fcbbc0b52a3def', ('project_resource',)), ('peaso/collectors/gcp_image_secret_indicators.py', '2022bbd2816bfe82679b160c12b90d674c12746e14d95138bb3bb236dc0514c3', ('_tar', 'inspect_image')), ('peaso/collectors/gcp_job_literal_secret_indicators.py', 'afe4305155c2350cab0faa3f00d8a2a1431de0d23f890fe3780075abd77c8055', ('project_row',)), ('peaso/collectors/gcp_log_secret_indicators.py', '7600114140eef746787981f73b18b47910c0d82797662050f2a6944306b7b161', ('project_page',)), ('peaso/collectors/gcp_notebook_airflow_secret_indicators.py', '70d808587cca4847f5979f7ed9eb6452b6f332c6996d68157c7af00cf3278118', ('project_response',)), ('peaso/collectors/gcp_selected_archive_secret_indicators.py', '4dc9fd5feb8b193f5a119ee7b2f2b387d5eaf9f3c04fe2502c5df7e7ed07a4d3', ('_parse', 'collect_selected_archives')), ('peaso/collectors/gcp_selected_object_secret_indicators.py', 'fb9d1c2837660501bd87ab9642519f4caadfc395eee3193d1ccefd1bb2517959', ('collect_selected_objects',)), ('peaso/collectors/gcp_selected_task_routine_secret_indicators.py', '393720df111585dfd41e586f548ce35140a01e86dd980564805552b1b085cc66', ('collect_sources',)), ('peaso/collectors/gcp_sourcerepo_secret_indicators.py', 'ba809b97f9e9b36674b2938c74a1f9ee874e3121cbef947008db66091dbaf9e4', ('collect_sources',)), ('peaso/collectors/gcp_workbench_referenced_source_20261020.py', '3c8a3b4dcaf51c6f1544dd1d4465d8a60c00ec1d605a3d808e7590b0ce219b73', ('collect_sources',)), ('peaso/collectors/k8s.py', '86eca83f116bc8fe4a2b28d5ced1ae6612507c5cc3f53968fe6ec28df14a15f1', ('_native',)), ('peaso/collectors/k8s_literal_secret_indicators.py', '1ee91c6b52cf142d30ef58f55dd11f8e1688d129791c869a1a6783e7a80aa47b', ('collect',)), ('peaso/collectors/k8s_selected_log_sample_secret_indicators.py', '0fe2d51cb83f4126994f1bfaf1eff50c96469c3b1e285c44d78825f48328e9c0', ('collect',)), ('peaso/secret_scanning.py', '3897b64c134f88e7ad17c3c1f31df2b5497d34df6c1340d04e536313652f94f6', ('_scan_kingfisher', '_scan_trufflehog', 'scan_content')))
 _PRIVATE_SOURCE_PATHS = frozenset(record[0] for record in _PRIVATE_SOURCE_RECORDS)
 _PRIVATE_RECEIPT = 'peaso/checks/private_secret_shared_source_successor_20261021.json'
-_PRIVATE_RECEIPT_SHA256 = 'a223179227b2a2cd3a224df337e1ecd4394a5a15315faf810f78f4e8bdcbfd52'
+_PRIVATE_RECEIPT_SHA256 = '0cc03709f45cd173db1ce43ff598d2d7599aed5459b5d70a6c6555914a612152'
 
 
 def _private_binding_equal(actual, expected):
@@ -666,6 +666,8 @@ def _private_self():
 
 
 def _private_before(relative, raw, root):
+    if relative == 'peaso/collectors/aws_package_content_indicators.py':
+        return rawv2_package_source(raw, 'ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6', root)
     if relative == 'peaso/collectors/aws_facts_swc.py':
         transition = _private_source_epoch._receipt()[0]['current_reviewed_files'][relative]
         return _private_source_epoch.predecessor_bytes(relative, raw, transition['predecessor_sha256'], root)
@@ -687,6 +689,11 @@ def _private_before(relative, raw, root):
 
 
 def _private_row(function, row, root):
+    if ((row.get('path') == 'peaso/collectors/aws_package_content_indicators.py'
+             and function.__qualname__ in ('_image', '_lambda', '_layer', '_scan'))
+            or (row.get('path') == 'peaso/collectors/azure_selected_storage_secret_indicators.py'
+                and function.__qualname__ in ('_inspect', '_scan'))):
+        return rawv2_current_content_projection(function, row, root)
     path = row.get('path')
     if path == 'peaso/collectors/gcp.py' and function.__qualname__ == 'GCPCollector.envelope':
         _private_before(path, (root / path).read_bytes(), root)
@@ -2130,3 +2137,133 @@ _PRODUCER_FUNCTIONS = {name: getattr(importlib.import_module(name.split(':')[0])
     'peaso.collectors.aws_workload_command_runtime_20261020:authorize_collector',
     'peaso.collectors.aws_codebuild_buildspec_runtime_20261020:authorize_collector',
     'peaso.collectors.azure_function_package_integration_20261020:authorize')}
+
+
+def rawv2_bootstrap_source(raw, expected, root):
+    """Prove only the current RawV2 helper against its immutable ancestor."""
+    _private_self()
+    package_root = Path(__file__).resolve().parents[2]
+    if Path(root).resolve(strict=True) != package_root:
+        raise RuntimeError('RawV2 bootstrap root changed')
+    relative = 'peaso/rawv2_private_source_successor_20261021.py'
+    path = package_root / relative
+    if (path.is_symlink() or path.resolve(strict=True) != path
+            or type(raw) is not bytes or raw != path.read_bytes()
+            or expected not in ('3ef9840685cc94829a12c7c54693da901ac6ddb691f493e53290255c5224d940',
+                                'adb16873adf517a30c11a280c94c748b90ba405f46b5219630eef877a4aabf67')):
+        raise RuntimeError('RawV2 bootstrap live source changed')
+    receipt = _private_receipt(parse=True)
+    row = receipt['image_capture_admission']['files'][relative]
+    prior = _reverse(raw.decode('utf-8'), row).encode('utf-8')
+    ancestor = _private_source_epoch._receipt()[0]['current_reviewed_files'][relative]
+    if (hashlib.sha256(prior).hexdigest() != row['predecessor_sha256']
+            or row['predecessor_sha256'] != ancestor['current_sha256']
+            or ancestor['predecessor_sha256'] != '3ef9840685cc94829a12c7c54693da901ac6ddb691f493e53290255c5224d940'):
+        raise RuntimeError('RawV2 bootstrap ancestor binding changed')
+    result = _reverse(prior.decode('utf-8'), ancestor).encode('utf-8')
+    if hashlib.sha256(result).hexdigest() != ancestor['predecessor_sha256']:
+        raise RuntimeError('RawV2 bootstrap ancestor changed')
+    if expected == row['predecessor_sha256']:
+        return prior
+    return result
+
+
+def rawv2_package_source(raw, expected, root):
+    """Prove the finite package512 transition to the historical package128."""
+    _private_self()
+    package_root = Path(__file__).resolve().parents[2]
+    if Path(root).resolve(strict=True) != package_root:
+        raise RuntimeError('RawV2 package root changed')
+    relative = 'peaso/collectors/aws_package_content_indicators.py'
+    path = package_root / relative
+    if (path.is_symlink() or path.resolve(strict=True) != path
+            or type(raw) is not bytes or raw != path.read_bytes()
+            or expected != 'ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6'):
+        raise RuntimeError('RawV2 package live source changed')
+    receipt = _private_receipt(parse=True)
+    row = receipt['rawv2_package128_admission']
+    epoch, sources = _private_source_epoch._receipt()
+    historical = sources[relative]
+    if (row['current_sha256'] != receipt['image_capture_admission']['files'][relative]['current_sha256']
+            or row['predecessor_sha256'] != historical['after_sha256']
+            or expected != historical['before_sha256']):
+        raise RuntimeError('RawV2 package ancestor binding changed')
+    result = _reverse(raw.decode('utf-8'), row).encode('utf-8')
+    if hashlib.sha256(result).hexdigest() != historical['after_sha256']:
+        raise RuntimeError('RawV2 package ancestor changed')
+    import zipfile
+    archive = Path(_private_source_epoch.__file__).with_name('private_secret_source_epoch_20261021.zip')
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != epoch['before_archive_sha256']:
+        raise RuntimeError('RawV2 package original archive changed')
+    with zipfile.ZipFile(archive) as bundle:
+        if sorted(bundle.namelist()) != sorted(sources):
+            raise RuntimeError('RawV2 package original archive roster changed')
+        before = bundle.read(relative)
+    if hashlib.sha256(before).hexdigest() != expected:
+        raise RuntimeError('RawV2 package original predecessor changed')
+    return before
+
+
+def rawv2_current_content_definition(function, root):
+    """Attest only six unchanged producers under their exact reviewed sources."""
+    _private_self()
+    module_name = getattr(function, '__module__', '')
+    name = getattr(function, '__qualname__', '')
+    if (module_name, name) not in (
+            ('peaso.collectors.aws_package_content_indicators', '_image'),
+            ('peaso.collectors.aws_package_content_indicators', '_lambda'),
+            ('peaso.collectors.aws_package_content_indicators', '_layer'),
+            ('peaso.collectors.aws_package_content_indicators', '_scan'),
+            ('peaso.collectors.azure_selected_storage_secret_indicators', '_inspect'),
+            ('peaso.collectors.azure_selected_storage_secret_indicators', '_scan')):
+        raise RuntimeError('RawV2 current content producer is not reviewed')
+    relative = module_name.replace('.', '/') + '.py'
+    source_path = Path(__file__).resolve().parents[2] / relative
+    if Path(root).resolve(strict=True) != source_path.parents[2]:
+        raise RuntimeError('RawV2 package callable root changed')
+    source = source_path.read_bytes()
+    if module_name == 'peaso.collectors.aws_package_content_indicators':
+        rawv2_package_source(source, 'ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6', root)
+    else:
+        _reviewed_epoch.predecessor_bytes(relative, source,
+            '59db1280c49909db57368b7e4e61e846f5f2c8ee1b323c6b2204f2110646beda', root)
+    epoch = _private_source_epoch
+    row = epoch.source_rows()[relative]
+    module = sys.modules.get(module_name)
+    if (type(function) is not types.FunctionType or type(module) is not types.ModuleType
+            or function.__module__ != module.__name__ or function.__globals__ is not vars(module)
+            or '.' in name or name != function.__name__ or vars(module).get(name) is not function
+            or Path(module.__file__).resolve(strict=True) != source_path
+            or Path(function.__code__.co_filename).resolve(strict=True) != source_path):
+        raise RuntimeError('RawV2 package callable binding changed')
+    tree = ast.parse(source, filename=str(source_path))
+    nodes = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name]
+    definitions = [item for item in row['definitions'] if item['name'] == name]
+    if len(nodes) != 1 or len(definitions) != 1:
+        raise RuntimeError('RawV2 package callable roster changed')
+    node, definition = nodes[0], definitions[0]
+    compiled = epoch._expected_helper_code(source_path, source, function.__code__.co_filename)
+    constants = epoch._constants(tree, str(source_path))
+    if (epoch._source_hash(source, node) != definition['after']
+            or epoch._ast_hash(node) != definition['after_ast_sha256']
+            or not epoch._code_equal(function.__code__, epoch._code_from(compiled, name))):
+        raise RuntimeError('RawV2 package executing callable changed')
+    epoch._check_defaults(function, node, constants, function.__code__.co_filename)
+    epoch._check_globals(function, tree, compiled, constants, module, root)
+    return {
+        'current': {'path': relative, 'name': name, 'module': module.__name__,
+                    'file_sha256': hashlib.sha256(source).hexdigest(),
+                    'source_sha256': definition['after'], 'ast_sha256': definition['after_ast_sha256']},
+        'historical': {'path': relative, 'name': name, 'module': module.__name__,
+                       'file_sha256': row['before_sha256'],
+                       'source_sha256': definition['before'], 'ast_sha256': definition['before_ast_sha256']}}
+
+
+def rawv2_current_content_projection(function, row, root):
+    """Reuse the immutable row projector with only the six finite content producers."""
+    _private_self()
+    _private_source_epoch._self()
+    namespace = dict(vars(_private_source_epoch), trusted_definition=rawv2_current_content_definition)
+    projector = types.FunctionType(_private_source_epoch.callable_projection.__code__, namespace,
+                                   'callable_projection', _private_source_epoch.callable_projection.__defaults__)
+    return projector(function, row, root)

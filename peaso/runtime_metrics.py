@@ -18,8 +18,10 @@ import time
 
 _STAGES = frozenset("""
 aws.rate_limit.cloudtrail aws.rate_limit.iam aws.retry_wait
+secret.kingfisher.lock_wait secret.kingfisher.native secret.trufflehog.prepared_process
 worker.startup worker.collect worker.evaluate worker.redact worker.private_checkpoint
 worker.public_checkpoint worker.final_snapshot worker.ai worker.final_publish
+worker.iam_usage worker.checkpoint.finish worker.checkpoint.close worker.private_document
 engine.validate engine.resources engine.index engine.native_checks engine.analysis
 engine.graphs engine.privesc engine.finalize collection.job collection.queue_wait
 publication.normalize.private publication.normalize.reviews publication.normalize.group

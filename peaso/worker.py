@@ -110,6 +110,39 @@ def _resume_prior(checkpoint_session, prior):
             "created_at": prior["created_at"], "collections": rows, "metadata": metadata}
 
 
+
+def _seed_section_refresh(session, prior, revisions):
+    """Preserve unchanged evidence revisions; never replay a damaged final over deltas."""
+    with session.lock:
+        session.collections = {(row['type'], row['scope']): row for row in prior['collections']}
+        session.collection_revisions = {key: revisions.get(key, session.sequence)
+                                        for key in session.collections}
+        if prior.get('metadata', {}).get('native_refresh', {}).get('restored_native_context') == 'partial':
+            session.collection_revisions = {key: session.sequence for key in session.collections}
+        session.last_published = session.sequence
+
+
+def _merge_section_refresh(snapshot, saved_rows, prior, plan):
+    """Fresh native namespaces win; captured facts keep their exact target boundary."""
+    import copy
+    from peaso.snapshot import make_snapshot
+    if snapshot['provider'] != prior['provider'] or snapshot['scopes'] != prior['scopes']:
+        raise ValueError('Native section refresh returned a different target')
+    rows = {(row['type'], row['scope']): row for row in snapshot['collections']}
+    for row in saved_rows:
+        rows.setdefault((row['type'], row['scope']), row)
+    metadata = copy.deepcopy(prior.get('metadata') or {})
+    metadata.update(snapshot.get('metadata') or {})
+    if 'collection_plan' in prior.get('metadata', {}):
+        metadata['collection_plan'] = copy.deepcopy(prior['metadata']['collection_plan'])
+    metadata['native_refresh'] = {'plan_sha256': plan['plan_sha256'],
+        'source_snapshot_id': prior['snapshot_id'], 'sections': list(plan['sections']),
+        'reused_collections': len(saved_rows)}
+    if prior.get('metadata', {}).get('native_refresh', {}).get('restored_native_context') == 'partial':
+        metadata['native_refresh']['restored_native_context'] = 'partial'
+    return make_snapshot(snapshot['provider'], prior['scopes'], list(rows.values()),
+                         metadata=metadata, created_at=snapshot['created_at'])
+
 def _partial_reuse_allowed(connector, partial_metadata):
     if partial_metadata is None:
         return True
@@ -338,6 +371,7 @@ def _process(role, request, connection):
     from peaso import runtime_metrics
     runtime_metrics.configure(connection.send, role=role)
     aws_metrics = None
+    detector_metrics = None
     if role == "collector" and request.get("connector", {}).get("provider") == "aws":
         from peaso.aws_call_metrics import install as install_aws_metrics
         aws_metrics = install_aws_metrics(connection.send)
@@ -354,6 +388,13 @@ def _process(role, request, connection):
         raise SystemExit()
     signal.signal(signal.SIGTERM, stop_child)
     try:
+        if role == "collector":
+            # Optional diagnostics must never prevent a scan from starting.
+            try:
+                from peaso.detector_call_metrics import install as install_detector_metrics
+                detector_metrics = install_detector_metrics(runtime_metrics.span)
+            except Exception:
+                pass
         config = request.pop("artifact_config")
         artifacts = FileArtifacts(Path(config["root"])) if config["mode"] == "file" else S3Artifacts(config["bucket"], kms_key=config.get("kms_key"))
         tenant, ident = request["tenant_id"], request["scan_id"]
@@ -369,6 +410,12 @@ def _process(role, request, connection):
             from peaso.engine import collect_snapshot
             from peaso.snapshot import seal
             connector = request.get("connector", {})
+            refresh_state = None
+            if request.get('section_refresh_proof') is not None:
+                from peaso.server.scan_resume import validate_claimed_section_refresh
+                refresh_proof = request['section_refresh_proof']
+                refresh_state = validate_claimed_section_refresh(refresh_proof['row'],
+                    refresh_proof['entries'], artifacts, connector)
             if (role == "collector" and connector.get("provider") == "gcp"
                     and connector.get("auth", {}).get("method") == "platform-service-account"):
                 from peaso.gcp_platform import load_service_account
@@ -389,10 +436,13 @@ def _process(role, request, connection):
                 if request.get("checkpoint_refs"):
                     _restore_secret_capture(secret_capture, artifacts, tenant, ident)
 
+                from peaso.snapshot_public_identity import public_snapshot_adapter
+                public_content = public_snapshot_adapter(secret_capture.public_snapshot,
+                    provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
                 ai_access_cache = {}
 
                 def public_checkpoint(raw):
-                    public = seal(redact(secret_capture.public_snapshot(raw),
+                    public = seal(redact(public_content(raw),
                                          tuple(credential_values(connector.get("auth", {})))))
                     changed = False
                     if request.get("ai_enabled", True):
@@ -411,16 +461,26 @@ def _process(role, request, connection):
                     # Recompute only when the access metadata changed afterward.
                     return seal(public) if changed else public
 
+                public_checkpoint = public_snapshot_adapter(public_checkpoint,
+                    provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
+
                 checkpoint = _collector_checkpoint_publisher(artifacts, publication_artifacts,
                     tenant, ident, secret_capture, private_checkpoint, connection)
 
                 checkpoint_session = CheckpointSession(request, checkpoint, public_checkpoint)
-                restored = [artifacts.get(tenant, reference) for reference in
-                    dict.fromkeys(request.get("checkpoint_refs", ()))]
+                restored = ([] if refresh_state is not None else [artifacts.get(tenant, reference) for reference in
+                    dict.fromkeys(request.get("checkpoint_refs", ()))])
                 checkpoint_session.restore(restored, int(request.get("checkpoint_sequence", 0)))
                 saved_rows = []
                 prior = None
-                if request.get("resume_snapshot_ref"):
+                refresh_plan = None
+                remaining = None
+                if refresh_state is not None:
+                    refresh_plan, prior, revisions = refresh_state
+                    _seed_section_refresh(checkpoint_session, prior, revisions)
+                    saved_rows = [row for row in prior['collections'] if row['type'] not in refresh_plan['kinds']]
+                    remaining = refresh_plan['kinds']
+                if request.get("resume_snapshot_ref") and refresh_plan is None:
                     from peaso.snapshot import validate
                     prior = validate(artifacts.get(tenant, request["resume_snapshot_ref"]))
                     if prior["provider"] != connector["provider"]:
@@ -461,16 +521,25 @@ def _process(role, request, connection):
                                     created_at=prior["created_at"], metadata=prior.get("metadata"))
                             else:
                                 with _runtime_span('worker.collect'):
-                                    snapshot = collect_snapshot(request)
-                        if saved_rows and remaining:
+                                    if refresh_plan is not None:
+                                        from peaso.server.scan_resume import section_refresh_collection_request
+                                        snapshot = collect_snapshot(section_refresh_collection_request(request, refresh_plan))
+                                    else:
+                                        snapshot = collect_snapshot(request)
+                        if refresh_plan is not None:
+                            snapshot = _merge_section_refresh(snapshot, saved_rows, prior, refresh_plan)
+                        elif saved_rows and remaining:
                             from peaso.collectors.resume import merge
                             snapshot = merge(snapshot, saved_rows, prior)
                         from peaso.collectors.iam_usage_finalize import enrich_snapshot as enrich_iam_usage
-                        snapshot = enrich_iam_usage(snapshot, connector, request, aws_usage_contexts)
-                    checkpoint_session.finish_collection(final_metadata=snapshot.get("metadata", {}))
+                        with _runtime_span("worker.iam_usage"):
+                            snapshot = enrich_iam_usage(snapshot, connector, request, aws_usage_contexts)
+                    with _runtime_span("worker.checkpoint.finish"):
+                        checkpoint_session.finish_collection(final_metadata=snapshot.get("metadata", {}))
                     snapshot.setdefault("metadata", {})["sections"] = checkpoint_session.sections()
                 finally:
-                    checkpoint_session.close()
+                    with _runtime_span("worker.checkpoint.close"):
+                        checkpoint_session.close()
                     request.pop("_collection_callback", None)
                     request.pop("_scope_plan_callback", None)
                     ai_credentials = ai_access.finish()
@@ -481,8 +550,9 @@ def _process(role, request, connection):
             # Separate encrypted per-scan object; no reference or value enters
             # the native snapshot, public report, supervisor pipe or AI context.
             with _runtime_span('worker.redact'):
-                snapshot = secret_capture.public_snapshot(snapshot)
-            artifacts.put_secret_evidence(tenant, ident, private_checkpoint.document(secret_capture))
+                snapshot = public_content(snapshot)
+            with _runtime_span("worker.private_document"):
+                artifacts.put_secret_evidence(tenant, ident, private_checkpoint.document(secret_capture))
             if request.get("ai_enabled", True) and ai_credentials:
                 try:
                     ai_credentials = ai_access.bind_targets(ai_credentials, snapshot)
@@ -502,7 +572,10 @@ def _process(role, request, connection):
                 raise PermissionError("no collection was readable with the connector credentials")
             snapshot.setdefault("metadata", {})["input_mode"] = request["connector"].get("input_mode", "live")
             with _runtime_span('worker.final_snapshot'):
-                value = seal(redact(snapshot, tuple(credential_values(request["connector"].get("auth", {})))))
+                public_final = public_snapshot_adapter(
+                    lambda native: seal(redact(native, tuple(credential_values(
+                        request["connector"].get("auth", {}))))), provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
+                value = public_final(snapshot)
             reference = artifacts.put(tenant, ident, "snapshot", value)
             if expired:
                 resume_reference = reference
@@ -604,6 +677,11 @@ def _process(role, request, connection):
         runtime_metrics.flush()
         connection.send((False, code, _safe_failure_details(exc), failure_reasons, resume_reference))
     finally:
+        if detector_metrics is not None:
+            try:
+                detector_metrics.close()
+            except Exception:
+                pass
         if aws_metrics is not None:
             aws_metrics.close()
         runtime_metrics.close()
@@ -758,6 +836,11 @@ class Worker:
                                           "partial_report_sequence", "checkpoint_sequence")
                             request["resume_proof"] = {"row": {key: job.get(key) for key in proof_keys},
                                                        "entries": checkpoint_rows}
+            if self.role == 'collector' and job.get('native_refresh'):
+                proof_keys = ('tenant', 'id', 'data', 'connector', 'resume_phase', 'resume_attempt',
+                              'snapshot', 'report', 'checkpoint_sequence', 'native_refresh')
+                request['section_refresh_proof'] = {'row': {key: job.get(key) for key in proof_keys},
+                                                    'entries': checkpoint_rows}
             request.update(tenant_id=job["tenant"], scan_id=job["id"], deadline=job["deadline"], artifact_config={"mode": "file", "root": str(self.artifacts.root)} if isinstance(self.artifacts, FileArtifacts) else {"mode": "s3", "bucket": self.artifacts.bucket, "kms_key": self.artifacts.kms_key})
             request["ai_context"] = {"state_dir": str(self.settings.state_dir), "identity_dir": str(self.settings.identity_dir)}
             request["timeline"] = self.store.public_job(job)["timeline"]

@@ -9,7 +9,7 @@ import tempfile
 import time
 
 
-MAX_BATCH_ITEMS = 128
+MAX_BATCH_ITEMS = 512
 MAX_BATCH_BYTES = 64 * 1024 * 1024
 _PREPARED_BATCH = ContextVar('prepared_content_batch', default=None)
 _PREPARED_COHORT = ContextVar('prepared_content_cohort', default=None)
@@ -195,11 +195,13 @@ def _prepare_trufflehog_batch(items, timeout):
                     pass
                 raise
             paths[filename] = payload
-        output = scanning._run([scanning._trufflehog(), 'filesystem', '--json',
-                                '--no-verification', '--no-update', '--log-level=-1',
-                                '--concurrency=1', '--force-skip-archives',
-                                '--no-verification-cache', '--fail-on-scan-errors',
-                                *paths], b'', timeout)
+        from .runtime_metrics import span
+        with span('secret.trufflehog.prepared_process'):
+            output = scanning._run([scanning._trufflehog(), 'filesystem', '--json',
+                                    '--no-verification', '--no-update', '--log-level=-1',
+                                    '--concurrency=1', '--force-skip-archives',
+                                    '--no-verification-cache', '--fail-on-scan-errors',
+                                    *paths], b'', timeout)
         grouped = {payload: [] for payload in payloads}
         for line in output.splitlines():
             row = json.loads(line)

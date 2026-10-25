@@ -717,12 +717,14 @@ class DynamoStore:
                 time.sleep(0.01 * (attempt + 1))
         raise StoreError(409, "Concurrent reservation; retry")
 
-    def resume_job(self, tenant, ident, expected_connector, now=None):
+    def resume_job(self, tenant, ident, expected_connector, now=None, *, refresh=None):
         """Conditionally reset the same item and bind one connector revision."""
         from peaso.server.scan_resume import resume_stage
         now = self.clock() if now is None else now
         job = self.job(tenant, ident)
-        stage = resume_stage(job)
+        from peaso.server.scan_resume import consume_section_refresh
+        refresh_plan = consume_section_refresh(refresh, job) if refresh is not None else None
+        stage = 'collector' if refresh_plan is not None else resume_stage(job)
         if stage is None:
             raise StoreError(409, "This scan has no recoverable work")
         connector = self.connector(tenant, job["connector_id"])
@@ -738,7 +740,14 @@ class DynamoStore:
                   ":connector": json.dumps({"data": json.loads(connector["data"]), "auth": connector["auth"]}),
                   ":null": None, ":history": events, ":phase": stage,
                   ":attempt": int(job.get("resume_attempt") or 0) + 1,
-                  ":old_attempt": int(job.get("resume_attempt") or 0)}
+                  ":old_attempt": int(job.get("resume_attempt") or 0), ":refresh": refresh_plan}
+        refresh_condition = ''
+        refresh_names = {}
+        if refresh_plan is not None:
+            values.update({':source_snapshot': job['snapshot'], ':source_report': job['report'],
+                           ':source_sequence': job.get('checkpoint_sequence', 0), ':source_frozen': job['connector']})
+            refresh_condition = ' AND #source_snapshot=:source_snapshot AND #source_report=:source_report AND #source_sequence=:source_sequence AND #source_frozen=:source_frozen'
+            refresh_names = {'#source_snapshot':'snapshot','#source_report':'report','#source_sequence':'checkpoint_sequence','#source_frozen':'connector'}
         try:
             self.client.transact_write_items(TransactItems=[
                 {"ConditionCheck": {"TableName": self.table,
@@ -751,12 +760,12 @@ class DynamoStore:
                     "UpdateExpression": "SET #status=:status,connector=:connector,deadline=:deadline,queued_at=:now,"
                         "#owner=:null,lease=:null,#error=:null,error_code=:null,error_stage=:null,"
                         "progress_details=:null,#history=:history,resume_attempt=:attempt,"
-                        "resume_phase=:phase REMOVE admitted_at",
+                        "resume_phase=:phase,native_refresh=:refresh REMOVE admitted_at",
                     "ConditionExpression": "#status=:old_status AND connector_id=:connector_id "
                         "AND (attribute_not_exists(resume_attempt) OR resume_attempt=:old_attempt) "
-                        "AND (attribute_not_exists(expires_at) OR expires_at>:now)",
+                        "AND (attribute_not_exists(expires_at) OR expires_at>:now)" + refresh_condition,
                     "ExpressionAttributeNames": {"#status": "status", "#owner": "owner",
-                                                 "#error": "error", "#history": "history"},
+                                                 "#error": "error", "#history": "history", **refresh_names},
                     "ExpressionAttributeValues": attrs({**values, ":connector_id": connector["id"]})}},
             ])
         except ClientError as exc:

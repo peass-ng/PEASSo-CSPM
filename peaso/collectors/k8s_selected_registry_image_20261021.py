@@ -12,7 +12,7 @@ import socket
 import ssl
 import tempfile
 import time
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 from uuid import uuid4
 
 from peaso import container_image_archive_20261020 as archive
@@ -227,7 +227,41 @@ def _open_https(host, path, headers, timeout):
         raise
 
 
-def _blob_redirect(host, location):
+def _gar_blob_redirect(host, repository, location):
+    """One provider-issued same-origin GAR path bound to the selected repository.
+
+    Mirrors the native GCP reader's relative /artifacts-downloads contract.
+    The ordinary public-IP/TLS transport, byte limit and digest check still run.
+    """
+    if (type(repository) is not str or len(repository) > 1024
+            or type(location) is not str or len(location) > 2048
+            or '\\' in location or any(ord(c) < 33 or ord(c) > 126 for c in location)):
+        raise Incomplete('redirect_unsupported')
+    parts = repository.split('/')
+    if (len(parts) < 3 or not re.fullmatch(r'[a-z][a-z0-9-]{4,61}[a-z0-9]', parts[0])
+            or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,127}', parts[1])):
+        raise Incomplete('redirect_unsupported')
+    prefix = '/artifacts-downloads/namespaces/' + parts[0] + '/repositories/' + parts[1] + '/downloads/'
+    if not location.startswith(prefix):
+        raise Incomplete('redirect_unsupported')
+    try:
+        target = urlsplit(location)
+        decoded = unquote(location, errors='strict')
+    except (UnicodeError, ValueError):
+        raise Incomplete('redirect_unsupported') from None
+    if (target.scheme or target.netloc or target.query or target.fragment
+            or target.path != location or not decoded.startswith(prefix)
+            or decoded.count('/') != location.count('/')
+            or '\\' in decoded or any(c in decoded for c in ('%', '?', '#'))
+            or any(ord(c) < 33 or ord(c) > 126 for c in decoded)
+            or any(part in ('', '.', '..') for part in decoded[1:].split('/'))):
+        raise Incomplete('redirect_unsupported')
+    return host, location
+
+
+def _blob_redirect(host, location, repository=None):
+    if type(host) is str and re.fullmatch(r'[a-z][a-z0-9-]*-docker\.pkg\.dev', host):
+        return _gar_blob_redirect(host, repository, location)
     """Accept only MCR's public regional blob CDN, never arbitrary registry redirects."""
     if host != 'mcr.microsoft.com' or type(location) is not str or len(location) > 8192:
         raise Incomplete('redirect_unsupported')
@@ -286,12 +320,18 @@ class RegistryReader:
                     break
                 if category != 'blobs' or hop >= MAX_BLOB_REDIRECTS:
                     raise Incomplete('redirect_unsupported')
-                current_host, current_path = _blob_redirect(self.host, response.headers.get('Location'))
+                if re.fullmatch(r'[a-z][a-z0-9-]*-docker\.pkg\.dev', self.host) and (status != 302 or hop != 0
+                        or response.headers.get('Content-Encoding', 'identity') != 'identity'
+                        or response.headers.get('WWW-Authenticate') is not None):
+                    raise Incomplete('redirect_unsupported')
+                next_host, next_path = _blob_redirect(self.host, response.headers.get('Location'), self.repository)
                 response.close()
                 connection.close()
                 response = connection = None
-                headers.pop('Authorization', None)
-                headers.pop('Cookie', None)
+                if next_host != current_host:
+                    headers.pop('Authorization', None)
+                    headers.pop('Cookie', None)
+                current_host, current_path = next_host, next_path
             if status != 200:
                 if status in (401, 403):
                     record['status'] = 'denied'

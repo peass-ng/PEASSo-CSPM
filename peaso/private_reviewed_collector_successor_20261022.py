@@ -18,8 +18,8 @@ import zlib
 
 from . import private_secret_source_epoch_20261021 as _epoch
 
-_RECEIPT_SHA256 = "c5363ab2449251a9b90ae74b638605d257b6b58ccb41a5546a806ad6d57fd847"
-_SELF_SHA256 = "36735a05cc5c0a492d9ee85f82d1fd0c2335c22ecfd8245508ee7ee3d7c559ad"
+_RECEIPT_SHA256 = "d825b51d8820faa8e87d372cc8e2d11250071cf07def918c230cf0618da2c953"
+_SELF_SHA256 = "1786d46e17984c9f0455095b3fa87e899dc0a7f99dca8296c26a2d2a32bc5e7c"
 _ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -45,7 +45,8 @@ def _receipt() -> dict:
             or receipt.get("attestor_normalized_sha256") != _SELF_SHA256
             or set(receipt.get("guard_sources", {})) != {"peaso/checks/azure_metadata_only_tde_admission_successor_20261020.py"}
             or set(receipt.get("sources", {})) != {
-                "peaso/collectors/gcp.py", "peaso/collectors/k8s.py", "peaso/collectors/azure.py"
+                "peaso/collectors/gcp.py", "peaso/collectors/k8s.py", "peaso/collectors/azure.py",
+                "peaso/collectors/azure_selected_storage_secret_indicators.py"
             }):
         raise _epoch.AdmissionError("reviewed collector receipt metadata changed")
     return receipt
