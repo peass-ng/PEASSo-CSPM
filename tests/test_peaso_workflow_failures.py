@@ -57,16 +57,18 @@ def test_actual_terraform_sizing_defaults_and_validation(terraform, tmp_path, mo
     result = evaluate()
     assert result.returncode == 0, result.stderr
     defaults = json.loads(json.loads(result.stdout))
-    assert defaults == {"collector": {"cpu": 1024, "memory": 6144}, "analyzer": {"cpu": 512, "memory": 4096}}
+    assert defaults == {"collector": {"cpu": 4096, "memory": 16384}, "analyzer": {"cpu": 1024, "memory": 8192}}
     for key in list(os.environ):
         if key.startswith("PEASO_"):
             monkeypatch.delenv(key)
     assert worker_resources() == {stage: {"vcpu": size["cpu"] / 1024, "memory_gib": size["memory"] / 1024} for stage, size in defaults.items()}
     larger = {"collector": {"cpu": 1024, "memory": 8192}, "analyzer": {"cpu": 1024, "memory": 8192}}
     assert evaluate(larger).returncode == 0
+    assert evaluate({"collector": {"cpu": 4096, "memory": 30720}, "analyzer": {"cpu": 4096, "memory": 8192}}).returncode == 0
     for invalid in [dict(larger, analyzer={"cpu": 512, "memory": 2048}),
                     dict(larger, collector={"cpu": 512, "memory": 6144}),
                     dict(larger, collector={"cpu": 1024, "memory": 4096}),
+                    dict(larger, collector={"cpu": 4096, "memory": 31744}),
                     dict(larger, extra={"cpu": 512, "memory": 4096})]:
         result = evaluate(invalid)
         # Terraform console can print the value even when reporting a failed
@@ -107,8 +109,8 @@ def test_cost_uses_both_stage_sizes_and_60_second_minimum(monkeypatch):
         ("completed", "2026-10-11T00:00:03+00:00"),
     ]]
     estimate = runtime_estimate(events)["compute_cost_estimate"]
-    assert estimate["stage_sizes"] == {"collector": {"vcpu": 1, "memory_gib": 6}, "analyzer": {"vcpu": 0.5, "memory_gib": 8}}
-    assert estimate["amount_usd"] == round(60 * (1.5 * 0.000011244 + 14 * 0.000001235), 8)
+    assert estimate["stage_sizes"] == {"collector": {"vcpu": 4, "memory_gib": 16}, "analyzer": {"vcpu": 1, "memory_gib": 8}}
+    assert estimate["amount_usd"] == round(60 * (5 * 0.000011244 + 24 * 0.000001235), 8)
 
 
 def lookup(value, path):

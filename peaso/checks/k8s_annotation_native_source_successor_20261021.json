@@ -3333,8 +3333,8 @@
   "schema": "finite-k8s-annotation-successor-v1",
   "snapshot_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
   "source_epoch_archive_sha256": "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0",
-  "source_epoch_receipt_sha256": "71becacdbb96ed1639a38f2c45e021cdd9079bc0d5d1dad742f8e2e579c53fad",
-  "source_epoch_sha256": "68fdd40fd8040f58778e295ca0d70e9e662ecf85a11119b66254adc9d68a8f02",
+  "source_epoch_receipt_sha256": "d497f851e367b46813cdd003438f8ee96d8a6191c514b9e57f92b287c42c786b",
+  "source_epoch_sha256": "f9e5f14d1633e22f96095b5ce8d9512fd0707ab38a958f627198c82ba86d4595",
   "successor_source_sha256": "8d7870078bff59633ecbbecefc3d193bc635cf8fe2e3df89e34b402feb4fc787",
   "engine_plan_admission": {
     "current_fragment_sha256": "c45da0defe1fd4011c741ea9200edc467cd7af6e9331cd2f79472c1e19fa0860",

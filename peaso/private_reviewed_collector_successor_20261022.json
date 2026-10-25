@@ -9,7 +9,7 @@
   },
   "init_sha256": "353923314218386b12823a57f504580dfa2afe571a8f0a02399926cd740f2562",
   "source_epoch_archive_sha256": "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0",
-  "source_epoch_receipt_sha256": "71becacdbb96ed1639a38f2c45e021cdd9079bc0d5d1dad742f8e2e579c53fad",
+  "source_epoch_receipt_sha256": "d497f851e367b46813cdd003438f8ee96d8a6191c514b9e57f92b287c42c786b",
   "sources": {
     "peaso/collectors/azure.py": {
       "current_sha256": "ecd1b9c8e30bf365207cccae219d6909e0e09aa214ec3d16bbace1960d84c572",

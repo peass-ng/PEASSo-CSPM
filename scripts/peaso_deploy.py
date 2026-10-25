@@ -40,8 +40,9 @@ REPOSITORY = f"{ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com/hacktricks-cspm-worker"
 ZERO_IMAGE = REPOSITORY + "@sha256:" + "0" * 64
 CUSTOMER_ROLE_DOWNLOAD_KEY = "aws/customer-role.json"
 API_PACKAGE_PREFIX = "runtime-packages/"
-WORKER_SIZING_CURRENT_SHA256 = '918663f053ec9a2964cda023f9ec917e57eca5aa7497a8a02618008e016eb6a4'
-WORKER_SIZING_REVERSE = ((b'(resource.cpu == 1024 && contains([2048, 3072, 4096, 5120, 6144, 7168, 8192], resource.memory)) ||\n      (resource.cpu == 2048 && resource.memory >= 4096 && resource.memory <= 16384 && resource.memory % 1024 == 0)', b'(resource.cpu == 1024 && contains([2048, 3072, 4096, 5120, 6144, 7168, 8192], resource.memory))'), (b'supported 0.5/1/2 vCPU Fargate sizes', b'supported 0.5/1 vCPU Fargate sizes'))
+WORKER_SIZING_CURRENT_SHA256 = '40e2987f2bad20d53f9e8898225fbaf4abcf9f3a009fb472e3f2c34702fe5ca6'
+# The 4 vCPU collector / 1 vCPU analyzer successor reverses first, then the 2 vCPU extension.
+WORKER_SIZING_REVERSE = ((b'    collector = { cpu = 4096, memory = 16384 }\n    analyzer  = { cpu = 1024, memory = 8192 }', b'    collector = { cpu = 1024, memory = 6144 }\n    analyzer  = { cpu = 512, memory = 4096 }'), (b'  description = "Prospective Linux/x86 Fargate CPU units and MiB: collector 4 vCPU/16 GiB, analyzer 1 vCPU/8 GiB. A 1 vCPU collector was CPU-bound on offline content detection and AWS TLS reads; four content lanes need four vCPUs. Not an all-estates capacity guarantee."', b'  description = "Prospective Linux/x86 Fargate CPU units and MiB: collector 1 vCPU/6 GiB, analyzer 0.5 vCPU/4 GiB. Reported split peaks support these starting sizes, not an all-estates capacity guarantee."'), (b' resource.memory % 1024 == 0) ||\n      (resource.cpu == 4096 && resource.memory >= 8192 && resource.memory <= 30720 && resource.memory % 1024 == 0)\n', b' resource.memory % 1024 == 0)\n'), (b'supported 0.5/1/2/4 vCPU Fargate sizes', b'supported 0.5/1/2 vCPU Fargate sizes'), (b'(resource.cpu == 1024 && contains([2048, 3072, 4096, 5120, 6144, 7168, 8192], resource.memory)) ||\n      (resource.cpu == 2048 && resource.memory >= 4096 && resource.memory <= 16384 && resource.memory % 1024 == 0)', b'(resource.cpu == 1024 && contains([2048, 3072, 4096, 5120, 6144, 7168, 8192], resource.memory))'), (b'supported 0.5/1/2 vCPU Fargate sizes', b'supported 0.5/1 vCPU Fargate sizes'))
 # Immutable data consumed by the source-bound native registry at import time.
 RUNTIME_ADMISSION_INPUTS = {
     "tests/fixtures/azure_nsp_query_cmk_metadata_proposal_20261020.json.gz":
@@ -2657,7 +2658,7 @@ def write_vars(image, api_zip):
 def verify_worker_resources(resources):
     """Reject stale deployment overrides before writing variables or reviewing plans."""
     supported = {512: {1024, 2048, 3072, 4096}, 1024: {2048, 3072, 4096, 5120, 6144, 7168, 8192},
-                 2048: set(range(4096, 16385, 1024))}
+                 2048: set(range(4096, 16385, 1024)), 4096: set(range(8192, 30721, 1024))}
     if set(resources) != {"collector", "analyzer"}:
         raise RuntimeError("Worker sizing requires collector and analyzer only")
     for stage, minimum in [("collector", 6144), ("analyzer", 4096)]:

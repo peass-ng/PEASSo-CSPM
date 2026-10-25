@@ -908,7 +908,10 @@ class DeploymentGuards(unittest.TestCase):
         for memory in (6144, 8192, 12288, 16384):
             deploy.verify_worker_resources({"collector": {"cpu": 2048, "memory": memory},
                                             "analyzer": {"cpu": 1024, "memory": 8192}})
-        for cpu, memory in ((2048, 4096), (2048, 6145), (2048, 17408), (4096, 16384)):
+        for memory in (8192, 16384, 30720):
+            deploy.verify_worker_resources({"collector": {"cpu": 4096, "memory": memory},
+                                            "analyzer": {"cpu": 1024, "memory": 8192}})
+        for cpu, memory in ((2048, 4096), (2048, 6145), (2048, 17408), (4096, 6144), (4096, 31744), (4096, 16385), (8192, 16384)):
             with self.subTest(cpu=cpu, memory=memory), self.assertRaisesRegex(RuntimeError, "sizing"):
                 deploy.verify_worker_resources({"collector": {"cpu": cpu, "memory": memory},
                                                 "analyzer": {"cpu": 512, "memory": 4096}})

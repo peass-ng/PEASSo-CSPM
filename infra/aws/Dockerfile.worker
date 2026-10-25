@@ -37,4 +37,7 @@ RUN pip install --no-cache-dir --constraint /app/infra/aws/sdk-constraints.txt '
 VOLUME ["/tmp"]
 USER 10001:10001
 RUN aws --version && kubectl version --client=true && gcloud --version && az version
+# Workers prove pinned check sources once per process. Run every repeated
+# proof here so drifted sources fail the image build, not a customer scan.
+RUN PEASO_SOURCE_ATTESTATION=always python -c "import peaso.checks"
 ENTRYPOINT ["python", "-m", "peaso.worker"]

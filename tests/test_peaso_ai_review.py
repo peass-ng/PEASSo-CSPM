@@ -1240,6 +1240,14 @@ def test_review_admission_respects_memory_headroom(available_mib, requested, exp
     assert pipeline.review_concurrency() == expected
 
 
+@pytest.mark.parametrize('available_mib,requested,expected', [(1100, 6, 6), (600, 6, 3), (200, 6, 0)])
+def test_remote_review_admission_reserves_only_local_staging_memory(available_mib, requested, expected, monkeypatch):
+    monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', str(requested))
+    monkeypatch.setenv('PEASO_AI_RUNTIME', 'fargate')
+    monkeypatch.setattr(pipeline, 'available_memory', lambda: available_mib * 1024**2)
+    assert pipeline.review_concurrency() == expected
+
+
 def test_available_memory_uses_container_limit_instead_of_host_ram(monkeypatch):
     import psutil
     monkeypatch.setattr(psutil, 'virtual_memory', lambda: SimpleNamespace(available=32 * 1024**3))

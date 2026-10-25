@@ -23,9 +23,10 @@ import sys
 import sysconfig
 from types import CodeType, FunctionType, MethodType, ModuleType
 import zipfile
+from peaso import source_attestation_mode as _attestation_mode
 
-_RECEIPT_SHA256 = "71becacdbb96ed1639a38f2c45e021cdd9079bc0d5d1dad742f8e2e579c53fad"
-_SELF_SHA256 = "3ec95c5ece3c4761ee872cccc2d5dacb5a80cf2a93c22d482876017a36c34240"
+_RECEIPT_SHA256 = "d497f851e367b46813cdd003438f8ee96d8a6191c514b9e57f92b287c42c786b"
+_SELF_SHA256 = "f8afbdd39e6db26ad889b4fb4278eca6f3f24651ae247c9d9f124253e1615b16"
 _ARCHIVE_SHA256 = "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0"
 _HELPER_SHA256 = "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a"
 _BASE = "6b6ee759234d7e2dad978342838cb3af4e1fe767"
@@ -359,8 +360,13 @@ def _self_cached_code(path: Path, raw: bytes) -> tuple | None:
     return code, metadata
 
 
+_SELF_PROVEN = []
+
+
 def _self() -> None:
     """Fresh source and live binding proof for this small attestor module."""
+    if not _attestation_mode.repeat(_SELF_PROVEN):
+        return
     module = sys.modules.get(__name__)
     if type(module) is not ModuleType or vars(module) is not globals():
         raise AdmissionError("attestor module binding mismatch")
@@ -443,6 +449,7 @@ def _self() -> None:
         if len(_SELF_CODE_CACHE_STORAGE) >= 64:
             _SELF_CODE_CACHE_STORAGE.clear()
         _SELF_CODE_CACHE_STORAGE[key] = (compiled, metadata, signature)
+    _SELF_PROVEN.append(True)
 
 
 def _receipt() -> tuple[dict, dict[str, dict]]:
