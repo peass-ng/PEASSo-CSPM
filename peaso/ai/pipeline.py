@@ -188,9 +188,14 @@ def referenced_strings(value):
             yield from referenced_strings(item)
 
 
-def review_context(report, inventory_by_id, findings, *, _references=None):
+def review_context(report, inventory_by_id, findings, *, _references=None, _coverage=None):
     references = set(referenced_strings(findings)) if _references is None else _references
-    return {'scan': {key: report[key] for key in ('provider', 'snapshot_id', 'created_at') if key in report},
+    from .collection_coverage import index, for_findings
+    coverage = for_findings(index(report.get('coverage')) if _coverage is None else _coverage, findings)
+    scan = {key: report[key] for key in ('provider', 'snapshot_id', 'created_at') if key in report}
+    if coverage is not None:
+        scan['collection_coverage'] = coverage
+    return {'scan': scan,
             'resources': [inventory_by_id[ident] for ident in sorted(references & inventory_by_id.keys())]}
 
 
@@ -207,8 +212,16 @@ def findings_document(scan, findings, resources=(), *, _references=None):
         if observation:
             item['evidence_summary'] = observation
         items.append(item)
-    return {'scan': {key: scan[key] for key in ('provider', 'snapshot_id', 'created_at') if key in scan},
-            'items': items}
+    scan_document = {key: scan[key] for key in ('provider', 'snapshot_id', 'created_at') if key in scan}
+    coverage = scan.get('collection_coverage')
+    if isinstance(coverage, dict) and isinstance(coverage.get('entries'), list):
+        from .collection_coverage import index, for_findings
+        bounded = for_findings(index([dict(row, level='collection') for row in coverage['entries']
+                                      if isinstance(row, dict)]), findings)
+        if bounded is not None:
+            bounded['truncated'] = bounded['truncated'] or coverage.get('truncated') is not False
+            scan_document['collection_coverage'] = bounded
+    return {'scan': scan_document, 'items': items}
 
 
 def review_fingerprints(report, inventory_by_id, findings, *, identity, entries):
@@ -217,12 +230,15 @@ def review_fingerprints(report, inventory_by_id, findings, *, identity, entries)
     The access reference identifies the sealed captured credential set; no
     credential value or plaintext finding/resource is saved in stage metadata.
     """
+    from .collection_coverage import index
+    coverage = index(report.get('coverage'))
     fingerprints = {}
     for row in findings:
         # Reuse only this row's fresh references, then release them before
         # credential preparation and serialization. Nothing is cached across calls.
         references = set(referenced_strings(row))
-        context = review_context(report, inventory_by_id, [row], _references=references)
+        context = review_context(report, inventory_by_id, [row], _references=references,
+                                 _coverage=coverage)
         document = findings_document(context['scan'], [row], context['resources'], _references=(references,))
         del references
         # Checkpoint/final snapshot IDs and created_at values name separately
@@ -348,6 +364,8 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
     stages = frozenset(('hardening', 'exposure', 'network') if stages is None else stages)
     output = {stage: [] for stage in ('hardening', 'exposure') if stage in stages}
     failed = False
+    from .collection_coverage import index
+    coverage = index(report.get('coverage'))
 
     def batches():
         # Admit the holistic network review early; it shares the same memory
@@ -374,7 +392,7 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
             data = (invoke_before_deadline(*args) if cancel_event is None else
                     invoke_before_deadline(*args, cancel_event=cancel_event))
             return validate_network(data, network)
-        context = review_context(report, inventory_by_id, batch)
+        context = review_context(report, inventory_by_id, batch, _coverage=coverage)
         access = review_credentials(entries, report['provider'], batch, context)
         remaining = end - time.monotonic()
         if remaining <= 0:

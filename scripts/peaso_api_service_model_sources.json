@@ -1,4 +1,5 @@
 {
+  "collection_coverage_review": "Scope-bound collection status/count summaries for AI reviewers, indexed once per fingerprint/batch preparation; explicit empty inventory conserved, unavailable/truncated data not interpreted as absence. No native objects, provider errors or new SDK operations.30 direct SDK sites/15 services unchanged.",
   "files": {
     "bluepeass/__init__.py": "fff49f1e2d98dd47b0327cd5be60cf58255a914dfd1c29b35a9aeb2bd8aae5de",
     "bluepeass/k8s.py": "076f89d3ab1c20c872252feb5c5a396be4c976d09a16a065414c2599a38a47f1",
@@ -14,6 +15,7 @@
     "peaso/ai/auth.py": "417d70fe80bf510b3482c679f9b547272be77379546b3183fe771fd42bc613cf",
     "peaso/ai/briefing.py": "2652a087449419276a9ec0719a529ccd75a15a17ab7e7708f4536dd8898df4d3",
     "peaso/ai/codex_relay_cli.py": "a1e8c519b624ab30d131f1a4a070deb2eea8e780584a41b405f6212592539fb9",
+    "peaso/ai/collection_coverage.py": "505f335d059d51cebc86cbbc9fbd75ee3d05e0610658385df561b0032a69b773",
     "peaso/ai/context_reader.py": "bd1a54bde21dc021b37c4bec688083fe5475baa4eee390ec678d47060e5b7010",
     "peaso/ai/contracts.py": "55a80c29defdf7b706e590087a2becc86b68f53395d37067d893c6fcb5a4cfda",
     "peaso/ai/crypto.py": "7ab214e8e44bb32ba92d5a33abf71d4a98be55b6fcbd8fc70be3f9eb0d4362d6",
@@ -25,7 +27,7 @@
     "peaso/ai/model_relay.py": "38b983c2a628e0b8d67aff0c58cdc3dabf5569262386c3124edfbd26b760cb6a",
     "peaso/ai/network.py": "f8da3a90c6fbc0e2c2bb8fa40f2007bf45abdfa149b37c92d8b7b693f5ebd6fd",
     "peaso/ai/output_validation.py": "bebdce6232ccc056823646411197a12741ff5462f48050c0c8a1b2dab241314f",
-    "peaso/ai/pipeline.py": "32a3f50ed88ba6c52883d883a9e2bd0e115125f04b7b0c744f8974295372a285",
+    "peaso/ai/pipeline.py": "a39a45d4dc1c882de349bff3f47a02b4542ba30bb134e9a958ecc47ba511d53b",
     "peaso/ai/prompting.py": "4e6c4f13dce2947dc23f037c5a95ebbf0d4efc6ba9a5ed97182a73ac3a2f2914",
     "peaso/ai/providers.py": "a33915979e16954365cd49a894dccba49a765ef1de060db5c15292a846e3f068",
     "peaso/ai/reconcile.py": "056c106512bdcc135b861be0f818af0e9161782c940cdc2aadf143cbe6fe548b",
@@ -1774,8 +1776,8 @@
     "source_review": "Qualified factory/SW46/source-proof locality and network joins; current main offline event normalizers and historical ECS lineage; bounded S3 uploads retain tenant checks, encryption and manifest-last semantics. Added modules have no SDK calls. Exact API client closure unchanged.",
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
-  "python_source_count": 1670,
-  "python_source_sha256": "d704102009b26e8a58d34170ea935ff289333d93743a5b6a5227a30ddf32f9bc",
+  "python_source_count": 1671,
+  "python_source_sha256": "d697904eb0046b467df70349396778154a0c868547ca6c83cd0082717d55e2a3",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269"
 }

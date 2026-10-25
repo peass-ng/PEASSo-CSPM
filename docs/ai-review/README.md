@@ -6,6 +6,12 @@ Shell-enabled hosted reviews use the role-free Fargate isolation backend. A usab
 
 ## What runs
 
+Hardening and Exposure reviewers receive scope-bound collection receipts alongside
+referenced resources. An explicitly empty, complete inventory can establish that
+a required configuration is absent; denied or partial inventory cannot. These
+receipts contain only type, scope, status and counts, are bounded once per batch,
+and participate in review reuse fingerprints so changed coverage is rechecked.
+
 AI defaults to `true` in `ScanCreate` and schedules. The launch form can disable it. Existing schedules without a flag inherit `true`.
 
 Settings → AI review also provides **Disable AI for every scan**, in both hosted

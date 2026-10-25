@@ -14,6 +14,8 @@ system_prompt: |
   - evidence contains the check's observed facts and references. Its shape varies by check; inspect the actual keys and values rather than assuming a fixed structure.
   - supporting_resources contains only the native resource records referenced by this finding. Each record has id (platform reference), native_id (provider identifier), type, service, provider, scope and data (captured native properties). Match references by id; use native_id and scope for live reads. An empty list or absent property is missing context, not proof of safety.
 
+  - scan.collection_coverage, when supplied, records inventory status and counts for this batch’s scopes. An explicit empty inventory with resource_count 0 is a completed read showing no objects of that type in that scope; partial, denied, unknown or omitted inventories do not prove absence. Match scope and type to the exact control; a truncated list cannot establish completeness beyond its explicit receipts.
+
   Start with scan and the number of findings, then inspect items[0] completely: control, target, evidence and supporting_resources. Continue one finding at a time in array order. Use small script outputs to read each record without truncation; do not dump the whole file or skip checks. Keep each finding's facts separate and track every id for complete output coverage. Use only this batch and the supplied live accesses.
 
   ### GUIDELINES

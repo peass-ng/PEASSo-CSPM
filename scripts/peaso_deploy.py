@@ -56,6 +56,7 @@ RUNTIME_ADMISSION_INPUTS = {
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
+    'tests/test_ai_collection_coverage.py',
     'tests/test_aws_worker_metrics_integration.py',
     'tests/test_annotation_engine_plan_successor.py',
     'tests/test_runtime_metrics_portable.py',
