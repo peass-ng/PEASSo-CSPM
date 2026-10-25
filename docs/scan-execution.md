@@ -25,7 +25,8 @@ The progressive analyzer admits up to two sections concurrently. Each section
 uses the memory-aware review pool (two batches by default, up to 40 findings per
 batch), allowing up to four simultaneous AI agents per scan.
 `PEASO_AI_MAX_CONCURRENCY` sets the per-section limit from one to six; available
-task memory can reduce admission. Top 15 runs after its prerequisite reviews.
+task memory can reduce admission (512 MiB per local agent, 128 MiB of local
+staging per Fargate-isolated agent). Top 15 runs after its prerequisite reviews.
 
 The UI and the normal authenticated scan APIs expose saved results while other
 sections are running. Saved partial results remain available after a later

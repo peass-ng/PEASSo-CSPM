@@ -44,18 +44,19 @@ variable "gcp_platform_sa_secret_arn" {
 variable "worker_resources" {
   type = map(object({ cpu = number, memory = number }))
   default = {
-    collector = { cpu = 1024, memory = 6144 }
-    analyzer  = { cpu = 512, memory = 4096 }
+    collector = { cpu = 4096, memory = 16384 }
+    analyzer  = { cpu = 1024, memory = 8192 }
   }
-  description = "Prospective Linux/x86 Fargate CPU units and MiB: collector 1 vCPU/6 GiB, analyzer 0.5 vCPU/4 GiB. Reported split peaks support these starting sizes, not an all-estates capacity guarantee."
+  description = "Prospective Linux/x86 Fargate CPU units and MiB: collector 4 vCPU/16 GiB, analyzer 1 vCPU/8 GiB. A 1 vCPU collector was CPU-bound on offline content detection and AWS TLS reads; four content lanes need four vCPUs. Not an all-estates capacity guarantee."
   validation {
     condition = toset(keys(var.worker_resources)) == toset(["collector", "analyzer"]) && alltrue([
       for resource in values(var.worker_resources) :
       (resource.cpu == 512 && contains([1024, 2048, 3072, 4096], resource.memory)) ||
       (resource.cpu == 1024 && contains([2048, 3072, 4096, 5120, 6144, 7168, 8192], resource.memory)) ||
-      (resource.cpu == 2048 && resource.memory >= 4096 && resource.memory <= 16384 && resource.memory % 1024 == 0)
+      (resource.cpu == 2048 && resource.memory >= 4096 && resource.memory <= 16384 && resource.memory % 1024 == 0) ||
+      (resource.cpu == 4096 && resource.memory >= 8192 && resource.memory <= 30720 && resource.memory % 1024 == 0)
     ]) && try(var.worker_resources.collector.memory >= 6144 && var.worker_resources.analyzer.memory >= 4096, false)
-    error_message = "Specify collector and analyzer only, with supported 0.5/1/2 vCPU Fargate sizes; prospective collection needs at least 6 GiB and analysis at least 4 GiB."
+    error_message = "Specify collector and analyzer only, with supported 0.5/1/2/4 vCPU Fargate sizes; prospective collection needs at least 6 GiB and analysis at least 4 GiB."
   }
 }
 variable "scan_runtime_limits" {

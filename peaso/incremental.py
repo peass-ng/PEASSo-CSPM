@@ -17,6 +17,11 @@ from collections import defaultdict
 from .snapshot import make_snapshot, validate, seal
 
 
+# Adaptive quiet period after a cumulative report pass (CPU seconds factor, cap).
+REPORT_CPU_FACTOR = 4.0
+REPORT_QUIET_CAP = 300.0
+
+
 class CheckpointSession:
     """Private collector callback with public, durable per-envelope handoff.
 
@@ -456,10 +461,11 @@ class CheckpointSession:
                     categories.add("privesc")
                 now = self.clock()
                 quiet = self.min_report_interval
-                # Leave CPU for collection between costly cumulative rebuilds.
-                # New sections/categories and explicit flushes bypass this gate.
+                # Leave CPU for collection between costly cumulative rebuilds:
+                # one pass may use at most ~1/5 of the collector's time. New
+                # sections/categories and explicit flushes bypass this gate.
                 if self.adaptive_report_cadence:
-                    quiet = max(quiet, min(60.0, 2.0 * self.last_report_cpu))
+                    quiet = max(quiet, min(REPORT_QUIET_CAP, REPORT_CPU_FACTOR * self.last_report_cpu))
                 if (not force and categories <= self.published_categories
                         and completed_sections <= self.published_sections
                         and (now - self.last_time < quiet
@@ -528,8 +534,21 @@ class CheckpointSession:
             raise
 
     def close(self):
+        """Stop the publisher; a finished collection is evaluated by the analyzer.
+
+        After finish_collection every batch and the final watermark are already
+        durable. Rebuilding the whole cumulative report here only duplicated
+        the analyzer's complete evaluation. Interrupted collections still
+        publish their latest partial report.
+        """
         try:
-            self.flush()
+            if self.collection_finished:
+                with self.lock:
+                    if self.error is not None:
+                        raise RuntimeError("checkpoint publication failed") from self.error
+                    self._flush_pending()
+            else:
+                self.flush()
         finally:
             with self.lock:
                 self.stop = True

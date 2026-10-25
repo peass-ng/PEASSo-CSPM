@@ -21,6 +21,10 @@ for _name, _value in {
 }.items():
     os.environ.setdefault(_name, _value)
 
+# Production proves each pinned source once per process; tests re-prove on
+# every nested call so live rebinding after import is still detected.
+os.environ.setdefault("PEASO_SOURCE_ATTESTATION", "always")
+
 from tests.compliance_draft_isolation import (CHILD_FILE_ENV, DRAFT_TEST_MODULES,
     STAGED_UNSELECTED_TEST_MODULES, staged_modules_unregistered, staged_registry, unpublished_check_imports)
 

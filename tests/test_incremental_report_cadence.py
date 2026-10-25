@@ -175,12 +175,12 @@ def test_expensive_publication_coalesces_reports_but_keeps_every_raw_batch(monke
         commit(session, 0)
         assert session._maybe_publish() is not None
         assert session.last_report_cpu == 12.0
-        for start, moment in ((64, 8.0), (128, 23.99)):
+        for start, moment in ((64, 8.0), (128, 47.99)):
             now[0] = moment
             commit(session, start)
             assert session._maybe_publish() is None
         assert [seq for seq, _, report in refs if report is None] == [64, 128, 192]
-        now[0] = 24.0
+        now[0] = 48.0
         assert session._maybe_publish() is not None
         assert [seq for seq, _, report in refs if report] == [64, 192]
         session.on_collection({'type': 'other', 'scope': 'final', 'status': 'empty', 'items': []})
@@ -209,16 +209,16 @@ def test_new_section_bypasses_cpu_quiet_period(monkeypatch, tmp_path):
         session.close()
 
 
-def test_cpu_quiet_period_is_capped_at_sixty_seconds(monkeypatch, tmp_path):
+def test_cpu_quiet_period_is_capped_at_five_minutes(monkeypatch, tmp_path):
     session, _, _, now = manual_session(monkeypatch, tmp_path)
     try:
         commit(session, 0)
         session._maybe_publish()
         session.last_report_cpu = 1000.0
         commit(session, 64)
-        now[0] = 59.99
+        now[0] = 299.99
         assert session._maybe_publish() is None
-        now[0] = 60.0
+        now[0] = 300.0
         assert session._maybe_publish() is not None
     finally:
         session.close()
