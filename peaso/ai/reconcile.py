@@ -14,7 +14,7 @@ from peaso.storage.artifacts import check_reference, job_prefix
 
 
 def reconcile_scan(store, artifacts, tenant, scan_id, expected_report, *, source_version,
-                   adjudications=(), dry_run=True):
+                   adjudications=(), dry_run=True, related_snapshots=None):
     """Replace only the explicitly authorized completed scan's unchanged report."""
     from peaso.engine import evaluate_snapshot
     from peaso.worker import redact_report
@@ -35,11 +35,51 @@ def reconcile_scan(store, artifacts, tenant, scan_id, expected_report, *, source
     import json
     selectors = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
     snapshot = artifacts.get(tenant, row['snapshot'])
+    # A completed report may contain cross-provider paths. Re-evaluating only
+    # its primary snapshot would silently drop that captured source evidence.
+    from peaso.snapshot import validate
+    prior_related = prior.get('related_snapshots', [])
+    if type(prior_related) is not list or len(prior_related) > 8:
+        raise ValueError('Invalid prior related snapshot provenance')
+    supplied = [] if related_snapshots is None else related_snapshots
+    if type(supplied) not in (list, tuple) or len(supplied) > 8:
+        raise ValueError('Invalid explicit related snapshots')
+    expected = {}
+    for item in prior_related:
+        if (type(item) is not dict or not isinstance(item.get('snapshot_id'), str)
+                or item['snapshot_id'] in expected or item.get('provider') == snapshot.get('provider')):
+            raise ValueError('Invalid prior related snapshot binding')
+        expected[item['snapshot_id']] = item
+    validated, seen = [], set()
+    for item in supplied:
+        if not isinstance(item, dict) or not isinstance(item.get('snapshot_id'), str):
+            raise ValueError('Explicit related snapshot requires its sealed identity')
+        native = validate(item, read_only=True)
+        ident = native['snapshot_id']
+        if ident in seen or ident not in expected:
+            raise ValueError('Related snapshot source set changed')
+        binding = expected[ident]
+        if any(native.get(key) != binding.get(key) for key in ('provider', 'scopes', 'created_at')):
+            raise ValueError('Related snapshot provenance changed')
+        seen.add(ident)
+        validated.append(native)
+    if seen != set(expected):
+        raise ValueError('Original related snapshots are required for reconciliation')
     report = evaluate_snapshot(snapshot, categories=selectors.get('categories') if selectors.get('content_checks') else selectors.get('categories') or None,
         checks=selectors.get('checks') or None, frameworks=selectors.get('frameworks') or None,
-        include_not_applicable=True, content_checks=selectors.get('content_checks'))
+        include_not_applicable=True, content_checks=selectors.get('content_checks'),
+        related_snapshots=validated)
     if report['snapshot_id'] != prior.get('snapshot_id'):
         raise ValueError('Snapshot binding changed')
+    evaluated_related = report.get('related_snapshots', [])
+    if (len(evaluated_related) != len(expected)
+            or {item.get('snapshot_id') for item in evaluated_related} != set(expected)
+            or any(any(item.get(key) != expected[item['snapshot_id']].get(key)
+                       for key in ('provider', 'scopes', 'created_at')) for item in evaluated_related)):
+        raise ValueError('Re-evaluated related snapshot binding changed')
+    if prior_related:
+        # Keep the original scan/connector annotations; never resolve latest jobs.
+        report['related_snapshots'] = deepcopy(prior_related)
     # These are explicit operator decisions, not model-provided instructions.
     reviewed = {(category, r['finding_id']): r for category, rows in ai['reviews'].items() for r in rows}
     decisions = []

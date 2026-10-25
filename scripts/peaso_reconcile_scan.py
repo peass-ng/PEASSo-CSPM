@@ -18,6 +18,7 @@ def main(argv=None):
     parser.add_argument('--expected-report', required=True)
     parser.add_argument('--source-version', required=True)
     parser.add_argument('--adjudications', type=Path)
+    parser.add_argument('--related-snapshots', type=Path, help='Private JSON array of exact original sealed related snapshots')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args(argv)
     from peaso.storage.runtime import stores
@@ -28,7 +29,8 @@ def main(argv=None):
     if not isinstance(decisions, list):
         parser.error('Adjudications must be a JSON array')
     result = reconcile_scan(store, artifacts, args.tenant, args.scan_id, args.expected_report,
-        source_version=args.source_version, adjudications=decisions, dry_run=not args.apply)
+        source_version=args.source_version, adjudications=decisions, dry_run=not args.apply,
+        related_snapshots=json.loads(args.related_snapshots.read_text()) if args.related_snapshots else None)
     print(json.dumps(result, sort_keys=True))
     return 0
 

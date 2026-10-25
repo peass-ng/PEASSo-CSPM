@@ -28,7 +28,7 @@
     "peaso/ai/pipeline.py": "32a3f50ed88ba6c52883d883a9e2bd0e115125f04b7b0c744f8974295372a285",
     "peaso/ai/prompting.py": "4e6c4f13dce2947dc23f037c5a95ebbf0d4efc6ba9a5ed97182a73ac3a2f2914",
     "peaso/ai/providers.py": "a33915979e16954365cd49a894dccba49a765ef1de060db5c15292a846e3f068",
-    "peaso/ai/reconcile.py": "d57e628616efb0dddecebee4926bff8059f0960bd9d69f97fd6cef1090b4b847",
+    "peaso/ai/reconcile.py": "056c106512bdcc135b861be0f818af0e9161782c940cdc2aadf143cbe6fe548b",
     "peaso/ai/runner.py": "f75c5726a4f9b9b4ae0a23ffe180f88033711317fa9e8ccea50e1791da1af478",
     "peaso/ai/smoke.py": "83fb2f3aca2c29f0a5a6f4eb753f1223cb6500f0e1a0f1c9ae8ec58d53cd0b13",
     "peaso/ai/task_runtime.py": "a63425f304b35e78806e415fc71dc913bfc3cd2611077d9d9ac1dd1bdcb155ae",
@@ -1775,7 +1775,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1670,
-  "python_source_sha256": "34a2cad97f31f4f00cfe433c53f0b425e889ad256575cc93c037753678a71b92",
-  "review_context": "Reviewed bounded Azure image detector batching, classified DB diagnostics and source-bound positive-secret AI conservation; existing SDK client/service closure unchanged.",
+  "python_source_sha256": "7a0aa841d0978b84e39b0f55092e61857709f7d8e821e11c74f12a4f5e903d84",
+  "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269"
 }

@@ -151,4 +151,6 @@ Image database provisioning records `image.database.acquire` and `image.database
 
 AI review preserves a normalized, source-bound Kingfisher or TruffleHog detection as FAIL when the remaining image content has incomplete coverage. The original detector evidence remains intact; incomplete inspection describes coverage rather than removing a demonstrated match.
 
+Operator report reconciliation requires the exact original related snapshots when the retained report contains cross-provider sources. Supply their sealed native JSON through `peaso_reconcile_scan.py --related-snapshots`; missing, changed or duplicate sources stop reconciliation before evaluation. Original scan and connector annotations remain bound to those sources.
+
 Large Top 15 SQLite contexts are transported as deterministic gzip when they exceed 64 MiB, retaining every record. The existing 256 MiB agent transport limit remains unchanged. The role-free sandbox streams the database back to a private SQLite file before agent startup, with a 2 GiB expansion limit, CRC/header validation and exclusive no-follow files; corrupt or oversized inputs fail before the agent runs. Small contexts retain the existing format.
