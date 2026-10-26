@@ -679,6 +679,6 @@ PINNED = json.loads(r'''
   "tests/fixtures/gcp-native-review-behavior.json": "491de9e6bd9587721d67732baf22425f6b920af1ab01366a9863fcd3a1170e4f",
   "tests/fixtures/gcp-native57-native-successor-20261020.json": "561872fb0ad465c851a53cff31cbc0e3b2ccaf72ac9da50bea84c66e0e8face9",
   "tests/fixtures/gcp-prior-bounded-native-successor-20261020.json": "0ca12fc2736547034ccf66a275c865c7793517f8c1a416edb9b75a3f5dcd15d4",
-  "tests/gcp_clarity_combined_successor_20261020.py": "e809905ea002938146cd7db520bef9ca92eb6791eb474773f4681bd79fea8145"
+  "tests/gcp_clarity_combined_successor_20261020.py": "57f88b167964348b2dcdbf99ce3dc1a08c35f9cabdd4138f9fcc49d05cf1624f"
 }
 ''')
