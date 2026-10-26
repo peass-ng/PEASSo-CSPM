@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Callable
 from functools import wraps
 from ipaddress import ip_network
+from peaso import compile_cache as _compile_cache
+_compile_cache.install()
 from .facts import get, list_of_objects, optional, Unavailable
 
 HACKTRICKS = "HackTricks Cloud Best Practices"

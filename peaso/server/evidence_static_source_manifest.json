@@ -12,7 +12,7 @@
   "peaso/analysis/provider_observed_evidence.py": "2fa266deb67134ce785a9d0ea54b3c5098ff4abb2fca9915e496149f4e563c65",
   "peaso/analysis/trust.py": "4c2763122e03599df5fa4afb8ba611061c20d0ea832d1fe6cd15b08ecc437039",
   "peaso/analysis/trust_domains.py": "781bce3736caa2349b8615aae1ac5a660eff1adc48596c3cab41aa8c14da1b22",
-  "peaso/checks/__init__.py": "ec088093d665386f1d8e8b760210e7c80e030df3f81af18dea4ba84c0bcfa13c",
+  "peaso/checks/__init__.py": "9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae",
   "peaso/checks/aws.py": "18b513e7e115dfcff6869e20bb2c776c9c979ac2ad4b7662c6179acb146debbd",
   "peaso/checks/aws_ai_recheck_evidence_20261020.py": "7284c3bf75460bf5016038b6895526f2b112fc26d3b094d4ac27031ea5e36161",
   "peaso/checks/aws_bulk_clarity_reviewed.py": "ef68d3aa110be7e5abd42f0f0bc9f2b859e332743c0048eb03035cdb7262fb55",
