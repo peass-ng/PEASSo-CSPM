@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from peaso import container_image_archive_20261020 as archive
 from peaso import oci_index_20261021 as oci_index
+from peaso.collectors import docker_hub_registry_20261026 as docker_hub
 from peaso.secret_evidence import scan_with_source, source_context
 from peaso.secret_scanning import scan_content, merge_leaks
 from peaso.secret_scanning_batch import prepared_content_batch, MAX_BATCH_ITEMS, MAX_BATCH_BYTES
@@ -51,6 +52,15 @@ AUTH_FIELD = 'registry_auth'
 
 class Incomplete(ValueError):
     """Stable local reason; never includes URL, response, token or content."""
+
+
+class _Transient(Incomplete):
+    """A registry read that failed in transport or with a retryable status."""
+
+
+TRANSIENT_STATUS = frozenset((408, 429, 500, 502, 503, 504))
+TRANSIENT_RETRIES = 1
+TRANSIENT_BACKOFF = 1.0
 
 
 class RedactionOverflow(BaseException):
@@ -282,7 +292,7 @@ def _blob_redirect(host, location, repository=None):
 class RegistryReader:
     def __init__(self, host, repository, check, *, authorization=None, open_https=_open_https):
         self.host, self.repository, self.cancel, self.open_https = _host(host), repository, check, open_https
-        self.authorization = authorization
+        self.authorization, self.pull_token = authorization, None
         self.end, self.calls, self.total, self.receipts = time.monotonic() + MAX_SECONDS, 0, 0, []
 
     def check(self):
@@ -301,13 +311,41 @@ class RegistryReader:
         record = {'id': 'registry-read-' + uuid4().hex, 'method': 'GET', 'category': category,
                   'digest': digest, 'status': 'unavailable', 'bytes': 0}
         self.receipts.append(record)
+        retryable = destination is None or isinstance(destination, Path) and not destination.exists()
+        for attempt in range(TRANSIENT_RETRIES + 1):
+            total = self.total
+            try:
+                return self._read(record, path, category, digest, cap, size, destination)
+            except _Transient:
+                # One bounded retry for transport errors and 408/429/5xx; never 401/403/404,
+                # framing or digest failures. The retry still counts against MAX_CALLS.
+                self.total = total
+                if destination is not None and retryable:
+                    destination.unlink(missing_ok=True)
+                if (attempt >= TRANSIENT_RETRIES or not retryable or self.calls >= MAX_CALLS
+                        or time.monotonic() + TRANSIENT_BACKOFF * (attempt + 1) + 1 >= self.end):
+                    raise Incomplete('registry_unavailable') from None
+                wake = time.monotonic() + TRANSIENT_BACKOFF * (attempt + 1)
+                while time.monotonic() < wake:
+                    self.check()
+                    time.sleep(min(.1, max(0, wake - time.monotonic())))
+
+    def _read(self, record, path, category, digest, cap, size, destination):
         connection = response = None
         try:
             headers = {'Accept': ', '.join((archive.OCI, archive.DOCKER, oci_index.OCI_INDEX, oci_index.DOCKER_LIST)) if category == 'manifests' else 'application/octet-stream',
                        'Accept-Encoding': 'identity', 'Cache-Control': 'no-store'}
-            if self.authorization is not None:
+            if docker_hub.uses_token(self.host, self.authorization):
+                if self.pull_token is None:
+                    if self.calls >= MAX_CALLS:
+                        raise Incomplete('registry_read_bound')
+                    self.calls += 1
+                    self.pull_token = docker_hub.pull_token(self.open_https, self.repository, self.authorization,
+                                                            min(10, max(.1, self.end-time.monotonic())), Incomplete)
+                headers['Authorization'] = self.pull_token
+            elif self.authorization is not None:
                 headers['Authorization'] = self.authorization
-            current_host, current_path = self.host, path
+            current_host, current_path = docker_hub.api_host(self.host), path
             for hop in range(MAX_BLOB_REDIRECTS + 1):
                 self.check()
                 if self.calls >= MAX_CALLS:
@@ -324,7 +362,12 @@ class RegistryReader:
                         or response.headers.get('Content-Encoding', 'identity') != 'identity'
                         or response.headers.get('WWW-Authenticate') is not None):
                     raise Incomplete('redirect_unsupported')
-                next_host, next_path = _blob_redirect(self.host, response.headers.get('Location'), self.repository)
+                if self.host == docker_hub.REGISTRY:
+                    if hop != 0:
+                        raise Incomplete('redirect_unsupported')
+                    next_host, next_path = docker_hub.blob_redirect(response.headers.get('Location'), digest, Incomplete)
+                else:
+                    next_host, next_path = _blob_redirect(self.host, response.headers.get('Location'), self.repository)
                 response.close()
                 connection.close()
                 response = connection = None
@@ -335,6 +378,8 @@ class RegistryReader:
             if status != 200:
                 if status in (401, 403):
                     record['status'] = 'denied'
+                if status in TRANSIENT_STATUS:
+                    raise _Transient('registry_unavailable')
                 raise Incomplete('registry_denied' if status in (401, 403) else 'redirect_unsupported' if 300 <= status < 400 else 'registry_unavailable')
             headers = response.headers
             length = headers.get('Content-Length')
@@ -376,7 +421,7 @@ class RegistryReader:
         except Exception as exc:
             if getattr(exc, 'code', None) in ('collection_cancelled', 'intentional_scan_deadline', 'deadline_exceeded'):
                 raise
-            raise Incomplete('registry_unavailable') from None
+            raise _Transient('registry_unavailable') from None
         finally:
             if response is not None:
                 response.close()

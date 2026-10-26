@@ -103,7 +103,8 @@ def _pretty_json(value):
 
 def _json_block(value):
     text = _pretty_json(value)
-    longest = max((len(m.group()) for m in re.finditer(r"`+", text)), default=0)
+    # Most blocks contain no backtick; a substring test avoids a regex scan.
+    longest = max((len(m.group()) for m in re.finditer(r"`+", text)), default=0) if "`" in text else 0
     fence = "`" * max(3, longest + 1)
     return [fence + "json", text, fence, ""]
 
