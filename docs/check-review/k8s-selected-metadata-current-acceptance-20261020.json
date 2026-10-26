@@ -5,7 +5,7 @@
   "check_id": "k8s.review.selected_metadata.secret_indicators",
   "worker_receipt": {
     "path": "docs/check-review/k8s-selected-metadata-production-review-20261020.json",
-    "sha256": "30c2fb44a87c2099edb4c00aa885d59141762a199a7fcba89145ed9214e3bf18"
+    "sha256": "8a90b4e6845e9837146af1df854eda372f4fa09676b9ae13322e93b873ef3997"
   },
   "gates": {
     "distinct_native_runtime_affected_nodes": 300,

@@ -221,7 +221,7 @@
         "bytes": 261157,
         "gzip_sha256": "f53073f77f721e4804fe93b0c89de596a43804eca2deeb91a4babe87a67c3cf8",
         "retained_gzip": "docs/check-review/k8s-annotation-admission-lineage-20261020/k8s-annotation-native-admission-20261020.json.pre-portable.gz",
-        "sha256": "750363d1e99450a854ff19e9050e458bd023d0eb3b6ed224a21556ec98f0b1a3",
+        "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
         "source": "docs/check-review/k8s-annotation-native-admission-20261020.json"
       }
     ]

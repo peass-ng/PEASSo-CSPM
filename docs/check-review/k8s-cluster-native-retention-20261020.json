@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_report": "docs/check-review/k8s-cluster-native-review-20261020.json",
-  "source_report_sha256": "9840091de6bfaa55898425c5e84d6a2d2b207e0ab58787128a7adf4ae730501e",
+  "source_report_sha256": "540c0bfdf4a1db8a65e0c58fa0d97bd3634075535e093bfd77afff1927ed7e87",
   "retained_path": "tests/fixtures/k8s_cluster_native_inputs_20261020.tar.gz",
   "retained_sha256": "60812356285354c3d0ed08742ccb8ba2cea225abc0199cf527b8d04393d419e2",
   "retained_bytes": 817896,

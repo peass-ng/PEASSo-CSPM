@@ -60,11 +60,15 @@ def _freeze(value):
     return value
 
 
+# Exact scalar types are returned unchanged by _thaw; skipping the call for them is identical.
+_THAW_LEAVES = frozenset((str, int, float, bool, type(None)))
+
+
 def _thaw(value):
     if isinstance(value, dict):
-        return {key: _thaw(item) for key, item in value.items()}
+        return {key: (item if type(item) in _THAW_LEAVES else _thaw(item)) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_thaw(item) for item in value]
+        return [item if type(item) in _THAW_LEAVES else _thaw(item) for item in value]
     return value
 
 

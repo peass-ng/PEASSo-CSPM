@@ -19,6 +19,8 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from peaso.snapshot import make_snapshot
 from .azure import _Reader, AzureReadError, _trusted_scopes, _safe_error
 from . import k8s_network_catalog
+from . import k8s_annotation_indicators_20261020 as annotation_indicators
+from . import k8s_sanitize_keys
 from . import k8s_network_extensions
 
 
@@ -699,22 +701,27 @@ def _sanitize(value):
     if not isinstance(value, dict):
         return value
     result = {}
-    from . import k8s_annotation_indicators_20261020 as annotation_indicators
-    annotation_projection = annotation_indicators.project(value)
+    marker = annotation_indicators.MARKER
+    # project() only ever projects an object that has a spec; nested maps skip the call.
+    annotation_projection = annotation_indicators.project(value) if "spec" in value else None
     if annotation_projection is not None:
-        result[annotation_indicators.MARKER] = annotation_projection
+        result[marker] = annotation_projection
     if "command" in value or "args" in value:
         component = _component_config(value)
         if component is not None:
             result["_component_config"] = component
+    # The drop decision depends only on the key; exact str keys reuse it.
+    dropped_keys, leaves = k8s_sanitize_keys.DROPPED, k8s_sanitize_keys.LEAVES
     for key, child in value.items():
-        if key == annotation_indicators.MARKER:
+        if key == marker:
             continue  # Provider/customer fields cannot supply trusted indicators.
-        normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
-        if (normalized_key != "automountserviceaccounttoken" and normalized_key.endswith(("password", "token", "privatekey", "clientsecret", "secretvalue"))) or normalized_key in (
-            "apikey", "credentials", "stringdata", "privatekeydata"):
-            continue
-        if key in ("managedFields",):
+        dropped = dropped_keys.get(key) if type(key) is str else None
+        if dropped is None:
+            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            dropped = bool((normalized_key != "automountserviceaccounttoken" and normalized_key.endswith(("password", "token", "privatekey", "clientsecret", "secretvalue"))) or normalized_key in (
+                "apikey", "credentials", "stringdata", "privatekeydata") or key in ("managedFields",))
+            k8s_sanitize_keys.remember(key, dropped)
+        if dropped:
             continue
         if key == "annotations" and not isinstance(child, dict):
             result[key] = {}
@@ -740,7 +747,7 @@ def _sanitize(value):
         elif key in ("command", "args"):
             result[key + "_redacted"] = True
         else:
-            result[key] = _sanitize(child)
+            result[key] = child if type(child) in leaves else _sanitize(child)
     return result
 
 
@@ -803,7 +810,8 @@ def _native(item, kind, cluster, scope, namespaced):
         raise ValueError("cluster object has namespace")
     namespace = namespace if namespaced else "_cluster"
     from peaso.secret_evidence import pod_environment
-    pod_environment(item, kind=kind, resource_id='k8s://' + '/'.join(quote(str(x), safe='') for x in (cluster, kind, namespace, meta.get('uid') or name)), scope=namespace if scope == '*' else scope)
+    native_id = "k8s://" + "/".join(quote(str(x), safe="") for x in (cluster, kind, namespace, meta.get("uid") or name))
+    pod_environment(item, kind=kind, resource_id=native_id, scope=namespace if scope == '*' else scope)
     result = _sanitize(item)
     if kind == "kcc_project":
         from .k8s_kcc_project import project_identity
@@ -813,7 +821,7 @@ def _native(item, kind, cluster, scope, namespaced):
         mirror = annotations.get("kubernetes.io/config.mirror")
         source = annotations.get("kubernetes.io/config.source")
         result["_static_pod_metadata"] = bool(isinstance(mirror, str) and re.fullmatch(r"[0-9a-fA-F]{16,64}", mirror) or source in ("file", "http"))
-    result["id"] = "k8s://" + "/".join(quote(str(x), safe="") for x in (cluster, kind, namespace, meta.get("uid") or name))
+    result["id"] = native_id
     result["provenance"] = {"cluster_id": cluster, "namespace": namespace, "uid": meta.get("uid"),
                             "apiVersion": item.get("apiVersion"), "resourceVersion": meta.get("resourceVersion"),
                             "evidence": "read-only list", "credential_material": "omitted"}
@@ -942,6 +950,15 @@ def _metadata_pages(reader, api, path, kind, cluster, scope, namespaced, *, incl
             # Resolve types per namespace, at the partial-list resourceVersion,
             # so identical names in different namespaces cannot collide.
             namespaces = {item.get("metadata", {}).get("namespace") for item in items}
+            if all(isinstance(namespace, str) for namespace in namespaces):
+                from functools import partial
+                from .k8s_response_cache import warm
+                # Each namespace's first Table page is read concurrently into the scan cache;
+                # the loop below still performs, validates and orders every read itself.
+                warm(api, [partial(_metadata_get, api, f"/api/v1/namespaces/{quote(namespace, safe='')}/secrets",
+                                   {"limit": reader.page_size, "includeObject": "None", "resourceVersion": resource_version,
+                                    "resourceVersionMatch": "Exact"}, "Table")
+                           for namespace in sorted(namespaces) if namespace not in type_catalog], reader)
             for namespace in sorted(namespaces):
                 if namespace in type_catalog:
                     continue
@@ -1632,6 +1649,8 @@ def collect(connector, requirements=None, *, api=None):
     reader.progress("discovering")
     owned = api is None
     cluster = auth.get("cluster_id")
+    from .k8s_scan_gc import pause as pause_full_gc
+    full_gc_hold = pause_full_gc()  # Young collections continue; closed in the finally block below.
     try:
         if options.get("hosted"):
             auth = hosted_auth(auth)
@@ -2104,6 +2123,7 @@ def collect(connector, requirements=None, *, api=None):
                 if (kind, scope) not in existing:
                     reader.unavailable(kind, scope, "kubernetes", exc)
     finally:
+        full_gc_hold.close()
         if ((literals.KIND in wanted and literals.enabled(options))
                 or (log_samples.KIND in wanted and log_samples.enabled(options))
                 or (selected_metadata.KIND in wanted and selected_metadata.enabled(options, scopes))
@@ -2170,10 +2190,12 @@ def collect(connector, requirements=None, *, api=None):
     if log_samples.KIND in wanted and log_samples.enabled(options):
         metadata['usage_evidence'] = {'status': 'selected_current_container_samples_only',
             'reason': 'Only explicitly selected current-container samples were requested; other logs, exec and Secrets were not read'}
-    if any((log_matches, literal_matches, selected_metadata_matches, text_matches, registry_matches, flux_matches)):
-        # With no detected value the union scrub is an exact copy; skip the full walk.
-        requested_scopes, reader.collections, metadata = selected_metadata.finalize(
-            requested_scopes, reader.collections, metadata, log_matches, literal_matches, selected_metadata_matches, text_matches, registry_matches, flux_matches)
-    snapshot = make_snapshot("k8s", requested_scopes, reader.collections, created_at=captured_at, metadata=metadata)
+    from .k8s_scan_gc import paused as full_gc_paused
+    with full_gc_paused():
+        if any((log_matches, literal_matches, selected_metadata_matches, text_matches, registry_matches, flux_matches)):
+            # With no detected value the union scrub is an exact copy; skip the full walk.
+            requested_scopes, reader.collections, metadata = selected_metadata.finalize(
+                requested_scopes, reader.collections, metadata, log_matches, literal_matches, selected_metadata_matches, text_matches, registry_matches, flux_matches)
+        snapshot = make_snapshot("k8s", requested_scopes, reader.collections, created_at=captured_at, metadata=metadata)
     reader.progress("completed", complete=True)
     return snapshot

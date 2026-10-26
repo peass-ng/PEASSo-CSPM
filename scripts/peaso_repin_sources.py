@@ -28,6 +28,13 @@ FROZEN = frozenset((
     'tests/fixtures/post_dfaf_integration/sprint_source_changes.json',
     'tests/test_native_admission_cpu_successor_20261020.py',
 ))
+# Individual historical digests that equal a projection of a file edited later.
+# Receipts verify them against an archived predecessor, never the current file,
+# so a later edit of that projection must not move them.
+FROZEN_DIGESTS = frozenset((
+    # peaso/collectors/k8s.py def _sanitize in the archived source epoch predecessor.
+    '235505cc366adf66cb10ef7716d5b35ed5686ee27d42ae9b4f8bfb559955ced8',
+))
 
 
 def _sha(raw: bytes) -> str:
@@ -114,7 +121,7 @@ def main() -> int:
             # Earlier rounds leave intermediate digests behind; map them too.
             for old in history:
                 for key, digest in old.items():
-                    if key in new and new[key] != digest:
+                    if key in new and new[key] != digest and digest not in FROZEN_DIGESTS:
                         mapping[digest] = new[key]
             if history[-1] != new:
                 history.append(new)

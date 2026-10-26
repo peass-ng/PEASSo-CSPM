@@ -10,12 +10,18 @@ leaves nothing behind, so streaming guards behave exactly as without a cache.
 Throttling, server errors and any status other than 2xx/403/404 are never kept.
 Identical concurrent requests are single-flight: followers wait for the leader's
 complete body instead of issuing the same request again.
+
+``warm`` lets a caller that is about to perform a known series of reads one by
+one (for example one Secret Table per namespace) start them concurrently on this
+scan's bounded worker pool. The caller still performs, validates and orders each
+read itself; a warmed read only lets its request reach the cache earlier.
 """
 from __future__ import annotations
 
 import hashlib
 import io
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -23,6 +29,7 @@ CACHEABLE_STATUS = frozenset(range(200, 300)) | {403, 404}
 MAX_ENTRY_BYTES = 8 * 1024 * 1024
 MAX_TOTAL_BYTES = 64 * 1024 * 1024
 FOLLOWER_WAIT_SECONDS = 60.0
+WARM_WORKERS = 8
 # Request headers that do not change a GET response from the API server.
 _IGNORED_HEADERS = frozenset(("user-agent", "content-type"))
 # Defaults that are equivalent to the header being absent.
@@ -241,6 +248,23 @@ class CachingPool:
     def __init__(self, pool, bounded, cache=None):
         self.pool, self.bounded = pool, bounded
         self.response_cache = cache if cache is not None else ScanResponseCache()
+        self._warmer = None
+        self._warmer_lock = threading.Lock()
+        self._closed = False
+
+    def _executor(self):
+        with self._warmer_lock:
+            if self._warmer is None and not self._closed:
+                self._warmer = ThreadPoolExecutor(WARM_WORKERS, thread_name_prefix="k8s-warm")
+            return self._warmer
+
+    def close(self):
+        """Stop warming at scan end: queued reads are dropped, running ones finish."""
+        with self._warmer_lock:
+            self._closed = True
+            warmer, self._warmer = self._warmer, None
+        if warmer is not None:
+            warmer.shutdown(wait=True, cancel_futures=True)
 
     def _selected_path(self, url):
         path = urlsplit(url).path
@@ -257,6 +281,53 @@ class CachingPool:
 
     def __getattr__(self, name):
         return getattr(self.pool, name)
+
+
+def _quiet(read, slots=None):
+    try:
+        if slots is None:
+            read()
+        else:
+            with slots:
+                read()
+    except Exception:
+        pass  # Warm-up only; the caller performs and reports its own request.
+
+
+def warm(api, reads, reader=None):
+    """Start reads the caller will perform next, in order, so they land in this scan's cache.
+
+    Each read is a zero-argument callable issuing exactly the GET the caller is about to
+    make. Nothing is started without an installed cache, for a serial reader, or when the
+    reader's call budget could not also cover these reads. Warm reads share the reader's
+    nested fan-out slots, so they never exceed its configured concurrency.
+    Returns how many reads were started.
+    """
+    bounded = _bounded(api)
+    pool = bounded.__dict__["pool"] if bounded is not None else None
+    if not isinstance(pool, CachingPool):
+        return 0
+    reads = list(reads)
+    slots = None
+    if reader is not None:
+        workers = getattr(reader, "workers", 1)
+        if not (type(workers) is int and workers > 1):
+            return 0
+        budget = getattr(reader, "budget", None)
+        limit = getattr(budget, "max_calls", None)
+        if limit is not None and getattr(budget, "calls", 0) + len(reads) > limit:
+            return 0
+        from .azure import _fanout_slots
+        slots = _fanout_slots(reader)
+    executor = pool._executor() if reads else None
+    started = 0
+    for read in reads if executor is not None else ():
+        try:
+            executor.submit(_quiet, read, slots)
+        except RuntimeError:
+            break  # Scan ended.
+        started += 1
+    return started
 
 
 def _bounded(api):
@@ -287,6 +358,7 @@ def uninstall(api):
     inner = bounded.__dict__["pool"] if bounded is not None else None
     if not isinstance(inner, CachingPool):
         return None
+    inner.close()
     inner.response_cache.clear()
     bounded.pool = inner.pool
     return dict(inner.response_cache.stats)
