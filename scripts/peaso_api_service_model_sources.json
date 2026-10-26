@@ -971,9 +971,9 @@
     "peaso/checks/post_dfaf_aws.py": "d7b41a3a3d86242c60f22dd412688f0b2ae1ec4fff8b78c930f2678668b6fb48",
     "peaso/checks/post_dfaf_aws_specs.py": "4f2410348d731c2c76c3db79b0b2b0aebedebf874ce9044f9dccb612622d2476",
     "peaso/checks/post_dfaf_azure.py": "c00e5f758009f1929eb97f83a096706874b97fc6e2269dea8ccdab06c8e5640e",
-    "peaso/checks/private_secret_shared_source_successor_20261021.py": "f94be6c493fd1dc2c0d56439f999c91a9fce8a12974ce394f8b05e553a571e7f",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "8537f39de54ac7319b43f10dd3d0e68ee39bf46fccbb1043feace8a606f24c87",
     "peaso/checks/provider_content_native_cases_20261021.py": "3383f96e2670cf34f00d2224205ceba6cb97a6cba5a54c404d52759555ae6377",
-    "peaso/checks/provider_group_install_20261021.py": "b0fb01f69f33eca005fa7bb0af8a84c9605b90bc32e99ed8555bb6b135a22a10",
+    "peaso/checks/provider_group_install_20261021.py": "cde260817a6e2d046d6cb199772482d24abf58492591bd248cc1597670576def",
     "peaso/checks/provider_group_witnesses_20261021/test_gcp_job_image_vulnerability_product_20261021.py": "addfca8b8b2a53c44cd1ece9909bc1c5894e5a1485eb175b4f99799d82d9f835",
     "peaso/checks/provider_group_witnesses_20261021/test_runtime_existing_transport.py": "d28061814003e4aa4f81c42f4ff196fa4fae15d1b6ad49726dc278678d9e7779",
     "peaso/checks/provider_group_witnesses_20261021/test_runtime_native.py": "e7ba5b81c06b9bd2ff6b86757d5a56fa87a2e75f5046b854a9643ef897ef7255",
@@ -1045,7 +1045,7 @@
     "peaso/collectors/aws_identity_metrics_native.py": "f96984d474dcb07f03ddc4a998d5c0ae32563677f0eaa2a02384bc79dafadfc0",
     "peaso/collectors/aws_image_capture_20261022.py": "ba68ab9ba7f1581e0e26c98bdef60a3b2165b7c1a1140c9f50f5260c31098dc8",
     "peaso/collectors/aws_image_layer_pipeline_20261022.py": "a2c609e4812456070d103b6da71e8e68c816f0f0818ec3996b8f41df4e6add44",
-    "peaso/collectors/aws_image_vulnerability_native_20261021.py": "6ebae4a188fdd07428f94180ab30891139bdd07b2814bc41255ccaadead1a617",
+    "peaso/collectors/aws_image_vulnerability_native_20261021.py": "781c8d9f6658870864195f28449b0c17ebc0ef775ef104bd8e06042ff9205dfc",
     "peaso/collectors/aws_image_vulnerability_runtime_20261021.py": "7052fc2bd34a25fb74cbf0e3778a5f921c4f42e828b1c6eb3af5034b3b6c030f",
     "peaso/collectors/aws_inventory.py": "3b8009b21ca6a6ba9f87504f759ce7549e6731f66bd0097a43b9afbe1a3dc52a",
     "peaso/collectors/aws_kms_enclave_inventory.py": "7c4cc12890edc07083383611c1ebc4f8063572aebaf0ad2023db75b204a47a47",
@@ -1339,7 +1339,7 @@
     "peaso/collectors/selected_image_trivy_database_20261021.py": "938b6e5b6d22b1021e37959c09f5d7f44dff7098be03650fdd312dd65f631866",
     "peaso/collectors/unused_iam_aws_completion.py": "8167fe423c643300807ad60459bdca3079abfb7e1a62b9c6836d2d4201c64600",
     "peaso/collectors/workload_environment_discovery.py": "8a11a2673f23081c0ae5eb5c8994340f1bd1af210588b74788b99cb1a8cbe8d8",
-    "peaso/container_image_archive_20261020.py": "627ea30bf64f5a67007a9355c5fd4b7e2104ca6d21cf88d73b9cb67271962ebf",
+    "peaso/container_image_archive_20261020.py": "69851f226af8e2c498573514ddfb0361cc75b419079cac9f6ff9acb817a32f5e",
     "peaso/container_scan_process_20261020.py": "21876eb14edfa92d4613c28fd3781014aed05b14ba3d1d6d8409c768ed29a1a3",
     "peaso/content_scan_selection.py": "97b3780970dfd2560f4726e297fae43deb65fbc519d213efff8dc2a3703c1e40",
     "peaso/dataproc_source_selection.py": "18a3eadb764a0c64c8830adce54209c2dea3b4676992a9b19bb28020c08ab9e6",
@@ -1688,7 +1688,9 @@
     "peaso/worker.py": "53b8e29aeebe02aea7eeaf4577515b81cbdaecf106ee101265048ebbcdc8e752",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
-    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814"
+    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814",
+    "peaso/collectors/aws_image_layer_overlap_20261026.py": "273d7981961944f6c8ce75116a40e4c7d1a1e9fdda3804d201d6a9543c625c62",
+    "peaso/image_layer_overlap_20261026.py": "3d769942dada5b9f82627d3046226f27913fc6e9a7c79acf541b17f5d8750c84"
   },
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
@@ -1793,8 +1795,8 @@
     "source_review": "Qualified factory/SW46/source-proof locality and network joins; current main offline event normalizers and historical ECS lineage; bounded S3 uploads retain tenant checks, encryption and manifest-last semantics. Added modules have no SDK calls. Exact API client closure unchanged.",
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
-  "python_source_count": 1686,
-  "python_source_sha256": "83bc156ec7bbdebc5963e7bedd816a9c2b7e6d0da8d073bfcc150db25801eb55",
+  "python_source_count": 1688,
+  "python_source_sha256": "af39b3f1ed4d88c0d12b79daabef394f516fdeddc07a9fcf71fbc3b487344d77",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

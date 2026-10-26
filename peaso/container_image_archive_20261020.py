@@ -591,11 +591,14 @@ class _ExpandingReader:
         self.source.close()
 
 
-def _validate(image_identity, manifest_raw, config_raw, layers, root, check, partial_callback=None):
+def _validate(image_identity, manifest_raw, config_raw, layers, root, check, partial_callback=None,
+              ready=None):
     manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
     expanded, budget, nodes, path_budget = [], (len(config_raw), 0), {}, [0]
     sizes = []
     for index, (desc, raw, diff) in enumerate(zip(descs, layers, diffs)):
+        if ready is not None:
+            raw = ready(index)
         check()
         target = root / f'expanded-{index:04}.tar'
         require(shutil.disk_usage(root).free >= MIN_FREE_DISK + DISK_CHECK_STEP,
@@ -614,20 +617,29 @@ def _validate(image_identity, manifest_raw, config_raw, layers, root, check, par
     return manifest, expanded, budget, nodes
 
 
-def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: None, *, stage=False):
+def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: None, *, stage=False,
+             ready=None):
     """Validate a content graph; expanded layers live only in private scratch.
 
     With `stage=True` (the caller archives this image next), the expanded layers
     stay in that scratch for one write_archive, which re-hashes them.
+    With `ready`, `layers` only fixes the count and `ready(index)` returns each
+    layer once it is available (still downloading layers are waited for).
     """
     manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
-    known = _proven(config_raw, descs, diffs, layers, check)
+    if ready is None:
+        known = _proven(config_raw, descs, diffs, layers, check)
+    elif _PROVEN.get(_chain(config_raw, descs, diffs)) is not None:
+        layers = [ready(index) for index in range(len(descs))]
+        known = _proven(config_raw, descs, diffs, layers, check)
+    else:
+        known = None
     if known is not None:
         return manifest, [], (len(config_raw) + sum(known[0]), known[1])
     scratch = Path(tempfile.mkdtemp(prefix='peaso-image-validate-'))
     try:
         manifest, expanded, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
-                                               scratch, check)
+                                               scratch, check, ready=ready)
     except BaseException:
         shutil.rmtree(scratch, ignore_errors=True)
         raise
