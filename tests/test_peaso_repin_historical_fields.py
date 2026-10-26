@@ -1,4 +1,5 @@
 """The source re-pin tool never rewrites historical witnesses (NEXT-PROVENANCE-1)."""
+import ast
 import hashlib
 import importlib.util
 import json
@@ -107,3 +108,45 @@ def test_archived_epoch_azure_transport_witnesses_are_conserved():
     successor = json.loads((ROOT / 'peaso/private_reviewed_collector_successor_20261022.json').read_bytes())
     assert successor['sources']['peaso/collectors/azure.py']['current_sha256'] == _sha(
         (ROOT / 'peaso/collectors/azure.py').read_bytes())
+
+
+def test_python_pin_blocks_refresh_current_and_freeze_history(tmp_path):
+    old, new = 'a' * 64, 'b' * 64
+    (tmp_path / 'docs').mkdir()
+    (tmp_path / 'docs/r.json').write_text('{}\n')
+    cur = _sha((tmp_path / 'docs/r.json').read_bytes())
+    rel = 'tests/test_x.py'
+    text = (
+        "import json\n"
+        f"REPORT_SHA256 = '{old}'\n"
+        "PINNED = json.loads(r'''\n"
+        f'{{"docs/r.json": "{old}"}}\n'
+        "''')\n"
+        f"EPOCH = json.loads(r'''{{\"docs/r.json\": \"{old}\"}}''')\n"
+        f"SUCC = {{'docs/r.json': {{'before_sha256': '{old}', 'after_sha256': '{old}'}}}}\n"
+    )
+    blocks = {(rel, 'PINNED'): 'current', (rel, 'EPOCH'): 'historical', (rel, 'SUCC'): 'current'}
+    saved = repin.PY_PIN_BLOCKS, repin.CURRENT_PIN_CONSTANTS
+    repin.PY_PIN_BLOCKS, repin.CURRENT_PIN_CONSTANTS = blocks, {(rel, 'REPORT_SHA256'): 'docs/r.json'}
+    try:
+        refreshed = repin.refresh_current_pins(rel, text, root=tmp_path)
+        assert refreshed.count(cur) == 3 and refreshed.count(old) == 2
+        assert f"REPORT_SHA256 = '{cur}'" in refreshed
+        assert f"'before_sha256': '{old}', 'after_sha256': '{cur}'" in refreshed
+        assert f'EPOCH = json.loads(r\'\'\'{{"docs/r.json": "{old}"}}' in refreshed
+        mapped = repin.substitute(rel, text, {old: new})
+        # Only the unregistered-history digests move with the edit mapping.
+        assert mapped.count(old) == 2 and mapped.count(new) == 3
+    finally:
+        repin.PY_PIN_BLOCKS, repin.CURRENT_PIN_CONSTANTS = saved
+
+
+def test_registered_python_pins_are_current_in_tree():
+    """A stale current pin fails here (and in push_locked's gate) instead of rotting."""
+    registered = {path for path, _ in (*repin.PY_PIN_BLOCKS, *repin.CURRENT_PIN_CONSTANTS)}
+    for rel in sorted(registered):
+        text = (ROOT / rel).read_text(encoding='utf-8', errors='surrogateescape')
+        assert {name for path, name in repin.PY_PIN_BLOCKS if path == rel} <= {
+            node.targets[0].id for node in ast.parse(text).body
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}, rel
+        assert repin.refresh_current_pins(rel, text) == text, f'{rel}: stale current pin; run scripts/peaso_repin_sources.py'

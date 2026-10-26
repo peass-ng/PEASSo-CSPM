@@ -8,6 +8,7 @@ No report rewriting, markers, deselection, registry patches or capture synthesis
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
@@ -62,9 +63,35 @@ NODES = MappingProxyType({
 })
 
 
+# Reviewed later edits keep SOURCES frozen and are admitted only through their
+# exact signed successor record (historical digest -> normalized current bytes).
+SOURCE_SUCCESSORS = MappingProxyType({
+    'tests/gcp_dataflow_referenced_source_20261020_test.py': (
+        'docs/gcp-review/recheck-20261020/gcp_dataflow_referenced_source_20261023_successor.json',
+        '213505fc14aa6474b8abbeb7fa3a9b41f601b3e2e2e37dcfe0b3937cac3d16d8'),
+})
+
+
+def _successor_digest(relative, raw):
+    import json
+    import re
+    record, pinned = SOURCE_SUCCESSORS[relative]
+    record_raw = (ROOT / record).read_bytes()
+    if hashlib.sha256(record_raw).hexdigest() != pinned:
+        raise AssertionError('Historical/current successor record changed: ' + record)
+    successor = json.loads(record_raw)
+    normalized, count = re.subn(rb"(?m)^    assert hashlib.sha256\(successor_raw\).hexdigest\(\) == '[0-9a-f]{64}'$",
+                                b"    assert hashlib.sha256(successor_raw).hexdigest() == '" + b'0' * 64 + b"'", raw)
+    if count != 1 or hashlib.sha256(normalized).hexdigest() != successor['current_test_normalized_sha256']:
+        raise AssertionError('Historical/current source changed: ' + relative)
+    return successor['historical_test_sha256']
+
+
 def attest_sources():
     for relative, digest in SOURCES.items():
-        if hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() != digest:
+        raw = (ROOT / relative).read_bytes()
+        current = hashlib.sha256(raw).hexdigest()
+        if current != digest and (relative not in SOURCE_SUCCESSORS or _successor_digest(relative, raw) != digest):
             raise AssertionError('Historical/current source changed: ' + relative)
 
 
@@ -123,12 +150,70 @@ def _module(name):
     return importlib.import_module('peaso.checks.' + name)
 
 
+@contextmanager
+def reviewed_epoch(files):
+    """Show only these signed files at their reviewed bytes while a sealed verifier runs.
+
+    Each changed file must be rebuilt exactly by the production RawV2/private
+    source epoch; unpinned paths and unreviewed edits stay unchanged and fail.
+    """
+    from peaso import rawv2_private_source_successor_20261021 as rawv2
+    import os
+    pinned = {os.path.realpath(ROOT / relative): (relative, expected) for relative, expected in files.items()}
+    current = Path.read_bytes
+    active = []
+
+    def read_bytes(path):
+        raw = current(path)
+        row = None if active else pinned.get(os.path.realpath(path))
+        if row is None:
+            return raw
+        # The epoch itself reads current files; those reads see the real bytes.
+        active.append(row)
+        try:
+            return rawv2.source_bytes(row[0], raw, row[1], ROOT)
+        finally:
+            active.pop()
+    @contextmanager
+    def suspended():
+        """Let a nested epoch proof read the current bytes it verifies."""
+        active.append(None)
+        try:
+            yield
+        finally:
+            active.pop()
+    Path.read_bytes = read_bytes
+    try:
+        yield suspended
+    finally:
+        Path.read_bytes = current
+
+
+def _reviewed_declarations(name):
+    """Declarations of one admission, through the finite source view production uses."""
+    import json
+    from peaso import rawv2_private_source_successor_20261021 as rawv2
+    admission = _module(name)
+    if name not in rawv2._LATER_ADMISSIONS:
+        return admission.reviewed_inputs()[2]
+    # Production installs this admission only through a transformed clone that
+    # checks sources with the RawV2 epoch; the predecessor body rejects reviewed edits.
+    raw = (ROOT / 'peaso/checks' / (name + '.json')).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == admission.RECEIPT_SHA256
+    signed = json.loads(raw)
+    for relative, digest in signed['sources'].items():
+        assert rawv2._admitted_source_digest(relative, ROOT / relative, digest, ROOT) == digest, relative
+    consumer = _module(signed['module'])
+    return [(metadata, getattr(consumer, row['evaluate'].rsplit(':', 1)[1]))
+            for row in signed['checks'] if row['id'] in admission.CHECK_IDS
+            for metadata in consumer.DECLARATIONS if metadata['id'] == row['id']]
+
+
 def admitted(profile):
     from peaso import engine
     name = ('gcp_workbench_source_runtime_admission_20261020' if profile == 'workbench'
             else 'gcp_dataflow_batch_source_runtime_admission_20261020')
-    _, _, declarations = _module(name).reviewed_inputs()
-    metadata, function = next((m, f) for m, f in declarations if profile in m['id'])
+    metadata, function = next((m, f) for m, f in _reviewed_declarations(name) if profile in m['id'])
     check, = [c for c in engine._registry() if c.id == metadata['id']]
     assert inspect.unwrap(check.evaluate) is function
     return check, function
@@ -145,8 +230,9 @@ def proposal_boundary(profile):
     # Inspect the already installed registry and validate this exact admission.
     name = ('gcp_workbench_source_runtime_admission_20261020' if profile == 'workbench'
             else 'gcp_dataflow_batch_source_runtime_admission_20261020')
-    _, _, declarations = _module(name).reviewed_inputs()
-    metadata, function = next((m, f) for m, f in declarations if profile in m['id'])
+    import json
+    from peaso import rawv2_private_source_successor_20261021 as rawv2
+    metadata, function = next((m, f) for m, f in _reviewed_declarations(name) if profile in m['id'])
     check, = [c for c in checks.CHECKS if c.id == metadata['id']]
     assert inspect.unwrap(check.evaluate) is function
     registry, case_map, alias_map = checks.CHECKS, fixtures.CASES, checks.CHECK_ALIASES
@@ -172,7 +258,46 @@ def proposal_boundary(profile):
     grants = capabilities(case_map)
     proposal = _module('gcp_' + profile + '_referenced_source_20261020_proposal')
     proposal = importlib.reload(proposal)
-    receipt = proposal.validate_proposal()
+    signed_proposal = json.loads(proposal.RECEIPT.read_bytes())
+    files, dependencies = signed_proposal['files'], signed_proposal['dependencies']
+
+    view = []
+
+    class ReviewedInspect:
+        """Signed dependency bodies; only reviewed scanner edits map to their epoch."""
+        unwrap = staticmethod(inspect.unwrap)
+
+        @staticmethod
+        def getsource(fn):
+            with view[0]():
+                return ReviewedInspect._getsource(fn)
+
+        @staticmethod
+        def _getsource(fn):
+            current = inspect.getsource(fn)
+            expected = dependencies[fn.__module__ + ':' + fn.__qualname__]
+            if hashlib.sha256(current.encode()).hexdigest() == expected:
+                return current
+            row = rawv2.producer_row(fn, {'path': rawv2.SCANNER, 'sha256': expected}, ROOT)
+            assert hashlib.sha256(current.encode()).hexdigest() == row['sha256']
+            for epoch in (rawv2.SCANNER_BEFORE, rawv2.SCANNER_MIDDLE):
+                raw = rawv2.source_bytes(rawv2.SCANNER, (ROOT / rawv2.SCANNER).read_bytes(), epoch, ROOT)
+                nodes = [n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef) and n.name == fn.__name__]
+                if len(nodes) == 1:
+                    lines = raw.decode().splitlines(keepends=True)
+                    node, = nodes
+                    body = ''.join(lines[min([node.lineno] + [d.lineno for d in node.decorator_list]) - 1:node.end_lineno])
+                    if hashlib.sha256(body.encode()).hexdigest() == expected:
+                        return body
+            raise AssertionError('Unreviewed proposal dependency: ' + fn.__qualname__)
+    assert proposal.inspect is inspect
+    proposal.inspect = ReviewedInspect
+    try:
+        with reviewed_epoch(files) as suspended:
+            view.append(suspended)
+            receipt = proposal.validate_proposal()
+    finally:
+        proposal.inspect = inspect
     assert receipt['registration'] == 'unregistered_proposal_only'
     assert checks.CHECKS is registry and fixtures.CASES is case_map and checks.CHECK_ALIASES is alias_map
     assert tuple(registry) == before and all(a is b for a, b in zip(registry, before))
@@ -204,7 +329,10 @@ def prepare_current(spec):
         owner = importlib.import_module(function.__module__)
     elif spec.semantics == 'dataflow':
         owner = _module('gcp_dataflow_referenced_source_request_binding_20261020')
-        owner.validate_successor()
+        import json
+        signed = json.loads((ROOT / 'peaso/checks/gcp_dataflow_referenced_source_request_binding_20261020.json').read_bytes())
+        with reviewed_epoch(signed['files']):
+            owner.validate_successor()
         function = owner.evaluate
     else:
         admitted('batch')

@@ -12,7 +12,10 @@ FROZEN_DIGESTS, and every JSON string whose pointer names a historical record
 HISTORICAL_KEY).  Those fields keep the value they were written with; a current
 change is admitted through an explicit current/successor pin instead.  The few
 pointers that use a historical word but are runtime-verified pins of a file's
-current bytes are listed in CURRENT_PIN_POINTERS.
+current bytes are listed in CURRENT_PIN_POINTERS.  Python digest literals are
+registered in PY_PIN_BLOCKS / CURRENT_PIN_CONSTANTS: current pins there are
+refreshed to the digest of the file they name on every run, historical ones
+are never rewritten.
 """
 from __future__ import annotations
 
@@ -20,9 +23,11 @@ import argparse
 import ast
 import hashlib
 import itertools
+import os
 import json.decoder
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -180,11 +185,123 @@ def json_string_spans(text: str):
     yield from value(0, ())
 
 
+# Module-level digest literals in Python files, by (path, NAME).  A literal is
+# ``NAME = {...}`` or ``NAME = json.loads(r'''...''')``.
+#   'current'    {path: sha256 | {..., 'after_sha256': sha256}} that a verifier
+#                compares with the CURRENT bytes of each path: refreshed to the
+#                file's digest on every run, so a stale pin cannot rot.  Keys
+#                naming history (``before_sha256`` ...) stay frozen.
+#   'pointer'    only digests under a historical key stay frozen.
+#   'historical' every digest in the literal is a historical witness.
+PY_PIN_BLOCKS = {
+    ('tests/provider_observation_residual_successors_20261020.py', 'PINNED'): 'current',
+    ('tests/test_peaso_azure_evidence_explanations.py', 'PINNED_SUCCESSOR_INPUTS'): 'historical',
+    ('tests/test_gcp_current_source_reconciliation_20261020.py', 'RECORD_SUCCESSORS'): 'current',
+    ('tests/test_gcp_current_source_reconciliation_20261020.py', 'PREDICATE_SUCCESSORS'): 'pointer',
+    ('tests/test_peaso_gcp_remaining_clarity_reviewed.py', 'CURRENT_EXTENSION_SOURCES'): 'current',
+    ('tests/test_peaso_gcp_remaining_clarity_reviewed.py', 'EXTENSION_PREDICATE_SUCCESSORS'): 'pointer',
+}
+# ``NAME = '<sha256>'`` constants that pin the current bytes of one file.
+CURRENT_PIN_CONSTANTS = {
+    ('tests/test_gcp_current_source_reconciliation_20261020.py', 'REPORT_SHA256'):
+        'docs/gcp-review/recheck-20261020/current-source-reconciliation-20261020.json',
+    ('tests/test_gcp_current_source_reconciliation_20261020.py', 'CURRENT_RECEIPT_SHA256'):
+        'docs/check-review/gcp-current-ledger-source-conservation-20261020.json',
+    ('tests/gcp_clarity_combined_successor_20261020.py', 'CURRENT_EXPLANATIONS_SHA256'):
+        'peaso/checks/gcp_evidence_explanations.py',
+    ('tests/gcp_clarity_combined_successor_20261020.py', 'CURRENT_EXPLANATIONS_SUCCESSOR_SHA256'):
+        'peaso/checks/gcp_evidence_explanations_current_20261023.json',
+}
+
+
+def _offset(text: str, starts: list[int], lineno: int, col: int) -> int:
+    line = text[starts[lineno - 1]:starts[lineno] if lineno < len(starts) else len(text)]
+    return starts[lineno - 1] + len(line.encode('utf-8', 'surrogateescape')[:col].decode('utf-8', 'surrogateescape'))
+
+
+def py_literal_blocks(rel: str, text: str):
+    """Yield (mode, start, end, [(start, end, pointer)]) for each registered literal in ``rel``."""
+    names = {name: mode for (path, name), mode in PY_PIN_BLOCKS.items() if path == rel}
+    if not names:
+        return
+    tree = ast.parse(text)
+    starts = list(itertools.accumulate([0] + [len(l) for l in text.splitlines(keepends=True)]))
+
+    def span(node):
+        return (_offset(text, starts, node.lineno, node.col_offset),
+                _offset(text, starts, node.end_lineno, node.end_col_offset))
+
+    def walk(node, pointer):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    yield from walk(value, pointer + (key.value,))
+        elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            for index, value in enumerate(node.elts):
+                yield from walk(value, pointer + (index,))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            yield (*span(node), pointer)
+
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        for target in targets:
+            if not (isinstance(target, ast.Name) and target.id in names) or node.value is None:
+                continue
+            value = node.value
+            start, end = span(value)
+            if (isinstance(value, ast.Call) and len(value.args) == 1 and isinstance(value.args[0], ast.Constant)
+                    and isinstance(value.args[0].value, str)):
+                a, b = span(value.args[0])
+                literal = text[a:b]
+                inner = value.args[0].value
+                at = literal.find(inner)
+                if at < 0:
+                    raise ValueError(f'{rel}:{target.id}: JSON literal must be a raw string')
+                strings = [(a + at + s, a + at + e, ptr) for s, e, ptr, is_key in json_string_spans(inner) if not is_key]
+            else:
+                strings = list(walk(value, ()))
+            yield names[target.id], start, end, strings
+
+
+def _py_frozen_spans(rel: str, text: str) -> list[tuple[int, int]]:
+    frozen = []
+    for mode, start, end, strings in py_literal_blocks(rel, text):
+        if mode == 'historical':
+            frozen.append((start, end))
+        else:
+            frozen += [(s, e) for s, e, pointer in strings if historical_pointer(pointer)]
+    return frozen
+
+
+def refresh_current_pins(rel: str, text: str, root: Path = ROOT) -> str:
+    """Set every registered current pin in ``rel`` to the digest of the file it names."""
+    edits = []
+    for mode, _, _, strings in py_literal_blocks(rel, text):
+        if mode != 'current':
+            continue
+        for s, e, pointer in strings:
+            if historical_pointer(pointer) or not isinstance(pointer[0], str):
+                continue
+            if len(pointer) == 1 or pointer[1:] == ('after_sha256',):
+                target = root / pointer[0]
+                if target.is_file() and HEX64.fullmatch(text[s + 1:e - 1]):
+                    edits.append((s + 1, e - 1, _sha(target.read_bytes())))
+    for (path, name), target in CURRENT_PIN_CONSTANTS.items():
+        if path != rel or not (root / target).is_file():
+            continue
+        match = re.search(rf"(?m)^{name} = (['\"])([0-9a-f]{{64}})\1$", text)
+        if match:
+            edits.append((match.start(2), match.end(2), _sha((root / target).read_bytes())))
+    for s, e, digest in sorted(edits, reverse=True):
+        text = text[:s] + digest + text[e:]
+    return text
+
+
 def substitute(rel: str, text: str, mapping: dict[str, str]) -> str:
     """Map pinned digests in one file, leaving historical JSON witnesses untouched."""
     if not any(m.group(0) in mapping for m in HEX64.finditer(text)):
         return text
-    frozen = []
+    frozen = _py_frozen_spans(rel, text) if rel.endswith('.py') else []
     if rel.endswith('.json'):
         try:
             frozen = [(start, end) for start, end, pointer, _ in json_string_spans(text)
@@ -252,6 +369,29 @@ def _project(raw: bytes) -> dict[str, str]:
     return rows
 
 
+SUCCESSOR_REFRESH = 'scripts/peaso_reviewed_successors_refresh.py'
+SUCCESSOR_OUTPUTS = ('tests/fixtures/reviewed_current_successors_20261026.json.gz',
+                     'tests/reviewed_current_successors_20261026.py')
+
+
+def refresh_reviewed_successors() -> bool:
+    """Record current bytes for the two whole-tree conservation tests.
+
+    Their fixture keeps every earlier before/after row; only the current
+    after_sha256 moves.  Returns True when the fixture or its pin changed.
+    """
+    script = ROOT / SUCCESSOR_REFRESH
+    if not script.is_file() or not all((ROOT / rel).is_file() for rel in SUCCESSOR_OUTPUTS):
+        return False
+    before = [(ROOT / rel).read_bytes() for rel in SUCCESSOR_OUTPUTS]
+    env = dict(os.environ, PYTHONPATH=str(ROOT), PYTHONDONTWRITEBYTECODE='1')
+    subprocess.run([sys.executable, str(script)], cwd=ROOT, env=env, check=True, capture_output=True)
+    changed = before != [(ROOT / rel).read_bytes() for rel in SUCCESSOR_OUTPUTS]
+    if changed:
+        print('refreshed reviewed current successors')
+    return changed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--base', default='HEAD')
@@ -262,6 +402,14 @@ def main() -> int:
                if p and not frozen_file(p) and p.endswith(('.py', '.json', '.txt', '.toml', '.yaml', '.yml', '.md'))]
     seen: dict[str, list[dict[str, str]]] = {}
     for round_ in range(args.max_rounds):
+        for rel in sorted({path for path, _ in (*PY_PIN_BLOCKS, *CURRENT_PIN_CONSTANTS)}):
+            path = ROOT / rel
+            if path.is_file():
+                text = path.read_text(encoding='utf-8', errors='surrogateescape')
+                updated = refresh_current_pins(rel, text)
+                if updated != text:
+                    path.write_text(updated, encoding='utf-8', errors='surrogateescape')
+                    print(f'round {round_}: refreshed current pins in {rel}')
         changed = [p for p in _git('diff', '--name-only', args.base).decode().split() if (ROOT / p).exists()]
         if args.prior_tree:
             # A file restored to its base still left its snapshot digest behind.
@@ -291,6 +439,8 @@ def main() -> int:
             if history[-1] != new:
                 history.append(new)
         if not mapping:
+            if refresh_reviewed_successors():
+                continue
             return 0
         touched = 0
         for rel in tracked:
@@ -304,6 +454,8 @@ def main() -> int:
                 touched += 1
                 print(f'round {round_}: {rel}')
         if not touched:
+            if refresh_reviewed_successors():
+                continue
             return 0
     raise SystemExit('re-pin did not converge')
 

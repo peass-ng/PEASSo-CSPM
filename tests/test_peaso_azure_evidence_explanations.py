@@ -98,7 +98,13 @@ def _digest(value):
 
 def _checked_json(path):
     raw = (ROOT / path).read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == PINNED_SUCCESSOR_INPUTS[path], path
+    current, expected = hashlib.sha256(raw).hexdigest(), PINNED_SUCCESSOR_INPUTS[path]
+    if current != expected:
+        # PINNED_SUCCESSOR_INPUTS keeps the epoch bytes; a reviewed later edit
+        # is admitted only through its exact REVIEWED_CURRENT_CHANGES record.
+        change = REVIEWED_CURRENT_CHANGES.get(path, {})
+        assert (expected, current, len(raw)) == (
+            change.get('before_sha256'), change.get('after_sha256'), change.get('after_size')), path
     return json.loads(gzip.decompress(raw) if path.endswith('.gz') else raw)
 
 
@@ -1813,13 +1819,13 @@ PINNED_SUCCESSOR_INPUTS = json.loads(r'''
   "docs/check-review/azure-current-attestation-nine-native-recheck-20261020.json": "f5dc2bda45da7f5a55876ae545280184331bfdd5597e9d867ae79432f93ad1c1",
   "docs/check-review/azure-final-services-integration-20261020.json": "7a1226051a412b325babf472f3e14a074564aad8233911618daaab026274a951",
   "docs/check-review/azure-four-cohort-integration-20261020.json": "ace6e7fd159643568092c1ead2b314b32df9f3da04b8de746dfa9d6ee16e57ad",
-  "docs/check-review/azure-identity-integration-20261020.json": "dafccab1f1aa7ca11a04d526745b827322b631cd2e7b48291570084375c7e526",
+  "docs/check-review/azure-identity-integration-20261020.json": "d1112967768cfeb5998d4d69c6b2a2afcaf35efbbe6376c5be9aa6742d827037",
   "docs/check-review/azure-identity-native-review-20261020.json": "912f4e70c3cf8df5159fc61c885ba68a7d76c2febc004774b2b5aad90f5893ac",
   "docs/check-review/azure-k8s-current-predicate-bindings-20261020.json": "23ab6679ae1f7a4a35a86da7477c7427126bc668b3067ddc678d442d58bb8799",
   "docs/check-review/azure-master-predicate-attestation-errata-20261020.json": "1de6ceb284293f23a530e382bb08a46d08a667290a5cc84f7ef9cfcb0cfe8fcb",
   "docs/check-review/azure-network-audit-admission-20261020.json": "1a1712d90f1a7086b12501115b8be5fd43b62f32ef182eda6ac456efb6e4d11f",
   "docs/check-review/azure-provider-integration-acceptance-20261020.json": "38e933aacafdc11eb01980cb22e0cb632ff06a21b683c358d8e566c6d2ad733f",
-  "docs/check-review/azure-storage-compute-integration-20261020.json": "aa1527f425d7875ea2ab3f9d29207010c7207b2d436e1d0c4584b6b5997ebfbc",
+  "docs/check-review/azure-storage-compute-integration-20261020.json": "9c488a9c22c2b770c915a8f5df547f9a655379fc68aa128ba262012053f669dc",
   "docs/evidence-reviews/azure.json": "cff6a2c23e6300b7d22b7cf14ff251df4ad065b1a8a0d867cae8b0c7b07d5d87",
   "peaso/checks/azure.py": "616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e",
   "peaso/checks/azure_acr_image_secret_review_20261020.py": "11821a6a2d2366602d993d79c58844d6f0c14b1a766ffd19c43894bef8f2dd39",

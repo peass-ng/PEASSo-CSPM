@@ -22,15 +22,130 @@ from tests.test_gcp_workbench_current_acceptance_20261020 import (
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / 'docs/gcp-review/recheck-20261020/current-source-reconciliation-20261020.json'
-REPORT_SHA256 = '603b9e467d9bc7eda42ad11228c0078c9b98101aa049e81217da363f659f444b'
+REPORT_SHA256 = '6e6fbdf6acff57100cfe468b851e075b967d0884c7da3ba0ed6faf866f912535'
 CURRENT_RECEIPT = ROOT / 'docs/check-review/gcp-current-ledger-source-conservation-20261020.json'
 CURRENT_RECEIPT_SHA256 = '6da9f2ca0ed2c588b0981edc54596658e89e53047eeeddfb8a6e27cb6a0a53e4'
 FUNCTION_ID = 'gcp.review.function.literal_environment_secret_indicators'
 
 
+# Retained 2026-10-20 records keep the bytes they reconciled.  Records that
+# later reviewed edits changed are bound here: the retained digest must be the
+# recorded ``before_sha256`` and the file on disk the current ``after_sha256``.
+RECORD_SUCCESSORS = {
+    'docs/check-review/gcp-function-current-ledger-erratum-20261020.json': {
+        'before_sha256': 'a0e89befb7eb83f29b37c23f5409e52c0e1e6a10e786314fa50364bae660967a',
+        'after_sha256': 'af88bde5ae184d1ecfaeaf016292e7aa59306dc4a3f45da859143a1ef09665ee',
+    },
+    'docs/check-review/gcp-current-ledger-source-conservation-20261020.json': {
+        'before_sha256': '4359bc9fd55fdb429ff933c9470bd7d7eb8df6904d6a59a2167049c66d6a2879',
+        'after_sha256': '6da9f2ca0ed2c588b0981edc54596658e89e53047eeeddfb8a6e27cb6a0a53e4',
+    },
+    'docs/check-review/dataproc-tde-current-acceptance-20261020.json': {
+        'before_sha256': 'a30937e37b867ed860c12308487ec6be5284be6de214ab1b3017aa9cea8d6066',
+        'after_sha256': 'd1514c76d5d1ad08ae5828930ef81fe6badd39b6e26dc0ca3ea6add202ef2202',
+    },
+    'docs/gcp-review/compute-network-review.json': {
+        'before_sha256': '563b2dda950e28eb8d2eef684f12b36fa747ae22ef4afe8bd419af86d581ee8a',
+        'after_sha256': 'eba7335be1c99ca0bae5722c5d355c30b1a85c6393479cc5dcb942686b398197',
+    },
+    'docs/gcp-review/recheck-20261020/compute-second-batch-review.json': {
+        'before_sha256': '8698e17079527e53e3125be1543775dcec7c2921b3c929ac23bcf628e31bc5d3',
+        'after_sha256': '9eee6fb0c56a204a8020dd86c9e0a8fe05ba51daa1e7bc06d72793eebeabbc8d',
+    },
+    'docs/gcp-review/recheck-20261020/final-services-fixes.json': {
+        'before_sha256': '0d15ed1d459102d377fe51f8a62799ce752ca07b03b0d3a6a25b65b9b675b8f1',
+        'after_sha256': '42490684afc028559790e188a47db8f6c4b3e7bbfcdff6ae4ecfc6f1e3acb459',
+    },
+    'docs/gcp-review/recheck-20261020/final-services-review.json': {
+        'before_sha256': '68587d9f932c0cb49c964755d393e425596631fe510eb5e355800e8fb0cbc701',
+        'after_sha256': 'e4f4fee07e5df95167b3795fba393af12fb51af2de3ddd01222bee9cd0565aa0',
+    },
+    'docs/gcp-review/recheck-20261020/identity_data-batch-review.json': {
+        'before_sha256': '5191be52753a9b572802fac13955c17aec2b8f3bd67c6c7dc8e9bba28a91c51d',
+        'after_sha256': 'b0395dd5059df02e2f09bf2da528ba5fc841a634958293f4cae16a265f81531c',
+    },
+    'docs/gcp-review/recheck-20261020/logging-batch-review.json': {
+        'before_sha256': '5d1e119c7e716cb0459c9ccf4bc8ade3c8f81a4784e65e8f7baea2e99841d99a',
+        'after_sha256': 'bddfaa7b1ad5882751f2f5794ce0a40d530c059874f1a32b605583ca5f8a9f38',
+    },
+    'docs/gcp-review/recheck-20261020/metadata-final-batch-review.json': {
+        'before_sha256': '9101fb29c3023c95c42d209efe5b354a9f6e5241d6a8ee0e9ec12f11cfba7a83',
+        'after_sha256': '4f2cda27db34e498c8a874cd6b7bd88c95edd5edc553bf89136ec980f5edf5ca',
+    },
+    'docs/gcp-review/recheck-20261020/native57-iam-kms-review.json': {
+        'before_sha256': 'b5817d6a6a088399405695a89164738da50f6415293bd23090e2e12057523a2d',
+        'after_sha256': '119b0b830e0541bce71666312e2b3b3f57a117127db1995582df9e4a7e56d98a',
+    },
+    'docs/gcp-review/recheck-20261020/prior-bounded-recheck.json': {
+        'before_sha256': '7f153c988ae8d67bf29957c0664e671fc5b2d3e233533c8257c48bf0389f8401',
+        'after_sha256': '9853680c83a5e49b95cdd4fbae041bddb5c5d4d714ddf16cd13da61b3f771a36',
+    },
+    'docs/gcp-review/recheck-20261020/secret-surface-audit.json': {
+        'before_sha256': 'dd3819aafb4e0d45012496db1d3f8c0280f4771f3ac71ba0f165ac576c8f22e9',
+        'after_sha256': 'fd1f073f57e6b0f37ee104a3f5ee03b364e56ccaec521b40449e58ae747e2e29',
+    },
+}
+
+
+# Predicates that later reviewed commits changed after this reconciliation was
+# written.  The retained report row and checks.csv keep the reconciled body
+# (``before_body_sha256``); the current evaluator must be exactly the reviewed
+# successor.  ``commit`` names the reviewed edit:
+#   75087001  dataset_domain also reads BigQuery's ``domain`` principal field
+#   45112721  default-network firewall/GKE scoping, Cloud Build log and image
+#             stream secret evaluators
+#   120406f2  unused service account/key activity moved to peaso.unused_iam_gcp
+#   de012c38  confirmed GCP secret findings survive incomplete content scans
+PREDICATE_SUCCESSORS = {
+    'gcp.claude.bigquery_dataset.no_gmail_access': {'before_body_sha256': 'a135590e7828784d5440fb1938f83f5c5b13a6f3362010edcbfc5a8a11d07e29',
+        'after_qualname': 'peaso.checks.claude_gcp_k8s_iam.dataset_domain.<locals>.evaluate', 'after_path': 'peaso/checks/claude_gcp_k8s_iam.py',
+        'after_body_sha256': '885a1755b25320108e0743887be84f648a4b1128ae2b9b3428fe2a667584e3a0', 'commit': '75087001'},
+    'gcp.claude.bigquery_dataset.no_googlegroups_access': {'before_body_sha256': 'a135590e7828784d5440fb1938f83f5c5b13a6f3362010edcbfc5a8a11d07e29',
+        'after_qualname': 'peaso.checks.claude_gcp_k8s_iam.dataset_domain.<locals>.evaluate', 'after_path': 'peaso/checks/claude_gcp_k8s_iam.py',
+        'after_body_sha256': '885a1755b25320108e0743887be84f648a4b1128ae2b9b3428fe2a667584e3a0', 'commit': '75087001'},
+    'gcp.claude.firewall.default_rules_not_open': {'before_body_sha256': 'e01687972dd278223a925ce42f5e8588f7570d266891471a5ae55064f51f9740',
+        'after_qualname': 'peaso.checks.claude_gcp_k8s_compute.firewall_default_rules', 'after_path': 'peaso/checks/claude_gcp_k8s_compute.py',
+        'after_body_sha256': 'ac001b142f7db7b48bde4a0b6799d4477a55d4fe6f5e43659016a5e6a241a85f', 'commit': '45112721'},
+    'gcp.claude.gke.no_default_network': {'before_body_sha256': '61979b1bf6c4991d90ec064284727c92ce96cec356e641fec28ab0de770b7900',
+        'after_qualname': 'peaso.checks.claude_gcp_k8s_iam.gke_default_network', 'after_path': 'peaso/checks/claude_gcp_k8s_iam.py',
+        'after_body_sha256': '3b57693d9d94717a39029959dae5f2a379fa205d95ae96f2048d455e0c2e0bc2', 'commit': '45112721'},
+    'gcp.claude.service_account.recently_used': {'before_body_sha256': '304dc0b8914b44e35dda5fc732cfc734fd84c8b3bde8b385edf608b50704b67b',
+        'after_qualname': 'peaso.unused_iam_gcp.evaluate_account', 'after_path': 'peaso/unused_iam_gcp.py',
+        'after_body_sha256': 'aa25293eba7baa8bf9270f11154482ec46eaea64096a8c4e4ff9d18f5ae70b6e', 'commit': '120406f2'},
+    'gcp.claude.service_account_key.recently_used': {'before_body_sha256': 'afb33386dbd5e3a1deade74acec5cf58f70c102fe2494f34867a15f905106c8c',
+        'after_qualname': 'peaso.unused_iam_gcp.evaluate_key', 'after_path': 'peaso/unused_iam_gcp.py',
+        'after_body_sha256': '21517e6bbe347b7ccd35366fae60c9ed1701e13b412381f26dc97bda5b2eaaa9', 'commit': '120406f2'},
+    'gcp.review.artifact_image.content_secret_indicators': {'before_body_sha256': '3e7924e4bccdd5aa1ea83b3e9254deffce20b7322d528e640ba0afafd9c45866',
+        'after_qualname': 'peaso.checks.gcp_image_stream_review_20261021.evaluate', 'after_path': 'peaso/checks/gcp_image_stream_review_20261021.py',
+        'after_body_sha256': 'e589f341effbcb5c6677df442174e26bef216314ea56755a0d9b93188d116d9d', 'commit': '45112721'},
+    'gcp.review.artifactregistry.selected_file_secret_indicators': {'before_body_sha256': '6f4b7c50441776d28a7a4e06f8610bf3b79ea0c9984e11cc49326d7479e5d3a6',
+        'after_qualname': 'peaso.checks.gcp_artifact_file_secret_review_20261019.evaluate', 'after_path': 'peaso/checks/gcp_artifact_file_secret_review_20261019.py',
+        'after_body_sha256': 'c41d3d5751c7dd70a0fb9e7d0c2f515570f2348cb506c1651f62436731d31c20', 'commit': 'de012c38'},
+    'gcp.review.cloudbuild.stored_log_secret_indicators': {'before_body_sha256': '7a4d78e54b01344cae0539f479c8dc841be8b07e5a53fc171499ad080cb9390c',
+        'after_qualname': 'peaso.checks.gcp_cloudbuild_log_secret_review_20261019.evaluate', 'after_path': 'peaso/checks/gcp_cloudbuild_log_secret_review_20261019.py',
+        'after_body_sha256': '4259fc418c00fcf3818527e8b5837127bab64e00752618b4154e5af67ae64237', 'commit': '45112721'},
+    'gcp.review.composer.dag_source_secret_indicators': {'before_body_sha256': 'f85e0b7feb17116f32cb5f8f3b030c549e00fbbcd6e8c2635da5c52957ff7acf',
+        'after_qualname': 'peaso.checks.gcp_composer_source_secret_review_20261019.evaluate', 'after_path': 'peaso/checks/gcp_composer_source_secret_review_20261019.py',
+        'after_body_sha256': 'cf50624ef905049ed067559a1f38faec8322215d55393c539ac68f5a7b20243e', 'commit': 'de012c38'},
+    'gcp.review.sourcerepo.selected_file_secret_indicators': {'before_body_sha256': '9efdc7277d249274984369dfd0db9cf279fb154c75b31ae00119dbce484d91a5',
+        'after_qualname': 'peaso.checks.gcp_sourcerepo_secret_review_20261019.evaluate', 'after_path': 'peaso/checks/gcp_sourcerepo_secret_review_20261019.py',
+        'after_body_sha256': '8e508714233b7d84fc62d9f4a18c3c3f53271aa338d837601e836634e4629bf6', 'commit': 'de012c38'},
+    'gcp.review.storage.selected_archive_secret_indicators': {'before_body_sha256': '67ae5ee1485f86d7a817c9ad180dcb5cc1254832d92af29bec618a6f8bff71c1',
+        'after_qualname': 'peaso.checks.gcp_selected_archive_secret_review_20261019.evaluate', 'after_path': 'peaso/checks/gcp_selected_archive_secret_review_20261019.py',
+        'after_body_sha256': 'd50d76c3d00fc766162a8aa4dd92f20cc0fcd34d0b3046e3c09f3da25d1fcc62', 'commit': 'de012c38'},
+}
+
+
+def record_matches(path, recorded, current):
+    successor = RECORD_SUCCESSORS.get(path)
+    if successor is None:
+        return current == recorded
+    return current == successor['after_sha256'] and recorded in (successor['before_sha256'], successor['after_sha256'])
+
+
 def _checked_json(reference):
     raw = (ROOT / reference['path']).read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == reference['sha256'], reference['path']
+    assert record_matches(reference['path'], reference['sha256'], hashlib.sha256(raw).hexdigest()), reference['path']
     return json.loads(raw)
 
 
@@ -118,10 +233,15 @@ def test_pinned_gcp_sources_current_native_bindings_and_individual_receipts_cons
     thematic = current_thematic_admissions()
     job_reference = thematic['thematic_admissions'][JOB_ID]
     successor_receipts[JOB_ID] = job_reference['path']
-    successor_ids = successor_receipts.keys()
+    # The reviewed 2026-10-22 native successor cohort admits later IDs with its
+    # own branch evidence; they extend neither this report nor its conservation.
+    cohort = json.loads((ROOT / 'docs/evidence-reviews/gcp-current-native-successor-20261022.json').read_text())
+    cohort_ids = cohort['added'].keys()
+    assert not cohort_ids & (rows.keys() | successor_receipts.keys())
+    successor_ids = successor_receipts.keys() | cohort_ids
     assert current_native.keys() - rows.keys() == successor_ids
-    assert len(current_native) == 536
-    assert len(current_native.keys() - exclusions().keys()) == 429
+    assert len(current_native) == 536 + len(cohort_ids)
+    assert len(current_native.keys() - exclusions().keys()) == 429 + len(cohort_ids - exclusions().keys())
     native = {cid: check for cid, check in current_native.items() if cid in rows}
     archived = native.keys() & exclusions().keys()
     assert len(native) == len(rows) == len(report['native_records']) == 529
@@ -130,7 +250,8 @@ def test_pinned_gcp_sources_current_native_bindings_and_individual_receipts_cons
     assert len(native.keys() - archived) == report['counts']['active_native_ids'] == 422
     with (ROOT / 'docs/check-review/checks.csv').open() as handle:
         current_master = {row['check_id']: row for row in csv.DictReader(handle) if row['provider'] == 'gcp'}
-    assert current_master.keys() == current_native.keys()
+    # checks.csv is byte-frozen; the successor cohort lives in its own record.
+    assert current_master.keys() == current_native.keys() - cohort_ids
     for cid, path in successor_receipts.items():
         assert current_master[cid]['current_goal_receipt'] == path
         receipt = json.loads((ROOT / path).read_text())
@@ -152,9 +273,10 @@ def test_pinned_gcp_sources_current_native_bindings_and_individual_receipts_cons
     documents = {}
     for path, receipt in report['native_receipts'].items():
         raw = (ROOT / path).read_bytes()
-        assert hashlib.sha256(raw).hexdigest() == receipt['sha256'], path
+        assert record_matches(path, receipt['sha256'], hashlib.sha256(raw).hexdigest()), path
         documents[path] = json.loads(raw)
 
+    predicate_drift = []
     for cid, row in rows.items():
         assert row['active'] == (cid not in archived) == (master[cid]['active'].lower() == 'true')
         assert row['kind'] == native[cid].kind
@@ -177,16 +299,38 @@ def test_pinned_gcp_sources_current_native_bindings_and_individual_receipts_cons
             old_function = getattr(importlib.import_module(module), attribute)
             bound = [old_function]
         else:
+            successor = PREDICATE_SUCCESSORS.get(cid)
+            if successor is not None:
+                # A reviewed later edit replaced this predicate.  The retained
+                # row keeps the reconciled body; the successor binds the
+                # current body exactly.
+                assert successor['before_body_sha256'] == predicate['body_sha256'], cid
+                target = successor['after_qualname']
+            else:
+                target = predicate['qualname']
             bound = [fn for fn in _bound_functions(native[cid].evaluate)
-                 if f'{fn.__module__}.{fn.__qualname__}' == predicate['qualname']]
-        assert len(bound) == 1, cid
+                 if f'{fn.__module__}.{fn.__qualname__}' == target]
+        if len(bound) != 1:
+            current = inspect.unwrap(native[cid].evaluate)
+            predicate_drift.append((cid, predicate['qualname'], predicate['body_sha256'],
+                                    f'{current.__module__}.{current.__qualname__}',
+                                    str(Path(inspect.getsourcefile(current)).relative_to(ROOT)),
+                                    hashlib.sha256(inspect.getsource(current).encode()).hexdigest()))
+            continue
         actual = bound[0]
-        assert str(Path(inspect.getsourcefile(actual)).relative_to(ROOT)) == predicate['path']
-        assert hashlib.sha256(inspect.getsource(actual).encode()).hexdigest() == predicate['body_sha256']
+        path = str(Path(inspect.getsourcefile(actual)).relative_to(ROOT))
+        body = hashlib.sha256(inspect.getsource(actual).encode()).hexdigest()
         assert predicate['body_sha256'] == master[cid]['current_bound_predicate_sha256']
+        if cid in PREDICATE_SUCCESSORS:
+            assert (path, body) == (successor['after_path'], successor['after_body_sha256']), cid
+        else:
+            assert path == predicate['path'], cid
+            if body != predicate['body_sha256']:
+                predicate_drift.append((cid, predicate['qualname'], predicate['body_sha256'], target, path, body))
         assert predicate['qualname'] == master[cid]['bound_predicate_qualname']
         assert row['upstream_ids'] == sorted(sid for sid, source in historical.items() if cid in source['native_checks'])
 
+    assert predicate_drift == [], '\n'.join(map(repr, predicate_drift))
     for sid, row in upstream.items():
         old = historical[sid]
         assert row['status'] == old['status'] and row['repository'] == old['repository']
@@ -368,7 +512,10 @@ def test_new_job_native_thematic_addition_preserves_exact766_and769_source_epoch
     assert current['counts']['historical_upstream_source_rows'] == historical['counts']['historical_source_rows'] == 766
     assert current['counts']['head_source_rows'] == historical['counts']['head_source_rows'] == 769
     assert current['counts']['new_upstream_source_rows'] == 0
-    assert current['historical_function_erratum'] == historical['current_predicate_errata'][FUNCTION_ID]
+    retained_erratum = current['historical_function_erratum']
+    current_erratum = historical['current_predicate_errata'][FUNCTION_ID]
+    assert retained_erratum['path'] == current_erratum['path']
+    assert record_matches(current_erratum['path'], retained_erratum['sha256'], current_erratum['sha256'])
     assert _checked_json(current['historical_function_erratum'])['check_id'] == FUNCTION_ID
     accepted = checked_thematic_reference(current['thematic_admissions'][JOB_ID])
     assert accepted['source_epoch'].startswith('Separate native thematic addition')

@@ -63,7 +63,12 @@ def test_exact_optional_secret_inventory_is_active_and_complete():
     assert len(BASELINE_IDS) == 31 and len(IDS) == 39 and set(IDS) == set(REGISTRY)
     actual = {c.id for c in CHECKS if c.provider == 'gcp' and c.id not in exclusions()
               and c.public().get('finding_type') == 'secrets' and 'secret_indicators' in c.id}
-    assert actual == set(IDS)
+    # Later secret checks are admitted by the reviewed 2026-10-22 native successor
+    # cohort, which carries their own branch evidence; this audit keeps its 39.
+    cohort = json.loads((ROOT / 'docs/evidence-reviews/gcp-current-native-successor-20261022.json').read_text())
+    later = {cid for cid in cohort['added'] if 'secret_indicators' in cid}
+    assert later and not later & set(IDS)
+    assert actual == set(IDS) | later
 
 
 @pytest.mark.parametrize('cid', IDS)

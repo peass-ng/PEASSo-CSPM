@@ -10,6 +10,10 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# Current pins (scripts/peaso_repin_sources.py CURRENT_PIN_CONSTANTS keeps them
+# equal to the reviewed current files).
+CURRENT_EXPLANATIONS_SHA256 = 'b08287d78760fa0d7ce90da2098dcc3ff0ba66984272d2c15bd2f7f60299d06f'
+CURRENT_EXPLANATIONS_SUCCESSOR_SHA256 = 'd0cfac399589ee9597ea4fd404560ea3cc30155ceb20f888ca37b3f66467cc63'
 FUNCTION_ID = 'gcp.review.function.literal_environment_secret_indicators'
 JOB_ID = 'gcp.review.cloudrun_job.declared_image_secret_indicators'
 
@@ -149,8 +153,8 @@ def current_golden_rows(historical):
         assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == PINNED_FILES[path]
     historical_source = gzip.decompress((ROOT / 'tests/fixtures/gcp_evidence_explanations_predecessor_b775.py.gz').read_bytes())
     assert hashlib.sha256(historical_source).hexdigest() == PINNED_FILES['peaso/checks/gcp_evidence_explanations.py']
-    assert hashlib.sha256((ROOT / 'peaso/checks/gcp_evidence_explanations.py').read_bytes()).hexdigest() == 'a67e98105d1a17c608252d621a329cf86716878e992389b3377276670361d841'
-    assert hashlib.sha256((ROOT / 'peaso/checks/gcp_evidence_explanations_current_20261023.json').read_bytes()).hexdigest() == 'd0cfac399589ee9597ea4fd404560ea3cc30155ceb20f888ca37b3f66467cc63'
+    assert hashlib.sha256((ROOT / 'peaso/checks/gcp_evidence_explanations.py').read_bytes()).hexdigest() == CURRENT_EXPLANATIONS_SHA256
+    assert hashlib.sha256((ROOT / 'peaso/checks/gcp_evidence_explanations_current_20261023.json').read_bytes()).hexdigest() == CURRENT_EXPLANATIONS_SUCCESSOR_SHA256
     result = deepcopy(historical)
     seen = set()
     for row in result:
@@ -161,6 +165,13 @@ def current_golden_rows(historical):
             assert digest(row) == successor['historical_row_sha256']
             row['expected'] = successor['expected']
             seen.add(key)
+        if key in GOLDEN_EVIDENCE_SUCCESSORS:
+            successor = GOLDEN_EVIDENCE_SUCCESSORS[key]
+            assert digest(row) == successor['historical_row_sha256']
+            evidence = row['finding']['evidence']
+            assert evidence[successor['field']] == successor['before']
+            evidence[successor['field']] = successor['after']
+            seen.add(key)
         if cid == FUNCTION_ID and branch == 'fail':
             # The old synthetic fingerprint remains pinned in the golden;
             # current paired native cases supply both runtime/build locations.
@@ -170,7 +181,7 @@ def current_golden_rows(historical):
                 'locations': [{'path': 'serviceConfig.environmentVariables', 'line': 1}]}]
             cases = checked('peaso/checks/gcp_function_secret_partial_page_cases_20261020.json')
             row['finding']['evidence']['secret_leaks'] = deepcopy(cases[cid]['fail']['FunctionSecretIndicators']['leaks'])
-    assert seen == GOLDEN_PROSE_SUCCESSORS.keys()
+    assert seen == GOLDEN_PROSE_SUCCESSORS.keys() | GOLDEN_EVIDENCE_SUCCESSORS.keys()
     return result
 
 
@@ -569,19 +580,19 @@ CURRENT_NATIVE_EXAMPLES = json.loads(r'''
   "gcp.review.dataproc.selected_initialization_referenced_source_secret_indicators": [
     {
       "branch": "pass",
-      "evidence_sha256": "92549acfcee722a44aecbddcfe892b32f140f71c6e42714d40cf675172cbff60",
+      "evidence_sha256": "bb71db768fac0d4bd05b71eb46d351f2ce808887df45713da886a875dacf9fab",
       "expected": "Both offline detectors found no supported secret in the selected Dataproc referenced source. Only the captured referenced source is covered; original executed bytes were not established.",
       "status": "PASS"
     },
     {
       "branch": "fail",
-      "evidence_sha256": "880057546ca25ccc8b1d84fb32484ca10241e5e73cefa3167808e00764edcceb",
+      "evidence_sha256": "0ce9af3aee3fad067d5bda76497715b6ec5472c0ff619b7b690d736bc0a8244c",
       "expected": "A likely secret was detected in the selected Dataproc referenced source. Its value is hidden and was not validated. Only the captured referenced source is covered; original executed bytes were not established.",
       "status": "FAIL"
     },
     {
       "branch": "unknown",
-      "evidence_sha256": "e8534e87096b03a7521d5a20de92d2d661d61354465bf15d8d411f8fd4c7687f",
+      "evidence_sha256": "ea6fca10ecf4a6f7a9beaba69daef3e1a8ce0f292ea2c79742e864be6d8c97ff",
       "expected": "The selected Dataproc referenced source could not be completely read and scanned. Only the captured referenced source is covered; original executed bytes were not established.",
       "status": "UNKNOWN"
     }
@@ -589,19 +600,19 @@ CURRENT_NATIVE_EXAMPLES = json.loads(r'''
   "gcp.review.dataproc.selected_job_referenced_source_secret_indicators": [
     {
       "branch": "pass",
-      "evidence_sha256": "92549acfcee722a44aecbddcfe892b32f140f71c6e42714d40cf675172cbff60",
+      "evidence_sha256": "bb71db768fac0d4bd05b71eb46d351f2ce808887df45713da886a875dacf9fab",
       "expected": "Both offline detectors found no supported secret in the selected Dataproc referenced source. Only the captured referenced source is covered; original executed bytes were not established.",
       "status": "PASS"
     },
     {
       "branch": "fail",
-      "evidence_sha256": "be37491ae306defaa8844ed08b14fdf00edc8eaf5b271b40c76bb4f14f3a7254",
+      "evidence_sha256": "bb35c5e2eb7d281008d308f6a0d0270928e418d34b767a8a68f67b30c56fd69d",
       "expected": "A likely secret was detected in the selected Dataproc referenced source. Its value is hidden and was not validated. Only the captured referenced source is covered; original executed bytes were not established.",
       "status": "FAIL"
     },
     {
       "branch": "unknown",
-      "evidence_sha256": "e8534e87096b03a7521d5a20de92d2d661d61354465bf15d8d411f8fd4c7687f",
+      "evidence_sha256": "ea6fca10ecf4a6f7a9beaba69daef3e1a8ce0f292ea2c79742e864be6d8c97ff",
       "expected": "The selected Dataproc referenced source could not be completely read and scanned. Only the captured referenced source is covered; original executed bytes were not established.",
       "status": "UNKNOWN"
     }
@@ -792,3 +803,20 @@ OWNER_RUNTIME_RECEIPTS = json.loads(r'''
   }
 }
 ''')
+
+
+# Reviewed evidence edits after the golden was recorded.  The golden row keeps
+# its historical bytes (``historical_row_sha256``); the current evaluator's
+# deciding field is the reviewed ``after`` value.  45112721 moved the image
+# content check to the streaming evaluator, which reports only verified layers.
+GOLDEN_EVIDENCE_SUCCESSORS = {
+    'gcp.review.artifact_image.content_secret_indicators|fail': {
+        'historical_row_sha256': 'e1c8ed429d69b40d30b517227b5f7080036fd4bbbcaed8722865586b84d9f1b5',
+        'field': 'observed',
+        'before': 'A likely secret was detected in the selected immutable image configuration or a layer. '
+                  'The value is hidden; credentials were not validated.',
+        'after': 'A likely secret was detected in the selected immutable image configuration or a verified layer. '
+                 'The value is hidden; credentials were not validated.',
+        'commit': '45112721',
+    },
+}

@@ -228,7 +228,7 @@
   "portable_retention": {
     "schema_version": 1,
     "source_report": "docs/check-review/k8s-cluster-native-review-20261020.json",
-    "source_report_sha256": "10f401b474d586d631be979390795d8b5b46a898b2fa4e5696849a576b17dd8f",
+    "source_report_sha256": "214034ee33aec42c30e525cfcd7932e3060904c8884b39f372c2f33d0231dffc",
     "retained_path": "tests/fixtures/k8s_cluster_native_inputs_20261020.tar.gz",
     "retained_sha256": "60812356285354c3d0ed08742ccb8ba2cea225abc0199cf527b8d04393d419e2",
     "retained_bytes": 817896,
@@ -24240,7 +24240,7 @@
   "new_sources": {
     "peaso/checks/k8s_literal_current_metadata_20261020.py": "b57a0c7e050d31f00f3225bcdc5597212751698ac6b37058c640adebbea04983",
     "peaso/checks/k8s_workload_finding_summary.py": "e4a6d8c4440426816b678ecfe25ff678043ea6d3d5a57bb656c35d58f1f1652e",
-    "tests/k8s_cluster_retained_inputs_20261020.py": "54f648fc42254689e75151c20720dda4c34bee12a485fa289f59f4ee073756c7",
+    "tests/k8s_cluster_retained_inputs_20261020.py": "269fa052f95c38bc9ba11ee202572dc6c0fb889f55b3b0ad2ef085297f8e895a",
     "tests/test_k8s_current_integration_review_20261020.py": "947e1a762b9215dad169e020c75fb32b9c47b1eb330249c8089559394b96902a",
     "frontend/tests/k8s-current-literal-evidence.spec.ts": "7dd5794adb02906f03ed2670aaa9b321bb1bc0c55e57de13e0ef3cc0b71b2b06",
     "frontend/playwright.k8s-current-literal.config.ts": "805a77b0822cb662919fda7f597ef5c99414d6ecdc200ec53bf97ea07ae29ead"

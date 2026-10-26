@@ -947,7 +947,7 @@
     },
     {
       "path": "docs/check-review/k8s-cluster-native-review-20261020.json",
-      "sha256": "10f401b474d586d631be979390795d8b5b46a898b2fa4e5696849a576b17dd8f"
+      "sha256": "214034ee33aec42c30e525cfcd7932e3060904c8884b39f372c2f33d0231dffc"
     },
     {
       "path": "docs/check-review/k8s-annotation-psp-native-closure-20261020.json",
@@ -963,7 +963,7 @@
     },
     {
       "path": "docs/check-review/k8s-current-integration-review-20261020.json",
-      "sha256": "b59a254d84c8d3a0e95f4a166fcdfcb7b769479170ac7217bc1ef37ed4fb6070"
+      "sha256": "5972d2f363298fe5ad915d8f92a41cc7ba3691a5ea1a5bb2375be1ab6bcd168c"
     },
     {
       "path": "docs/check-review/k8s-image-policy-source-successor-20261020.json",
