@@ -261,11 +261,28 @@ def _verify_aws_credentials(connector):
         # early failure within the existing sanitized credential error path.
         if _expired_exception(exc):
             raise CredentialExpired("AWS connector authentication failed before collection") from None
+        if _rejected_exception(exc):
+            raise CredentialInvalid("AWS connector authentication failed before collection") from None
         raise PermissionError("AWS connector authentication failed before collection") from None
+
+
+def _rejected_exception(exc):
+    """The AWS preflight was answered with an authentication refusal."""
+    from peaso.credential_health import AWS_CODES
+    if type(exc).__name__ in {"NoCredentialsError", "PartialCredentialsError"}:
+        return True
+    response = getattr(exc, "response", None)
+    error = response.get("Error", {}) if isinstance(response, dict) else {}
+    return isinstance(error, dict) and (error.get("Code") in AWS_CODES or error.get("Code") == "AccessDenied"
+                                        and getattr(exc, "operation_name", None) == "AssumeRole")
 
 
 class CredentialExpired(PermissionError):
     pass
+
+
+class CredentialInvalid(PermissionError):
+    """The provider refused the connector credential before any data was read."""
 
 
 def _import_checks():
@@ -746,13 +763,16 @@ def _process(role, request, connection):
                 except Exception:
                     snapshot.setdefault("metadata", {})["ai_access_status"] = "unavailable"
             del ai_credentials
-            from peaso.snapshot import nothing_readable
+            from peaso.credential_health import nothing_readable
             expired = _expired_snapshot(snapshot)
             if expired:
                 snapshot = _retryable_expired_snapshot(snapshot)
             if nothing_readable(snapshot) and not expired:
                 # Every read failed (expired/wrong credentials): fail the scan instead of publishing an empty assessment.
                 failure_reasons = _curated_target_reasons(snapshot, request["connector"])
+                from peaso.credential_health import credentials_rejected
+                if credentials_rejected(snapshot):
+                    raise CredentialInvalid("the provider rejected the connector credentials")
                 raise PermissionError("no collection was readable with the connector credentials")
             snapshot.setdefault("metadata", {})["input_mode"] = request["connector"].get("input_mode", "live")
             with _runtime_span('worker.final_snapshot'), gc_paused():
@@ -863,6 +883,8 @@ def _process(role, request, connection):
     except BaseException as exc:
         if isinstance(exc, CredentialExpired) or _expired_exception(exc):
             code = "credentials_expired"
+        elif isinstance(exc, CredentialInvalid):
+            code = "credentials_invalid"
         elif isinstance(exc, (ValueError, TypeError, KeyError)):
             code = "invalid_input"
         elif isinstance(exc, ImportError):

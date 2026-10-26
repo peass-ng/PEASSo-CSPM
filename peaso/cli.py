@@ -9,7 +9,7 @@ import tempfile
 from .engine import collect_snapshot, evaluate_snapshot, expand_report, diff_reports, get_catalog, REPORT_SCHEMA_VERSION
 from .reports import render_markdown
 from .progress import ProgressReporter
-from .snapshot import nothing_readable
+from .credential_health import nothing_readable
 
 
 def _load(path):

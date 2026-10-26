@@ -69,7 +69,9 @@ def cloudbuild_builds(collector, scope):
                 kept['ConfigurationSecretIndicators'] = row['ConfigurationSecretIndicators']
             return {'name': name, **kept, '_representation': 'partial'}
         return collector.pages(f'https://cloudbuild.googleapis.com/v1/{scope}/locations/{location}/builds',
-            scope, key='builds', params={'projectId': scope.split('/')[1]}, transform=project)
+            scope, key='builds', params={'projectId': scope.split('/')[1],
+                # Literal configuration scans bind at most 100 builds per page.
+                'pageSize': min(getattr(collector, 'page_size', 100), 100)}, transform=project)
     failures = []
     for _location, pages, exc in location_fanout(collector, locations, location_pages):
         yield from pages

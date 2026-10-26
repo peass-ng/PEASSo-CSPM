@@ -42,7 +42,9 @@ def _subject(item, kind, scope, marker):
     resource = marker['identity']
     if not re.fullmatch(IDENT, ident) or not resource.endswith('/' + ident): return None
     supplied = item.get('resourceName') if kind == 'cloudbuild_trigger' else item.get('name')
-    if supplied is not None and supplied != resource: return None
+    alias = (kind == 'cloudbuild_build' and isinstance(supplied, str) and resource.startswith(scope + '/')
+             and re.fullmatch(r'projects/[1-9][0-9]{0,19}/' + re.escape(resource[len(scope) + 1:]), supplied))
+    if supplied is not None and supplied != resource and not alias: return None
     if kind == 'cloudbuild_build' and item.get('projectId') != scope.split('/')[1]: return None
     return resource
 
@@ -58,7 +60,13 @@ def evaluate(item, index, kind):
                       and e.get('status') == 'collected' and isinstance(e.get('items'), list) and item in e['items']]
         if len(candidates) != 1 or sum(native == item for native in candidates[0]['items']) != 1:
             raise Unavailable('native collection incomplete or ambiguous')
-        marker = get(item, ('computeConfig.' if kind == 'project' else '') + MARKER, dict)
+        try:
+            marker = get(item, ('computeConfig.' if kind == 'project' else '') + MARKER, dict)
+        except (Unavailable, KeyError, TypeError, ValueError, AttributeError):
+            raise Unavailable('literal configuration scan marker absent (content_secret_scans off or kind not selected)')
+        if marker.get('status') != 'collected':
+            raise Unavailable('literal configuration scan ' + str(marker.get('status'))[:32]
+                              + (': ' + marker['reason'][:80] if isinstance(marker.get('reason'), str) else ''))
         expected = {'schema', 'status', 'kind', 'identity', 'scope', 'source_fields', 'bytes', 'parts', 'complete', 'engines', 'leaks', 'verification'}
         if (set(marker) != expected or marker['schema'] != SCHEMA or marker['kind'] != kind
                 or marker['status'] != 'collected' or marker['complete'] is not True
@@ -97,8 +105,10 @@ def evaluate(item, index, kind):
         if leaks:
             return 'FAIL', {**evidence, 'observed': 'A likely secret was detected in the resource’s returned literal configuration. The value is hidden; neither detector validated the credential.'}
         return 'PASS', {**evidence, 'observed': 'Both offline detectors completed without finding a supported secret in the returned literal configuration; external content was not inspected.'}
-    except (Unavailable, KeyError, TypeError, ValueError, AttributeError):
-        return 'UNKNOWN', {'observed': 'Literal configuration scanning is disabled, incomplete, unreadable or unbound; secret absence could not be assessed.'}
+    except (Unavailable, KeyError, TypeError, ValueError, AttributeError) as exc:
+        fact = str(exc.args[0]) if isinstance(exc, Unavailable) and exc.args and isinstance(exc.args[0], str) else type(exc).__name__
+        return 'UNKNOWN', {'observed': 'Literal configuration scanning is disabled, incomplete, unreadable or unbound; secret absence could not be assessed.',
+                           'reason': 'missing_facts: ' + fact, 'missing_facts': [fact]}
 
 
 def instance(item, index): return evaluate(item, index, 'instance')
