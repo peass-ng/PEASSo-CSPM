@@ -4,9 +4,9 @@ import hashlib
 import json
 from pathlib import Path
 
-REVIEWED_PYTHON_SHA256 = '9d14c66aa20d18646487f8f7ab6220886f5f1cec43227eee521eabd69d1a2fa6'
+REVIEWED_PYTHON_SHA256 = '0eeb6a42c5947437882e6e44d24ff32ff214b9dc035ed9cdec4d10d5063d8d88'
 REVIEWED_PYTHON_COUNT = 1695
-REVIEWED_MANIFEST_SHA256 = '341e8d666ccd6c90a7c81dc25d7be4674af4aae4fa09ce6ed882b38c206cdb6e'
+REVIEWED_MANIFEST_SHA256 = 'db29c11f177bc6192fa338918c4cdf82756df1210a64d03123852e60e7c279f4'
 REQUIRED_BOTOCORE_VERSION = '1.43.38'
 API_SERVICES = frozenset({
     'accessanalyzer', 'cloudtrail', 'cognito-identity', 'cognito-idp',

@@ -1258,7 +1258,7 @@
     "peaso/collectors/gcp_developerconnect_links.py": "1a61f8b21048ed7fd2d2be38b681e4e5b43a23b4a490471a68d2db2fe7254082",
     "peaso/collectors/gcp_discoveryengine_collections.py": "a4c54592197e2dae389c77d2285e0c5fe10cf4dd82a3aa9d429797652fd6d409",
     "peaso/collectors/gcp_facts_v4_holds.py": "f52b9df380e2e69de33cd39bd99f3fda30cac030a1a583c50660b8b9a083f39f",
-    "peaso/collectors/gcp_fanout.py": "4871a1030e7b8e14494d1c8e81a5a5116486b9f8429718bd53a6d87e9d5fd642",
+    "peaso/collectors/gcp_fanout.py": "068142a85307c0ada94a3b7430a4e671191e258db1610ef2c3ecc75151eb97b8",
     "peaso/collectors/gcp_function_secret_indicators.py": "3f0fd85858c2c29d76740539a3aef5c7d022e4b52b19398581b8d535fd7be7fe",
     "peaso/collectors/gcp_function_secret_pairs_20261020.py": "31237ce04804acc4a82923b5a0e4fb0a02d2246cb8a03ef15a364e576df31c9c",
     "peaso/collectors/gcp_function_secret_pairs_candidate_20261020.py": "d1511a4fc5ac9626b8c06ddbb8bd84173e0a0ffd46df2b46a5571b4cabce9786",
@@ -1803,7 +1803,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1695,
-  "python_source_sha256": "9d14c66aa20d18646487f8f7ab6220886f5f1cec43227eee521eabd69d1a2fa6",
+  "python_source_sha256": "0eeb6a42c5947437882e6e44d24ff32ff214b9dc035ed9cdec4d10d5063d8d88",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

@@ -66,9 +66,15 @@ def _serial_location(fetch_one, location):
         _close(iterator)
 
 
+def _cancel_check(collector):
+    check = getattr(getattr(collector, "transport", None), "check_cancelled", None)
+    return check if callable(check) else None
+
+
 class _Cursor:
-    def __init__(self, fetch_one, location, stop):
+    def __init__(self, fetch_one, location, stop, cancelled=None):
         self.fetch_one, self.location, self.stop = fetch_one, location, stop
+        self.cancelled = cancelled
         self.iterator = None
 
     def step(self):
@@ -76,6 +82,10 @@ class _Cursor:
             _close(self.iterator)
             return "end", None
         try:
+            # A cancelled or expired scan stops every producer before its next
+            # native read; the error replays at this location's serial position.
+            if self.cancelled is not None:
+                self.cancelled()
             if self.iterator is None:
                 self.iterator = iter(self.fetch_one(self.location))
             page = next(self.iterator)
@@ -103,13 +113,14 @@ def location_fanout(collector, locations, fetch_one):
     pool = collector.location_pool
     width = max(1, min(64, getattr(pool, "_max_workers", 1)))
     stop, active = threading.Event(), {}
+    cancelled = _cancel_check(collector)
     following = 1
 
     def fill():
         nonlocal following
         while following < len(locations) and len(active) < width:
             index = following
-            cursor = _Cursor(fetch_one, locations[index], stop)
+            cursor = _Cursor(fetch_one, locations[index], stop, cancelled)
             active[index] = (cursor, pool.submit(cursor.step))
             following += 1
 
@@ -141,8 +152,10 @@ def location_fanout(collector, locations, fetch_one):
     finally:
         stop.set()
         for cursor, future in active.values():
-            if future.cancel() or future.done():
-                _close(cursor.iterator)
+            # Queued steps never start; a running step closes its iterator once
+            # its current read returns (immediately when already finished).
+            future.cancel()
+            future.add_done_callback(lambda _future, cursor=cursor: _close(cursor.iterator))
         active.clear()
 
 
