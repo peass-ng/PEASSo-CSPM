@@ -1848,9 +1848,10 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
 
 def _related_snapshots(snapshot, related_snapshots):
     """Validated related snapshots: other providers only, the primary and duplicates dropped, stable order."""
+    from .related_snapshots import related_view
     out, seen = [], {snapshot["snapshot_id"]}
     for candidate in related_snapshots or ():
-        candidate = validate(candidate, read_only=True)
+        candidate = related_view(candidate)
         if candidate["snapshot_id"] in seen or candidate["provider"] == snapshot["provider"]:
             continue
         seen.add(candidate["snapshot_id"])
