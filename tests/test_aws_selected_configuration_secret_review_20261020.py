@@ -420,7 +420,16 @@ def test_public_selection_rejects_before_authentication(monkeypatch,case):
     elif case=='bad_version':target.update(surface='launch_template_userdata',resource_id=arn('ec2','launch-template/lt-0123456789abcdef0'),version='$Latest')
     else:target['surface']='secretsmanager_value'
     req=request(targets)
-    if case=='missing':req['connector']['options'].pop(source.OPTION)
+    if case=='missing':
+        req['connector']['options'].pop(source.OPTION)
+        class InventoryPlanning(Exception):
+            pass
+        def inventory(connector):
+            raise InventoryPlanning
+        monkeypatch.setattr(aws, '_selection', inventory)
+        with pytest.raises(InventoryPlanning):
+            engine.collect_snapshot(req)
+        return
     with pytest.raises(ValueError):engine.collect_snapshot(req)
 
 

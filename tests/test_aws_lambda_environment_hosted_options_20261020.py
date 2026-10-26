@@ -77,3 +77,43 @@ def test_pure_lambda_selector_retains_exact_native_grammar():
                             if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
                             and n.targets[0].id in constants}
     assert values(native.body) == values(closure.body)
+
+
+# Automatic content selections are resolved only after native inventory.
+import pytest
+from peaso.collectors import aws
+from peaso.collectors import aws_lambda_environment_secret_indicators as env
+from peaso.collectors import aws_selected_configuration_secret_indicators as config
+
+class ReachedDiscovery(Exception):
+    pass
+
+@pytest.fixture
+def no_cloud(monkeypatch):
+    def reached(connector):
+        raise ReachedDiscovery
+    monkeypatch.setattr(aws, '_selection', reached)
+    def forbidden(*args, **kwargs):
+        pytest.fail('Preflight must not contact AWS')
+    monkeypatch.setattr(aws, '_session', forbidden)
+
+@pytest.mark.parametrize('scopes', [[], ['123456789012'], ['us-east-2'], ['123456789012/us-east-2']])
+@pytest.mark.parametrize('kinds', [[env.KIND], [config.KIND], [env.KIND, config.KIND]])
+def test_automatic_content_reaches_inventory_planning(no_cloud, scopes, kinds):
+    with pytest.raises(ReachedDiscovery):
+        aws.collect({'auth': {}, 'scopes': scopes, 'options': {
+            'content_secret_scans': True, '_content_secret_scan_kinds': kinds}})
+
+@pytest.mark.parametrize('module', [env, config])
+@pytest.mark.parametrize('targets', [None, [], 'not-a-list', ['invalid-target']])
+def test_invalid_explicit_selection_fails_before_discovery(no_cloud, module, targets):
+    with pytest.raises(ValueError):
+        aws.collect({'auth': {}, 'scopes': ['123456789012/us-east-2'], 'options': {
+            'content_secret_scans': True, '_content_secret_scan_kinds': [module.KIND],
+            module.OPTION: targets}})
+
+@pytest.mark.parametrize('flag', [1, 'true', None, []])
+def test_invalid_flag_is_rejected_before_discovery(no_cloud, flag):
+    with pytest.raises(ValueError):
+        aws.collect({'auth': {}, 'scopes': ['123456789012'], 'options': {
+            'content_secret_scans': flag, '_content_secret_scan_kinds': [env.KIND]}})

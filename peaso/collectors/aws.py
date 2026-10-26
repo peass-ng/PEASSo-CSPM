@@ -2007,9 +2007,21 @@ def collect(connector, requirements=None):
     if requirements is not None and codebuild_inline.KIND in requirements and set(requirements) <= {codebuild_inline.KIND, 'aws_account'} and not codebuild_inline_permitted:
         return codebuild_inline.disabled_snapshot(connector.get('scopes') or [])
     from . import aws_lambda_environment_secret_indicators
-    aws_lambda_environment_secret_indicators.selected_targets(options, connector.get('scopes') or [])
     from . import aws_selected_configuration_secret_indicators
-    aws_selected_configuration_secret_indicators.selected_targets(options, connector.get('scopes') or [])
+    # Named opt-in without a hand-picked target uses completed native inventory.
+    # Keep the selected reader dormant until its exact targets are planned.
+    granted_content = options.get('_content_secret_scan_kinds', [])
+    auto_lambda_environment = (options.get('content_secret_scans') is True
+        and aws_lambda_environment_secret_indicators.KIND in granted_content
+        and aws_lambda_environment_secret_indicators.OPTION not in options)
+    auto_ecs_environment = (options.get('content_secret_scans') is True
+        and aws_selected_configuration_secret_indicators.KIND in granted_content
+        and aws_selected_configuration_secret_indicators.OPTION not in options)
+    initial_content_options = {**options, '_content_secret_scan_kinds': [kind for kind in granted_content
+        if not (auto_lambda_environment and kind == aws_lambda_environment_secret_indicators.KIND)
+        and not (auto_ecs_environment and kind == aws_selected_configuration_secret_indicators.KIND)]}
+    aws_lambda_environment_secret_indicators.selected_targets(initial_content_options, connector.get('scopes') or [])
+    aws_selected_configuration_secret_indicators.selected_targets(initial_content_options, connector.get('scopes') or [])
     from . import aws_s3_selected_source_secret_indicators
     aws_s3_selected_source_secret_indicators.selected_targets(options, connector.get('scopes') or [])
     from . import aws_ecs_environment_file_secret_indicators
@@ -2064,18 +2076,6 @@ def collect(connector, requirements=None):
 
     requests = Requests(options)
     requests.progress_callback = progress_callback
-    # Named opt-in without a hand-picked target uses completed native inventory.
-    # Keep the selected reader dormant until its exact targets are planned.
-    granted_content = options.get('_content_secret_scan_kinds', [])
-    auto_lambda_environment = (options.get('content_secret_scans') is True
-        and aws_lambda_environment_secret_indicators.KIND in granted_content
-        and aws_lambda_environment_secret_indicators.OPTION not in options)
-    auto_ecs_environment = (options.get('content_secret_scans') is True
-        and aws_selected_configuration_secret_indicators.KIND in granted_content
-        and aws_selected_configuration_secret_indicators.OPTION not in options)
-    initial_content_options = {**options, '_content_secret_scan_kinds': [kind for kind in granted_content
-        if not (auto_lambda_environment and kind == aws_lambda_environment_secret_indicators.KIND)
-        and not (auto_ecs_environment and kind == aws_selected_configuration_secret_indicators.KIND)]}
     aws_lambda_environment_secret_indicators.initialize(requests, initial_content_options, connector.get('scopes') or [])
     aws_selected_configuration_secret_indicators.initialize(requests, initial_content_options, connector.get('scopes') or [])
     aws_s3_selected_source_secret_indicators.initialize(requests, options, connector.get('scopes') or [])
