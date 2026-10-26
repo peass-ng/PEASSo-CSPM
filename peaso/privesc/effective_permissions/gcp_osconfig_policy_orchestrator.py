@@ -7,6 +7,7 @@ from collections import Counter
 
 from . import ANY, inventory_status, items
 from .gcp_osconfig_guest_policy import _vm_verdict
+from .gcp_osconfig_index import memo
 from .gcp_osconfig_os_policy_assignment import _attached_vms
 
 
@@ -21,6 +22,11 @@ def _parents(model, project):
 
 
 def _known(model, parent):
+    known = memo(model, "orchestrators", parent, lambda: _known_uncached(model, parent))
+    return None if known is None else list(known)
+
+
+def _known_uncached(model, parent):
     status = {model._norm_scope(scope): value for scope, value in
               inventory_status(model.snapshot, "osconfig_policy_orchestrator").items()}.get(parent)
     if status not in ("collected", "empty"):
@@ -54,6 +60,10 @@ def resources(model, project, *, orchestrators):
 
 
 def _service_agents(model, parent):
+    return memo(model, "service_agents", parent, lambda: _service_agents_uncached(model, parent))
+
+
+def _service_agents_uncached(model, parent):
     status = {model._norm_scope(scope): value for scope, value in
               inventory_status(model.snapshot, "iam_policy").items()}
     if status.get(parent) not in ("collected", "empty"):
@@ -93,6 +103,10 @@ def _service_agents(model, parent):
 
 
 def _project_apis(model, parent):
+    return memo(model, "project_apis", parent, lambda: _project_apis_uncached(model, parent))
+
+
+def _project_apis_uncached(model, parent):
     if not parent.startswith("projects/"):
         return ("unknown", "orchestrator_quota_project_unresolved")
     status = {model._norm_scope(scope): value for scope, value in
@@ -112,18 +126,22 @@ def selector(model, value, candidates, source):
     if value is not True or source is None:
         return {}
     out = {}
+    writes, verdicts = {}, {}  # one source per call: its writes and VM verdicts do not depend on the target
     for tid, target in candidates.items():
         project = target.scope
         vms = list(_attached_vms(model, target))
         counts = Counter(resource for _, resource, _ in vms if resource)
         unresolved = None
         for parent, location in _parents(model, project):
-            create = model.check(source, {"action": "osconfig.policyOrchestrators.create"}, location)
-            known = _known(model, parent)
-            updates = [] if known is None else [grant for name in known
-                if (grant := model.check(source, {"action": "osconfig.policyOrchestrators.update"}, name))]
-            possible = (model.check(source, {"action": "osconfig.policyOrchestrators.update"}, ANY)
-                        if known is None else None)
+            if (parent, location) not in writes:
+                create = model.check(source, {"action": "osconfig.policyOrchestrators.create"}, location)
+                known = _known(model, parent)
+                updates = [] if known is None else [grant for name in known
+                    if (grant := model.check(source, {"action": "osconfig.policyOrchestrators.update"}, name))]
+                possible = (model.check(source, {"action": "osconfig.policyOrchestrators.update"}, ANY)
+                            if known is None else None)
+                writes[(parent, location)] = (create, updates, possible)
+            create, updates, possible = writes[(parent, location)]
             if create is None and not updates and possible is None:
                 continue
             agent_state = _service_agents(model, parent)
@@ -132,8 +150,11 @@ def selector(model, value, candidates, source):
                 if resource is None or counts[resource] != 1:
                     unresolved = ("unknown", "orchestrator_vm_identity_ambiguous")
                     continue
-                state = _vm_verdict(model, project, vm, resource, source,
-                                    feature="tasks", require_ga=True)
+                vm_key = (project, id(vm), resource)
+                if vm_key not in verdicts:
+                    verdicts[vm_key] = _vm_verdict(model, project, vm, resource, source,
+                                                   feature="tasks", require_ga=True)
+                state = verdicts[vm_key]
                 if state == "disabled":
                     continue
                 if (state is None and agent_state is None and api_state is None and

@@ -12,6 +12,7 @@ def select(model, candidates, source):
         return {}
     projects = sorted({model._norm_scope(scope) for scope, _ in items(model.snapshot, 'project')})
     out = {}
+    project_rights = {}  # source rights per project do not depend on the target
     for target_id, target in candidates.items():
         if (target_id == source.id or target.kind != 'gcp_service_account'
                 or target.attrs.get('disabled')):
@@ -25,13 +26,14 @@ def select(model, candidates, source):
             continue
         unresolved = actas != 'derived'
         for project in projects:
-            create = _rights(model, source, project, ('dataproc.workflowTemplates.create',))
-            instantiate = _rights(model, source, project,
-                                  ('dataproc.workflowTemplates.instantiate',))
-            inline = _rights(model, source, project,
-                             ('dataproc.workflowTemplates.instantiateInline',))
-            policy = _rights(model, source, project,
-                             ('dataproc.workflowTemplates.setIamPolicy',))
+            rights = project_rights.get(project)
+            if rights is None:
+                rights = project_rights[project] = tuple(
+                    _rights(model, source, project, (action,)) for action in (
+                        'dataproc.workflowTemplates.create', 'dataproc.workflowTemplates.instantiate',
+                        'dataproc.workflowTemplates.instantiateInline',
+                        'dataproc.workflowTemplates.setIamPolicy'))
+            create, instantiate, inline, policy = rights
             template = create == 'derived' and instantiate == 'derived'
             immediate = inline == 'derived'
             if not template and not immediate:

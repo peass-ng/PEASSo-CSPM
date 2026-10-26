@@ -48,7 +48,37 @@ def __getattr__(name):
 @lru_cache(maxsize=8)
 def _cached_catalog(path):
     from .schema import load_catalog
-    return load_catalog(path)
+    fingerprint = _catalog_fingerprint(path)
+    loaded = load_catalog(path)
+    _CATALOG_FINGERPRINTS.pop(path, None)
+    while len(_CATALOG_FINGERPRINTS) >= 8:  # bounded like the lru cache above
+        _CATALOG_FINGERPRINTS.pop(next(iter(_CATALOG_FINGERPRINTS)))
+    _CATALOG_FINGERPRINTS[path] = (fingerprint, loaded)
+    return loaded
+
+
+# path -> (sha256 per catalog file taken just before the cached load, that load). Lets hash-verified callers reuse
+# the process catalog instead of parsing and validating the same bytes again.
+_CATALOG_FINGERPRINTS = {}
+
+
+def _catalog_fingerprint(path):
+    import hashlib
+    from .schema import catalog_files
+    root = Path(path)
+    try:
+        return {str(file.relative_to(root)): hashlib.sha256(file.read_bytes()).hexdigest()
+                for file in catalog_files(root)}
+    except OSError:
+        return None
+
+
+def loaded_catalog_for(path, file_sha256):
+    """The cached load of `path` when it was built from exactly `file_sha256` ({relative path: sha256}), else None."""
+    cached = _CATALOG_FINGERPRINTS.get(str(path))
+    if cached is None or cached[0] is None or cached[0] != file_sha256:
+        return None
+    return cached[1]
 
 
 def catalog(catalog_dir=None):

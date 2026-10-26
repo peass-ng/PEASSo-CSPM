@@ -8,12 +8,11 @@ from collections import Counter
 from . import ANY, inventory_status, items
 from .gcp_osconfig_guest_policy import _vm_verdict
 from .gcp_oslogin import _vm_resource
+from .gcp_osconfig_index import memo, rows_in
 
 
 def _attached_vms(model, target):
-    for scope, vm in items(model.snapshot, "instance"):
-        if model._norm_scope(scope) != target.scope:
-            continue
+    for scope, vm in rows_in(model, "instance", target.scope):
         if any(isinstance(sa, dict) and sa.get("email") == target.attrs.get("email")
                for sa in vm.get("serviceAccounts") or []):
             resource = _vm_resource(model, vm, target.scope)
@@ -23,6 +22,11 @@ def _attached_vms(model, target):
 
 
 def _assignment_names(model, project, zone):
+    names = memo(model, "assignments", (project, zone), lambda: _assignment_names_uncached(model, project, zone))
+    return None if names is None else list(names)
+
+
+def _assignment_names_uncached(model, project, zone):
     status = inventory_status(model.snapshot, "osconfig_os_policy_assignment").get(project)
     if status not in ("collected", "empty"):
         return None

@@ -879,6 +879,7 @@ class Evaluator:
         target.removes_blockers technique lifts the blocker, reported in Evaluator.blocked). A dict verdict is per
         target id (targets missing from it are not affected)."""
         blocked = {}   # target id (or None: the whole reach) -> [(blocker, evidence)]
+        owned = False  # per-target downgrades update one private copy of `reached` (keys keep their order)
         for blocker in compiled["model_blockers"]:
             verdict = self.model.blocker_verdict(blocker, source, compiled, pivots=pivots, reached=reached, cset=cset)
             per_target = verdict if isinstance(verdict, dict) else None
@@ -907,9 +908,11 @@ class Evaluator:
                     level = "conditional" if self.model.provider == "k8s" else None
                     fn = lambda g, why=why, level=level: downgrade(g, level or g.confidence, why)
                 if tid is None:
-                    reached = _map_grants(reached, fn)
+                    reached, owned = _map_grants(reached, fn), False
                 else:
-                    reached = {**reached, tid: fn(reached[tid])}
+                    if not owned:
+                        reached, owned = dict(reached), True
+                    reached[tid] = fn(reached[tid])
         if not blocked:
             return reached
         if None in blocked:

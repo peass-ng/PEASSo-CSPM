@@ -3151,15 +3151,41 @@ class AwsModel(Model):
         if source.id in cache:
             return cache[source.id]
         found = {}
-        for table in (self.trust_by_arn.get(_norm_arn(source.id), {}), self.trust_by_account.get(source.scope, {}), self.trust_public):
+        source_arn = _norm_arn(source.id)
+        shared = self.__dict__.setdefault("_plain_trust_verdicts", {})
+        plain = self.__dict__.setdefault("_plain_trust_principal_cache", {})
+        for table in (self.trust_by_arn.get(source_arn, {}), self.trust_by_account.get(source.scope, {}), self.trust_public):
             for rid, value in table.items():
                 if rid == source.id or rid in found:
                     continue
-                verdict = self._trust_verdict(source, rid, value)
+                named = plain[rid] if rid in plain else self._plain_trust_principals(rid)
+                if named is None or source_arn in named:
+                    verdict = self._trust_verdict(source, rid, value)
+                else:
+                    # Unconditional trust that does not name this source: the verdict reads only its account.
+                    key = (rid, source.scope)
+                    if key not in shared:
+                        shared[key] = self._trust_verdict(source, rid, value)
+                    verdict = shared[key]
                 if verdict is not None:
                     found[rid] = verdict
         cache[source.id] = found
         return found
+
+    def _plain_trust_principals(self, rid):
+        """Normalized AWS principal ARNs of a trust policy without Condition or policy variables, else None.
+
+        For such a policy _trust_verdict(source, rid, ...) depends on the source only through its account and
+        whether its normalized ARN is one of these names; sources that share both share the verdict."""
+        cache = self.__dict__.setdefault("_plain_trust_principal_cache", {})
+        if rid not in cache:
+            statements = self.trust.get(rid, ())
+            if any(st.condition or st.variables for st in statements):
+                cache[rid] = None
+            else:
+                cache[rid] = frozenset(_norm_arn(str(p)) for st in statements if isinstance(st.principals, dict)
+                                       for p in as_list(st.principals.get("AWS")))
+        return cache[rid]
 
     def _trust_explicit_deny(self, rid, action, source=None, service=None, federated=None, extra_overrides=None):
         """True for a proven trust-policy deny, None when a matching deny is undecidable."""

@@ -1,7 +1,7 @@
 {
   "peaso/analysis/common.py": "25bff0bac8b1a9de95e5ac72fe8e97e02f042582c683ce1ed36db9e85e9c409d",
   "peaso/analysis/finding_clarity.py": "13d69a471f92612739c43cc9d39668de14846537791de69dee6c46ace32c549e",
-  "peaso/analysis/iam.py": "207523c55964468f8bdd82d430bc983cbc9beefcb648e9cdf15d76ad513ae587",
+  "peaso/analysis/iam.py": "4ac28896b391fe2e431861aacee7bcd1b62851aa061b24f9c4975aa356cd7b21",
   "peaso/analysis/k8s_network_links.py": "bb00a52b7db319afef3e8f7be8984c614a04d41e2311a16e6550b8b72dc73c33",
   "peaso/analysis/network.py": "8e5d92abd99b447cb3866e23839b1ada70af992e2a178fd174758e4de809434d",
   "peaso/analysis/network_catalog.py": "4d7925af412ee580445ce49b1e6f0c44f7a8d5534a6d02c550338a4ece952f09",
@@ -82,7 +82,7 @@
   "peaso/finding_observation.py": "b436d9a346c09d8ec289e875206d05e48f3964dd8299b97ab64a02ac2197845c",
   "peaso/privesc/aws_observed_evidence_v3.py": "076273638803c098cece79d90e24618af2df3fcbabe14968179987d77a9a8139",
   "peaso/privesc/azure_observed_impact.py": "2853a1dd96e551fabb20591c17da7284b055f946868569b5247a3b68d0db9da7",
-  "peaso/privesc/effective_permissions/aws.py": "033245017cad4f93f10a597505a10f4e9a3bea85d9b21738c9e90b78b5bcc0e6",
+  "peaso/privesc/effective_permissions/aws.py": "da701652e23a5a66f62afec325eb420be55c3e20df85f851634cd55e85db73ca",
   "peaso/privesc/effective_permissions/aws_conditions.py": "050705908b1b5f7fad124dba2c379fee04e140dc38ca37c94dd6f314e1dd26b3",
   "peaso/privesc/effective_permissions/aws_s3_access_grants.py": "a3b1847e504e61f36a5860fc9d1c691215acb952716c2b756b5d1a0ee6c075d0",
   "peaso/privesc/effective_permissions/aws_s3_self_grant.py": "b4ab4792bc79db2ed6c8b9ae1af215ac3b33145a1ca73ef00cdaaf69b976090c",
@@ -101,7 +101,7 @@
   "peaso/privesc/effective_permissions/gcp_conditions.py": "920f1e011141a7908b3629625532a098066ee5c059f6572062a57d97f9239008",
   "peaso/privesc/effective_permissions/gcp_external_principal.py": "58dcbb686952e19a10fea9fe0603b59d2dc16d540894d71a7ccd7b8ce891262a",
   "peaso/privesc/effective_permissions/gcp_resource_self_grant.py": "e67f4508d9f726c564aa13c00b969478350e30b22ff94f8281a947a6d60de4c0",
-  "peaso/privesc/effective_permissions/k8s.py": "2af9bc45ccda5bcc4d59710b195b98b3c1fd918b9db9686980698870e9a6d600",
+  "peaso/privesc/effective_permissions/k8s.py": "2a5947f471959e718684661adeb836df4e2fe3e016931662760c20a194369a61",
   "peaso/privesc/effective_permissions/k8s_helm_values_rbac.py": "419c5f845f33d4ec9729893f4fba319cc67b25ddc0714ee90165f9aca2d404d8",
   "peaso/privesc/effective_permissions/k8s_verified_pivots.py": "8cd11c1d1461d3d08bec8675419ab6ab0896f149fb141f77bb54f17aea5334a0",
   "peaso/privesc/effective_permissions/principal_evidence.py": "b75890a975715d4912b5ee39fbde72cd606a5e2aac02726298f8f93c17e2f6d8",
@@ -110,7 +110,7 @@
   "peaso/privesc/gcp_observed_impact.py": "7bb592248badd27f5c07b7ca7ed206f4a7547b1b5ab2b30d2b9c50b00d8094e7",
   "peaso/privesc/k8s_observed_impact.py": "703dfb2a9d72963283c696dbf6abd13c0182f9dd7d89f06060ce77bb7ff1da2d",
   "peaso/privesc/schema.py": "e0c936be6e05470d310f3309240e0c56fa9b2ad59a5f077b8a25697f039c28cb",
-  "peaso/privesc/versioned_catalog.py": "ea9a9c8a276082ae3b1bf1ce57f8c22c1ff8e782e24a5825a28f0eb437cd9df1",
+  "peaso/privesc/versioned_catalog.py": "e2110ca182f1c15de2205201787520d2a5c7355a09c683389b094b874f4a6a84",
   "peaso/provider_followup_observations_20261021.py": "84d18fb252d53059c2ea486e98e8b3301e79bc1f9bdee24a4d063570c109c313",
   "risk_rules/hacktricks-privesc-source.json": "23b34efd8f37d530b7be22bb5b48f86b145a16c3cc068db3b42d15cd7d93ed81"
 }

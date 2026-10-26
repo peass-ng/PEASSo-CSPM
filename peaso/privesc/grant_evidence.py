@@ -45,7 +45,7 @@ def _explain(model, pair):
     elif model.provider == "gcp":
         role = model.roles.get(ref.get("role"))
         if role is not None:
-            patterns = sorted(p for p in role.native_permissions if glob_match(p, permission))
+            patterns = _matched_role_permissions(model, role, permission)
             if not patterns:
                 return None
             ref["matched_role_permissions"] = patterns
@@ -66,6 +66,22 @@ def _explain(model, pair):
                 "dataActions": list(definition.data), "notDataActions": list(definition.not_data),
             }
     return {**pair, "grant": ref}
+
+
+def _matched_role_permissions(model, role, permission):
+    """sorted(p for p in role.native_permissions if glob_match(p, permission)), indexed once per role."""
+    indexes = model.__dict__.setdefault("_role_permission_match_index", {})
+    entry = indexes.get(id(role))
+    if entry is None or entry[0] is not role:
+        exact, wildcard = {}, []
+        for pattern in role.native_permissions:
+            if pattern == "*" or "*" in pattern or "?" in pattern:
+                wildcard.append(pattern)
+            else:
+                exact.setdefault(pattern.lower(), []).append(pattern)
+        entry = indexes[id(role)] = (role, exact, wildcard)
+    _, exact, wildcard = entry
+    return sorted([*exact.get(permission.lower(), ()), *(p for p in wildcard if glob_match(p, permission))])
 
 
 def administrative_basis(permissions):

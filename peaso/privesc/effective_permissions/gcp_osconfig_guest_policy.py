@@ -8,10 +8,16 @@ from datetime import datetime, timedelta, timezone
 
 from . import ANY, inventory_status, items
 from .gcp_oslogin import _vm_resource
+from .gcp_osconfig_index import memo, rows_in
 
 
 def policy_resources(model, project):
     """Return exact project policy names, or None when the list is incomplete."""
+    names = memo(model, "guest_policies", project, lambda: _policy_resources_uncached(model, project))
+    return None if names is None else list(names)
+
+
+def _policy_resources_uncached(model, project):
     status = inventory_status(model.snapshot, "osconfig_guest_policy").get(project)
     if status not in ("collected", "empty"):
         return None
@@ -68,8 +74,8 @@ def _agent_inventory(model, project, vm, resource):
     if not number.isdecimal():
         return None
     suffix = f"/locations/{zone}/instances/{number}/inventory"
-    matches = [row for scope, row in items(model.snapshot, "os_inventory")
-               if model._norm_scope(scope) == project and row.get("instanceName") == vm.get("name")
+    matches = [row for scope, row in rows_in(model, "os_inventory", project)
+               if row.get("instanceName") == vm.get("name")
                and isinstance(row.get("name"), str) and row["name"].endswith(suffix)
                and model._norm_scope(row["name"].split("/locations/", 1)[0]) == project]
     if len(matches) != 1:
@@ -87,8 +93,7 @@ def _vm_verdict(model, project, vm, resource, source, *, feature="guestpolicies"
         return ("unknown", "osconfig_vm_inventory_incomplete")
     if vm.get("status") != "RUNNING":
         return ("unknown", "osconfig_vm_not_running")
-    projects = [row for scope, row in items(model.snapshot, "project")
-                if model._norm_scope(scope) == project]
+    projects = [row for scope, row in rows_in(model, "project", project)]
     if len(projects) != 1:
         return ("unknown", "osconfig_project_metadata_incomplete")
     instance_flag = _metadata_flag(vm.get("metadata"))
@@ -109,8 +114,7 @@ def _vm_verdict(model, project, vm, resource, source, *, feature="guestpolicies"
     if isinstance(disabled, set) and feature in disabled:
         return ("unknown", "osconfig_required_feature_disabled") if model.check(
             source, {"action": "compute.instances.setMetadata"}, resource) else "disabled"
-    settings = [row for scope, row in items(model.snapshot, "osconfig_project_feature_settings")
-                if model._norm_scope(scope) == project]
+    settings = [row for scope, row in rows_in(model, "osconfig_project_feature_settings", project)]
     if (inventory_status(model.snapshot, "osconfig_project_feature_settings").get(project)
             not in ("collected", "empty") or len(settings) != 1
             or settings[0].get("name") != project + "/locations/global/projectFeatureSettings"

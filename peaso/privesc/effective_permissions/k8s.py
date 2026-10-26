@@ -1202,6 +1202,18 @@ class K8sModel(ExactEvidenceMixin, Model):
         return (best_state, shown)
 
     def _one_ns_verdict(self, blocker, cluster, ns, resources):
+        """Memoized per (blocker, cluster, namespace, resources): the verdict reads only facts loaded with the model."""
+        cache = self.__dict__.setdefault("_ns_verdict_memo", {})
+        try:
+            key = (blocker, cluster, ns, frozenset(resources))
+            return cache[key]
+        except KeyError:
+            verdict = cache[key] = self._one_ns_verdict_uncached(blocker, cluster, ns, resources)
+            return verdict
+        except TypeError:
+            return self._one_ns_verdict_uncached(blocker, cluster, ns, resources)
+
+    def _one_ns_verdict_uncached(self, blocker, cluster, ns, resources):
         labels = self.ns_labels.get((cluster, ns))
         if blocker in ("pod_security_admission", "pivot_namespace_psa_enforce_baseline_or_restricted"):
             if labels is None:
@@ -1622,17 +1634,44 @@ class K8sModel(ExactEvidenceMixin, Model):
             self._role_gain_targets = out
         return self._role_gain_targets
 
-    def _bound_role_gain(self, source, target):
-        """True only if the exact role supplies a concrete permission the source lacks."""
-        if source is None or source.attrs.get("cluster") != target.attrs.get("cluster"):
-            return False
-        role = self.roles.get(target.attrs["role_key"])
-        if role is None:
-            return False
+    def _role_gain_memo(self):
+        """Scan-local plans and verdicts of the bound-role gain selectors, reset with the catalog requirements."""
+        indexes, _ = self.prefilter_indexes()
+        memo = indexes.get("k8s_role_gain")
+        if memo is None:
+            memo = indexes["k8s_role_gain"] = {"plans": {}, "gain": {}, "bindings": None}
+        return memo
+
+    def _role_gain_plan(self, target, memo):
+        """Target-only part of _bound_role_gain: the role rules applicable in the target namespace, the bind
+        request and the ordered concrete probes some role rule grants."""
+        plans = memo["plans"]
+        if target.id in plans:
+            return plans[target.id]
         ns = target.attrs["namespace"]
+        shared = self._role_gain_rules(target.attrs["role_key"], ns == "*", memo)
+        if shared is None:
+            plans[target.id] = None
+            return None
+        role_rules, bind_req, probes = shared
+        plan = plans[target.id] = (role_rules, bind_req, (ns, target.attrs["role_name"], None),
+                                   tuple(((ns, name, None), req) for name, req in probes))
+        return plan
+
+    def _role_gain_rules(self, role_key, cluster_wide, memo):
+        """Role rules, bind request and probes of one role; they depend only on whether the gain is cluster-wide
+        (namespaced targets of the same role share them)."""
+        cache = memo.setdefault("roles", {})
+        key = (role_key, cluster_wide)
+        if key in cache:
+            return cache[key]
+        role = self.roles.get(role_key)
+        if role is None:
+            cache[key] = None
+            return None
         role_rules = []
         for rule in role["rules"]:
-            if ns == "*":
+            if cluster_wide:
                 role_rules.append(rule)
                 continue
             namespaced_resources = [res for res in as_list(rule.get("resources"))
@@ -1640,14 +1679,9 @@ class K8sModel(ExactEvidenceMixin, Model):
             if namespaced_resources:
                 role_rules.append({**rule, "resources": namespaced_resources, "nonResourceURLs": []})
         if not role_rules:
-            return False
+            cache[key] = None
+            return None
         resource = "clusterroles" if role["kind"] == "ClusterRole" else "roles"
-        bind = self.check(source, {"verb": "bind", "resource": resource,
-                                   "api_group": "rbac.authorization.k8s.io"},
-                          (ns, target.attrs["role_name"], None))
-        if bind is None:
-            return False
-        bind_uncertain = bind.confidence != "derived"
         probes = set()
         for rule in role_rules:
             names = as_list(rule.get("resourceNames")) or [None]
@@ -1655,30 +1689,57 @@ class K8sModel(ExactEvidenceMixin, Model):
                 for group in as_list(rule.get("apiGroups")):
                     for res in as_list(rule.get("resources")):
                         if "*" not in (verb, group, res) and "*/" not in str(res):
-                            if ns != "*" and str(res).partition("/")[0] in CLUSTER_SCOPED:
+                            if not cluster_wide and str(res).partition("/")[0] in CLUSTER_SCOPED:
                                 continue
                             probes.update((str(verb).lower(), str(group), str(res), name) for name in names)
-        for key in self.catalog_keys:
+        for catalog_key in self.catalog_keys:
             try:
-                verb, group, resource_name, sub = key.split("|")
+                verb, group, resource_name, sub = catalog_key.split("|")
             except ValueError:
                 continue
             if verb.startswith(PREFIX) or group == ANY_MATCH or resource_name == ANY_MATCH:
                 continue
             resource_full = resource_name + ("/" + sub if sub else "")
-            if ns != "*" and resource_name in CLUSTER_SCOPED:
+            if not cluster_wide and resource_name in CLUSTER_SCOPED:
                 continue
             probes.add((verb, group, resource_full, None))
-        incomplete = not all(self._complete(kind) for kind in
-                             ("role", "clusterrole", "rolebinding", "clusterrolebinding"))
-        possible = False
+        ordered = []
         for verb, group, resource_full, name in sorted(probes, key=repr):
             resource_name, _, sub = resource_full.partition("/")
             if not any(_rule_matches(rule, verb, group, resource_name, sub, name) is True for rule in role_rules):
                 continue
-            req = {"verb": verb, "api_group": group, "resource": resource_name, "_rbac_only": True,
-                   **({"subresource": sub} if sub else {})}
-            own = self.check(source, req, (ns, name, None))
+            ordered.append((name, {"verb": verb, "api_group": group, "resource": resource_name,
+                                   "_rbac_only": True, **({"subresource": sub} if sub else {})}))
+        cache[key] = (role_rules, {"verb": "bind", "resource": resource, "api_group": "rbac.authorization.k8s.io"},
+                      tuple(ordered))
+        return cache[key]
+
+    def _bound_role_gain(self, source, target, memo=None):
+        """True only if the exact role supplies a concrete permission the source lacks."""
+        if source is None or source.attrs.get("cluster") != target.attrs.get("cluster"):
+            return False
+        memo = self._role_gain_memo() if memo is None else memo
+        key = (source.id, target.id)
+        gains = memo["gain"]
+        if key not in gains:
+            gains[key] = self._bound_role_gain_uncached(source, target, memo)
+        return gains[key]
+
+    def _bound_role_gain_uncached(self, source, target, memo):
+        plan = self._role_gain_plan(target, memo)
+        if plan is None:
+            return False
+        role_rules, bind_req, bind_ref, probes = plan
+        ns = target.attrs["namespace"]
+        bind = self.check(source, bind_req, bind_ref)
+        if bind is None:
+            return False
+        bind_uncertain = bind.confidence != "derived"
+        incomplete = not all(self._complete(kind) for kind in
+                             ("role", "clusterrole", "rolebinding", "clusterrolebinding"))
+        possible = False
+        for ref, req in probes:
+            own = self.check(source, req, ref)
             if own is None:
                 if incomplete:
                     return ("conditional", "source_rbac_inventory_incomplete")
@@ -1709,34 +1770,66 @@ class K8sModel(ExactEvidenceMixin, Model):
             return False
         return ("conditional", "role_rule_gain_not_fully_probed")
 
-    def _existing_rolebinding_gain(self, source, target):
-        """Require an existing binding to the selected role that can gain this subject."""
-        role = self.roles.get(target.attrs["role_key"])
-        if role is None or source is None:
-            return False
-        cluster, ns = target.attrs["cluster"], target.attrs["namespace"]
-        kind = "clusterrolebinding" if ns == "*" else "rolebinding"
-        binding_ns = None if ns == "*" else ns
-        possible = False
+    def _role_binding_names(self, memo, kind, cluster, binding_ns, role):
+        """Names of the collected (cluster)role bindings to one role, in collection order."""
+        index = memo["bindings"]
+        if index is None:
+            index = {}
+            for binding_kind in ("rolebinding", "clusterrolebinding"):
+                for _, item in items(self.snapshot, binding_kind):
+                    meta, ref = item.get("metadata") or {}, item.get("roleRef") or {}
+                    binding_name = meta.get("name")
+                    if not binding_name:
+                        continue
+                    try:
+                        index.setdefault((binding_kind, _cluster(item), meta.get("namespace"), ref.get("kind"),
+                                          ref.get("name")), []).append(binding_name)
+                    except TypeError:  # unhashable native values: keep the original scan
+                        index = False
+                        break
+                if index is False:
+                    break
+            memo["bindings"] = index
+        if index is False:
+            return self._role_binding_names_scan(kind, cluster, binding_ns, role)
+        try:
+            return index.get((kind, cluster, binding_ns, role["kind"], role["name"]), ())
+        except TypeError:
+            return self._role_binding_names_scan(kind, cluster, binding_ns, role)
+
+    def _role_binding_names_scan(self, kind, cluster, binding_ns, role):
+        out = []
         for _, item in items(self.snapshot, kind):
             meta, ref = item.get("metadata") or {}, item.get("roleRef") or {}
             if (_cluster(item), meta.get("namespace")) != (cluster, binding_ns):
                 continue
             if (ref.get("kind"), ref.get("name")) != (role["kind"], role["name"]):
                 continue
-            binding_name = meta.get("name")
-            if not binding_name:
-                continue
+            if meta.get("name"):
+                out.append(meta.get("name"))
+        return out
+
+    def _existing_rolebinding_gain(self, source, target, memo=None):
+        """Require an existing binding to the selected role that can gain this subject."""
+        role = self.roles.get(target.attrs["role_key"])
+        if role is None or source is None:
+            return False
+        memo = self._role_gain_memo() if memo is None else memo
+        cluster, ns = target.attrs["cluster"], target.attrs["namespace"]
+        kind = "clusterrolebinding" if ns == "*" else "rolebinding"
+        binding_ns = None if ns == "*" else ns
+        possible = False
+        for binding_name in self._role_binding_names(memo, kind, cluster, binding_ns, role):
             for verb in ("patch", "update"):
                 grant = self.check(source, {"verb": verb, "resource": kind + "s",
                                             "api_group": "rbac.authorization.k8s.io"},
                                    (ns, binding_name, None))
                 if grant is not None:
                     if grant.confidence == "derived":
-                        return self._bound_role_gain(source, target)
+                        return self._bound_role_gain(source, target, memo)
                     possible = True
         if possible:
-            gain = self._bound_role_gain(source, target)
+            gain = self._bound_role_gain(source, target, memo)
             return False if gain is False else ("conditional", "existing_binding_write_not_fully_resolved")
         return False
 
@@ -2390,10 +2483,11 @@ class K8sModel(ExactEvidenceMixin, Model):
                     out[tid] = ("unknown", "service_account_binding_role_not_collected")
             return out
         if key == "k8s_bound_role_gain":
+            memo = self._role_gain_memo()
             return {tid: verdict for tid, target in candidates.items()
                     if target.id in self._bound_role_gain_targets()
                     and target.attrs.get("namespace") != "*"
-                    and (verdict := self._bound_role_gain(source, target)) is not False}
+                    and (verdict := self._bound_role_gain(source, target, memo)) is not False}
         if key == "k8s_constrained_impersonation_gain":
             return {tid: verdict for tid, target in candidates.items()
                     if (verdict := self._constrained_impersonation_gain(source, target, str(value))) is not False}
@@ -2416,20 +2510,23 @@ class K8sModel(ExactEvidenceMixin, Model):
                     out[tid] = None
             return out
         if key == "k8s_existing_rolebinding_gain":
+            memo = self._role_gain_memo()
             return {tid: verdict for tid, target in candidates.items()
                     if target.id in self._bound_role_gain_targets()
                     and target.attrs.get("namespace") != "*"
-                    and (verdict := self._existing_rolebinding_gain(source, target)) is not False}
+                    and (verdict := self._existing_rolebinding_gain(source, target, memo)) is not False}
         if key == "k8s_clusterrolebinding_gain":
+            memo = self._role_gain_memo()
             return {tid: verdict for tid, target in candidates.items()
                     if target.id in self._bound_role_gain_targets()
                     and target.attrs.get("namespace") == "*"
-                    and (verdict := self._bound_role_gain(source, target)) is not False}
+                    and (verdict := self._bound_role_gain(source, target, memo)) is not False}
         if key == "k8s_existing_clusterrolebinding_gain":
+            memo = self._role_gain_memo()
             return {tid: verdict for tid, target in candidates.items()
                     if target.id in self._bound_role_gain_targets()
                     and target.attrs.get("namespace") == "*"
-                    and (verdict := self._existing_rolebinding_gain(source, target)) is not False}
+                    and (verdict := self._existing_rolebinding_gain(source, target, memo)) is not False}
         if key == "k8s_verified_pivot":
             from .k8s_verified_pivots import select
             return select(self, value, candidates, source, pivot)
