@@ -16,6 +16,17 @@ from peaso.collectors import gcp_registry_trivy_20261021 as mod
 from peaso.collectors import gcp_job_trivy_stream_20261021 as stream
 import gcp_job_image_vulnerability_fixture_20261021 as fixture
 
+
+def released(runner):
+    """Fake runners keep the real runner's contract: release staged scratch in finally."""
+    from peaso import container_image_archive_20261020 as image_archive
+    def run(identity, manifest, config, layers, **kwargs):
+        try:
+            return runner(identity, manifest, config, layers, **kwargs)
+        finally:
+            image_archive.release_staged(identity, manifest, config, layers)
+    return run
+
 def product_modules():
     return selection, review, runtime
 
@@ -53,7 +64,7 @@ def test_native_standalone_image_gets_no_job_and_cleans_every_path(tmp_path):
     observed=[]
     def runner(*args, **kw):
         observed.extend(args[3]);return clean(*args,**kw)
-    result=collect(ref,metadata,images,wire,runner=runner)
+    result=collect(ref,metadata,images,wire,runner=released(runner))
     assert result['status']=='PASS', result
     assert result['complete']
     assert len(metadata.calls)==6 and not any('run.googleapis' in u for u in metadata.calls)
@@ -86,7 +97,7 @@ def test_foreign_or_inactive_project_is_unknown(field,value):
     ref,metadata,images,wire=setup()
     url=mod.requests_for(ref,fixture.SCOPE)[0][0]
     metadata.bodies[url][field]=value
-    result=collect(ref,metadata,images,wire,runner=clean)
+    result=collect(ref,metadata,images,wire,runner=released(clean))
     assert result['status']=='UNKNOWN' and not images.calls
 
 
@@ -94,7 +105,7 @@ def test_foreign_or_inactive_project_is_unknown(field,value):
 def test_wrong_repository_is_unknown(field,value):
     ref,metadata,images,wire=setup();url=mod.requests_for(ref,fixture.SCOPE)[1][0]
     metadata.bodies[url][field]=value
-    assert collect(ref,metadata,images,wire,runner=clean)['status']=='UNKNOWN'
+    assert collect(ref,metadata,images,wire,runner=released(clean))['status']=='UNKNOWN'
     assert not images.calls
 
 
@@ -108,7 +119,7 @@ def test_native_verifier_rechecks_all_mutable_sources(tmp_path,kind):
         elif kind=='metadata':wire.evidence[0]['body_sha256']='0'*64
         elif kind=='sequence':wire.evidence[-1]['digest']='sha256:'+'0'*64
         kw['native_verifier']();pytest.fail('tamper accepted')
-    result=collect(ref,metadata,images,wire,runner=runner)
+    result=collect(ref,metadata,images,wire,runner=released(runner))
     assert reached and result['status']=='UNKNOWN' and not result['complete']
     assert list(tmp_path.iterdir())==[]
 
@@ -120,7 +131,7 @@ def test_partial_high_cve_is_retained_without_clean_claim():
         return {'image':identity,'status':'FAIL','complete':False,'scan_complete':False,
                 'coverage_status':'UNKNOWN','database':{'fresh':False},
                 'findings':[{'vulnerability_id':'CVE-2026-12345','severity':'HIGH'}]}
-    result=collect(ref,metadata,images,wire,runner=runner)
+    result=collect(ref,metadata,images,wire,runner=released(runner))
     assert result['status']=='FAIL' and not result['complete']
     assert result['rows'][0]['scan']['findings'][0]['severity']=='HIGH'
 
@@ -129,7 +140,7 @@ def test_scanner_identity_drift_is_unknown():
     ref,metadata,images,wire=setup()
     def wrong(identity,*args,**kw):
         return {**clean(identity,*args,**kw),'image':{**identity,'scope':'projects/other'}}
-    assert collect(ref,metadata,images,wire,runner=wrong)['status']=='UNKNOWN'
+    assert collect(ref,metadata,images,wire,runner=released(wrong))['status']=='UNKNOWN'
 
 
 def full_positive(identity,manifest,config,layers,**kwargs):
@@ -145,7 +156,7 @@ def test_current_normal_registry_wrapper_and_typed_record(mode,expected):
     selection,review,runtime=product_modules()
     ref,metadata,images,wire=setup()
     result=runtime.collect_selected(wire,scope=fixture.SCOPE,targets=[ref],
-        metadata_session=metadata,image_session=images,runner=full_positive if mode=='positive' else clean)
+        metadata_session=metadata,image_session=images,runner=released(full_positive if mode=='positive' else clean))
     row=result['rows'][0]
     if mode=='missing':row['vulnerability_record']=None
     item={'name':ref,'_resource_id':ref,'native_id':ref,'RegistryImageVulnerabilityReview':row}
@@ -163,7 +174,7 @@ def test_current_normal_registry_wrapper_and_typed_record(mode,expected):
 def test_typed_consumer_rejects_wrong_scope_or_scan_claims(tamper):
     selection,review,runtime=product_modules();ref,metadata,images,wire=setup()
     result=runtime.collect_selected(wire,scope=fixture.SCOPE,targets=[ref],
-        metadata_session=metadata,image_session=images,runner=full_positive if tamper=='severity' else clean)
+        metadata_session=metadata,image_session=images,runner=released(full_positive if tamper=='severity' else clean))
     row=deepcopy(result['rows'][0]);record=row['vulnerability_record']
     ix={'scope':fixture.SCOPE,'selections':[ref],'source_requests':row['source_ledger']}
     if tamper=='scope':record['scope']='projects/other-project'
@@ -211,7 +222,7 @@ def test_image_findings_projection_keeps_partial_positive_and_unknown():
     from peaso.image_findings import build_report
     ref,metadata,images,wire=setup()
     positive=runtime.collect_selected(wire,scope=fixture.SCOPE,targets=[ref],
-        metadata_session=metadata,image_session=images,runner=full_positive)
+        metadata_session=metadata,image_session=images,runner=released(full_positive))
     report=build_report(positive['observations'],selected=True)
     assert report['coverage']=='UNKNOWN' and report['complete'] is False
     assert len(report['rows'])==1 and report['rows'][0]['vulnerability_id']=='CVE-2026-12345'
@@ -276,7 +287,7 @@ def test_validated_same_origin_blob_redirect_reaches_native_cve_verifier(tmp_pat
             return SimpleNamespace(status_code=302, url=url, history=[], headers={'Location':hop}, close=lambda:None)
         return response
     images.request = request
-    result = collect(ref, metadata, images, wire, runner=clean)
+    result = collect(ref, metadata, images, wire, runner=released(clean))
     assert result['status'] == 'PASS' and result['complete'] is True, result
     redirected = [r for r in wire.evidence if r.get('same_origin_blob_redirect') is True]
     assert len(redirected) == 2 and all(r['http_attempts'] == 2 for r in redirected)
@@ -308,7 +319,7 @@ def test_full_engine_sealed_native_record_preserves_cve_status(mode, expected):
     ref, metadata, images, wire = setup()
     result = runtime.collect_selected(wire, scope=fixture.SCOPE, targets=[ref],
         metadata_session=metadata, image_session=images,
-        runner=full_positive if mode == 'positive' else clean)
+        runner=released(full_positive if mode == 'positive' else clean))
     marker = result['rows'][0]
     if mode == 'missing':marker['vulnerability_record'] = None
     item = {'name':ref,'_resource_id':ref,'native_id':ref,'RegistryImageVulnerabilityReview':marker}
@@ -321,7 +332,7 @@ def test_full_engine_sealed_native_record_preserves_cve_status(mode, expected):
 def test_engine_boundary_still_rejects_arbitrary_container_subclasses():
     ref, metadata, images, wire = setup()
     marker = runtime.collect_selected(wire, scope=fixture.SCOPE, targets=[ref],
-        metadata_session=metadata, image_session=images, runner=clean)['rows'][0]
+        metadata_session=metadata, image_session=images, runner=released(clean))['rows'][0]
     class ForeignList(list):pass
     marker['source_ledger'] = ForeignList(marker['source_ledger'])
     item = {'name':ref,'_resource_id':ref,'native_id':ref,'RegistryImageVulnerabilityReview':marker}

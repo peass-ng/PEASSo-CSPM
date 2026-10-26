@@ -252,8 +252,11 @@ def test_actual_collector_metadata_to_selected_stream_enrichment_pipeline(real,m
     import inspect
     from peaso.collectors import gcp
     row,bodies=image(TOKEN);binary_session=Session(bodies)
-    original_reader=projection.Reader
-    monkeypatch.setattr(projection,'Reader',lambda t:original_reader(t,session=binary_session))
+    # The collector routes selected images through the streaming inspector, so
+    # bind its reader to the fixture session; never reach a live registry.
+    from peaso.collectors import gcp_image_stream_inspection_20261021 as stream_inspection
+    original_reader=stream_inspection.Reader
+    monkeypatch.setattr(stream_inspection,'Reader',lambda t:original_reader(t,session=binary_session))
     namespace = {'GCPCollector': gcp.GCPCollector}
     calls=[]
     class Response:

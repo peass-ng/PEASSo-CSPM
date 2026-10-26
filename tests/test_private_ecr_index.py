@@ -70,7 +70,7 @@ class FakeReader:
     parent = b''
     leaves = {}
     bad_child = None
-    def __init__(self, requests, session, account, region):
+    def __init__(self, requests, session, account, region, *, target_count=1):
         assert account == ACCOUNT and region == REGION
         self.calls = []
     def caller(self):
@@ -90,10 +90,10 @@ class FakeReader:
         raise AssertionError('foreign child')
     def check(self):
         pass
-    def blob(self, repo, descriptor):
+    def blob(self, repo, descriptor, *, image_digest=None):
         assert repo == REPO
         for item in self.leaves.values():
-            if sha(item[2]) == descriptor['digest']:
+            if sha(item[2]) == descriptor['digest'] and image_digest in (None, item[0]):
                 return item[2]
         raise AssertionError('foreign config')
     def close(self):

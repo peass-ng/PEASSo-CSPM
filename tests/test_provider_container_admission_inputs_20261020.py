@@ -38,6 +38,23 @@ assert len(catalog['checks']) > 0 and len(privileges['entries']) >= 600
 print(json.dumps({'checks': len(catalog['checks']), 'techniques': len(privileges['entries'])}))
 '''
 
+# The API package serves privilege metadata from the reviewed display pack and
+# ships no engine catalogs (see scripts/peaso_deploy.API_ENGINE_CATALOG_PREFIXES),
+# so it is checked through the check registry and that display pack instead.
+API_IMPORT = '''
+import sys,json
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import peaso.engine
+from peaso.server.privesc_display_catalog import _load
+assert Path(peaso.engine.__file__).resolve().is_relative_to(Path(sys.argv[1]))
+assert not (Path(sys.argv[1]) / 'peaso/privesc/catalog').exists()
+checks = [check.public() for check in peaso.engine._registry()]
+display = _load()
+assert len(checks) > 0 and len(display['details']) >= 600
+print(json.dumps({'checks': len(checks), 'techniques': len(display['details'])}))
+'''
+
 
 def _copies(recipe):
     for line in recipe.read_text().replace('\\\n', '').splitlines():
@@ -152,8 +169,19 @@ def test_api_package_retains_frozen_admission_data_and_imports_without_source(tm
 
     def offline_install(arguments, **kwargs):
         assert arguments[1:4] == ['-m', 'pip', 'install']
-        assert Path(arguments[arguments.index('--target') + 1]) == deploy.BUILD / 'api-package'
+        target = Path(arguments[arguments.index('--target') + 1])
+        assert target == deploy.BUILD / 'api-package'
         installs.append(arguments)
+        # The packaged SDK model gate needs the pinned botocore tree that pip
+        # would install; copy the locally installed, version-checked one offline.
+        import botocore
+        from importlib.metadata import distribution
+        botocore_root = Path(botocore.__file__).parent
+        dist = distribution('botocore')
+        assert dist.version == '1.43.38'
+        shutil.copytree(botocore_root, target / 'botocore',
+                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        shutil.copytree(Path(dist._path), target / Path(dist._path).name)
 
     # Only the dependency installation boundary is stubbed; staging, guards,
     # frozen hashes, public permissions and ZIP production use the real code.
@@ -216,6 +244,6 @@ def test_api_package_retains_frozen_admission_data_and_imports_without_source(tm
                    if key not in ('PYTHONPATH', 'HACKTRICKS_CLOUD_ROOT') and not key.startswith(
                        ('PEASO_', 'AWS_', 'AZURE_', 'GOOGLE_', 'CLOUDSDK_', 'GCLOUD_', 'K8S_'))}
     environment['PYTHONDONTWRITEBYTECODE'] = '1'
-    result = subprocess.run([sys.executable, '-I', '-c', IMPORT, str(target)],
+    result = subprocess.run([sys.executable, '-I', '-c', API_IMPORT, str(target)],
                             cwd=target, env=environment, text=True, capture_output=True, timeout=90)
     assert result.returncode == 0, result.stderr[-4000:]
