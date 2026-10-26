@@ -57,6 +57,7 @@ RUNTIME_ADMISSION_INPUTS = {
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
+    'tests/test_checkpoint_redaction_reuse.py',
     'tests/test_registry_auth_public_identity_20261025.py',
     'tests/test_azure_refresh_capture_closure_20261025.py',
     'tests/test_ai_collection_coverage.py',

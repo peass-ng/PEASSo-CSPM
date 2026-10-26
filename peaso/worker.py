@@ -441,10 +441,13 @@ def _process(role, request, connection):
                 public_content = public_snapshot_adapter(secret_capture.public_snapshot,
                     provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
                 ai_access_cache = {}
+                from peaso.redaction_memo import credential_redaction as _credential_redaction
+                # Each unchanged public collection is redacted once per exact
+                # credential set across items, batches and cumulative reports.
+                credential_redaction = _credential_redaction(connector, credential_values)
 
                 def public_checkpoint(raw):
-                    public = seal(redact(public_content(raw),
-                                         tuple(credential_values(connector.get("auth", {})))))
+                    public = seal(credential_redaction(public_content(raw)))
                     changed = False
                     if request.get("ai_enabled", True):
                         try:

@@ -292,6 +292,13 @@ class Capture:
         Explicit native contexts win. A shared synthetic path never guesses a
         resource when more than one resource used that path for the same value.
         """
+        if not self.records:
+            # Nothing can bind or change. Keep the structural access failures.
+            for collection in snapshot['collections']:
+                for item in collection['items']:
+                    if isinstance(item, dict):
+                        collection['type'], collection['scope']
+            return
         from peaso.snapshot import resources
         candidates = {}
         def walk(value, resource):
@@ -313,8 +320,9 @@ class Capture:
             for ident in {resource['native_id'], *[native.get(k) for k in ('Arn', 'arn', 'id', 'name', 'FunctionArn', 'taskDefinitionArn', 'jobDefinitionArn') if isinstance(native.get(k), str)]}:
                 authorities.setdefault(ident, set()).add(resource['scope'])
             walk(native, {'resource_id': resource['native_id'], 'scope': resource['scope']})
-        for fp, sealed in self.records.items():
+        for fp, sealed in list(self.records.items()):
             row = self.cipher.decrypt(sealed)
+            before = json.dumps(row, separators=(',', ':'))
             for loc in row['locations']:
                 scopes = authorities.get(loc.get('resource_id'), ())
                 if len(scopes) == 1 and (not loc.get('scope') or loc['scope'] == next(iter(scopes)).rsplit('/', 1)[-1]):
@@ -336,7 +344,9 @@ class Capture:
                     loc['_canonical_resource_id'], loc['_canonical_scope'] = options[0]['resource_id'], options[0]['scope']
                 if not loc.get('resource_id') and len(options) == 1:
                     loc.update(options[0])
-            self.records[fp] = self.cipher.encrypt(row)
+            # Re-encrypt only a changed record; its plaintext is otherwise identical.
+            if json.dumps(row, separators=(',', ':')) != before:
+                self.records[fp] = self.cipher.encrypt(row)
 
 
     def public_snapshot(self, snapshot):
@@ -345,28 +355,26 @@ class Capture:
             raise RuntimeError('private redaction capacity exceeded; snapshot was not published')
         if not self.records and not self.redactions:
             return snapshot
-        from peaso.auth.secrets import Redactor
+        from peaso.redaction_memo import capture_redaction
         from peaso.snapshot import seal
         self.bind_snapshot(snapshot)
-        values = [self.cipher.decrypt(sealed)['value'] for sealed in self.records.values()]
-        values.extend(self.cipher.decrypt(sealed)['value'] for sealed in self.redactions.values())
-        redact = Redactor(values)
-        def public_keys(value):
-            if isinstance(value, dict):
-                return {redact(str(key)): public_keys(child) for key, child in value.items()}
-            if isinstance(value, list):
-                return [public_keys(child) for child in value]
-            return value
-        public = seal(public_keys(redact(snapshot)))
-        for fp, sealed in self.records.items():
+        # One Redactor per exact secret set; unchanged collections reuse their
+        # redaction across settled items, batches and cumulative reports.
+        redact, public_collections = capture_redaction(self, lambda: [
+            self.cipher.decrypt(sealed)['value']
+            for sealed in [*self.records.values(), *self.redactions.values()]])
+        public = seal(public_collections(snapshot))
+        for fp, sealed in list(self.records.items()):
             row = self.cipher.decrypt(sealed)
+            before = json.dumps(row, separators=(',', ':'))
             for loc in row['locations']:
                 if loc.get('resource_id'):
                     loc['_resource_alias'] = redact(loc['resource_id'])
                 for key in ('_canonical_resource_id', '_canonical_scope'):
                     if loc.get(key):
                         loc[key + '_alias'] = redact(loc[key])
-            self.records[fp] = self.cipher.encrypt(row)
+            if json.dumps(row, separators=(',', ':')) != before:
+                self.records[fp] = self.cipher.encrypt(row)
         return public
 
 
