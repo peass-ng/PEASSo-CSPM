@@ -568,7 +568,7 @@
     "peaso/checks/gcp_workbench_shared_hook_successor_20261020.py": "1a7265db93affd207ccd320b50ebbd68e1f6fb0bd0886d03d4a45b008932a40a",
     "peaso/checks/compliance_new_sw32.py": "8a56bd712359f9b19e48a1a31df27ddcd26a25173c602d5e9dc7be486ea61f92",
     "peaso/checks/k8s_workload_clarity_reviewed.py": "4faad1de0c73c2fd38f87f0f384a111047373281aba51182e3c298e585c03fb5",
-    "peaso/checks/provider_group_install_20261021.py": "f34c20ffa921832c41b71504896eb4bd99c0ac999c316ae1cf74cb1e8d9b8020",
+    "peaso/checks/provider_group_install_20261021.py": "304edef228583ad5c17909b42669ddce303c99bd828702662750c718a76dc5f9",
     "peaso/checks/azure_function_package_integrated_consumer_20261020.py": "277b1e6115a683b72c7fbcebbde6eb163dff34196359a61af0c1b78e05de1129",
     "peaso/checks/claude_gcp_k8s_common.py": "50b4db55b51e3fffb50bd38e4e9a253a1f023e8b13d8f59f19b2328f3fbca206",
     "peaso/checks/aws_code_log_content_review_20261019.py": "a733a0945ced7404370d51895dd5ef80cac9f3670430c1e16c6b80086b9e2916",
@@ -897,7 +897,7 @@
     "peaso/checks/aws_s3_object_acl_review_20261019.py": "7595c22894c8a275d614ba60284d39014a65a87c5160cc4a9a48f2502070910e",
     "peaso/checks/batch_remaining_azure_vm_storage.py": "0187ed059727be920fdeb3500d1dda17c0e6528f99aff6aee4be8898a7bd206c",
     "peaso/checks/aws_workload_referenced_source_review.py": "c183dc6c0b605f5381225b596e0015e3f94773a910fb4875a90275197def31e7",
-    "peaso/checks/private_secret_shared_source_successor_20261021.py": "c9fd7d5e1588c2a45bcb3ccb692e02eb736beb270bd6cf2d5b56aac34e012506",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "00aaa3760dac072e27d65690a65a8dd1e2d33a4ff56a27dbab8a4b40ee894c8a",
     "peaso/checks/compliance_new_azure.py": "fccbf54138b302d1df0dc6524e5e1864d277115c5e6b434308ba8ae4c7d66677",
     "peaso/checks/k8s_evidence_explanations.py": "dab265f898265af58329d906c6859634163481e5af63dfd2cdd848f668dc117a",
     "peaso/checks/compliance_new_sw25_monitoring.py": "bb6dbd88a58cb78159155be9f004ea5cd8a36d1959d081b96fa9796b1fcc8e18",
@@ -1807,7 +1807,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1699,
-  "python_source_sha256": "ef2755a1516b3f1562ad188bae4cd2cf7c05969cd927feb135283eadc022519c",
+  "python_source_sha256": "762569fde478354623cc2fa4c5e146984d3aeb47248db81a103189b0c40897fb",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
