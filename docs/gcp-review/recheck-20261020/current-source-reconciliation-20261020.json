@@ -622,7 +622,7 @@
       "bytes": 1800547
     },
     "docs/gcp-review/recheck-20261020/secret-surface-audit.json": {
-      "sha256": "58211107c241b97edbb1ae14257d1738ce1b3cd10d938a64c55d584d8864dc23",
+      "sha256": "fd1f073f57e6b0f37ee104a3f5ee03b364e56ccaec521b40449e58ae747e2e29",
       "bytes": 902507
     },
     "docs/gcp-review/recheck-20261020/task-routine-secret-implementation.json": {

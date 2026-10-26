@@ -790,18 +790,18 @@ def collect_snapshot(request):
             return collect_package_pipeline(connector, requirements, request)
     from .collection_events import scope_plan_callback
     with scope_plan_callback(request.get('_scope_plan_callback')):
-        snapshot = validate(collect_live(connector, requirements))
+        collected = collect_live(connector, requirements)
+    snapshot = validate(collected, metadata_entry=("collection_plan", {"mode": "collect_all" if options.get("collect_all") else "explicit_inventories" if "inventories" in options else "full_default" if _full_selection(connector["provider"], *_selection(connector["provider"], request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))) else "dependencies", "requirements": requirements,
+        "categories": request.get("categories") or list(CATEGORIES), "checks": request.get("checks") or "all_selected", "frameworks": request.get("frameworks") or "all_selected"}))
     if collection_callback is not None:
-        # Provider-specific finalizers and reviewed native aliases may add or
-        # revise envelopes after their scheduler emitted earlier settlements.
-        # The checkpoint session deduplicates unchanged (type, scope) content.
-        for collection in snapshot["collections"]:
+        # Finalizers and reviewed aliases may add or revise envelopes after their scheduler
+        # emitted earlier settlements; the checkpoint deduplicates unchanged content. It gets
+        # the collector's verified envelopes; the returned validated copy is independent.
+        for collection in collected["collections"]:
             collection_callback(collection)
     emit_progress(phase="collecting", provider=connector["provider"], completed=len(snapshot["collections"]),
                   total=len(snapshot["collections"]), resources=sum(len(c["items"]) for c in snapshot["collections"]), dynamic_total=False)
-    snapshot["metadata"]["collection_plan"] = {"mode": "collect_all" if options.get("collect_all") else "explicit_inventories" if "inventories" in options else "full_default" if _full_selection(connector["provider"], *_selection(connector["provider"], request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))) else "dependencies", "requirements": requirements,
-        "categories": request.get("categories") or list(CATEGORIES), "checks": request.get("checks") or "all_selected", "frameworks": request.get("frameworks") or "all_selected"}
-    return validate({key: value for key, value in snapshot.items() if key != "snapshot_id"}, owned=True)
+    return snapshot
 
 
 def _analysis_selection(provider, categories, checks, frameworks):
