@@ -186,7 +186,13 @@ def test_all_native_azure_network_services_have_map_coverage():
 
 def test_k8s_endpoint_registry_has_no_unclassified_network_resource():
     from peaso.collectors.k8s import ENDPOINTS
-    excluded = {"role", "clusterrole", "rolebinding", "clusterrolebinding", "serviceaccount", "resourcequota", "limitrange"}
+    excluded = {"role", "clusterrole", "rolebinding", "clusterrolebinding", "serviceaccount", "resourcequota", "limitrange",
+        # Config Sync and Config Connector objects carry GitOps, IAM and project bindings, not traffic paths.
+        "configsync_rootsync", "configconnector", "configconnectorcontext", "kcc_iampolicy", "kcc_iampartialpolicy", "kcc_project",
+        # Same /api/v1/endpoints list as the network "endpoint" inventory, kept under its own kind for the unused-network checks.
+        "endpoints"}
+    from peaso.collectors.k8s_network_catalog import ENDPOINTS as NETWORK_ENDPOINTS
+    assert ENDPOINTS["endpoints"] == NETWORK_ENDPOINTS["endpoint"]
     assert not set(ENDPOINTS) - NETWORK_TYPES - excluded
 
 
@@ -195,6 +201,8 @@ def test_aws_sdk_network_schemas_have_no_unreviewed_live_inventory_omissions():
     from botocore import xform_name
     from peaso.collectors.aws import SPECS
     from peaso.analysis.network_catalog import AWS_SCHEMA_EXCLUSIONS
+    from scripts.peaso_deploy_customer_policy import UNAVAILABLE_SDK_METADATA_OPERATIONS
+    available = set(botocore.session.get_session().get_available_services())
     session = botocore.session.get_session()
     markers = {"VpcId", "VpcIds", "SubnetId", "SubnetIds", "SecurityGroupIds", "VpcConfig", "VpcConfiguration", "VpcOptions",
         "VpcEndpointId", "VpcEndpointIds", "NetworkInterfaces", "NetworkInterfaceId", "VpcSubnetIds", "VpcSecurityGroupIds"}
@@ -209,6 +217,10 @@ def test_aws_sdk_network_schemas_have_no_unreviewed_live_inventory_omissions():
     missing = []
     for kind, (service, operation, _) in SPECS.items():
         if kind in NETWORK_TYPES or kind in AWS_SCHEMA_EXCLUSIONS:
+            continue
+        if service not in available:
+            # The pinned SDK has no model for this client; only reviewed unavailable reads may appear here.
+            assert (service, operation) in UNAVAILABLE_SDK_METADATA_OPERATIONS, kind
             continue
         model = session.get_service_model(service)
         native_operation = next((name for name in model.operation_names if xform_name(name) == operation), None)
