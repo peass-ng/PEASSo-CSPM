@@ -197,10 +197,11 @@ class Inventory:
         self.provider = snapshot["provider"]
         self.by_type, self.by_id, self.status = {}, {}, {}
         self.network_cache = {}
+        # Identifier keys are indexed per kind on first lookup, in the same
+        # inventory order, so unqueried kinds (metrics, activity) cost nothing.
+        self._indexed = set()
         for resource in resources:
             self.by_type.setdefault(resource["type"], []).append(resource)
-            for key in self._keys(resource):
-                self.by_id.setdefault((resource["type"], key), resource)
         for collection in snapshot.get("collections", []):
             self.status.setdefault(collection["type"], {})[collection["scope"]] = collection.get("status", "unknown")
 
@@ -224,6 +225,11 @@ class Inventory:
     def get(self, kind, key):
         if key is None:
             return None
+        if kind not in self._indexed:
+            self._indexed.add(kind)
+            for resource in self.by_type.get(kind, ()):
+                for native in self._keys(resource):
+                    self.by_id.setdefault((kind, native), resource)
         return self.by_id.get((kind, str(key))) or self.by_id.get((kind, str(key).lower()))
 
     def state(self, kind, scope=None):

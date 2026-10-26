@@ -49,19 +49,20 @@ class FrozenList(list):
         return (FrozenList, (list(self),))
 
 
+# Exact scalar types are returned unchanged by _thaw and _freeze; skipping the call for them is identical.
+_THAW_LEAVES = frozenset((str, int, float, bool, type(None)))
+
+
 def _freeze(value):
     kind = type(value)
     if kind is FrozenDict or kind is FrozenList:
         return value
+    leaves = _THAW_LEAVES
     if isinstance(value, dict):
-        return FrozenDict({key: _freeze(item) for key, item in value.items()})
+        return FrozenDict({key: (item if type(item) in leaves else _freeze(item)) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
-        return FrozenList([_freeze(item) for item in value])
+        return FrozenList([item if type(item) in leaves else _freeze(item) for item in value])
     return value
-
-
-# Exact scalar types are returned unchanged by _thaw; skipping the call for them is identical.
-_THAW_LEAVES = frozenset((str, int, float, bool, type(None)))
 
 
 def _thaw(value):
