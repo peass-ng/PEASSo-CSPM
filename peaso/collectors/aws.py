@@ -308,8 +308,10 @@ class Requests:
         self.max_pages = _optional_limit(options, "max_pages")
         self.max_items = _optional_limit(options, "max_resources")
         # Reads are latency-bound across ~90 services x every enabled Region;
-        # 4 workers could not finish a full-account scan in bounded time.
-        self.workers = _bound(options, "service_concurrency", 12, maximum=16)
+        # 4 workers could not finish a full-account scan in bounded time, and
+        # 12 kept the ordinary lane saturated for the whole scan at ~2s per
+        # call. Per-endpoint AIMD limiting still backs off on throttling.
+        self.workers = _bound(options, "service_concurrency", 32, maximum=32)
         self.attempts = _bound(options, "retry_attempts", 3, maximum=5)
         self.timeout = _bound(options, "read_timeout", 15, maximum=120)
         self.connect_timeout = _bound(options, "connect_timeout", 5, maximum=30)

@@ -114,7 +114,7 @@ for the SDK's credential/session semantics.
 | `max_calls` | 200 | 1–10000 | Total scanner-managed configuration/STS requests, including retries |
 | `max_pages` | 10 | 1–100 | Maximum pages per native list operation |
 | `max_resources` | 10000 | 1–100000 | Total emitted resources, including caller identity; also bounds each list projection |
-| `service_concurrency` | 12 | 1–16 | Global concurrent work/request ceiling for configuration reads |
+| `service_concurrency` | 32 | 1–32 | Global concurrent work/request ceiling for configuration reads |
 | `activity_concurrency` | enabled Regions (max 32) | 1–32 | Dedicated CloudTrail LookupEvents threads, one Region each, each paced at 2 requests/second |
 | `service_last_accessed_concurrency` | 4 | 1–8 | Concurrent IAM access-report generate/poll calls (adaptively paced) |
 | `service_last_accessed_wait_seconds` | 120 | 1–600 | Deadline for IAM access-report jobs; late principals stay UNKNOWN |

@@ -385,12 +385,16 @@ class AdaptiveLimiter:
     answer halves its limit (never below one); successes grow it additively
     up to ``maximum``. Waiting happens before a request is sent, so a
     throttled endpoint slows down instead of exhausting retry attempts.
+    A throttling answer also pauses new requests to that endpoint for
+    ``cooldown`` seconds, so a quota shared with the customer's own
+    workloads gets room to refill before the next request is sent.
     """
 
-    def __init__(self, initial=8, maximum=16):
-        self.initial, self.maximum = initial, maximum
+    def __init__(self, initial=8, maximum=16, cooldown=1.0, clock=time.monotonic):
+        self.initial, self.maximum, self.cooldown, self._clock = initial, maximum, cooldown, clock
         self._condition = threading.Condition()
         self._state = {}
+        self._paused = {}
         self.throttles = 0
         self.waits = 0
 
@@ -400,10 +404,15 @@ class AdaptiveLimiter:
             state = self._state.get(key)
             if state is None:
                 state = self._state[key] = [float(self.initial), 0]
-            if state[1] >= int(state[0]):
-                self.waits += 1
-            while state[1] >= int(state[0]):
-                self._condition.wait()
+            waited = False
+            while True:
+                pause = self._paused.get(key, 0.0) - self._clock()
+                if state[1] < int(state[0]) and pause <= 0:
+                    break
+                if not waited:
+                    self.waits += 1
+                    waited = True
+                self._condition.wait(pause if pause > 0 else None)
             state[1] += 1
         ok = False
         try:
@@ -413,6 +422,7 @@ class AdaptiveLimiter:
             if throttled(exc):
                 with self._condition:
                     state[0] = max(1.0, state[0] / 2)
+                    self._paused[key] = max(self._paused.get(key, 0.0), self._clock() + self.cooldown)
                     self.throttles += 1
             else:
                 ok = True
