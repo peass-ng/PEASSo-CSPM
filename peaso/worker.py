@@ -645,6 +645,8 @@ def _process(role, request, connection):
             value["runtime"] = runtime_estimate(request["timeline"])
             from peaso.storage.reports import publish_report
             native_sequence = int(request.get("checkpoint_sequence", 0)) + 1
+            # Snapshot-only artifacts are shared by the native and final bundles.
+            publication_shared = {}
             sections = snapshot.get("metadata", {}).get("sections", {})
             sections = sections if isinstance(sections, dict) else {}
             from peaso.ai.pipeline import review_scan
@@ -660,7 +662,8 @@ def _process(role, request, connection):
                 "phase": "completed" if ai_disabled else "analyzing",
                 "sequence": native_sequence, "sections": sections})
             with _runtime_span('worker.final_publish'):
-                native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot)
+                native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot,
+                                                  _shared=publication_shared)
             connection.send(("__checkpoint__", {"sequence": native_sequence,
                 "stage": "analyzer_native", "snapshot_ref": request["snapshot_ref"],
                 "report_ref": native_reference, "kind": None, "scope": None}))
@@ -688,7 +691,8 @@ def _process(role, request, connection):
                 value["publication"] = {"state": "final", "phase": "completed", "sequence": native_sequence,
                                         "sections": sections}
                 with _runtime_span('worker.final_publish'):
-                    reference = publish_report(publication_artifacts, tenant, ident, value, snapshot)
+                    reference = publish_report(publication_artifacts, tenant, ident, value, snapshot,
+                                               _shared=publication_shared)
         # Large evidence/report objects never cross the supervisor process pipe.
         if aws_metrics is not None:
             aws_metrics.close()

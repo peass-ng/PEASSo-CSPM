@@ -1,4 +1,6 @@
 """Publish complete downloads plus bounded indexes for large report APIs."""
+import copy
+import hashlib
 import json
 from collections import Counter
 from peaso.reports import render_markdown
@@ -173,15 +175,48 @@ def _network_projection(snapshot, report_snapshot_id):
     return seal(scoped, owned=True)
 
 
-def publish_report(artifacts, tenant, ident, report, snapshot=None):
+def publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=None):
+    """_shared: internal dict one analyzer owns for one snapshot and scan.
+
+    Snapshot-derived artifacts that do not depend on the report's findings
+    (resource chunks for the same resource set, least privilege, network
+    projection) are published once and their durable references reused by
+    later publications of the same snapshot, report binding and scan.
+    """
+    shared = {} if _shared is None else {"_shared": _shared}
     batch = getattr(artifacts, "batch", None)
     if not callable(batch):
-        return _publish_report(artifacts, tenant, ident, report, snapshot)
+        return _publish_report(artifacts, tenant, ident, report, snapshot, **shared)
     with batch() as publisher:
-        return _publish_report(publisher, tenant, ident, report, snapshot)
+        return _publish_report(publisher, tenant, ident, report, snapshot, **shared)
 
 
-def _publish_report(artifacts, tenant, ident, report, snapshot=None):
+def _snapshot_shape(snapshot):
+    """Cheap guard that the shared snapshot object was not restructured in place."""
+    if not isinstance(snapshot, dict):
+        return None
+    rows = snapshot.get("collections")
+    return (snapshot.get("snapshot_id"), tuple(
+        (row.get("type"), row.get("scope"), row.get("status"), id(row.get("items")), len(row.get("items") or ()))
+        for row in rows if isinstance(row, dict)) if isinstance(rows, list) else None)
+
+
+def _shared_value(shared, owner, name, key, build):
+    """Reuse a published value for the exact owner snapshot, scan and key."""
+    if shared is None:
+        return build()
+    if shared.get("_owner") is not owner[0] or shared.get("_scope") != owner[1:]:
+        shared.clear()
+        shared.update(_owner=owner[0], _scope=owner[1:])
+    hit = shared.get(name)
+    if hit is not None and hit[0] == key:
+        return copy.deepcopy(hit[1])
+    value = build()
+    shared[name] = (key, copy.deepcopy(value))
+    return value
+
+
+def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=None):
     from peaso.secret_evidence import without_private_values
     with _runtime_span("publication.normalize.private"):
         report = without_private_values(report)
@@ -264,22 +299,33 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
         for group, body in _artifact_chunks(artifacts, report.get("coverage", [])):
             manifest["coverage_chunks"].append(_put_chunk(artifacts, tenant, ident, "coverage", group, body))
             manifest["coverage_chunk_counts"].append(len(group))
+    owner = (snapshot, tenant, ident, report.get("snapshot_id"), report.get("provider"), _snapshot_shape(snapshot))
     if embeddable:
         from peaso.least_privilege import project as project_least_privilege
         # The same immutable inventory was used for Markdown above. No state
         # survives this publication or crosses a snapshot revision.
         with _runtime_span("publication.chunk.resources"):
-            manifest["resource_chunks"] = resource_chunks(artifacts, tenant, ident, report, snapshot, _inventory=inventory)
-        with _runtime_span("publication.projection.least_privilege"):
-            projection = project_least_privilege(report["provider"], inventory, snapshot=snapshot)
-            if report['provider'] == 'aws':
-                from peaso.least_privilege_permissions import permission_input_filter
-                selected = permission_input_filter('aws', projection['items'])
-                manifest['least_privilege_permission_inputs'] = artifacts.put(tenant, ident, 'least-privilege', {
-                    'snapshot_id': report['snapshot_id'], 'provider': 'aws',
-                    'items': [row for row in inventory if selected(row)]})
+            wanted = hashlib.sha256(json.dumps(sorted(str(row.get("id")) for row in report.get("resources", [])
+                                                      if isinstance(row, dict))).encode()).hexdigest()
+            manifest["resource_chunks"] = _shared_value(_shared, owner, "resource_chunks", wanted,
+                lambda: resource_chunks(artifacts, tenant, ident, report, snapshot, _inventory=inventory))
+        def least_privilege():
+            refs = {}
+            with _runtime_span("publication.projection.least_privilege"):
+                projection = project_least_privilege(report["provider"], inventory, snapshot=snapshot)
+                if report['provider'] == 'aws':
+                    from peaso.least_privilege_permissions import permission_input_filter
+                    selected = permission_input_filter('aws', projection['items'])
+                    refs['least_privilege_permission_inputs'] = artifacts.put(tenant, ident, 'least-privilege', {
+                        'snapshot_id': report['snapshot_id'], 'provider': 'aws',
+                        'items': [row for row in inventory if selected(row)]})
+            refs["least_privilege"] = artifacts.put(tenant, ident, "least-privilege", projection)
+            return refs
+        refs = _shared_value(_shared, owner, "least_privilege", None, least_privilege)
         del inventory
-        manifest["least_privilege"] = artifacts.put(tenant, ident, "least-privilege", projection)
+        if 'least_privilege_permission_inputs' in refs:
+            manifest['least_privilege_permission_inputs'] = refs['least_privilege_permission_inputs']
+        manifest["least_privilege"] = refs["least_privilege"]
     with _runtime_span("publication.projection.graphs"):
         for kind in ("network", "iam"):
             graph = report.get("graphs", {}).get(kind, {"nodes": [], "edges": []})
@@ -292,7 +338,8 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
         manifest["graph_projections"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_projection(privesc_graph, 500))
     if snapshot is not None:
         with _runtime_span("publication.projection.network_snapshot"):
-            manifest["network_snapshot"] = artifacts.put(tenant, ident, "network-snapshot",
-                                                         _network_projection(snapshot, report["snapshot_id"]))
+            manifest["network_snapshot"] = _shared_value(_shared, owner, "network_snapshot", None,
+                lambda: artifacts.put(tenant, ident, "network-snapshot",
+                                      _network_projection(snapshot, report["snapshot_id"])))
     with _runtime_span("publication.manifest.commit"):
         return artifacts.put(tenant, ident, "manifest", manifest)
