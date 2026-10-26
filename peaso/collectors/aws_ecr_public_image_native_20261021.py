@@ -185,9 +185,9 @@ def inspect(target, native, *, registry_factory=None, scanner=None, cancel=lambd
             marker['graph']['children'].append({'digest':child_digest,'size':child['size'],
                 'mediaType':child['mediaType'],'platform':child['platform'],'config_digest':conf['digest']})
             with tempfile.TemporaryDirectory(prefix='peaso-ecr-public-') as directory:
-                layers = [reader.get('blobs', desc['digest'], archive.MAX_LAYER,
-                                     size=desc['size'], destination=Path(directory)/f'layer-{i}')
-                          for i, desc in enumerate(descriptions)]
+                from .registry_layer_overlap_20261026 import fetch_layers
+                layers, prebuilt = fetch_layers(reader, descriptions, Path(directory),
+                                                lambda i: f'layer-{i}', image, manifest, config, check)
                 if secret_enabled:
                     scanned = [0]
                     scan(manifest, prefix+'.manifest', {**source,'source':child_digest,'location_kind':'manifest'})
@@ -234,9 +234,9 @@ def inspect(target, native, *, registry_factory=None, scanner=None, cancel=lambd
                                 secret_gaps.add('binary_file_uninspected')
                                 return
                             overlap=(overlap+chunk)[-OVERLAP:]
-                    archive.visit_files(image,manifest,config,layers,lambda *_:None,check,partial_callback=visit,stage=trivy_enabled)
+                    archive.visit_files(image,manifest,config,layers,lambda *_:None,check,partial_callback=visit,stage=trivy_enabled,prebuilt=prebuilt)
                 else:
-                    archive.validate(image,manifest,config,layers,check,stage=trivy_enabled)
+                    archive.validate(image,manifest,config,layers,check,stage=trivy_enabled,prebuilt=prebuilt)
                 if trivy_enabled:
                     if trivy_runner is None:
                         from peaso import trivy_container_runner_20261020 as trivy
