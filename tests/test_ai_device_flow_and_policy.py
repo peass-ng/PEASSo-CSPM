@@ -211,7 +211,9 @@ def test_review_pipeline_skips_all_stages_when_account_disabled(state, monkeypat
 def test_manual_scan_request_is_overridden_when_disabled(state, monkeypatch):
     settings, store, cipher, _ = state
     store.set_ai_state('alice', providers.REVIEW_POLICY_KEY, json.dumps({'disabled': True}))
-    connector = store.add_connector('alice', {'provider': 'aws', 'name': 'fixture'}, 'unused')
+    encrypted = CredentialCipher(settings.identity_dir).encrypt(
+        {'auth': {'method': 'container'}, 'options': {}})
+    connector = store.add_connector('alice', {'provider': 'aws', 'name': 'fixture'}, encrypted)
     class IdentityProvider:
         def authenticate(self, value): return Identity('alice')
     monkeypatch.setattr(providers, 'validate_access', lambda *a: pytest.fail('No provider probe'))
@@ -246,7 +248,9 @@ def test_queued_collector_rechecks_current_policy_before_child_start(state, monk
 def test_due_schedule_runs_without_ai_preflight_and_preserves_scan_selection(state, monkeypatch):
     from peaso.worker import Worker
     settings, store, _, _ = state
-    connector = store.add_connector('alice', {'provider': 'aws', 'name': 'schedule'}, 'unused')
+    encrypted = CredentialCipher(settings.identity_dir).encrypt(
+        {'auth': {'method': 'container'}, 'options': {}})
+    connector = store.add_connector('alice', {'provider': 'aws', 'name': 'schedule'}, encrypted)
     data = {'connector_id': connector['id'], 'ai_enabled': True, 'ai_user_id': 'alice',
             'timezone': 'UTC', 'rules': [{'frequency': 'daily', 'time': '09:00'}]}
     store.add_schedule('alice', data, time.time() - 1)
