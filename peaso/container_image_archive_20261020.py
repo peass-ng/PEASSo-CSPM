@@ -606,12 +606,28 @@ def _docker_manifest(config_name, count):
 class _Built:
     """A docker archive written by one validation, byte-identical to write_archive's."""
 
-    def __init__(self, path, config_digest):
+    def __init__(self, path, config_digest, check=lambda: None):
         info = path.lstat()
         self.path, self.config_digest = path, config_digest
         self.identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+        require(info.st_size <= MAX_ARCHIVE, 'owned_archive_bound')
+        self.digest = self._digest(path, check)
 
-    def place(self, target):
+    def _digest(self, path, check):
+        digest, size = hashlib.sha256(), 0
+        with _source(path, self.identity[2]) as source:
+            while True:
+                check()
+                part = source.read(1024 * 1024)
+                if not part:
+                    break
+                size += len(part)
+                require(size <= self.identity[2], 'layer_changed_during_archive')
+                digest.update(part)
+        require(size == self.identity[2], 'layer_changed_during_archive')
+        return digest.digest()
+
+    def place(self, target, check=lambda: None):
         info = os.lstat(self.path)
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.getuid()
                 and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) == self.identity,
@@ -627,6 +643,9 @@ class _Built:
             with _source(self.path, info.st_size) as source, target.open('xb') as output:
                 shutil.copyfileobj(source, output, 1024 * 1024)
         require(target.stat().st_size == info.st_size, 'layer_changed_during_archive')
+        # Same-size writes can share an mtime tick, or restore the old mtime.
+        # Check the bytes actually handed to the scanner, including copy fallback.
+        require(self._digest(target, check) == self.digest, 'layer_changed_during_archive')
 
 
 def _validate(image_identity, manifest_raw, config_raw, layers, root, check, partial_callback=None,
@@ -671,7 +690,7 @@ def _validate(image_identity, manifest_raw, config_raw, layers, root, check, par
         end = output.tell() + 2 * tarfile.BLOCKSIZE
         output.write(bytes(2 * tarfile.BLOCKSIZE + (-end % tarfile.RECORDSIZE)))
     _PROVEN.put(_chain(config_raw, descs, diffs), (tuple(sizes), budget[1]))
-    return manifest, _Built(archive, image_identity['config_digest']), budget, nodes
+    return manifest, _Built(archive, image_identity['config_digest'], check), budget, nodes
 
 
 def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: None, *, stage=False,
@@ -802,7 +821,7 @@ def write_archive(path, image_identity, manifest_raw, config_raw, layers, *, arc
                     'scratch_disk_bound')
             if archive_format == 'docker' and built is not None:
                 require(built.identity[2] <= MAX_ARCHIVE, 'owned_archive_bound')
-                built.place(path)
+                built.place(path, check)
             else:
                 with path.open('xb') as output:
                     with tarfile.open(fileobj=output, mode='w', format=tarfile.USTAR_FORMAT) as tar:

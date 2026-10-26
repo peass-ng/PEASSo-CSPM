@@ -355,15 +355,18 @@ def test_visit_files_hands_expanded_layers_to_archive(tmp_path, monkeypatch):
     assert staged_dirs() == []
 
 
-@pytest.mark.parametrize('how', ['rewrite', 'replace', 'link'])
+@pytest.mark.parametrize('how', ['rewrite', 'rewrite_preserving_mtime', 'replace', 'link'])
 def test_tampered_staged_layer_is_refused_and_removed(tmp_path, how):
     identity, manifest, config, layers = build(tmp_path)
     archive.validate(identity, manifest, config, layers, stage=True)
     (scratch,) = staged_dirs()
     (victim,) = scratch.iterdir()
     raw = bytearray(victim.read_bytes()); raw[3000] ^= 1
-    if how == 'rewrite':
+    if how in ('rewrite', 'rewrite_preserving_mtime'):
+        before = victim.stat()
         victim.write_bytes(bytes(raw))
+        if how == 'rewrite_preserving_mtime':
+            os.utime(victim, ns=(before.st_atime_ns, before.st_mtime_ns))
     elif how == 'replace':
         other = scratch / 'other'
         other.write_bytes(bytes(raw))
@@ -390,6 +393,21 @@ def test_failed_validation_and_oversized_stage_leave_no_scratch(tmp_path, monkey
     with pytest.raises(ValueError):
         archive.validate(identity, manifest, config, layers, stage=True)
     assert made and not Path(made[0]).exists()
+
+
+def test_cancelling_archive_handoff_removes_output_and_scratch(tmp_path):
+    identity, manifest, config, layers = build(tmp_path)
+    archive.validate(identity, manifest, config, layers, stage=True)
+    out = tmp_path / 'image.tar'
+
+    def cancel_after_output_exists():
+        if out.exists():
+            raise RuntimeError('cancel archive handoff')
+
+    with pytest.raises(RuntimeError, match='cancel archive handoff'):
+        archive.write_archive(out, identity, manifest, config, layers,
+                              archive_format='docker', check=cancel_after_output_exists)
+    assert not out.exists() and staged_dirs() == []
 
 
 def test_staged_scratch_expires_and_single_consumer(tmp_path):
