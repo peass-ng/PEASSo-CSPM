@@ -169,6 +169,13 @@ def test_archived_old_red_receipts_and_sealed_sources_still_verify(bridge):
     batch_path = root / 'docs/gcp-review/recheck-20261020/gcp_batch_independent_review_20261020_report.json'
     batch = json.loads(batch_path.read_bytes())
     assert batch['validation']['passed'] == 19 and batch['validation']['failed'] == 1
-    assert batch['artifacts'][bridge.BATCH_REVIEW]['sha256'] == bridge.SOURCES[bridge.BATCH_REVIEW]
+    # This review records the earlier batch witness; the current bridge binds
+    # the later reviewed test bytes separately through attest_sources().
+    assert batch['artifacts'][bridge.BATCH_REVIEW]['sha256'] == (
+        'f2c92058a5f60a37aec6c1e222fe3b08a04a3c30f8b423641ff5000da905c3e5')
     for name, entry in batch['artifacts'].items():
-        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == entry['sha256']
+        current_digest = hashlib.sha256((root / name).read_bytes()).hexdigest()
+        if name == bridge.BATCH_REVIEW:
+            assert current_digest == bridge.SOURCES[name]
+        else:
+            assert current_digest == entry['sha256']

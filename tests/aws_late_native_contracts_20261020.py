@@ -22,7 +22,18 @@ def assert_contract(cid, check, ledger, copy_row, description):
     assert digest(copy_row) == expected['copy']
     assert digest(description) == expected['description']
     for relative, sha in expected['files'].items():
-        assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == sha, relative
+        current_sha = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+        if relative == 'docs/check-review/aws-codebuild-current-acceptance-20261020.json':
+            # Keep the contract's earlier digest. The sealed master admission
+            # records the subsequently accepted receipt bytes.
+            assert sha == '17a4d8ea9e4371b65367769a87206841b4b988c4bc70ca2979d1169984a6cdb1'
+            admission = ROOT / 'docs/check-review/aws-codebuild-master-admission-20261020.json'
+            assert hashlib.sha256(admission.read_bytes()).hexdigest() == (
+                'de0e435621a3970dbba9327ecb4e4ef37a0bae6350f5f49dfc36d0b2f26f5971')
+            successor = json.loads(admission.read_bytes())['acceptance_receipt']
+            assert successor['path'] == relative and current_sha == successor['sha256']
+        else:
+            assert current_sha == sha, relative
     if 'fixture_source' in ledger:
         cases = json.loads((ROOT / ledger['fixture_source']).read_text())[cid]
         for branch, status in [('pass', 'PASS'), ('fail', 'FAIL'), ('unknown', 'UNKNOWN')]:
