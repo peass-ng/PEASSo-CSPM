@@ -93,6 +93,9 @@ def _parse(source, filename='<unknown>', mode='exec', *, type_comments=False, fe
 
 def install():
     """Install the caches once, in production mode only."""
+    if _mode.TRUSTED:
+        from peaso import trusted_sources
+        trusted_sources.install()
     if _mode.ALWAYS or builtins.compile is _compile:
         return False
     builtins.compile = _compile

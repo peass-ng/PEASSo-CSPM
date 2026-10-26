@@ -24,6 +24,10 @@ REPORT_CPU_FACTOR = 4.0
 REPORT_QUIET_CAP = 300.0
 
 
+class _Superseded(BaseException):
+    """A finished collection makes an unforced cumulative pass obsolete."""
+
+
 class CheckpointSession:
     """Private collector callback with public, durable per-envelope handoff.
 
@@ -463,11 +467,36 @@ class CheckpointSession:
                     self.error = exc
 
     def _maybe_publish(self, *, force=False):
+        if force:
+            return self._publish(force=True)
+        # The analyzer evaluates a finished collection completely. An unforced
+        # cumulative pass started before the finish stops at its next phase
+        # boundary instead of competing with the final snapshot for CPU.
+        # Per-check events (dynamic_total=False) run inside a timed engine
+        # span and never stop the pass, so no span records a failure.
+        from .progress import bind_callback, current_callback
+        previous = current_callback()
+
+        def superseded(event=None):
+            if ((event is None or event.get("dynamic_total") is True)
+                    and self.collection_finished):
+                raise _Superseded
+            if previous is not None and event is not None:
+                previous(event)
+        try:
+            with bind_callback(superseded):
+                return self._publish(force=False, superseded=superseded)
+        except _Superseded:
+            return None
+
+    def _publish(self, *, force, superseded=None):
         # One evaluator at a time; provider settlement never waits for evaluation.
         with self.publish_lock:
             with self.lock:
                 if force:
                     self._flush_pending()
+                elif self.collection_finished:
+                    return None
                 if self.sequence == self.last_published:
                     return None
                 sequence = self.sequence
@@ -511,12 +540,16 @@ class CheckpointSession:
             from .secret_evidence import _lock as private_evidence_lock
             with private_evidence_lock, gc_paused():
                 snapshot = validate(self.public_snapshot(raw), owned=True)
+            if superseded is not None:
+                superseded()
             from .engine import evaluate_snapshot
             report = evaluate_snapshot(snapshot, categories=self.categories, checks=ready,
                                        frameworks=self.frameworks, include_not_applicable=False,
                                        completed_graph_sections=graph_sections,
                                        content_checks=[cid for cid in self.content_checks if cid in ready])
             report = self._filter_report(report, complete, sequence=sequence, collections=collections, sections=sections)
+            if superseded is not None:
+                superseded()
             self.on_checkpoint(snapshot, report, sequence)
             with self.lock:
                 self.published_categories.update(categories)

@@ -1,6 +1,6 @@
 {
   "materialized/evidence_static_field_specs.json": "c17362825ec546340db1ce03d14a7bd6b6fc48c134f0ddf1400508f91315dd90",
-  "materialized/evidence_static_privesc_entries.json": "a072689f56154376dcc21c0ee56bf9c5496158c530964d8e94a6a36166aea167",
+  "materialized/evidence_static_privesc_entries.json": "53799359ce87e9c8c3b1a252a07ee2941c1ba07b1b3979803d509a5f19c5ecdb",
   "peaso/checks/aws_current_evidence_rows_20261022.json": "cbf4a855d7eec58cbe102ac8a217d0803ffbf38edc890bb41fd79eaac908134f",
   "peaso/checks/aws_evidence_explanations.json": "5f26bc1e42a2c5814c120534af367aa6cd77251d780d015ef15e9ac5eb9de7bb",
   "peaso/checks/azure_activity_alert_evidence.json": "2c1a6d5d76ba4d70d649673a332785ca367996ad52d8b09d9a5aecde1fbfe116",

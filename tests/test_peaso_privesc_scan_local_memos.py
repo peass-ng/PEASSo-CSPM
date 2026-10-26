@@ -775,4 +775,3 @@ def test_azure_covers_memo_is_bounded_and_matches(monkeypatch):
         for ref in scopes + ["/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/rg1/providers/a/b/c"]:
             assert model.covers(outer, ref) == model._covers(outer, ref)
             assert len(model._covers_memo) <= 4
-

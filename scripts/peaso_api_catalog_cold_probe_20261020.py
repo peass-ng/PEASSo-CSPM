@@ -56,7 +56,9 @@ with tempfile.TemporaryDirectory(prefix='peaso-materialized-api-proof-') as temp
     directory = Path(temporary)
     app = create_app(Settings(state_dir=directory / 'state', identity_dir=directory / 'identity',
                               local_token='offline-api-proof-token-0123456789'), authenticator=OfflineIdentity())
-    connector = app.state.store.add_connector('alice', {'name': 'Offline', 'provider': 'aws'}, 'unused-offline-auth')
+    # Stored exactly as the connector API writes it: scan creation decrypts the connector options.
+    connector = app.state.store.add_connector('alice', {'name': 'Offline', 'provider': 'aws'},
+                                              app.state.cipher.encrypt({'auth': {}, 'options': {}}))
     handler = Mangum(app, lifespan='off')
     initialized = time.perf_counter() - started
 
