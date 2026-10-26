@@ -272,17 +272,24 @@ def collect(requests, session, region, account, recipes=None):
     partition = session.get_partition_for_region(region)
     policies, failures = {}, []
 
-    def failure(r, status, code):
-        failures.append({"family": r.id, "status": status, "code": code})
+    def family(r):
+        # One recipe's reads touch no shared state: its failures and
+        # documents are recorded locally and merged below in recipe order.
+        failures, documents = [], []
 
-    for r in selected:
+        def failure(r, status, code):
+            failures.append({"family": r.id, "status": status, "code": code})
+        family_body(r, failure, documents)
+        return failures, documents
+
+    def family_body(r, failure, found):
         # Test adapters may provide only partition lookup; real collection uses
         # a Botocore session and checks that exact session's service models.
         missing = (unsupported_operations(r, session) if hasattr(session, "get_service_model")
                    else UNSUPPORTED_RECIPES.get(r.id, []))
         if missing:
             failure(r, "not_supported", "sdk_operations_unavailable:" + ",".join(missing))
-            continue
+            return
         api_region = r.region or region
         if r.region and partition != "aws":
             api_region = {"aws-cn": "cn-north-1", "aws-us-gov": "us-gov-west-1"}.get(partition, region)
@@ -369,19 +376,30 @@ def collect(requests, session, region, account, recipes=None):
                         statements = [statements] if isinstance(statements, dict) else statements
                         if any(not isinstance(statement, dict) for statement in statements):
                             raise ValueError("IAM policy statements malformed")
-                        row = policies.setdefault(arn, {"ResourceArn": arn, "Policy": {"Version": "2012-10-17", "Statement": []},
-                            "_provenance": {"read_only": True, "owner_account": account, "source_region": api_region,
-                                "collection_region": region, "families": [], "source_operations": []}})
-                        row["Policy"]["Statement"].extend(statements)
-                        if r.id not in row["_provenance"]["families"]:
-                            row["_provenance"]["families"].append(r.id)
-                        source_operation = r.service + ":" + (r.operation or r.steps[-1][0])
-                        if source_operation not in row["_provenance"]["source_operations"]:
-                            row["_provenance"]["source_operations"].append(source_operation)
+                        found.append((arn, api_region, statements))
                 except (KeyError, TypeError, ValueError, IndexError):
                     failure(r, "malformed", "policy_resource_or_document_invalid")
         except (KeyError, TypeError, ValueError, IndexError):
             failure(r, "malformed", "policy_resource_or_document_invalid")
+
+    # Recipes are independent, mostly serial list-then-get chains; run them
+    # concurrently and merge their records in recipe order, as one loop would.
+    from .aws_request_pool import run_all
+    for r, (ok, value) in zip(selected, run_all(requests, [lambda r=r: family(r) for r in selected], stop_on_error=True)):
+        if not ok:
+            raise value
+        family_failures, documents = value
+        failures.extend(family_failures)
+        for arn, api_region, statements in documents:
+            row = policies.setdefault(arn, {"ResourceArn": arn, "Policy": {"Version": "2012-10-17", "Statement": []},
+                "_provenance": {"read_only": True, "owner_account": account, "source_region": api_region,
+                    "collection_region": region, "families": [], "source_operations": []}})
+            row["Policy"]["Statement"].extend(statements)
+            if r.id not in row["_provenance"]["families"]:
+                row["_provenance"]["families"].append(r.id)
+            source_operation = r.service + ":" + (r.operation or r.steps[-1][0])
+            if source_operation not in row["_provenance"]["source_operations"]:
+                row["_provenance"]["source_operations"].append(source_operation)
     rows = [policies[key] for key in sorted(policies)]
     if failures:
         status = "partial" if rows else "denied" if all(f["status"] == "denied" for f in failures) else "unknown"

@@ -8,6 +8,17 @@ from test_gcp_image_stream_inspection import image
 from peaso.collectors import gcp_job_trivy_stream_20261021 as stream
 import gcp_job_image_vulnerability_fixture_20261021 as fixture
 
+
+def released(runner):
+    """Fake runners keep the real runner's contract: release staged scratch in finally."""
+    from peaso import container_image_archive_20261020 as image_archive
+    def run(identity, manifest, config, layers, **kwargs):
+        try:
+            return runner(identity, manifest, config, layers, **kwargs)
+        finally:
+            image_archive.release_staged(identity, manifest, config, layers)
+    return run
+
 def setup_large(monkeypatch, *, compressed=False, fault=None):
     row, blobs = image(9 * 1024 * 1024, compressed=compressed)
     base = 'https://us-central1-docker.pkg.dev/v2/review/images/app/'
@@ -39,7 +50,7 @@ def test_real_native_job_flow_streams_large_layers_and_cleans_every_file(tmp_pat
         observed_paths.extend(layers)
         return clean(identity, manifest, config, layers, **kwargs)
     result = stream.collect_native(wire, scope=fixture.SCOPE, selectors=selections, enabled=True,
-        metadata_session=metadata, image_session=images, runner=runner)
+        metadata_session=metadata, image_session=images, runner=released(runner))
     assert result['status'] == 'PASS', result
     assert result['complete'] is True
     assert result['rows'][0]['status'] == 'PASS'
@@ -65,7 +76,7 @@ def test_fresh_native_verifier_rejects_changed_retained_file(tmp_path, monkeypat
         kwargs['native_verifier']()
         pytest.fail('changed content accepted')
     result = stream.collect_native(wire, scope=fixture.SCOPE, selectors=selections, enabled=True,
-        metadata_session=metadata, image_session=images, runner=runner)
+        metadata_session=metadata, image_session=images, runner=released(runner))
     assert reached
     assert result['status'] == 'UNKNOWN'
     assert result['complete'] is False
@@ -125,7 +136,7 @@ def test_confirmed_high_vulnerability_remains_fail_with_partial_database_coverag
                 'fixed_in': ['1.1'], 'fix_status': 'fixed', 'classes': ['os-pkgs'],
                 'image_digest': identity['manifest_digest']}]}
     result = stream.collect_native(wire, scope=fixture.SCOPE, selectors=selections, enabled=True,
-        metadata_session=metadata, image_session=images, runner=runner)
+        metadata_session=metadata, image_session=images, runner=released(runner))
     assert result['status'] == 'FAIL'
     assert result['complete'] is False
     record = result['rows'][0]['vulnerability_record']

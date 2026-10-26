@@ -216,18 +216,69 @@ def test_configmap_data_binarydata_and_keys(monkeypatch,binary):
 
 
 def test_reference_sources_excluded_without_reads_or_expansion(monkeypatch):
+    # Secret, field and envFrom secretRef references are counted but never read.
     obj=native();c=obj['spec']['containers'][0]
     c['env'] += [{'name':'FROM_SECRET','valueFrom':{'secretKeyRef':{'name':'reference-secret','key':'password'}}},
-        {'name':'FROM_CONFIG','valueFrom':{'configMapKeyRef':{'name':'reference-config','key':'key'}}},
         {'name':'POD_NAME','valueFrom':{'fieldRef':{'fieldPath':'metadata.name'}}}]
-    c['envFrom']=[{'secretRef':{'name':'reference-secret'}}, {'configMapRef':{'name':'reference-config'}}]
+    c['envFrom']=[{'secretRef':{'name':'reference-secret'}}]
     c['args']=['$(FROM_SECRET)']
     snapshot,trace=capture(monkeypatch,documents={route(target()):obj})
     assert findings(snapshot)[0]['status']=='PASS'
     _,ev=checks.evaluate(*item_index(snapshot))
-    assert ev['reference_count']==5
-    assert len(trace.calls)==2 and all(all(v not in p for v in (TOKEN.encode(),b'reference-secret',b'reference-config')) for p,_,_ in trace.scans)
+    assert ev['reference_count']==3
+    assert len(trace.calls)==2 and all(all(v not in p for v in (TOKEN.encode(),b'reference-secret')) for p,_,_ in trace.scans)
     assert TOKEN not in json.dumps(snapshot)
+
+
+def _configmap_reference_pod():
+    obj=native();c=obj['spec']['containers'][0]
+    c['env'] += [{'name':'FROM_SECRET','valueFrom':{'secretKeyRef':{'name':'reference-secret','key':'password'}}},
+        {'name':'FROM_CONFIG','valueFrom':{'configMapKeyRef':{'name':'reference-config','key':'key'}}}]
+    c['envFrom']=[{'configMapRef':{'name':'reference-config'}}]
+    return obj
+
+
+def test_read_clean_referenced_configmap_passes(monkeypatch):
+    cm=target('ConfigMap','reference-config');doc=native(cm);doc['data']={'key':'ordinary'}
+    snapshot,trace=capture(monkeypatch,documents={route(target()):_configmap_reference_pod()},
+        extra_documents={route(cm):doc})
+    assert findings(snapshot)[0]['status']=='PASS'
+    assert [c[2] for c in trace.calls].count(route(cm))==2 and len(trace.calls)==4
+    assert any(b'ordinary' in p for p,_,_ in trace.scans)
+    assert all(b'reference-secret' not in p for p,_,_ in trace.scans)
+
+
+def test_reference_count_counts_each_recorded_reference_once(monkeypatch):
+    # Pod spec records: secretKeyRef, configMapKeyRef, envFrom configMapRef
+    # (three env references) and one mounted ConfigMap volume.
+    cm=target('ConfigMap','reference-config');doc=native(cm);doc['data']={'key':'ordinary'}
+    obj=_configmap_reference_pod()
+    obj['spec']['volumes']=[{'name':'mounted','configMap':{'name':'reference-config'}}]
+    snapshot,_=capture(monkeypatch,documents={route(target()):obj},extra_documents={route(cm):doc})
+    finding,=findings(snapshot)
+    assert finding['status']=='PASS' and finding['evidence']['reference_count']==4
+    # Without any ConfigMap association the same env count is reported.
+    with monkeypatch.context() as patch:
+        obj=native();obj['spec']['containers'][0]['env'].append(
+            {'name':'FROM_SECRET','valueFrom':{'secretKeyRef':{'name':'reference-secret','key':'password'}}})
+        snapshot,_=capture(patch,documents={route(target()):obj})
+        assert findings(snapshot)[0]['evidence']['reference_count']==1
+
+
+def test_reference_count_kept_when_only_metadata_literals_exist(monkeypatch):
+    obj=native();container=obj['spec']['containers'][0]
+    container.pop('command');container.pop('args')
+    container['env']=[{'name':'REF','valueFrom':{'secretKeyRef':{'name':'selected-secret','key':'key'}}}]
+    container['envFrom']=[{'secretRef':{'name':'selected-secret'}}]
+    snapshot,_=capture(monkeypatch,documents={route(target()):obj})
+    finding,=findings(snapshot)
+    assert finding['status']=='PASS' and finding['evidence']['reference_count']==2
+
+
+def test_unreadable_referenced_configmap_stays_unknown(monkeypatch):
+    snapshot,trace=capture(monkeypatch,documents={route(target()):_configmap_reference_pod()})
+    assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'}
+    assert all(b'reference-secret' not in p for p,_,_ in trace.scans)
 
 
 @pytest.mark.parametrize('ordinal',[1,2])
@@ -515,6 +566,22 @@ def test_read_deadline_and_batch_total_byte_bound(monkeypatch):
         assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'} and not trace.scans
 
 
+@pytest.mark.parametrize('kind',['Pod','ConfigMap'])
+def test_base_limits_bound_every_wrapped_read_path(monkeypatch,kind):
+    from peaso.collectors import k8s_literal_secret_fields_compatible as fields, k8s_literal_configmap_association as association
+    t=target(kind,'review-pod' if kind=='Pod' else 'review-map')
+    for name,value,check in (('MAX_SECONDS',-1,lambda trace:not trace.calls),('MAX_TOTAL',10,lambda trace:not trace.scans),
+            ('MAX_WIRE',10,lambda trace:not trace.scans),('MAX_CONTENT',10,lambda trace:not trace.scans)):
+        with monkeypatch.context() as patch:
+            patch.setattr(source,name,value)
+            snapshot,trace=capture(patch,targets=[t])
+            assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'} and check(trace),name
+            assert fields._GLOBALS[name]==association._GLOBALS[name]==value
+    snapshot,_=capture(monkeypatch,targets=[t])
+    assert {r['status'] for r in findings(snapshot)}=={'PASS'}
+    assert fields._GLOBALS['MAX_SECONDS']==association._GLOBALS['MAX_SECONDS']==source.MAX_SECONDS
+
+
 def test_eight_selected_objects_exact_sixteen_get_ceiling(monkeypatch):
     targets=[target('ConfigMap','map-'+str(i)) for i in range(8)]
     snapshot,trace=capture(monkeypatch,targets=targets)
@@ -585,9 +652,20 @@ def test_malformed_reference_metadata_never_proves_clean(monkeypatch,source_valu
 def test_reference_only_pod_has_no_clean_literal_assessment(monkeypatch):
     obj=native();container=obj['spec']['containers'][0]
     container.pop('command');container.pop('args')
+    obj['metadata'].pop('labels');obj['metadata'].pop('annotations')
     container['env']=[{'name':'REF','valueFrom':{'secretKeyRef':{'name':'selected-secret','key':'key'}}}]
     snapshot,trace=capture(monkeypatch,documents={route(target()):obj})
     assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'} and not trace.scans
+
+
+def test_reference_only_pod_metadata_literals_are_assessed(monkeypatch):
+    # Pod labels and annotations are selected literal surfaces of their own.
+    obj=native();container=obj['spec']['containers'][0]
+    container.pop('command');container.pop('args')
+    container['env']=[{'name':'REF','valueFrom':{'secretKeyRef':{'name':'selected-secret','key':'key'}}}]
+    snapshot,trace=capture(monkeypatch,documents={route(target()):obj})
+    assert {r['status'] for r in findings(snapshot)}=={'PASS'} and trace.scans
+    assert all(b'opaque annotation' in p and b'selected-secret' not in p for p,_,_ in trace.scans)
 
 
 def test_detected_value_scrubs_other_native_inventory_before_snapshot_and_cache(monkeypatch):
@@ -600,7 +678,7 @@ def test_detected_value_scrubs_other_native_inventory_before_snapshot_and_cache(
     snapshot,trace=capture(monkeypatch,targets=[t],req=req,documents={route(t):native(t,sensitive)},scanner=detector,
         extra_documents={listing:{'apiVersion':'v1','kind':'PodList','metadata':{'resourceVersion':'208'},'items':[pod]}})
     assert {r['status'] for r in findings(snapshot)}=={'FAIL'}
-    assert len(trace.calls)==3 and trace.calls[-1][2]==listing
+    assert sorted(c[2] for c in trace.calls)==sorted([listing,route(t),route(t)])
     assert sensitive not in json.dumps([snapshot,findings(snapshot)])
     assert getattr(trace.api.api_client,'last_response',None) is None
     assert all(r.closed and r.released for r in trace.responses)

@@ -236,7 +236,7 @@
     "current_hashes": {
       "peaso/collectors/azure.py": "1db269f964f2c8c2eea491658524522c58bd6fd0f69b9065e63265578c2ab243",
       "peaso/collectors/azure_acr_image_vulnerabilities_20261021.py": "4dc9d08d275416002f7b436647542e58c3df918e0ea77263ee4aca3b57f51363",
-      "peaso/collectors/k8s_literal_configmap_association.py": "8e7068d3f1c6f14ef521678c45d04b40800d7bdbeaa79a3e86d1d737ca99fe57",
+      "peaso/collectors/k8s_literal_configmap_association.py": "4378bf83681bfad3aa467cb3a7fce90a1dae02943858b9f698623768092a16ea",
       "peaso/incremental.py": "aced62e1a57b1bc61ccf6a0ad5c0179c7608961c42ec5840a0475270df37b2af",
       "peaso/private_reviewed_collector_successor_20261022.py": "c99af6a60344ad1fae30144f832084bafd528584c6bd21980556a0c53c0dbab6",
       "peaso/server/app.py": "b51ebd2662887553941ef2cc9dfe9b0c69fc36f4cefd3de6aa4fea7d7b7d7e15",

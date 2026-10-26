@@ -181,11 +181,14 @@ def seal(snapshot, *, owned=False):
     return result
 
 
-def validate(snapshot, *, read_only=False, owned=False):
+def validate(snapshot, *, read_only=False, owned=False, metadata_entry=None):
     """Validated copy of a snapshot; read_only=True shares sealed read-only item views (evaluation paths).
 
     owned=True: the caller transfers a plain snapshot it just built (sealed, redacted or copied) and never
     uses again; its item lists are adopted instead of copied. Every check and the digest still apply.
+    metadata_entry=(key, value): the claimed snapshot_id is verified against the document as given, then
+    the copy gains metadata[key] = an independent copy of value and is addressed by that final digest.
+    This equals validating, setting the key and validating again; see _digests_with_metadata.
     """
     if not isinstance(snapshot, dict):
         raise ValueError("snapshot must be an object")
@@ -221,11 +224,67 @@ def validate(snapshot, *, read_only=False, owned=False):
         if collection["status"] in ("empty", "denied", "unknown", "malformed", "timeout", "not_collected") and collection["items"]:
             raise ValueError("unavailable/empty collection cannot contain items")
     original = result.pop("snapshot_id", None)
-    calculated = digest(result)
+    if metadata_entry is None:
+        calculated = digest(result)
+    else:
+        calculated, extended, metadata = _digests_with_metadata(result, *metadata_entry)
     if original is not None and original != calculated:
         raise ValueError("snapshot content digest mismatch")
     result["snapshot_id"] = calculated
+    if metadata_entry is not None:
+        result["metadata"] = metadata
+        result["snapshot_id"] = extended
     return result
+
+
+def _digests_with_metadata(result, key, value):
+    """digest(result), digest(result with metadata[key] = value) and that metadata, sharing one pass.
+
+    The canonical document sorts its keys and "collections" sorts before "metadata". Every key before
+    "metadata" is identical in both documents, so that prefix (the native items) is streamed once and
+    the hash state is copied for the two endings; the bytes are exactly those _hash_canonical hashes.
+    Nothing else runs between the two digests, so no change can fall between them. Any other shape is
+    digested twice in full.
+    """
+    metadata = dict(result["metadata"])
+    metadata[key] = _thaw(value)
+    collections = result.get("collections")
+    if (type(collections) is not list or not all(type(name) is str for name in result)
+            or type(result["metadata"]) is not dict):
+        return digest(result), digest({**result, "metadata": metadata}), metadata
+    names = sorted(result)
+    cut = names.index("metadata")
+    with gc_paused():
+        shared = hashlib.sha256()
+        update = shared.update
+        update(b"{")
+        for index, name in enumerate(names[:cut]):
+            if index:
+                update(b",")
+            update(canonical(name).encode())
+            update(b":")
+            if name == "collections":
+                update(b"[")
+                for position, collection in enumerate(collections):
+                    if position:
+                        update(b",")
+                    update(canonical(collection).encode())
+                update(b"]")
+            else:
+                update(canonical(result[name]).encode())
+
+        def ending(document_metadata):
+            state = shared.copy()
+            for index, name in enumerate(names[cut:], cut):
+                if index:
+                    state.update(b",")
+                state.update(canonical(name).encode())
+                state.update(b":")
+                state.update(canonical(document_metadata if name == "metadata" else result[name]).encode())
+            state.update(b"}")
+            return "sha256:" + state.hexdigest()
+
+        return ending(result["metadata"]), ending(metadata), metadata
 
 
 def make_snapshot(provider, scopes, collections, *, created_at=None, metadata=None, owned=False):

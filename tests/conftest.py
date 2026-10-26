@@ -120,3 +120,29 @@ def pytest_sessionstart(session):
         sandbox = staged_registry(modules)
         sandbox.__enter__()
         session.config.add_cleanup(lambda: sandbox.__exit__(None, None, None))
+
+
+_IMAGE_MEMOS = (('peaso.container_image_archive_20261020', ('_PROVEN', '_STAGED')),
+                ('peaso.trivy_container_runner_20261020', ('_SCANS',)))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_image_memos():
+    """Start and end every test with empty process-local image memos.
+
+    Production runs each scan in its own process; in one pytest process a proof
+    or staged scratch left by an earlier test would otherwise change which code
+    path a later test takes (and hide or cause leftover scratch).
+    """
+    import sys
+
+    def clear():
+        for module_name, names in _IMAGE_MEMOS:
+            module = sys.modules.get(module_name)
+            for name in names:
+                memo = getattr(module, name, None) if module is not None else None
+                if memo is not None:
+                    memo.clear()
+    clear()
+    yield
+    clear()

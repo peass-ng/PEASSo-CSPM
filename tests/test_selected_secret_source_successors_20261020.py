@@ -2,7 +2,7 @@
 from pathlib import Path
 import shutil
 import pytest
-from tests.selected_secret_source_successors_20261020 import SUCCESSORS,PRIVATE_NATIVE_SOURCE,RAWV2_SCANNER_SOURCE,ROOT,assert_source_receipt
+from tests.selected_secret_source_successors_20261020 import SUCCESSORS,CHAINED_SUCCESSORS,PRIVATE_NATIVE_SOURCE,RAWV2_SCANNER_SOURCE,ROOT,assert_source_receipt
 PATH='peaso/secret_findings.py'
 OLD=next(old for path,old in SUCCESSORS if path==PATH)
 
@@ -71,7 +71,13 @@ def test_each_successor_rejects_current_proof_and_retained_tampering(tmp_path,pa
     row,=[r for r in document.get('sources',[document])if r['source_path']==path and r['prior_sha256']==prior]
     retained=row['retained_predecessor']['path']
     files={'current':path,'proof':proof,'retained':retained}
-    for name in files.values():
+    # Unchanged dependencies the successor proof also reads from the root.
+    dependencies=['peaso/secret_evidence.py']
+    if (path,row['current_sha256']) in CHAINED_SUCCESSORS:
+        chained=CHAINED_SUCCESSORS[(path,row['current_sha256'])][0]
+        chained_row,=json.loads((ROOT/chained).read_text())['sources']
+        dependencies+=[chained,chained_row['retained_predecessor']['path']]
+    for name in [*files.values(),*dependencies]:
         target=tmp_path/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/name,target)
     changed=tmp_path/files[changed_part];changed.write_bytes(changed.read_bytes()+b'\n')
     with pytest.raises(AssertionError):assert_source_receipt(path,prior,root=tmp_path)

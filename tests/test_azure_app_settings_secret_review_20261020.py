@@ -395,8 +395,15 @@ def test_public_boolean_strict_before_credentials(monkeypatch,flag):
 
 
 def test_missing_selected_targets_and_wildcard_scope_rejected(monkeypatch):
+    # An absent selector means automatic native discovery (f1434b2a); an
+    # explicit empty or malformed selector is still rejected.
+    from peaso import content_scan_selection
     req=request();req['connector']['options'].pop(source.OPTION)
-    with pytest.raises(ValueError):engine._request(req)
+    engine._request(req)
+    assert source.CHECK in content_scan_selection.configured_checks('azure',req['connector']['options'])['leaks']
+    for value in ([],'x',['not-a-site']):
+        req=request();req['connector']['options'][source.OPTION]=value
+        with pytest.raises(ValueError):engine._request(req)
     req=request();req['connector']['scopes']=['*',SCOPE]
     with pytest.raises(ValueError):engine._request(req)
 

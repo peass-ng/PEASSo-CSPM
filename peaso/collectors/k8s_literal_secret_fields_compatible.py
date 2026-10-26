@@ -28,6 +28,23 @@ def _sequence(parent, field, code):
     return value
 
 
+def env_reference_count(document, target):
+    """Count env valueFrom and envFrom references exactly as the base reader does.
+
+    Only used after the base reader validated every field and stopped solely
+    because no literal was present, so its own count was not returned.
+    """
+    spec = document
+    for field in base.NATIVE_KINDS[target['kind']][2]:
+        spec = spec[field]
+    total = 0
+    for group in ('containers', 'initContainers', 'ephemeralContainers'):
+        for container in spec.get(group, []):
+            total += sum('valueFrom' in entry for entry in container.get('env', []))
+            total += len(container.get('envFrom', []))
+    return total
+
+
 def _extract(document, target):
     if target['kind'] == 'ConfigMap':
         return base._extract(document, target)
@@ -40,7 +57,8 @@ def _extract(document, target):
         if str(exc) != 'no_nonempty_supported_literals':
             raise
         meta = document['metadata']
-        uid, version, old_count, references = meta['uid'], meta['resourceVersion'], 0, 0
+        uid, version, old_count = meta['uid'], meta['resourceVersion'], 0
+        references = env_reference_count(document, target)
         original = '\n'.join((target['cluster_id'], meta['namespace'], meta['name'], uid, version)).encode()
     values = []
     count = 0
@@ -161,7 +179,21 @@ identity = _GLOBALS['identity']
 _path = _GLOBALS['_path']
 
 
+# The copied functions above resolve limits from _GLOBALS, a snapshot of the
+# base module taken at import. Re-read them from the base module on every
+# collection so there is one source of limits for every read path.
+LIMITS = ('MAX_WIRE', 'MAX_CONTENT', 'MAX_VALUE', 'MAX_TOTAL', 'MAX_SECONDS',
+    'MAX_LITERALS', 'MAX_LEAKS', 'MAX_LOCATIONS')
+
+
+def sync_limits(*namespaces):
+    for namespace in (_GLOBALS, *namespaces):
+        for name in LIMITS:
+            namespace[name] = getattr(base, name)
+
+
 def collect(reader, api, options, scopes, cluster):
+    sync_limits()
     if enabled(options):
         with private_native_logs():
             return _GLOBALS['collect'](reader, api, options, scopes, cluster)

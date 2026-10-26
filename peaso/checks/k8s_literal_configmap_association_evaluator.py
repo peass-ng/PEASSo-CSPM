@@ -110,7 +110,12 @@ def evaluate(item, index):
         marker = item[MARKER]
         ledger = index['context']['metadata'].get(KIND + '_configmap_receipts', [])
         if 'association' not in marker:
-            if (marker.get('reference_count', 0) > 0
+            # The collector records ConfigMap read receipts for every workload
+            # whose plan names a ConfigMap. Secret, field and resource
+            # references are counted but never read, so they keep the legacy
+            # verdict; any receipt for this workload without its sealed
+            # association is an unproved ConfigMap reference.
+            if (not isinstance(ledger, list)
                     or any(isinstance(r, dict) and r.get('identity') == item.get('id') for r in ledger)):
                 raise ValueError('unproved reference')
             return legacy(item, index)

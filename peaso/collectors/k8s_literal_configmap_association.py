@@ -48,8 +48,8 @@ def _map(value, code):
     return value
 
 
-def _seq(value, code, limit=base.MAX_LITERALS):
-    if not isinstance(value, list) or len(value) > limit:
+def _seq(value, code, limit=None):
+    if not isinstance(value, list) or len(value) > (base.MAX_LITERALS if limit is None else limit):
         raise Incomplete(code)
     return value
 
@@ -325,7 +325,8 @@ def _extract(document, target):
         if str(exc) != 'no_nonempty_supported_literals':
             raise
         meta = document['metadata']
-        uid, version, count, references = meta['uid'], meta['resourceVersion'], 0, 0
+        uid, version, count = meta['uid'], meta['resourceVersion'], 0
+        references = previous.env_reference_count(document, target)
         payload = '\n'.join((target['cluster_id'], meta['namespace'], meta['name'], uid, version)).encode()
     plan, maps = document.associations
     if plan != _plan(document, target):
@@ -350,7 +351,9 @@ def _extract(document, target):
     combined = payload + (b'\n' if additions else b'') + '\n'.join(additions).encode('utf-8')
     if len(combined) > base.MAX_CONTENT:
         raise Incomplete('literal_byte_limit')
-    return combined, uid, version, count, references + len(plan)
+    # Env ConfigMap references are already counted with the other env
+    # references; only mounted ConfigMap volumes are new references.
+    return combined, uid, version, count, references + sum(ref[3] == 'volume' for ref in plan)
 
 
 _GLOBALS = {**previous._GLOBALS, '__name__': __name__, '_extract': _extract, '_read': _read}
@@ -378,6 +381,7 @@ enabled, selected_targets, identity, _path = (previous.enabled, previous.selecte
 
 
 def collect(reader, api, options, scopes, cluster):
+    previous.sync_limits(_GLOBALS)
     reader._configmap_association_phases = {}
     deadline_token = _SCAN_DEADLINE.set(time.monotonic() + base.MAX_SECONDS)
     try:

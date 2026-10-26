@@ -72,7 +72,10 @@ def _successor(path,expected,root):
         current=_chained_predecessor(path,row['current_sha256'],current,root)
     if hashlib.sha256(current).hexdigest()!=row['current_sha256']:
         from peaso import private_secret_source_epoch_20261021 as epoch
-        current=epoch.predecessor_bytes(path,current,row['current_sha256'],root)
+        try:
+            current=epoch.predecessor_bytes(path,current,row['current_sha256'],root)
+        except epoch.AdmissionError as exc:
+            raise AssertionError('Unreviewed current source changed') from exc
     assert hashlib.sha256(current).hexdigest()==row['current_sha256'],'Unreviewed current source changed'
     return before
 

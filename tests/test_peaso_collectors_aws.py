@@ -483,7 +483,7 @@ def test_invalid_selected_profile_does_not_fallback(monkeypatch):
     assert "private credential" not in json.dumps(snapshot)
 
 
-@pytest.mark.parametrize("options", [{"max_calls": True}, {"service_concurrency": 17}, {"region_concurrency": 0}, {"scope_concurrency": 9}, {"regions": ["not-a-region"]}, {"inventories": ["secret_values"]}])
+@pytest.mark.parametrize("options", [{"max_calls": True}, {"service_concurrency": 33}, {"region_concurrency": 0}, {"scope_concurrency": 9}, {"regions": ["not-a-region"]}, {"inventories": ["secret_values"]}])
 def test_invalid_bounds_rejected_before_network(options):
     with pytest.raises(ValueError):
         aws.collect({"provider": "aws", "options": options})

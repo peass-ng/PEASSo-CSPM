@@ -878,7 +878,7 @@ def validate_connector(provider, auth, options, settings, *, server_external_id=
     for key in ("max_resources", "max_calls", "max_pages"):
         if key in options and (isinstance(options[key], bool) or not isinstance(options[key], int) or options[key] < 1):
             raise HTTPException(422, "Explicit inventory caps must be positive integers")
-    limits = {"concurrency": 4, "service_concurrency": 16, "scope_concurrency": 2, "region_concurrency": 2, "retries": 5, "page_size": 1000, "activity_days": 90, "log_entry_minutes": 1440}
+    limits = {"concurrency": 4, "service_concurrency": 32, "scope_concurrency": 2, "region_concurrency": 2, "retries": 5, "page_size": 1000, "activity_days": 90, "log_entry_minutes": 1440}
     for key, maximum in limits.items():
         if key in options and (isinstance(options[key], bool) or not isinstance(options[key], int) or not 0 < options[key] <= maximum):
             raise HTTPException(422, "Hosted collector limit exceeds the supported budget")

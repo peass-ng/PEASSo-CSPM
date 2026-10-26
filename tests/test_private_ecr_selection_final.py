@@ -172,7 +172,7 @@ def test_direct_selected_index_native_consumer_and_partial(monkeypatch):
     class Reader:
         denied = False
         clean = False
-        def __init__(self, requests, session, account, region):
+        def __init__(self, requests, session, account, region, *, target_count=1):
             assert (account, region) == (ACCOUNT, REGION)
             self.account, self.region, self.ledger = account, region, []
         def check(self):
@@ -241,7 +241,7 @@ def test_lambda_index_remains_unselected_and_foreign_scope_rejected(monkeypatch)
     function = f'arn:aws:lambda:{REGION}:{ACCOUNT}:function:demo'
     target = {'scope': SCOPE, 'function_arn': function}
     class Reader:
-        def __init__(self, requests, session, account, region):
+        def __init__(self, requests, session, account, region, *, target_count=1):
             self.ledger = []
         def caller(self):
             pass
