@@ -176,6 +176,45 @@ class CredentialExpired(PermissionError):
     pass
 
 
+def _import_checks():
+    import peaso.checks  # noqa: F401
+
+
+def _verify_aws_credentials_while(connector, work):
+    """Run CPU-bound ``work`` while the AWS STS preflight waits on the network.
+
+    Every live collection imports the native check registry before it plans
+    collection, so importing it during the credential round trip only moves
+    work earlier. Modules the preflight needs are imported here first, so the
+    preflight thread never imports a peaso module concurrently with ``work``.
+    Credential errors still surface before any collection is scheduled.
+    """
+    if (connector.get("provider") != "aws" or
+            connector.get("input_mode") in {"offline_snapshot", "demo"}):
+        _verify_aws_credentials(connector)
+        return work()
+    import boto3  # noqa: F401
+    import botocore.config  # noqa: F401
+    import peaso.collectors.aws  # noqa: F401
+    failure = []
+
+    def verify():
+        try:
+            _verify_aws_credentials(connector)
+        except BaseException as exc:
+            failure.append(exc)
+
+    thread = threading.Thread(target=verify, name="peaso-credential-preflight", daemon=True)
+    thread.start()
+    try:
+        result = work()
+    finally:
+        thread.join()
+    if failure:
+        raise failure[0]
+    return result
+
+
 class _SynchronizedPipe:
     """Serialize child progress and background checkpoint frames on one pipe."""
     def __init__(self, connection):
@@ -431,8 +470,8 @@ def _process(role, request, connection):
                 from peaso.server.scan_resume import validate_resume_proof
                 validate_resume_proof(proof, artifacts, tenant, ident,
                                       request["connector"], request.get("checkpoint_refs", []))
-            _verify_aws_credentials(request.get("connector", {}))
             with _runtime_span('worker.startup'):
+                _verify_aws_credentials_while(request.get("connector", {}), _import_checks)
                 from peaso.engine import collect_snapshot
             from peaso.snapshot import seal
             connector = request.get("connector", {})
