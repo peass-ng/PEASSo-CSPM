@@ -16,7 +16,11 @@ def test_native_branches_have_brief_immutable_observations(cid, row):
     finding = {'provider': 'azure', 'check_id': cid, **deepcopy(row)}
     original = deepcopy(finding)
     text = evidence_summary(finding)
-    assert bool(text) == (row['status'] in ('PASS', 'FAIL'))
+    missing_id = row['status'] == 'UNKNOWN' and row['evidence'].get('reason') == 'missing fact: id'
+    assert bool(text) == (row['status'] in ('PASS', 'FAIL') or missing_id)
+    if missing_id:
+        assert observation(finding) is None
+        assert text.startswith('The record is missing the resource ID.\n')
     if text:
         assert text.count('.') <= 3
         assert len(text.split()) <= 45
