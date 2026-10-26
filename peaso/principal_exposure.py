@@ -732,10 +732,14 @@ def _azure_containers(by_type):
         yield a
 
 
-def annotate_privesc(snapshot, graph, findings, model):
-    """Attach entry points without adding assumption/compromise edges or changing confidence."""
+def annotate_privesc(snapshot, graph, findings, model, inventory=None):
+    """Attach entry points without adding assumption/compromise edges or changing confidence.
+
+    ``inventory`` is resources(snapshot) when the caller already built it for
+    this unchanged snapshot (the engine does); None rebuilds it here.
+    """
     from peaso.snapshot import resources
-    cards = project(snapshot, resources(snapshot))
+    cards = project(snapshot, resources(snapshot) if inventory is None else inventory)
     matched = {}
     for node in model.principals.values():
         identity = node.attrs.get("arn") or node.attrs.get("member") or node.attrs.get("email") or node.attrs.get("user") or node.id
