@@ -405,7 +405,24 @@ def _collector_checkpoint_publisher(artifacts, publication_artifacts, tenant, id
     return checkpoint
 
 
-def _prewarmed_process(connection):
+# One placeholder scope per provider: an empty evaluation of the job's provider
+# runs every lazy per-process install (admission bundles, framework and report
+# template tables) that the first real evaluation would otherwise pay.
+_PREWARM_SCOPES = {"aws": "123456789012", "gcp": "peaso-prewarm", "azure": "00000000-0000-0000-0000-000000000000",
+                   "k8s": "peaso-prewarm"}
+
+
+def _prewarm_evaluation(provider):
+    scope = _PREWARM_SCOPES.get(provider)
+    if scope is None:
+        return
+    from peaso.engine import evaluate_snapshot
+    from peaso.snapshot import make_snapshot
+    evaluate_snapshot(make_snapshot(provider, [scope], [], created_at="2026-01-01T00:00:00+00:00"),
+                      include_not_applicable=False)
+
+
+def _prewarmed_process(connection, provider=None):
     """Import and prove the native engine before an analyzer job arrives.
 
     The progressive analyzer starts this child while collection is still
@@ -419,6 +436,7 @@ def _prewarmed_process(connection):
     try:
         import peaso.checks  # noqa: F401
         import peaso.engine  # noqa: F401
+        _prewarm_evaluation(provider)
     except Exception:  # noqa: BLE001 - _process re-imports and reports the failure
         pass
     try:
@@ -831,13 +849,13 @@ class Worker:
         self.stopping = threading.Event()
         self._prewarmed = None
 
-    def prewarm(self):
+    def prewarm(self, provider=None):
         """Start one analyzer child that imports the engine ahead of its job."""
         if self.role != "analyzer" or self._prewarmed is not None:
             return
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe(duplex=True)
-        process = context.Process(target=_prewarmed_process, args=(child,), daemon=True)
+        process = context.Process(target=_prewarmed_process, args=(child, provider), daemon=True)
         try:
             process.start()
         except Exception:  # noqa: BLE001 - run_once falls back to a fresh child

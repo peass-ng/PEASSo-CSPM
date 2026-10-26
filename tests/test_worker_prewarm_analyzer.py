@@ -106,3 +106,36 @@ def test_prewarmed_child_without_a_job_exits_quietly(monkeypatch):
     worker_module._prewarmed_process(_Pipe())
     worker_module._prewarmed_process(_Pipe([("other", 1)]))
     assert seen == []
+
+
+def test_prewarm_evaluates_an_empty_snapshot_of_the_job_provider(monkeypatch):
+    import peaso.engine
+    from peaso.snapshot import validate
+    seen = []
+    monkeypatch.setattr(peaso.engine, "evaluate_snapshot",
+                        lambda snapshot, **options: seen.append((validate(snapshot), options)))
+    for provider in ("aws", "gcp", "azure", "k8s"):
+        worker_module._prewarm_evaluation(provider)
+    worker_module._prewarm_evaluation(None)
+    worker_module._prewarm_evaluation("unknown")
+    assert [snapshot["provider"] for snapshot, _ in seen] == ["aws", "gcp", "azure", "k8s"]
+    assert all(snapshot["collections"] == [] and options == {"include_not_applicable": False}
+               for snapshot, options in seen)
+
+
+def test_prewarm_passes_the_provider_to_the_child(monkeypatch):
+    started = []
+
+    class Context:
+        def Pipe(self, duplex):
+            return _Pipe(), _Pipe()
+
+        def Process(self, target, args, daemon):
+            started.append((target, args[1]))
+            return _Process()
+
+    monkeypatch.setattr(worker_module.multiprocessing, "get_context", lambda name: Context())
+    monkeypatch.setattr(_Process, "start", lambda self: None, raising=False)
+    worker = _worker()
+    worker.prewarm("gcp")
+    assert started == [(worker_module._prewarmed_process, "gcp")]

@@ -271,7 +271,11 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
     if callable(prewarm):
         # Final evaluation's one-time engine import and source proof overlaps
         # collection on this otherwise idle analyzer instead of following it.
-        prewarm()
+        try:
+            provider = json.loads(worker.store.job(tenant, ident)["connector"])["data"].get("provider")
+        except Exception:  # noqa: BLE001 - an unknown provider only skips the warm evaluation
+            provider = None
+        prewarm(provider)
     try:
         while not worker.stopping.is_set():
             job = worker.store.job(tenant, ident)
