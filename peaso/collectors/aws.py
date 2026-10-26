@@ -2931,6 +2931,9 @@ def collect(connector, requirements=None):
                     append(kind, f"{identity['Account']}/{GLOBAL_SCOPE}", SPECS.get(kind, ("aws",))[0], ReadResult([], "not_collected", {"code": "inventory_not_requested"}), identity["Account"])
                 for region in regions_for(identity["Account"]):
                     for kind in sorted((set(SPECS) - GLOBAL_TYPES - wanted - {"vpc_account_inventory"}) | unsupported):
+                        if ((auto_lambda_environment and kind == aws_lambda_environment_secret_indicators.KIND)
+                                or (auto_ecs_environment and kind == aws_selected_configuration_secret_indicators.KIND)):
+                            continue
                         append(kind, f"{identity['Account']}/{region}", SPECS.get(kind, ("aws",))[0], ReadResult([], "not_collected", {"code": "unsupported_inventory" if kind in unsupported else "inventory_not_requested"}))
         if auto_lambda_environment or auto_ecs_environment:
             from . import workload_environment_discovery as environment_discovery
@@ -2994,12 +2997,13 @@ def collect(connector, requirements=None):
                                 for length, fingerprints in requests.configuration_content_redactions.items():
                                     automatic_configuration_redactions.setdefault(length, set()).update(fingerprints)
                                 automatic_configuration_overflow |= requests.configuration_content_redaction_overflow
-                if not plan.targets:
-                    for scope in sorted({c['scope'] for c in collections if c['type'] in
-                            ({'lambda_function'} if kind == aws_lambda_environment_secret_indicators.KIND
-                             else {'ecs_task_definition'})}):
-                        append(kind, scope, service, ReadResult([], 'empty' if plan.complete else 'unknown',
-                            None if plan.complete else {'code': plan.reason}))
+                for scope in source_scopes:
+                    if scope in by_scope:
+                        continue
+                    scope_plan = make_plan([c for c in collections if c['scope'] == scope],
+                        expected_scopes=[scope])
+                    append(kind, scope, service, ReadResult([], 'empty' if scope_plan.complete else 'unknown',
+                        None if scope_plan.complete else {'code': scope_plan.reason}))
                 environment_discovery.fold_collections(collections, kind, automatic_batches[kind])
                 automatic[kind]['complete'] = plan.complete and content_complete
                 automatic[kind]['inspected'] = sum(len(c['items']) for c in collections if c['type'] == kind)

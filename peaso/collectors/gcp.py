@@ -2162,7 +2162,7 @@ class GCPCollector:
                              "roles/logging.viewAccessor", "roles/resourcemanager.folderAdmin",
                              "roles/run.developer", "roles/run.jobsExecutorWithOverrides"):
                     yield from self.pages("https://iam.googleapis.com/v1/" + role,
-                                          scope, single=True, params={"view": "FULL"})
+                                          scope, single=True)
             add("iam_role_builtin", "iam", selected_builtin_roles)
         if "asset" in self.needed and not (self.allowed is not None and scope_type != "project"):
             asset_types = self.options.get("asset_types")
@@ -2227,7 +2227,7 @@ class GCPCollector:
         if scope_type == "folder":
             add("iam_role_builtin", "iam", lambda: self.pages(
                 "https://iam.googleapis.com/v1/roles/resourcemanager.folderAdmin",
-                scope, single=True, params={"view": "FULL"}))
+                scope, single=True))
             def folder_grant_constraints():
                 for constraint in ("iam.allowedPolicyMemberDomains", "iam.managed.allowedPolicyMembers"):
                     url = f"https://orgpolicy.googleapis.com/v2/{scope}/policies/{constraint}:getEffectivePolicy"
@@ -2243,7 +2243,7 @@ class GCPCollector:
                              "roles/iam.organizationRoleAdmin",
                              "roles/resourcemanager.organizationAdmin"):
                     yield from self.pages("https://iam.googleapis.com/v1/" + role,
-                                          scope, single=True, params={"view": "FULL"})
+                                          scope, single=True)
             add("iam_role_builtin", "iam", organization_grant_roles)
             def organization_grant_constraints():
                 for constraint in ("iam.allowedPolicyMemberDomains", "iam.managed.allowedPolicyMembers"):

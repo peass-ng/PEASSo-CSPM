@@ -182,7 +182,7 @@ def _effective(collector,scope):
             raise _error('storage_hierarchical_folder_iam_unresolved')
         if _uniform(bucket):
             for folders,request in collector.pages('https://storage.googleapis.com/storage/v1/b/'+quote(bucket['name'],safe='')+'/managedFolders',scope,
-                params={'fields':'items(name),nextPageToken'},page_size_key='maxResults'):
+                page_size_key='maxResults'):
                 yield [],request
                 if folders:raise _error('storage_managed_folder_iam_unresolved')
         row={'name':bucket['name'],'resolutionComplete':True,'publicAccess':access or inherited_access,'publicWrite':write or inherited_write,

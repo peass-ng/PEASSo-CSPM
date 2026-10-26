@@ -99,3 +99,44 @@ def test_multiple_native_bucket_acl_owners_are_joined_without_poisoning_neighbor
  report=evaluate_snapshot(snap,checks=CHECKS,include_not_applicable=True)
  actual={(f['check_id'],f['evidence']['bucket']):f['status'] for f in report['findings']}
  assert actual=={(ACCESS,BUCKET):'PASS',(ACCESS,'other-bucket'):'FAIL',(WRITE,BUCKET):'PASS',(WRITE,'other-bucket'):'PASS'}
+
+
+from peaso.collectors import gcp_network_catalog as network
+from peaso.collectors import gcp_storage_acl_native as storage
+from tests.test_peaso_collectors_gcp import snapshot, collection
+def test_private_service_networking_contract():
+    def resolver(request):
+        if request['url'].endswith('/networks'):
+            return {'items':[{'name':'default'}]}
+        assert request['method']=='GET'
+        assert request['params']=={'network':'projects/p-one/global/networks/default'}
+        return {'connections':[{'peering':'native-peering'}]}
+    snap,_=snapshot(['service_networking_connection'],resolver)
+    assert collection(snap,'service_networking_connection')['items'][0]['peering']=='native-peering'
+
+@pytest.mark.parametrize('has_folders',[False,True])
+def test_managed_folder_evidence_semantics(has_folders,monkeypatch):
+    from types import SimpleNamespace,MethodType
+    from peaso.collectors.gcp import GCPCollector,ReadError
+    bucket={'name':'private-bucket','iamPolicy':{'bindings':[]},
+        'iamConfiguration':{'uniformBucketLevelAccess':{'enabled':True}},
+        '_coverage':{'iamPolicy':{'status':'collected','source_requests':['iam']}}}
+    monkeypatch.setattr(storage,'_parents',lambda *args:{'items':[bucket],'source_requests':['buckets']})
+    monkeypatch.setattr(storage,'_root_policies',lambda *args:[])
+    calls=[]
+    def read(url,scope,**kwargs):
+        calls.append(kwargs)
+        assert 'fields' not in kwargs.get('params',{})
+        assert 'maxResults' in kwargs['params']
+        return {'items':[{'name':'managed/'}] if has_folders else []},'folders'
+    collector=SimpleNamespace(read=read,page_size=100,max_pages=None)
+    collector.pages=MethodType(GCPCollector.pages,collector)
+    if has_folders:
+        with pytest.raises(ReadError) as exc:list(storage._effective(collector,'projects/owned'))
+        assert exc.value.error['code']=='storage_managed_folder_iam_unresolved'
+    else:
+        result=list(storage._effective(collector,'projects/owned'))
+        rows=[item for page,_ in result for item in page]
+        assert len(rows)==1 and rows[0]['resolutionComplete'] is True
+        assert rows[0]['publicAccess'] is False and rows[0]['publicWrite'] is False
+    assert len(calls)==1

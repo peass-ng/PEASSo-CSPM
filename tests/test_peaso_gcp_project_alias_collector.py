@@ -254,3 +254,30 @@ def test_identical_direct_root_pages_merge_request_references():
     assert len(envelope["items"]) == 1
     assert envelope["source_requests"] == ["page-one", "page-two"]
     assert envelope["items"][0]["_provenance"]["source_requests"] == ["page-one", "page-two"]
+
+
+# Native REST roles.get has no view query; roles.list still needs FULL.
+import unittest
+from urllib.parse import urlsplit
+
+class _BuiltinGetNativeAPI:
+ def __init__(self):self.calls=0;self.evidence=[];self.reads=[]
+ def request(self,method,url,**kw):
+  assert method=='GET';params=kw.get('params') or {};self.reads.append((url,params));self.calls+=1;ident='request-'+str(self.calls);path=urlsplit(url).path
+  self.evidence.append({'id':ident,'method':method,'url':url,'scope':kw['scope'],'operation':path,'query':params,'status':'collected','http_status':200})
+  if path.startswith('/v1/roles/'):
+   if params:raise gcp.ReadError('unavailable','api_error',http_status=400)
+   return {'name':path[4:],'title':'Synthetic role','includedPermissions':['compute.instances.get','iam.serviceAccounts.get']},ident
+  assert params.get('view')=='FULL' and params.get('showDeleted')=='true';return {'roles':[]},ident
+class TestBuiltinRoleGetQueryContract(unittest.TestCase):
+ def reader(self,scope):
+  api=_BuiltinGetNativeAPI();c=gcp.GCPCollector({'provider':'gcp','name':'exact regression','scopes':[scope],'auth':{'token':'synthetic-never-used'},'options':{}},requirements=['iam_role_builtin','iam_role'],transport=api);return c,api
+ def test_all_three_scope_forms_use_get_without_list_only_view(self):
+  for scope,count in [('projects/fixture-project',18),('folders/12345',1),('organizations/12345',4)]:
+   with self.subTest(scope=scope):
+    c,api=self.reader(scope);jobs=[j for j in c.scope_jobs(scope) if j[0]=='iam_role_builtin'];self.assertEqual(len(jobs),1)
+    batches=list(jobs[0][3]());self.assertEqual(len(batches),count);self.assertEqual(len(api.reads),count);self.assertTrue(all(not q for _,q in api.reads));self.assertTrue(all(row['includedPermissions'] for rows,_ in batches for row in rows))
+ def test_custom_role_listing_still_requests_all_permissions(self):
+  for scope in ['projects/fixture-project','organizations/12345']:
+   with self.subTest(scope=scope):
+    c,api=self.reader(scope);jobs=[j for j in c.scope_jobs(scope) if j[0]=='iam_role'];self.assertEqual(len(jobs),1);list(jobs[0][3]());self.assertEqual(api.reads[0][1]['view'],'FULL');self.assertEqual(api.reads[0][1]['showDeleted'],'true')

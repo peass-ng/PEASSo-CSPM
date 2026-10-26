@@ -250,7 +250,7 @@ def private_service_connections(collector, scope):
                 raise ReadError("malformed", "private_services_network_identity")
             rid = f"{scope}/global/networks/{name}"
             for page, child_receipt in collector.pages("https://servicenetworking.googleapis.com/v1/services/servicenetworking.googleapis.com/connections",
-                    scope, key="connections", params={"network": rid}):
+                    scope, key="connections", params={"network": rid}, page_size_key=None):
                 yield [dict(item, name=f"{rid}/serviceNetworking/{item.get('peering', i)}") for i, item in enumerate(page)], child_receipt
 
 
