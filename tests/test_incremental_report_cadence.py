@@ -175,18 +175,21 @@ def test_expensive_publication_coalesces_reports_but_keeps_every_raw_batch(monke
         commit(session, 0)
         assert session._maybe_publish() is not None
         assert session.last_report_cpu == 12.0
-        for start, moment in ((64, 8.0), (128, 47.99)):
+        # 12 CPU-s needs a 48s quiet period and, in total, 120s of session
+        # time under the 10% share; every raw batch is still committed.
+        for start, moment in ((64, 8.0), (128, 47.99), (192, 48.0), (256, 119.99)):
             now[0] = moment
             commit(session, start)
             assert session._maybe_publish() is None
-        assert [seq for seq, _, report in refs if report is None] == [64, 128, 192]
-        now[0] = 48.0
+        assert [seq for seq, _, report in refs if report is None] == [64, 128, 192, 256, 320]
+        now[0] = 120.0
         assert session._maybe_publish() is not None
-        assert [seq for seq, _, report in refs if report] == [64, 192]
+        assert [seq for seq, _, report in refs if report] == [64, 320]
+        assert session.report_cpu_total == 24.0
         session.on_collection({'type': 'other', 'scope': 'final', 'status': 'empty', 'items': []})
         session.flush()
-        assert refs[-1][0] == 193 and refs[-1][2]
-        assert len(artifacts.get(TENANT, refs[-1][1])['collections']) == 193
+        assert refs[-1][0] == 321 and refs[-1][2]
+        assert len(artifacts.get(TENANT, refs[-1][1])['collections']) == 321
     finally:
         session.close()
 
@@ -234,5 +237,41 @@ def test_explicit_minimum_opts_out_of_adaptive_quiet_period(monkeypatch, tmp_pat
         commit(session, 64)
         now[0] = 0.5
         assert session._maybe_publish() is not None
+    finally:
+        session.close()
+
+
+def test_cumulative_cpu_share_bounds_routine_passes_but_not_new_sections(monkeypatch, tmp_path):
+    from peaso import incremental
+    session, _, refs, now = manual_session(monkeypatch, tmp_path)
+    session.section_dependencies['leaks'] = {'secret'}
+    cpu = [0.0]
+    monkeypatch.setattr(incremental.time, 'thread_time', lambda: cpu[0])
+    checkpoint = session.on_checkpoint
+    def costly(snapshot, report, sequence):
+        checkpoint(snapshot, report, sequence)
+        if report:
+            cpu[0] += 2.0
+    session.on_checkpoint = costly
+    try:
+        commit(session, 0)
+        assert session._maybe_publish() is not None
+        # A section completing at once still publishes; its 2 CPU-s count too.
+        now[0] = 0.01
+        session.on_collection({'type': 'secret', 'scope': SCOPE, 'status': 'empty', 'items': []})
+        with session.lock:
+            session._flush_pending()
+        assert session._maybe_publish() is not None
+        assert session.report_cpu_total == 4.0
+        # Past the 8s quiet period, routine passes wait until 4 CPU-s <= 10%.
+        commit(session, 64)
+        now[0] = 39.99
+        assert session._maybe_publish() is None
+        now[0] = 40.0
+        assert session._maybe_publish() is not None
+        assert len([ref for ref in refs if ref[2]]) == 3
+        # An explicit flush is never delayed by the share.
+        commit(session, 128)
+        assert session.flush() is not None
     finally:
         session.close()
