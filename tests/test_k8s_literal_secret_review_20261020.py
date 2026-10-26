@@ -248,6 +248,33 @@ def test_read_clean_referenced_configmap_passes(monkeypatch):
     assert all(b'reference-secret' not in p for p,_,_ in trace.scans)
 
 
+def test_reference_count_counts_each_recorded_reference_once(monkeypatch):
+    # Pod spec records: secretKeyRef, configMapKeyRef, envFrom configMapRef
+    # (three env references) and one mounted ConfigMap volume.
+    cm=target('ConfigMap','reference-config');doc=native(cm);doc['data']={'key':'ordinary'}
+    obj=_configmap_reference_pod()
+    obj['spec']['volumes']=[{'name':'mounted','configMap':{'name':'reference-config'}}]
+    snapshot,_=capture(monkeypatch,documents={route(target()):obj},extra_documents={route(cm):doc})
+    finding,=findings(snapshot)
+    assert finding['status']=='PASS' and finding['evidence']['reference_count']==4
+    # Without any ConfigMap association the same env count is reported.
+    with monkeypatch.context() as patch:
+        obj=native();obj['spec']['containers'][0]['env'].append(
+            {'name':'FROM_SECRET','valueFrom':{'secretKeyRef':{'name':'reference-secret','key':'password'}}})
+        snapshot,_=capture(patch,documents={route(target()):obj})
+        assert findings(snapshot)[0]['evidence']['reference_count']==1
+
+
+def test_reference_count_kept_when_only_metadata_literals_exist(monkeypatch):
+    obj=native();container=obj['spec']['containers'][0]
+    container.pop('command');container.pop('args')
+    container['env']=[{'name':'REF','valueFrom':{'secretKeyRef':{'name':'selected-secret','key':'key'}}}]
+    container['envFrom']=[{'secretRef':{'name':'selected-secret'}}]
+    snapshot,_=capture(monkeypatch,documents={route(target()):obj})
+    finding,=findings(snapshot)
+    assert finding['status']=='PASS' and finding['evidence']['reference_count']==2
+
+
 def test_unreadable_referenced_configmap_stays_unknown(monkeypatch):
     snapshot,trace=capture(monkeypatch,documents={route(target()):_configmap_reference_pod()})
     assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'}

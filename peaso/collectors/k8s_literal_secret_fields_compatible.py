@@ -28,6 +28,23 @@ def _sequence(parent, field, code):
     return value
 
 
+def env_reference_count(document, target):
+    """Count env valueFrom and envFrom references exactly as the base reader does.
+
+    Only used after the base reader validated every field and stopped solely
+    because no literal was present, so its own count was not returned.
+    """
+    spec = document
+    for field in base.NATIVE_KINDS[target['kind']][2]:
+        spec = spec[field]
+    total = 0
+    for group in ('containers', 'initContainers', 'ephemeralContainers'):
+        for container in spec.get(group, []):
+            total += sum('valueFrom' in entry for entry in container.get('env', []))
+            total += len(container.get('envFrom', []))
+    return total
+
+
 def _extract(document, target):
     if target['kind'] == 'ConfigMap':
         return base._extract(document, target)
@@ -40,7 +57,8 @@ def _extract(document, target):
         if str(exc) != 'no_nonempty_supported_literals':
             raise
         meta = document['metadata']
-        uid, version, old_count, references = meta['uid'], meta['resourceVersion'], 0, 0
+        uid, version, old_count = meta['uid'], meta['resourceVersion'], 0
+        references = env_reference_count(document, target)
         original = '\n'.join((target['cluster_id'], meta['namespace'], meta['name'], uid, version)).encode()
     values = []
     count = 0

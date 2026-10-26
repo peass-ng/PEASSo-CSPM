@@ -325,7 +325,8 @@ def _extract(document, target):
         if str(exc) != 'no_nonempty_supported_literals':
             raise
         meta = document['metadata']
-        uid, version, count, references = meta['uid'], meta['resourceVersion'], 0, 0
+        uid, version, count = meta['uid'], meta['resourceVersion'], 0
+        references = previous.env_reference_count(document, target)
         payload = '\n'.join((target['cluster_id'], meta['namespace'], meta['name'], uid, version)).encode()
     plan, maps = document.associations
     if plan != _plan(document, target):
@@ -350,7 +351,9 @@ def _extract(document, target):
     combined = payload + (b'\n' if additions else b'') + '\n'.join(additions).encode('utf-8')
     if len(combined) > base.MAX_CONTENT:
         raise Incomplete('literal_byte_limit')
-    return combined, uid, version, count, references + len(plan)
+    # Env ConfigMap references are already counted with the other env
+    # references; only mounted ConfigMap volumes are new references.
+    return combined, uid, version, count, references + sum(ref[3] == 'volume' for ref in plan)
 
 
 _GLOBALS = {**previous._GLOBALS, '__name__': __name__, '_extract': _extract, '_read': _read}

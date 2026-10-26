@@ -1326,8 +1326,8 @@
     "peaso/collectors/k8s_kcc_project.py": "69b1af3da5c7aa2be7ba9ef71c07ff17e6551d8f76266e019cf4b1b8bc2d8634",
     "peaso/collectors/k8s_kubelet_configmap_indicators_20261020.py": "ce50969f0658d1080a81d204868eed04a76546b32b7d2beefaeb0780d8e4415d",
     "peaso/collectors/k8s_legacy_psp_planner_20261020.py": "84cf98188ad25db9e8717fb26752c826ff782954a069a68a61a349f0e27691eb",
-    "peaso/collectors/k8s_literal_configmap_association.py": "eed50d5b86bba9de134ecfcb75e70b84a6d544816c33d3036c1b35787e23769e",
-    "peaso/collectors/k8s_literal_secret_fields_compatible.py": "f18070485f3b4c866de46adf3adac86611b36f1550941df952fe086f011a8fd0",
+    "peaso/collectors/k8s_literal_configmap_association.py": "4378bf83681bfad3aa467cb3a7fce90a1dae02943858b9f698623768092a16ea",
+    "peaso/collectors/k8s_literal_secret_fields_compatible.py": "cbe000901464fe29004a0a3bc058fd8d9a6eee455cb6f9c4fe79734179e7127d",
     "peaso/collectors/k8s_literal_secret_indicators.py": "81a720ec705b5ab461c93ca8db6df00314d74fbd797cdf48e9305553c0f2fc3b",
     "peaso/collectors/k8s_network_catalog.py": "5eb7cdcfcf06c6bd11719c3437752628fee77ac89784a64e079834f42d0d1710",
     "peaso/collectors/k8s_network_extensions.py": "126598ead4e287b264c818eae59bc788c16c76ff3885dfb47aa549501e17aa46",
@@ -1649,7 +1649,7 @@
     "peaso/server/models.py": "580c4815277872eb6dd2e132a64899ed65dc5421fdbf117b3b3230f75b48fb41",
     "peaso/server/native_policy_validation.py": "c84159d8cc96b092aeea28db399c31a6c7b09bff90502e9b3e76cb2bb79791bd",
     "peaso/server/native_policy_validation_static_20261020.py": "73f591a82788f8bff65e8dd3018b6ed25a2f817b77a4cf4656706f2019063a29",
-    "peaso/server/privesc_display_catalog.py": "0640f6e208a770d8e5cd3967ea74ca8607add6c0102739fd117bc0e7bb3c6b2d",
+    "peaso/server/privesc_display_catalog.py": "69c45337d768f736819524cfc2d634db82900c98137519c237712121db13ad25",
     "peaso/server/remediation_presentation_static_20261020.py": "d989960c6feb0339e95aa1f55c6228972c4ae9035d6a7e2406db588675123b31",
     "peaso/server/report_projection_static_20261020.py": "294faf9ed4b0d92e04151d85344a6415e07156a3148b28a1158a045a723e5e56",
     "peaso/server/scan_names.py": "bc807595f0006516ba2996df566ab0705d2bafb64afed85e39b1366414114a74",
@@ -1809,7 +1809,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1701,
-  "python_source_sha256": "044fc64d87757d5cb8733189ca8a098505af2ec2a5ad9231fbd94bdba7f38127",
+  "python_source_sha256": "9a1e6937e6330c406d42c90546f095cc1a7d5f1f556505c1df04046252e2c757",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
