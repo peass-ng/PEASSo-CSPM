@@ -289,12 +289,19 @@ class RoutedSession:
         self.latency, self.fail = latency, fail or {}
         self.lock = threading.Lock()
         self.calls, self.active, self.peak = [], 0, 0
+        self.ahead, self.ahead_peak, self.ahead_total_peak = {}, {}, 0
 
     def request(self, method, url, params=None, json=None, **kwargs):
+        host = url.split("/")[2]
+        ahead = threading.current_thread().name.startswith("gcp-prefetch")
         with self.lock:
             self.calls.append((method, url, dict(params or {})))
             self.active += 1
             self.peak = max(self.peak, self.active)
+            if ahead:
+                self.ahead[host] = self.ahead.get(host, 0) + 1
+                self.ahead_peak[host] = max(self.ahead_peak.get(host, 0), self.ahead[host])
+                self.ahead_total_peak = max(self.ahead_total_peak, sum(self.ahead.values()))
         try:
             time.sleep(self.latency)
             if url in self.fail:
@@ -312,6 +319,8 @@ class RoutedSession:
         finally:
             with self.lock:
                 self.active -= 1
+                if ahead:
+                    self.ahead[host] -= 1
 
     def close(self):
         pass
@@ -518,3 +527,18 @@ def test_azure_graph_batch_bodies_are_not_retained(monkeypatch):
         transport.request(url, body={"requests": []}, audience=azure.GRAPH)
     assert len(calls) == 2
     assert not transport.response_cache.entries
+
+
+def test_read_ahead_overlaps_endpoints_but_keeps_each_endpoint_bound(monkeypatch):
+    session = RoutedSession(0.02)
+    options = {"inventories": ["iam_deny_policy", "org_policy_effective"], "retries": 0, "prefetch_workers": 3}
+    transport = routed_transport(monkeypatch, session, **options)
+    scopes = [f"projects/p-{i}" for i in range(6)]
+    collector = gcp.GCPCollector({"provider": "gcp", "scopes": scopes, "options": options}, transport=transport)
+    collector.collect()
+    transport.close()
+    assert set(session.ahead_peak) == {"iam.googleapis.com", "orgpolicy.googleapis.com"}
+    assert max(session.ahead_peak.values()) <= 3
+    assert session.ahead_total_peak > 3
+    assert all(count == 1 for count in __import__("collections").Counter(
+        (method, url, repr(sorted(params.items()))) for method, url, params in session.calls).values())

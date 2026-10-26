@@ -10,7 +10,9 @@
 The transport sees the request that starts each loop (the deny-policy list
 page, and the first constraint's ``getEffectivePolicy``) and issues the exact
 requests the loop will issue next — same method, URL, params, body and scope —
-on a small bounded pool into the per-scan response cache. The loop then finds
+into the per-scan response cache. Each API endpoint has its own bounded pool,
+so concurrent projects on different endpoints overlap while no endpoint ever
+sees more than ``prefetch_workers`` read-aheads in flight. The loop then finds
 a settled entry or joins the in-flight request (single-flight), so it still
 reads the same requests in the same order and only the wall time changes.
 
@@ -22,6 +24,7 @@ loop still sees exactly one failed read and no request is sent twice.
 import json
 import re
 import threading
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from .scan_cache import _track
@@ -47,25 +50,32 @@ class _State:
         self.workers = value
         self.lock = threading.Lock()
         self.local = threading.local()
-        self.pool = None
+        self.pools = {}
         self.planned = set()
         self.futures = {}
         self.retained = {}
         self.closed = False
         _track(self)
 
-    def executor(self):
+    def executor(self, host):
+        """The endpoint's pool: at most ``workers`` read-aheads in flight per host.
+
+        Threads start on demand, so the total grows with the projects whose
+        loops run concurrently, never past the per-endpoint bound.
+        """
         if self.closed or not self.workers:
             return None
-        if self.pool is None:
-            self.pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="gcp-prefetch")
-        return self.pool
+        pool = self.pools.get(host)
+        if pool is None:
+            pool = self.pools[host] = ThreadPoolExecutor(max_workers=self.workers,
+                                                         thread_name_prefix="gcp-prefetch-" + host.split(".", 1)[0])
+        return pool
 
     def _reset_after_fork(self):
         # Worker threads do not exist in a forked child; neither do their flights.
         self.lock = threading.Lock()
         self.local = threading.local()
-        self.pool = None
+        self.pools = {}
         self.planned = set()
         self.futures = {}
         self.retained = {}
@@ -91,7 +101,7 @@ def _schedule(transport, scope, reads):
         with state.lock:
             if key in state.planned or settled_or_flying:
                 continue
-            pool = state.executor()
+            pool = state.executor(urlsplit(url).hostname or "")
             if pool is None:
                 return
             state.planned.add(key)
@@ -182,8 +192,8 @@ def close(transport):
         return
     with state.lock:
         state.closed = True
-        pool, state.pool = state.pool, None
-    if pool is not None:
+        pools, state.pools = list(state.pools.values()), {}
+    for pool in pools:
         pool.shutdown(wait=True, cancel_futures=True)
     with state.lock:
         state.futures.clear()
