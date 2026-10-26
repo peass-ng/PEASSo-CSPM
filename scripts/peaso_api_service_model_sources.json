@@ -1377,6 +1377,7 @@
     "peaso/image_content_memo_20261026.py": "ffae31a0154733f44e42357a170fb2102da1f2b90d67998f32d050a647fe8989",
     "peaso/image_findings.py": "1a5e81f9a02a7262e4be384dd3d5bc0c4deb6db00eeea2994602f493b08e4b85",
     "peaso/image_findings_storage.py": "bc5dc81704fc5a58ab0ca20493974110a08730c50b902dc5b6f41ef724f5acc7",
+    "peaso/image_tar_header_20261026.py": "81111a6efd6881f97ff6de739f36680daaf34617c4a00c5f50263d725391869a",
     "peaso/incremental.py": "0e0050b84f5b7e015f3a5c7f6c6d10785cbf5d3b33d578dae1d306be7ede7c48",
     "peaso/jvm_class_constant_text_20261021.py": "82ac9c8f8f967e8444d3d65b8333d65e38a7a02625f4dc6f772d6046f38081ed",
     "peaso/k8s_image_source_association_20261020.py": "c5fdc84792aaaafa00c482975abc13a24c3b6e5d6271b200d92689a117089483",
@@ -1660,6 +1661,7 @@
     "peaso/storage/sqlite.py": "3b70c395344b1e870e1fa70fe55b804d088cfe2bcc01ee786827c8a44a2add98",
     "peaso/trivy_container_runner_20261020.py": "f4e43368ddd4fc4a74b5118d7618da60c1a0366bcef258b5f9a38b15dd3a90cc",
     "peaso/trivy_database_20261021.py": "1a3ce1fe29b6b46400b11ca27204fe432de49f892ca8f237db7eb1ded9c5e4b7",
+    "peaso/trivy_version_probe_20261026.py": "14e06ad7a41659d21b597ac3b68ce40c23b22413b4550e68a77561fb2b3a3961",
     "peaso/unused_iam_aws_activity.py": "6895e8c728e9f7ac38a90ef128c02e3e440d8e72ba54986a28cb1fdde0c7ac28",
     "peaso/unused_iam_aws_completion.py": "a7f2ad7559271672277203f58c64cde3f2e07bbf81b9de981ea3a7a1045f18b3",
     "peaso/unused_iam_aws_federation_consumers.py": "ab2dbc5467ddc50d54cd0dd7f40f2b02d5128136465f78af36e7c86a40dff1dd",
@@ -1686,9 +1688,7 @@
     "peaso/worker.py": "53b8e29aeebe02aea7eeaf4577515b81cbdaecf106ee101265048ebbcdc8e752",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
-    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814",
-    "peaso/image_tar_header_20261026.py": "81111a6efd6881f97ff6de739f36680daaf34617c4a00c5f50263d725391869a",
-    "peaso/trivy_version_probe_20261026.py": "14e06ad7a41659d21b597ac3b68ce40c23b22413b4550e68a77561fb2b3a3961"
+    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814"
   },
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
