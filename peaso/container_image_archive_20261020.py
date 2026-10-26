@@ -78,10 +78,12 @@ def identity(value):
 
 
 def descriptor(item, types, cap):
-    require(type(item) is dict and not set(item) - {'mediaType', 'digest', 'size', 'annotations'}
+    from peaso.oci_descriptor_data_20261026 import embedded_matches
+    require(type(item) is dict and not set(item) - {'mediaType', 'digest', 'size', 'annotations', 'data'}
             and item.get('mediaType') in types and type(item.get('size')) is int
             and 0 < item['size'] <= cap and type(item.get('digest')) is str
-            and DIGEST.fullmatch(item['digest']), 'unsupported_descriptor')
+            and DIGEST.fullmatch(item['digest'])
+            and ('data' not in item or embedded_matches(item)), 'unsupported_descriptor')
     return item
 
 

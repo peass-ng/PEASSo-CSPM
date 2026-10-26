@@ -971,9 +971,9 @@
     "peaso/checks/post_dfaf_aws.py": "d7b41a3a3d86242c60f22dd412688f0b2ae1ec4fff8b78c930f2678668b6fb48",
     "peaso/checks/post_dfaf_aws_specs.py": "4f2410348d731c2c76c3db79b0b2b0aebedebf874ce9044f9dccb612622d2476",
     "peaso/checks/post_dfaf_azure.py": "c00e5f758009f1929eb97f83a096706874b97fc6e2269dea8ccdab06c8e5640e",
-    "peaso/checks/private_secret_shared_source_successor_20261021.py": "a4dcb1d715aa10deda3704cc0c241a4122e415eed431e6bd161c843d5ad903c3",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "d81e3dffd772f039a6a1000a239e343ec629234619fad75f68634828e115b2b7",
     "peaso/checks/provider_content_native_cases_20261021.py": "3383f96e2670cf34f00d2224205ceba6cb97a6cba5a54c404d52759555ae6377",
-    "peaso/checks/provider_group_install_20261021.py": "cde260817a6e2d046d6cb199772482d24abf58492591bd248cc1597670576def",
+    "peaso/checks/provider_group_install_20261021.py": "827f053bdd0eb96d120f7a8c1ef895edd9cf4266d15f11e2a8f477b4c19bce07",
     "peaso/checks/provider_group_witnesses_20261021/test_gcp_job_image_vulnerability_product_20261021.py": "addfca8b8b2a53c44cd1ece9909bc1c5894e5a1485eb175b4f99799d82d9f835",
     "peaso/checks/provider_group_witnesses_20261021/test_runtime_existing_transport.py": "d28061814003e4aa4f81c42f4ff196fa4fae15d1b6ad49726dc278678d9e7779",
     "peaso/checks/provider_group_witnesses_20261021/test_runtime_native.py": "e7ba5b81c06b9bd2ff6b86757d5a56fa87a2e75f5046b854a9643ef897ef7255",
@@ -1342,7 +1342,7 @@
     "peaso/collectors/selected_image_trivy_database_20261021.py": "938b6e5b6d22b1021e37959c09f5d7f44dff7098be03650fdd312dd65f631866",
     "peaso/collectors/unused_iam_aws_completion.py": "8167fe423c643300807ad60459bdca3079abfb7e1a62b9c6836d2d4201c64600",
     "peaso/collectors/workload_environment_discovery.py": "8a11a2673f23081c0ae5eb5c8994340f1bd1af210588b74788b99cb1a8cbe8d8",
-    "peaso/container_image_archive_20261020.py": "69851f226af8e2c498573514ddfb0361cc75b419079cac9f6ff9acb817a32f5e",
+    "peaso/container_image_archive_20261020.py": "f72e1bcaa66301936707060249c2b809c7303039117bdc0af907124d8040e175",
     "peaso/container_scan_process_20261020.py": "21876eb14edfa92d4613c28fd3781014aed05b14ba3d1d6d8409c768ed29a1a3",
     "peaso/content_scan_selection.py": "97b3780970dfd2560f4726e297fae43deb65fbc519d213efff8dc2a3703c1e40",
     "peaso/dataproc_source_selection.py": "18a3eadb764a0c64c8830adce54209c2dea3b4676992a9b19bb28020c08ab9e6",
@@ -1692,7 +1692,8 @@
     "peaso/worker.py": "857543fa8a871cfd44e280031ba57014d9796de0c2fa4956026c3a97fb8fd63c",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
-    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814"
+    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814",
+    "peaso/oci_descriptor_data_20261026.py": "b8839dfc8ea5bc05a157ee48b4405737d4d1d8d35498e69c61713c9ef18e9951"
   },
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
@@ -1797,8 +1798,8 @@
     "source_review": "Qualified factory/SW46/source-proof locality and network joins; current main offline event normalizers and historical ECS lineage; bounded S3 uploads retain tenant checks, encryption and manifest-last semantics. Added modules have no SDK calls. Exact API client closure unchanged.",
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
-  "python_source_count": 1690,
-  "python_source_sha256": "c512e339ee183222c587f30448b5bea4eabd135ab0d477a9f5951610b994a77d",
+  "python_source_count": 1691,
+  "python_source_sha256": "e4e29796c1485325caaf42598b7a2ed5b2e915b46dcaf45996f146b9dc3c36d9",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
