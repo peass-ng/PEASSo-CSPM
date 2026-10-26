@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "chains_from": {
+    "path": "docs/check-review/k8s-controller-literal-source-successor-20261020.json",
+    "sha256": "10a4ac4f4c35fe0c56f50b63df7f35983b708eabbb1b9f5cc00333a7f63be4f2"
+  },
+  "sources": [
+    {
+      "source_path": "peaso/checks/k8s_literal_secret_review_20261020.py",
+      "prior_sha256": "dd05e8f47d961d9a1a0a71d2289f302adb8497ce9599a2194df8c3eda49eab88",
+      "current_sha256": "1454c3c67f49e8b3094ec3274cb058e29d3f7797b89a11be7974a9d06d2a25c1",
+      "retained_predecessor": {
+        "path": "tests/fixtures/k8s_literal_pre_configmap_association_consumer_20261026.py.gz",
+        "sha256": "a6d6bbacfeea1b4cb28c088b69d7e827eb47e5e62b9e2ce9534bbf8c931e23d2"
+      },
+      "reviewed_delta": {
+        "path": "peaso/checks/private_secret_shared_source_successor_20261021.json",
+        "group": "provider_group_files"
+      },
+      "commit": {
+        "sha": "45112721",
+        "subject": "Integrate completed CSPM features and provider control reviews",
+        "note": "Merge commit; both parents 2e58442f and 26d6894f hold the prior bytes, the merge result holds the current bytes."
+      }
+    }
+  ],
+  "review": "docs/k8s-review/source-recheck-20261021.jsonl#k8s.review.selected_literals.secret_indicators",
+  "binding": "docs/check-review/azure-k8s-current-binding-successors-20261023.json#k8s.review.selected_literals.secret_indicators",
+  "changes": [
+    "The admitted evaluate body is kept unchanged as _evaluate_legacy",
+    "The registered evaluate now delegates to k8s_literal_configmap_association_evaluator.evaluate for bounded ConfigMap association"
+  ]
+}
