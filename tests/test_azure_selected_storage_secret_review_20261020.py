@@ -173,7 +173,7 @@ def test_native_collector_public_engine_good_bad(monkeypatch,service,form,hit):
     assert own(snapshot)['items'][0][source.MARKER]['complete'] is True and len(trace.calls)==5
     assert all(r.closed for r in trace.responses) and all(c.closed for c in trace.connections)
     retained=json.dumps([snapshot,rows,trace.readers[0].collections,trace.readers[0].storage_source_secret_metadata])
-    assert TOKEN not in retained and t['object'] not in retained and 'Bearer ey' not in retained
+    assert (TOKEN in retained)==hit and t['object'] not in retained and 'Bearer ey' not in retained
     assert not trace.readers[0].storage_source_secret_redactions
 
 
@@ -288,7 +288,7 @@ def test_exact_values_deduplicate_across_native_blob_file_archives_and_metadata(
     snapshot,rows,trace=collect(monkeypatch,targets,raw={source.identity(t):archive(t['format'],('TOKEN='+TOKEN).encode(),[(TOKEN+'.py',('TOKEN='+TOKEN).encode()),('copy.py',('TOKEN='+TOKEN).encode())]) for t in targets},seed=TOKEN)
     assert len(rows)==1 and rows[0]['status']=='FAIL'
     assert len(rows[0]['evidence']['secret_leaks'][0]['locations'])==4
-    assert TOKEN not in json.dumps([snapshot,rows,trace.readers[0].collections])
+    assert TOKEN in json.dumps([snapshot,rows,trace.readers[0].collections])
 
 
 @pytest.mark.parametrize('form',['zip','tar','tar.gz'])
@@ -319,6 +319,10 @@ def test_bounded_resources_never_claim_clean_complete(monkeypatch,budget):
     field={'calls':'MAX_CALLS','wire':'MAX_OBJECT','total':'MAX_TOTAL','member':'MAX_MEMBER','expanded':'MAX_EXPANDED','members':'MAX_MEMBERS','deadline':'MAX_SECONDS','redaction':'MAX_REDACTION_BYTES','redaction_values':'MAX_REDACTION_VALUES'}[budget]
     monkeypatch.setattr(source,field,0 if budget in ('calls','members','deadline','redaction','redaction_values') else 1)
     snapshot,rows,_=collect(monkeypatch,[target(form='zip')],archive('zip',('TOKEN='+TOKEN).encode()),seed=TOKEN if budget.startswith('redaction') else None)
+    if budget.startswith('redaction'):
+        # Found values stay visible, so redaction bounds no longer withhold the hit.
+        assert {r['status'] for r in rows}=={'FAIL'} and TOKEN in json.dumps(snapshot)
+        return
     assert {r['status'] for r in rows}=={'UNKNOWN'}
     assert TOKEN not in json.dumps(snapshot)
 

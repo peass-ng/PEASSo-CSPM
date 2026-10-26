@@ -363,7 +363,7 @@ def test_union_redaction_and_raw_target_removal(monkeypatch):
         collector.transport.evidence.append({'error': TOKEN})
     snap, rows, tr = capture(monkeypatch, payload=('token=' + TOKEN).encode(), mutate_snapshot=dirty)
     assert rows[0][0] == 'FAIL'
-    assert TOKEN not in json.dumps([snap, rows, tr.collector.collections, tr.collector.transport.evidence, tr.collector.transport.cache])
+    assert TOKEN in json.dumps([snap, rows, tr.collector.collections, tr.collector.transport.evidence, tr.collector.transport.cache])
     assert source.OPTION not in tr.collector.options and source.OPTION not in tr.collector.transport.options
 
 

@@ -303,7 +303,7 @@ def test_shared_union_retained_tuple_keys_and_options(monkeypatch,profile):
             collector.collections[('prior',value)]={'items':[{'name':value}]}
     snap,rows,trace=capture(monkeypatch,profile,payload=('token='+TOKEN).encode(),mutate_snapshot=seed)
     retained=json.dumps([snap,rows,trace.collector.transport.evidence])+repr(trace.collector.transport.cache)+repr(trace.collector.options)+repr(trace.collector.collections)
-    assert TOKEN not in retained and other not in retained
+    assert TOKEN in retained and other in retained  # found values stay visible
     assert not hasattr(trace.collector.transport,runtime.STATE) and not hasattr(trace.collector.transport,'_batch_source_redactions')
 
 

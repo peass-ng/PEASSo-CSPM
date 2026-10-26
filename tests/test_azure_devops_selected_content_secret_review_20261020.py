@@ -439,8 +439,7 @@ def test_redaction_union_scrubs_sibling_metadata_and_locator(monkeypatch):
     snapshot['collections'].append({'type': 'subscription', 'scope': SCOPE, 'service': 'Microsoft.Resources',
         'status': 'collected', 'items': [{'id': SCOPE + '/' + TOKEN, 'name': TOKEN}]})
     safe = source.final_snapshot(reader, snapshot)
-    assert TOKEN not in json.dumps(safe)
-    assert base64.b64encode(TOKEN.encode()).decode() not in json.dumps(safe)
+    assert TOKEN in json.dumps(safe)  # found values stay visible
     assert not reader.devops_selected_redactions
 
 

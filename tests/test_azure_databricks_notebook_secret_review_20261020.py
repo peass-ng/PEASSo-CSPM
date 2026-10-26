@@ -312,7 +312,7 @@ def test_same_value_cross_notebooks_dedup_and_late_union_redaction(monkeypatch):
         snapshot['metadata']['late']=TOKEN;reader.ml_command_job_secret_metadata={'old_ml':TOKEN};reader.log_sample_secret_metadata={'old_log':TOKEN};reader.declaration_secret_metadata={'old_decl':TOKEN}
     snapshot,rows,trace=collect(monkeypatch,TOKEN,targets=[target(),target(NOTEBOOK+'2')],late=late)
     assert len(rows)==1 and rows[0]['status']=='FAIL'and len(rows[0]['evidence']['secret_leaks'][0]['locations'])==2
-    assert TOKEN not in json.dumps([snapshot,rows])and not trace.readers[0].configuration_secret_redactions
+    assert TOKEN in json.dumps([snapshot,rows])and not trace.readers[0].configuration_secret_redactions
 
 
 def test_detected_value_in_selected_path_keeps_exact_native_route_but_opaque_export(monkeypatch):

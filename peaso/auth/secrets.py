@@ -158,7 +158,11 @@ class Redactor:
     and replacement-marker cascades. Oversized plans/text use that same path.
     No secret or plaintext is retained outside this caller-owned instance.
     """
-    def __init__(self, secrets=()):
+    def __init__(self, secrets=(), *, fields=True):
+        # fields=False replaces only the given values. Scan publication uses
+        # it for the scanner's own connector credentials: secrets found in the
+        # customer's resources, including secret-named fields, stay visible.
+        self.fields = fields
         self.ordered = sorted(set(secrets), key=len, reverse=True)
         self.short = frozenset(secret for secret in self.ordered if secret and len(secret) < 4)
         long = [secret for secret in self.ordered if len(secret) >= 4]
@@ -168,6 +172,8 @@ class Redactor:
                         and sum(map(len, long)) <= MAX_PREFILTER_CHARS else None)
 
     def __call__(self, value):
+        if isinstance(value, dict) and not self.fields:
+            return {str(key): self(child) for key, child in value.items()}
         if isinstance(value, dict):
             labels = [item for key, item in value.items() if str(key).lower() in {'key', 'name'} and isinstance(item, str)]
             paired_secret = any(SENSITIVE.fullmatch(_FIELD_LABEL.sub('', label)) for label in labels)
@@ -177,7 +183,8 @@ class Redactor:
         if isinstance(value, (list, tuple)):
             return [self(child) for child in value]
         if isinstance(value, str):
-            value = _PRIVATE_KEY.sub('[REDACTED PRIVATE KEY]', value)
+            if self.fields:
+                value = _PRIVATE_KEY.sub('[REDACTED PRIVATE KEY]', value)
             if not self.has_long or (self.matcher is not None and len(value) <= MAX_PREFILTER_TEXT
                                      and self.matcher.search(value) is None):
                 return '[REDACTED]' if value in self.short else value
@@ -188,6 +195,6 @@ class Redactor:
         return value
 
 
-def redact(value, secrets=()):
-    """Drop secret-shaped fields and replace known credential values everywhere."""
-    return Redactor(secrets)(value)
+def redact(value, secrets=(), *, fields=True):
+    """Replace known credential values everywhere; fields=True also drops secret-shaped fields."""
+    return Redactor(secrets, fields=fields)(value)

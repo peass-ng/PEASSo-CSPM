@@ -429,7 +429,7 @@ def test_union_final_snapshot_scrubs_other_metadata(monkeypatch):
     sample = {'metadata': {TOKEN: SECOND, 'encoded': base64.b64encode(TOKEN.encode()).decode()},
         'collections': [{'items': [{'id': TOKEN, 'name': SECOND}]}]}
     result = source.final_snapshot(reader, sample)
-    assert TOKEN not in json.dumps(result) and SECOND not in json.dumps(result)
+    assert TOKEN in json.dumps(result) and SECOND in json.dumps(result)  # found values stay visible
     assert not reader.configuration_secret_redactions
 
 

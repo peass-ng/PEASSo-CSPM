@@ -177,7 +177,7 @@ def test_new_hit_scrubs_all_old_ledgers_and_late_metadata_before_cleanup(monkeyp
             setattr(reader,attr,{attr+'_late':native.TOKEN})
     snapshot,rows,trace=native.collect(monkeypatch,native.TOKEN,late=late,real=True)
     assert {r['status']for r in rows}=={'FAIL'}
-    assert native.TOKEN not in json.dumps([snapshot,rows])and not trace.readers[0].configuration_secret_redactions
+    assert native.TOKEN in json.dumps([snapshot,rows])and not trace.readers[0].configuration_secret_redactions
 
 
 def test_original_proposed_test_bytes_preserved_without_duplicate_collection():

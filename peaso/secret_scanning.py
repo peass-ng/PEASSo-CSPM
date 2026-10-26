@@ -161,11 +161,16 @@ def _complete_match_values(primary, full, *, rule):
 
 
 def _scan_trufflehog(payload, path, timeout):
+    from .secret_scan_clean import known_clean, remember_clean
     output = _prepared_trufflehog_output(payload, path)
+    if output is None and known_clean(payload):
+        output = b''
     if output is None:
         output = _run([_trufflehog(), 'stdin', '--json', '--no-verification', '--no-update',
                        '--log-level=-1', '--concurrency=1', '--force-skip-archives',
                        '--no-verification-cache', '--fail-on-scan-errors'], payload, timeout)
+    if not output:
+        remember_clean(payload)
     result, full_matches, recovered_lines = _DetectorMatches(), [], {}
     for line in output.splitlines():
         row = json.loads(line)
@@ -270,42 +275,20 @@ def omit_free_text_metadata(value):
 
 
 def redact_matches(value, matches):
-    """Hide detected plaintext and common textual encodings in metadata.
+    """Return metadata unchanged: found secrets stay visible to the tenant.
 
-    This covers exact plaintext, JSON escaping, and one standard/URL-safe base64
-    layer with optional padding. It does not promise arbitrary decoding.
+    Administrators need each detected value and its location to rotate or
+    remove it. Callers keep their own copy semantics: the result is a new
+    container structure that shares only immutable leaves with the input.
     """
-    patterns = set(matches)
-    for match in matches:
-        patterns.add(json.dumps(match, ensure_ascii=True)[1:-1])
-        for encode in (base64.b64encode, base64.urlsafe_b64encode):
-            encoded = encode(match.encode('utf-8')).decode('ascii')
-            patterns.update((encoded, encoded.rstrip('=')))
-    patterns = sorted((p for p in patterns if p), key=lambda s: (-len(s), s))
-
-    def redact(original):
+    def copy(original):
         if isinstance(original, dict):
-            output, changed = {}, []
-            for key, member in original.items():
-                safe_key, safe_member = redact(key), redact(member)
-                output[safe_key] = safe_member
-                if key != '_coverage' and (safe_key != key or safe_member != member):
-                    changed.append(safe_key)
-            if changed:
-                coverage = output.get('_coverage', {})
-                coverage = dict(coverage) if isinstance(coverage, dict) else {}
-                for key in changed:
-                    coverage[key] = {'status': 'unknown', 'reason': 'detected_secret_redacted'}
-                output['_coverage'] = coverage
-            return output
+            return {key: copy(member) for key, member in original.items()}
         if isinstance(original, list):
-            return [redact(member) for member in original]
-        if isinstance(original, str):
-            for pattern in patterns:
-                original = original.replace(pattern, '[redacted]')
+            return [copy(member) for member in original]
         return original
 
-    return redact(value)
+    return copy(value)
 
 
 def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
@@ -316,8 +299,10 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
                  hmac.new(_KEY, path.encode('utf-8'), hashlib.sha256).digest())
     with _RESULT_LOCK:
         cached = _RESULTS.get(cache_key)
-    from .secret_evidence import enabled as private_capture, remember, remember_redactions
-    if cached is not None and not private_capture() and (_redact_values is None or not cached['leaks']):
+    from .secret_evidence import batched, enabled as private_capture, remember
+    # Only clean outcomes are cached. A clean scan has no private side effect,
+    # so reuse is exact with or without private evidence capture.
+    if cached is not None:
         if _redact_values is not None:
             _redact_values(frozenset())
         return deepcopy(cached)
@@ -355,34 +340,31 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
             except Exception:
                 # No exception text, matched values, raw JSON or tracebacks escape.
                 engines.append({'engine': name, 'version': version, 'status': 'unavailable'})
-    # Scrub the UNION of both engines' values before retaining any path. Doing
-    # this per engine can disclose the other engine's secret in a filename.
-    safe_path = path
+    # Found values and their exact paths stay visible to the tenant. The
+    # callback contract is kept, but there is nothing to redact.
     if _redact_values is not None:
-        # The callback may redact a separate metadata projection in memory.
-        # Matched values never enter the result/cache or survive this call.
-        _redact_values(frozenset(known_values))
-    remember_redactions(known_values)
-    for value in sorted(known_values, key=lambda value: (-len(value), value)):
-        safe_path = safe_path.replace(value, 'REDACTED')
+        _redact_values(frozenset())
     fingerprints = {value: _fingerprint(value) for value in known_values}
-    for name, matches in matches_by_engine:
-        for value, rule, line in matches:
-            # Retain the actual match/value/line association before constructing
-            # redacted canonical witnesses. No raw values enter those witnesses.
-            remember(value, fingerprints[value], path=path, public_path=safe_path, line=line, engine=name, rule=_label(rule),
-                     observed_bytes=not private_capture() or value.encode('utf-8') in payload)
-            observations.append({'fingerprint': fingerprints[value],
-                'detectors': [{'engine': name, 'rule': _label(rule)}],
-                'locations': [{'path': safe_path, **({'line': line} if type(line) is int and line > 0 else {})}]})
+    capture = private_capture()
+    observed = {}
+    with batched():
+        for name, matches in matches_by_engine:
+            for value, rule, line in matches:
+                # Retain the actual match/value/line association with its canonical witness.
+                if capture and value not in observed:
+                    observed[value] = value.encode('utf-8') in payload
+                remember(value, fingerprints[value], path=path, public_path=path, line=line, engine=name, rule=_label(rule),
+                         observed_bytes=not capture or observed[value])
+                observations.append({'fingerprint': fingerprints[value],
+                    'detectors': [{'engine': name, 'rule': _label(rule)}],
+                    'locations': [{'path': path, **({'line': line} if type(line) is int and line > 0 else {})}]})
     outcome = {'leaks': merge_leaks(observations), 'engines': engines,
                'complete': all(row['status'] == 'complete' for row in engines)}
-    # Repeated logs/layers reuse only a bounded, fully redacted successful
-    # outcome. No raw content, raw path, secret or failed result is cached.
-    if ((_redact_values is None or not outcome['leaks']) and outcome['complete']
-            and len(outcome['leaks']) <= 32 and sum(len(r['locations']) for r in outcome['leaks']) <= 128):
+    # Repeated logs/layers reuse only a complete, clean outcome. It holds no
+    # raw content, path, secret or failed result.
+    if outcome['complete'] and not outcome['leaks']:
         with _RESULT_LOCK:
             _RESULTS[cache_key] = deepcopy(outcome)
-            while len(_RESULTS) > 128:
+            while len(_RESULTS) > 4096:
                 _RESULTS.popitem(last=False)
     return outcome

@@ -194,7 +194,7 @@ def test_final_union_scrubs_earlier_reader_cache_options_and_metadata(monkeypatc
         collector.options['trusted_users'] = [native.TOKEN]
     snap, rows, trace = native.capture(monkeypatch, payload=('token=' + native.TOKEN).encode(), mutate_meta=seed)
     assert native.statuses(rows) == {'FAIL'}
-    assert native.TOKEN not in json.dumps([snap, rows, trace.collector.transport.cache, trace.collector.options])
+    assert native.TOKEN in json.dumps([snap, rows, trace.collector.transport.cache, trace.collector.options])
     assert not hasattr(trace.collector.transport, '_dataproc_source_state')
 
 
@@ -223,4 +223,4 @@ def test_retained_collector_metadata_cache_is_union_redacted(monkeypatch):
         retained.append(collector)
     _, rows, _ = native.capture(monkeypatch, payload=('token=' + native.TOKEN).encode(), mutate_meta=seed)
     assert native.statuses(rows) == {'FAIL'}
-    assert retained and native.TOKEN not in repr(retained[0].collections)
+    assert retained and native.TOKEN in repr(retained[0].collections)

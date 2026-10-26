@@ -177,7 +177,7 @@ def test_runtime_capability_or_callable_drift_fails_closed(monkeypatch,fault):
 def test_final_union_scrubs_all_three_ledgers_before_clearing():
     values=['first-private-value','second-private-value','third-private-value'];ledgers=[{value}for value in values]
     scopes,rows,metadata=runtime.finalize(['team-a'],[{'id':values[0],'location':values[1]}],{values[2]:values},*ledgers)
-    assert not any(ledgers)and all(value not in json.dumps([scopes,rows,metadata])for value in values)
+    assert not any(ledgers)and all(value in json.dumps([scopes,rows,metadata])for value in values)
 
 
 def test_actual_three_reader_native_pipeline_unions_values_before_snapshot(monkeypatch):

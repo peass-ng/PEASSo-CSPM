@@ -12837,7 +12837,7 @@
       "complete_semantic_review_certified": false,
       "live_cloud_validation_certified": false,
       "receipt": "docs/check-review/aws-s3-current-acceptance-20261020.json",
-      "receipt_sha256": "81b228ee3ac1c03c690d98bc25ef91a71b0aa899fe6455723a33af07b049cfd4",
+      "receipt_sha256": "184065f147bc1fbc2b62be29e1bdd5dcc0ebaa2d1a9d3c2c7d230292cb62095d",
       "producer_review": "separate_bounded_native_reader_acceptance"
     },
     {

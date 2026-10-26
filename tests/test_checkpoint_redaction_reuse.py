@@ -87,15 +87,15 @@ def test_cumulative_reports_reuse_redaction_and_publish_identical_bytes(monkeypa
     published, repeated, calls = _run(monkeypatch, tmp_path / 'memo', memoized=True)
     assert published == expected
     text = '\n'.join(published)
-    assert FIRST not in text and 'connector-credential-4410' not in text and 'field-value' not in text
-    # The last report was built after LATER was found, so it carries no LATER value.
-    assert LATER not in published[-2] and LATER not in published[-1]
-    # Second report, two memos (capture secrets, connector credentials) per
-    # row: the new row is redacted when it settles and once more by the secret
-    # memo in its batch. Its credential pass in the batch and every row of the
+    # Only the scanner's own connector credential is scrubbed. Secrets found in
+    # customer resources and secret-named native fields stay visible.
+    assert 'connector-credential-4410' not in text
+    assert FIRST in text and 'field-value' in text and LATER in text
+    # Second report, one connector-credential memo per row: the new row is
+    # scrubbed once when it settles. Its batch pass and every row of the
     # cumulative report, including the eight already published, are reused.
-    assert len(repeated) == 2 + 2 + 2 * 9
-    assert sum(repeated) == 3
+    assert len(repeated) == 1 + 1 + 9
+    assert sum(repeated) == 1
 
 
 def test_memo_matches_redaction_for_type_and_order_variants():
@@ -124,28 +124,14 @@ def test_sensitive_or_renamed_collections_key_falls_back_to_whole_redaction(monk
     assert 'co[R]ions' in observed and memo.hits == memo.misses == 0
 
 
-def test_capture_memo_is_rebuilt_for_new_secrets_and_never_shared_between_captures(tmp_path):
-    raw = make_snapshot('aws', [SCOPE], [_row(0, LATER)], created_at='2026-10-25T00:00:00+00:00')
+def test_capture_snapshot_keeps_found_values_without_a_per_capture_redactor(tmp_path):
+    raw = make_snapshot('aws', [SCOPE], [_row(0, LATER + ' ' + FIRST)], created_at='2026-10-25T00:00:00+00:00')
     with capture(EphemeralCipher(), tenant=TENANT, scan_id='a' * 32) as sink:
         sink.retain_redaction(FIRST, hashlib.sha256(FIRST.encode()).hexdigest())
-        assert LATER in json.dumps(sink.public_snapshot(raw))
-        assert LATER in json.dumps(sink.public_snapshot(raw))
-        first_memo = redaction_memo._CAPTURES[sink][2]
-        assert first_memo.hits == 1
-        sink.retain_redaction(LATER, hashlib.sha256(LATER.encode()).hexdigest())
-        assert LATER not in json.dumps(sink.public_snapshot(raw))
-        assert redaction_memo._CAPTURES[sink][2] is not first_memo
-    with capture(EphemeralCipher(), tenant='tenant-b', scan_id='b' * 32) as other:
-        other.retain_redaction(FIRST, hashlib.sha256(FIRST.encode()).hexdigest())
-        other.public_snapshot(raw)
-        assert redaction_memo._CAPTURES[other][2] is not redaction_memo._CAPTURES[sink][2]
-        assert redaction_memo._CAPTURES[other][2].hits == 0
-    import gc
-    import weakref
-    memo = weakref.ref(first_memo)
-    del sink, first_memo
-    gc.collect()
-    assert memo() is None  # the plaintext Redactor and memo die with their capture
+        public = json.dumps(sink.public_snapshot(raw))
+        assert LATER in public and FIRST in public and 'field-value' in public
+        assert sink.redactions == {}
+    assert not hasattr(redaction_memo, 'capture_redaction')
 
 
 def test_credential_redaction_reads_current_connector_values():
@@ -153,7 +139,9 @@ def test_credential_redaction_reads_current_connector_values():
     public = credential_redaction(connector, secrets.credential_values)
     raw = make_snapshot('aws', [SCOPE], [_row(0, 'first-credential-1111 second-credential-2222')],
                         created_at='2026-10-25T00:00:00+00:00')
-    assert public(raw) == redact(raw, ('first-credential-1111',))
+    assert public(raw) == redact(raw, ('first-credential-1111',), fields=False)
     connector['auth']['session_token'] = 'second-credential-2222'
-    assert public(raw) == redact(raw, tuple(secrets.credential_values(connector['auth'])))
+    assert public(raw) == redact(raw, tuple(secrets.credential_values(connector['auth'])), fields=False)
     assert 'second-credential-2222' not in json.dumps(public(raw))
+    # A secret-named customer field is not the scanner's credential; it stays visible.
+    assert 'field-value' in json.dumps(public(raw))

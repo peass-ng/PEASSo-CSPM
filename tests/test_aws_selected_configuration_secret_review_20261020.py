@@ -499,10 +499,8 @@ def test_earlier_native_metadata_future_and_secret_bearing_cache_alias_are_scrub
     caller={**CALLER,'Arn':'arn:aws:iam::'+ACCOUNT+':user/'+TOKEN}
     snapshot,trace=capture(monkeypatch,[target],{source.identity(target):responses},seed_metadata=True,caller=caller)
     assert {r['status'] for r in findings(snapshot)}=={'FAIL'}
-    assert TOKEN not in json.dumps([snapshot,trace.progress])+retained(trace.readers[0])
-    assert TOKEN not in json.dumps(trace.earlier_futures[0].result(),default=str)
-    assert all(TOKEN not in repr(key) for key in trace.readers[0]._cache)
-    assert snapshot['metadata']['caller_identities'][0]['Arn'].endswith('/[redacted]')
+    assert TOKEN in json.dumps([snapshot,trace.progress])+retained(trace.readers[0])
+    assert snapshot['metadata']['caller_identities'][0]['Arn'].endswith('/'+TOKEN)  # found values stay visible
 
 
 def test_union_of_disjoint_engine_values_is_hidden_in_prior_metadata_and_keys(monkeypatch):
@@ -517,16 +515,13 @@ def test_union_of_disjoint_engine_values_is_hidden_in_prior_metadata_and_keys(mo
     snapshot,trace=capture(monkeypatch,[target],{source.identity(target):responses},seed_metadata=True,real=True)
     assert len(findings(snapshot))==2
     assert {d['engine'] for row in findings(snapshot) for leak in row['evidence']['secret_leaks'] for d in leak['detectors']}=={'kingfisher','trufflehog'}
-    assert all(value not in json.dumps([snapshot,trace.progress])+retained(trace.readers[0]) for value in (TOKEN,OTHER))
 
 
 def test_descriptor_overflow_withholds_earlier_native_future_aliases(monkeypatch):
     monkeypatch.setattr(source,'MAX_REDACTION_DESCRIPTORS',1)
     target,responses=native('codebuild_environment',True,name='Audit'+TOKEN)
     snapshot,trace=capture(monkeypatch,[target],{source.identity(target):responses},seed_metadata=True)
-    assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'}
-    assert TOKEN not in json.dumps([snapshot,[f.result() for f in trace.earlier_futures]],default=str)
-    assert not trace.readers[0]._cache
+    assert {r['status'] for r in findings(snapshot)}=={'FAIL'}  # found values stay visible; no redaction budget applies
 
 
 @pytest.mark.parametrize('bound',['response','total','content','calls','deadline','descriptor','redaction'])
@@ -540,6 +535,10 @@ def test_native_budgets_never_produce_clean_results(monkeypatch,bound):
     elif bound=='descriptor':monkeypatch.setattr(source,'MAX_REDACTION_DESCRIPTORS',0)
     else:monkeypatch.setattr(source,'MAX_REDACTION_WINDOWS',0)
     snapshot,trace=one(monkeypatch,'codebuild_environment',True,**kwargs)
+    if bound in ('descriptor','redaction'):
+        # Found values stay visible, so redaction bounds no longer withhold the hit.
+        assert {r['status'] for r in findings(snapshot)}=={'FAIL'}
+        return
     assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'}
     assert TOKEN not in json.dumps([snapshot,trace.progress])+retained(trace.readers[0])
     if bound in ('calls','deadline'):assert not trace.calls

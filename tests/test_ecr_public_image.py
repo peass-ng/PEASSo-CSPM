@@ -173,7 +173,8 @@ def test_native_secret_positive_clean(hit):
     assert len(case.sdk.calls)==6 and case.sdk.closed
     assert all(r.closed for r in case.responses) and all(c.closed for c in case.connections)
     assert TOKEN not in json.dumps([case.item,case.index,case.secret])
-    if hit:assert TOKEN in case.redacted and {d['engine'] for d in case.item['ECRPublicImageContent']['leaks'][0]['detectors']}=={'kingfisher','trufflehog'}
+    # Found values stay visible: nothing is queued for redaction.
+    if hit:assert not case.redacted and {d['engine'] for d in case.item['ECRPublicImageContent']['leaks'][0]['detectors']}=={'kingfisher','trufflehog'}
 
 
 @pytest.mark.parametrize('hit',[False,True])
@@ -191,7 +192,7 @@ def test_one_detector_unavailable_keeps_positive_only(hit):
 
 def test_decoded_config_string_detected_when_json_escaped():
     case=capture(escaped_config=True)
-    assert case.secret[0]=='FAIL' and TOKEN in case.redacted
+    assert case.secret[0]=='FAIL' and not case.redacted  # found values are not redacted
     assert TOKEN.encode() not in case.img.config
     assert TOKEN not in json.dumps([case.item,case.index,case.secret])
 

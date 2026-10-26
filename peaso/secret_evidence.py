@@ -156,13 +156,17 @@ def alias_path(alias, original):
 
 
 def remember_redactions(values):
-    """Bounded encrypted scrub set; these entries assert no source witness."""
-    with _lock:
-        if _active is None:
-            return
-        from peaso.secret_scanning import _fingerprint
-        for value in values:
-            _active.retain_redaction(value, _fingerprint(value))
+    """Found secrets stay visible in public output; no scrub set is retained."""
+    return
+
+
+def batched():
+    """Seal each touched private record once for a run of remember() calls.
+
+    The capture lock is held for the whole run, so no other thread observes a
+    record that is still open. Records are sealed again when the run ends.
+    """
+    return _Batch(None, _lock)
 
 
 def remember(value, fingerprint, *, path, line=None, engine, rule, check_ids=(), public_path=None, observed_bytes=True):
@@ -174,7 +178,6 @@ def remember(value, fingerprint, *, path, line=None, engine, rule, check_ids=(),
             check_ids &= _active.selected_checks
             if not check_ids:
                 return
-        _active.retain_redaction(value, fingerprint)
         context = dict(getattr(_source, 'fields', {}))
         location = {**context, 'path': context.get('path', path),
                     'line': line if type(line) is int and line > 0 else None, 'witness_path': path}
@@ -202,11 +205,51 @@ def remember(value, fingerprint, *, path, line=None, engine, rule, check_ids=(),
             _active.remember(value, fingerprint, observed, engine, rule, check_ids)
         if public_path is not None:
             for related in _active.related.get(fingerprint, ()):
-                row = _active.cipher.decrypt(_active.records[related])
+                row = _active.load(related)
+                changed = False
                 for loc in row['locations']:
-                    if loc.get('witness_path') == path and all(loc.get(k) == context.get(k) for k in ('resource_id', 'scope', 'layer')):
+                    if (loc.get('witness_path') == path and loc.get('_public_path') != public_path
+                            and all(loc.get(k) == context.get(k) for k in ('resource_id', 'scope', 'layer'))):
                         loc['_public_path'] = public_path
-                _active.records[related] = _active.cipher.encrypt(row)
+                        changed = True
+                if changed:
+                    _active.store(related, row)
+
+
+class _Batch:
+    """Open private records once and seal each one when the outermost run ends."""
+
+    def __init__(self, sink, lock=None):
+        self.sink, self.lock, self.outer = sink, lock, False
+
+    def __enter__(self):
+        if self.lock is not None:
+            self.lock.acquire()
+            self.sink = _active
+        sink = self.sink
+        self.outer = sink is not None and sink._open is None
+        if self.outer:
+            sink._open, sink._open_keys = {}, {}
+        return self
+
+    def __exit__(self, kind, error, trace):
+        try:
+            if self.outer:
+                sink = self.sink
+                opened, sink._open, sink._open_keys = sink._open, None, {}
+                for fingerprint, row in opened.items():
+                    sink._seal(fingerprint, row)
+        finally:
+            if self.lock is not None:
+                self.lock.release()
+        return False
+
+
+_OPEN = '\x00open'  # Placeholder while a batched record is not sealed yet.
+
+
+def _location_key(location):
+    return json.dumps(location, sort_keys=True, separators=(',', ':'))
 
 
 class Capture:
@@ -219,20 +262,37 @@ class Capture:
         self.incomplete = False
         self.policy_names = policy_names(options)
         self.selected_checks = frozenset(selected_checks) if selected_checks is not None else None
+        # Rows opened by batch(); sealed once when the batch ends.
+        self._open = None
+        self._open_keys = {}
+        # fingerprint -> (sealed record, location resource ids). Lets
+        # bind_snapshot skip records it cannot change without decrypting them.
+        self._meta = {}
+
+    def load(self, fingerprint):
+        """Plaintext record: the open batch copy, else one decryption."""
+        if self._open is not None and fingerprint in self._open:
+            return self._open[fingerprint]
+        return self.cipher.decrypt(self.records[fingerprint])
+
+    def store(self, fingerprint, row):
+        if self._open is not None:
+            self._open[fingerprint] = row
+            self.records.setdefault(fingerprint, _OPEN)
+            return
+        self._seal(fingerprint, row)
+
+    def _seal(self, fingerprint, row):
+        sealed = self.records[fingerprint] = self.cipher.encrypt(row)
+        self._meta[fingerprint] = (sealed, frozenset(loc.get('resource_id') for loc in row['locations']))
+
+    def batch(self):
+        """Callers hold the module lock; nested batches join the outer one."""
+        return _Batch(self)
 
     def retain_redaction(self, value, fingerprint):
-        if fingerprint in self.records or fingerprint in self.redactions:
-            return
-        if len(value.encode()) > MAX_VALUE_BYTES or len(self.records) + len(self.redactions) >= MAX_VALUES:
-            self.incomplete = self.redaction_incomplete = True
-            return
-        sealed = self.cipher.encrypt({'value': value})
-        cost = len(sealed) + len(fingerprint)
-        if self.bytes + self.alias_bytes + self.redaction_bytes + cost > MAX_BYTES:
-            self.incomplete = self.redaction_incomplete = True
-            return
-        self.redactions[fingerprint] = sealed
-        self.redaction_bytes += cost
+        """Found secrets are not scrubbed from public output; nothing to retain."""
+        return
 
     def remember(self, value, fingerprint, location, engine, rule, check_ids):
         size = len(value.encode())
@@ -240,20 +300,28 @@ class Capture:
                 or fingerprint not in self.records and len(self.records) >= MAX_VALUES):
             self.incomplete = True
             return
-        row = self.cipher.decrypt(self.records[fingerprint]) if fingerprint in self.records else {
+        row = self.load(fingerprint) if fingerprint in self.records else {
             'tenant': self.tenant, 'scan_id': self.scan_id, 'fingerprint': fingerprint,
             'value': value, 'locations': [], 'detectors': [], 'check_ids': []}
         if row['value'] != value:
             raise ValueError('private evidence identity mismatch')
         location = dict(location, _check_ids=sorted(check_ids))
         detector = {'engine': engine, 'rule': rule}
-        new_location = location not in row['locations']
-        redaction_credit = len(self.redactions[fingerprint]) + len(fingerprint) if fingerprint in self.redactions else 0
+        if self._open is not None:
+            # Constant-time membership for a value repeated at many locations.
+            keys = self._open_keys.get(fingerprint)
+            if keys is None:
+                keys = self._open_keys[fingerprint] = {_location_key(loc) for loc in row['locations']}
+            location_key = _location_key(location)
+            new_location = location_key not in keys
+        else:
+            keys = location_key = None
+            new_location = location not in row['locations']
         additional = ((size if fingerprint not in self.records else 0)
                       + (len(json.dumps(location).encode()) if new_location else 0)
                       + (len(json.dumps(detector).encode()) if detector not in row['detectors'] else 0)
                       + len(json.dumps(sorted(set(check_ids) - set(row['check_ids']))).encode()))
-        if (self.bytes + self.alias_bytes + self.redaction_bytes - redaction_credit + additional > MAX_BYTES
+        if (self.bytes + self.alias_bytes + additional > MAX_BYTES
                 or new_location and self.locations >= MAX_LOCATIONS):
             self.incomplete = True
             return
@@ -262,12 +330,11 @@ class Capture:
         if new_location:
             row['locations'].append(location)
             self.locations += 1
+            if keys is not None:
+                keys.add(location_key)
         self.bytes += additional
-        if fingerprint in self.redactions:
-            del self.redactions[fingerprint]
-            self.redaction_bytes -= redaction_credit
         row['check_ids'] = sorted(set(row['check_ids']) | set(check_ids))
-        self.records[fingerprint] = self.cipher.encrypt(row)
+        self.store(fingerprint, row)
 
     def document(self):
         resources, scopes = {}, {}
@@ -285,12 +352,23 @@ class Capture:
                     'scopes': {k: sorted(v) for k, v in scopes.items()},
                     'related': {k: sorted(v) for k, v in self.related.items()}})}
 
+    def _resource_ids(self, fingerprint):
+        sealed = self.records[fingerprint]
+        cached = self._meta.get(fingerprint)
+        if cached is not None and cached[0] is sealed:
+            return cached[1], None
+        row = self.cipher.decrypt(sealed)
+        ids = frozenset(loc.get('resource_id') for loc in row['locations'])
+        self._meta[fingerprint] = (sealed, ids)
+        return ids, row
 
     def bind_snapshot(self, snapshot):
-        """Resolve unambiguous public witness identities without retaining values.
+        """Resolve unambiguous public witness identities.
 
         Explicit native contexts win. A shared synthetic path never guesses a
         resource when more than one resource used that path for the same value.
+        Only records that a snapshot witness or a native identity can change
+        are opened; an unchanged record keeps its sealed form.
         """
         if not self.records:
             # Nothing can bind or change. Keep the structural access failures.
@@ -299,11 +377,12 @@ class Capture:
                     if isinstance(item, dict):
                         collection['type'], collection['scope']
             return
-        from peaso.snapshot import resources
+        from peaso.snapshot import resource_id
+        records = self.records
         candidates = {}
         def walk(value, resource):
             if isinstance(value, dict):
-                if isinstance(value.get('fingerprint'), str) and value['fingerprint'] in self.records and isinstance(value.get('locations'), list):
+                if isinstance(value.get('fingerprint'), str) and value['fingerprint'] in records and isinstance(value.get('locations'), list):
                     for loc in value['locations']:
                         key = (value['fingerprint'], loc.get('path'))
                         ref = {**resource, **{k: loc[k] for k in ('scope', 'layer', 'resource_id') if loc.get(k)}}
@@ -314,20 +393,37 @@ class Capture:
             elif isinstance(value, list):
                 for child in value:
                     walk(child, resource)
+        # Same identities and de-duplication as peaso.snapshot.resources(),
+        # without its read-only copies, digests and ordering.
+        selected = {}
+        for collection in snapshot['collections']:
+            for item in collection['items']:
+                if isinstance(item, dict):
+                    rid = resource_id(snapshot['provider'], collection['type'], collection['scope'], item)
+                    selected[(collection['scope'], collection['type'], rid)] = (rid, collection['scope'], item)
         authorities = {}
-        for resource in resources(snapshot):
-            native = resource.get('data', {})
-            for ident in {resource['native_id'], *[native.get(k) for k in ('Arn', 'arn', 'id', 'name', 'FunctionArn', 'taskDefinitionArn', 'jobDefinitionArn') if isinstance(native.get(k), str)]}:
-                authorities.setdefault(ident, set()).add(resource['scope'])
-            walk(native, {'resource_id': resource['native_id'], 'scope': resource['scope']})
-        for fp, sealed in list(self.records.items()):
-            row = self.cipher.decrypt(sealed)
-            before = json.dumps(row, separators=(',', ':'))
+        for native_id, scope, native in selected.values():
+            for ident in {native_id, *[native.get(k) for k in ('Arn', 'arn', 'id', 'name', 'FunctionArn', 'taskDefinitionArn', 'jobDefinitionArn') if isinstance(native.get(k), str)]}:
+                authorities.setdefault(ident, set()).add(scope)
+            walk(native, {'resource_id': native_id, 'scope': scope})
+        parents_of = {}
+        for primary, related in self.related.items():
+            for child in related:
+                parents_of.setdefault(child, set()).add(primary)
+        witnessed = {fp for fp, _ in candidates}
+        for fp in list(records):
+            parents = {fp} | parents_of.get(fp, set())
+            ids, row = self._resource_ids(fp)
+            if parents.isdisjoint(witnessed) and ids.isdisjoint(authorities):
+                continue
+            if row is None:
+                row = self.cipher.decrypt(records[fp])
+            changed = False
             for loc in row['locations']:
+                before = dict(loc)
                 scopes = authorities.get(loc.get('resource_id'), ())
                 if len(scopes) == 1 and (not loc.get('scope') or loc['scope'] == next(iter(scopes)).rsplit('/', 1)[-1]):
                     loc['scope'] = next(iter(scopes))
-                parents = {fp} | {primary for primary, related in self.related.items() if fp in related}
                 options = []
                 for parent in parents:
                     for option in candidates.get((parent, loc.get('_public_path', loc.get('witness_path'))), []):
@@ -344,38 +440,23 @@ class Capture:
                     loc['_canonical_resource_id'], loc['_canonical_scope'] = options[0]['resource_id'], options[0]['scope']
                 if not loc.get('resource_id') and len(options) == 1:
                     loc.update(options[0])
-            # Re-encrypt only a changed record; its plaintext is otherwise identical.
-            if json.dumps(row, separators=(',', ':')) != before:
-                self.records[fp] = self.cipher.encrypt(row)
+                changed |= loc != before
+            if changed:
+                self._seal(fp, row)
 
 
     def public_snapshot(self, snapshot):
-        """Seal a redacted snapshot before evaluation; originals remain private."""
-        if self.redaction_incomplete:
-            raise RuntimeError('private redaction capacity exceeded; snapshot was not published')
-        if not self.records and not self.redactions:
+        """Bind private witnesses to the snapshot; found secrets stay visible.
+
+        Tenant administrators must see each found value and its location to
+        rotate or remove it, so no found value, key or resource identity is
+        redacted or aliased here. Stored artifacts remain encrypted at rest.
+        """
+        if not self.records:
             return snapshot
-        from peaso.redaction_memo import capture_redaction
-        from peaso.snapshot import seal
-        self.bind_snapshot(snapshot)
-        # One Redactor per exact secret set; unchanged collections reuse their
-        # redaction across settled items, batches and cumulative reports.
-        redact, public_collections = capture_redaction(self, lambda: [
-            self.cipher.decrypt(sealed)['value']
-            for sealed in [*self.records.values(), *self.redactions.values()]])
-        public = seal(public_collections(snapshot))
-        for fp, sealed in list(self.records.items()):
-            row = self.cipher.decrypt(sealed)
-            before = json.dumps(row, separators=(',', ':'))
-            for loc in row['locations']:
-                if loc.get('resource_id'):
-                    loc['_resource_alias'] = redact(loc['resource_id'])
-                for key in ('_canonical_resource_id', '_canonical_scope'):
-                    if loc.get(key):
-                        loc[key + '_alias'] = redact(loc[key])
-            if json.dumps(row, separators=(',', ':')) != before:
-                self.records[fp] = self.cipher.encrypt(row)
-        return public
+        with _lock:
+            self.bind_snapshot(snapshot)
+        return snapshot
 
 
 def legacy_text(text, resource_id=None):
@@ -902,17 +983,17 @@ def reuse_image_layer(leaks, **source):
             return
         fingerprints = {leak.get('fingerprint') for leak in leaks}
         fingerprints.update(component for fp in list(fingerprints) for component in _active.related.get(fp, ()))
-        for fp in fingerprints:
-            sealed = _active.records.get(fp)
-            if sealed is None:
-                continue
-            row = _active.cipher.decrypt(sealed)
-            for location in list(row['locations']):
-                if location.get('layer') != source.get('layer'):
+        with _active.batch():
+            for fp in fingerprints:
+                if fp not in _active.records:
                     continue
-                observed = dict(location, **source)
-                for detector in row['detectors']:
-                    _active.remember(row['value'], fp, observed, detector['engine'], detector['rule'], location.get('_check_ids', ()))
+                row = _active.load(fp)
+                for location in list(row['locations']):
+                    if location.get('layer') != source.get('layer'):
+                        continue
+                    observed = dict(location, **source)
+                    for detector in list(row['detectors']):
+                        _active.remember(row['value'], fp, observed, detector['engine'], detector['rule'], location.get('_check_ids', ()))
 
 
 def load_group_details(artifacts, cipher, tenant, scan_id, findings, *, offset=0):
@@ -986,6 +1067,11 @@ def remember_full_match(primary, full, *, payload, path, engine, rule):
     """Capture full detector evidence without altering canonical primary HMACs."""
     if not enabled():
         return
+    with batched():
+        _remember_full_match(primary, full, payload=payload, path=path, engine=engine, rule=rule)
+
+
+def _remember_full_match(primary, full, *, payload, path, engine, rule):
     from peaso.secret_scanning import _fingerprint
     for value in full_match_values(primary, full, payload=payload, rule=rule):
         start, found = 0, False

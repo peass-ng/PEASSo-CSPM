@@ -296,7 +296,7 @@ def test_cross_job_exact_value_dedup_and_final_union_scrubs_all_metadata(monkeyp
     assert len(rows)==1 and rows[0]['status']=='FAIL'
     assert len(rows[0]['evidence']['secret_leaks'])==1
     assert len(rows[0]['evidence']['secret_leaks'][0]['locations'])==2
-    assert TOKEN not in json.dumps([snapshot,rows])and not trace.readers[0].configuration_secret_redactions
+    assert TOKEN in json.dumps([snapshot,rows])and not trace.readers[0].configuration_secret_redactions
 
 
 @pytest.mark.parametrize('hit',[False,True])

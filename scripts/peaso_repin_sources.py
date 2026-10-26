@@ -71,6 +71,12 @@ FROZEN_DIGESTS = frozenset((
     '361fef2318aef55d01ba351501cc79a4fa06884d368d380b714f2f42814e57ad',
     '0948bda88c41ea79fd25dc9c2faa656b7d71c9d29012024156017921122834a6',
 ))
+# Sources whose earlier versions are rebuilt from exact inverse-delta receipts.
+# Historical records pin their old function fragments; only whole-file and
+# zeroed-digest projections of these files move with an edit.
+INVERSE_DELTA_SOURCES = frozenset((
+    'peaso/secret_scanning.py',
+))
 
 
 # A JSON object key naming a historical record: every digest below it describes
@@ -278,6 +284,8 @@ def main() -> int:
             # Earlier rounds leave intermediate digests behind; map them too.
             for old in history:
                 for key, digest in old.items():
+                    if rel in INVERSE_DELTA_SOURCES and key.startswith(('def:', 'plain:')):
+                        continue
                     if key in new and new[key] != digest and digest not in FROZEN_DIGESTS:
                         mapping[digest] = new[key]
             if history[-1] != new:

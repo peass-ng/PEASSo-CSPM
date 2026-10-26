@@ -135,8 +135,8 @@ def test_both_collectors_real_detectors_redact_ordinary_aliases(monkeypatch):
                   '_flux_artifact_named_checks':[flux.CHECK]}
     flux_meta,flux_matches=flux.collect(reader,object(),flux_options,
         ['default','flux-system'],'cluster.example')
-    assert KEY in image_matches and KEY in flux_matches
-    assert SECRET in image_matches and SECRET in flux_matches
+    # Found values stay visible: nothing is queued for redaction.
+    assert image_matches==set() and flux_matches==set()
     assert reader.collections[0]['items'][0]['SelectedRegistryImage']['status']=='FAIL'
     assert reader.collections[1]['items'][0]['SelectedFluxArtifact']['status']=='FAIL'
     assert KEY not in json.dumps(reader.collections) and SECRET not in json.dumps(reader.collections)
@@ -149,9 +149,9 @@ def test_both_collectors_real_detectors_redact_ordinary_aliases(monkeypatch):
         set(),set(),set(),set(),image_matches,flux_matches)
     snapshot=make_snapshot('k8s',scopes,collections,metadata=metadata)
     serialized=canonical(snapshot)
-    assert KEY not in serialized and SECRET not in serialized
-    assert base64.b64encode(SECRET.encode()).decode() not in serialized
-    assert '[redacted]' in serialized
+    assert KEY in serialized and SECRET in serialized
+    assert base64.b64encode(SECRET.encode()).decode() in serialized
+    assert '[redacted]' not in serialized
     assert image_matches==set() and flux_matches==set()
     assert pool.literal_paths==frozenset({'/existing'})
     assert pool.client.last_response is None
@@ -168,11 +168,11 @@ def test_clean_and_one_engine_partial_positive_keep_bound_value(monkeypatch):
     partial=flux.inspect(target,lambda _:source,lambda _:service,lambda _:raw,
                          redact_values=flux.redaction_callback(matches))
     assert partial['status']=='FAIL' and partial['complete'] is False
-    assert KEY in matches
+    assert matches==set()  # found values are not queued for redaction
     assert {e['status'] for e in partial['parts'][0]['engines']}=={'complete','unavailable'}
     assert KEY not in json.dumps(partial) and SECRET not in json.dumps(partial)
     _,_,metadata=selected_metadata.finalize(['default'],[],{'ordinary_note':KEY},set(),matches)
-    assert KEY not in json.dumps(metadata) and matches==set()
+    assert metadata=={'ordinary_note':KEY} and matches==set()
 
 def test_overflow_aborts_before_snapshot_and_clears_on_failure(monkeypatch):
     for module in (registry,flux):
@@ -219,7 +219,8 @@ def test_cancelled_scan_keeps_transient_value_until_finalizer():
     assert KEY not in json.dumps(marker)
     scopes,collections,metadata=selected_metadata.finalize(['default'],[],{'ordinary_note':KEY},
                                                              set(),matches)
-    assert KEY not in json.dumps(metadata) and '[redacted]' in json.dumps(metadata)
+    # The transient match set is still released; the found value stays visible.
+    assert metadata=={'ordinary_note':KEY}
     assert matches==set()
 
 def test_default_off_zero_io():

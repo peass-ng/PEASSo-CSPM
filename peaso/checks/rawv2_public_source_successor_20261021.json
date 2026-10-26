@@ -304,8 +304,8 @@
         }
       },
       "receipt": "peaso/checks/gcp_workbench_source_runtime_admission_20261020.json",
-      "receipt_sha256": "bfb1d6364bef185bd37ffb9f6c07dabb807b5ed29fb56760c52d68ba7a0e30bf",
-      "source_sha256": "4330530bc2daaddc2abac2b432fb6341106d9f6def640feccd9932d667395022"
+      "receipt_sha256": "5ef240b2946f092bc36e20d8a4bac421b9c4544b6e7ad2f21d6d6eb0c9fbd87e",
+      "source_sha256": "47fe835e3b59dc18e6dac0e6c350ea923cc4d8c38059a82635c856ee0c5e1ea3"
     }
   },
   "helper_bindings": {

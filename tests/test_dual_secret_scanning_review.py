@@ -129,7 +129,10 @@ def test_error_is_not_cached_as_clean_and_cached_results_are_redacted(monkeypatc
     second = scanning.scan_content(b'payload', 'file.py')
     third = scanning.scan_content(b'payload', 'file.py')
     assert not first['complete'] and second['complete'] and third == second
-    assert count['calls'] == 2
+    # Positive outcomes are never cached, so the found value stays out of the
+    # process-wide cache and the third scan runs the engine again.
+    assert count['calls'] == 3
+    assert third['leaks'] and third['leaks'][0]['fingerprint'] == scanning._fingerprint(TOKEN_A)
     assert TOKEN_A not in repr(scanning._RESULTS)
     assert b'payload' not in repr(scanning._RESULTS).encode()
 
@@ -245,7 +248,8 @@ def test_path_redaction_unions_values_detected_by_different_engines(monkeypatch)
     monkeypatch.setattr(scanning, '_scan_trufflehog', lambda *args: [(TOKEN_B, 'synthetic-github', 1)])
     result = scanning.scan_content((TOKEN_A+' '+TOKEN_B).encode(), f'{TOKEN_A}/{TOKEN_B}.txt')
     assert result['complete'] and len(result['leaks']) == 2
-    assert TOKEN_A not in json.dumps(result) and TOKEN_B not in json.dumps(result)
+    # Found values stay visible in the exact detector path.
+    assert {loc['path'] for leak in result['leaks'] for loc in leak['locations']} == {f'{TOKEN_A}/{TOKEN_B}.txt'}
     assert TOKEN_A not in repr(scanning._RESULTS) and TOKEN_B not in repr(scanning._RESULTS)
 
 
@@ -297,10 +301,9 @@ def test_metadata_redaction_marks_altered_facts_unavailable():
     source = {'serviceConfig': {'environmentVariableNames': ['secret-canary']},
               'description': 'secret-canary', 'safe': True}
     safe = scanning.redact_matches(source, {'secret-canary'})
-    assert 'secret-canary' not in json.dumps(safe)
-    assert safe['safe'] is True and source['description'] == 'secret-canary'
-    with pytest.raises(Unavailable):
-        get(safe, 'serviceConfig.environmentVariableNames', list)
+    # Found values stay visible, so the native facts remain available as collected.
+    assert safe == source and safe is not source and safe['serviceConfig'] is not source['serviceConfig']
+    assert get(safe, 'serviceConfig.environmentVariableNames', list) == ['secret-canary']
 
 
 def test_clean_metadata_callback_can_reuse_redacted_negative_cache(monkeypatch):

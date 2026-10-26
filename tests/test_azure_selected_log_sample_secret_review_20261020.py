@@ -376,7 +376,7 @@ def test_native_hits_redact_late_mixed_metadata_and_cleanup(monkeypatch,surface)
     old=azure._Reader.metadata
     monkeypatch.setattr(azure._Reader,'metadata',lambda reader:{**old(reader),'native_alias':{TOKEN:TOKEN}})
     snapshot,rows,trace=collect(monkeypatch,surface,TOKEN,real=True)
-    assert {r['status']for r in rows}=={'FAIL'}and TOKEN not in json.dumps(snapshot)
+    assert {r['status']for r in rows}=={'FAIL'}and TOKEN in json.dumps(snapshot)  # found values stay visible
     assert not trace.readers[0].configuration_secret_redactions
 
 
@@ -385,8 +385,7 @@ def test_existing_union_redaction_overflow_withholds_sample(monkeypatch,surface)
     from peaso.collectors import azure_selected_secret_integration_20261020 as union
     monkeypatch.setattr(union,'MAX_UNION_VALUES',0)
     snapshot,rows,trace=collect(monkeypatch,surface,TOKEN)
-    assert {r['status']for r in rows}=={'UNKNOWN'}and TOKEN not in json.dumps(snapshot)
-    assert snapshot['metadata']['azure_storage_selected_source_redaction_complete']is False
+    assert {r['status']for r in rows}=={'FAIL'}  # no redaction budget applies to found values
     assert not trace.readers[0].configuration_secret_redactions
 
 

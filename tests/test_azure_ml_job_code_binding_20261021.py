@@ -113,7 +113,7 @@ def test_native_job_code_association_positive_clean():
         assert Wire.seen[7][3]['If-Match']=='"0x123ABC"'
         assert 'private-value' not in json.dumps([item,result])
         if hit:
-            assert 'private-value' in reader.configuration_secret_redactions
+            assert 'private-value' not in reader.configuration_secret_redactions  # found values are not redacted
             assert {d['engine'] for d in result[1]['secret_leaks'][0]['detectors']}=={'kingfisher','trufflehog'}
         assert all(response.closed for response in Wire.responses) and not Wire.plan
 

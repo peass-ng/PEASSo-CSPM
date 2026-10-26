@@ -156,7 +156,8 @@ def test_cli_owned_json_is_explicit_private_0600_and_generic_outputs_stay_redact
     assert observed['status'] == 'FAIL'
     assert observed['observations'][0]['secret_evidence']['matches'][0]['value'] == VALUE
     assert owned_file.stat().st_mode & 0o777 == 0o600
-    assert VALUE not in snapshot_file.read_text()
+    # The snapshot keeps the found value as collected; only the private file carries the match record.
+    assert VALUE in snapshot_file.read_text()
     assert VALUE not in str(capsys.readouterr())
     cli._write(result, None, 'json')
     assert VALUE not in str(capsys.readouterr())
@@ -395,7 +396,8 @@ def test_decoded_privacy_scrub_covers_other_snapshot_metadata_without_inventing_
     snapshot = make_snapshot('aws', ['123456789012/us-east-1'], [{'type': 'lambda_function',
         'scope': '123456789012/us-east-1', 'status': 'collected', 'items': [{'Arn': ARN, 'note': component, 'labels': {component: component}}]}])
     public = sink.public_snapshot(snapshot)
-    assert component not in json.dumps(public)
+    # Found values stay visible in other snapshot fields; no witness is invented for them.
+    assert public['collections'][0]['items'][0]['labels'] == {component: component}
     assert scanning._fingerprint(component) not in sink.records
     assert 'redactions' not in sink.document()
     assert component not in json.dumps(sink.document())

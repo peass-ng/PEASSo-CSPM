@@ -22,11 +22,11 @@ class RawV2RedactionTests(unittest.TestCase):
             '--force-skip-archives', '--fail-on-scan-errors'} <= set(run.call_args.args[0]))
         self.assertTrue(outcome['complete'])
         self.assertEqual([r['fingerprint'] for r in outcome['leaks']], [scanning._fingerprint(self.primary)])
-        self.assertEqual(outcome['leaks'][0]['locations'], [{'path': '/app/REDACTED.env', 'line': 1}])
-        self.assertEqual(values, {self.primary, self.component, full})
-        self.assertNotIn(self.component, json.dumps(outcome))
-        metadata = scanning.redact_matches({'label': self.component}, values)
-        self.assertNotIn(self.component, json.dumps(metadata))
+        # Found values stay visible: the exact path is kept and nothing is redacted.
+        self.assertEqual(outcome['leaks'][0]['locations'], [{'path': '/app/' + self.component + '.env', 'line': 1}])
+        self.assertEqual(values, set())
+        metadata = scanning.redact_matches({'label': self.component}, {self.component})
+        self.assertEqual(metadata, {'label': self.component})
 
     def test_redacted_cache_never_retains_complete_pair_or_secret_component(self):
         full = self.primary + ':' + self.component
@@ -63,10 +63,12 @@ class RawV2RedactionTests(unittest.TestCase):
             outcome = scanning.scan_content(payload, '/app/' + self.component + '.env', _redact_values=values.update)
         self.assertTrue(outcome['complete'])
         self.assertEqual([r['fingerprint'] for r in outcome['leaks']], [scanning._fingerprint(self.primary)])
-        self.assertEqual(outcome['leaks'][0]['locations'], [{'path': '/app/REDACTED.env'}])
-        self.assertEqual(values, {self.primary, self.component, full})
-        metadata = scanning.redact_matches({'label': self.component, 'file': '/app/' + self.component + '.env'}, values)
-        self.assertNotIn(self.component, json.dumps(outcome) + json.dumps(metadata) + repr(scanning._RESULTS))
+        # Found values stay visible: the exact path is kept and nothing is redacted.
+        self.assertEqual(outcome['leaks'][0]['locations'], [{'path': '/app/' + self.component + '.env'}])
+        self.assertEqual(values, set())
+        metadata = {'label': self.component, 'file': '/app/' + self.component + '.env'}
+        self.assertEqual(scanning.redact_matches(metadata, {self.component}), metadata)
+        self.assertNotIn(self.component, repr(scanning._RESULTS))
 
 
 if __name__ == '__main__':

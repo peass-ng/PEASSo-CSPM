@@ -476,7 +476,7 @@ def _collector_checkpoint_publisher(artifacts, publication_artifacts, tenant, id
             if report is not None:
                 from peaso.storage.reports import publish_report
                 report_ref = publish_report(publication_artifacts, tenant, ident,
-                                            without_private_values(redact_report(report)), snapshot)
+                                            without_private_values(redact_report(report, fields=False)), snapshot)
             else:
                 report_ref = None
             batch = (report is None and 'batch_revisions' in
@@ -760,7 +760,7 @@ def _process(role, request, connection):
                 # of copying the complete native inventory a second time.
                 public_final = public_snapshot_adapter(
                     lambda native: seal(redact(native, tuple(credential_values(
-                        request["connector"].get("auth", {})))), owned=True), provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
+                        request["connector"].get("auth", {}))), fields=False), owned=True), provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
                 value = public_final(snapshot)
             reference = artifacts.put(tenant, ident, "snapshot", value)
             if expired:
@@ -791,7 +791,7 @@ def _process(role, request, connection):
             for row in report.get("related_snapshots", []):
                 row.update(sources.get(row["snapshot_id"], {}))
             with _runtime_span('worker.redact'):
-                value = redact_report(report)
+                value = redact_report(report, fields=False)
             value["input_mode"] = snapshot.get("metadata", {}).get("input_mode", "live")
             from peaso.storage.cost import runtime_estimate
             value["runtime"] = runtime_estimate(request["timeline"])
@@ -886,14 +886,15 @@ def _process(role, request, connection):
         connection.close()
 
 
-def redact_report(report):
+def redact_report(report, *, fields=True):
     """redact() a report. check_frameworks / check_meta are keyed by public catalog check ids (e.g.
     "...client_secret"), so only their values are redacted, never the id keys: a secret-shaped id
-    must not turn its per-check entry into "[REDACTED]"."""
+    must not turn its per-check entry into "[REDACTED]". Published scan reports pass fields=False:
+    secrets found in customer resources stay visible to the tenant."""
     per_check = {key: report[key] for key in ("check_frameworks", "check_meta") if isinstance(report.get(key), dict)}
-    value = redact({key: item for key, item in report.items() if key not in per_check})
+    value = redact({key: item for key, item in report.items() if key not in per_check}, fields=fields)
     for key, mapping in per_check.items():
-        value[key] = {check_id: redact(item) for check_id, item in mapping.items()}
+        value[key] = {check_id: redact(item, fields=fields) for check_id, item in mapping.items()}
     return value
 
 

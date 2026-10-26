@@ -32,8 +32,10 @@ def test_both_detectors_overlap_and_union_redaction_before_return(monkeypatch):
     result = scanning.scan_content(b'synthetic', '/'.join(values), _redact_values=callbacks.append)
     assert result['complete'] and len(result['leaks']) == 2
     assert [engine['engine'] for engine in result['engines']] == ['kingfisher', 'trufflehog']
-    assert callbacks == [frozenset(values)]
-    assert all(value not in json.dumps(result) + repr(scanning._RESULTS) for value in values)
+    # Found values stay visible in the exact path; the callback has nothing to redact.
+    assert callbacks == [frozenset()]
+    assert {loc['path'] for leak in result['leaks'] for loc in leak['locations']} == {'/'.join(values)}
+    assert all(value not in repr(scanning._RESULTS) for value in values)
     assert not any(t.name.startswith('peaso-secret') for t in threading.enumerate())
 
 
@@ -122,7 +124,7 @@ def test_positive_cache_never_skips_metadata_redaction_callback(monkeypatch):
         result = scanning.scan_content(b'synthetic-value', _redact_values=callbacks.append)
         assert result['complete']
     assert len(calls) == 4
-    assert callbacks == [frozenset({'synthetic-value'})] * 2
+    assert callbacks == [frozenset()] * 2
 
 
 @pytest.mark.parametrize('malformed', [

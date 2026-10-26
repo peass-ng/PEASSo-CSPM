@@ -249,9 +249,13 @@ def prepared_content_batch(items, *, timeout=60):
     preparation_started = time.monotonic() if metrics is not None else None
     prepared = None
     try:
-        if len(items) > 1:
+        # Bytes already reported clean are answered by the scanner's keyed
+        # memo; stage and scan only the remaining distinct payloads.
+        from .secret_scan_clean import known_clean
+        pending = [item for item in items if not known_clean(item[0])]
+        if len(pending) > 1:
             try:
-                prepared = _prepare_trufflehog_batch(items, timeout)
+                prepared = _prepare_trufflehog_batch(pending, timeout)
             except Exception as error:
                 # Retain only a finite type category, never the exception value.
                 _metric_reason('preparation_timeout' if isinstance(error, TimeoutError) else
