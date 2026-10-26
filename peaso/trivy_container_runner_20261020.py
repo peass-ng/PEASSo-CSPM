@@ -17,6 +17,7 @@ import time
 from . import container_image_archive_20261020 as archive
 from . import container_scan_process_20261020 as process
 from .image_content_memo_20261026 import BoundedMemo
+from .trivy_version_probe_20261026 import VersionProbe
 
 # Clean offline reports for identical immutable content, the same executable
 # file and the same unchanged DB generation. Inputs are re-proven against their
@@ -319,15 +320,18 @@ def scan_image(image_identity, manifest, config, layers, *, native_verifier=None
                 proof, raw, stderr, code, peak = cached
                 proof, reason = dict(proof), None
             else:
-                proof = archive.write_archive(path, selected, manifest, config, layers,
-                                              archive_format=archive_format, check=check)
+                probe = VersionProbe(executable, env, root, end, cancel)
+                try:
+                    proof = archive.write_archive(path, selected, manifest, config, layers,
+                                                  archive_format=archive_format, check=check)
+                finally:
+                    probe.wait()
                 result['archive'] = proof
                 policy = root / 'trivy.yaml'
                 policy.write_text('{}\n')
                 ignore = root / '.trivyignore'
                 ignore.write_text('')
-                version, _, version_exit, version_reason, _ = process._execute(
-                    [str(executable), '--version'], env, root, min(end, time.monotonic() + 10), cancel)
+                version, _, version_exit, version_reason, _ = probe.result()
                 archive.require(version_exit == 0 and version_reason is None
                                 and re.search(rb'(?m)^Version: 0\.68\.1\s*$', version), 'pinned_trivy_version_unavailable')
                 argv = [str(executable), 'image', '--input', str(path), *FLAGS,

@@ -971,9 +971,9 @@
     "peaso/checks/post_dfaf_aws.py": "d7b41a3a3d86242c60f22dd412688f0b2ae1ec4fff8b78c930f2678668b6fb48",
     "peaso/checks/post_dfaf_aws_specs.py": "4f2410348d731c2c76c3db79b0b2b0aebedebf874ce9044f9dccb612622d2476",
     "peaso/checks/post_dfaf_azure.py": "c00e5f758009f1929eb97f83a096706874b97fc6e2269dea8ccdab06c8e5640e",
-    "peaso/checks/private_secret_shared_source_successor_20261021.py": "8df61dadc77f9c34f57bacf84e11b933f1b58dff0c82fbd3b95ed441c9187022",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "ce9edce51aa8df9515d4df11619106030cd2b7c74d1cbe74a6b869c8b515d5e2",
     "peaso/checks/provider_content_native_cases_20261021.py": "3383f96e2670cf34f00d2224205ceba6cb97a6cba5a54c404d52759555ae6377",
-    "peaso/checks/provider_group_install_20261021.py": "50fb8eeacf4facdc950ffe251b341c5c0b691f566dcf863ef713998bf403c907",
+    "peaso/checks/provider_group_install_20261021.py": "b0fb01f69f33eca005fa7bb0af8a84c9605b90bc32e99ed8555bb6b135a22a10",
     "peaso/checks/provider_group_witnesses_20261021/test_gcp_job_image_vulnerability_product_20261021.py": "addfca8b8b2a53c44cd1ece9909bc1c5894e5a1485eb175b4f99799d82d9f835",
     "peaso/checks/provider_group_witnesses_20261021/test_runtime_existing_transport.py": "d28061814003e4aa4f81c42f4ff196fa4fae15d1b6ad49726dc278678d9e7779",
     "peaso/checks/provider_group_witnesses_20261021/test_runtime_native.py": "e7ba5b81c06b9bd2ff6b86757d5a56fa87a2e75f5046b854a9643ef897ef7255",
@@ -1339,7 +1339,7 @@
     "peaso/collectors/selected_image_trivy_database_20261021.py": "938b6e5b6d22b1021e37959c09f5d7f44dff7098be03650fdd312dd65f631866",
     "peaso/collectors/unused_iam_aws_completion.py": "8167fe423c643300807ad60459bdca3079abfb7e1a62b9c6836d2d4201c64600",
     "peaso/collectors/workload_environment_discovery.py": "8a11a2673f23081c0ae5eb5c8994340f1bd1af210588b74788b99cb1a8cbe8d8",
-    "peaso/container_image_archive_20261020.py": "f3dab92212a2e9b3f9c13b356de2ce82fc7424c2ef3dc14de13cdb74f854e763",
+    "peaso/container_image_archive_20261020.py": "627ea30bf64f5a67007a9355c5fd4b7e2104ca6d21cf88d73b9cb67271962ebf",
     "peaso/container_scan_process_20261020.py": "21876eb14edfa92d4613c28fd3781014aed05b14ba3d1d6d8409c768ed29a1a3",
     "peaso/content_scan_selection.py": "97b3780970dfd2560f4726e297fae43deb65fbc519d213efff8dc2a3703c1e40",
     "peaso/dataproc_source_selection.py": "18a3eadb764a0c64c8830adce54209c2dea3b4676992a9b19bb28020c08ab9e6",
@@ -1658,7 +1658,7 @@
     "peaso/storage/reports.py": "1f00255750c816dc1191c9c1d0926e3b5dc958e1c2f3d47a3df7fe407aead553",
     "peaso/storage/runtime.py": "d879d3526723a8d7920ccb7f7706c026c08c5723829d8f239e6701095198d0fb",
     "peaso/storage/sqlite.py": "3b70c395344b1e870e1fa70fe55b804d088cfe2bcc01ee786827c8a44a2add98",
-    "peaso/trivy_container_runner_20261020.py": "6ecd78462d33e9ba133e20191e9770c62e8250f9ca50761d9ddb960b22d90b08",
+    "peaso/trivy_container_runner_20261020.py": "f4e43368ddd4fc4a74b5118d7618da60c1a0366bcef258b5f9a38b15dd3a90cc",
     "peaso/trivy_database_20261021.py": "1a3ce1fe29b6b46400b11ca27204fe432de49f892ca8f237db7eb1ded9c5e4b7",
     "peaso/unused_iam_aws_activity.py": "6895e8c728e9f7ac38a90ef128c02e3e440d8e72ba54986a28cb1fdde0c7ac28",
     "peaso/unused_iam_aws_completion.py": "a7f2ad7559271672277203f58c64cde3f2e07bbf81b9de981ea3a7a1045f18b3",
@@ -1686,7 +1686,9 @@
     "peaso/worker.py": "53b8e29aeebe02aea7eeaf4577515b81cbdaecf106ee101265048ebbcdc8e752",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
-    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814"
+    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814",
+    "peaso/image_tar_header_20261026.py": "81111a6efd6881f97ff6de739f36680daaf34617c4a00c5f50263d725391869a",
+    "peaso/trivy_version_probe_20261026.py": "14e06ad7a41659d21b597ac3b68ce40c23b22413b4550e68a77561fb2b3a3961"
   },
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
@@ -1791,8 +1793,8 @@
     "source_review": "Qualified factory/SW46/source-proof locality and network joins; current main offline event normalizers and historical ECS lineage; bounded S3 uploads retain tenant checks, encryption and manifest-last semantics. Added modules have no SDK calls. Exact API client closure unchanged.",
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
-  "python_source_count": 1684,
-  "python_source_sha256": "21d6d44cbb2ef18fc0000e18e694d46d734db8f2ac9fcfbe9c828425a104779e",
+  "python_source_count": 1686,
+  "python_source_sha256": "489bb51e27f3cb55f21ed5f0285afe3573c4f8d2812ab077e3721dc84abe68ca",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

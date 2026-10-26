@@ -7,6 +7,7 @@ native-verifier seam; this module verifies every content descriptor locally.
 import contextlib
 import hashlib
 import io
+import mmap
 import os
 import posixpath
 import stat
@@ -20,6 +21,7 @@ import tarfile
 import zlib
 
 from peaso.image_content_memo_20261026 import BoundedMemo, StagedScratch
+from peaso.image_tar_header_20261026 import header as _header
 
 MAX_MANIFEST = 256 * 1024
 MAX_CONFIG = 1024 * 1024
@@ -186,6 +188,39 @@ def _normalize(value, base='', *, allow_absolute=False):
 
 
 def _resolve(value, nodes):
+    return _resolve_hops(value, nodes)[0]
+
+
+class _Parents:
+    """Memo of parent paths whose every prefix is not a symlink.
+
+    Such a path resolves to itself. Only a later symlink at one of its prefixes
+    can change that, so adding one there drops the memo.
+    """
+
+    def __init__(self, nodes):
+        self.nodes, self.plain, self.prefixes = nodes, set(), set()
+
+    def resolve(self, value):
+        if value in self.plain:
+            return value
+        result, hops = _resolve_hops(value, self.nodes)
+        if not hops:
+            self.plain.add(value)
+            at = value.find('/')
+            while at != -1:
+                self.prefixes.add(value[:at])
+                at = value.find('/', at + 1)
+            self.prefixes.add(value)
+        return result
+
+    def symlink_added(self, name):
+        if name in self.prefixes:
+            self.plain.clear()
+            self.prefixes.clear()
+
+
+def _resolve_hops(value, nodes):
     parts = value.split('/')
     resolved = []
     hops = 0
@@ -202,7 +237,7 @@ def _resolve(value, nodes):
             resolved.append(part)
     result = '/'.join(resolved)
     require(len(result.encode('utf-8')) <= MAX_PATH, 'image_path_bound')
-    return result
+    return result, hops
 
 
 def _pax(raw):
@@ -225,11 +260,45 @@ def _pax(raw):
     return result
 
 
+class _Mapped:
+    """read/seek/tell over a read-only map of a finished private layer file.
+
+    Header reads hop between members; slicing a map avoids a syscall and a
+    discarded read buffer per member while returning the same bytes.
+    """
+
+    def __init__(self, handle):
+        self.handle, self.map, self.at = handle, None, 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        if self.map is not None:
+            self.map.close()
+
+    def tell(self):
+        return self.at
+
+    def read(self, size):
+        if self.map is None:
+            self.map = mmap.mmap(self.handle.fileno(), 0, access=mmap.ACCESS_READ)
+        data = self.map[self.at:self.at + size]
+        self.at += len(data)
+        return data
+
+    def seek(self, offset, whence):
+        require(whence == os.SEEK_CUR, 'unsupported_seek')
+        self.at += offset
+        return self.at
+
+
 def _tar_members(path, nodes, count, check, layer_index, path_budget):
     seen, pending, global_pax = set(), {}, {}
     prior = set(nodes)
+    parents = _Parents(nodes)
     headers = 0
-    with path.open('rb') as source:
+    with path.open('rb') as handle, _Mapped(handle) as source:
         size = path.stat().st_size
         require(size >= 1024 and size % 512 == 0, 'truncated_tar')
         while True:
@@ -249,7 +318,7 @@ def _tar_members(path, nodes, count, check, layer_index, path_budget):
             headers += 1
             require(headers <= 2 * MAX_MEMBERS, 'tar_member_bound')
             try:
-                member = tarfile.TarInfo.frombuf(block, 'utf-8', 'strict')
+                member = _header(block)
             except (tarfile.TarError, UnicodeError, ValueError) as exc:
                 raise ValueError('invalid_tar_header') from exc
             require(member.size >= 0 and member.size <= MAX_EXPANDED and
@@ -297,7 +366,7 @@ def _tar_members(path, nodes, count, check, layer_index, path_budget):
                 count += 1
                 require(count <= MAX_MEMBERS, 'tar_member_bound')
                 parent = posixpath.dirname(name)
-                resolved = _resolve(parent, nodes) if parent else ''
+                resolved = parents.resolve(parent) if parent else ''
                 actual = '/'.join(filter(None, (resolved, posixpath.basename(name))))
                 require(actual != '', 'unsafe_image_path')
                 if member.type in (tarfile.REGTYPE, tarfile.AREGTYPE):
@@ -323,6 +392,7 @@ def _tar_members(path, nodes, count, check, layer_index, path_budget):
                     require(member.size == 0, 'unsupported_tar_member')
                     _normalize(linkname, posixpath.dirname(actual), allow_absolute=True)
                     nodes[actual] = ('symlink', linkname)
+                    parents.symlink_added(actual)
                 elif member.type == tarfile.LNKTYPE:
                     require(member.size == 0, 'unsupported_tar_member')
                     candidates = []
