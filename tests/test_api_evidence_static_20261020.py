@@ -49,7 +49,7 @@ REVIEWED_SUCCESSORS = {
 # reviewed privilege evidence wording, catalog retirements, and historical
 # source anchors; the native formatter must reproduce every successor below.
 PRIVESC_SUCCESSOR_RAW = (ROOT/'tests/fixtures/evidence_static_privesc_successor_20261022.json.gz').read_bytes()
-assert hashlib.sha256(PRIVESC_SUCCESSOR_RAW).hexdigest() == '23675bf2d0f044549045f675d511bbe5c061b9792bf8517166d1984003637288'
+assert hashlib.sha256(PRIVESC_SUCCESSOR_RAW).hexdigest() == '80e61517a0360500038199439d68aaaa314ded573802e23b474b1761126d70f7'
 import gzip
 PRIVESC_SUCCESSOR = json.loads(gzip.decompress(PRIVESC_SUCCESSOR_RAW))
 assert PRIVESC_SUCCESSOR['original_archive_sha256'] == ARCHIVE_SHA256
@@ -96,7 +96,12 @@ def _run(stage, script):
     # The copied helper reads the package overlay; normal Python imports use
     # the actual source package, as they do after installation.
     assert hashlib.sha256(ARCHIVE.read_bytes()).hexdigest() == ARCHIVE_SHA256
-    env=dict(os.environ, PYTHONPATH=str(NATIVE_ROOT)+os.pathsep+str(ROOT)+os.pathsep+str(stage))
+    # Run the shipped attestation mode: each fresh process still proves every pinned
+    # source on first use, so the manifest and catalog tamper cases stay covered.
+    # PEASO_SOURCE_ATTESTATION=always re-proves on every nested call and makes the
+    # cold peaso.checks import cost ~143 CPU s instead of ~11, which is unrelated to formatting.
+    env={key: value for key, value in os.environ.items() if key != 'PEASO_SOURCE_ATTESTATION'}
+    env.update(PYTHONPATH=str(NATIVE_ROOT)+os.pathsep+str(ROOT)+os.pathsep+str(stage))
     successors_path = stage/'reviewed-successors.json'
     successors_path.write_text(json.dumps(REVIEWED_SUCCESSORS), encoding='utf-8')
     result=subprocess.run([sys.executable,'-c',script,str(ARCHIVE),str(stage),
