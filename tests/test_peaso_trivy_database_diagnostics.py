@@ -197,3 +197,100 @@ def test_actual_lease_busy_remains_bounded_and_reports_phase(db,tmp_path,monkeyp
         with db.database_lease(enabled=True,cache_root=tmp_path/'cache',diagnostics=data):
             pytest.fail('busy lease acquired')
     assert data['phases']['lease_acquisition']['reason']=='lease_busy'
+
+
+# Live database downloads replace temporary staging files atomically.
+import errno
+import importlib.util
+import os
+from pathlib import Path
+import socket
+import stat
+import types
+import tempfile
+import pytest
+
+SOURCE = Path(__file__).parent/'sources/peaso/trivy_database_20261021.py'
+if not SOURCE.is_file():
+    SOURCE = Path(__file__).resolve().parents[1]/'peaso/trivy_database_20261021.py'
+spec=importlib.util.spec_from_file_location('trivy_staging_race_runtime',SOURCE)
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+
+class Tree:
+    def __init__(self,items):self.items=items
+    def rglob(self,pattern):
+        assert pattern=='*'
+        yield from self.items
+
+class VanishingEntry:
+    def __init__(self,path):self.path=path
+    def lstat(self):self.path.unlink(missing_ok=True);return self.path.lstat()
+    def is_symlink(self):self.path.unlink(missing_ok=True);return False
+    def is_file(self):return self.path.is_file()
+    def is_dir(self):return self.path.is_dir()
+
+def test_enumerated_regular_file_can_vanish_without_becoming_special(tmp_path):
+    file=tmp_path/'download.tmp';file.write_bytes(b'bounded')
+    assert module._size(Tree([VanishingEntry(file)]))==0
+
+def test_atomic_rename_after_enumeration_keeps_regular_file_total(tmp_path):
+    temporary=tmp_path/'partial';destination=tmp_path/'db';temporary.write_bytes(b'12345')
+    class Renamed:
+        def lstat(self):temporary.rename(destination);return temporary.lstat()
+    class Stable:
+        def lstat(self):return destination.lstat()
+    assert module._size(Tree([Renamed(),Stable()]))==5
+
+def test_single_lstat_decides_mode_and_size_without_followup_queries():
+    class Entry:
+        calls=0
+        def lstat(self):
+            self.calls+=1
+            assert self.calls==1
+            return types.SimpleNamespace(st_mode=stat.S_IFREG|0o600,st_size=7)
+        def __getattr__(self,name):raise AssertionError('unexpected second query: '+name)
+    entry=Entry();assert module._size(Tree([entry]))==7 and entry.calls==1
+
+def test_regular_files_and_directories_keep_original_total(tmp_path):
+    (tmp_path/'db').mkdir();(tmp_path/'db'/'one').write_bytes(b'12');(tmp_path/'two').write_bytes(b'345')
+    assert module._size(tmp_path)==5
+
+@pytest.mark.parametrize('target_kind',['file','directory','missing'])
+def test_symlinks_always_rejected(tmp_path,target_kind):
+    staging=tmp_path/'staging';staging.mkdir();target=tmp_path/'target'
+    if target_kind=='file':target.write_bytes(b'valid')
+    elif target_kind=='directory':target.mkdir()
+    (staging/'link').symlink_to(target,target_is_directory=target_kind=='directory')
+    with pytest.raises(module.DatabaseUnavailable,match='excessive or linked'):module._size(staging)
+
+@pytest.mark.parametrize('mode',[stat.S_IFIFO,stat.S_IFSOCK,stat.S_IFCHR,stat.S_IFBLK])
+def test_special_modes_fail_closed(mode):
+    entry=types.SimpleNamespace(lstat=lambda:types.SimpleNamespace(st_mode=mode|0o600,st_size=0))
+    with pytest.raises(module.DatabaseUnavailable,match='unsupported entry'):module._size(Tree([entry]))
+
+def test_actual_fifo_and_socket_fail_closed(tmp_path):
+    fifo=tmp_path/'fifo';os.mkfifo(fifo)
+    with pytest.raises(module.DatabaseUnavailable,match='unsupported entry'):module._size(tmp_path)
+    fifo.unlink()
+    with tempfile.TemporaryDirectory(prefix='db-size-',dir='/tmp')as short:
+        with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)as server:
+            server.bind(str(Path(short)/'socket'))
+            with pytest.raises(module.DatabaseUnavailable,match='unsupported entry'):module._size(Path(short))
+
+@pytest.mark.parametrize('error',[PermissionError(errno.EACCES,'denied'),OSError(errno.EIO,'io error')])
+def test_only_enoent_is_ignored(error):
+    def fail():raise error
+    with pytest.raises(type(error))as caught:module._size(Tree([types.SimpleNamespace(lstat=fail)]))
+    assert caught.value is error
+
+def test_missing_entries_still_count_toward_entry_bound(monkeypatch):
+    monkeypatch.setattr(module,'MAX_STAGING_ENTRIES',2)
+    def missing():raise FileNotFoundError(errno.ENOENT,'vanished')
+    entries=[types.SimpleNamespace(lstat=missing)for _ in range(3)]
+    with pytest.raises(module.DatabaseUnavailable,match='excessive or linked'):module._size(Tree(entries))
+
+def test_size_ceiling_is_inclusive_and_no_bytes_are_dropped(monkeypatch):
+    monkeypatch.setattr(module,'MAX_CACHE_BYTES',10)
+    def entry(size):return types.SimpleNamespace(lstat=lambda:types.SimpleNamespace(st_mode=stat.S_IFREG|0o600,st_size=size))
+    assert module._size(Tree([entry(4),entry(6)]))==10
+    with pytest.raises(module.DatabaseUnavailable,match='cache size limit'):module._size(Tree([entry(4),entry(7)]))

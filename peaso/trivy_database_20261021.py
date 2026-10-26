@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import resource
 import signal
+import stat
 import struct
 import shutil
 import subprocess
@@ -234,13 +235,22 @@ def _size(path: Path) -> int:
     entries = 0
     for item in path.rglob("*"):
         entries += 1
-        if entries > MAX_STAGING_ENTRIES or item.is_symlink():
+        if entries > MAX_STAGING_ENTRIES:
             raise DatabaseUnavailable("download staging contains excessive or linked entries")
-        if item.is_file():
-            total += item.stat().st_size
+        try:
+            info = item.lstat()
+        except FileNotFoundError:
+            # The downloader can atomically rename/remove temporary files
+            # after enumeration. Only a genuinely absent entry is ignored;
+            # permissions and all other filesystem errors still fail closed.
+            continue
+        if stat.S_ISLNK(info.st_mode):
+            raise DatabaseUnavailable("download staging contains excessive or linked entries")
+        if stat.S_ISREG(info.st_mode):
+            total += info.st_size
             if total > MAX_CACHE_BYTES:
                 raise DatabaseUnavailable("download exceeded cache size limit")
-        elif not item.is_dir():
+        elif not stat.S_ISDIR(info.st_mode):
             raise DatabaseUnavailable("download staging contains an unsupported entry")
     return total
 
