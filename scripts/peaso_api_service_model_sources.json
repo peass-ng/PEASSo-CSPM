@@ -1629,7 +1629,7 @@
     "peaso/server/config.py": "127529c32265a120d41ead5c8ce77623be152185ad7f26c9091d871bbc032c35",
     "peaso/server/content_selection_preflight_20261021.py": "0fe9b0ff1299408e732fd33ef8f7325a0eb87e857a18ece3b42e3c189c3041aa",
     "peaso/server/entra_attack_logs.py": "b6805b72b0ffd1b3843d6348b58321fed66ab15bcffc8d2bdc91533015e3b141",
-    "peaso/server/evidence_static.py": "b76357d69d555b3b93cd836f86a775ab35bb2fce5bf674386a13091e71daa33f",
+    "peaso/server/evidence_static.py": "7637c04fd618d8a181f14d53653168c2261abb6e890eccbf8bd331037f727c55",
     "peaso/server/finding_groups_static_20261021.py": "e1ee1fb2bd1b574b14e585fc371d2741dd788ee8981355aced1261a6c21c31e7",
     "peaso/server/finding_types_static_20261020.py": "081503b5a6275961b692f514fb1590dc46b81e1249f90e01d93e872b1ffbefce",
     "peaso/server/gcp_attack_logs.py": "78046b81fe898de2faeec19fadd5087df65bc4731f61dc8ea88ce13807ec7aef",
@@ -1643,7 +1643,7 @@
     "peaso/server/models.py": "580c4815277872eb6dd2e132a64899ed65dc5421fdbf117b3b3230f75b48fb41",
     "peaso/server/native_policy_validation.py": "c84159d8cc96b092aeea28db399c31a6c7b09bff90502e9b3e76cb2bb79791bd",
     "peaso/server/native_policy_validation_static_20261020.py": "73f591a82788f8bff65e8dd3018b6ed25a2f817b77a4cf4656706f2019063a29",
-    "peaso/server/privesc_display_catalog.py": "f317f08049ecea3922d6cecad41364df9e7013487c7a780e2deb6bb2b83ccc3f",
+    "peaso/server/privesc_display_catalog.py": "524f640048e2a8dda5d57ccd02c83cf6681999c9b422a44568cb06c40c130672",
     "peaso/server/remediation_presentation_static_20261020.py": "d989960c6feb0339e95aa1f55c6228972c4ae9035d6a7e2406db588675123b31",
     "peaso/server/report_projection_static_20261020.py": "02e3e66757a31374d5421ac8ab546b4c71c74cd9aef6e8cec203fe27089f06e3",
     "peaso/server/scan_names.py": "bc807595f0006516ba2996df566ab0705d2bafb64afed85e39b1366414114a74",
@@ -1803,7 +1803,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1695,
-  "python_source_sha256": "c0ca61ea09616e6fe7de09d7de75875d1c31bac5b36b40fd1670f2cf34a0e8f6",
+  "python_source_sha256": "1217127c4960ae0918e5fff90e275733d763083ce27b5785244aabf7d697473d",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
