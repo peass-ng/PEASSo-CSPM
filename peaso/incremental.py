@@ -16,6 +16,7 @@ from collections import defaultdict
 
 from .gc_pause import gc_paused
 from .snapshot import make_snapshot, validate, seal
+from .settle_memo import settle_token
 
 
 # Adaptive quiet period after a cumulative report pass (CPU seconds factor, cap).
@@ -118,6 +119,8 @@ class CheckpointSession:
         self.sequence = 0
         self.next_sequence = 0
         self.pending = {}
+        # (type, scope) -> (raw settle token, public envelope it produced).
+        self.settle_memo = {}
         self.pending_bytes = 0
         self.pending_since = None
         self.batch_size = max(1, int(batch_size))
@@ -362,6 +365,16 @@ class CheckpointSession:
             raise TypeError("collection envelope must be an object")
         from .secret_evidence import _lock as private_evidence_lock
         with private_evidence_lock:
+            # Collectors re-emit every settled envelope after their finalizers.
+            # An identical native envelope under the same public-state token
+            # (connector credentials and private-evidence state) yields the
+            # same public envelope with no new side effect: skip rebuilding it.
+            token = settle_token(self.public_snapshot, envelope)
+            if token is not None:
+                memo = self.settle_memo.get(token[0])
+                current = self.pending.get(token[0], (None, self.collections.get(token[0]), 0))[1]
+                if memo is not None and memo[0] == token and current is not None and memo[1] is current:
+                    return self.next_sequence
             # make_snapshot owns the independent structural copy. Copying the
             # same native envelope before that repeated a complete traversal.
             one = self._snapshot([envelope], sequence=self.next_sequence + 1)
@@ -371,6 +384,7 @@ class CheckpointSession:
         key = (public_envelope["type"], public_envelope["scope"])
         previous = self.pending.get(key, (None, self.collections.get(key), 0))[1]
         if previous == public_envelope:
+            self._remember_settle(token, key, previous)
             return self.next_sequence
         self.next_sequence += 1
         size = len(json.dumps(public_envelope, separators=(',', ':'), ensure_ascii=False).encode())
@@ -380,10 +394,17 @@ class CheckpointSession:
         if prior:
             self.pending_bytes -= prior[2]
         self.pending[key] = (self.next_sequence, public_envelope, size)
+        self._remember_settle(token, key, public_envelope)
         self.pending_bytes += size
         if len(self.pending) >= self.batch_size or self.pending_bytes >= self.batch_bytes:
             self._flush_pending()
         return self.next_sequence
+
+    def _remember_settle(self, token, key, public_envelope):
+        if token is None or token[0] != key:
+            self.settle_memo.pop(key, None)
+        else:
+            self.settle_memo[key] = (token, public_envelope)
 
     def _flush_pending(self):
         """Commit one immutable batch before advancing the visible watermark.
@@ -405,8 +426,12 @@ class CheckpointSession:
         except BaseException as exc:
             self.error = exc
             raise
-        for (revision, _, _), row in zip(entries, batch['collections']):
+        for (revision, pending_row, _), row in zip(entries, batch['collections']):
             key = (row['type'], row['scope'])
+            memo = self.settle_memo.get(key)
+            if memo is not None and memo[1] is pending_row:
+                # The committed row is this pending envelope's validated copy.
+                self.settle_memo[key] = (memo[0], row)
             self.collections[key] = row
             self.collection_revisions[key] = revision
             if self.provider == 'azure' and row['type'] == 'subscription' and '*' in self.requested_scopes:

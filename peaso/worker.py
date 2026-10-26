@@ -492,6 +492,11 @@ def _process(role, request, connection):
 
                 public_checkpoint = public_snapshot_adapter(public_checkpoint,
                     provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
+                from peaso.settle_memo import public_state
+                # Envelope output depends only on native content, the exact
+                # connector credentials and the capture's private state.
+                public_checkpoint.settle_state = lambda: public_state(
+                    credential_values(connector.get("auth", {})), secret_capture)
 
                 checkpoint = _collector_checkpoint_publisher(artifacts, publication_artifacts,
                     tenant, ident, secret_capture, private_checkpoint, connection)
