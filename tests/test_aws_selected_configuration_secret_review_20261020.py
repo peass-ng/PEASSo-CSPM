@@ -21,6 +21,7 @@ CALLER={'Account':ACCOUNT,'Arn':'arn:aws:iam::'+ACCOUNT+':user/reviewer','UserId
 NOW=datetime(2026,10,20,tzinfo=timezone.utc)
 SCRATCH=Path('/tmp/peasso-secret-surface-review-20261020/aws-selected-configuration')
 SURFACES=list(source.SURFACES)
+LEGACY_SURFACES=[surface for surface in SURFACES if surface not in ('cloudformation_template','codepipeline_configuration')]
 
 def arn(service,resource):return f'arn:aws:{service}:{REGION}:{ACCOUNT}:{resource}'
 def encoded(text):return base64.b64encode(text.encode()).decode()
@@ -31,7 +32,21 @@ def native(surface,positive=False,*,name='AuditResource'):
     text='TOKEN='+TOKEN if positive else 'MODE=production'
     value=TOKEN if positive else 'production'
     target={'surface':surface,'scope':SCOPE}
-    if surface=='cloudformation_outputs':
+    if surface=='cloudformation_template':
+        target['resource_id']=arn('cloudformation','stack/'+name+'/11111111-1111-4111-8111-111111111111')
+        responses=[{'TemplateBody':json.dumps({'AWSTemplateFormatVersion':'2010-09-09',
+            'Resources':{'Review':{'Type':'AWS::CloudFormation::WaitConditionHandle'}},
+            'Outputs':{'ReviewValue':{'Value':value}}}),'StagesAvailable':['Original']}]
+    elif surface=='codepipeline_configuration':
+        target.update(resource_id=arn('codepipeline',name),version=3)
+        responses=[{'pipeline':{'name':name,'roleArn':'arn:aws:iam::'+ACCOUNT+':role/pipeline-reader',
+            'artifactStore':{'type':'S3','location':'offline-artifacts'},'version':3,
+            'stages':[{'name':'Build','actions':[{'name':'Review','actionTypeId':{
+                'category':'Build','owner':'AWS','provider':'CodeBuild','version':'1'},
+                'configuration':{'ProjectName':name,'EnvironmentVariables':json.dumps([
+                    {'name':'TOKEN' if positive else 'MODE','value':value,'type':'PLAINTEXT'}])}}]}]},
+            'metadata':{'pipelineArn':target['resource_id'],'created':NOW,'updated':NOW}}]
+    elif surface=='cloudformation_outputs':
         target['resource_id']=arn('cloudformation','stack/'+name+'/11111111-1111-4111-8111-111111111111')
         responses=[{'Stacks':[{'StackId':target['resource_id'],'StackName':name,'StackStatus':'CREATE_COMPLETE','CreationTime':NOW,'Description':TOKEN,
                    'Outputs':[{'OutputKey':'TOKEN' if positive else 'MODE','OutputValue':value,'Description':TOKEN}]}]}]
@@ -298,7 +313,9 @@ def alter(surface,responses,case):
     response=responses[-1]
     if case=='partial':response['ResponseMetadata']['HTTPStatusCode']=206;return
     if case=='empty':
-        if surface=='cloudformation_outputs':response['Stacks'][0].pop('Outputs')
+        if surface=='cloudformation_template':response.pop('TemplateBody')
+        elif surface=='codepipeline_configuration':response.pop('pipeline')
+        elif surface=='cloudformation_outputs':response['Stacks'][0].pop('Outputs')
         elif surface=='codebuild_environment':response['projects'][0]['environment'].pop('environmentVariables')
         elif surface=='rest_stage_variables':response['variables']={}
         elif surface=='ecs_environment':response['taskDefinition']['containerDefinitions'][0].pop('environment')
@@ -314,7 +331,9 @@ def alter(surface,responses,case):
         elif surface=='notebook_lifecycle':response.update(OnCreate=[],OnStart=[])
         else:response['pipelineObjects']=[]
     elif case=='malformed':
-        if surface=='cloudformation_outputs':response['Stacks'][0]['Outputs']*=2
+        if surface=='cloudformation_template':response['TemplateBody']='{broken-json}'
+        elif surface=='codepipeline_configuration':response['metadata']['pipelineArn']='not-an-arn'
+        elif surface=='cloudformation_outputs':response['Stacks'][0]['Outputs']*=2
         elif surface=='codebuild_environment':response['projects']*=2
         elif surface=='rest_stage_variables':response['variables']={'VALUE':'\ud800'}
         elif surface=='ecs_environment':response['taskDefinition']['containerDefinitions']*=2
@@ -330,7 +349,8 @@ def alter(surface,responses,case):
         elif surface=='notebook_lifecycle':response['OnCreate'][0]['Content']='!!not-base64!!'
         else:response['pipelineObjects'][0]['fields'][0]['refValue']='unsupported-both-representations'
     elif case=='foreign':
-        if surface=='cloudformation_outputs':response['Stacks'][0]['StackId']=response['Stacks'][0]['StackId'].replace(ACCOUNT,'000000000000')
+        if surface=='codepipeline_configuration':response['metadata']['pipelineArn']=response['metadata']['pipelineArn'].replace(ACCOUNT,'000000000000')
+        elif surface=='cloudformation_outputs':response['Stacks'][0]['StackId']=response['Stacks'][0]['StackId'].replace(ACCOUNT,'000000000000')
         elif surface=='codebuild_environment':response['projects'][0]['arn']=response['projects'][0]['arn'].replace(ACCOUNT,'000000000000')
         elif surface=='rest_stage_variables':response['stageName']='OtherStage'
         elif surface=='ecs_environment':response['taskDefinition']['taskDefinitionArn']=response['taskDefinition']['taskDefinitionArn'].replace(ACCOUNT,'000000000000')
@@ -354,7 +374,7 @@ def test_each_native_surface_incomplete_or_foreign_never_clean(monkeypatch,surfa
     target,responses=native(surface)
     alter(surface,responses,case)
     kwargs={}
-    if surface=='pipeline_definition' and case=='foreign':
+    if surface in ('pipeline_definition','cloudformation_template') and case=='foreign':
         kwargs['caller']={'Account':'000000000000','Arn':'arn:aws:iam::000000000000:user/reviewer','UserId':'AIDAOTHER'}
     snapshot,trace=capture(monkeypatch,[target],{source.identity(target):responses},**kwargs)
     rows=findings(snapshot)
@@ -527,7 +547,7 @@ def test_native_budgets_never_produce_clean_results(monkeypatch,bound):
 
 def test_exact_value_dedup_across_all_fifteen_native_surfaces(monkeypatch):
     targets=[];responses={}
-    for surface in SURFACES:
+    for surface in LEGACY_SURFACES:
         target,payloads=native(surface,True);targets.append(target);responses[source.identity(target)]=payloads
     snapshot,trace=capture(monkeypatch,targets,responses)
     result=findings(snapshot)

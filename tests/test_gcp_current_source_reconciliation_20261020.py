@@ -22,9 +22,9 @@ from tests.test_gcp_workbench_current_acceptance_20261020 import (
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / 'docs/gcp-review/recheck-20261020/current-source-reconciliation-20261020.json'
-REPORT_SHA256 = '6e6fbdf6acff57100cfe468b851e075b967d0884c7da3ba0ed6faf866f912535'
+REPORT_SHA256 = '603b9e467d9bc7eda42ad11228c0078c9b98101aa049e81217da363f659f444b'
 CURRENT_RECEIPT = ROOT / 'docs/check-review/gcp-current-ledger-source-conservation-20261020.json'
-CURRENT_RECEIPT_SHA256 = '4359bc9fd55fdb429ff933c9470bd7d7eb8df6904d6a59a2167049c66d6a2879'
+CURRENT_RECEIPT_SHA256 = 'afed6d3eb80422884312df939b9360aaa73dac07a525b1d64dd2ac675a34f7d8'
 FUNCTION_ID = 'gcp.review.function.literal_environment_secret_indicators'
 
 

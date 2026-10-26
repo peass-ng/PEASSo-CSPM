@@ -152,6 +152,13 @@ def collect(reader, request, wanted, transport, credential_context_id, customer_
     now = datetime.now(timezone.utc)
     owner_cache = {}
     rows = []
+    # Each enabled user's requirements read is independent: prefetch them
+    # bounded in parallel; outcomes are consumed in user order below.
+    from .azure import ordered_parallel
+    enabled = [uid for uid, user in users.items() if user.get("accountEnabled") is True]
+    def requirements(uid):
+        return reader.call(request, GRAPH + "/beta/users/" + uid + "/authentication/requirements", audience=GRAPH)
+    prefetched = dict(zip(enabled, ordered_parallel(reader, requirements, enabled)))
     for uid, user in users.items():
         if user.get("accountEnabled") is not True:
             continue
@@ -161,7 +168,9 @@ def collect(reader, request, wanted, transport, credential_context_id, customer_
                "check_id": CHECK, "scope": scope, "coverage": coverage,
                "_provenance": dict(proof)}
         try:
-            value = reader.call(request, GRAPH + "/beta/users/" + uid + "/authentication/requirements", audience=GRAPH)
+            ok, value = prefetched[uid]
+            if not ok:
+                raise value
             if not isinstance(value, dict) or value.get("perUserMfaState") not in ("disabled", "enabled", "enforced"):
                 raise ValueError("beta perUserMfaState unavailable")
             if "id" in value and _id(value["id"]) != uid:

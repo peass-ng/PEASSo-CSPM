@@ -3,7 +3,8 @@ from .snapshot import make_snapshot
 
 
 def demo_snapshot(provider):
-    scope = {"aws": "111111111111/us-east-1", "gcp": "demo-project", "azure": "demo-subscription", "k8s": "demo-cluster/*"}[provider]
+    # Canonical native scopes: the worker's public snapshot adapter rejects anything else.
+    scope = {"aws": "111111111111/us-east-1", "gcp": "projects/demo-project", "azure": "/subscriptions/demo-subscription", "k8s": "*"}[provider]
     facts = {
       "aws": {
         "iam_policy": [{"Arn": "arn:aws:iam::111111111111:policy/ReviewedRead", "PolicyDocument": {"Statement": [{"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::demo-private"}]}},
@@ -46,5 +47,8 @@ def demo_snapshot(provider):
       }
     }[provider]
     collections = [{"type": kind, "scope": scope, "service": kind, "status": "collected" if items else "empty", "items": items} for kind, items in facts.items()]
-    collections.append({"type": "activity", "scope": scope, "service": "audit", "status": "denied", "items": [], "error": {"code": "demo_permission_denied"}})
+    # One denied audit read per provider, using that provider's registered type.
+    audit = {"aws": "cloudtrail_event", "gcp": "activity", "azure": "activity_log"}.get(provider)
+    if audit:
+        collections.append({"type": audit, "scope": scope, "service": "audit", "status": "denied", "items": [], "error": {"code": "demo_permission_denied"}})
     return make_snapshot(provider, [scope], collections, created_at="2026-10-10T00:00:00+00:00", metadata={"source": "offline_demo", "not_live_cloud_evidence": True})

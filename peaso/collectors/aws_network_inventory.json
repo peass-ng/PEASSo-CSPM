@@ -1631,7 +1631,7 @@
       "operation": "describe_application"
     },
     "identity": "ApplicationARN",
-    "identity_fields": [
+    "retained_fields": [
       "ApplicationMode",
       "ServiceExecutionRole"
     ],

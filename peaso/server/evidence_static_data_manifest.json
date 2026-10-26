@@ -28,7 +28,7 @@
   "peaso/checks/k8s_kubelet_declaration_observed_20261020.json": "e656228bb13e48d160e220af247bde084b9a0cd5157343bba874717459ea4d6f",
   "peaso/checks/k8s_kubelet_declaration_unknown_observed_20261020.json": "0d04a77e3cd48958172fbfacddc01208d43503b1d9030cf022f99b17576b1988",
   "peaso/checks/k8s_native_review_copy_20261020.json": "da1f6a8f2497e4c6e92f900df2e0a34b273da6550f3c60f3b93406b30991fc6c",
-  "peaso/collectors/aws_network_inventory.json": "a26a32c671af81c03b37ae5c1fa5951b99da33e2a645cb8152a4d73acfde682a",
+  "peaso/collectors/aws_network_inventory.json": "ea5c4194b0e9f3ea7bdaaa290c24e8963dca66152e2e1543bb1b9f1fad6c3ffb",
   "peaso/collectors/azure_network_private_children.json": "57ed98862041070463fd07e5544b6dcb587f3ea691aa397f9ea8e061d42476f0",
   "peaso/collectors/azure_network_private_services.json": "ed9d4dd17c31c1ce82aef7b2b29aa03a2ed37dd21154bc95efd7c536d7b38359",
   "peaso/collectors/gcp_network_private_services.json": "aa377797001dad0faf9fe3f8e1c92d53c21603d62de153d43bbc4fe2a636bd72",

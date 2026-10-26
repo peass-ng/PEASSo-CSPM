@@ -2079,7 +2079,7 @@ APPROVED_V31_RUNTIME_ADDITIONS = {
     "peaso/collectors/azure_identity_intune_native.py": "02b0b6d133a2f0d30cb2e30a99d6d3d4feef78231eb61e680acd02987f0896fc",
     "peaso/collectors/azure_iot_policy_native.py": "5daa1c505286ba57c4f1ec016f54f5713b138d3b45cfd1c5fb542ee3ad893468",
     "peaso/collectors/azure_monitor_inventory_native.py": "81bd15cf090e296be7a299da4b7b9e42657c987bbed6afdeb82a0453a90e6127",
-    "peaso/collectors/azure_nsg_ingress_native.py": "a4428aae689a70c27fb7e461655956f732cda1f9c848a4e4778f2a8d215bfe90",
+    "peaso/collectors/azure_nsg_ingress_native.py": "2653057252b2522440a64cd10c2e947f4ccc5049a1fc4b3819a92d4164bae9ad",
     "peaso/collectors/azure_public_edge_native.py": "a03b38c782d3ddda800d891babf114036b65faf5f0e29c38ef2410d392547dda",
     "peaso/collectors/azure_resource_diagnostics_native.py": "36f73fc3665680b2489ab99c24dfee59b5f2afb236323952e7131dea481df0ed",
     "peaso/collectors/azure_resource_logging_policy.py": "2d7174efd2706acf66466e3216d95ec1b81d2af1cf5b1b54a8144246ca25d0ba",

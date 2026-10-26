@@ -1,6 +1,6 @@
 {
   "purpose": "Current native cases; old source fixtures remain unchanged and no unproved scope is supplied.",
-  "predicate_successor_sha256": "2e6cf99e84dc8586285c684abd2fd1cb4b23efe8991d11495c192ec9288222c6",
+  "predicate_successor_sha256": "dbb430532c54822e930dcfa040bc391494a5ebb465a734b0f1fcee37aa43c917",
   "cases": [
     {
       "id": "gcp.ports.compute_ssl_policy_strict_declaration:good",

@@ -388,7 +388,13 @@ def test_api_hydrates_labels_and_filters_through_check_frameworks(tmp_path):
         assert all(CIS6_NAME in item["frameworks"] for item in cis["items"])
         detail = client.get(f"/api/scans/{ident}/findings/{report['findings'][0]['id']}").json()
         assert detail["frameworks"] == report["check_frameworks"][report["findings"][0]["check_id"]]
-        assert "check_frameworks" not in client.get(f"/api/scans/{ident}/summary").json()
+        summary = client.get(f"/api/scans/{ident}/summary")
+        assert "check_frameworks" not in summary.json()
+        # The polled summary keeps framework version metadata but not catalog-sized ID lists.
+        assert report["framework_versions"] and any(row.get("native_check_ids") for row in report["framework_versions"])
+        assert [row["id"] for row in summary.json()["framework_versions"]] == [row["id"] for row in report["framework_versions"]]
+        assert all("native_check_ids" not in row for row in summary.json()["framework_versions"])
+        assert len(summary.content) < 100_000
 
 
 def test_per_check_fields_keep_only_overrides_and_hydrate_losslessly():

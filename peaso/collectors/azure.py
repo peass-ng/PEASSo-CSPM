@@ -2,19 +2,25 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
+import http.client
 import json
 import math
 import re
+import os
 import threading
 import time
 import xml.etree.ElementTree as ET
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime, parsedate_to_datetime
 from urllib.parse import quote, urlencode, urlsplit, parse_qs, parse_qsl
-from urllib.request import Request, urlopen, HTTPRedirectHandler, build_opener
+from urllib.error import URLError
+from urllib.request import Request, urlopen, HTTPRedirectHandler, HTTPSHandler, build_opener
+import urllib.request as _urllib_request
 from .base import Budget, _bound
 from .azure_apim_native import collect_apim
 from . import azure_apim_protocol_policy
@@ -703,16 +709,20 @@ AUTHORIZATION = {
     "role_assignment": "roleAssignments", "role_definition": "roleDefinitions",
     "deny_assignment": "denyAssignments",
 }
+# Documented Graph page maxima (fewer pages, identical items): users 999, but
+# 500 while signInActivity is selected; groups and applications 999. Lists
+# whose documented maximum is the default (servicePrincipals: 100) or that do
+# not document $top keep the service default page size.
 DIRECTORY = {
     "conditional_access_policy": "identity/conditionalAccess/policies",
     "named_location": "identity/conditionalAccess/namedLocations",
     "user_registration_detail": "reports/authenticationMethods/userRegistrationDetails?$select=id,isMfaCapable,isMfaRegistered,userPrincipalName",
     "directory_role": "directoryRoles?$select=id,displayName,roleTemplateId",
     "directory_setting": "groupSettings",
-    "directory_user": "users?$select=id,displayName,userPrincipalName,accountEnabled,userType,creationType,externalUserState,identities,onPremisesImmutableId,signInActivity",
-    "directory_group": "groups?$select=id,displayName,securityEnabled,mailEnabled,groupTypes,isAssignableToRole,membershipRule,membershipRuleProcessingState,visibility,onPremisesSyncEnabled",
+    "directory_user": "users?$select=id,displayName,userPrincipalName,accountEnabled,userType,creationType,externalUserState,identities,onPremisesImmutableId,signInActivity&$top=500",
+    "directory_group": "groups?$select=id,displayName,securityEnabled,mailEnabled,groupTypes,isAssignableToRole,membershipRule,membershipRuleProcessingState,visibility,onPremisesSyncEnabled&$top=999",
     "directory_service_principal": "servicePrincipals?$select=id,appId,appOwnerOrganizationId,displayName,servicePrincipalType,alternativeNames,accountEnabled,appRoles,passwordCredentials,keyCredentials,preferredSingleSignOnMode,createdDateTime",
-    "directory_application": "applications?$select=id,appId,displayName,requiredResourceAccess,signInAudience,passwordCredentials,keyCredentials,servicePrincipalLockConfiguration",
+    "directory_application": "applications?$select=id,appId,displayName,requiredResourceAccess,signInAudience,passwordCredentials,keyCredentials,servicePrincipalLockConfiguration&$top=999",
     "directory_role_assignment": "roleManagement/directory/roleAssignments",
     "directory_role_definition": "roleManagement/directory/roleDefinitions",
     "directory_audit": "auditLogs/directoryAudits",
@@ -948,6 +958,230 @@ class _NoRedirect(HTTPRedirectHandler):
         raise AzureReadError("redirect_rejected")
 
 
+# Persistent HTTPS connections. A fresh opener per request used to pay a CA
+# bundle load plus a TCP/TLS handshake for every native read. The urllib
+# pipeline (redirect refusal, HTTPError classification, environment proxies,
+# timeouts, request headers) is unchanged; only the HTTPS connection is reused
+# after a response body was completely and cleanly read.
+_STDLIB_BUILD_OPENER = _urllib_request.build_opener
+_STALE_CONNECTION_ERRORS = (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
+
+
+def _stale_connection(exc):
+    import ssl
+    errors = _STALE_CONNECTION_ERRORS + (ssl.SSLEOFError, ssl.SSLZeroReturnError)
+    return isinstance(exc, errors) or (isinstance(exc, URLError) and isinstance(exc.reason, errors))
+
+
+class _PooledHTTPResponse(http.client.HTTPResponse):
+    """Return the connection to the pool only after a complete clean body read."""
+    _peaso_release = None
+
+    def close(self):
+        # http.client drops fp exactly when the declared or chunked body ended.
+        drained = self.fp is None
+        try:
+            super().close()
+        finally:
+            release, self._peaso_release = self._peaso_release, None
+            if release is not None:
+                release(drained and not self.will_close)
+
+
+class _KeepAlivePool:
+    """Thread-safe idle HTTPS connections; each connection serves one request at a time."""
+    def __init__(self, max_idle_per_key=64, idle_seconds=50.0):
+        self.max_idle_per_key, self.idle_seconds = max_idle_per_key, idle_seconds
+        self.lock = threading.Lock()
+        self.idle = {}
+        self.created = 0
+        self.reused = 0
+
+    def acquire(self, key):
+        stale = []
+        now = time.monotonic()
+        try:
+            with self.lock:
+                entries = self.idle.get(key)
+                while entries:
+                    connection, stamp = entries.pop()
+                    if now - stamp <= self.idle_seconds and connection.sock is not None:
+                        self.reused += 1
+                        return connection
+                    stale.append(connection)
+            return None
+        finally:
+            for connection in stale:
+                connection.close()
+
+    def release(self, key, connection, reusable):
+        if reusable and connection.sock is not None:
+            with self.lock:
+                entries = self.idle.setdefault(key, [])
+                if len(entries) < self.max_idle_per_key:
+                    entries.append((connection, time.monotonic()))
+                    return
+        connection.close()
+
+    def clear(self):
+        with self.lock:
+            entries = [connection for values in self.idle.values() for connection, _ in values]
+            self.idle.clear()
+        for connection in entries:
+            connection.close()
+
+
+_KEEPALIVE_POOL = _KeepAlivePool()
+
+
+def _forget_inherited_connections():
+    # A forked child must never share a parent's TLS session. Drop references
+    # without closing: closing could disturb the parent's live socket state.
+    _KEEPALIVE_POOL.lock = threading.Lock()
+    _KEEPALIVE_POOL.idle = {}
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_forget_inherited_connections)
+_HTTPS_CONTEXT = None
+_HTTPS_CONTEXT_LOCK = threading.Lock()
+
+
+def _shared_https_context():
+    """The same verified default context urllib builds per HTTPSHandler, built once."""
+    global _HTTPS_CONTEXT
+    with _HTTPS_CONTEXT_LOCK:
+        if _HTTPS_CONTEXT is None:
+            factory = getattr(http.client, "_create_https_context", None)
+            if factory is not None:
+                context = factory(http.client.HTTPSConnection._http_vsn)
+            else:
+                import ssl
+                context = ssl._create_default_https_context()
+                if http.client.HTTPSConnection._http_vsn == 11:
+                    context.set_alpn_protocols(["http/1.1"])
+                if context.post_handshake_auth is not None:
+                    context.post_handshake_auth = True
+            _HTTPS_CONTEXT = context
+        return _HTTPS_CONTEXT
+
+
+class _KeepAliveHTTPSHandler(HTTPSHandler):
+    """urllib HTTPS handler mirroring AbstractHTTPHandler.do_open with pooled connections."""
+    def __init__(self, pool=None):
+        super().__init__(context=_shared_https_context())
+        self._pool = _KEEPALIVE_POOL if pool is None else pool
+
+    def https_open(self, req):
+        host = req.host
+        if not host:
+            raise URLError("no host given")
+        headers = dict(req.unredirected_hdrs)
+        headers.update({k: v for k, v in req.headers.items() if k not in headers})
+        headers = {name.title(): value for name, value in headers.items()}
+        tunnel_headers = {}
+        if req._tunnel_host and "Proxy-Authorization" in headers:
+            # Proxy-Authorization should not be sent to the origin server.
+            tunnel_headers["Proxy-Authorization"] = headers.pop("Proxy-Authorization")
+        key = (host, req._tunnel_host, tunnel_headers.get("Proxy-Authorization"))
+        for attempt in (0, 1):
+            connection = self._pool.acquire(key) if attempt == 0 else None
+            reused = connection is not None
+            if connection is None:
+                connection = http.client.HTTPSConnection(host, timeout=req.timeout, context=self._context)
+                connection.set_debuglevel(self._debuglevel)
+                connection.response_class = _PooledHTTPResponse
+                if req._tunnel_host:
+                    connection.set_tunnel(req._tunnel_host, headers=tunnel_headers)
+                with self._pool.lock:
+                    self._pool.created += 1
+            else:
+                connection.timeout = req.timeout
+                connection.sock.settimeout(req.timeout)
+            try:
+                try:
+                    connection.request(req.get_method(), req.selector, req.data, headers,
+                                       encode_chunked=req.has_header("Transfer-encoding"))
+                except OSError as err:
+                    raise URLError(err)
+                response = connection.getresponse()
+            except BaseException as exc:
+                connection.close()
+                # Only an idle connection the server already closed is replayed,
+                # once, on a fresh connection; a new connection's error is final.
+                if reused and isinstance(exc, Exception) and _stale_connection(exc):
+                    continue
+                raise
+            response._peaso_release = functools.partial(self._pool.release, key, connection)
+            response.url = req.get_full_url()
+            response.msg = response.reason
+            return response
+
+
+def _keepalive_build_opener(*handlers):
+    """Stdlib ``build_opener`` whose HTTPS handler reuses pooled connections.
+
+    Every other handler (redirect policy, HTTP error processing, proxies) is
+    the stdlib default, so status, error and redirect semantics are unchanged.
+    """
+    return _STDLIB_BUILD_OPENER(*handlers, _KeepAliveHTTPSHandler())
+
+
+def _native_open(request, timeout, opener_factory=None):
+    """Open one native read through the no-redirect urllib pipeline.
+
+    An injected ``build_opener`` (tests, sandboxes) keeps its exact one-policy
+    call; the stdlib factory is upgraded to the pooled HTTPS handler.
+    """
+    factory = build_opener if opener_factory is None else opener_factory
+    if factory is _STDLIB_BUILD_OPENER:
+        factory = _keepalive_build_opener
+    return factory(_NoRedirect()).open(request, timeout=timeout)
+
+
+_FANOUT_SLOTS_LOCK = threading.Lock()
+
+
+def _fanout_slots(reader):
+    """Shared per-reader bound for nested fan-out, created on first use."""
+    slots = getattr(reader, "fanout_slots", None)
+    if slots is not None or not isinstance(reader, _Reader):
+        return slots
+    with _FANOUT_SLOTS_LOCK:
+        slots = reader.__dict__.get("fanout_slots")
+        if slots is None:
+            slots = reader.fanout_slots = threading.BoundedSemaphore(reader.workers)
+    return slots
+
+
+def ordered_parallel(reader, function, items, *, limit=None):
+    """Run independent reads concurrently and return results in input order.
+
+    Each result is ``(True, value)`` or ``(False, exception)`` so callers keep
+    their serial error handling. Concurrency is bounded by ``reader.workers``
+    (and ``limit``) plus the reader's shared fan-out slots when present.
+    """
+    items = list(items)
+    workers = getattr(reader, "workers", 1)
+    workers = workers if type(workers) is int and workers > 0 else 1
+    if limit is not None:
+        workers = min(workers, limit)
+    slots = _fanout_slots(reader)
+    def run(item):
+        try:
+            if slots is None:
+                return True, function(item)
+            with slots:
+                return True, function(item)
+        except Exception as exc:
+            return False, exc
+    if workers <= 1 or len(items) <= 1:
+        return [run(item) for item in items]
+    with ThreadPoolExecutor(max_workers=min(workers, len(items))) as pool:
+        futures = [pool.submit(copy_context().run, run, item) for item in items]
+        return [future.result() for future in futures]
+
+
 def _strict_native_json(raw):
     """Decode complete native JSON without duplicate fields or nonfinite numbers."""
     import math
@@ -1008,7 +1242,7 @@ class AzureTransport:
             raise AzureReadError("untrusted_storage_endpoint")
         token = self.token(STORAGE)
         request = Request(url, headers={"Authorization": "Bearer " + token, "Accept": "application/xml", "x-ms-version": "2023-11-03", "x-ms-date": format_datetime(datetime.now(timezone.utc), usegmt=True)}, method="GET")
-        with build_opener(_NoRedirect()).open(request, timeout=20) as response:
+        with _native_open(request, 20, build_opener) as response:
             body = response.read(512001)
         if len(body) > 512000 or b"<!DOCTYPE" in body.upper() or b"<!ENTITY" in body.upper():
             raise ValueError("malformed service-properties XML")
@@ -1035,7 +1269,7 @@ class AzureTransport:
         request = Request(url, headers={'Authorization': 'Bearer ' + token,
             'Accept': 'application/xml', 'x-ms-version': projection.API_VERSION,
             'x-ms-date': format_datetime(datetime.now(timezone.utc), usegmt=True)}, method='GET')
-        with build_opener(_NoRedirect()).open(request, timeout=20) as response:
+        with _native_open(request, 20, build_opener) as response:
             body = response.read(projection.MAX_BYTES + 1)
         return projection.project(body, binding)
 
@@ -1094,7 +1328,7 @@ class AzureTransport:
         if payload is not None:
             headers["Content-Type"] = "application/json"
         request = Request(url, data=payload, headers=headers, method="POST" if body is not None else "GET")
-        with build_opener(_NoRedirect()).open(request, timeout=20) as response:
+        with _native_open(request, 20, build_opener) as response:
             # These GET/read-only query endpoints document200 representations;
             # partial, asynchronous and empty responses are not native evidence.
             if type(getattr(response, 'status', None)) is not int or response.status != 200:
@@ -2390,7 +2624,7 @@ def collect(connector, requirements=None, *, transport=None):
                             raise ValueError('conflicting policy assignment List source marker')
                         return {**row, '_native_policy_assignment_list': dict(policy_list_proof)}
                     for page in reader.pages(page_request, url):
-                        detailed = []
+                        planned = []
                         for item in page:
                             rid = item.get("id") if isinstance(item, dict) else None
                             if not isinstance(rid, str) or not _policy_assignment_scope_allowed(kind, scope, rid):
@@ -2410,38 +2644,53 @@ def collect(connector, requirements=None, *, transport=None):
                                     raise ValueError("duplicate or malformed selected Azure identity")
                                 seen_easm.add(identity)
                             if isinstance(item.get("properties"), dict) and kind != "container_group" and kind not in FULL_GET_KINDS and kind != "stream_analytics_job":
-                                detailed.append(bound_policy_row(azure_swc.list_detail(item, kind)))
+                                planned.append((True, bound_policy_row(azure_swc.list_detail(item, kind))))
                                 continue
-                            try:
-                                detail_url = ARM + rid + "?api-version=" + version
-                                if kind == "vm":
-                                    detail_url += "&$expand=instanceView"
-                                if kind == "databox_job":
-                                    detail_url += "&$expand=details"
-                                result = reader.call(request, detail_url)
-                                if not isinstance(result, dict) or str(result.get("id", "")).lower() != rid.lower() or (kind in FULL_GET_KINDS and not isinstance(result.get("properties"), dict)):
-                                    raise ValueError("malformed resource detail")
-                                _arm_parent_native_type(result, kind)
-                                _network_platform_native_identity(result, scope, kind)
-                                if kind in ("vm", "nsg", "storage_account", "container_group", "vm_scale_set", "security_pricing") and str(result.get("type", "")).casefold() != ENDPOINTS[kind][0].casefold():
-                                    raise ValueError("native resource detail type differs from selected inventory")
-                                if kind == "security_pricing" and str(result.get("name", "")).casefold() != rid.rsplit("/", 1)[-1].casefold():
-                                    raise ValueError("native pricing detail name differs from selected identity")
-                                _database_crypto_parent_identity(result, scope, kind)
-                                _remaining_service_parent_identity(result, scope, kind)
-                                _remaining_services_private_links(result, kind)
-                                if kind in FULL_GET_KINDS:
-                                    result = azure_swc.full_detail(result, kind, version)
-                                if kind == "mongo_cluster":
-                                    result = azure_mongo_cluster_metadata.project(result)
-                                if kind in ("frontdoor", "cdn_profile"):
-                                    result = azure_frontdoor_native.metadata_projection(result)
-                                result = azure_swc.list_detail(result, kind)
-                                result = azure_native_contract_closure_20261020.metadata_detail(result, kind, scope, version)
-                                detailed.append(bound_policy_row(result))
-                            except Exception as exc:
-                                incomplete = exc
-                                detailed.append({"id": rid, "type": item.get("type"), "name": item.get("name"), "detail": {"collection_status": _safe_error(exc)[0], "error": _safe_error(exc)[1]}})
+                            planned.append((False, item))
+                        def read_detail(item):
+                            rid = item["id"]
+                            detail_url = ARM + rid + "?api-version=" + version
+                            if kind == "vm":
+                                detail_url += "&$expand=instanceView"
+                            if kind == "databox_job":
+                                detail_url += "&$expand=details"
+                            result = reader.call(request, detail_url)
+                            if not isinstance(result, dict) or str(result.get("id", "")).lower() != rid.lower() or (kind in FULL_GET_KINDS and not isinstance(result.get("properties"), dict)):
+                                raise ValueError("malformed resource detail")
+                            _arm_parent_native_type(result, kind)
+                            _network_platform_native_identity(result, scope, kind)
+                            if kind in ("vm", "nsg", "storage_account", "container_group", "vm_scale_set", "security_pricing") and str(result.get("type", "")).casefold() != ENDPOINTS[kind][0].casefold():
+                                raise ValueError("native resource detail type differs from selected inventory")
+                            if kind == "security_pricing" and str(result.get("name", "")).casefold() != rid.rsplit("/", 1)[-1].casefold():
+                                raise ValueError("native pricing detail name differs from selected identity")
+                            _database_crypto_parent_identity(result, scope, kind)
+                            _remaining_service_parent_identity(result, scope, kind)
+                            _remaining_services_private_links(result, kind)
+                            if kind in FULL_GET_KINDS:
+                                result = azure_swc.full_detail(result, kind, version)
+                            if kind == "mongo_cluster":
+                                result = azure_mongo_cluster_metadata.project(result)
+                            if kind in ("frontdoor", "cdn_profile"):
+                                result = azure_frontdoor_native.metadata_projection(result)
+                            result = azure_swc.list_detail(result, kind)
+                            result = azure_native_contract_closure_20261020.metadata_detail(result, kind, scope, version)
+                            return bound_policy_row(result)
+                        # Per-resource detail GETs are independent: run them bounded in
+                        # parallel and settle rows in list order, so evidence and the
+                        # surfaced (last) incomplete error match the serial read.
+                        fetched = iter(ordered_parallel(reader, read_detail, [value for done, value in planned if not done]))
+                        detailed = []
+                        for done, value in planned:
+                            if done:
+                                detailed.append(value)
+                                continue
+                            ok, result = next(fetched)
+                            if ok:
+                                detailed.append(result)
+                                continue
+                            exc, item, rid = result, value, value["id"]
+                            incomplete = exc
+                            detailed.append({"id": rid, "type": item.get("type"), "name": item.get("name"), "detail": {"collection_status": _safe_error(exc)[0], "error": _safe_error(exc)[1]}})
                         yield detailed
                     if incomplete:
                         raise incomplete
@@ -2929,7 +3178,7 @@ def collect(connector, requirements=None, *, transport=None):
                                 or seen_graph):
                             raise
                         failure = _safe_error(exc)
-                    base_url = url.replace(",signInActivity", "")
+                    base_url = url.replace(",signInActivity", "").replace("&$top=500", "&$top=999")
                     for page in reader.pages(request, base_url, audience=GRAPH, next_key="@odata.nextLink"):
                         for row in page:
                             rid = row.get("id") if isinstance(row, dict) else None
@@ -3669,3 +3918,4 @@ def collect(connector, requirements=None, *, transport=None):
     snapshot = azure_function_settings_runtime_hooks_20261020.final_snapshot(reader, snapshot)
     reader.progress("completed")
     return snapshot
+

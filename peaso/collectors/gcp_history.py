@@ -42,8 +42,9 @@ def cloudbuild_builds(collector, scope):
         locations.extend(found)
         if request:
             yield [], request
-    failures = []
-    for location in locations:
+    from .gcp_fanout import location_fanout
+
+    def location_pages(location):
         prefix = f'{scope}/locations/{location}/builds/'
         def project(row):
             ident = row.get('id')
@@ -67,10 +68,12 @@ def cloudbuild_builds(collector, scope):
             if isinstance(row.get('ConfigurationSecretIndicators'), dict):
                 kept['ConfigurationSecretIndicators'] = row['ConfigurationSecretIndicators']
             return {'name': name, **kept, '_representation': 'partial'}
-        try:
-            yield from collector.pages(f'https://cloudbuild.googleapis.com/v1/{scope}/locations/{location}/builds',
-                scope, key='builds', params={'projectId': scope.split('/')[1]}, transform=project)
-        except ReadError as exc:
+        return collector.pages(f'https://cloudbuild.googleapis.com/v1/{scope}/locations/{location}/builds',
+            scope, key='builds', params={'projectId': scope.split('/')[1]}, transform=project)
+    failures = []
+    for _location, pages, exc in location_fanout(collector, locations, location_pages):
+        yield from pages
+        if exc is not None:
             if getattr(exc, 'request_id', None):
                 yield [], exc.request_id
             failures.append(exc)
@@ -102,18 +105,30 @@ def sql_operations(collector, scope):
     parent = complete_parent(collector, 'sql_instance', scope)
     for request in parent['source_requests']:
         yield [], request
-    failures = []
-    for instance in parent['items']:
+    from .gcp_fanout import location_fanout
+
+    def instance_pages(instance):
+        # Identity errors stop the listing; read errors are kept per instance.
         name = instance.get('name')
         if not isinstance(name, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,97}', name):
             raise ReadError('malformed', 'sql_operation_instance_identity_invalid')
         try:
-            yield from collector.pages(f'https://sqladmin.googleapis.com/sql/v1beta4/{scope}/operations',
-                scope, page_size_key='maxResults', params={'instance': name}, transform=project)
+            for page in collector.pages(f'https://sqladmin.googleapis.com/sql/v1beta4/{scope}/operations',
+                    scope, page_size_key='maxResults', params={'instance': name}, transform=project):
+                yield page, None
         except ReadError as exc:
+            yield None, exc
+    failures = []
+    for _instance, entries, error in location_fanout(collector, parent['items'], instance_pages):
+        for page, exc in entries:
+            if exc is None:
+                yield page
+                continue
             if getattr(exc, 'request_id', None):
                 yield [], exc.request_id
             failures.append(exc)
+        if error is not None:
+            raise error
     if failures:
         raise failures[0]
 
@@ -124,14 +139,16 @@ def dns_records(collector, scope):
     zones = complete_parent(collector, 'dns_managed_zone', scope)
     for request in zones['source_requests']:
         yield [], request
-    failures = []
-    for zone in zones['items']:
+    from .gcp_fanout import location_fanout
+
+    def zone_pages(zone):
+        # Zone identity errors stop the listing; rrset read errors are kept.
         name = zone.get('name')
         if not isinstance(name, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', name):
             raise ReadError('malformed', 'dns_zone_identity_invalid')
         visibility = zone.get('visibility')
         if visibility == 'public':
-            continue
+            return
         if visibility != 'private':
             raise ReadError('unavailable', 'dns_zone_visibility_unresolved')
         policy = getattr(collector, 'psc_owner_policy', None)
@@ -145,7 +162,7 @@ def dns_records(collector, scope):
             # provide static rrsets and must not hide this scoped inventory.
             if not any(host == domain or host.endswith('.' + domain)
                        for host in policy['required_google_api_hostnames']):
-                continue
+                return
         config = zone.get('privateVisibilityConfig')
         networks = config.get('networks') if isinstance(config, dict) else None
         if not isinstance(networks, list) or not networks:
@@ -174,10 +191,19 @@ def dns_records(collector, scope):
         try:
             for page, request in collector.pages(f'https://dns.googleapis.com/dns/v1/{scope}/managedZones/{name}/rrsets',
                     scope, key='rrsets', page_size_key='maxResults'):
-                yield [record for row in page for record in project(row)], request
+                yield ([record for row in page for record in project(row)], request), None
         except ReadError as exc:
+            yield None, exc
+    failures = []
+    for _zone, entries, error in location_fanout(collector, zones['items'], zone_pages):
+        for page, exc in entries:
+            if exc is None:
+                yield page
+                continue
             if getattr(exc, 'request_id', None):
                 yield [], exc.request_id
             failures.append(exc)
+        if error is not None:
+            raise error
     if failures:
         raise failures[0]

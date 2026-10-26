@@ -136,12 +136,12 @@
   "proofs": [
     {
       "path": "docs/check-review/azure-identity-native-review-20261020.json",
-      "sha256": "1b11b7aa97e7ac77ac0be0f3f96de6c21831860ab156d0bf777327311b2cf1ea",
+      "sha256": "912f4e70c3cf8df5159fc61c885ba68a7d76c2febc004774b2b5aad90f5893ac",
       "bytes": 1325063
     },
     {
       "path": "docs/check-review/azure-identity-enforcement-native-20261020.json",
-      "sha256": "54fcbd051250f8d91305b9aca4414439421d7dad31dec83b466c3602bac2e616",
+      "sha256": "3a8138eac32abba9b1f4dcb9dc79df8fb0a74bc4c7e010592de247e778dae716",
       "bytes": 467013
     },
     {

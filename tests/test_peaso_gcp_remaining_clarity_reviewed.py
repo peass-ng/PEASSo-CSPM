@@ -292,32 +292,32 @@ def _stable_binding(value):
 def _reviewed_predicate_successor(cid):
     import hashlib
     raw = (PACK.parents[1] / 'docs/gcp-review/recheck-20261020/alert-predicate-successors.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == '8dd28debeb3d7d8ef4161448fb02497b6156f353fdd68a8ce09f1a18daf1f8c0'
+    assert hashlib.sha256(raw).hexdigest() == '421ae4ed4a33631496dc8b0d43b6cf942cdb9ad6d09e750c80526074bf5de179'
     record = json.loads(raw)['checks'].get(cid)
     if record:
         return record
     raw = (PACK.parents[1] / 'docs/gcp-review/recheck-20261020/compute-predicate-successors.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == '2e6cf99e84dc8586285c684abd2fd1cb4b23efe8991d11495c192ec9288222c6'
+    assert hashlib.sha256(raw).hexdigest() == 'dbb430532c54822e930dcfa040bc391494a5ebb465a734b0f1fcee37aa43c917'
     record = json.loads(raw)['checks'].get(cid)
     if record:
         return record
     raw = (PACK.parents[1] / 'docs/gcp-review/recheck-20261020/metadata-predicate-successors.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == 'bf9bff8160cc37036059ef51482c2684b776c1c87906d40fa6f7eb7d3a2e3f0c'
+    assert hashlib.sha256(raw).hexdigest() == 'ace8aded5dbc72cb2a823b072f6d16daeeddf596223a5fdc3b7ac51bc6cc4d0e'
     record = json.loads(raw)['checks'].get(cid)
     if record:
         return record
     raw = (PACK.parents[1] / 'docs/gcp-review/recheck-20261020/final-services-predicate-successors.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == '4f061a66017d9b54c2d1110f997ed6de9bfa0e6b73e4e39c93ce3cd746405d3b'
+    assert hashlib.sha256(raw).hexdigest() == '2ec7f70a441788f5049543caa045b4e5748e3855393990b3cae8acbfa582e8dd'
     record = json.loads(raw)['checks'].get(cid)
     if record:
         return record
     raw = (PACK.parents[1] / 'docs/gcp-review/recheck-20261020/prior-bounded-predicate-successors.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == '83630bf99a9d87d1502854ccb35439aee3de3ee1944b1ff95be3242993ec4f48'
+    assert hashlib.sha256(raw).hexdigest() == '8f2f1e16ea69868969fa1908f6f3824126e39d489321a48fb4c3ce67c943fcab'
     record = json.loads(raw)['checks'].get(cid)
     if record:
         return record
     raw = (PACK.parents[1] / 'docs/gcp-review/recheck-20261020/native57-predicate-successors.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == '25c2ac9d76142bd0602409a5ef12773ce0b2a2f4d554c2185427b55a07839746'
+    assert hashlib.sha256(raw).hexdigest() == 'e930cd2eba65278c044cd6e541794a6aca428ebc88d00ee8792994e2d7406652'
     return json.loads(raw)['checks'].get(cid)
 
 
@@ -631,7 +631,7 @@ def test_native_kms_successor_capture_is_pinned_and_complete():
     import hashlib
     path = Path(__file__).parent / 'fixtures/gcp-alert-native-successor-20261020.json'
     raw = path.read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == 'd96b5cc131dad48afbf37fb71cf5f3e51d6d3ec650539269f6d782b8f37f7aad'
+    assert hashlib.sha256(raw).hexdigest() == 'e571f5e50f01116c6386b48c0097c5154b74640be2e452deacb3c34ea1f864bd'
     capture = json.loads(raw)
     assert len(capture['cases']) == 3
     assert {row['check_id'] for row in capture['cases']} == {'gcp_kms_key_destroy_alert'}

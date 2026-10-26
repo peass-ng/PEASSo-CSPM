@@ -22574,7 +22574,7 @@
     "peaso/collectors/azure_sw18_mfa_native.py": {
       "bytes": 15201,
       "path": "/Users/carlospolop/git/Blue-CloudPEASS/peaso/collectors/azure_sw18_mfa_native.py",
-      "sha256": "53332b523502bd43e086cc005b42fb7086caf00f2fb9e469fb8434b82e26ab85"
+      "sha256": "081d9dbff10b5db851d00b1952f428cad65bbea7e3f06269d227cfa627ba7082"
     },
     "peaso/collectors/bulk_evidence.py": {
       "bytes": 8515,

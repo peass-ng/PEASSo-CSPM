@@ -39,7 +39,7 @@ from peaso import checks
 from peaso import finding_groups as native
 from peaso.server import finding_groups_static_20261021 as static
 assert static.regionless_checks() == native.regionless_checks()
-assert len(static.regionless_checks()) == 251
+assert len(static.regionless_checks()) == 253
 rows=[]
 for number,check in enumerate(checks.CHECKS):
  for offset,status in enumerate(('PASS','FAIL','UNKNOWN')):

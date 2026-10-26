@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from .gcp import ReadError
+from .gcp_fanout import fanout_pages
 
 
 HOST = 'https://dataform.googleapis.com/v1/'
@@ -52,7 +53,7 @@ def scope_jobs(collector, scope):
                     raise ReadError('malformed', 'dataform_location_duplicate')
                 locations.add(match[2])
             yield [], request_id
-        for location in sorted(locations):
+        def location_pages(location):
             parent = scope + '/locations/' + location
             configs = []
             config_request_id = None
@@ -112,6 +113,8 @@ def scope_jobs(collector, scope):
             yield [{'name': parent, 'creatorRoleConfig': creator,
                     'enablePrivateWorkspace': private_workspace,
                     'repositories': repositories}], config_request_id
+
+        yield from fanout_pages(collector, sorted(locations), location_pages)
 
     return [('dataform_privesc_location', scope, 'dataform', fetch)]
 

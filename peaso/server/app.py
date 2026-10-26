@@ -1488,6 +1488,11 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         row, bundle = owned_bundle(user.tenant_id, ident)
         value = dict(bundle["summary"]) if bundle.get("bundle_version") == 1 else {key: value for key, value in bundle.items() if key not in {"findings", "resources", "coverage", "graphs", "snapshot", "check_frameworks", "check_meta"}}
         value.update(runtime=store.public_job(row)["runtime"], finding_count=bundle.get("finding_count", len(bundle.get("findings", []))), coverage_count=bundle.get("coverage_count", len(bundle.get("coverage", []))) + len(_credential_target_coverage(bundle)))
+        # Per-version native check ID lists are catalog data (hundreds of KB) that the
+        # polled summary never uses; the full report and /api/catalog keep them.
+        if isinstance(value.get("framework_versions"), list):
+            value["framework_versions"] = [{key: item for key, item in version.items() if key != "native_check_ids"}
+                                           if isinstance(version, dict) else version for version in value["framework_versions"]]
         if aggregation == "check":
             from .finding_groups_static_20261021 import group_findings
             from collections import Counter

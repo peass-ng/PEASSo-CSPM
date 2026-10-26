@@ -93,3 +93,45 @@ test("deleting the selected scan clears selection and does not leave dead report
   await page.getByRole("navigation").getByRole("button", { name: "Dashboard", exact: true }).click();
   await expect(picker).toHaveValue("");
 });
+
+test("open scan details follow the polled status and offer results once the scan completes", async ({ page }) => {
+  let status = "collecting";
+  await page.route("**/api/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    const json = path.endsWith("/me") ? { tenant_id: "owner", email: "owner@example.test" }
+      : path.endsWith("/health") ? { status: "ok" }
+      : path.endsWith("/scans") ? { items: [{ id: "live", connector_id: "first", connector_name: "Development", categories: [], status, created_at: "2026-10-19T12:32:00Z" }] }
+      : path.endsWith("/connectors") ? { items: [{ id: "first", name: "Development", provider: "aws" }] }
+      : { items: [] };
+    return route.fulfill({ json });
+  });
+  await page.goto("/#Scans");
+  await page.getByRole("button", { name: "Development · 19.10.26", exact: true }).click();
+  const details = page.getByRole("dialog");
+  await expect(details.getByRole("button", { name: "Review findings", exact: true })).toHaveCount(0);
+  status = "completed";
+  await expect(details.getByRole("button", { name: "Review findings", exact: true })).toBeVisible({ timeout: 15000 });
+});
+
+test("a corrected launch form clears the previous validation message before the server answers", async ({ page }) => {
+  await page.route("**/api/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === "POST" && path === "/api/scans")
+      return route.fulfill({ status: 429, json: { detail: "Weekly scan quota exhausted" } });
+    const json = path.endsWith("/me") ? { tenant_id: "owner", email: "owner@example.test" }
+      : path.endsWith("/health") ? { status: "ok" }
+      : path.endsWith("/connectors") ? { items: [{ id: "first", name: "Development", provider: "aws" }] }
+      : { items: [] };
+    return route.fulfill({ json });
+  });
+  await page.goto("/#Scans");
+  await page.getByRole("button", { name: "Launch scan", exact: true }).click();
+  const form = page.getByRole("dialog");
+  const checked = form.locator(".assessment-category-grid input[type=checkbox]:checked");
+  while (await checked.count()) await checked.first().uncheck();
+  await form.getByRole("button", { name: "Start scan", exact: true }).click();
+  await expect(form.locator(".form-error")).toContainText("Select at least one assessment category");
+  await form.locator(".assessment-category-grid input[type=checkbox]").first().check();
+  await form.getByRole("button", { name: "Start scan", exact: true }).click();
+  await expect(form.locator(".form-error")).toHaveText("Weekly scan quota exhausted");
+});

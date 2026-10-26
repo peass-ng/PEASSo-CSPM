@@ -23,6 +23,7 @@ from urllib.parse import quote, urlsplit
 from . import gcp_dataproc_source_runtime_20261020 as dataproc_source_runtime
 from . import gcp_workbench_source_runtime_20261020 as workbench_source_runtime
 from . import gcp_dataflow_batch_source_runtime_20261020 as selected_job_source_runtime
+from .gcp_fanout import POOL_PREFIX as LOCATION_POOL_PREFIX, fanout_pages, location_fanout
 
 OAUTH_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 HOSTS = frozenset(f"{s}.googleapis.com" for s in (
@@ -35,6 +36,29 @@ HOSTS = frozenset(f"{s}.googleapis.com" for s in (
     # Groups Settings API (www.googleapis.com/groups/v1), read only with group_settings=true.
     "www", "workflows", "vpcaccess", "file", "redis", "netapp", "servicenetworking", "dataflow", "batch", "aiplatform", "managedkafka", "memorystore", "bigqueryconnection", "cloudprivatecatalogproducer", "krmapihosting",
     "memcache", "looker", "lustre", "ids", "tpu", "backupdr", "vmwareengine", "datafusion", "dataplex", "apigee", "ml", "workstations", "baremetalsolution", "connectors", "contactcenterinsights", "agentidentity", "bigquerydatatransfer", "bigqueryreservation", "developerconnect", "discoveryengine", "iap", "identitytoolkit", "config"))
+
+
+_ASSET_LIST_PATH = re.compile(r"/v1/(?:projects|folders|organizations)/[^/]+/assets")
+
+
+def endpoint_page_size(url, method="GET"):
+    """Documented per-request maximum for list endpoints read in bulk.
+
+    Used only when the connector does not set page_size. Unknown endpoints
+    keep the historical default; items and per-page checks are unchanged."""
+    parsed = urlsplit(url)
+    host, path = parsed.hostname or "", parsed.path
+    if host == "cloudasset.googleapis.com":
+        if path.endswith((":searchAllResources", ":searchAllIamPolicies")):
+            return 500
+        if method == "GET" and _ASSET_LIST_PATH.fullmatch(path):
+            return 1000
+        return None
+    if host == "compute.googleapis.com":
+        return 500
+    if host == "storage.googleapis.com":
+        return 1000
+    return None
 
 
 def _scoped_privesc_read(method, parsed, scope, params, body):
@@ -1403,6 +1427,11 @@ class GCPCollector:
         # pool so nested waits can never starve the scope/type job pool.
         self.hydration_pool = ThreadPoolExecutor(max_workers=bound(self.options, "hydration_concurrency",
             min(32, self.workers * 2), 1, 64), thread_name_prefix="gcp-hydrate")
+        # Per-location list reads inside one job fan out on a third bounded
+        # pool; its workers use the hydration pool but never wait on their own.
+        location_workers = bound(self.options, "location_concurrency", min(32, self.workers * 2), 1, 64)
+        self.location_pool = (ThreadPoolExecutor(max_workers=location_workers, thread_name_prefix=LOCATION_POOL_PREFIX)
+                              if self.workers > 1 and location_workers > 1 else None)
         self.max_calls = optional_bound(self.options, "max_calls", 1, 100000)
         self.collections = {}
         self.lock = threading.Lock()
@@ -1433,7 +1462,19 @@ class GCPCollector:
                 completed=settled, total=settled if complete else None, resources=resources, dynamic_total=not complete)
 
     def read(self, url, scope, *, params=None, body=None, method="GET", operation=None):
+        if isinstance(params, dict) and params:
+            params = self._bulk_page_params(url, method, params)
         return self.transport.request(method, url, params=params, body=body, scope=scope, operation=operation)
+
+    def _bulk_page_params(self, url, method, params):
+        # pages() seeds its historical default page size; raise only that
+        # seeded value to the endpoint maximum when page_size is unset.
+        seeded = min(self.page_size, 500 if "compute.googleapis.com" in url else 1000)
+        target = self.default_page_size(url, method)
+        keys = [key for key in ("pageSize", "maxResults") if params.get(key) == seeded]
+        if target == seeded or not keys:
+            return params
+        return {**params, **dict.fromkeys(keys, target)}
 
     def _data_project_binding(self, scope, *, require_alias=False):
         """Resolve only native CRM-proven aliases; one read/error per scope."""
@@ -1559,6 +1600,13 @@ class GCPCollector:
                     or not self._data_project_matches(scope, match[1])):
                 raise ReadError("malformed", "bigquery_self_link_mismatch")
         return dataset_id
+
+    def default_page_size(self, url, method="GET"):
+        """Explicit page_size keeps its existing bound; otherwise use the
+        documented maximum of endpoints known to accept it, else 100."""
+        if "page_size" in self.options:
+            return min(self.page_size, 500 if "compute.googleapis.com" in url else 1000)
+        return endpoint_page_size(url, method) or self.page_size
 
     def pages(self, url, scope, *, key="items", params=None, body=None, method="GET", aggregate=None,
               single=False, transform=None, operation=None, page_size_key="pageSize", response_validator=None):
@@ -1913,6 +1961,10 @@ class GCPCollector:
             output[field] = {"collection_status": wire_status(exc.status), "error": exc.error}
         return output
 
+    def location_fanout(self, locations, fetch_one):
+        """Order-preserving per-location fan-out; see gcp_fanout."""
+        return location_fanout(self, locations, fetch_one)
+
     def parallel(self, function, items):
         """Order-preserving bounded fan-out for leaf per-item hydration reads."""
         items = list(items)
@@ -2132,8 +2184,8 @@ class GCPCollector:
             if scope_type == "organization":
                 for items, request_id in self.pages("https://cloudbilling.googleapis.com/v1/billingAccounts", scope, key="billingAccounts",
                     params={"parent": scope, "fields": "billingAccounts(name,displayName,open,parent),nextPageToken", "pageSize": min(self.page_size, 100)}):
-                    yield [self.hydrate(item, "iamPolicy", f"https://cloudbilling.googleapis.com/v1/{item['name']}:getIamPolicy", scope,
-                        params={"options.requestedPolicyVersion": 3}) for item in items], request_id
+                    yield self.parallel(lambda item: self.hydrate(item, "iamPolicy", f"https://cloudbilling.googleapis.com/v1/{item['name']}:getIamPolicy", scope,
+                        params={"options.requestedPolicyVersion": 3}), items), request_id
             elif scope_type == "project":
                 info, request_id = self.read(f"https://cloudbilling.googleapis.com/v1/{scope}/billingInfo", scope,
                     params={"fields": "name,projectId,billingAccountName,billingEnabled"})
@@ -2251,8 +2303,8 @@ class GCPCollector:
         def bigtable_instances():
             for items, request_id in self.pages(f"https://bigtableadmin.googleapis.com/v2/{scope}/instances", scope,
                 key="instances", page_size_key=None, params={"fields": "instances(name,displayName,state,type,labels),failedLocations"}):
-                yield [self.hydrate(item, "iamPolicy", f"https://bigtableadmin.googleapis.com/v2/{item['name']}:getIamPolicy", scope,
-                    method="POST", body={"options": {"requestedPolicyVersion": 3}}) for item in items], request_id
+                yield self.parallel(lambda item: self.hydrate(item, "iamPolicy", f"https://bigtableadmin.googleapis.com/v2/{item['name']}:getIamPolicy", scope,
+                    method="POST", body={"options": {"requestedPolicyVersion": 3}}), items), request_id
         add("bigtable_instance", "bigtableadmin", bigtable_instances)
         def alloydb_clusters():
             locations = self.options.get("alloydb_locations", self.options.get("regions"))
@@ -2264,11 +2316,13 @@ class GCPCollector:
             if not isinstance(locations, list) or any(not isinstance(location, str) or not re.fullmatch(r"[a-z0-9-]+", location) for location in locations):
                 raise ValueError("alloydb_locations must contain valid location IDs")
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    yield from self.pages(f"https://alloydb.googleapis.com/v1/{scope}/locations/{location}/clusters", scope,
-                        key="clusters", params={"fields": "clusters(name,uid,state,databaseVersion,encryptionInfo,encryptionConfig,networkConfig,labels),nextPageToken,unreachable"})
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), lambda location: self.pages(
+                    f"https://alloydb.googleapis.com/v1/{scope}/locations/{location}/clusters", scope,
+                    key="clusters", params={"fields": "clusters(name,uid,state,databaseVersion,encryptionInfo,encryptionConfig,networkConfig,labels),nextPageToken,unreachable"})):
+                yield from pages
+                if exc is not None:
+                    if exc.error.get("reason") == "SERVICE_DISABLED":
+                        raise failures[0] if failures else exc  # project-wide
                     failures.append(exc)
             if failures:
                 raise failures[0]
@@ -2483,14 +2537,15 @@ class GCPCollector:
             yield from self.pages(f"{compute}/global/securityPolicies", scope, page_size_key="maxResults",
                                   transform=lambda item: checked(item, "global"))
             failures = []
-            for region in dict.fromkeys(regions):
-                try:
-                    yield from self.pages(f"{compute}/regions/{region}/securityPolicies", scope,
-                                          page_size_key="maxResults",
-                                          transform=lambda item, region=region: checked(item, f"regions/{region}"))
-                except ReadError as exc:
+            for region, pages, exc in self.location_fanout(dict.fromkeys(regions), lambda region: self.pages(
+                    f"{compute}/regions/{region}/securityPolicies", scope, page_size_key="maxResults",
+                    transform=lambda item: checked(item, f"regions/{region}"))):
+                yield from pages
+                if exc is not None:
                     if getattr(exc, "request_id", None):
                         yield [], exc.request_id
+                    if exc.error.get("reason") == "SERVICE_DISABLED":
+                        raise failures[0] if failures else exc  # project-wide
                     failures.append(exc)
             if failures:
                 raise failures[0]
@@ -2592,30 +2647,31 @@ class GCPCollector:
                             raise ReadError("unavailable", "malformed_clouddeploy_location")
                         locations.append(location)
                     yield [], request_id
+            def location_pages(location):
+                for page, request_id in self.pages(
+                        f"https://clouddeploy.googleapis.com/v1/{scope}/locations/{location}/{collection}",
+                        scope, key=key, response_validator=complete_page):
+                    if collection != "deliveryPipelines":
+                        yield page, request_id
+                        continue
+                    parent = f"{scope}/locations/{location}/deliveryPipelines/"
+                    for item in page:
+                        name = item.get("name") if isinstance(item, dict) else None
+                        if (not isinstance(name, str) or not name.startswith(parent)
+                                or not name[len(parent):] or "/" in name[len(parent):]):
+                            raise ReadError("malformed", "clouddeploy_pipeline_identity_unbound")
+                    yield self.parallel(lambda item: self.hydrate(item, "iamPolicy",
+                        f"https://clouddeploy.googleapis.com/v1/{item['name']}:getIamPolicy",
+                        scope, params={"options.requestedPolicyVersion": 3},
+                        identity_validator=_validate_iam_policy), page), request_id
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    for page, request_id in self.pages(
-                            f"https://clouddeploy.googleapis.com/v1/{scope}/locations/{location}/{collection}",
-                            scope, key=key, response_validator=complete_page):
-                        if collection != "deliveryPipelines":
-                            yield page, request_id
-                            continue
-                        rows = []
-                        parent = f"{scope}/locations/{location}/deliveryPipelines/"
-                        for item in page:
-                            name = item.get("name") if isinstance(item, dict) else None
-                            if (not isinstance(name, str) or not name.startswith(parent)
-                                    or not name[len(parent):] or "/" in name[len(parent):]):
-                                raise ReadError("malformed", "clouddeploy_pipeline_identity_unbound")
-                            rows.append(self.hydrate(item, "iamPolicy",
-                                f"https://clouddeploy.googleapis.com/v1/{name}:getIamPolicy",
-                                scope, params={"options.requestedPolicyVersion": 3},
-                                identity_validator=_validate_iam_policy))
-                        yield rows, request_id
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), location_pages):
+                yield from pages
+                if exc is not None:
                     if exc.error.get("reason") == "LOCATION_POLICY_VIOLATED":
                         continue
+                    if exc.error.get("reason") == "SERVICE_DISABLED":
+                        raise failures[0] if failures else exc  # project-wide
                     failures.append(exc)
             if failures:
                 raise failures[0]
@@ -2636,18 +2692,21 @@ class GCPCollector:
                         raise ReadError("unavailable", "malformed_workflows_location")
                     locations.append(location)
                 yield [], request_id
+            def location_pages(location):
+                def project_workflow(item):
+                    if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].startswith(
+                            f"{scope}/locations/{location}/workflows/"):
+                        raise ReadError("malformed", "workflows_identity_missing")
+                    return {key: item[key] for key in ("name", "serviceAccount", "state") if key in item}
+                return self.pages(f"https://workflows.googleapis.com/v1/{scope}/locations/{location}/workflows",
+                                  scope, key="workflows", transform=project_workflow,
+                                  response_validator=complete_page)
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    def project_workflow(item):
-                        if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].startswith(
-                                f"{scope}/locations/{location}/workflows/"):
-                            raise ReadError("malformed", "workflows_identity_missing")
-                        return {key: item[key] for key in ("name", "serviceAccount", "state") if key in item}
-                    yield from self.pages(f"https://workflows.googleapis.com/v1/{scope}/locations/{location}/workflows",
-                                          scope, key="workflows", transform=project_workflow,
-                                          response_validator=complete_page)
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), location_pages):
+                yield from pages
+                if exc is not None:
+                    if exc.error.get("reason") == "SERVICE_DISABLED":
+                        raise failures[0] if failures else exc  # project-wide
                     failures.append(exc)
             if failures:
                 raise failures[0]
@@ -2662,31 +2721,32 @@ class GCPCollector:
                     yield [], request_id
             if not isinstance(regions, list) or any(not isinstance(region, str) or not re.fullmatch(r"[a-z0-9-]+", region) for region in regions):
                 raise ValueError("dataproc_regions must contain valid region names")
+            def region_pages(region):
+                for clusters, request_id in self.pages(
+                        f"https://dataproc.googleapis.com/v1/{scope}/regions/{region}/clusters", scope,
+                        key="clusters", transform=lambda cluster: {**cluster, "_region": region}):
+                    def policy(cluster):
+                        name = cluster.get("clusterName")
+                        if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", name):
+                            raise ReadError("malformed", "dataproc_cluster_name_invalid")
+                        resource = f"{scope}/regions/{region}/clusters/{name}"
+                        result = self.hydrate(cluster, "iamPolicy",
+                            f"https://dataproc.googleapis.com/v1/{resource}:getIamPolicy", scope,
+                            method="POST", body={"options": {"requestedPolicyVersion": 3}})
+                        from .gcp_dataproc_init_objects import collect as init_objects
+                        result["_initObjectMetadata"] = init_objects(self, cluster, scope)
+                        return result
+                    yield self.parallel(policy, clusters), request_id
             failures = []
-            for region in dict.fromkeys(regions):
-                try:
-                    for clusters, request_id in self.pages(
-                            f"https://dataproc.googleapis.com/v1/{scope}/regions/{region}/clusters", scope,
-                            key="clusters", transform=lambda cluster: {**cluster, "_region": region}):
-                        def policy(cluster):
-                            name = cluster.get("clusterName")
-                            if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", name):
-                                raise ReadError("malformed", "dataproc_cluster_name_invalid")
-                            resource = f"{scope}/regions/{region}/clusters/{name}"
-                            result = self.hydrate(cluster, "iamPolicy",
-                                f"https://dataproc.googleapis.com/v1/{resource}:getIamPolicy", scope,
-                                method="POST", body={"options": {"requestedPolicyVersion": 3}})
-                            from .gcp_dataproc_init_objects import collect as init_objects
-                            result["_initObjectMetadata"] = init_objects(self, cluster, scope)
-                            return result
-                        yield self.parallel(policy, clusters), request_id
-                except ReadError as exc:
+            for region, pages, exc in self.location_fanout(dict.fromkeys(regions), region_pages):
+                yield from pages
+                if exc is not None:
                     # A region the project cannot use at all (restricted/opt-in
                     # location) holds none of its clusters; not a permission gap.
                     if exc.error.get("reason") == "LOCATION_POLICY_VIOLATED":
                         continue
                     if exc.error.get("reason") == "SERVICE_DISABLED":
-                        raise  # project-wide; every other region would repeat it
+                        raise exc  # project-wide; every other region would repeat it
                     failures.append(exc)
             if failures:
                 raise failures[0]
@@ -2779,12 +2839,14 @@ class GCPCollector:
                 for items, request_id in self.pages(f"https://cloudkms.googleapis.com/v1/{scope}/locations", scope, key="locations"):
                     locations.extend(item["name"] for item in items)
                     yield [], request_id
-            for location in locations:
+            def location_pages(location):
                 for items, request_id in self.pages(f"https://cloudkms.googleapis.com/v1/{location}/keyRings", scope, key="keyRings"):
                     # keyRings.getIamPolicy (GET) returns an empty Policy when none is set.
                     yield self.parallel(lambda item: self.hydrate(item, "iamPolicy",
                         f"https://cloudkms.googleapis.com/v1/{item['name']}:getIamPolicy", scope,
                         params={"options.requestedPolicyVersion": 3}), items), request_id
+            # The first failing location ends the listing, as before.
+            yield from fanout_pages(self, locations, location_pages)
         add("kms_key_ring", "cloudkms", key_rings)
         for kind, segment in (("pubsub_topic", "topics"), ("pubsub_subscription", "subscriptions"), ("pubsub_snapshot", "snapshots")):
             def pubsub(segment=segment):
@@ -2842,20 +2904,21 @@ class GCPCollector:
                     scope, key="locations"):
                     locations.extend(item.get("locationId") or item["name"].rsplit("/", 1)[1] for item in items)
                     yield [], request_id
+            def location_pages(location):
+                for items, request_id in self.pages(f"https://{service}.googleapis.com/{version}/{scope}/locations/{location}/{segment}",
+                    scope, key=key):
+                    yield [{**item, "_representation": "full"} for item in (policy(items) if with_iam else items)], request_id
             failures = []
-            for location in locations:
-                try:
-                    for items, request_id in self.pages(f"https://{service}.googleapis.com/{version}/{scope}/locations/{location}/{segment}",
-                        scope, key=key):
-                        yield [{**item, "_representation": "full"} for item in (policy(items) if with_iam else items)], request_id
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(locations, location_pages):
+                yield from pages
+                if exc is not None:
                     # Same semantics as Dataproc: an org-policy restricted region
                     # is unusable by the project; a disabled service is project-wide.
                     if exc.error.get("reason") == "LOCATION_POLICY_VIOLATED":
                         self.regional_policy_skips.setdefault(service, {}).setdefault(scope, set()).add(location)
                         continue
                     if exc.error.get("reason") == "SERVICE_DISABLED":
-                        raise
+                        raise exc
                     failures.append(exc)
             if failures:
                 raise failures[0]
@@ -2904,8 +2967,8 @@ class GCPCollector:
                     or any(not isinstance(x, str) or not re.fullmatch(r"[a-z0-9-]+", x)
                            for x in locations)):
                 raise ValueError("containeranalysis_locations must contain at most 100 locations")
-            for location in dict.fromkeys(locations):
-                yield from note_pages(f"{scope}/locations/{location}")
+            yield from fanout_pages(self, dict.fromkeys(locations),
+                                    lambda location: note_pages(f"{scope}/locations/{location}"))
         add("containeranalysis_note", "containeranalysis", containeranalysis_notes)
         def datacatalog_taxonomy_pages():
             locations = self.options.get("datacatalog_locations", self.options.get("regions"))
@@ -2921,7 +2984,7 @@ class GCPCollector:
                     or any(not isinstance(x, str) or not re.fullmatch(r"[a-z0-9-]+", x)
                            for x in locations)):
                 raise ValueError("datacatalog_locations must contain at most 100 locations")
-            for location in dict.fromkeys(locations):
+            def location_pages(location):
                 url = f"https://datacatalog.googleapis.com/v1/{scope}/locations/{location}/taxonomies"
                 for page, request_id in self.pages(url, scope, key="taxonomies"):
                     for item in page:
@@ -2931,6 +2994,7 @@ class GCPCollector:
                                 + r"/taxonomies/[^/]+", name)):
                             raise ReadError("malformed", "datacatalog_taxonomy_identity_missing")
                     yield page, request_id
+            yield from fanout_pages(self, dict.fromkeys(locations), location_pages)
         def datacatalog_taxonomies():
             for page, request_id in datacatalog_taxonomy_pages():
                 yield self.parallel(lambda item: self.hydrate(
@@ -3136,14 +3200,14 @@ class GCPCollector:
                     not isinstance(x, str) or not re.fullmatch(r"[a-z0-9-]+", x) for x in locations):
                 raise ValueError(option + " must contain at most 100 location names")
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    yield from self.pages(url_for(location), scope, key=key, transform=transform)
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), lambda location: self.pages(
+                    url_for(location), scope, key=key, transform=transform)):
+                yield from pages
+                if exc is not None:
                     if exc.error.get("reason") == "LOCATION_POLICY_VIOLATED":
                         continue
                     if exc.error.get("reason") == "SERVICE_DISABLED":
-                        raise
+                        raise exc
                     failures.append(exc)
             if failures:
                 raise failures[0]
@@ -3163,25 +3227,28 @@ class GCPCollector:
                         not isinstance(location, str) or not re.fullmatch(r"[a-z0-9-]+", location)
                         for location in locations):
                     raise ValueError("eventarc_locations must contain at most 100 location names")
+                def location_pages(location):
+                    for rows, request_id in self.pages(
+                            f"https://eventarc.googleapis.com/v1/{scope}/locations/{location}/{segment}",
+                            scope, key=key):
+                        def projected(row):
+                            fields = ("name", "messageBus", "destination") if kind == "eventarc_enrollment" else ("name",)
+                            item = {field: row[field] for field in fields if field in row}
+                            name = item.get("name")
+                            if not isinstance(name, str) or not re.fullmatch(
+                                    re.escape(scope) + r"/locations/" + re.escape(location)
+                                    + r"/" + re.escape(segment) + r"/[^/]+", name):
+                                return item
+                            return self.hydrate(item, "iamPolicy",
+                                f"https://eventarc.googleapis.com/v1/{name}:getIamPolicy", scope,
+                                params={"options.requestedPolicyVersion": 3})
+                        yield self.parallel(projected, rows), request_id
                 failures = []
-                for location in dict.fromkeys(locations):
-                    try:
-                        for rows, request_id in self.pages(
-                                f"https://eventarc.googleapis.com/v1/{scope}/locations/{location}/{segment}",
-                                scope, key=key):
-                            def projected(row):
-                                fields = ("name", "messageBus", "destination") if kind == "eventarc_enrollment" else ("name",)
-                                item = {field: row[field] for field in fields if field in row}
-                                name = item.get("name")
-                                if not isinstance(name, str) or not re.fullmatch(
-                                        re.escape(scope) + r"/locations/" + re.escape(location)
-                                        + r"/" + re.escape(segment) + r"/[^/]+", name):
-                                    return item
-                                return self.hydrate(item, "iamPolicy",
-                                    f"https://eventarc.googleapis.com/v1/{name}:getIamPolicy", scope,
-                                    params={"options.requestedPolicyVersion": 3})
-                            yield self.parallel(projected, rows), request_id
-                    except ReadError as exc:
+                for location, pages, exc in self.location_fanout(dict.fromkeys(locations), location_pages):
+                    yield from pages
+                    if exc is not None:
+                        if exc.error.get("reason") == "SERVICE_DISABLED":
+                            raise failures[0] if failures else exc  # project-wide
                         failures.append(exc)
                 if failures:
                     raise failures[0]
@@ -3194,24 +3261,25 @@ class GCPCollector:
             if len(locations) > 100 or any(not isinstance(location, str) or not re.fullmatch(
                     r"[a-z0-9-]+", location) for location in locations):
                 raise ReadError("malformed", "firebase_apphosting_locations_unbound")
+            def location_pages(location):
+                for rows, request_id in self.pages(
+                        f"https://firebaseapphosting.googleapis.com/v1/{scope}/locations/{location}/backends",
+                        scope, key="backends"):
+                    projected = []
+                    for row in rows:
+                        name = row.get("name") if isinstance(row, dict) else None
+                        if not isinstance(name, str) or not re.fullmatch(
+                                re.escape(scope) + r"/locations/" + re.escape(location)
+                                + r"/backends/[^/]+", name):
+                            raise ReadError("malformed", "firebase_apphosting_backend_identity_unbound")
+                        projected.append({field: row[field] for field in
+                                          ("name", "serviceAccount", "codebase", "deleteTime", "reconciling")
+                                          if field in row})
+                    yield projected, request_id
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    for rows, request_id in self.pages(
-                            f"https://firebaseapphosting.googleapis.com/v1/{scope}/locations/{location}/backends",
-                            scope, key="backends"):
-                        projected = []
-                        for row in rows:
-                            name = row.get("name") if isinstance(row, dict) else None
-                            if not isinstance(name, str) or not re.fullmatch(
-                                    re.escape(scope) + r"/locations/" + re.escape(location)
-                                    + r"/backends/[^/]+", name):
-                                raise ReadError("malformed", "firebase_apphosting_backend_identity_unbound")
-                            projected.append({field: row[field] for field in
-                                              ("name", "serviceAccount", "codebase", "deleteTime", "reconciling")
-                                              if field in row})
-                        yield projected, request_id
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), location_pages):
+                yield from pages
+                if exc is not None:
                     failures.append(exc)
             if failures:
                 raise failures[0]
@@ -3280,11 +3348,11 @@ class GCPCollector:
                     any(not isinstance(x, str) or not re.fullmatch(r"[a-z0-9-]+", x) for x in locations)):
                 raise ReadError("unavailable", "region_coverage_unresolved")
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    yield from self.pages(f"{compute}/regions/{location}/autoscalers", scope,
-                        page_size_key="maxResults", transform=lambda item: {**item, "_representation": "full"})
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), lambda location: self.pages(
+                    f"{compute}/regions/{location}/autoscalers", scope,
+                    page_size_key="maxResults", transform=lambda item: {**item, "_representation": "full"})):
+                yield from pages
+                if exc is not None:
                     if getattr(exc, "request_id", None):
                         yield [], exc.request_id
                     failures.append(exc)
@@ -3298,29 +3366,28 @@ class GCPCollector:
                 locations.extend(found)
                 if request_id:
                     yield [], request_id
-            failures = []
-            for location in dict.fromkeys(locations):
-                if location == "global":
-                    continue
+            def location_pages(location):
                 parent = f"{scope}/locations/{location}"
-                try:
-                    for page, request_id in self.pages(
-                            f"https://cloudbuild.googleapis.com/v2/{parent}/connections",
-                            scope, key="connections"):
-                        rows = []
-                        for item in page:
-                            name = item.get("name")
-                            if (not isinstance(name, str) or not re.fullmatch(
-                                    re.escape(parent) + r"/connections/[^/]+", name)):
-                                raise ReadError("malformed", "cloudbuild_connection_identity_unbound")
-                            projected = {"name": name,
-                                         "installationStage": (item.get("installationState") or {}).get("stage")}
-                            rows.append(self.hydrate(projected, "iamPolicy",
-                                f"https://cloudbuild.googleapis.com/v2/{name}:getIamPolicy",
-                                scope, params={"options.requestedPolicyVersion": 3},
-                                identity_validator=_validate_iam_policy))
-                        yield rows, request_id
-                except ReadError as exc:
+                for page, request_id in self.pages(
+                        f"https://cloudbuild.googleapis.com/v2/{parent}/connections",
+                        scope, key="connections"):
+                    rows = []
+                    for item in page:
+                        name = item.get("name")
+                        if (not isinstance(name, str) or not re.fullmatch(
+                                re.escape(parent) + r"/connections/[^/]+", name)):
+                            raise ReadError("malformed", "cloudbuild_connection_identity_unbound")
+                        rows.append({"name": name,
+                                     "installationStage": (item.get("installationState") or {}).get("stage")})
+                    yield self.parallel(lambda projected: self.hydrate(projected, "iamPolicy",
+                        f"https://cloudbuild.googleapis.com/v2/{projected['name']}:getIamPolicy",
+                        scope, params={"options.requestedPolicyVersion": 3},
+                        identity_validator=_validate_iam_policy), rows), request_id
+            failures = []
+            for location, pages, exc in self.location_fanout(
+                    [location for location in dict.fromkeys(locations) if location != "global"], location_pages):
+                yield from pages
+                if exc is not None:
                     if getattr(exc, "request_id", None):
                         yield [], exc.request_id
                     failures.append(exc)
@@ -3344,11 +3411,11 @@ class GCPCollector:
                     not isinstance(x, str) or not re.fullmatch(r"[a-z0-9-]+", x) for x in locations):
                 raise ValueError("cloudbuild_locations must contain at most 100 location names")
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    yield from self.pages(f"https://cloudbuild.googleapis.com/v1/{scope}/locations/{location}/triggers",
-                        scope, key="triggers", transform=scrub)
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), lambda location: self.pages(
+                    f"https://cloudbuild.googleapis.com/v1/{scope}/locations/{location}/triggers",
+                    scope, key="triggers", transform=scrub)):
+                yield from pages
+                if exc is not None:
                     if getattr(exc, "request_id", None):
                         yield [], exc.request_id
                     failures.append(exc)
@@ -3376,12 +3443,11 @@ class GCPCollector:
                 if request_id:
                     yield [], request_id
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    yield from self.pages(
-                        f"https://cloudbuild.googleapis.com/v1/{scope}/locations/{location}/defaultServiceAccount",
-                        scope, single=True)
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), lambda location: self.pages(
+                    f"https://cloudbuild.googleapis.com/v1/{scope}/locations/{location}/defaultServiceAccount",
+                    scope, single=True)):
+                yield from pages
+                if exc is not None:
                     if getattr(exc, "request_id", None):
                         yield [], exc.request_id
                     failures.append(exc)
@@ -3436,19 +3502,20 @@ class GCPCollector:
                     not isinstance(location, str) or not re.fullmatch(r"[a-z0-9-]+", location)
                     for location in locations):
                 raise ValueError("composer_image_locations must contain at most 100 location names")
+            def location_pages(location):
+                for rows, request_id in self.pages(
+                        f"https://composer.googleapis.com/v1/{scope}/locations/{location}/imageVersions",
+                        scope, key="imageVersions"):
+                    if any(not isinstance(row.get("imageVersionId"), str) or
+                           not row["imageVersionId"].startswith("composer-") or
+                           row.get("creationDisabled") not in (None, True, False)
+                           for row in rows):
+                        raise ReadError("malformed", "composer_image_version_identity_unbound")
+                    yield [{**row, "location": location} for row in rows], request_id
             failures = []
-            for location in dict.fromkeys(locations):
-                try:
-                    for rows, request_id in self.pages(
-                            f"https://composer.googleapis.com/v1/{scope}/locations/{location}/imageVersions",
-                            scope, key="imageVersions"):
-                        if any(not isinstance(row.get("imageVersionId"), str) or
-                               not row["imageVersionId"].startswith("composer-") or
-                               row.get("creationDisabled") not in (None, True, False)
-                               for row in rows):
-                            raise ReadError("malformed", "composer_image_version_identity_unbound")
-                        yield [{**row, "location": location} for row in rows], request_id
-                except ReadError as exc:
+            for location, pages, exc in self.location_fanout(dict.fromkeys(locations), location_pages):
+                yield from pages
+                if exc is not None:
                     if exc.error.get("http_status") == 404 or exc.error.get("reason") == "LOCATION_POLICY_VIOLATED":
                         continue
                     failures.append(exc)
@@ -3679,6 +3746,33 @@ class GCPCollector:
         self.run_jobs([("service_perimeter", scope, "accesscontextmanager", lambda scope=scope: perimeters(scope))
                        for scope in self.scopes if scope.startswith("projects/")])
 
+    def independent_jobs(self):
+        """Jobs that read no other collection, run with the main batch instead
+        of in their own later single-job phases (results are unchanged)."""
+        jobs = []
+        projects = [scope for scope in self.scopes if scope.startswith("projects/")]
+        if "identityplatform_tenant" in self.needed:
+            from .gcp_identityplatform_tenants import collection_pages as identityplatform_tenants
+            jobs += [("identityplatform_tenant", scope, "identitytoolkit",
+                      lambda scope=scope: identityplatform_tenants(self, scope)) for scope in projects]
+        if "krm_api_host" in self.needed:
+            from .gcp_krm_api_hosts import collection_pages as krm_api_hosts
+            jobs += [("krm_api_host", scope, "krmapihosting",
+                      lambda scope=scope: krm_api_hosts(self, scope)) for scope in projects]
+        if "logging_view" in self.needed:
+            from .gcp_logging_views import collection_pages as logging_views
+            jobs += [("logging_view", scope, "logging", lambda scope=scope: logging_views(self, scope))
+                     for scope in self.scopes if scope.startswith(("projects/", "folders/", "organizations/"))]
+        if "inframanager_location" in self.needed:
+            from .gcp_inframanager_locations import collection_pages as inframanager_locations
+            jobs += [("inframanager_location", scope, "config",
+                      lambda scope=scope: inframanager_locations(self, scope)) for scope in projects]
+        from . import gcp_dataform_privesc, gcp_datafusion_privesc, gcp_dataplex_privesc, gcp_privateca_pool
+        for module in (gcp_privateca_pool, gcp_dataform_privesc, gcp_datafusion_privesc, gcp_dataplex_privesc):
+            jobs += [job for scope in self.scopes for job in module.scope_jobs(self, scope)]
+        self._independent_jobs_scheduled = True
+        return jobs
+
     def dependent_jobs(self):
         if self.needed & {"analyticshub_data_exchange", "analyticshub_listing"}:
             def analytics_resources(scope, *, kind, asset_type, suffix):
@@ -3699,11 +3793,10 @@ class GCPCollector:
                     if not re.fullmatch(re.escape(scope) + suffix, name):
                         raise ReadError("malformed", "analyticshub_resource_identity_mismatch")
                     resources.add(name)
-                for name in sorted(resources):
-                    item = self.hydrate({"name": name, "_representation": "full"}, "iamPolicy",
+                for item in self.parallel(lambda name: self.hydrate({"name": name, "_representation": "full"}, "iamPolicy",
                         f"https://analyticshub.googleapis.com/v1/{name}:getIamPolicy", scope,
                         method="POST", body={"options": {"requestedPolicyVersion": 3}},
-                        identity_validator=_validate_iam_policy)
+                        identity_validator=_validate_iam_policy), sorted(resources)):
                     refs = ((item.get("_coverage", {}).get("iamPolicy") or {}).get("source_requests")
                             or discovered.get("source_requests") or [])
                     if not refs:
@@ -4024,16 +4117,18 @@ class GCPCollector:
         guest_policy_collect(self)
         from .gcp_osconfig_policy_orchestrator import collect as orchestrator_collect
         orchestrator_collect(self)
-        from .gcp_privateca_pool import collect as privateca_pool_collect
-        privateca_pool_collect(self)
+        if not getattr(self, "_independent_jobs_scheduled", False):
+            from .gcp_privateca_pool import collect as privateca_pool_collect
+            privateca_pool_collect(self)
         from .gcp_privatecatalog_versions import collect as privatecatalog_versions_collect
         privatecatalog_versions_collect(self)
-        from .gcp_dataform_privesc import collect as dataform_privesc_collect
-        dataform_privesc_collect(self)
-        from .gcp_datafusion_privesc import collect as datafusion_privesc_collect
-        datafusion_privesc_collect(self)
-        from .gcp_dataplex_privesc import collect as dataplex_privesc_collect
-        dataplex_privesc_collect(self)
+        if not getattr(self, "_independent_jobs_scheduled", False):
+            from .gcp_dataform_privesc import collect as dataform_privesc_collect
+            dataform_privesc_collect(self)
+            from .gcp_datafusion_privesc import collect as datafusion_privesc_collect
+            datafusion_privesc_collect(self)
+            from .gcp_dataplex_privesc import collect as dataplex_privesc_collect
+            dataplex_privesc_collect(self)
         from .gcp_compliance_wave import dependent as compliance_dependent
         compliance_dependent(self)
         from .gcp_native_evidence import dependent as native_evidence_dependent
@@ -4052,7 +4147,7 @@ class GCPCollector:
                            for location in locations):
                         raise ReadError("malformed", "dataset_location_missing")
                     binding = self._data_project_binding(scope)
-                    for location in sorted(locations):
+                    def location_pages(location):
                         query = ("SELECT COALESCE((SELECT option_value FROM `region-" + location.lower()
                                  + "`.INFORMATION_SCHEMA.EFFECTIVE_PROJECT_OPTIONS "
                                  "WHERE option_name = 'enable_fine_grained_dataset_acls_option' LIMIT 1), 'false') AS option_value")
@@ -4071,6 +4166,7 @@ class GCPCollector:
                             raise ReadError("malformed", "bigquery_acl_mode_value_invalid")
                         yield [{"name": f"{scope}/locations/{location}/bigqueryAclMode",
                                 "location": location, "enabled": raw.lower() == "true"}], request_id
+                    yield from fanout_pages(self, sorted(locations), location_pages)
                 mode_jobs.append(("bigquery_acl_mode", scope, "bigquery", acl_modes))
             self.run_jobs(mode_jobs)
         if "bigquery_connection" in self.needed:
@@ -4094,7 +4190,7 @@ class GCPCollector:
                            for location in locations):
                         raise ReadError("malformed", "dataset_location_missing")
                     binding = self._data_project_binding(scope)
-                    for location in sorted(locations):
+                    def location_pages(location):
                         parent = f"projects/{binding['project_id']}/locations/{location}"
                         base = f"https://bigqueryconnection.googleapis.com/v1/{parent}/connections"
                         for page, request_id in self.pages(base, scope, key="connections", page_size_key="pageSize"):
@@ -4122,6 +4218,7 @@ class GCPCollector:
                                         identity_validator=_validate_iam_policy)
                                 return item
                             yield self.parallel(detail, page), request_id
+                    yield from fanout_pages(self, sorted(locations), location_pages)
                 connection_jobs.append(("bigquery_connection", scope, "bigqueryconnection", connections))
             self.run_jobs(connection_jobs)
         if "bigquery_routine_metadata" in self.needed:
@@ -4132,10 +4229,10 @@ class GCPCollector:
                     if not datasets or datasets["status"] not in ("collected", "empty"):
                         raise ReadError("unavailable", "dataset_inventory_incomplete")
                     binding = self._data_project_binding(scope)
-                    for dataset in datasets["items"]:
+                    def dataset_pages(dataset):
                         dataset_id = self._data_bigquery_identity(scope, dataset)
                         if ANONYMOUS_DATASET.fullmatch(dataset_id):
-                            continue
+                            return
                         base = ("https://bigquery.googleapis.com/bigquery/v2/projects/"
                                 + binding["project_id"] + "/datasets/" + quote(dataset_id, safe="") + "/routines")
                         for page, request_id in self.pages(base, scope, key="routines",
@@ -4153,6 +4250,7 @@ class GCPCollector:
                                              "language": item.get("language"),
                                              "datasetLocation": dataset.get("location")})
                             yield rows, request_id
+                    yield from fanout_pages(self, datasets["items"], dataset_pages)
                 routine_jobs.append(("bigquery_routine_metadata", scope, "bigquery", routine_metadata))
             self.run_jobs(routine_jobs)
         if "bigquery_transfer_config" in self.needed:
@@ -4167,7 +4265,7 @@ class GCPCollector:
                     if any(not isinstance(location, str) or not re.fullmatch(r"[A-Za-z0-9-]+", location)
                            for location in locations):
                         raise ReadError("malformed", "dataset_location_missing")
-                    for location in sorted(locations):
+                    def location_pages(location):
                         parent = f"projects/{binding['project_id']}/locations/{location}"
                         base = f"https://bigquerydatatransfer.googleapis.com/v1/{parent}/transferConfigs"
                         for page, request_id in self.pages(base, scope, key="transferConfigs"):
@@ -4193,6 +4291,7 @@ class GCPCollector:
                                              "scheduleOptions": {"disableAutoScheduling":
                                                  (options or {}).get("disableAutoScheduling")}})
                             yield rows, request_id
+                    yield from fanout_pages(self, sorted(locations), location_pages)
                 transfer_jobs.append(("bigquery_transfer_config", scope, "bigquerydatatransfer",
                                       transfer_configs))
             self.run_jobs(transfer_jobs)
@@ -4208,7 +4307,7 @@ class GCPCollector:
                     if any(not isinstance(location, str) or not re.fullmatch(r"[A-Za-z0-9-]+", location)
                            for location in locations):
                         raise ReadError("malformed", "dataset_location_missing")
-                    for location in sorted(locations):
+                    def location_pages(location):
                         parent = f"projects/-/locations/{location}"
                         base = f"https://bigqueryreservation.googleapis.com/v1/{parent}:searchAllAssignments"
                         for page, request_id in self.pages(base, scope, key="assignments",
@@ -4239,6 +4338,7 @@ class GCPCollector:
                                     projected["reservationSlotCapacity"] = detail.get("slotCapacity")
                                 rows.append(projected)
                             yield rows, request_id
+                    yield from fanout_pages(self, sorted(locations), location_pages)
                 assignment_jobs.append(("bigquery_continuous_assignment", scope, "bigqueryreservation",
                                         continuous_assignments))
             self.run_jobs(assignment_jobs)
@@ -4251,10 +4351,10 @@ class GCPCollector:
                         raise ReadError("unavailable", "dataset_inventory_incomplete")
                     binding = self._data_project_binding(scope)
                     api_scope = "projects/" + binding["project_id"]
-                    for dataset in datasets["items"]:
+                    def dataset_pages(dataset):
                         dataset_id = self._data_bigquery_identity(scope, dataset)
                         if ANONYMOUS_DATASET.fullmatch(dataset_id):
-                            continue  # owner-only cached query results, not customer tables
+                            return  # owner-only cached query results, not customer tables
                         base = f"https://bigquery.googleapis.com/bigquery/v2/{api_scope}/datasets/{quote(dataset_id, safe='')}/tables"
                         def detail(item, base=base):
                             reference = item.get("tableReference", {})
@@ -4279,6 +4379,7 @@ class GCPCollector:
                             return item
                         for items, request_id in self.pages(base, scope, key="tables", page_size_key="maxResults"):
                             yield self.parallel(detail, items), request_id
+                    yield from fanout_pages(self, datasets["items"], dataset_pages)
                 table_jobs.append(("bigquery_table", scope, "bigquery", tables))
             self.run_jobs(table_jobs)
         if "bigquery_row_policy_inventory" in self.needed:
@@ -4290,10 +4391,10 @@ class GCPCollector:
                         raise ReadError("unavailable", "bigquery_table_inventory_incomplete")
                     binding = self._data_project_binding(scope)
                     api_scope = "projects/" + binding["project_id"]
-                    for table in tables["items"]:
+                    def table_pages(table):
                         resource = table.get("name")
                         if table.get("type") != "TABLE" or not isinstance(resource, str):
-                            continue
+                            return
                         match = re.fullmatch(r"projects/[^/]+/datasets/([A-Za-z0-9_]+)/tables/([A-Za-z0-9_]+)", resource)
                         if not match or not resource.startswith(scope + "/"):
                             raise ReadError("malformed", "bigquery_row_policy_table_identity_unbound")
@@ -4307,28 +4408,38 @@ class GCPCollector:
                         try:
                             for policies, request_id in self.pages(base, scope, key="rowAccessPolicies", page_size_key="pageSize"):
                                 refs.append(request_id)
+                                # Policies before the first invalid one are kept,
+                                # as when each was read in turn.
+                                valid, failure = [], None
                                 for policy in policies:
                                     ref = policy.get("rowAccessPolicyReference")
                                     if not isinstance(ref, dict) or not self._data_project_matches(scope, ref.get("projectId")) \
                                             or ref.get("datasetId") != dataset_id or ref.get("tableId") != table_id \
                                             or not isinstance(ref.get("policyId"), str) \
                                             or not re.fullmatch(r"[A-Za-z0-9_]{1,256}", ref["policyId"]):
-                                        raise ReadError("malformed", "bigquery_row_policy_identity_unbound")
+                                        failure = ReadError("malformed", "bigquery_row_policy_identity_unbound")
+                                        break
                                     policy_id = ref["policyId"]
                                     if policy_id in seen:
-                                        raise ReadError("malformed", "duplicate_bigquery_row_policy")
+                                        failure = ReadError("malformed", "duplicate_bigquery_row_policy")
+                                        break
                                     seen.add(policy_id)
+                                    valid.append(policy_id)
+                                hydrated_policies = self.parallel(lambda policy_id: self.hydrate(
+                                    {"name": resource + "/rowAccessPolicies/" + policy_id}, "iamPolicy",
+                                    base + "/" + quote(policy_id, safe="") + ":getIamPolicy", scope,
+                                    method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                    identity_validator=_validate_iam_policy), valid)
+                                for policy_id, hydrated in zip(valid, hydrated_policies):
                                     policy_name = resource + "/rowAccessPolicies/" + policy_id
-                                    hydrated = self.hydrate({"name": policy_name}, "iamPolicy",
-                                        base + "/" + quote(policy_id, safe="") + ":getIamPolicy", scope,
-                                        method="POST", body={"options": {"requestedPolicyVersion": 3}},
-                                        identity_validator=_validate_iam_policy)
                                     coverage = hydrated.get("_coverage", {}).get("iamPolicy", {})
                                     refs.extend(coverage.get("source_requests", []))
                                     if coverage.get("status") != "collected":
                                         record["status"] = coverage.get("status") or "unavailable"
                                     record["policies"].append({"name": policy_name,
                                         "iamPolicy": hydrated.get("iamPolicy"), "_coverage": {"iamPolicy": coverage}})
+                                if failure is not None:
+                                    raise failure
                         except ReadError as error:
                             record["status"] = error.status
                             if getattr(error, "request_id", None):
@@ -4338,6 +4449,7 @@ class GCPCollector:
                         source_ref = (refs[0] if refs else
                                       next(iter((table.get("_provenance") or {}).get("source_requests", [])), ""))
                         yield [record], source_ref
+                    yield from fanout_pages(self, tables["items"], table_pages)
                 policy_jobs.append(("bigquery_row_policy_inventory", scope, "bigquery", row_policies))
             self.run_jobs(policy_jobs)
         if self.needed.intersection({"group", "group_membership"}):
@@ -5206,34 +5318,13 @@ class GCPCollector:
                 self.transport = Transport(credentials, self.options)
             self.discover()
             self.progress("collecting")
-            self.run_jobs([job for scope in self.scopes for job in self.scope_jobs(scope)])
+            self.run_jobs([job for scope in self.scopes for job in self.scope_jobs(scope)] + self.independent_jobs())
             from .gcp_network_forwarding_completion_20261021 import collect as collect_global_forwarding_rules
             collect_global_forwarding_rules(self)
             if "iap_tunnel_policy" in self.needed:
                 from .gcp_iap_tunnel_policies import collection_pages as iap_policy_pages
                 self.run_jobs([("iap_tunnel_policy", scope, "iap",
                                 lambda scope=scope: iap_policy_pages(self, scope))
-                               for scope in self.scopes if scope.startswith("projects/")])
-            if "identityplatform_tenant" in self.needed:
-                from .gcp_identityplatform_tenants import collection_pages as identityplatform_tenants
-                self.run_jobs([("identityplatform_tenant", scope, "identitytoolkit",
-                                lambda scope=scope: identityplatform_tenants(self, scope))
-                               for scope in self.scopes if scope.startswith("projects/")])
-            if "krm_api_host" in self.needed:
-                from .gcp_krm_api_hosts import collection_pages as krm_api_hosts
-                self.run_jobs([("krm_api_host", scope, "krmapihosting",
-                                lambda scope=scope: krm_api_hosts(self, scope))
-                               for scope in self.scopes if scope.startswith("projects/")])
-            if "logging_view" in self.needed:
-                from .gcp_logging_views import collection_pages as logging_views
-                self.run_jobs([("logging_view", scope, "logging",
-                                lambda scope=scope: logging_views(self, scope))
-                               for scope in self.scopes if scope.startswith(
-                                   ("projects/", "folders/", "organizations/"))])
-            if "inframanager_location" in self.needed:
-                from .gcp_inframanager_locations import collection_pages as inframanager_locations
-                self.run_jobs([("inframanager_location", scope, "config",
-                                lambda scope=scope: inframanager_locations(self, scope))
                                for scope in self.scopes if scope.startswith("projects/")])
             if "instance_settings" in self.needed:
                 settings_jobs = []
@@ -5272,32 +5363,35 @@ class GCPCollector:
                         instances = self.collections.get(("bigtable_instance", scope))
                         if not instances or instances["status"] not in ("collected", "empty"):
                             raise ReadError("unavailable", "bigtable_instance_inventory_incomplete")
-                        for instance in instances["items"]:
+                        def table_row(name):
+                            def validate_details(body, expected=name):
+                                if body.get("name") != expected:
+                                    raise ReadError("malformed", "bigtable_table_details_unbound")
+                            detailed = self.hydrate({"name": name}, "details",
+                                f"https://bigtableadmin.googleapis.com/v2/{name}?view=FULL",
+                                scope, identity_validator=validate_details)
+                            if ((detailed.get("_coverage") or {}).get("details") or {}).get("status") == "collected":
+                                detailed["clusterStates"] = detailed["details"].get("clusterStates")
+                            return self.hydrate(detailed, "iamPolicy",
+                                f"https://bigtableadmin.googleapis.com/v2/{name}:getIamPolicy",
+                                scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                identity_validator=_validate_iam_policy)
+                        def instance_pages(instance):
                             parent = instance.get("name")
                             if (not isinstance(parent, str) or not re.fullmatch(
                                     re.escape(scope) + r"/instances/[^/]+", parent)):
                                 raise ReadError("malformed", "bigtable_instance_identity_unbound")
                             url = f"https://bigtableadmin.googleapis.com/v2/{parent}/tables"
                             for page, request_id in self.pages(url, scope, key="tables"):
-                                rows = []
+                                names = []
                                 for item in page:
                                     name = item.get("name")
                                     if (not isinstance(name, str) or not re.fullmatch(
                                             re.escape(parent) + r"/tables/[^/]+", name)):
                                         raise ReadError("malformed", "bigtable_table_identity_unbound")
-                                    def validate_details(body, expected=name):
-                                        if body.get("name") != expected:
-                                            raise ReadError("malformed", "bigtable_table_details_unbound")
-                                    detailed = self.hydrate({"name": name}, "details",
-                                        f"https://bigtableadmin.googleapis.com/v2/{name}?view=FULL",
-                                        scope, identity_validator=validate_details)
-                                    if ((detailed.get("_coverage") or {}).get("details") or {}).get("status") == "collected":
-                                        detailed["clusterStates"] = detailed["details"].get("clusterStates")
-                                    rows.append(self.hydrate(detailed, "iamPolicy",
-                                        f"https://bigtableadmin.googleapis.com/v2/{name}:getIamPolicy",
-                                        scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
-                                        identity_validator=_validate_iam_policy))
-                                yield rows, request_id
+                                    names.append(name)
+                                yield self.parallel(table_row, names), request_id
+                        yield from fanout_pages(self, instances["items"], instance_pages)
                     table_jobs.append(("bigtable_table", scope, "bigtableadmin", bigtable_tables))
                 self.run_jobs(table_jobs)
             if "bigtable_authorized_view" in self.needed:
@@ -5307,24 +5401,25 @@ class GCPCollector:
                         tables = self.collections.get(("bigtable_table", scope))
                         if not tables or tables["status"] not in ("collected", "empty"):
                             raise ReadError("unavailable", "bigtable_table_inventory_incomplete")
-                        for table in tables["items"]:
+                        def table_pages(table):
                             table_name = table.get("name")
                             if (not isinstance(table_name, str) or not re.fullmatch(
                                     re.escape(scope) + r"/instances/[^/]+/tables/[^/]+", table_name)):
                                 raise ReadError("malformed", "bigtable_table_identity_unbound")
                             url = f"https://bigtableadmin.googleapis.com/v2/{table_name}/authorizedViews"
                             for page, request_id in self.pages(url, scope, key="authorizedViews"):
-                                rows = []
+                                names = []
                                 for item in page:
                                     name = item.get("name")
                                     if (not isinstance(name, str) or not re.fullmatch(
                                             re.escape(table_name) + r"/authorizedViews/[^/]+", name)):
                                         raise ReadError("malformed", "bigtable_authorized_view_identity_unbound")
-                                    rows.append(self.hydrate({"name": name}, "iamPolicy",
-                                        f"https://bigtableadmin.googleapis.com/v2/{name}:getIamPolicy",
-                                        scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
-                                        identity_validator=_validate_iam_policy))
-                                yield rows, request_id
+                                    names.append(name)
+                                yield self.parallel(lambda name: self.hydrate({"name": name}, "iamPolicy",
+                                    f"https://bigtableadmin.googleapis.com/v2/{name}:getIamPolicy",
+                                    scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                    identity_validator=_validate_iam_policy), names), request_id
+                        yield from fanout_pages(self, tables["items"], table_pages)
                     view_jobs.append(("bigtable_authorized_view", scope, "bigtableadmin", authorized_views))
                 self.run_jobs(view_jobs)
             if "bigtable_materialized_view" in self.needed:
@@ -5334,33 +5429,36 @@ class GCPCollector:
                         instances = self.collections.get(("bigtable_instance", scope))
                         if not instances or instances["status"] not in ("collected", "empty"):
                             raise ReadError("unavailable", "bigtable_instance_inventory_incomplete")
-                        for instance in instances["items"]:
+                        def view_row(name):
+                            def validate_details(body, expected=name):
+                                if body.get("name") != expected:
+                                    raise ReadError("malformed", "bigtable_materialized_view_details_unbound")
+                            detailed = self.hydrate({"name": name}, "details",
+                                f"https://bigtableadmin.googleapis.com/v2/{name}?view=FULL",
+                                scope, identity_validator=validate_details)
+                            if ((detailed.get("_coverage") or {}).get("details") or {}).get("status") == "collected":
+                                detailed.update({key: detailed["details"].get(key)
+                                                 for key in ("query", "clusterStates")})
+                            return self.hydrate(detailed, "iamPolicy",
+                                f"https://bigtableadmin.googleapis.com/v2/{name}:getIamPolicy",
+                                scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                identity_validator=_validate_iam_policy)
+                        def instance_pages(instance):
                             parent = instance.get("name")
                             if (not isinstance(parent, str) or not re.fullmatch(
                                     re.escape(scope) + r"/instances/[^/]+", parent)):
                                 raise ReadError("malformed", "bigtable_instance_identity_unbound")
                             url = f"https://bigtableadmin.googleapis.com/v2/{parent}/materializedViews"
                             for page, request_id in self.pages(url, scope, key="materializedViews"):
-                                rows = []
+                                names = []
                                 for item in page:
                                     name = item.get("name")
                                     if (not isinstance(name, str) or not re.fullmatch(
                                             re.escape(parent) + r"/materializedViews/[^/]+", name)):
                                         raise ReadError("malformed", "bigtable_materialized_view_identity_unbound")
-                                    def validate_details(body, expected=name):
-                                        if body.get("name") != expected:
-                                            raise ReadError("malformed", "bigtable_materialized_view_details_unbound")
-                                    detailed = self.hydrate({"name": name}, "details",
-                                        f"https://bigtableadmin.googleapis.com/v2/{name}?view=FULL",
-                                        scope, identity_validator=validate_details)
-                                    if ((detailed.get("_coverage") or {}).get("details") or {}).get("status") == "collected":
-                                        detailed.update({key: detailed["details"].get(key)
-                                                         for key in ("query", "clusterStates")})
-                                    rows.append(self.hydrate(detailed, "iamPolicy",
-                                        f"https://bigtableadmin.googleapis.com/v2/{name}:getIamPolicy",
-                                        scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
-                                        identity_validator=_validate_iam_policy))
-                                yield rows, request_id
+                                    names.append(name)
+                                yield self.parallel(view_row, names), request_id
+                        yield from fanout_pages(self, instances["items"], instance_pages)
                     materialized_jobs.append(("bigtable_materialized_view", scope, "bigtableadmin", materialized_views))
                 self.run_jobs(materialized_jobs)
             if "bigtable_backup" in self.needed:
@@ -5370,26 +5468,26 @@ class GCPCollector:
                         instances = self.collections.get(("bigtable_instance", scope))
                         if not instances or instances["status"] not in ("collected", "empty"):
                             raise ReadError("unavailable", "bigtable_instance_inventory_incomplete")
-                        for instance in instances["items"]:
+                        def instance_pages(instance):
                             parent = instance.get("name")
                             if (not isinstance(parent, str) or not re.fullmatch(
                                     re.escape(scope) + r"/instances/[^/]+", parent)):
                                 raise ReadError("malformed", "bigtable_instance_identity_unbound")
                             url = f"https://bigtableadmin.googleapis.com/v2/{parent}/clusters/-/backups"
                             for page, request_id in self.pages(url, scope, key="backups"):
-                                rows = []
+                                projected_rows = []
                                 for item in page:
                                     name = item.get("name")
                                     if (not isinstance(name, str) or not re.fullmatch(
                                             re.escape(parent) + r"/clusters/[^/]+/backups/[^/]+", name)):
                                         raise ReadError("malformed", "bigtable_backup_identity_unbound")
-                                    projected = {key: item.get(key) for key in
-                                                 ("name", "sourceTable", "state", "expireTime", "encryptionInfo")}
-                                    rows.append(self.hydrate(projected, "iamPolicy",
-                                        f"https://bigtableadmin.googleapis.com/v2/{name}:getIamPolicy",
-                                        scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
-                                        identity_validator=_validate_iam_policy))
-                                yield rows, request_id
+                                    projected_rows.append({key: item.get(key) for key in
+                                                           ("name", "sourceTable", "state", "expireTime", "encryptionInfo")})
+                                yield self.parallel(lambda projected: self.hydrate(projected, "iamPolicy",
+                                    f"https://bigtableadmin.googleapis.com/v2/{projected['name']}:getIamPolicy",
+                                    scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                    identity_validator=_validate_iam_policy), projected_rows), request_id
+                        yield from fanout_pages(self, instances["items"], instance_pages)
                     backup_jobs.append(("bigtable_backup", scope, "bigtableadmin", bigtable_backups))
                 self.run_jobs(backup_jobs)
             if "cloudbuild_repository" in self.needed:
@@ -5515,6 +5613,8 @@ class GCPCollector:
         finally:
             getattr(self, 'gcp_selected_image_redactions', set()).clear()
             self.hydration_pool.shutdown(wait=True)
+            if self.location_pool is not None:
+                self.location_pool.shutdown(wait=True, cancel_futures=True)
             if self.transport is not None:
                 selected_job_source_runtime.clear_pending(self.transport)
                 workbench_source_runtime.source.clear_pending(self.transport)

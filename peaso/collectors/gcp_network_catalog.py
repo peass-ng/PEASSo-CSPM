@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 from .gcp import ReadError
+from .gcp_fanout import location_fanout
 
 REGIONAL = {
     "datastream_private_connection": ("datastream", "v1", "privateConnections", "privateConnections"),
@@ -147,19 +148,28 @@ def inventory_pages(collector, scope, plan, parent, root):
                     yield page, receipt
                     continue
                 yield [], receipt
-                for row in page:
+                def detail(row, parent_name=parent_name, receipt=receipt):
+                    # Buffer one row's yields so detail GETs run concurrently and
+                    # replay in row order with the same failure rows.
+                    out = []
                     try:
                         name, alias_receipts = _native_child_name(row, parent_name, plan['segment'], collector, scope)
                         for alias_receipt in alias_receipts:
-                            yield [], alias_receipt
+                            out.append(([], alias_receipt))
                         params = dict(plan.get('get_parameters', {}), fields=plan['get_fields'])
                         for details, detail_receipt in collector.pages(root + '/' + name, scope, single=True, params=params):
                             if len(details) != 1 or details[0].get('name') != name:
                                 raise ReadError('malformed', 'network_detail_identity_mismatch')
-                            yield details, detail_receipt
+                            out.append((details, detail_receipt))
                     except ReadError as exc:
+                        out.append(([dict(row, _coverage={'network_detail': {'status': exc.status, 'reason': 'native_metadata_get_unavailable'}})], getattr(exc, 'request_id', receipt)))
+                        return out, exc
+                    return out, None
+                parallel = getattr(collector, 'parallel', None)
+                for out, exc in (parallel(detail, page) if callable(parallel) else [detail(row) for row in page]):
+                    if exc is not None:
                         failures.append(exc)
-                        yield [dict(row, _coverage={'network_detail': {'status': exc.status, 'reason': 'native_metadata_get_unavailable'}})], getattr(exc, 'request_id', receipt)
+                    yield from out
         except ReadError as exc:
             failures.append(exc)
     if failures:
@@ -183,16 +193,18 @@ def regional_pages(collector, scope, kind):
         discovered = ['global', *discovered]
     if not discovered:
         raise failures[0] if failures else ReadError('unavailable', 'network_service_locations_unavailable')
-    for location in dict.fromkeys(discovered):
+    def location_pages(location):
         root = api_root(service, version, location)
         parent = f'{scope}/locations/{location}'
-        try:
-            if plan:
-                yield from inventory_pages(collector, scope, plan, parent, root)
-            else:
-                mask = BATCH_FIELDS if kind == 'batch_network_job' else ROUTE_FIELDS.get(kind)
-                yield from collector.pages(root + f'/{parent}/{segment}', scope, key=key, params={'fields': mask} if mask else None)
-        except ReadError as exc:
+        if plan:
+            return inventory_pages(collector, scope, plan, parent, root)
+        mask = BATCH_FIELDS if kind == 'batch_network_job' else ROUTE_FIELDS.get(kind)
+        return collector.pages(root + f'/{parent}/{segment}', scope, key=key, params={'fields': mask} if mask else None)
+    for _location, pages, exc in location_fanout(collector, dict.fromkeys(discovered), location_pages):
+        yield from pages
+        if exc is not None:
+            if exc.error.get('reason') == 'SERVICE_DISABLED':
+                raise failures[0] if failures else exc  # project-wide
             failures.append(exc)
     if failures:
         raise failures[0]

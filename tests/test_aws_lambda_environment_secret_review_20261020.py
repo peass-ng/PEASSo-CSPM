@@ -258,7 +258,7 @@ def test_actual_scanner_runner_is_unverified(monkeypatch):
     monkeypatch.setattr(scanning,'_run',run)
     snapshot,_=capture(monkeypatch,responses={FUNCTION:native(variables={'Token':TOKEN})},real=True)
     assert findings(snapshot)[0]['status']=='FAIL'
-    runs=[a for a in calls if 'stdin' in a];assert runs
+    runs=[a for a in calls if 'stdin' in a or 'filesystem' in a];assert runs
     for a in runs:assert {'--no-verification','--no-update','--no-verification-cache','--force-skip-archives','--fail-on-scan-errors','--concurrency=1'}<=set(a)
 
 

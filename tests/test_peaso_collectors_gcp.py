@@ -191,7 +191,7 @@ def test_no_requirements_performs_no_auth_or_requests(monkeypatch):
 def test_pagination_dedup_preserves_query_and_request_provenance():
     def resolve(request):
         params = request["params"]
-        assert params["maxResults"] == 100
+        assert params["maxResults"] == 500  # compute list maximum when page_size is unset
         return {"items": [{"name": "same"}, {"name": "second"}]} if params.get("pageToken") else {
             "items": [{"name": "same"}], "nextPageToken": "private-page-token"}
     result, transport = snapshot(["network"], resolve)
