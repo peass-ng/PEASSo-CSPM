@@ -16,7 +16,7 @@
     "missing_observation": "The current HMAC request metrics do not establish recent successful activity."
   },
   "gcp.iam.role_grant_has_observed_permission_use": {
-    "purpose": "Observed permission use can justify reviewing this grant; unused permissions and activity outside the insight window remain unproven.",
+    "purpose": "Unused permissions could let this principal reach more data.",
     "missing_observation": "The current IAM insight does not establish permission use for this exact role grant."
   },
   "gcp.iam.service_account_no_active_unused_insight": {

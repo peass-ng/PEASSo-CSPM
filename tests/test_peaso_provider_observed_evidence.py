@@ -3,7 +3,9 @@ from copy import deepcopy
 import gzip,json
 from pathlib import Path
 import pytest
+from tests.generic_k8s_behavior_successors_20261020 import current_cases
 from tests.provider_observation_residual_successors_20261020 import AZURE_BINDINGS, azure_case, gcp_case, immutable_inputs
+from tests.azure_native_successor_inputs_20261020 import native_row
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks.gcp_observed_evidence import evidence_summary as gcp
@@ -62,7 +64,8 @@ def current_case(cid, branch):
   row=next(row for row in NATIVE_CASES
            if row['check_id']==cid and row['expected_status']==branch.upper())
   return deepcopy(row['item']),MemoIndex(deepcopy(row['index']))
- fx=CASES[cid]
+ # Current successors bind authority the historical fixtures omitted.
+ fx=current_cases(CHECK[cid],CASES[cid])
  return deepcopy(fx[branch]),MemoIndex(deepcopy(fx.get(branch+'_index',fx.get('index',{}))))
 
 @pytest.mark.parametrize('cid',GCP_IDS)
@@ -77,9 +80,17 @@ def test_gcp_actual_callbacks_have_brief_typed_observations(cid,branch):
  assert 'semantics:'not in summary and 'supplied records'not in summary and 'More recorded details'not in summary
  assert finding==before
 
+# Fresh collector witnesses that supersede stale generic BULK shapes.
+CURRENT_GENERIC_WITNESSES={'azure_storage_account_10_3_4_7_02943e9'}
+
 @pytest.mark.parametrize('cid',AZURE_IDS)
 def test_azure_actual_bulk_success_shapes_have_direct_observations(cid):
- case,_=azure_case(cid,'PASS',BULK[cid]['PASS']);status,evidence=CHECK[cid].evaluate(deepcopy(case['item']),deepcopy(case['index']))
+ case,_=azure_case(cid,'PASS',BULK[cid]['PASS'])
+ if cid in CURRENT_GENERIC_WITNESSES:
+  # Keep the historical BULK case; the current evaluator needs the
+  # source-bound collector witness that superseded it.
+  case=native_row(cid,'pass');assert case is not None
+ status,evidence=CHECK[cid].evaluate(deepcopy(case['item']),deepcopy(case['index']))
  assert status=='PASS'
  finding={'provider':'azure','check_id':cid,'status':status,'evidence':evidence};before=deepcopy(finding)
  text=(current_observation if cid in AZURE_BINDINGS else azure)(finding)

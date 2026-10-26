@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from tests.provider_observation_residual_successors_20261020 import immutable_inputs
-from peaso.checks import CHECKS
+from peaso.checks import CHECK_ALIASES, CHECKS, resolve_check_id
+
+# The reviewed rows are a frozen record.  #104 (fe6f7901) later retired this
+# overlapping reviewed id into its surviving native, which has its own row.
+RETIRED_REVIEWED = {'azure.claude.aks_authorized_ip_ranges': 'azure.aks.api_server_restricted'}
 from peaso.checks.azure_finding_clarity_reviewed import ROWS, _digest, description, remediation
 from peaso.checks.azure_native_review_copy_20261020 import reviewed_fields
 from tests.azure_native_successor_inputs_20261020 import current_cases
@@ -37,7 +41,10 @@ def source_rows():
 
 def test_reviewed_ids_are_exactly_the_635_registered_azure_controls():
     assert len(ROWS) == 635
-    assert set(ROWS) <= {check.id for check in CHECKS}
+    registered = {check.id for check in CHECKS}
+    assert {cid for cid in ROWS if cid not in registered} == set(RETIRED_REVIEWED)
+    for retired, survivor in RETIRED_REVIEWED.items():
+        assert CHECK_ALIASES[retired] == survivor and survivor in ROWS and survivor in registered
 
 
 @pytest.mark.parametrize("check_id", sorted(ROWS))
@@ -138,6 +145,11 @@ def test_private_endpoint_existence_does_not_claim_approval(source_rows):
 @pytest.mark.parametrize("check_id", sorted(ROWS))
 def test_reviewed_copy_matches_real_positive_negative_and_missing_facts(check_id):
     from peaso.checks.fixtures import CASES
+    if check_id in RETIRED_REVIEWED:
+        # The retired id runs as its survivor, whose own row covers its branches.
+        assert resolve_check_id(check_id) == RETIRED_REVIEWED[check_id] in ROWS
+        assert check_id not in CASES
+        return
     check = next(c for c in CHECKS if c.id == check_id)
     cases = current_cases(check_id, CASES.get(check_id) or json.loads((Path(__file__).parent / "fixtures/azure_core6.json").read_text())[check_id])
     for state in ("pass", "fail", "unknown", "not_applicable"):
@@ -175,7 +187,7 @@ def test_each_new_control_has_explicit_severity_review_without_mutating_predicat
     for cid, row in SEVERITY_REVIEW.items():
         from peaso.checks.finding_clarity_reviewed import ROWS as OTHER_ROWS
         assert cid in ROWS or cid in OTHER_ROWS
-        assert row["current"] == next(c for c in CHECKS if c.id == cid).severity
+        assert row["current"] == next(c for c in CHECKS if c.id == resolve_check_id(cid)).severity
         assert row["recommended"] in {"info", "low", "medium", "high", "critical"}
         assert row["reason"] and row["status"] == "reviewed_proposal_not_applied"
 
