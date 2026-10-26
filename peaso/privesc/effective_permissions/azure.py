@@ -214,6 +214,11 @@ def _abac_restricts(condition, action):
     return False
 
 
+# Owner-requirement templates whose refs come from the target only (placeholder_values "id" / "application_id").
+_SOURCE_FREE_OWNER_TEMPLATES = frozenset({"{target.id}", "{target.application_id}", "*", None})
+_COVERS_MEMO_LIMIT = 1 << 18
+
+
 def _low(value):
     return str(value or "").lower()
 
@@ -564,7 +569,26 @@ class AzureModel(ExactEvidenceMixin, Model):
         return chain
 
     def covers(self, outer, ref):
-        """(covered, confidence) for an assignment scope over a ref."""
+        """(covered, confidence) for an assignment scope over a ref. Memoized per (outer, ref) once the hierarchy
+        is fixed (the same point ancestors() starts memoizing); results are immutable tuples."""
+        if self.__dict__.get("_ancestor_memo") is None:
+            return self._covers(outer, ref)
+        memo = self.__dict__.get("_covers_memo")
+        if memo is None:
+            memo = self.__dict__["_covers_memo"] = {}
+        key = (outer, ref)
+        try:
+            return memo[key]
+        except KeyError:
+            pass
+        except TypeError:
+            return self._covers(outer, ref)
+        if len(memo) >= _COVERS_MEMO_LIMIT:
+            memo.clear()
+        value = memo[key] = self._covers(outer, ref)
+        return value
+
+    def _covers(self, outer, ref):
         outer = _low(outer).rstrip("/") or "/"
         if outer == "/":
             return True, "derived"
@@ -626,8 +650,7 @@ class AzureModel(ExactEvidenceMixin, Model):
         if "graph_app_permission" in req:
             principals = inventory_status(self.snapshot, "directory_service_principal")
             if not principals or (not self.__dict__.get("_graph_resource_ids")
-                    and not any(_low(row.get("appId")) == "00000003-0000-0000-c000-000000000000"
-                                for _, row in items(self.snapshot, "directory_service_principal"))
+                    and not self._graph_principal_listed()
                     and unavailable(principals)):
                 return "Azure: Microsoft Graph service principal identity unavailable"
         for kind, collection in (*FACT_COLLECTIONS.items(), *OPTIONAL_FACT_COLLECTIONS.items()):
@@ -636,6 +659,16 @@ class AzureModel(ExactEvidenceMixin, Model):
         if "entra_group_member" in req and not inventory_status(self.snapshot, "directory_membership"):
             return FACTS_NEEDED["entra_group_member"]
         return None
+
+    def _graph_principal_listed(self):
+        # The snapshot is immutable for the model's lifetime, so the scan of
+        # the directory service principals for Microsoft Graph runs once.
+        listed = self.__dict__.get("_graph_principal_listed_memo")
+        if listed is None:
+            listed = any(_low(row.get("appId")) == "00000003-0000-0000-c000-000000000000"
+                         for _, row in items(self.snapshot, "directory_service_principal"))
+            self.__dict__["_graph_principal_listed_memo"] = listed
+        return listed
 
     def cached_check(self, principal, req, ref):
         if not _PRINCIPAL_FACT_SET.isdisjoint(req):
@@ -1275,26 +1308,54 @@ class AzureModel(ExactEvidenceMixin, Model):
                     return Grant("derived", [{"app_role_assignment": item.get("id"), "permission": req["graph_app_permission"]}])
             return None
         if "entra_owner_of" in req:
-            target = str(ref)[4:] if isinstance(ref, str) and ref.startswith("dir:") else None
             object_type = _low(req.get("object_type"))
+            rows = self._owned_rows(principal.id)
+            if not rows:
+                # Owns nothing: the result depends on the target's listing status only (shared per target).
+                return self._owner_absent(object_type, ref)
+            target = str(ref)[4:] if isinstance(ref, str) and ref.startswith("dir:") else None
             endpoint = {"application": "applications", "serviceprincipal": "servicePrincipals",
                         "group": "groups"}.get(object_type)
             wanted_scope = (f"/tenants/{self.tenant}/{endpoint}/{target}".casefold()
                             if target and endpoint else None)
-            for scope, item in self._owned_rows(principal.id):
+            for scope, item in rows:
                 if (principal.id in as_list(item.get("ownerIds"))
                         and (target is None or _low(item.get("objectId")) == _low(target))
                         and _low(item.get("objectType")) == object_type
                         and (wanted_scope is None or _low(scope) == wanted_scope)):
                     return Grant("derived", [{"owner_of": item.get("objectId")}])
-            statuses = self.__dict__.get("_owner_statuses")
-            if statuses is None:
-                statuses = self.__dict__["_owner_statuses"] = inventory_status(self.snapshot, "directory_owner")
-            if wanted_scope and statuses.get(wanted_scope) not in ("collected", "empty"):
-                return self._shared_unknown("owner_listing_not_collected_for_target")
-            if target is None and (not statuses or unavailable(statuses)):
-                return self._shared_unknown("owner_listings_incomplete")
-            return None
+            return self._owner_absent(object_type, ref)
+        return self._fact_requirement_rest(principal, req, ref)
+
+    def _owner_absent(self, object_type, ref):
+        """Owner requirement result when the principal owns no matching object: unknown while the target's owner
+        listing is not collected, else None. Memoized per (object type, ref)."""
+        memo = self.__dict__.setdefault("_owner_absent_memo", {})
+        try:
+            return memo[(object_type, ref)]
+        except KeyError:
+            pass
+        except TypeError:
+            return self._owner_absent_uncached(object_type, ref)
+        value = memo[(object_type, ref)] = self._owner_absent_uncached(object_type, ref)
+        return value
+
+    def _owner_absent_uncached(self, object_type, ref):
+        target = str(ref)[4:] if isinstance(ref, str) and ref.startswith("dir:") else None
+        endpoint = {"application": "applications", "serviceprincipal": "servicePrincipals",
+                    "group": "groups"}.get(object_type)
+        wanted_scope = (f"/tenants/{self.tenant}/{endpoint}/{target}".casefold()
+                        if target and endpoint else None)
+        statuses = self.__dict__.get("_owner_statuses")
+        if statuses is None:
+            statuses = self.__dict__["_owner_statuses"] = inventory_status(self.snapshot, "directory_owner")
+        if wanted_scope and statuses.get(wanted_scope) not in ("collected", "empty"):
+            return self._shared_unknown("owner_listing_not_collected_for_target")
+        if target is None and (not statuses or unavailable(statuses)):
+            return self._shared_unknown("owner_listings_incomplete")
+        return None
+
+    def _fact_requirement_rest(self, principal, req, ref):
         if "entra_pim_eligible_role" in req:
             target = str(ref)[4:] if isinstance(ref, str) and ref.startswith("dir:") else None
             wanted_scope = req.get("directory_scope")
@@ -1363,6 +1424,11 @@ class AzureModel(ExactEvidenceMixin, Model):
 
     def check_targets(self, principal, req, template, candidates, localized=False):
         result = {}
+        # Owner checks are per (source, target) and almost never repeat; their cheap check skips the per-pair
+        # cache entry (results are immutable Grants, so the uncached value is the same).
+        check = self.check if "entra_owner_of" in req else self.cached_check
+        if not localized and self._ownerless_shared(principal, req, template):
+            return self._ownerless_targets(principal, req, template, candidates)
         for target in candidates:
             if localized:
                 refs, floor = self.localize_refs(target), None
@@ -1370,11 +1436,42 @@ class AzureModel(ExactEvidenceMixin, Model):
                 refs, floor = self.resolve(template, principal, target)
             grant = None
             for ref in refs:
-                got = self.cached_check(principal, req, ref)
+                got = check(principal, req, ref)
                 if got is not None and (grant is None or got.confidence == "derived"):
                     grant = got
             if grant is not None:
                 result[target.id] = downgrade(grant, floor[0], floor[1]) if floor else grant
+        return result
+
+    def _ownerless_shared(self, principal, req, template):
+        """True when an owner requirement's per-target result cannot depend on the principal: the principal owns
+        no directory object, and the template resolves from the target alone."""
+        return ("entra_owner_of" in req and template in _SOURCE_FREE_OWNER_TEMPLATES
+                and not any(key in req for key in ("action", "entra_permission", "entra_role", "graph_app_permission"))
+                and isinstance(principal.id, str) and not self._owned_rows(principal.id))
+
+    def _ownerless_targets(self, principal, req, template, candidates):
+        """check_targets for a principal that owns nothing: each target's result is shared across such principals
+        (immutable Grants; same value the per-pair path computes)."""
+        memo = self.__dict__.setdefault("_ownerless_target_memo", {})
+        disabled = principal.attrs.get("account_enabled") is False
+        object_type = _low(req.get("object_type"))
+        result = {}
+        for target in candidates:
+            key = (template, object_type, disabled, id(target))
+            hit = memo.get(key)
+            if hit is None or hit[0] is not target:
+                refs, floor = self.resolve(template, principal, target)
+                grant = None
+                for ref in refs:
+                    got = self.check(principal, req, ref)
+                    if got is not None and (grant is None or got.confidence == "derived"):
+                        grant = got
+                if grant is not None and floor:
+                    grant = downgrade(grant, floor[0], floor[1])
+                hit = memo[key] = (target, grant)
+            if hit[1] is not None:
+                result[target.id] = hit[1]
         return result
 
     def localize_refs(self, target):

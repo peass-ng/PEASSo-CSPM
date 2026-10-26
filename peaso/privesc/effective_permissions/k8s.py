@@ -706,6 +706,25 @@ class K8sModel(ExactEvidenceMixin, Model):
 
     # ----------------------------------------------------------------- rules
     def requirement_key(self, req):
+        # Requirements repeat a few shapes millions of times; key the derived string by the fields it reads.
+        get = req.get
+        try:
+            shape = (get("verb_prefix"), get("verb"), get("resource_match"), get("api_group", _MISSING),
+                     get("resource"), get("subresource"))
+            hit = _REQUIREMENT_KEYS.get(shape)
+        except TypeError:
+            return self._requirement_key(req)
+        if hit is None:
+            hit = self._requirement_key(req)
+            for value in shape:  # equal-hashing non-text values (1, True, 1.0) would collide
+                if value is not None and value is not _MISSING and type(value) is not str:
+                    return hit
+            if len(_REQUIREMENT_KEYS) >= _REQUIREMENT_KEYS_LIMIT:
+                _REQUIREMENT_KEYS.clear()
+            _REQUIREMENT_KEYS[shape] = hit
+        return hit
+
+    def _requirement_key(self, req):
         verb = PREFIX + str(req["verb_prefix"]).lower() if req.get("verb_prefix") else str(req.get("verb", "")).lower()
         if req.get("resource_match") == "any":
             group = str(req["api_group"]) if "api_group" in req else ANY_MATCH
@@ -813,12 +832,87 @@ class K8sModel(ExactEvidenceMixin, Model):
             if existence is None:
                 conf = "conditional"
                 conditions.append("modify_target_inventory_not_collected")
-            grant = Grant(conf, [{**_rule_evidence(bind_ns, rule, evidence), "namespace": bind_ns or "*"}], conditions)
+            grant = self._rule_grant(bind_ns, rule, evidence, conf, conditions)
             if best_grant is None or (best_grant.confidence != "derived" and conf == "derived"):
                 best_grant = grant
                 if conf == "derived" and bind_ns is None:
                     break
         return best_grant
+
+    def _rule_grant(self, bind_ns, rule, evidence, conf, conditions):
+        """Grant(conf, [rule evidence], conditions) for one bound rule. Each check keeps its own Grant (the
+        evaluator groups targets by Grant identity, which orders output), but the read-only evidence dict depends
+        only on (binding evidence, namespace, rule), so one copy is shared. Entries keep evidence and rule alive,
+        so their ids are never reused while cached."""
+        memo = self.__dict__.get("_rule_refs")
+        if memo is None:
+            memo = self.__dict__["_rule_refs"] = {}
+        try:
+            key = (id(evidence), bind_ns, id(rule))
+            hit = memo.get(key)
+        except TypeError:
+            hit, memo = None, None
+        if hit is None or hit[0] is not evidence or hit[1] is not rule:
+            hit = (evidence, rule, {**_rule_evidence(bind_ns, rule, evidence), "namespace": bind_ns or "*"})
+            if memo is not None:
+                memo[key] = hit
+        return Grant(conf, [hit[2]], conditions)
+
+    def _name_shared_check(self, principal, req, ref):
+        """check(principal, req, ref) for callers that only read the result's confidence (or None).
+
+        When none of the principal's rules lists resourceNames, the object name in ref changes check() only
+        through modify-target existence (which then ignores the rule), so one result per (principal rules,
+        requirement, namespace, existence) is shared. Any named rule, or an unhashable fact, keeps the
+        direct check."""
+        if not isinstance(ref, tuple):
+            return self.check(principal, req, ref)
+        try:
+            memo = self.__dict__.setdefault("_name_shared_checks", {})
+            cluster = principal.attrs.get("cluster")
+            bound = principal.attrs.get("bound", ())
+            plain_key = (cluster, bound)
+            plain = memo.get(plain_key)
+            if plain is None:
+                plain = memo[plain_key] = not any(rule is not None and as_list(rule.get("resourceNames"))
+                                                  for _, rule, _ in self._rule_rows(principal))
+            if not plain:
+                return self.check(principal, req, ref)
+            ns, name, res_override = ref
+            verb = self.requirement_key(req).split("|", 1)[0]
+            resource = res_override or ("" if req.get("resource_match") == "any" else str(req.get("resource", "")))
+            if req.get("_rbac_only") or verb not in ("patch", "update") or resource not in MODIFIABLE_OBJECTS:
+                exists = True
+            else:
+                exists = self._modify_target_exists(principal, verb, resource, ns, name, _NO_NAMES_RULE)
+            shape = tuple(sorted(req.items()))
+            shape = memo.setdefault((_MISSING, shape), shape)  # one tuple per requirement shape (sentinel-tagged key)
+            key = (cluster, bound, shape, ns, res_override, exists)
+            if key not in memo:
+                memo[key] = self.check(principal, req, ref)
+            return memo[key]
+        except TypeError:
+            return self.check(principal, req, ref)
+
+    def cached_check(self, principal, req, ref):
+        """The base per-(permissions, requirement, ref) cache with compact storage: one table per (permissions,
+        requirement) keyed by ref, and one interned copy of each ref (resolve() builds a fresh tuple per target).
+        Same values and first-writer semantics as Model.cached_check."""
+        outer = (principal.perm_key if principal.perm_key is not None else principal.id, self.requirement_key(req))
+        tables = self.__dict__.get("_ref_checks")
+        if tables is None:
+            tables = self.__dict__["_ref_checks"] = {}
+            self.__dict__["_interned_refs"] = {}
+        table = tables.get(outer)
+        if table is None:
+            table = tables[outer] = {}
+        try:
+            return table[ref]
+        except KeyError:
+            pass
+        ref = self.__dict__["_interned_refs"].setdefault(ref, ref)
+        value = table[ref] = self.check(principal, req, ref)
+        return value
 
     def _modify_target_exists(self, principal, verb, resource, namespace, name, rule):
         """A patch/update route needs a real object; missing inventory keeps it conditional."""
@@ -2410,8 +2504,8 @@ class K8sModel(ExactEvidenceMixin, Model):
                 for pod in self._pods_for_sa(target):
                     if not pod["name"] or pod["deleting"] or pod["phase"] in ("Succeeded", "Failed", "Pending"):
                         continue
-                    grants = [self.check(source, {"verb": verb, "resource": "pods", "subresource": sub,
-                                                 "namespace": pod["ns"]}, (pod["ns"], pod["name"], None))
+                    grants = [self._name_shared_check(source, {"verb": verb, "resource": "pods", "subresource": sub,
+                                                              "namespace": pod["ns"]}, (pod["ns"], pod["name"], None))
                               for verb, sub in routes[value]]
                     grants = [grant for grant in grants if grant is not None]
                     if not grants:
@@ -2715,7 +2809,7 @@ class K8sModel(ExactEvidenceMixin, Model):
                 pods = [p for p in self._pods_for_sa(n) if not p["node"] and not p["deleting"]]
                 pending = [p for p in pods if p["phase"] == "Pending"]
                 if pending and technique == "k8s-nodes-pods-binding-pending-pod-to-controlled-node":
-                    pending = [p for p in pending if any(self.check(source, {
+                    pending = [p for p in pending if any(self._name_shared_check(source, {
                         "verb": "create", "resource": resource, "subresource": sub,
                         "namespace": p["ns"]}, (p["ns"], p["name"], None)) is not None
                         for resource, sub in (("pods", "binding"), ("bindings", None)))]
@@ -2726,7 +2820,7 @@ class K8sModel(ExactEvidenceMixin, Model):
                         "namespace": "*"}, (None, None, None))) is not None]
                     node_write = any(grant.confidence == "derived" for grant in node_grants)
                     if not node_write:
-                        pending = [p for p in pending if any(self.check(source, {
+                        pending = [p for p in pending if any(self._name_shared_check(source, {
                             "verb": verb, "resource": "pods", "subresource": "status",
                             "namespace": p["ns"]}, (p["ns"], p["name"], None)) is not None
                             for verb in ("patch", "update"))]
@@ -3047,15 +3141,15 @@ class K8sModel(ExactEvidenceMixin, Model):
                     technique = (self.current_entry or {}).get("id") or ""
                     if technique in ("k8s-nodes-exec-into-host-privileged-pod",
                                      "k8s-nodes-exec-into-host-mount-pod"):
-                        grant = self.check(source, {"verb": "create", "resource": "pods",
-                                                    "subresource": "exec", "namespace": p["ns"]},
+                        grant = self._name_shared_check(source, {"verb": "create", "resource": "pods",
+                                                                 "subresource": "exec", "namespace": p["ns"]},
                                            (p["ns"], p["name"], None))
                         if grant is None:
                             continue
                     elif technique == "k8s-nodes-privileged-ephemeral-container":
-                        grant = self.check(source, {"verb": "patch", "resource": "pods",
+                        grant = self._name_shared_check(source, {"verb": "patch", "resource": "pods",
                                                     "subresource": "ephemeralcontainers", "namespace": p["ns"]},
-                                           (p["ns"], p["name"], None)) or self.check(
+                                           (p["ns"], p["name"], None)) or self._name_shared_check(
                                                source, {"verb": "update", "resource": "pods",
                                                         "subresource": "ephemeralcontainers", "namespace": p["ns"]},
                                                (p["ns"], p["name"], None))
@@ -3282,6 +3376,12 @@ def _aggregation_selector_satisfiable(selector):
 def _rule_evidence(ns, rule, evidence):
     return {**dict(evidence), "namespace": ns, "rule": rule}
 
+
+_MISSING = object()
+# requirement field values -> requirement key; the key is a pure function of these fields.
+_REQUIREMENT_KEYS = {}
+_REQUIREMENT_KEYS_LIMIT = 1 << 14
+_NO_NAMES_RULE = {}  # existence lookups for principals without resourceNames (rule only supplies names)
 
 # Sealed (read-only) rules never change, so their normalized verb list is computed once. Entries keep the rule
 # alive, so an id is never reused while cached; the table is cleared when it reaches its bound.

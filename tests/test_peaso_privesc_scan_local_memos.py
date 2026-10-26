@@ -658,3 +658,121 @@ def test_k8s_sealed_rule_verbs_are_cached_by_identity_and_bounded(monkeypatch):
     for rule in others:
         assert k8s._rule_matches(rule, rule["verbs"][0].lower(), "", "pods", "", None) is True
     assert len(k8s._SEALED_RULE_VERBS) <= 2
+
+
+def _grant_view(grant):
+    return None if grant is None else (grant.confidence, grant.conditions, grant.refs, grant.permission_refs)
+
+
+def test_k8s_name_shared_check_matches_check_for_named_and_plain_principals():
+    from peaso.privesc.effective_permissions.k8s import MODIFIABLE_OBJECTS
+    model = K8sModel(k8s_snapshot())
+    principals = [p for p in model.principals.values() if p.attrs.get("cluster")]
+    reqs = [{"verb": "get", "resource": "secrets"}, {"verb": "create", "resource": "pods", "subresource": "exec"},
+            {"verb": "update", "resource": "configmaps"}, {"verb": "patch", "resource": "pods"},
+            {"verb": "update", "resource": "pods"}, {"verb": "create", "resource": "pods"},
+            {"verb": "patch", "resource": "pods", "subresource": "status"},
+            {"verb": "update", "resource": "pods", "_rbac_only": True},
+            {"verb": "patch", "api_group": "rbac.authorization.k8s.io", "resource": "rolebindings"},
+            {"verb": "get", "resource_match": "any", "api_group": ""}]
+    assert "pods" in MODIFIABLE_OBJECTS
+    refs = [(ns, name, res) for ns in ("a", "b", "*", ANY) for name in (None, ANY, "p0", "p1", "tok", "cfg", "nope")
+            for res in (None, "pods")]
+    named = shared = 0
+    for principal in principals:
+        plain = not any(rule is not None and rule.get("resourceNames") for _, rule, _ in model._rule_rows(principal))
+        named += not plain
+        for req in reqs:
+            seen = {}
+            for ref in refs:
+                got = model._name_shared_check(principal, req, ref)
+                assert _grant_view(got) == _grant_view(model.check(principal, req, ref)), (principal.id, req, ref)
+                if got is not None and plain:
+                    first = seen.setdefault((ref[0], ref[2]), (ref[1], got))
+                    shared += first[0] != ref[1] and first[1] is got
+    assert named, "fixture must hold principals whose rules list resourceNames"
+    assert shared, "plain principals must share one result across object names"
+
+
+def test_k8s_compact_check_cache_and_shared_rule_grants_match_the_plain_path(monkeypatch):
+    from peaso.privesc.effective_permissions import Grant, Model
+    from peaso.privesc.effective_permissions.k8s import _rule_evidence
+    model = K8sModel(k8s_snapshot())
+    principal = next(p for p in model.principals.values() if p.attrs.get("bound"))
+    req = {"verb": "get", "resource": "secrets"}
+    first = model.cached_check(principal, req, ("a", None, None))
+    assert model.cached_check(principal, req, tuple(["a", None, None])) is first
+    assert len(model._interned_refs) == 1
+    shared = privesc.analyze(k8s_snapshot(), include_unknown=True)
+    with monkeypatch.context() as patch:
+        patch.setattr(K8sModel, "cached_check", Model.cached_check)
+        patch.setattr(K8sModel, "_name_shared_check", K8sModel.check)
+        patch.setattr(K8sModel, "_rule_grant", lambda self, bind_ns, rule, evidence, conf, conditions: Grant(
+            conf, [{**_rule_evidence(bind_ns, rule, evidence), "namespace": bind_ns or "*"}], conditions))
+        plain = privesc.analyze(k8s_snapshot(), include_unknown=True)
+    assert shared["graph"]["edges"]
+    assert _canonical(shared) == _canonical(plain)
+
+
+def test_k8s_requirement_key_memo_matches_and_skips_non_text(monkeypatch):
+    from peaso.privesc.effective_permissions import k8s
+    model = K8sModel(k8s_snapshot())
+    reqs = [{"verb": "get", "resource": "secrets"}, {"verb": "GET", "resource": "secrets"},
+            {"verb_prefix": "impersonate-on:", "resource": "x"}, {"verb": "get", "resource_match": "any"},
+            {"verb": "get", "resource_match": "any", "api_group": ""}, {"verb": "get", "api_group": "apps",
+                                                                        "resource": "deployments", "subresource": "scale"},
+            {"verb": 1, "resource": "secrets"}, {"verb": True, "resource": "secrets"}, {"verb": 1.0, "resource": "secrets"},
+            {"verb": "get", "resource": ["unhashable"]}, {}]
+    monkeypatch.setattr(k8s, "_REQUIREMENT_KEYS", {})
+    monkeypatch.setattr(k8s, "_REQUIREMENT_KEYS_LIMIT", 3)
+    for _ in range(2):
+        for req in reqs:
+            assert model.requirement_key(req) == model._requirement_key(req), req
+            assert len(k8s._REQUIREMENT_KEYS) <= 3
+    assert all(type(v) is str or v is None or v is k8s._MISSING for shape in k8s._REQUIREMENT_KEYS for v in shape)
+
+
+@pytest.mark.parametrize("owners", [True, False])
+def test_azure_owner_sharing_and_scope_memos_match_the_per_pair_path(monkeypatch, owners):
+    from peaso.privesc.effective_permissions import azure, items
+    from peaso.snapshot import validate
+
+    snapshot = validate(_azure_snapshot(owners), read_only=True)
+    fast = privesc.analyze(snapshot, include_unknown=True)
+    model = azure.AzureModel(snapshot)
+    principal = next(p for p in model.principals.values() if p.kind == "azure_user" and not model._owned_rows(p.id))
+    req = {"entra_owner_of": "{target.id}", "object_type": "servicePrincipal"}
+    targets = [p for p in model.principals.values() if p.kind == "azure_service_principal"]
+    assert model._ownerless_shared(principal, req, "{target.id}")
+    assert not model._ownerless_shared(principal, {**req, "action": "x"}, "{target.id}")
+    assert not model._ownerless_shared(principal, req, "{source.id}")
+    with monkeypatch.context() as patch:
+        patch.setattr(azure.AzureModel, "_ownerless_shared", lambda self, principal, req, template: False)
+        per_pair = {t: _grant_view(g) for t, g in model.check_targets(principal, req, "{target.id}", targets).items()}
+    assert {t: _grant_view(g) for t, g in model.check_targets(principal, req, "{target.id}", targets).items()} == per_pair
+    with monkeypatch.context() as patch:
+        patch.setattr(azure.AzureModel, "_ownerless_shared", lambda self, principal, req, template: False)
+        patch.setattr(azure.AzureModel, "_owner_absent", azure.AzureModel._owner_absent_uncached)
+        patch.setattr(azure.AzureModel, "covers", azure.AzureModel._covers)
+        patch.setattr(azure.AzureModel, "_graph_principal_listed", lambda self: any(
+            azure._low(row.get("appId")) == "00000003-0000-0000-c000-000000000000"
+            for _, row in items(self.snapshot, "directory_service_principal")))
+        slow = privesc.analyze(snapshot, include_unknown=True)
+    assert _canonical(fast) == _canonical(slow)
+    assert fast["graph"]["edges"]
+
+
+def test_azure_covers_memo_is_bounded_and_matches(monkeypatch):
+    from peaso.privesc.effective_permissions import azure
+    from peaso.snapshot import validate
+
+    model = azure.AzureModel(validate(_azure_snapshot(), read_only=True))
+    monkeypatch.setattr(azure, "_COVERS_MEMO_LIMIT", 4)
+    scopes = ["/", "/subscriptions/00000000-0000-0000-0000-000000000000",
+              "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg0",
+              "/providers/Microsoft.Management/managementGroups/mg", "/subscriptions/x/"]
+    for outer in scopes:
+        for ref in scopes + ["/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/rg1/providers/a/b/c"]:
+            assert model.covers(outer, ref) == model._covers(outer, ref)
+            assert len(model._covers_memo) <= 4
+
