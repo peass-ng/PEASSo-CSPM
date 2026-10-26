@@ -12,6 +12,8 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
+from .gc_pause import gc_paused
+
 
 def _read_only(self, *args, **kwargs):
     raise TypeError("sealed snapshot data is read-only; copy.deepcopy() it to obtain a mutable copy")
@@ -47,35 +49,54 @@ class FrozenList(list):
         return (FrozenList, (list(self),))
 
 
-def freeze(value):
-    """Read-only view of JSON-like data; already-frozen values are shared, never copied again."""
+def _freeze(value):
     kind = type(value)
     if kind is FrozenDict or kind is FrozenList:
         return value
     if isinstance(value, dict):
-        return FrozenDict({key: freeze(item) for key, item in value.items()})
+        return FrozenDict({key: _freeze(item) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
-        return FrozenList([freeze(item) for item in value])
+        return FrozenList([_freeze(item) for item in value])
     return value
+
+
+def _thaw(value):
+    if isinstance(value, dict):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def freeze(value):
+    """Read-only view of JSON-like data; already-frozen values are shared, never copied again."""
+    # Copies create no reference cycles; skip cyclic GC rescans of the live heap.
+    with gc_paused():
+        return _freeze(value)
 
 
 def thaw(value):
     """Ordinary mutable deep copy of (possibly frozen) JSON-like data."""
-    if isinstance(value, dict):
-        return {key: thaw(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [thaw(item) for item in value]
-    return value
+    with gc_paused():
+        return _thaw(value)
 
 
-def _sealed_structure(snapshot, read_only=False):
+def _sealed_structure(snapshot, read_only=False, owned=False):
     """New envelope (top level, metadata, collection dicts) around the native items.
 
     Envelopes stay mutable plain dicts because callers annotate metadata after validation. With read_only
     the items (the large native facts) are frozen exactly once and shared afterwards; otherwise they are
-    copied into ordinary mutable objects.
+    copied into ordinary mutable objects. With owned, the caller hands over plain item lists it built for
+    this call and never uses again (e.g. a fresh redaction or snapshot copy); they are adopted, not copied.
     """
-    items_of = (lambda value: FrozenList([freeze(item) for item in value])) if read_only else thaw
+    with gc_paused():
+        return _structure(snapshot, read_only, owned)
+
+
+def _structure(snapshot, read_only, owned):
+    thaw = _thaw
+    items_of = ((lambda value: FrozenList([_freeze(item) for item in value])) if read_only
+                else (lambda value: value) if owned else thaw)
     result = {key: (thaw(value) if key != "collections" else value) for key, value in snapshot.items()}
     collections = result.get("collections")
     if isinstance(collections, list):
@@ -98,21 +119,27 @@ def canonical(value):
 
 
 def digest(value):
-    return "sha256:" + hashlib.sha256(canonical(value).encode()).hexdigest()
+    with gc_paused():
+        return "sha256:" + hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def seal(snapshot):
-    result = _sealed_structure(snapshot)
+def seal(snapshot, *, owned=False):
+    """Sealed mutable copy; owned=True adopts the caller's fresh item lists instead of copying them."""
+    result = _sealed_structure(snapshot, owned=owned)
     result.pop("snapshot_id", None)
     result["snapshot_id"] = digest(result)
     return result
 
 
-def validate(snapshot, *, read_only=False):
-    """Validated copy of a snapshot; read_only=True shares sealed read-only item views (evaluation paths)."""
+def validate(snapshot, *, read_only=False, owned=False):
+    """Validated copy of a snapshot; read_only=True shares sealed read-only item views (evaluation paths).
+
+    owned=True: the caller transfers a plain snapshot it just built (sealed, redacted or copied) and never
+    uses again; its item lists are adopted instead of copied. Every check and the digest still apply.
+    """
     if not isinstance(snapshot, dict):
         raise ValueError("snapshot must be an object")
-    result = _sealed_structure(snapshot, read_only)
+    result = _sealed_structure(snapshot, read_only, owned)
     if result.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("unsupported snapshot schema_version")
     if result.get("provider") not in PROVIDERS:

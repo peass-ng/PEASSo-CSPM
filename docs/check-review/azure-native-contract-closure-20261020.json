@@ -1683,7 +1683,7 @@
       },
       "previous_report": {
         "path": "docs/check-review/azure-remaining-services-2-native-review-20261020.json",
-        "sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9",
+        "sha256": "c3d7988ad716856fdd213cc848a96645a618485fec3e256ac591ab46368ea509",
         "bytes": 1366338
       },
       "previous_red_receipts": {
@@ -1739,7 +1739,7 @@
       },
       "previous_report": {
         "path": "docs/check-review/azure-remaining-services-2-native-review-20261020.json",
-        "sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9",
+        "sha256": "c3d7988ad716856fdd213cc848a96645a618485fec3e256ac591ab46368ea509",
         "bytes": 1366338
       },
       "previous_red_receipts": {
@@ -1798,7 +1798,7 @@
       },
       "previous_report": {
         "path": "docs/check-review/azure-remaining-services-2-native-review-20261020.json",
-        "sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9",
+        "sha256": "c3d7988ad716856fdd213cc848a96645a618485fec3e256ac591ab46368ea509",
         "bytes": 1366338
       },
       "previous_red_receipts": {
@@ -2665,7 +2665,7 @@
   "preservation": {
     "prior_report": {
       "path": "docs/check-review/azure-remaining-services-2-native-review-20261020.json",
-      "sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9",
+      "sha256": "c3d7988ad716856fdd213cc848a96645a618485fec3e256ac591ab46368ea509",
       "bytes": 1366338
     },
     "prior_frozen_sources": [
@@ -2686,7 +2686,7 @@
       "sha256": "dff91e10c0708926586c31a766b9e4adce0f682cc84609aff3d055d6e00ae85e",
       "bytes": 1905196
     },
-    "prior_report_unchanged_sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9"
+    "prior_report_unchanged_sha256": "c3d7988ad716856fdd213cc848a96645a618485fec3e256ac591ab46368ea509"
   },
   "additional_correctness_target": {
     "id": "azure.claude.iam_custom_role_administers_locks",

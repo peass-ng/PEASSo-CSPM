@@ -553,7 +553,8 @@ def _process(role, request, connection):
                     del checkpoint_session
             # Separate encrypted per-scan object; no reference or value enters
             # the native snapshot, public report, supervisor pipe or AI context.
-            with _runtime_span('worker.redact'):
+            from peaso.gc_pause import gc_paused
+            with _runtime_span('worker.redact'), gc_paused():
                 snapshot = public_content(snapshot)
             with _runtime_span("worker.private_document"):
                 artifacts.put_secret_evidence(tenant, ident, private_checkpoint.document(secret_capture))
@@ -575,10 +576,12 @@ def _process(role, request, connection):
                 failure_reasons = _curated_target_reasons(snapshot, request["connector"])
                 raise PermissionError("no collection was readable with the connector credentials")
             snapshot.setdefault("metadata", {})["input_mode"] = request["connector"].get("input_mode", "live")
-            with _runtime_span('worker.final_snapshot'):
+            with _runtime_span('worker.final_snapshot'), gc_paused():
+                # redact() returns a fresh plain copy; seal adopts it instead
+                # of copying the complete native inventory a second time.
                 public_final = public_snapshot_adapter(
                     lambda native: seal(redact(native, tuple(credential_values(
-                        request["connector"].get("auth", {}))))), provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
+                        request["connector"].get("auth", {})))), owned=True), provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
                 value = public_final(snapshot)
             reference = artifacts.put(tenant, ident, "snapshot", value)
             if expired:

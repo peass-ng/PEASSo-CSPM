@@ -14,6 +14,7 @@ import threading
 import time
 from collections import defaultdict
 
+from .gc_pause import gc_paused
 from .snapshot import make_snapshot, validate, seal
 
 
@@ -345,7 +346,10 @@ class CheckpointSession:
         with private_evidence_lock:
             raw = self._snapshot([envelope], sequence=sequence)
             raw['metadata']['incremental']['data_revision'] = self.collection_revisions[(envelope['type'], envelope['scope'])]
-            delta = validate(self.public_snapshot(seal(raw)))
+            # raw and each public result are fresh documents owned here: seal
+            # and validate adopt them instead of copying the inventory again.
+            with gc_paused():
+                delta = validate(self.public_snapshot(seal(raw, owned=True)), owned=True)
         try:
             self.on_checkpoint(delta, None, sequence)
         except BaseException as exc:
@@ -361,7 +365,8 @@ class CheckpointSession:
             # make_snapshot owns the independent structural copy. Copying the
             # same native envelope before that repeated a complete traversal.
             one = self._snapshot([envelope], sequence=self.next_sequence + 1)
-            one = validate(self.public_snapshot(one))
+            with gc_paused():
+                one = validate(self.public_snapshot(one), owned=True)
         public_envelope = one["collections"][0]
         key = (public_envelope["type"], public_envelope["scope"])
         previous = self.pending.get(key, (None, self.collections.get(key), 0))[1]
@@ -393,8 +398,8 @@ class CheckpointSession:
         raw = self._snapshot([row for _, row, _ in entries], sequence=end)
         raw['metadata']['incremental']['batch_revisions'] = [revision for revision, _, _ in entries]
         from .secret_evidence import _lock as private_evidence_lock
-        with private_evidence_lock:
-            batch = validate(self.public_snapshot(seal(raw)))
+        with private_evidence_lock, gc_paused():
+            batch = validate(self.public_snapshot(seal(raw, owned=True)), owned=True)
         try:
             self.on_checkpoint(batch, None, end)
         except BaseException as exc:
@@ -479,8 +484,8 @@ class CheckpointSession:
             cpu_started = time.thread_time()
             raw = self._snapshot(list(collections.values()), sequence=sequence, sections=sections)
             from .secret_evidence import _lock as private_evidence_lock
-            with private_evidence_lock:
-                snapshot = validate(self.public_snapshot(raw))
+            with private_evidence_lock, gc_paused():
+                snapshot = validate(self.public_snapshot(raw), owned=True)
             from .engine import evaluate_snapshot
             report = evaluate_snapshot(snapshot, categories=self.categories, checks=ready,
                                        frameworks=self.frameworks, include_not_applicable=False,

@@ -149,6 +149,30 @@ def resource_chunks(artifacts, tenant, ident, report, snapshot, *, _inventory=No
     return out
 
 
+def _network_projection(snapshot, report_snapshot_id):
+    """Sealed network dependency projection bound to the report's snapshot.
+
+    Only the reachability collections are projected. Validating (and freezing)
+    the complete native inventory first only re-proved the source digest, which
+    the projection never carries: its original_snapshot_id is the report's own
+    binding. The sealed artifact is byte-identical to projecting the full input.
+    """
+    from peaso.analysis.reachability import REACHABILITY_TYPES, network_snapshot
+    from peaso.snapshot import seal
+    wanted = REACHABILITY_TYPES.get(snapshot.get("provider"))
+    if wanted is not None and isinstance(snapshot.get("collections"), list):
+        source = {key: value for key, value in snapshot.items() if key != "snapshot_id"}
+        source["collections"] = [row for row in snapshot["collections"]
+                                 if isinstance(row, dict) and row.get("type") in wanted]
+    else:
+        source = snapshot
+    scoped = network_snapshot(source)
+    # Imported ancestor metadata never controls report authorization or binding.
+    scoped["metadata"]["original_snapshot_id"] = report_snapshot_id
+    # network_snapshot returns a fresh document owned here.
+    return seal(scoped, owned=True)
+
+
 def publish_report(artifacts, tenant, ident, report, snapshot=None):
     batch = getattr(artifacts, "batch", None)
     if not callable(batch):
@@ -267,12 +291,8 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None):
         manifest["graphs"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_graph)
         manifest["graph_projections"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_projection(privesc_graph, 500))
     if snapshot is not None:
-        from peaso.analysis.reachability import network_snapshot
-        from peaso.snapshot import seal
         with _runtime_span("publication.projection.network_snapshot"):
-            scoped = network_snapshot(snapshot)
-            # Imported ancestor metadata never controls report authorization or binding.
-            scoped["metadata"]["original_snapshot_id"] = report["snapshot_id"]
-            manifest["network_snapshot"] = artifacts.put(tenant, ident, "network-snapshot", seal(scoped))
+            manifest["network_snapshot"] = artifacts.put(tenant, ident, "network-snapshot",
+                                                         _network_projection(snapshot, report["snapshot_id"]))
     with _runtime_span("publication.manifest.commit"):
         return artifacts.put(tenant, ident, "manifest", manifest)
