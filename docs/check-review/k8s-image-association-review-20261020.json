@@ -30,8 +30,8 @@
     "docs/check-review/k8s-image-association-setup-20261020.md": "7c5fc1a861c407d83e433255701b2565fb6fc4fe6b490cf94968dd3e89733b23"
   },
   "reviewed_checkout_source_sha256": {
-    "docs/check-review/k8s-selected-metadata-current-acceptance-20261020.json": "aea3f7b173b2d6299e364e74c599bd32a4b0928686b2df7049b25d91d254c925",
-    "docs/check-review/k8s-selected-metadata-production-review-20261020.json": "8a90b4e6845e9837146af1df854eda372f4fa09676b9ae13322e93b873ef3997",
+    "docs/check-review/k8s-selected-metadata-current-acceptance-20261020.json": "cb9ece56a1390abc860704a1568010e69c0f714f7a3256b6bc7602daed9e805e",
+    "docs/check-review/k8s-selected-metadata-production-review-20261020.json": "669db508c0ce24069544627c1e6099cc99ae2b55a90321014be5ba5562d00615",
     "docs/check-review/secret-coverage.json": "70fc21b7e5cc204085c3d9f7e6ec0b5143ea19401bd13a1c8ace6f4964c79063",
     "peaso/collectors/k8s_selected_metadata_secret_indicators_20261020.py": "e9698b64af4d3cbca2358e109ec199f2ed469c9384544a34387c76baa7049bbf",
     "peaso/collectors/k8s_selected_metadata_runtime_20261020.py": "680ed6da4cb56f645ebfdf5e343fbab20f55e7f12bca9ff8691edd09e361694f",

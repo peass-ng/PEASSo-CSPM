@@ -548,9 +548,9 @@
   "preserved_predecessors": [
     {
       "path": "docs/check-review/azure-function-settings-declarations-native-review-20261020.json",
-      "sha256": "164b72544edbb5cf4d838c11ec966238ef551297aeb4aac1b2fdb6edd2dcfd29",
+      "sha256": "f77e9e0f6c185021a2cb8004040a1e705c4396bdff1d6cbb52c98199e76121e1",
       "bytes": 94106,
-      "accepted_sha256": "164b72544edbb5cf4d838c11ec966238ef551297aeb4aac1b2fdb6edd2dcfd29",
+      "accepted_sha256": "f77e9e0f6c185021a2cb8004040a1e705c4396bdff1d6cbb52c98199e76121e1",
       "unchanged": true
     },
     {

@@ -35486,13 +35486,13 @@
   },
   "prior_reports_immutable": {
     "docs/check-review/azure-acr-public-ip-review-20261020.json": {
-      "after": "16bf02f5ea512f1960bc67692ac59384544f01b181a55074095ba12414cbed57",
-      "before": "16bf02f5ea512f1960bc67692ac59384544f01b181a55074095ba12414cbed57",
+      "after": "06f52a197f3c71f7d955f93f84864a3b47c3d4a1f5129f71d48ac1518b596b69",
+      "before": "06f52a197f3c71f7d955f93f84864a3b47c3d4a1f5129f71d48ac1518b596b69",
       "unchanged": true
     },
     "docs/check-review/azure-application-compute-2-native-review-20261020.json": {
-      "after": "45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa",
-      "before": "45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa",
+      "after": "f7b6c2644766055192acf53d9cd799d58297e434354e7f7db30138026690f59e",
+      "before": "f7b6c2644766055192acf53d9cd799d58297e434354e7f7db30138026690f59e",
       "unchanged": true
     }
   },
@@ -37119,8 +37119,8 @@
     "tests/test_peaso_azure_access_reviews_native.py": "9ffc66f04a44f49b4809d7aae98e796aae4d94726bb2fca13753d23022da6edd"
   },
   "source_before": {
-    "docs/check-review/azure-acr-public-ip-review-20261020.json": "16bf02f5ea512f1960bc67692ac59384544f01b181a55074095ba12414cbed57",
-    "docs/check-review/azure-application-compute-2-native-review-20261020.json": "45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa",
+    "docs/check-review/azure-acr-public-ip-review-20261020.json": "06f52a197f3c71f7d955f93f84864a3b47c3d4a1f5129f71d48ac1518b596b69",
+    "docs/check-review/azure-application-compute-2-native-review-20261020.json": "f7b6c2644766055192acf53d9cd799d58297e434354e7f7db30138026690f59e",
     "peaso/checks/__init__.py": "bc360dea10e8c0cf13b866cd4845ad686b617cc1917d022bc5c937de9b4f1c6e",
     "peaso/collectors/azure.py": "7f0428200258ef58f3256cf0b7ed63704efc9f734489dbd75b2b9df74e96e5d7",
     "peaso/engine.py": "05050a40299176555adb0868e460821891baead28f5e7610e2b14449495a379a"

@@ -192,8 +192,8 @@
   ],
   "file_hashes": {
     "docs/evidence-reviews/gcp.json": "9c132fa656658e6c37b7dda3ce8f06bc570f1439761f2a4c4bc704f7ff12ea3f",
-    "docs/check-review/gcp-current-ledger-source-conservation-20261020.json": "d6881c34d1401795aa0375ddd3c3d7a6f17894905fa786ad5f5d5d8cdd42b6f6",
-    "docs/check-review/gcp-function-current-ledger-erratum-20261020.json": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2",
+    "docs/check-review/gcp-current-ledger-source-conservation-20261020.json": "6da9f2ca0ed2c588b0981edc54596658e89e53047eeeddfb8a6e27cb6a0a53e4",
+    "docs/check-review/gcp-function-current-ledger-erratum-20261020.json": "af88bde5ae184d1ecfaeaf016292e7aa59306dc4a3f45da859143a1ef09665ee",
     "tests/test_gcp_workbench_current_acceptance_20261020.py": "db4085eee31af7574011d69c50d6c85cbb402ceaa2e7572ad3ab22d2ee23e05f",
     "tests/test_gcp_current_source_reconciliation_20261020.py": "5a639b6a474032041b8bb608ff94163a67fa3db67701bc1c541ffbc6b125b25e",
     "tests/fixtures/gcp_current_ledger_head3_predecessors_20261020.json.gz": "7cb8172e9b89000b5ea38723fcb964f1c0d3ea944e81f7986468f0dc670cd354",

@@ -1,7 +1,7 @@
 {
   "origin_reports": {
-    "native57-iam-kms-fixes.json": "eefeebbf860250393d8d59feeceb5d625d6f23f92921bee2d43f83cdd1e4ab5e",
-    "native57-data-fixes.json": "b180027b5236b0f44d8714f79459d437a3ace7dbfe35da9e06ccfd8de550d96a"
+    "native57-iam-kms-fixes.json": "a3476ec20706b33665717e29c8ab7ce3d5859a6b6b0ee45ec860b01dd6f7a9d0",
+    "native57-data-fixes.json": "252302a87a3508ae82aa298a5fe0765d444eb6a6eef8d474c8572f02134097f0"
   },
   "checks": {
     "gcp.ports.sql_instance_mysql_binary_log_enabled": {

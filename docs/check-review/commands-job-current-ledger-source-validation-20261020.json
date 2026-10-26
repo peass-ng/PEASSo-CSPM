@@ -8,7 +8,7 @@
   "scope": "Exactly AWS selected command literals1 and GCP Cloud Run Job declared image1 current review bookkeeping",
   "source_conservation": {
     "path": "docs/check-review/commands-job-current-ledger-source-conservation-20261020.json",
-    "sha256": "4cb0fcb32e316e310b8a3076d684444e03feea99c78ebef991c110785d85f1d9"
+    "sha256": "47c78ae99de0c8b609b921fe5f23e5eb74b23c200f38f86558457e452e72dd72"
   },
   "current_acceptances": {
     "aws.review.workload.selected_command_literal_secret_indicators": {
@@ -250,7 +250,7 @@
     },
     "function_erratum": {
       "path": "docs/check-review/gcp-function-current-ledger-erratum-20261020.json",
-      "sha256": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2"
+      "sha256": "a0e89befb7eb83f29b37c23f5409e52c0e1e6a10e786314fa50364bae660967a"
     },
     "old_registered_native": 535,
     "new_registered_native": 536,

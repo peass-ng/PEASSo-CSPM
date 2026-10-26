@@ -947,23 +947,23 @@
     },
     {
       "path": "docs/check-review/k8s-cluster-native-review-20261020.json",
-      "sha256": "540c0bfdf4a1db8a65e0c58fa0d97bd3634075535e093bfd77afff1927ed7e87"
+      "sha256": "10f401b474d586d631be979390795d8b5b46a898b2fa4e5696849a576b17dd8f"
     },
     {
       "path": "docs/check-review/k8s-annotation-psp-native-closure-20261020.json",
-      "sha256": "edb0cc8df5272408c72f47ffcf545802cf46fea48bc0054dca4d803ac27dd61d"
+      "sha256": "ff888f460efefd934b259281cec19a9b2a6346e75099a854616f340507c44c9a"
     },
     {
       "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-      "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48"
+      "sha256": "fbe6ec86ab5851747a493e7497f2a15fd77c0f3ec1acf530f1834d057815e785"
     },
     {
       "path": "docs/check-review/k8s-annotation-native-admission-portability-20261020.json",
-      "sha256": "8cfff12c6ceffd65617d3ddfbffdf6e9b481b04df5fa31edf6f7a5a230e85f3f"
+      "sha256": "f7cf560a53878ce24b2bdb2c4a9a60f32120f8938f621b4a92f16079edd0377f"
     },
     {
       "path": "docs/check-review/k8s-current-integration-review-20261020.json",
-      "sha256": "0d072f99fd8b6d87cc49caab449ddef2904d122375434049dd666a15405317c0"
+      "sha256": "b59a254d84c8d3a0e95f4a166fcdfcb7b769479170ac7217bc1ef37ed4fb6070"
     },
     {
       "path": "docs/check-review/k8s-image-policy-source-successor-20261020.json",

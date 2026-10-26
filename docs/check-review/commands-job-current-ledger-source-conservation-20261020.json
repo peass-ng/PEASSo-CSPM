@@ -57,7 +57,7 @@
   },
   "historical_function_erratum": {
     "path": "docs/check-review/gcp-function-current-ledger-erratum-20261020.json",
-    "sha256": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2"
+    "sha256": "a0e89befb7eb83f29b37c23f5409e52c0e1e6a10e786314fa50364bae660967a"
   },
   "upstream_semantic_equivalence_claimed": false,
   "full_goal_complete": false,

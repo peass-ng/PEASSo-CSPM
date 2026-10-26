@@ -214,14 +214,14 @@
         "bytes": 27061,
         "gzip_sha256": "2714b562768e86e3dcb6dd44087d56ef909a2f2de33287b2d28e3ee928baf936",
         "retained_gzip": "docs/check-review/k8s-annotation-admission-lineage-20261020/k8s_annotation_native_admission_20261020.json.pre-portable.gz",
-        "sha256": "3f4ef3bfc7da3d8fca39a8d77e79e2c375ce4e40e03fff670fa042c44548af36",
+        "sha256": "6be12fa2e2d43a724a758d6efa3a77c561f362938d483dce8d9df7bd85661cca",
         "source": "peaso/checks/k8s_annotation_native_admission_20261020.json"
       },
       {
         "bytes": 261157,
         "gzip_sha256": "f53073f77f721e4804fe93b0c89de596a43804eca2deeb91a4babe87a67c3cf8",
         "retained_gzip": "docs/check-review/k8s-annotation-admission-lineage-20261020/k8s-annotation-native-admission-20261020.json.pre-portable.gz",
-        "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
+        "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
         "source": "docs/check-review/k8s-annotation-native-admission-20261020.json"
       }
     ]

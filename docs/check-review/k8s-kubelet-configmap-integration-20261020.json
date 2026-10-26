@@ -380,7 +380,7 @@
     "current_receipt": {
       "bytes": 39214,
       "path": "/Users/carlospolop/git/Blue-CloudPEASS/peaso/checks/k8s_annotation_native_admission_configmap_successor_20261020.json",
-      "sha256": "ce9f5e6f2b7f2911f4eda89703d6ac639db1fde1798472080450c24d6b5f99d1"
+      "sha256": "900a7dc1dfcfb0eef31f20ac38605cf5d1bb8346cbd3efa2f73fa589a4cd7982"
     },
     "only_changed_collector_function": [
       "collect"
@@ -405,7 +405,7 @@
         "bytes": 36996,
         "gzip_sha256": "4c69905e4f432eba29613d635d3ff790bbf08e4c01f18419ec83cd9791b1083c",
         "retained_gzip": "docs/check-review/k8s-kubelet-configmap-integration-lineage-20261020/k8s_annotation_native_admission_scoped_20261020.json.pre-configmap.gz",
-        "sha256": "f8dc3b5ca12836f3aa77234b613331be7c724a18e32581439bb4fc2e1f4491e9",
+        "sha256": "20db2a27e82c4bf2ef7ab2c0827064c4310fc91187046f32ed51288624a87496",
         "source": "peaso/checks/k8s_annotation_native_admission_scoped_20261020.json"
       }
     ],
@@ -439,7 +439,7 @@
     "old_scoped_receipt_bytes": {
       "bytes": 36996,
       "path": "peaso/checks/k8s_annotation_native_admission_scoped_20261020.json",
-      "sha256": "f8dc3b5ca12836f3aa77234b613331be7c724a18e32581439bb4fc2e1f4491e9"
+      "sha256": "20db2a27e82c4bf2ef7ab2c0827064c4310fc91187046f32ed51288624a87496"
     },
     "original_CASES_and_signed_manifests": true,
     "prior139_native_receipts": "Unchanged under /tmp/peasso-gcp-review-20261020/k8s-kubelet-configmap/final-bound.xml and reports.",

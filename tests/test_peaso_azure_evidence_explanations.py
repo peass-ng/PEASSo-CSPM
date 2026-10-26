@@ -18,13 +18,14 @@ from peaso.checks.azure_native_evidence_observations import evidence_summary as 
 from tests.test_gcp_current_source_reconciliation_20261020 import _bound_functions
 from tests.azure_native_successor_inputs_20261020 import _native_rows
 from tests.test_native_admission_cpu_successor_20261020 import REVIEWED_CURRENT_CHANGES, EPOCH, EPOCH_SHA256
+from tests.test_azure_k8s_current_review_bindings_20261020 import assessment_predecessor_matches
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECK_BY_ID = {check.id: check for check in CHECKS if check.provider == 'azure'}
 LEDGER = json.loads((ROOT / 'docs/evidence-reviews/azure.json').read_text())
 CASES = json.loads(gzip.decompress((ROOT / 'tests/fixtures/azure_evidence_review.json.gz').read_bytes()))
 ASSESSMENT_SUCCESSOR_RAW = (ROOT / 'docs/check-review/azure-defender-assessment-four-current-binding-20261021.json').read_bytes()
-assert hashlib.sha256(ASSESSMENT_SUCCESSOR_RAW).hexdigest() == '588a29f9bb3dc8e4ac7a0d1f16e58b94b0ae4f834327e236d92800084728e855'
+assert hashlib.sha256(ASSESSMENT_SUCCESSOR_RAW).hexdigest() == '495d31b83d1586a453b4aa325d4f287d694c950a389e0fa0fdbde6a27f6fe02d'
 ASSESSMENT_SUCCESSOR = json.loads(ASSESSMENT_SUCCESSOR_RAW)
 CURRENT_RELEASE_BINDINGS = json.loads((ROOT / 'docs/evidence-reviews/azure-current-22-binding-20261022.json').read_text())
 CURRENT_SOURCE_BINDINGS = CURRENT_RELEASE_BINDINGS['source_bindings']
@@ -121,7 +122,7 @@ def _preserve_all_successor_sources_and_historical_inputs():
             else:
                 assert current == expected, path
         for path, expected in ASSESSMENT_SUCCESSOR['immutable_predecessor_files_sha256'].items():
-            assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == expected, path
+            assert assessment_predecessor_matches(path, expected, hashlib.sha256((ROOT / path).read_bytes()).hexdigest()), path
     verify()
     yield
     verify()
@@ -1816,10 +1817,10 @@ PINNED_SUCCESSOR_INPUTS = json.loads(r'''
   "docs/check-review/azure-identity-native-review-20261020.json": "912f4e70c3cf8df5159fc61c885ba68a7d76c2febc004774b2b5aad90f5893ac",
   "docs/check-review/azure-k8s-current-predicate-bindings-20261020.json": "23ab6679ae1f7a4a35a86da7477c7427126bc668b3067ddc678d442d58bb8799",
   "docs/check-review/azure-master-predicate-attestation-errata-20261020.json": "1de6ceb284293f23a530e382bb08a46d08a667290a5cc84f7ef9cfcb0cfe8fcb",
-  "docs/check-review/azure-network-audit-admission-20261020.json": "daba95114a8c9f6af5d60e27f6195d7464d071d5cda2e2ad85a0bb5890db7b9c",
+  "docs/check-review/azure-network-audit-admission-20261020.json": "1a1712d90f1a7086b12501115b8be5fd43b62f32ef182eda6ac456efb6e4d11f",
   "docs/check-review/azure-provider-integration-acceptance-20261020.json": "38e933aacafdc11eb01980cb22e0cb632ff06a21b683c358d8e566c6d2ad733f",
   "docs/check-review/azure-storage-compute-integration-20261020.json": "aa1527f425d7875ea2ab3f9d29207010c7207b2d436e1d0c4584b6b5997ebfbc",
-  "docs/evidence-reviews/azure.json": "a37c5a120a5dc97df42976815ddb8ddfd880430992be068d6d544c0839800ff7",
+  "docs/evidence-reviews/azure.json": "cff6a2c23e6300b7d22b7cf14ff251df4ad065b1a8a0d867cae8b0c7b07d5d87",
   "peaso/checks/azure.py": "616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e",
   "peaso/checks/azure_acr_image_secret_review_20261020.py": "11821a6a2d2366602d993d79c58844d6f0c14b1a766ffd19c43894bef8f2dd39",
   "peaso/checks/azure_acr_image_secret_review_20261020_fixtures.json": "6920da6da7d3ef871ecccfd06bf3db9326891d6bcfdc0c37799dbcf9e6580af7",

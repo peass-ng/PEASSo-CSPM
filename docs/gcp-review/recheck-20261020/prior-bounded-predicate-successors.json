@@ -1,5 +1,5 @@
 {
-  "origin_report_sha256": "0436c17786b66f5c348d5ba03e0d1cc40a8c241e307db51fd647494a09c82591",
+  "origin_report_sha256": "5ddb7a4e885d40f36df57c5591cb8fc0dc100333e8e77afd196132f8d309d158",
   "checks": {
     "gcp.claude.bigquery_dataset.no_gmail_access": {
       "before": "    @gcp(slug, \"bigquery_dataset\", \"BigQuery dataset access does not grant \" + label + \" accounts\", control=\"AC-3\", category=\"exposure\",\n         remediation=\"Remove dataset access entries for consumer \" + label + \" accounts and grant access to managed identities.\")\n    def evaluate(item, index):\n        hits = []\n        for entry in list_of_objects(omitted(item, \"access\", [], list)):  # empty ACL omitted on full reads\n            email = optional(entry, \"userByEmail\", None, str)\n            if email is not None and email.lower().endswith(suffix):\n                hits.append({\"userByEmail\": email, \"role\": entry.get(\"role\")})\n        return result(bool(hits), matching_entries=hits)\n",

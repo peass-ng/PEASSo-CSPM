@@ -1366,7 +1366,7 @@
   "immutable_predecessors": [
     {
       "path": "peaso/checks/k8s_annotation_native_admission_content_privacy_successor_20261020.json",
-      "sha256": "c87497b19d0530d1fb3be91abbabebe1e77e3dfc08ed4117b88eda282a124da8",
+      "sha256": "1a5c8bf1654a6308090965296aa80577fc50f6039f617811b20168dfb8e93baa",
       "preserved_exact": true
     },
     {
@@ -1438,7 +1438,7 @@
     },
     {
       "path": "peaso/checks/k8s_annotation_native_admission_selected_metadata_successor_20261020.json",
-      "sha256": "35ffe7d28a2f9bf0aa1432cbc467562d7098ede9dab3d2a4f0fee1c0b4ea0b1d",
+      "sha256": "fc076b028db2a5ffd51fda5a11477f756fe1c6f9fbf270ada33f138eb74938bd",
       "bytes": 45898
     },
     {

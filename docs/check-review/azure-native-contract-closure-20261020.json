@@ -1683,7 +1683,7 @@
       },
       "previous_report": {
         "path": "docs/check-review/azure-remaining-services-2-native-review-20261020.json",
-        "sha256": "b35f7ddcac5cc758b0143f7c1ecbd62a695805d0849baf23e3aa2e9afb927675",
+        "sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9",
         "bytes": 1366338
       },
       "previous_red_receipts": {
@@ -1739,7 +1739,7 @@
       },
       "previous_report": {
         "path": "docs/check-review/azure-remaining-services-2-native-review-20261020.json",
-        "sha256": "b35f7ddcac5cc758b0143f7c1ecbd62a695805d0849baf23e3aa2e9afb927675",
+        "sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9",
         "bytes": 1366338
       },
       "previous_red_receipts": {
@@ -1798,7 +1798,7 @@
       },
       "previous_report": {
         "path": "docs/check-review/azure-remaining-services-2-native-review-20261020.json",
-        "sha256": "b35f7ddcac5cc758b0143f7c1ecbd62a695805d0849baf23e3aa2e9afb927675",
+        "sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9",
         "bytes": 1366338
       },
       "previous_red_receipts": {
@@ -2665,7 +2665,7 @@
   "preservation": {
     "prior_report": {
       "path": "docs/check-review/azure-remaining-services-2-native-review-20261020.json",
-      "sha256": "b35f7ddcac5cc758b0143f7c1ecbd62a695805d0849baf23e3aa2e9afb927675",
+      "sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9",
       "bytes": 1366338
     },
     "prior_frozen_sources": [
@@ -2683,10 +2683,10 @@
     "note": "No historical report, frozen CASES/MANIFEST/source pin, canonical metadata or old test was modified. Only the named service-local producer/check modules, exact approved collector hook, new fixture/test and this report belong to this task.",
     "lock_prior_report": {
       "path": "docs/check-review/azure-remaining-services-1-native-review-20261020.json",
-      "sha256": "dff91e10c0708926586c31a766b9e4adce0f682cc84609aff3d055d6e00ae85e",
+      "sha256": "cae9905a728c8814069849b55a8c03fb8a6fb204d4f21ffaf1dd875f543112e0",
       "bytes": 1905196
     },
-    "prior_report_unchanged_sha256": "b35f7ddcac5cc758b0143f7c1ecbd62a695805d0849baf23e3aa2e9afb927675"
+    "prior_report_unchanged_sha256": "076e06cbd4510291fde114b961f70cbdd09cd15d64319dcd389171cd525600f9"
   },
   "additional_correctness_target": {
     "id": "azure.claude.iam_custom_role_administers_locks",
@@ -2695,7 +2695,7 @@
     "local_helper": "peaso.checks.claude_azure_identity._lock_administration_declared",
     "previous_report": {
       "path": "docs/check-review/azure-remaining-services-1-native-review-20261020.json",
-      "sha256": "dff91e10c0708926586c31a766b9e4adce0f682cc84609aff3d055d6e00ae85e",
+      "sha256": "cae9905a728c8814069849b55a8c03fb8a6fb204d4f21ffaf1dd875f543112e0",
       "bytes": 1905196
     },
     "output_contract": "A custom role declared in the selected assignable scope includes both resource-lock write and delete after each permission block subtracts its own NotActions and the blocks are combined. This is configuration capability only; assignment, principal access and effective authorization are not assessed.",
