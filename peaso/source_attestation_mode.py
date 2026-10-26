@@ -15,12 +15,13 @@
     Tests, CI and the image build re-prove on every call, which also catches
     live rebinding after import.
 
-Unset and unrecognised values fail closed to ``always``. The verified worker
-image explicitly selects ``trusted``; mutable local installs keep source proofs.
+An unset value selects ``once``: the initial source proof always runs. Unknown
+values fail closed to ``always``. The verified immutable worker explicitly
+selects ``trusted`` only after its strict image-build proof.
 """
 import os
 
-_REQUESTED = os.environ.get('PEASO_SOURCE_ATTESTATION', '').strip().lower() or 'always'
+_REQUESTED = os.environ.get('PEASO_SOURCE_ATTESTATION', '').strip().lower() or 'once'
 MODE = _REQUESTED if _REQUESTED in ('trusted', 'once', 'always') else 'always'
 ALWAYS = MODE == 'always'
 TRUSTED = MODE == 'trusted'

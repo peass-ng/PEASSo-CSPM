@@ -91,7 +91,7 @@ def _child(attestation, code):
 def test_trusted_requires_explicit_opt_in_and_unknown_values_fail_closed():
     probe = ('from peaso import source_attestation_mode as m;'
              'print(m.MODE, m.TRUSTED, m.ALWAYS)')
-    assert _child(None, probe).split() == ['always', 'False', 'True']
+    assert _child(None, probe).split() == ['once', 'False', 'False']
     assert _child('trusted', probe).split() == ['trusted', 'True', 'False']
     assert _child('once', probe).split() == ['once', 'False', 'False']
     assert _child('always', probe).split() == ['always', 'False', 'True']
