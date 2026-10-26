@@ -21,6 +21,7 @@ from peaso.collectors import k8s_selected_flux_artifact_20261021 as flux
 from peaso import container_image_archive_20261020 as archive
 from peaso import secret_scanning
 from peaso.snapshot import make_snapshot, canonical
+from tests.pinned_secret_scanners import require_pinned_scanners
 
 rng = random.Random(314159)
 def token(length, alphabet=string.ascii_letters + string.digits):
@@ -119,6 +120,7 @@ def fake_native(monkeypatch, pod, source, service, raw):
     return pool
 
 def test_both_collectors_real_detectors_redact_ordinary_aliases(monkeypatch):
+    require_pinned_scanners()
     image_target,pod,blobs=registry_fixture(CANARY)
     flux_target,source,service,raw=flux_fixture(CANARY)
     pool=fake_native(monkeypatch,pod,source,service,raw)
@@ -155,6 +157,7 @@ def test_both_collectors_real_detectors_redact_ordinary_aliases(monkeypatch):
     assert pool.client.last_response is None
 
 def test_clean_and_one_engine_partial_positive_keep_bound_value(monkeypatch):
+    require_pinned_scanners()
     target,source,service,raw=flux_fixture(b'mode: ready\n')
     matches=set()
     clean=flux.inspect(target,lambda _:source,lambda _:service,lambda _:raw,

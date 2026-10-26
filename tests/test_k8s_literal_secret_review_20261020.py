@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 import pytest
 from kubernetes.client import ApiClient, Configuration
 from peaso import engine, secret_scanning as scanning
+from tests.pinned_secret_scanners import require_pinned_scanners
 from peaso.collectors import k8s
 from peaso.collectors import k8s_literal_secret_indicators as source
 from peaso.checks import k8s_literal_secret_review_20261020 as checks
@@ -175,6 +176,7 @@ def test_native_dual_detection_and_no_raw_retention(monkeypatch,kind,positive):
 @pytest.mark.parametrize('kind',['Pod','ConfigMap'])
 @pytest.mark.parametrize('positive',[False,True])
 def test_real_pinned_offline_detectors(monkeypatch,kind,positive):
+    require_pinned_scanners()
     t=target(kind)
     snapshot,trace=capture(monkeypatch,targets=[t],documents={route(t):native(t,TOKEN if positive else 'ready = true')},real=True)
     result=findings(snapshot)
@@ -473,6 +475,7 @@ def test_native_partial_projection_markers_never_clean(monkeypatch,key):
 
 
 def test_native_derived_fixture_receipt(monkeypatch):
+    require_pinned_scanners()
     cases={}
     for status in ('PASS','FAIL','UNKNOWN'):
         with monkeypatch.context() as patch:
