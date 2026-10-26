@@ -301,6 +301,45 @@ def test_denied_mock_http_cannot_scan_or_cache_error_content(monkeypatch):
     assert TOKEN not in json.dumps(transport.evidence)
 
 
+def test_cloudbuild_numeric_project_alias_batch_matches_serial(real, monkeypatch):
+    from peaso import secret_scanning_batch as batch
+    from peaso import secret_scan_clean
+    url, response = source('cloudbuild_build', TOKEN)
+    first = response['builds'][0]
+    first['name'] = first['name'].replace(SCOPE, 'projects/123456789012', 1)
+    second = deepcopy(first)
+    second['id'] = '22222222-2222-2222-2222-222222222222'
+    second['name'] = second['name'].replace(first['id'], second['id'])
+    second['substitutions']['_SETTING'] = 'production'
+    second['options']['env'] = ['SETTING=production']
+    second['steps'] = [{'id': 'step', 'name': 'example.invalid/builder', 'env': ['SETTING=production']}]
+    response['builds'].append(second)
+    options = {'method': 'GET', 'url': url, 'scope': SCOPE, 'enabled': True,
+               'selected_kinds': ['cloudbuild_build']}
+    original = batch._prepare_trufflehog_batch
+    prepared = []
+    def record(items, timeout):
+        result = original(items, timeout)
+        prepared.append(result is not None)
+        return result
+    monkeypatch.setattr(batch, '_prepare_trufflehog_batch', record)
+    actual = projection.project_response(deepcopy(response), **options)
+    monkeypatch.setattr(batch, '_prepare_trufflehog_batch', lambda items, timeout: None)
+    scanning._RESULTS.clear()
+    secret_scan_clean._CLEAN.clear()
+    serial = projection.project_response(deepcopy(response), **options)
+    assert actual == serial
+    assert [check.evaluate(row, index('cloudbuild_build', row), 'cloudbuild_build')[0]
+            for row in actual['builds']] == ['FAIL', 'PASS']
+    assert TOKEN not in json.dumps(actual)
+    if __import__('sys').platform == 'linux':
+        assert prepared == [True]
+    foreign = deepcopy(response)
+    foreign['builds'][0]['projectId'] = 'foreign'
+    refused = projection.project_response(foreign, **options)['builds'][0]
+    assert check.evaluate(refused, index('cloudbuild_build', refused), 'cloudbuild_build')[0] == 'UNKNOWN'
+
+
 @pytest.mark.parametrize('kind', ['instance', 'instance_template'])
 def test_compute_native_nonaggregated_list_and_exact_get_bindings(clean, kind):
     _, response = source(kind)

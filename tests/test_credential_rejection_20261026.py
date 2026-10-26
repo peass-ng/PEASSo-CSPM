@@ -75,6 +75,7 @@ def test_cli_scan_of_dead_gcp_key_with_derived_facts_exits_nonzero(tmp_path, cap
 @pytest.mark.parametrize("provider", sorted(DEAD))
 def test_hosted_collector_fails_dead_credential_scan_as_credentials_invalid(tmp_path, monkeypatch, provider):
     import peaso.engine
+    import peaso.checks
     from peaso import worker
 
     class Pipe:
@@ -85,14 +86,22 @@ def test_hosted_collector_fails_dead_credential_scan_as_credentials_invalid(tmp_
 
         def close(self):
             pass
-    snapshot = make_snapshot(provider, ["*"], [DEAD[provider], *DERIVED.values()])
+    scopes = {"aws": ["123456789012"], "gcp": ["*", "projects/p"],
+              "azure": ["*"], "k8s": ["*"]}[provider]
+    rows = [{**DEAD[provider], "scope": scopes[0]}]
+    if provider in DERIVED:
+        rows.append(DERIVED[provider])
+    snapshot = make_snapshot(provider, scopes, rows)
     monkeypatch.setattr(peaso.engine, "collect_snapshot", lambda request: snapshot)
     monkeypatch.setattr(worker.os, "dup2", lambda *a: None)
     monkeypatch.setattr(worker, "_verify_aws_credentials", lambda connector: None)
+    # This harness exercises collector termination with a supplied snapshot;
+    # source admission is covered by its own tests and is unrelated here.
+    monkeypatch.setattr(worker, "_import_checks", lambda: None)
     request = {"artifact_config": {"mode": "file", "root": str(tmp_path)}, "tenant_id": "t", "scan_id": "0" * 32,
                "connector": {"provider": provider, "auth": {}}}
     worker._process("collector", request, Pipe())
-    assert Pipe.sent[:2] == (False, "credentials_invalid")
+    assert Pipe.sent[:2] == (False, "credentials_invalid"), Pipe.sent
 
 
 class _ClientError(Exception):
