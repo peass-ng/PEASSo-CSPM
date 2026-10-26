@@ -1102,6 +1102,7 @@
     "peaso/collectors/azure_acr_image_secret_indicators.py": "528640e64c665a79e9b045ecc028e5eccfae9ddd1f28e237ff73ae390ab54c9a",
     "peaso/collectors/azure_acr_image_stream_inspection_20261021.py": "27228bceb4446654a8655af4f2f6e5e560c87e556ceb25046659039f16dee600",
     "peaso/collectors/azure_acr_image_vulnerabilities_20261021.py": "9519722add815a7f2f61da4b8c1ff3b4160c3f4c895499c1d0c844c6038a4c0b",
+    "peaso/collectors/azure_acr_layer_overlap_20261026.py": "ea72a7232966937d0ed762d3bc41d7441efeacbc4fa4afddfaa7edd0e96c6840",
     "peaso/collectors/azure_acr_public_ip_review_20261020.py": "1cc1d329459d814fef142f4cfda9256f8e37614e3a574214c0b4c6bb062bc367",
     "peaso/collectors/azure_adaptive_network_native.py": "02ca06cca783c2ff149efb46be0864c70f93db6979f5acdc43442f77f20baf8a",
     "peaso/collectors/azure_agent_identity_native.py": "8c3e3b51fa3dc8044e2fc929cbb8aaa2ea21217a0dc84e750a7f3b4e38217320",
@@ -1284,6 +1285,7 @@
     "peaso/collectors/gcp_key_usage_20261021.py": "7e88e7a61f8e32c91340d7a39a2813563b827e3eb02aa6bcdd53f4adee0377a6",
     "peaso/collectors/gcp_kms_effective_native.py": "7d2c1e81afebac5e99d47951c85c24aeb91e1795d3fe233c396d9bac6a30ae01",
     "peaso/collectors/gcp_krm_api_hosts.py": "821fd16973ee24d5e34d5afaf051be721039048c2526bec8fdce85bd33206ad2",
+    "peaso/collectors/gcp_layer_overlap_20261026.py": "280146988b427ecf2528a3e8d9e492bd1b0f335235cd007cbef80c874a0de295",
     "peaso/collectors/gcp_log_secret_indicators.py": "fba1727c9f1d95d9e3814be5258548ffd22deaede3851efee27406a0b151eb54",
     "peaso/collectors/gcp_logging_views.py": "515b5aa5e3c6653aaaa9838b85ae2ffa9f7a55860f5637f0c87c9309dc518877",
     "peaso/collectors/gcp_native_evidence.py": "5df2cf1408fa86f259ab8ad4c6684afe8a18592564a928a326b3a3581b90e110",
@@ -1340,6 +1342,7 @@
     "peaso/collectors/k8s_selected_metadata_secret_indicators_20261020.py": "e9698b64af4d3cbca2358e109ec199f2ed469c9384544a34387c76baa7049bbf",
     "peaso/collectors/k8s_selected_registry_image_20261021.py": "b19a694d3a5f6f7517f15515371e5d7c69f2284bd9b5e38855cea6c9f8ae9aa5",
     "peaso/collectors/k8s_selected_text_content.py": "6b9aecbcf06317aa013537e20c840444b4a6b55915e3466c2dd1c969c5652462",
+    "peaso/collectors/registry_layer_overlap_20261026.py": "d6dc05a71eafe75bbf1bd300a51e8015693ce7b7709156664a59a48e4eece120",
     "peaso/collectors/resume.py": "d1cf60581926e523aecb99c232dc65864e6cb3edf5cfa2338cb00148426ab258",
     "peaso/collectors/scan_cache.py": "3cd519361ab4c48202b66976f2a5fc7c424b356d068139d38e21e666ea28997f",
     "peaso/collectors/selected_image_trivy_database_20261021.py": "938b6e5b6d22b1021e37959c09f5d7f44dff7098be03650fdd312dd65f631866",
@@ -1698,10 +1701,7 @@
     "peaso/worker.py": "0a4f0010617be71fd913b173c8b4bae5f0015bcf5de05833d8b6f2f170c7e41e",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
-    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814",
-    "peaso/collectors/azure_acr_layer_overlap_20261026.py": "ea72a7232966937d0ed762d3bc41d7441efeacbc4fa4afddfaa7edd0e96c6840",
-    "peaso/collectors/gcp_layer_overlap_20261026.py": "280146988b427ecf2528a3e8d9e492bd1b0f335235cd007cbef80c874a0de295",
-    "peaso/collectors/registry_layer_overlap_20261026.py": "d6dc05a71eafe75bbf1bd300a51e8015693ce7b7709156664a59a48e4eece120"
+    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814"
   },
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
