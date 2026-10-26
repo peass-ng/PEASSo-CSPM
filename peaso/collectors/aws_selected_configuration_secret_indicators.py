@@ -653,25 +653,101 @@ def collect_selected(requests,session,region,caller,options,scopes):
     with requests._lock:
         requests.configuration_content_sessions[id(session)]={'account':account,'partition':m[1],'principal':principal}
         requests.configuration_content_metadata[KIND+'_principals'][account]=principal
-    items=[]
-    for target in targets:
+    from contextlib import nullcontext
+    def read(target, cohort=None):
         surface,selected_account,selected_region,partition,_=parse(target)
-        if selected_account!=account or selected_region!=region:continue
         service,operation,args=route(target);locator=opaque_arguments(args)['request_locator']
         info=requests.configuration_content_approved[(service,operation,region,locator)]
+        member=info['id']+'.content'
         try:
-            with source_context(**target_source(target, path=surface, location_kind='configuration')):
-                if surface=='ssm_document':
-                    own_service,own_operation,own_args=route(target,ownership=True)
-                    owned=requests.call(session,own_service,region,own_operation,_metadata_profile=PROFILE,**own_args)
-                    if owned[MARKER]['status']!='owned_document_metadata':raise ValueError('document_owner_unresolved')
-                item=requests.call(session,service,region,operation,_metadata_profile=PROFILE,**args)
+            from peaso.secret_scanning_batch import prepared_content_member
+            with prepared_content_member(cohort,member) if cohort is not None else nullcontext():
+                with source_context(**target_source(target, path=surface, location_kind='configuration')):
+                    if surface=='ssm_document':
+                        own_service,own_operation,own_args=route(target,ownership=True)
+                        owned=requests.call(session,own_service,region,own_operation,_metadata_profile=PROFILE,**own_args)
+                        if owned[MARKER]['status']!='owned_document_metadata':raise ValueError('document_owner_unresolved')
+                    item=requests.call(session,service,region,operation,_metadata_profile=PROFILE,**args)
         except Exception as exc:
             from .workload_environment_discovery import record_denial
             record_denial(requests, exc, info['id'], service, operation)
             marker=base(info,requests,locator);marker['principal']=principal
             item={'id':info['id'],MARKER:marker,'_provenance':{'scope':info['scope'],'capture':marker['capture'],'selection_locator':info['id']}}
-        items.append(item)
+        finally:
+            if cohort is not None:cohort.finish(member)
+        return item
+
+    selected=[target for target in targets if parse(target)[1:3]==(account,region)]
+    items=[]
+    workers=max(1,min(8,getattr(requests,'workers',1)))
+    # Native response/call allowances are shared across regional invocations.
+    # Serialize admission and serial reads without holding the SDK state lock
+    # while worker projections account their actual responses.
+    with requests._lock:
+        admission=getattr(requests,'configuration_content_admission_lock',None)
+        if admission is None:
+            from threading import Lock
+            admission=Lock()
+            requests.configuration_content_admission_lock=admission
+
+    def collect_group(group):
+        cohort=None
+        if len(group)>1 and workers>1 and getattr(requests,'max_calls',None) is None:
+            try:
+                from peaso.secret_scanning_batch import _volatile_shm_available
+                if _volatile_shm_available(MAX_CONTENT*len(group)):
+                    remaining(requests)
+                    from peaso.secret_scanning import _trufflehog
+                    _trufflehog()
+                    from peaso.secret_scanning_cohort import ContentCohort
+                    cohort=ContentCohort([identity(target)+'.content' for target in group],
+                        min(requests.configuration_content_state['deadline'],getattr(requests,'deadline',None) or requests.configuration_content_state['deadline']),
+                        max_bytes=MAX_CONTENT*len(group),cancelled=getattr(requests,'cancel_event',None))
+            except Exception:
+                cohort=None
+        if cohort is None:
+            items.extend(read(target) for target in group)
+            return
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            pending=[];unsubmitted=[]
+            try:pool=ThreadPoolExecutor(max_workers=min(workers,len(group)),thread_name_prefix='ecs-content')
+            except RuntimeError:
+                cohort.close()
+                items.extend(read(target) for target in group)
+                return
+            with pool:
+                for index,target in enumerate(group):
+                    try:pending.append(pool.submit(read,target,cohort))
+                    except RuntimeError:
+                        unsubmitted=group[index:]
+                        for missing in unsubmitted:cohort.finish(identity(missing)+'.content')
+                        break
+                try:items.extend(future.result() for future in pending)
+                except BaseException:
+                    cohort.close()
+                    raise
+            items.extend(read(target) for target in unsubmitted)
+        finally:
+            cohort.close()
+    cursor=0
+    while cursor<len(selected):
+        with admission:
+            width=1
+            if (workers>1 and getattr(requests,'max_calls',None) is None
+                    and parse(selected[cursor])[0]=='ecs_environment'):
+                with requests._lock:
+                    state=requests.configuration_content_state
+                    allowance=min(8, workers,
+                        max(0,(MAX_TOTAL-state['bytes'])//MAX_RESPONSE),
+                        max(0,MAX_CALLS-state['responses']),
+                        max(0,MAX_CALLS-state['attempts']))
+                while (width<allowance and cursor+width<len(selected)
+                        and parse(selected[cursor+width])[0]=='ecs_environment'):
+                    width+=1
+            group=selected[cursor:cursor+width]
+            cursor+=width
+            collect_group(group)
     if not items:return ReadResult([],'not_collected',{'code':'selected_configuration_scope_omitted'})
     return ReadResult(items)
 

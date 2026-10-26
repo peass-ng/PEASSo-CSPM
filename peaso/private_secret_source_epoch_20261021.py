@@ -25,8 +25,8 @@ from types import CodeType, FunctionType, MethodType, ModuleType
 import zipfile
 from peaso import source_attestation_mode as _attestation_mode
 
-_RECEIPT_SHA256 = "3868522b94e144a756dea5145a77aec8a5f4a723e27130ec108a347d079a4741"
-_SELF_SHA256 = "0f23412c2dc6cec431dfe1e6e10162fbaa4d13d0e76e205b939b8d6c8966f090"
+_RECEIPT_SHA256 = "5cb5cb3b403b838e39a637668ef68c13fa30fb034a7be791d8654cb670b25009"
+_SELF_SHA256 = "94afe80e59066da607c1d5a6055d68a8a5ec8ffa0241bbcd87f673b1825f6ed7"
 _ARCHIVE_SHA256 = "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0"
 _HELPER_SHA256 = "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a"
 _BASE = "6b6ee759234d7e2dad978342838cb3af4e1fe767"
@@ -1477,6 +1477,42 @@ def trusted_definition(fn: FunctionType | MethodType, root: str | Path) -> dict:
             raise AdmissionError("definition ambiguity")
         node, definition = nodes[0], defs[0]
         hashes = definition
+        # One finite current successor; retained epoch definition witnesses do not change.
+        if (relative, name) == (
+                "peaso/collectors/aws_selected_configuration_secret_indicators.py",
+                "collect_selected"):
+            receipt, _ = _receipt()
+            transition = receipt["current_reviewed_files"][relative]
+            successors = transition.get("current_definitions")
+            if successors is not None:
+                if type(successors) is not dict or set(successors) != {"collect_selected"}:
+                    raise AdmissionError("reviewed definition successor roster changed")
+                successor = successors[name]
+                if (successor["predecessor_sha256"] != definition["after"]
+                        or successor["predecessor_ast_sha256"] != definition["after_ast_sha256"]):
+                    raise AdmissionError("reviewed definition predecessor witness changed")
+                lines = data.splitlines(keepends=True)
+                start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                fragment = b"".join(lines[start - 1:node.end_lineno]).decode("utf-8")
+                if (_sha(fragment.encode("utf-8")) != successor["current_sha256"]
+                        or _ast_hash(node) != successor["current_ast_sha256"]):
+                    raise AdmissionError("reviewed definition successor source changed")
+                for before, after in successor["exact_replacements"]:
+                    if fragment.count(after) != 1:
+                        raise AdmissionError("reviewed definition replacement changed")
+                    fragment = fragment.replace(after, before, 1)
+                for addition in successor["exact_additions"]:
+                    if fragment.count(addition) != 1:
+                        raise AdmissionError("reviewed definition addition changed")
+                    fragment = fragment.replace(addition, "", 1)
+                previous = ast.parse(fragment)
+                if (len(previous.body) != 1 or type(previous.body[0]) is not ast.FunctionDef
+                        or previous.body[0].name != name
+                        or _sha(fragment.encode("utf-8")) != definition["after"]
+                        or _ast_hash(previous.body[0]) != definition["after_ast_sha256"]):
+                    raise AdmissionError("reviewed definition predecessor changed")
+                hashes = dict(definition, after=successor["current_sha256"],
+                              after_ast_sha256=successor["current_ast_sha256"])
         expected_code = _code_from(compiled, name)
         _check_defaults(fn, node, constants, fn.__code__.co_filename)
     else:

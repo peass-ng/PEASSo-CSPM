@@ -59,6 +59,8 @@ RUNTIME_ADMISSION_INPUTS = {
 REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_finding_index_concurrency.py',
     'tests/test_independent_finding_index_20261026.py',
+    'tests/test_aws_ecs_content_cohort_20261026.py',
+    'tests/test_ecs_cohort_source_admission_20261026.py',
     'tests/test_independent_finding_index_publication_20261026.py',
     'tests/fixtures/report-index-publisher-before-20261026.py.gz',
     'tests/test_ai_fingerprint_canonical_coverage_20261026.py',
