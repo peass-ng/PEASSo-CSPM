@@ -1105,12 +1105,12 @@ SUBPROCESS_TIMEOUT = 300
 
 
 def run(code, root=ROOT):
-    # Each subprocess runs the shipped attestation policy: every verifier runs
+    # Each subprocess runs the "once" attestation policy: every verifier runs
     # its complete proof on first use, so changed bytes are refused at import.
     # Repeating every nested proof (conftest's "always") costs minutes per cold
     # import; tests of live rebinding after import turn it on explicitly.
     environment = {key: value for key, value in os.environ.items() if key != "PEASO_SOURCE_ATTESTATION"}
-    environment.update(PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(root),
+    environment.update(PEASO_SOURCE_ATTESTATION="once", PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(root),
                        AWS_EC2_METADATA_DISABLED="true", AWS_CONFIG_FILE="/nonexistent/bridge-proof",
                        AWS_SHARED_CREDENTIALS_FILE="/nonexistent/bridge-proof")
     return subprocess.run([sys.executable, "-B", "-c", code], cwd=root, env=environment,

@@ -448,24 +448,6 @@ def _prewarmed_process(connection, provider=None):
     _process(message[1], message[2], connection)
 
 
-_WARM_PRELOAD = ["peaso.worker_preload"]
-
-
-def _warm_context():
-    """A forkserver context whose server has imported and proven the engine.
-
-    ``PEASO_SOURCE_ATTESTATION=always`` (tests, CI, image build) and platforms
-    without a forkserver keep a fresh spawned interpreter per job, which proves
-    every pinned source again.
-    """
-    from peaso.source_attestation_mode import ALWAYS
-    if ALWAYS or "forkserver" not in multiprocessing.get_all_start_methods():
-        return multiprocessing.get_context("spawn")
-    context = multiprocessing.get_context("forkserver")
-    context.set_forkserver_preload(_WARM_PRELOAD)
-    return context
-
-
 def _process(role, request, connection):
     connection = _SynchronizedPipe(connection)
     from peaso import runtime_metrics
@@ -869,29 +851,12 @@ class Worker:
             self.authenticator.store = self.store
         self.stopping = threading.Event()
         self._prewarmed = None
-        # Only a long-lived worker (run) serves many jobs from one forkserver;
-        # a one-shot task keeps its single spawned child.
-        self.warm_children = False
-
-    def _child_context(self):
-        return _warm_context() if getattr(self, "warm_children", False) else multiprocessing.get_context("spawn")
-
-    def _start_warm_children(self):
-        """Start the forkserver now so its one engine import overlaps the first claim."""
-        self.warm_children = True
-        if self._child_context().get_start_method() != "forkserver":
-            return
-        try:
-            from multiprocessing import forkserver
-            forkserver.ensure_running()
-        except Exception:  # noqa: BLE001 - the first job child starts it again or fails visibly
-            pass
 
     def prewarm(self, provider=None):
         """Start one analyzer child that imports the engine ahead of its job."""
         if self.role != "analyzer" or self._prewarmed is not None:
             return
-        context = self._child_context()
+        context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe(duplex=True)
         process = context.Process(target=_prewarmed_process, args=(child, provider), daemon=True)
         try:
@@ -1035,7 +1000,7 @@ class Worker:
             if warm is not None:
                 process, parent = warm
             else:
-                context = self._child_context()
+                context = multiprocessing.get_context("spawn")
                 parent, child = context.Pipe(duplex=True)
                 process = context.Process(target=_process, args=(self.role, request, child), daemon=True)
                 process.start()
@@ -1154,9 +1119,6 @@ class Worker:
                     # A transient scheduler failure is retried without logging credentials.
                     pass
                 self.stopping.wait(30)
-        # Each job child forks from one forkserver that imported and proved
-        # peaso.checks once, instead of every child repeating that import.
-        self._start_warm_children()
         scheduler = threading.Thread(target=schedule_loop, name='scan-scheduler', daemon=True) if self.role == 'collector' else None
         if scheduler:
             scheduler.start()

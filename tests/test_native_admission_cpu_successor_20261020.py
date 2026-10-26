@@ -2226,9 +2226,9 @@ try:
 finally:
  path.write_bytes(raw);bridge._COMPILED_TRANSACTION.reset(token)
 """
- # The cold import runs the shipped first-use proofs; conftest's repeat-every-proof mode costs minutes.
+ # The cold import runs the first-use proofs ("once"); conftest's repeat-every-proof mode costs minutes.
  env={key:value for key,value in os.environ.items() if key!='PEASO_SOURCE_ATTESTATION'}
- env.update(PYTHONPATH=str(isolated_package),PYTHONDONTWRITEBYTECODE='1',AWS_EC2_METADATA_DISABLED='true',AWS_CONFIG_FILE='/nonexistent/offline',AWS_SHARED_CREDENTIALS_FILE='/nonexistent/offline')
+ env.update(PEASO_SOURCE_ATTESTATION='once',PYTHONPATH=str(isolated_package),PYTHONDONTWRITEBYTECODE='1',AWS_EC2_METADATA_DISABLED='true',AWS_CONFIG_FILE='/nonexistent/offline',AWS_SHARED_CREDENTIALS_FILE='/nonexistent/offline')
  result=subprocess.run([sys.executable,'-B','-c',code,relative],cwd=isolated_package,env=env,capture_output=True,text=True,timeout=300)
  assert result.returncode==0,result.stderr[-9000:]
  assert result.stdout.strip()=='rejected'

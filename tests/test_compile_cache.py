@@ -68,6 +68,7 @@ print(json.dumps({"installed": ast.parse is cc._parse, "cached": len(cached), "c
                   "mutated": sum(ast.dump(t, include_attributes=True) != d for t, d in made if id(t) in cached)}))
 '''
     env = {k: v for k, v in os.environ.items() if k != 'PEASO_SOURCE_ATTESTATION'}
+    env['PEASO_SOURCE_ATTESTATION'] = 'once'  # the proofs that parse and compile run here
     env['PYTHONPATH'] = str(ROOT)
     out = subprocess.run([sys.executable, '-c', script], cwd=ROOT, env=env, check=True,
                          capture_output=True, text=True, timeout=900).stdout
