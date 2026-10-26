@@ -60,7 +60,7 @@ assert not set(map(int, PRIVESC_SUCCESSOR['rows'])) & set(REVIEWED_SUCCESSORS)
 REVIEWED_SUCCESSORS.update({int(index): row for index, row in PRIVESC_SUCCESSOR['rows'].items()})
 
 AZURE_SUCCESSOR_RAW = (ROOT/'tests/fixtures/evidence_static_azure_successor_20261023.json.gz').read_bytes()
-assert hashlib.sha256(AZURE_SUCCESSOR_RAW).hexdigest() == '5fc0d316a54ef40e5fd0426801a1a47e7f33f60a8fa91ae03f53eba92269e40a'
+assert hashlib.sha256(AZURE_SUCCESSOR_RAW).hexdigest() == 'df98471857455bbeb698ada3fb129608b35a458d3a833cf3e6474645af3a013e'
 AZURE_SUCCESSOR = json.loads(gzip.decompress(AZURE_SUCCESSOR_RAW))
 assert AZURE_SUCCESSOR['original_archive_sha256'] == ARCHIVE_SHA256
 assert len(AZURE_SUCCESSOR['rows']) == 1578
