@@ -78,6 +78,8 @@ OPTIONAL_FACT_COLLECTIONS = {
 # Requirement kinds whose verdict depends on the principal itself, not only on its RBAC / directory role assignments.
 PRINCIPAL_FACT_KINDS = ("graph_app_permission", "entra_owner_of", "entra_pim_eligible_role", "entra_tenant_setting",
                         "entra_group_member", "fabric_workspace_role", "intune_permission", "entra_catalog_role")
+_TEMPLATE_PH = re.compile(r"(?<!\$)\{([^{}]+)\}")
+_PRINCIPAL_FACT_SET = frozenset(PRINCIPAL_FACT_KINDS)  # isdisjoint(req) == not any(kind in req ...)
 FABRIC_RANK = {"admin": 4, "member": 3, "contributor": 2, "viewer": 1}
 ASSIGN_UAMI = "microsoft.managedidentity/userassignedidentities/assign/action"
 AVD_USER_ROLE = "1d18fff3-a72a-46b5-b4a9-0b38a3cd7e63"  # Desktop Virtualization User (built-in)
@@ -636,7 +638,7 @@ class AzureModel(ExactEvidenceMixin, Model):
         return None
 
     def cached_check(self, principal, req, ref):
-        if any(kind in req for kind in PRINCIPAL_FACT_KINDS):
+        if not _PRINCIPAL_FACT_SET.isdisjoint(req):
             # These facts belong to the principal: principals with equal RBAC / directory role keys still differ.
             key = (principal.id, self.requirement_key(req), ref)
             if key not in self._check_cache:
@@ -883,33 +885,53 @@ class AzureModel(ExactEvidenceMixin, Model):
             ids.add(_low(app["id"]))
         return ids
 
-    def _rbac(self, principal, action, data, ref):
-        best_grant = None
-        for pid in [principal.id, *principal.attrs.get("groups", [])]:
+    def _rbac_candidates(self, principal, action, data):
+        """Ref-independent part of _rbac: the (holder, assignment, role definition) triples whose role allows the
+        action, in assignment order. Assignments, roles and group expansion are fixed after _load."""
+        groups = principal.attrs.get("groups", [])
+        memo = self.__dict__.get("_rbac_candidate_memo")
+        if memo is None:
+            memo = self.__dict__["_rbac_candidate_memo"] = {}
+        key = (principal.id, action, bool(data))
+        try:
+            hit = memo.get(key)
+        except TypeError:
+            hit, memo = None, None
+        if hit is not None and hit[0] == groups:
+            return hit[1]
+        found = []
+        for pid in [principal.id, *groups]:
             for a in self.assignments.get(pid, []):
                 definition = self.roles.get(a["role"])
-                if definition is None or not definition.allows(action, data):
-                    continue
-                if ref is ANY:
-                    ok, conf = True, "derived"
-                else:
-                    ok, conf = self.covers(a["scope"], ref)
-                if not ok:
-                    continue
-                conditions = []
-                restricted = a["condition"] and _abac_restricts(a["condition"], action)
-                if restricted:
-                    conf, conditions = "conditional", ["role_assignment_condition"]
-                if conf == "conditional" and not conditions:
-                    conditions = ["management_group_hierarchy_not_collected"]
-                if pid != principal.id:
-                    conditions.append("via_group_membership")
-                ref_info = {"assignment": a["id"], "role": definition.name, "scope": a["scope"], "via": pid}
-                if a["condition"]:
-                    ref_info["condition"] = a["condition"]
-                grant = Grant(conf, [ref_info], conditions)
-                if best_grant is None or (best_grant.confidence != "derived" and conf == "derived"):
-                    best_grant = grant
+                if definition is not None and definition.allows(action, data):
+                    found.append((pid, a, definition))
+        if memo is not None:
+            memo[key] = (list(groups), found)
+        return found
+
+    def _rbac(self, principal, action, data, ref):
+        best_grant = None
+        for pid, a, definition in self._rbac_candidates(principal, action, data):
+            if ref is ANY:
+                ok, conf = True, "derived"
+            else:
+                ok, conf = self.covers(a["scope"], ref)
+            if not ok:
+                continue
+            conditions = []
+            restricted = a["condition"] and _abac_restricts(a["condition"], action)
+            if restricted:
+                conf, conditions = "conditional", ["role_assignment_condition"]
+            if conf == "conditional" and not conditions:
+                conditions = ["management_group_hierarchy_not_collected"]
+            if pid != principal.id:
+                conditions.append("via_group_membership")
+            ref_info = {"assignment": a["id"], "role": definition.name, "scope": a["scope"], "via": pid}
+            if a["condition"]:
+                ref_info["condition"] = a["condition"]
+            grant = Grant(conf, [ref_info], conditions)
+            if best_grant is None or (best_grant.confidence != "derived" and conf == "derived"):
+                best_grant = grant
         if best_grant is None:
             return None
         return self._deny(principal, action, data, ref, best_grant)
@@ -1215,6 +1237,32 @@ class AzureModel(ExactEvidenceMixin, Model):
         return (downgrade(grant, "conditional", "source_identity_disabled")
                 if grant is not None and principal.attrs.get("account_enabled") is False else grant)
 
+    def _shared_unknown(self, reason):
+        """One evidence-free unknown Grant per reason: Grants are immutable, and per-target results that share
+        the object are tagged and combined once (evaluator dedupes by identity)."""
+        shared = self.__dict__.setdefault("_shared_unknown_grants", {})
+        grant = shared.get(reason)
+        if grant is None:
+            grant = shared[reason] = Grant("unknown", [], [reason])
+        return grant
+
+    def _owned_rows(self, principal_id):
+        """directory_owner rows that may list principal_id among ownerIds, in collection order (callers still apply
+        the exact membership test). Falls back to every row when the id or an owner id cannot be indexed."""
+        index = self.__dict__.get("_owner_row_index")
+        if index is None:
+            index = {}
+            for scope, item in items(self.snapshot, "directory_owner"):
+                for owner in dict.fromkeys(o for o in as_list(item.get("ownerIds")) if isinstance(o, str)):
+                    index.setdefault(owner, []).append((scope, item))
+                if any(not isinstance(o, str) for o in as_list(item.get("ownerIds"))):
+                    index = False
+                    break
+            self.__dict__["_owner_row_index"] = index
+        if index is False or not isinstance(principal_id, str):
+            return items(self.snapshot, "directory_owner")
+        return index.get(principal_id, ())
+
     def _fact_requirement(self, principal, req, ref):
         """Requirements backed by optional collections (evaluated when present)."""
         if "graph_app_permission" in req:
@@ -1233,17 +1281,19 @@ class AzureModel(ExactEvidenceMixin, Model):
                         "group": "groups"}.get(object_type)
             wanted_scope = (f"/tenants/{self.tenant}/{endpoint}/{target}".casefold()
                             if target and endpoint else None)
-            for scope, item in items(self.snapshot, "directory_owner"):
+            for scope, item in self._owned_rows(principal.id):
                 if (principal.id in as_list(item.get("ownerIds"))
                         and (target is None or _low(item.get("objectId")) == _low(target))
                         and _low(item.get("objectType")) == object_type
                         and (wanted_scope is None or _low(scope) == wanted_scope)):
                     return Grant("derived", [{"owner_of": item.get("objectId")}])
-            statuses = inventory_status(self.snapshot, "directory_owner")
+            statuses = self.__dict__.get("_owner_statuses")
+            if statuses is None:
+                statuses = self.__dict__["_owner_statuses"] = inventory_status(self.snapshot, "directory_owner")
             if wanted_scope and statuses.get(wanted_scope) not in ("collected", "empty"):
-                return Grant("unknown", [], ["owner_listing_not_collected_for_target"])
+                return self._shared_unknown("owner_listing_not_collected_for_target")
             if target is None and (not statuses or unavailable(statuses)):
-                return Grant("unknown", [], ["owner_listings_incomplete"])
+                return self._shared_unknown("owner_listings_incomplete")
             return None
         if "entra_pim_eligible_role" in req:
             target = str(ref)[4:] if isinstance(ref, str) and ref.startswith("dir:") else None
@@ -1439,7 +1489,7 @@ class AzureModel(ExactEvidenceMixin, Model):
             return [ANY], None
         if template == "/":
             return ["/"], None
-        names = re.findall(r"(?<!\$)\{([^{}]+)\}", template)
+        names = _TEMPLATE_PH.findall(template)
         if not names:
             return [_low(template)], None
         refs = [template]

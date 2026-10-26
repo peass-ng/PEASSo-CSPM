@@ -26,6 +26,7 @@ import re
 
 from . import ANY, Grant, Model, Node, as_list, best, combine, downgrade, glob_match, inventory_status, items, unavailable
 from .exact_evidence import ExactEvidenceMixin
+from peaso.snapshot import FrozenDict
 
 CLUSTER_SCOPED = {
     "nodes", "namespaces", "clusterroles", "clusterrolebindings", "certificatesigningrequests", "persistentvolumes",
@@ -726,14 +727,20 @@ class K8sModel(ExactEvidenceMixin, Model):
         return req.get("namespace") is None and str(req.get("resource")) not in CLUSTER_SCOPED
 
     def _rules(self, principal):
+        for ns, rule, evidence in self._rule_rows(principal):
+            yield ns, rule, dict(evidence) if rule is None else _rule_evidence(ns, rule, evidence)
+
+    def _rule_rows(self, principal):
+        """(binding namespace, rule or None for a missing role, binding evidence items) without building the
+        per-rule evidence dict; callers that keep a rule build it with _rule_evidence."""
         cluster = principal.attrs["cluster"]
         for ns, role_key, evidence in principal.attrs.get("bound", ()):
             role = self.roles.get(role_key)
             if role is None:
-                yield ns, None, dict(evidence)
+                yield ns, None, evidence
                 continue
             for rule in role["rules"]:
-                yield ns, rule, {**dict(evidence), "namespace": ns, "rule": rule}
+                yield ns, rule, evidence
         del cluster
 
     def possible(self, principal):
@@ -781,7 +788,7 @@ class K8sModel(ExactEvidenceMixin, Model):
         scoped_scc_use = verb == "use" and resource == "securitycontextconstraints" and ns not in (ANY, "*")
         cluster_scoped = (resource in CLUSTER_SCOPED and not scoped_scc_use) or (ns is ANY and req.get("namespace") == "*")
         best_grant = None
-        for bind_ns, rule, evidence in self._rules(principal):
+        for bind_ns, rule, evidence in self._rule_rows(principal):
             if rule is None:
                 continue
             if bind_ns is not None:
@@ -806,7 +813,7 @@ class K8sModel(ExactEvidenceMixin, Model):
             if existence is None:
                 conf = "conditional"
                 conditions.append("modify_target_inventory_not_collected")
-            grant = Grant(conf, [{**evidence, "namespace": bind_ns or "*"}], conditions)
+            grant = Grant(conf, [{**_rule_evidence(bind_ns, rule, evidence), "namespace": bind_ns or "*"}], conditions)
             if best_grant is None or (best_grant.confidence != "derived" and conf == "derived"):
                 best_grant = grant
                 if conf == "derived" and bind_ns is None:
@@ -820,6 +827,22 @@ class K8sModel(ExactEvidenceMixin, Model):
         kind = MODIFIABLE_OBJECTS[resource]
         cluster = principal.attrs.get("cluster")
         names = set(str(v) for v in as_list(rule.get("resourceNames")))
+        index = self._modify_target_index(kind, resource == "mutatingwebhookconfigurations")
+        if index is not None:
+            try:
+                pool = (index[0].get(cluster, ()) if namespace in (ANY, "*")
+                        else index[1].get((cluster, namespace), ()))
+                if name in (None, ANY):
+                    found = bool(pool) if not names else any(n in names for n in pool)
+                else:
+                    found = name in pool and (not names or name in names)
+            except TypeError:
+                found = None
+            if found is not None:
+                if found:
+                    return True
+                states = self._modify_target_states(kind)
+                return False if states and not unavailable(states) else None
         for _, item in items(self.snapshot, kind):
             meta = item.get("metadata") or {}
             if resource == "mutatingwebhookconfigurations" and item.get("kind") != "MutatingWebhookConfiguration":
@@ -831,6 +854,35 @@ class K8sModel(ExactEvidenceMixin, Model):
                 return True
         states = inventory_status(self.snapshot, kind)
         return False if states and not unavailable(states) else None
+
+    def _modify_target_index(self, kind, webhook_only):
+        """({cluster: object names}, {(cluster, namespace): object names}) of one modifiable kind, built once per
+        model (the snapshot is frozen); None when a namespace cannot be indexed (callers keep the scan)."""
+        store = self.__dict__.setdefault("_modify_target_indexes", {})
+        key = (kind, webhook_only)
+        if key not in store:
+            by_cluster, by_ns = {}, {}
+            try:
+                for _, item in items(self.snapshot, kind):
+                    if webhook_only and item.get("kind") != "MutatingWebhookConfiguration":
+                        continue
+                    meta = item.get("metadata") or {}
+                    object_name = str(meta.get("name") or "")
+                    if not object_name:
+                        continue
+                    cluster = _cluster(item)
+                    by_cluster.setdefault(cluster, set()).add(object_name)
+                    by_ns.setdefault((cluster, meta.get("namespace")), set()).add(object_name)
+                store[key] = (by_cluster, by_ns)
+            except TypeError:
+                store[key] = None
+        return store[key]
+
+    def _modify_target_states(self, kind):
+        store = self.__dict__.setdefault("_modify_target_state_cache", {})
+        if kind not in store:
+            store[kind] = inventory_status(self.snapshot, kind)
+        return store[kind]
 
     def scope_only(self, req, template, localized):
         # Node / SA scopes are "<cluster>" / "<cluster>/<ns>", so namespace-only templates are scope-only.
@@ -860,12 +912,13 @@ class K8sModel(ExactEvidenceMixin, Model):
                 for name in names:
                     grants = {}
                     for verb in ("escalate", "update", "patch"):
-                        for bind_ns, rule, evidence in self._rules(principal):
+                        for bind_ns, rule, evidence in self._rule_rows(principal):
                             if rule is None or (bind_ns is not None and (resource != "roles" or bind_ns != ns)):
                                 continue
                             match = _rule_matches(rule, verb, "rbac.authorization.k8s.io", resource, "", name)
                             if match:
                                 conf = "derived" if match is True else "conditional"
+                                evidence = _rule_evidence(bind_ns, rule, evidence)
                                 grants[verb] = best(grants.get(verb), Grant(conf, [{**evidence, "namespace": bind_ns or "*"}],
                                                                          [] if match is True else [str(match)]))
                     if grants.get("escalate") and (grants.get("update") or grants.get("patch")) and grants.get(req.get("verb")):
@@ -1374,7 +1427,7 @@ class K8sModel(ExactEvidenceMixin, Model):
         if source is None or source.attrs.get("cluster") != target.attrs.get("cluster"):
             return False
         prefix = f"impersonate-on:{mode}:"
-        action_rules = [(ns, rule) for ns, rule, _ in self._rules(source)
+        action_rules = [(ns, rule) for ns, rule, _ in self._rule_rows(source)
                         if rule and ("*" in as_list(rule.get("verbs")) or
                                      any(str(verb).startswith(prefix) for verb in as_list(rule.get("verbs"))))]
         if not action_rules:
@@ -1422,7 +1475,7 @@ class K8sModel(ExactEvidenceMixin, Model):
 
         if target.kind not in ("k8s_user", "k8s_service_account"):
             return False
-        target_rules = [(ns, rule) for ns, rule, _ in self._rules(target) if rule]
+        target_rules = [(ns, rule) for ns, rule, _ in self._rule_rows(target) if rule]
         cluster = target.attrs.get("cluster")
         known_ns = sorted(ns for ns in self.namespaces.get(cluster, ()) if ns)
         for action_ns, action in action_rules:
@@ -1472,6 +1525,26 @@ class K8sModel(ExactEvidenceMixin, Model):
             return self._plain_impersonation_gain(source, target)
         return None
 
+    def _rbac_only_confidence(self, principal, req, ref, probe):
+        """Confidence of check(principal, req, ref) for an `_rbac_only` probe, or None when no rule grants it.
+        It depends only on the principal's bound (namespace, role) rules, which perm_key names (binding evidence
+        changes the refs, never the confidence), so principals sharing a perm_key share it."""
+        perm_key = principal.perm_key
+        if perm_key is None:
+            grant = self.check(principal, req, ref)
+            return None if grant is None else grant.confidence
+        memo = self.__dict__.setdefault("_rbac_only_confidences", {})
+        key = (perm_key, probe)
+        try:
+            if key in memo:
+                return memo[key]
+        except TypeError:
+            grant = self.check(principal, req, ref)
+            return None if grant is None else grant.confidence
+        grant = self.check(principal, req, ref)
+        memo[key] = got = None if grant is None else grant.confidence
+        return got
+
     def _plain_impersonation_gain(self, source, target):
         """A user, group, or ServiceAccount impersonation must add an RBAC right."""
         if (target.kind not in ("k8s_user", "k8s_group", "k8s_service_account") or
@@ -1505,7 +1578,7 @@ class K8sModel(ExactEvidenceMixin, Model):
             if any(role_key not in self.roles for _, role_key, _ in bound):
                 uncertain = True
         else:
-            rules = self._rules(target)
+            rules = self._rule_rows(target)
         for bound_ns, rule, _ in rules:
             if rule is None:
                 uncertain = True
@@ -1538,16 +1611,17 @@ class K8sModel(ExactEvidenceMixin, Model):
                                 req = {"verb": verb, "api_group": group, "resource": base,
                                        "_rbac_only": True, **({"subresource": sub} if sub else {})}
                                 ref = (ns, name, None)
-                                target_grant = self.check(target, req, ref)
-                                if target_grant is None:
+                                probe = (verb, group, base, sub, ns, name)
+                                target_conf = self._rbac_only_confidence(target, req, ref, probe)
+                                if target_conf is None:
                                     continue
-                                if target_grant.confidence != "derived":
+                                if target_conf != "derived":
                                     uncertain = True
                                     continue
-                                source_grant = self.check(source, req, ref)
-                                if source_grant is None:
+                                source_conf = self._rbac_only_confidence(source, req, ref, probe)
+                                if source_conf is None:
                                     return None if complete else ("conditional", "source_rbac_inventory_incomplete")
-                                if source_grant.confidence != "derived":
+                                if source_conf != "derived":
                                     return ("conditional", "source_direct_permission_not_fully_resolved")
         if not complete:
             return ("unknown", "impersonated_user_rbac_inventory_incomplete")
@@ -1605,7 +1679,7 @@ class K8sModel(ExactEvidenceMixin, Model):
             return set(map(str, as_list(wanted.get("nonResourceURLs")))) <= set(
                 map(str, as_list(have.get("nonResourceURLs"))))
 
-        held = [(ns, rule) for ns, rule, _ in self._rules(source) if rule]
+        held = [(ns, rule) for ns, rule, _ in self._rule_rows(source) if rule]
         for bind_ns, role_key, _ in direct:
             role = self.roles.get(role_key)
             if role is None:
@@ -1764,7 +1838,7 @@ class K8sModel(ExactEvidenceMixin, Model):
                 return False
             return set(map(str, as_list(want.get("nonResourceURLs")))) <= set(map(str, as_list(have.get("nonResourceURLs"))))
 
-        held_rules = [rule for bind_ns, rule, _ in self._rules(source)
+        held_rules = [rule for bind_ns, rule, _ in self._rule_rows(source)
                       if rule is not None and (bind_ns is None or (ns != "*" and bind_ns == ns))]
         if all(any(rule_covers(held, wanted) for held in held_rules) for wanted in role_rules):
             return False
@@ -2427,7 +2501,7 @@ class K8sModel(ExactEvidenceMixin, Model):
             cluster = source.attrs.get("cluster")
             complete = self._complete("clusterrole")
             possible, uncertain = False, False
-            for bound_ns, rule, _ in self._rules(source):
+            for bound_ns, rule, _ in self._rule_rows(source):
                 if bound_ns is not None or rule is None:
                     continue
                 if _rule_matches(rule, "escalate", "rbac.authorization.k8s.io",
@@ -2453,7 +2527,7 @@ class K8sModel(ExactEvidenceMixin, Model):
             if source is None:
                 return {}
             reads, approvals = [], []
-            for bound_ns, rule, _ in self._rules(source):
+            for bound_ns, rule, _ in self._rule_rows(source):
                 if bound_ns is not None or rule is None:
                     continue
                 names = set(map(str, as_list(rule.get("resourceNames"))))
@@ -3205,9 +3279,32 @@ def _aggregation_selector_satisfiable(selector):
     return True
 
 
+def _rule_evidence(ns, rule, evidence):
+    return {**dict(evidence), "namespace": ns, "rule": rule}
+
+
+# Sealed (read-only) rules never change, so their normalized verb list is computed once. Entries keep the rule
+# alive, so an id is never reused while cached; the table is cleared when it reaches its bound.
+_SEALED_RULE_VERBS = {}
+_SEALED_RULE_VERBS_LIMIT = 1 << 16
+
+
+def _rule_verbs(rule):
+    if type(rule) is FrozenDict:
+        hit = _SEALED_RULE_VERBS.get(id(rule))
+        if hit is not None and hit[0] is rule:
+            return hit[1]
+        verbs = [str(v).lower() for v in as_list(rule.get("verbs"))]
+        if len(_SEALED_RULE_VERBS) >= _SEALED_RULE_VERBS_LIMIT:
+            _SEALED_RULE_VERBS.clear()
+        _SEALED_RULE_VERBS[id(rule)] = (rule, verbs)
+        return verbs
+    return [str(v).lower() for v in as_list(rule.get("verbs"))]
+
+
 def _rule_matches(rule, verb, group, resource, sub, name, partial=False):
     """True, a condition string (partial match) or False."""
-    verbs = [str(v).lower() for v in as_list(rule.get("verbs"))]
+    verbs = _rule_verbs(rule)
     if verb.startswith(PREFIX):
         prefix = verb[len(PREFIX):]
         if "*" not in verbs and not any(v.startswith(prefix) for v in verbs):
