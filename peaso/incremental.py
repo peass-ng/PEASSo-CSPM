@@ -22,6 +22,10 @@ from .settle_memo import settle_token
 # Adaptive quiet period after a cumulative report pass (CPU seconds factor, cap).
 REPORT_CPU_FACTOR = 4.0
 REPORT_QUIET_CAP = 300.0
+# Routine cumulative passes may use at most this share of the session's wall
+# time in total. A pass costs more as the inventory grows; the quiet cap alone
+# let a large estate spend over a third of its collector time re-evaluating.
+REPORT_CPU_SHARE = 0.1
 
 
 class _Superseded(BaseException):
@@ -111,6 +115,8 @@ class CheckpointSession:
                                     else max(0.0, float(min_report_interval)))
         self.adaptive_report_cadence = min_report_interval is None
         self.last_report_cpu = 0.0
+        self.report_cpu_total = 0.0
+        self.report_started = None
         self.collection_stride = max(1, int(collection_stride))
         self.clock = clock
         self.collections = {}
@@ -519,17 +525,23 @@ class CheckpointSession:
                 if "privesc" in ready_ids:
                     categories.add("privesc")
                 now = self.clock()
+                if self.report_started is None:
+                    self.report_started = now
                 quiet = self.min_report_interval
                 # Leave CPU for collection between costly cumulative rebuilds:
-                # one pass may use at most ~1/5 of the collector's time. New
-                # sections/categories and explicit flushes bypass this gate.
+                # one pass may use at most ~1/5 of the collector's time, and all
+                # passes together at most REPORT_CPU_SHARE of it. New
+                # sections/categories and explicit flushes bypass this gate;
+                # their cost still counts toward the share.
                 if self.adaptive_report_cadence:
                     quiet = max(quiet, min(REPORT_QUIET_CAP, REPORT_CPU_FACTOR * self.last_report_cpu))
                 if (not force and categories <= self.published_categories
                         and completed_sections <= self.published_sections
                         and (now - self.last_time < quiet
                              or (sequence - self.last_published < self.collection_stride
-                                 and now - self.last_time < self.interval))):
+                                 and now - self.last_time < self.interval)
+                             or (self.adaptive_report_cadence and self.report_cpu_total
+                                 > REPORT_CPU_SHARE * (now - self.report_started)))):
                     return None
                 # Committed public envelopes are replaced, never edited in
                 # place. Capture their mapping atomically; make_snapshot below
@@ -558,6 +570,7 @@ class CheckpointSession:
                 # its evaluation time must not consume the next quiet period.
                 self.last_published, self.last_time = sequence, self.clock()
                 self.last_report_cpu = max(0.0, time.thread_time() - cpu_started)
+                self.report_cpu_total += self.last_report_cpu
             return report
 
     def sections(self):
