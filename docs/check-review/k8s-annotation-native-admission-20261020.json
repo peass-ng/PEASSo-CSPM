@@ -7,7 +7,7 @@
   "admission_manifest": {
     "bytes": 27061,
     "path": "peaso/checks/k8s_annotation_native_admission_20261020.json",
-    "sha256": "6be12fa2e2d43a724a758d6efa3a77c561f362938d483dce8d9df7bd85661cca"
+    "sha256": "3f4ef3bfc7da3d8fca39a8d77e79e2c375ce4e40e03fff670fa042c44548af36"
   },
   "canonical_copy": "Root msg_08bf2a2b0701 added five descriptions/actions to existing predecessor-bound k8s_native_review_copy_20261020.json; worker provides exact original proposals/current values here and does not edit canonical fields/materializers.",
   "consumer": {
@@ -4875,12 +4875,12 @@
     {
       "bytes": 3511949,
       "path": "docs/check-review/k8s-cluster-native-review-20261020.json",
-      "sha256": "214034ee33aec42c30e525cfcd7932e3060904c8884b39f372c2f33d0231dffc"
+      "sha256": "9840091de6bfaa55898425c5e84d6a2d2b207e0ab58787128a7adf4ae730501e"
     },
     {
       "bytes": 305296,
       "path": "docs/check-review/k8s-annotation-psp-native-closure-20261020.json",
-      "sha256": "ff888f460efefd934b259281cec19a9b2a6346e75099a854616f340507c44c9a"
+      "sha256": "3c7b5f40339bd41b1ab42842722d2db90060c475ad3e87c33e3139814aca5bb8"
     },
     {
       "bytes": 8283,

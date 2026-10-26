@@ -1643,6 +1643,8 @@ def collect(connector, requirements=None, *, api=None):
                 api = _new_api(auth)
         if selected_metadata.KIND in wanted and selected_metadata.enabled(options, scopes):
             selected_metadata.assert_private_transport(api)
+        from .k8s_response_cache import install as install_response_cache
+        install_response_cache(api)  # This scan only; discarded in the finally block below.
         cluster = _cluster_id(api, auth)
         annotation_context = annotation_indicators.collection_context(api, cluster)
         from peaso.ai.access import k8s as capture_ai_access
@@ -2112,6 +2114,9 @@ def collect(connector, requirements=None, *, api=None):
             literal_client = getattr(getattr(api, "api", api), "api_client", None)
             if literal_client is not None:
                 literal_client.last_response = None
+        if api is not None:
+            from .k8s_response_cache import uninstall as uninstall_response_cache
+            reader.response_cache_stats = uninstall_response_cache(api)
         if owned and api is not None:
             if selected_metadata.KIND in wanted and selected_metadata.enabled(options, scopes):
                 with log_samples.private_native_logs():
@@ -2165,8 +2170,10 @@ def collect(connector, requirements=None, *, api=None):
     if log_samples.KIND in wanted and log_samples.enabled(options):
         metadata['usage_evidence'] = {'status': 'selected_current_container_samples_only',
             'reason': 'Only explicitly selected current-container samples were requested; other logs, exec and Secrets were not read'}
-    requested_scopes, reader.collections, metadata = selected_metadata.finalize(
-        requested_scopes, reader.collections, metadata, log_matches, literal_matches, selected_metadata_matches, text_matches, registry_matches, flux_matches)
+    if any((log_matches, literal_matches, selected_metadata_matches, text_matches, registry_matches, flux_matches)):
+        # With no detected value the union scrub is an exact copy; skip the full walk.
+        requested_scopes, reader.collections, metadata = selected_metadata.finalize(
+            requested_scopes, reader.collections, metadata, log_matches, literal_matches, selected_metadata_matches, text_matches, registry_matches, flux_matches)
     snapshot = make_snapshot("k8s", requested_scopes, reader.collections, created_at=captured_at, metadata=metadata)
     reader.progress("completed", complete=True)
     return snapshot

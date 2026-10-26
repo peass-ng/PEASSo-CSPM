@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = 'tests/fixtures/k8s_cluster_native_inputs_20261020.tar.gz'
 ARCHIVE_SHA256 = '60812356285354c3d0ed08742ccb8ba2cea225abc0199cf527b8d04393d419e2'
 REPORT = 'docs/check-review/k8s-cluster-native-review-20261020.json'
-REPORT_SHA256 = '214034ee33aec42c30e525cfcd7932e3060904c8884b39f372c2f33d0231dffc'
+REPORT_SHA256 = '9840091de6bfaa55898425c5e84d6a2d2b207e0ab58787128a7adf4ae730501e'
 INDEX_SHA256 = '1763b44258e42562dbe7956298a57351c58f4ff461aa427a8acb513601ed1929'
 
 

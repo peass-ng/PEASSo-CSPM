@@ -71,7 +71,7 @@
       },
       {
         "path": "peaso/checks/k8s_annotation_native_admission_configmap_successor_20261020.json",
-        "before_sha256": "0bf47ef67cc7370f60f938d636537fdaaec63f063c070db398dd67f6dde2bb35",
+        "before_sha256": "8c0a763331dfdd1c9d71f5e3eb85cf092cdad213858d51257e461f04539dba9b",
         "retained_gzip": "docs/check-review/k8s-selected-log-production-lineage-20261020/k8s_annotation_native_admission_configmap_successor_20261020.json.pre-log-production.gz",
         "gzip_sha256": "d97c4c6cd276368161bfe5092d4ccceeebc96e1da405d1cd32c85665fb5d2629"
       },
@@ -107,7 +107,7 @@
       },
       {
         "path": "peaso/checks/k8s_annotation_native_admission_log_successor_20261020.json",
-        "before_sha256": "0994baa57d72b2c993fdc51bee649cf678ee76de485d16e6b23b57469e700fbb",
+        "before_sha256": "31d3ec303e2bfa9065a842ff1b87a2b357c0a0f80a097dabfea0c0f3b3795375",
         "retained_gzip": "docs/check-review/k8s-selected-log-production-lineage-20261020/k8s_annotation_native_admission_log_successor_20261020.json.pre-literal-sdk.gz",
         "gzip_sha256": "ab7a8186607abc5cc2875d00b4bd45c1e97d1907204aa1cc02dba66d83c4ee10"
       },
@@ -207,7 +207,7 @@
     ],
     "active_annotation_receipt": {
       "path": "/Users/carlospolop/git/Blue-CloudPEASS/peaso/checks/k8s_annotation_native_admission_content_privacy_successor_20261020.json",
-      "sha256": "1a5c8bf1654a6308090965296aa80577fc50f6039f617811b20168dfb8e93baa",
+      "sha256": "00a2ae171e562207f31324e0a44202f737a5ba21ff600deb90c5907a45d89f8a",
       "bytes": 45042
     },
     "active_configmap_receipt": {
@@ -750,12 +750,12 @@
     },
     {
       "path": "peaso/checks/k8s_annotation_native_admission_log_successor_20261020.json",
-      "sha256": "0994baa57d72b2c993fdc51bee649cf678ee76de485d16e6b23b57469e700fbb",
+      "sha256": "31d3ec303e2bfa9065a842ff1b87a2b357c0a0f80a097dabfea0c0f3b3795375",
       "bytes": 42875
     },
     {
       "path": "peaso/checks/k8s_annotation_native_admission_content_privacy_successor_20261020.json",
-      "sha256": "1a5c8bf1654a6308090965296aa80577fc50f6039f617811b20168dfb8e93baa",
+      "sha256": "00a2ae171e562207f31324e0a44202f737a5ba21ff600deb90c5907a45d89f8a",
       "bytes": 45042
     },
     {

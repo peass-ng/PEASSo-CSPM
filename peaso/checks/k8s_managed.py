@@ -112,12 +112,43 @@ def _namespace_reason(name):
     return None
 
 
+_LOOKUPS = {}
+
+
+def _lookup_table(rows):
+    """(name, namespace, uid) -> matching row data, built once per index list.
+
+    Equivalent to scanning ``rows`` for each lookup: only rows whose name and uid
+    are strings and whose namespace is a string or absent can ever match."""
+    cached = _LOOKUPS.get(id(rows))
+    if cached is not None and cached[0] is rows and cached[1] == len(rows):
+        return cached[2]
+    table = {}
+    for row in rows:
+        data = _mapping(_mapping(row).get("data"))
+        metadata = _metadata(data)
+        name, namespace, uid = metadata.get("name"), metadata.get("namespace"), metadata.get("uid")
+        if type(name) is str and type(uid) is str and (namespace is None or type(namespace) is str):
+            table.setdefault((name, namespace, uid), []).append(data)
+        elif isinstance(name, str) and isinstance(uid, str) and (namespace is None or isinstance(namespace, str)):
+            table = None  # str subclasses: keep the exact linear comparison
+            break
+    if len(_LOOKUPS) > 64:
+        _LOOKUPS.clear()
+    _LOOKUPS[id(rows)] = (rows, len(rows), table)
+    return table
+
+
 def _lookup(index, kind, namespace, name, uid):
     if not isinstance(name, str) or not name or not isinstance(uid, str) or not uid:
         return None
     rows = _mapping(index).get(kind)
     if not isinstance(rows, list):
         return None
+    table = _lookup_table(rows) if type(name) is str and type(uid) is str and (namespace is None or type(namespace) is str) else None
+    if table is not None:
+        matches = table.get((name, namespace, uid), ())
+        return matches[0] if len(matches) == 1 else None
     matches = []
     for row in rows:
         data = _mapping(_mapping(row).get("data"))
