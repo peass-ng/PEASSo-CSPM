@@ -2905,7 +2905,7 @@
     "peaso/collectors/aws_region_data_native.py": "e2440353ea5b31d50ce281e049dd4586e05710763c0b0b7ee8c737b79ae9f9e1",
     "peaso/collectors/aws_region_shield_native.py": "fb64d7f95397490c9043fde0e93c227286335a9a98746521e4f1f8bbffde1876",
     "peaso/collectors/aws_resolver_firewall_native.py": "ca0970fa271384e2167db3cb2ed855cceda0dd834348671654597ec3d8b19a52",
-    "peaso/collectors/aws_resource_policy_families.py": "0616427feafe90695dc52c3ed6b88f122d26260ff03c9b45ccf413ec0b98e7e6",
+    "peaso/collectors/aws_resource_policy_families.py": "8385178d57b86f79e4f17accc1865c2145f2b86b7dfc5fabd501aef2852be322",
     "peaso/collectors/aws_resource_policy_native.py": "f6b42108736fde01c856defa11156820d85e617041c55ef6a1fe9900cf830a8e",
     "peaso/collectors/aws_resource_tag_compliance_native.py": "3713fc6b0629b1647e9ea68a649b129038168b371f6e3efd67cfc5fb244adea8",
     "peaso/collectors/aws_s3_backup_native.py": "48654c9bb7c4fcbb5ee52c8035cb0fd29d0d8a716b358e9d8399a4595aad3ffd",

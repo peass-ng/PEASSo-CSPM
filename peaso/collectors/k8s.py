@@ -21,6 +21,7 @@ from .azure import _Reader, AzureReadError, _trusted_scopes, _safe_error
 from . import k8s_network_catalog
 from . import k8s_annotation_indicators_20261020 as annotation_indicators
 from . import k8s_sanitize_keys
+from . import k8s_id_parts
 from . import k8s_network_extensions
 
 
@@ -810,7 +811,9 @@ def _native(item, kind, cluster, scope, namespaced):
         raise ValueError("cluster object has namespace")
     namespace = namespace if namespaced else "_cluster"
     from peaso.secret_evidence import pod_environment
-    native_id = "k8s://" + "/".join(quote(str(x), safe="") for x in (cluster, kind, namespace, meta.get("uid") or name))
+    # Cluster, kind and namespace repeat for every object; their (identical) encoding is remembered.
+    native_id = "k8s://" + "/".join((k8s_id_parts.quoted(str(cluster)), k8s_id_parts.quoted(str(kind)),
+                                     k8s_id_parts.quoted(str(namespace)), quote(str(meta.get("uid") or name), safe="")))
     pod_environment(item, kind=kind, resource_id=native_id, scope=namespace if scope == '*' else scope)
     result = _sanitize(item)
     if kind == "kcc_project":
@@ -1767,7 +1770,9 @@ def collect(connector, requirements=None, *, api=None):
                     item["provenance"] = {"cluster_id": cluster, "source": "operator-supplied metadata", "runtime_verified": False,
                         "namespace": item.get("metadata", {}).get("namespace", "_cluster")}
                     output.append(item)
-                yield output
+                # Rows may still reference the operator's input (e.g. file_metadata _coverage); the
+                # snapshot adopts collected items, so hand over an independent copy.
+                yield copy.deepcopy(output)
             jobs.append((imported_kind, scopes[0], "kubernetes", supplied))
         if actual.intersection({"api_discovery", "securitycontextconstraint", "admission_policy", "configsync_rootsync", "configconnector", "configconnectorcontext", "kcc_iampolicy", "kcc_iampartialpolicy", "kcc_project", *CUSTOM_NETWORK_POLICY_GROUPS}) or discover_psp:
             def discovery():
@@ -2196,6 +2201,8 @@ def collect(connector, requirements=None, *, api=None):
             # With no detected value the union scrub is an exact copy; skip the full walk.
             requested_scopes, reader.collections, metadata = selected_metadata.finalize(
                 requested_scopes, reader.collections, metadata, log_matches, literal_matches, selected_metadata_matches, text_matches, registry_matches, flux_matches)
-        snapshot = make_snapshot("k8s", requested_scopes, reader.collections, created_at=captured_at, metadata=metadata)
+        # Every item was rebuilt by _sanitize / the scrub and the reader is discarded here; adopt, do not copy.
+        snapshot = make_snapshot("k8s", requested_scopes, reader.collections, created_at=captured_at, metadata=metadata,
+                                 owned=True)
     reader.progress("completed", complete=True)
     return snapshot

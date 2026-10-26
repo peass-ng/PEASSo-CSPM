@@ -245,3 +245,221 @@ def test_warm_needs_an_installed_cache_and_stops_at_scan_end():
     rc.uninstall(api)
     assert pool._warmer is None and pool._closed
     assert rc.warm(api, [read], _reader()) == 0 and len(cluster.calls) == 1
+
+
+# --- the snapshot adopts the collector's item lists (make_snapshot(owned=True)) ---------
+
+def _routes():
+    def lst(items):
+        return {"metadata": {"resourceVersion": "1"}, "items": items}
+    shared_labels = {"app": "web", "tier": ["front"]}  # One object referenced by several responses.
+    container = {"name": "c", "image": "nginx:1", "env": [{"name": "MODE", "value": "x"}],
+                 "securityContext": {"capabilities": {"add": ["NET_ADMIN"]}}, "ports": [{"containerPort": 80}]}
+    pod = {"metadata": {"name": "web", "namespace": "apps", "uid": "p1", "labels": shared_labels,
+                        "annotations": {"note": "kept"}},
+           "spec": {"serviceAccountName": "web", "nodeName": "n1", "containers": [container, container]},
+           "status": {"phase": "Running", "containerStatuses": [{"name": "c", "ready": True}]}}
+    template = {"metadata": {"labels": shared_labels}, "spec": {"containers": [container]}}
+    return {
+        "/api/v1/pods": lst([pod]),
+        "/api/v1/namespaces": lst([{"metadata": {"name": "apps", "uid": "n1", "labels": shared_labels}}]),
+        "/api/v1/nodes": lst([{"metadata": {"name": "n1", "uid": "node1", "labels": shared_labels},
+                               "status": {"addresses": [{"type": "InternalIP", "address": "10.0.0.1"}]}}]),
+        "/api/v1/services": lst([{"metadata": {"name": "web", "namespace": "apps", "uid": "s1", "labels": shared_labels},
+                                  "spec": {"type": "LoadBalancer", "selector": shared_labels, "ports": [{"port": 80}]}}]),
+        "/api/v1/serviceaccounts": lst([{"metadata": {"name": "web", "namespace": "apps", "uid": "sa1"}}]),
+        "/apis/apps/v1/deployments": lst([{"metadata": {"name": "web", "namespace": "apps", "uid": "d1"},
+                                           "spec": {"selector": {"matchLabels": shared_labels}, "template": template}}]),
+        "/apis/rbac.authorization.k8s.io/v1/clusterroles": lst([{"metadata": {"name": "admin", "uid": "r1"},
+            "rules": [{"apiGroups": [""], "resources": ["secrets"], "verbs": ["get", "list"]}]}]),
+        "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings": lst([{"metadata": {"name": "b", "uid": "rb1"},
+            "roleRef": {"kind": "ClusterRole", "name": "admin"},
+            "subjects": [{"kind": "ServiceAccount", "name": "web", "namespace": "apps"}]}]),
+        "/apis/networking.k8s.io/v1/networkpolicies": lst([{"metadata": {"name": "np", "namespace": "apps", "uid": "np1"},
+            "spec": {"podSelector": {"matchLabels": shared_labels}, "ingress": [{}]}}]),
+    }
+
+
+def _evidence():
+    coverage = {"mode": {"status": "observed"}}
+    return {"metadata_evidence": {
+        "file_metadata": [{"path": "/etc/kubernetes/kubelet.conf", "uid": 0, "gid": 0, "mode": "0600",
+                           "node_name": "n1", "node_uid": "node1", "observed_at": "2026-10-26T00:00:00Z",
+                           "_coverage": coverage}],
+        "secret_metadata": [{"metadata": {"name": "s", "namespace": "apps", "labels": {"k": "v"}}, "type": "Opaque"}]}}
+
+
+def _containers(value, out):
+    if isinstance(value, (dict, list)):
+        out.append(value)
+        for child in (value.values() if isinstance(value, dict) else value):
+            _containers(child, out)
+    return out
+
+
+def _module_containers():
+    import sys
+    seen, stack = set(), [vars(module) for name, module in list(sys.modules.items())
+                          if module is not None and name.startswith(("peaso.collectors", "peaso.snapshot"))]
+    while stack:
+        value = stack.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, dict):
+            stack.extend(v for v in value.values() if isinstance(v, (dict, list, tuple, set, frozenset)))
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            stack.extend(v for v in value if isinstance(v, (dict, list, tuple, set, frozenset)))
+    return seen
+
+
+def _namespaced(routes, namespaces):
+    out = dict(routes)
+    for path, document in routes.items():
+        head, _, plural = path.rpartition("/")
+        if plural in ("namespaces", "nodes", "clusterroles", "clusterrolebindings"):
+            continue
+        for namespace in namespaces:
+            out[f"{head}/namespaces/{namespace}/{plural}"] = document  # The same object behind several reads.
+    return out
+
+
+def _collect(owned=True, monkeypatch=None, scopes=None):
+    from tests.test_peaso_collectors_k8s_privesc_facts import FakeKube
+    routes, options = _routes(), _evidence()
+    if scopes:
+        routes = _namespaced(routes, scopes)
+    if not owned:
+        real = k8s.make_snapshot
+        monkeypatch.setattr(k8s, "make_snapshot", lambda *a, **kw: real(*a, **{**kw, "owned": False}))
+    connector = {"provider": "k8s", "auth": {"cluster_id": "fixture"}, "options": options}
+    if scopes:
+        connector["scopes"] = list(scopes)
+    snap = k8s.collect(connector, api=FakeKube(routes))
+    return snap, routes, options
+
+
+def _scramble(value):
+    if isinstance(value, dict):
+        for key in list(value):
+            _scramble(value[key])
+            value[key] = "MUTATED" if not isinstance(value[key], (dict, list)) else value[key]
+        value["mutated"] = True
+    elif isinstance(value, list):
+        for child in value:
+            _scramble(child)
+        value.append("MUTATED")
+
+
+@pytest.mark.parametrize("scopes", [None, ("apps", "ops")])
+def test_adopted_items_share_nothing_with_the_api_responses_options_or_module_state(scopes):
+    snap, routes, options = _collect(scopes=scopes)
+    items = [item for collection in snap["collections"] for item in collection["items"]]
+    assert {c["type"] for c in snap["collections"] if c["items"]} >= {"pod", "deployment", "clusterrole", "file_metadata"}
+    adopted = _containers(items, [])
+    ids = [id(value) for value in adopted]
+    assert len(ids) == len(set(ids)), "an item container is shared inside the snapshot"
+    inputs = {id(value) for value in _containers([routes, options], [])}
+    assert not inputs.intersection(ids), "a snapshot item aliases an API response or connector option"
+    assert not _module_containers().intersection(ids), "a snapshot item aliases module-level state"
+
+
+@pytest.mark.parametrize("scopes", [None, ("apps", "ops")])
+def test_mutating_every_source_after_the_snapshot_leaves_its_digest_unchanged(scopes):
+    snap, routes, options = _collect(scopes=scopes)
+    before = snapshot.canonical(snap)
+    _scramble(routes)
+    _scramble(options)
+    assert snapshot.canonical(snap) == before
+    assert snapshot.validate(snap)["snapshot_id"] == snap["snapshot_id"]
+
+
+@pytest.mark.parametrize("scopes", [None, ("apps", "ops")])
+def test_adopting_items_gives_the_same_snapshot_bytes_as_copying_them(monkeypatch, scopes):
+    adopted, _, _ = _collect(scopes=scopes)
+    copied, _, _ = _collect(owned=False, monkeypatch=monkeypatch, scopes=scopes)
+    for snap in (adopted, copied):
+        snap.pop("snapshot_id")
+        snap["created_at"] = "fixed"
+        snap["metadata"].pop("captured_at", None)
+    assert snapshot.canonical(adopted) == snapshot.canonical(copied)
+
+
+def test_make_snapshot_owned_adopts_item_lists_and_still_copies_envelopes():
+    items = [{"a": [1]}]
+    collections = [{"type": "pod", "scope": "*", "status": "collected", "items": items}]
+    metadata = {"m": {"n": 1}}
+    owned = snapshot.make_snapshot("k8s", ["*"], collections, created_at="t", metadata=metadata, owned=True)
+    copied = snapshot.make_snapshot("k8s", ["*"], collections, created_at="t", metadata=metadata)
+    assert owned == copied and owned["snapshot_id"] == copied["snapshot_id"]
+    assert owned["collections"][0]["items"] is items and copied["collections"][0]["items"] is not items
+    assert owned["collections"][0] is not collections[0] and owned["metadata"]["m"] is not metadata["m"]
+
+
+# --- streamed snapshot digest -------------------------------------------------------
+
+def _reference_digest(value):
+    import hashlib
+    return "sha256:" + hashlib.sha256(snapshot.canonical(value).encode()).hexdigest()
+
+
+def test_streamed_digest_hashes_exactly_the_canonical_bytes():
+    class Key(str):
+        pass
+    documents = [
+        {"collections": [], "metadata": {}},
+        {"z": 1, "collections": [{"type": "pod", "items": [{"é": "ü", "n": 1.5, "b": None}]}, 3, "x", [1]],
+         "a": {"b": [1, {"c": "✓"}]}, "provider": "k8s"},
+        {"collections": [{"items": [{"k": i, "v": [str(i)] * i} for i in range(20)]}] * 3, "scopes": ["*"]},
+        {"collections": "not-a-list", "x": 1},
+        {1: "int key", 2: []},
+        {Key("k"): 1, "collections": []},
+        snapshot.FrozenDict({"collections": snapshot.FrozenList([{"a": 1}])}),
+        [{"collections": []}], "text", 1, None,
+    ]
+    for document in documents:
+        assert snapshot.digest(document) == _reference_digest(document)
+    snap = snapshot.make_snapshot("k8s", ["*"], [{"type": "pod", "scope": "*", "status": "collected",
+                                                 "items": [{"metadata": {"name": "ü"}}]}], created_at="t")
+    body = {key: value for key, value in snap.items() if key != "snapshot_id"}
+    assert snap["snapshot_id"] == _reference_digest(body)
+
+
+def test_streamed_digest_rejects_what_canonical_rejects():
+    for bad in ({"collections": [{"x": float("nan")}]}, {"collections": [{"x": object()}]}):
+        with pytest.raises((ValueError, TypeError)) as streamed:
+            snapshot.digest(bad)
+        with pytest.raises((ValueError, TypeError)) as reference:
+            _reference_digest(bad)
+        assert type(streamed.value) is type(reference.value) and str(streamed.value) == str(reference.value)
+    loop = {"collections": []}
+    loop["collections"].append({"parent": loop})
+    with pytest.raises(ValueError):
+        snapshot.digest(loop)
+
+
+# --- remembered resource-id part encoding ------------------------------------------------
+
+def test_quoted_id_parts_equal_quote_and_stay_bounded():
+    from urllib.parse import quote
+    from peaso.collectors import k8s_id_parts
+
+    class Text(str):
+        pass
+    k8s_id_parts.QUOTED.clear()
+    for text in ["fixture", "kube-system", "a/b c", "ü✓", "", "%2F", "_cluster", Text("x/y")] * 2:
+        assert k8s_id_parts.quoted(text) == quote(text, safe="")
+    assert all(type(key) is str for key in k8s_id_parts.QUOTED) and "x/y" not in k8s_id_parts.QUOTED
+    for index in range(k8s_id_parts.MAX_PARTS + 5):
+        k8s_id_parts.quoted(f"ns-{index}")
+    assert len(k8s_id_parts.QUOTED) <= k8s_id_parts.MAX_PARTS
+    k8s_id_parts.QUOTED.clear()
+
+
+def test_native_ids_are_unchanged_by_the_part_memo():
+    from urllib.parse import quote
+    item = {"metadata": {"name": "web", "namespace": "a b/c", "uid": "u/1"}, "kind": "Pod", "apiVersion": "v1",
+            "spec": {"containers": []}}
+    for _ in range(2):
+        row = k8s._native(dict(item), "pod", "clu ster", "*", True)
+        assert row["id"] == "k8s://" + "/".join(quote(x, safe="") for x in ("clu ster", "pod", "a b/c", "u/1"))

@@ -122,9 +122,42 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+def _hash_canonical(value):
+    """sha256 of canonical(value).encode(), streamed one collection at a time for snapshot documents.
+
+    canonical() of a dict with only str keys is '{' + ','.join(canonical(key) + ':' + canonical(item)
+    for key in sorted keys) + '}', and of a list '[' + ','.join(canonical(item)) + ']'; hashing those
+    pieces in order hashes exactly the same bytes without holding the whole document as one string
+    and one bytes object at once. Anything else is encoded in one piece, as before.
+    """
+    digest = hashlib.sha256()
+    collections = value.get("collections") if type(value) is dict else None
+    if type(collections) is not list or not all(type(key) is str for key in value):
+        digest.update(canonical(value).encode())
+        return digest
+    update = digest.update
+    update(b"{")
+    for index, key in enumerate(sorted(value)):
+        if index:
+            update(b",")
+        update(canonical(key).encode())
+        update(b":")
+        if key == "collections":
+            update(b"[")
+            for position, collection in enumerate(collections):
+                if position:
+                    update(b",")
+                update(canonical(collection).encode())
+            update(b"]")
+        else:
+            update(canonical(value[key]).encode())
+    update(b"}")
+    return digest
+
+
 def digest(value):
     with gc_paused():
-        return "sha256:" + hashlib.sha256(canonical(value).encode()).hexdigest()
+        return "sha256:" + _hash_canonical(value).hexdigest()
 
 
 def seal(snapshot, *, owned=False):
@@ -182,13 +215,15 @@ def validate(snapshot, *, read_only=False, owned=False):
     return result
 
 
-def make_snapshot(provider, scopes, collections, *, created_at=None, metadata=None):
+def make_snapshot(provider, scopes, collections, *, created_at=None, metadata=None, owned=False):
     # This builder owns the new document and has no inherited digest to verify.
     # validate() already makes the independent copy, checks the full structure,
     # and computes its canonical digest. Sealing first repeated both operations.
+    # owned=True: the collector hands over item lists it built fresh and never touches again; they are
+    # adopted instead of copied (see validate). Envelopes and metadata are still copied.
     return validate({"schema_version": SCHEMA_VERSION, "provider": provider,
         "scopes": list(scopes), "created_at": created_at or datetime.now(timezone.utc).isoformat(),
-        "collections": collections, "metadata": metadata or {}})
+        "collections": collections, "metadata": metadata or {}}, owned=owned)
 
 
 def resource_id(provider, kind, scope, item):

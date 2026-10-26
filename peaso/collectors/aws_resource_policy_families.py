@@ -242,8 +242,9 @@ def unsupported_operations(r, session):
 # Keep unsupported recipes in RECIPES so collection reports explicit gaps.
 import botocore.session as _botocore_session
 _capability_session = _botocore_session.get_session()
-UNSUPPORTED_RECIPES = {r.id: missing for r in RECIPES
-                       if (missing := unsupported_operations(r, _capability_session))}
+# Same answer as checking every model here; a recorded result is reused only when it provably applies.
+from .aws_sdk_recipe_capabilities import unsupported_recipes as _unsupported_recipes
+UNSUPPORTED_RECIPES = _unsupported_recipes(RECIPES, recipe_operations, unsupported_operations, _capability_session)
 DECLARED_READ_ACTIONS = READ_ACTIONS
 READ_ACTIONS = {(r.service, operation) for r in RECIPES
                 if r.id not in UNSUPPORTED_RECIPES for operation in recipe_operations(r)}

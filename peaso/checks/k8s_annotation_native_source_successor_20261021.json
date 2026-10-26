@@ -104,6 +104,9 @@
         "defaults": "None",
         "kwdefaults": "None"
       },
+      "k8s_id_parts": {
+        "module": "peaso.collectors.k8s_id_parts"
+      },
       "quote": {
         "callable": "urllib.parse:quote",
         "code_sha256": "92e6f8a489584ce5a12c6eaab33b08eb61117adb33ee8a1842f5a148e0470e5b",
@@ -3308,9 +3311,9 @@
       },
       "make_snapshot": {
         "callable": "peaso.snapshot:make_snapshot",
-        "code_sha256": "425c9af9d8361e2277d2c4c3ad21374c0c2d776bc80cd3f3bc3d862517803dcf",
+        "code_sha256": "780ec7016e3695e56f1c2d845261472c1e8f1654037a411250827f2ade580e39",
         "defaults": "None",
-        "kwdefaults": "{'created_at': None, 'metadata': None}"
+        "kwdefaults": "{'created_at': None, 'metadata': None, 'owned': False}"
       },
       "quote": {
         "callable": "urllib.parse:quote",

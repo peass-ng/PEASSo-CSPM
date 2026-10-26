@@ -825,7 +825,7 @@
       "path": "peaso/snapshot.py",
       "line": 100,
       "qualname": "digest",
-      "sha256": "4d523257b31b55c05de54a2886016aeb04698d2757034eb69631f9de5781befd",
+      "sha256": "744562216104a547bf8d5c0be9bfac718523a7ef8eb91d738e610a2502708de5",
       "module_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
       "source": "def digest(value):\n    return \"sha256:\" + hashlib.sha256(canonical(value).encode()).hexdigest()\n",
       "reachable_helpers": [
