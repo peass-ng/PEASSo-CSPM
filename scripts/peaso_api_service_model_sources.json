@@ -29,10 +29,11 @@
     "peaso/ai/model_relay.py": "38b983c2a628e0b8d67aff0c58cdc3dabf5569262386c3124edfbd26b760cb6a",
     "peaso/ai/network.py": "f8da3a90c6fbc0e2c2bb8fa40f2007bf45abdfa149b37c92d8b7b693f5ebd6fd",
     "peaso/ai/output_validation.py": "bebdce6232ccc056823646411197a12741ff5462f48050c0c8a1b2dab241314f",
-    "peaso/ai/pipeline.py": "beb1c659865cf674f6588a75bafe14765b92bfc2439570bd622ed1b7b08727e5",
+    "peaso/ai/pipeline.py": "ebee1212cbd5e544b7909f12b3e94ce5cb4a0953f31dd4878a83efda2f29f963",
     "peaso/ai/prompting.py": "4e6c4f13dce2947dc23f037c5a95ebbf0d4efc6ba9a5ed97182a73ac3a2f2914",
     "peaso/ai/providers.py": "a33915979e16954365cd49a894dccba49a765ef1de060db5c15292a846e3f068",
     "peaso/ai/reconcile.py": "056c106512bdcc135b861be0f818af0e9161782c940cdc2aadf143cbe6fe548b",
+    "peaso/ai/review_groups.py": "54000fcfe421c5c8ae2f19da70cf37fd012c9cc6b341f044ba3b9ee7b70676d4",
     "peaso/ai/runner.py": "f75c5726a4f9b9b4ae0a23ffe180f88033711317fa9e8ccea50e1791da1af478",
     "peaso/ai/smoke.py": "83fb2f3aca2c29f0a5a6f4eb753f1223cb6500f0e1a0f1c9ae8ec58d53cd0b13",
     "peaso/ai/task_runtime.py": "a63425f304b35e78806e415fc71dc913bfc3cd2611077d9d9ac1dd1bdcb155ae",
@@ -1808,8 +1809,8 @@
     "source_review": "Qualified factory/SW46/source-proof locality and network joins; current main offline event normalizers and historical ECS lineage; bounded S3 uploads retain tenant checks, encryption and manifest-last semantics. Added modules have no SDK calls. Exact API client closure unchanged.",
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
-  "python_source_count": 1701,
-  "python_source_sha256": "3afc7e78bc765c5cf8612df8fc24b5e67322c70f95c3b125d873ec6470066d9e",
+  "python_source_count": 1702,
+  "python_source_sha256": "492ec964840df252b2dfb421b07ac31f65332ef70920d7fecbf9529fcc8d69f3",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

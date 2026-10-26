@@ -765,7 +765,7 @@ def test_each_verifier_batch_receives_only_its_own_findings_and_resources(enviro
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     value = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=artifacts)
     assert value['status'] == 'completed'
-    assert calls == [('hardening', 40), ('exposure', 1), ('hardening', 1), ('priorities', 42)]
+    assert calls == [('hardening', 21), ('exposure', 1), ('hardening', 20), ('priorities', 42)]
 
 
 @pytest.mark.parametrize('status', ['PASS', 'FAIL', 'UNKNOWN', 'DENIED', 'MANUAL', 'NOT_APPLICABLE', 'EMPTY'])
@@ -1184,7 +1184,7 @@ def test_reviewers_overlap_with_bounded_concurrency_and_priorities_wait(environm
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     value = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
     assert value['status'] == 'completed' and peak == 2
-    assert sorted(batches) == [('exposure', 1), ('exposure', 40), ('hardening', 1), ('hardening', 40), ('hardening', 40)]
+    assert sorted(batches) == [('exposure', 20), ('exposure', 21), ('hardening', 27), ('hardening', 27), ('hardening', 27)]
     assert value['coverage']['total'] == 122
 
 
@@ -1281,8 +1281,8 @@ def test_deadline_keeps_every_finding_and_stops_queued_agents(environment, monke
     output, failed = pipeline.review_batches(report(), {}, [], 'private', rows, [], 101)
     assert len(calls) == 1 and failed is True
     assert [row['finding_id'] for row in output['hardening']] == [row['id'] for row in rows]
-    assert all(row['verdict'] == 'FAIL' for row in output['hardening'][:40])
-    assert all(row['verdict'] == 'UNKNOWN' for row in output['hardening'][40:])
+    assert all(row['verdict'] == 'FAIL' for row in output['hardening'][:27])
+    assert all(row['verdict'] == 'UNKNOWN' for row in output['hardening'][27:])
 
 
 def test_memory_pressure_skips_agents_without_losing_review_coverage(environment, monkeypatch):
@@ -1320,14 +1320,14 @@ def test_one_parallel_batch_failure_does_not_discard_other_results(environment, 
     monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', '2')
     rows = [finding(f'h{i}') for i in range(81)]
     def invoke(stage, platform, entries, token, findings, reviews, timeout):
-        if findings[0]['id'] == 'h40':
+        if findings[0]['id'] == 'h27':
             raise RuntimeError('one_batch_failed')
         return {'items': [review(row['id']) for row in findings]}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     output, failed = pipeline.review_batches(report(), {}, [], 'private', rows, [], time.monotonic() + 10)
     assert failed is True and len(output['hardening']) == 81
     assert [row['finding_id'] for row in output['hardening']] == [row['id'] for row in rows]
-    assert sum(row['verdict'] == 'UNKNOWN' for row in output['hardening']) == 40
+    assert sum(row['verdict'] == 'UNKNOWN' for row in output['hardening']) == 27
 
 
 def test_parallel_invocations_keep_private_files_and_results_separate(monkeypatch):

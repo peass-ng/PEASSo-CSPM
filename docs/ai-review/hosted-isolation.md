@@ -5,8 +5,9 @@ Exposure, Network or Priorities invocation in a separate Fargate task. Prioritie
 still starts after all reviewers finish. The AWS deployment admits up to six
 concurrent tasks, subject to analyzer memory headroom. Each task uses 0.5 vCPU /
 2 GiB. The 3,000-second AI phase budget includes task startup and is bounded by
-the scan deadline; about 30% (at most 600 seconds) is reserved
-for priorities. The analyzer task shares the workflow’s one-hour ceiling; the
+the scan deadline less a final-publication reserve (at most 300 seconds); about
+30% (at most 600 seconds) is reserved for priorities, which may use up to
+1,500 seconds of what remains. The analyzer task shares the workflow’s one-hour ceiling; the
 collector retains its 30-minute stage limit. Absolute task deadlines leave time for result upload and shutdown. The remaining
 invocation budget also sets the inner agent wrapper’s runtime budget; the
 parent process and relay enforce the absolute deadline. An ECS failure before
