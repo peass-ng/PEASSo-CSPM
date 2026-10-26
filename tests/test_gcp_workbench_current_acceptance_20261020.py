@@ -14,7 +14,7 @@ from peaso.checks.catalog import description_for, proposal_provenance_for
 from peaso.checks.gcp_evidence_explanations import CATALOG, evidence_summary
 from peaso.finding_types import type_for
 from peaso.check_services import service_for
-from tests.retained_evidence_ledgers_20261022 import ledger_bytes
+from tests.retained_evidence_ledgers_20261022 import REPINNED, ledger_bytes
 
 CID='gcp.review.workbench.selected_referenced_source_secret_indicators_20261020'
 RECEIPT=Path('docs/check-review/workbench-current-acceptance-20261020.json')
@@ -288,7 +288,9 @@ def test_head3_actual_predicates_master_rows_and_runtime50_proof(cid):
     assert row['current_goal_status'] == 'accepted_local_bounded_native_review'
     assert row['current_bound_predicate_sha256'] == proof['body_sha256']
     assert row['bound_predicate_qualname'] == proof['qualname']
-    assert row['source_sha256'] == proof['source_sha256']
+    # checks.csv rows are frozen; a reviewed later re-pin of this source is recorded in REPINNED.
+    repinned = {after: before for before, after, _ in REPINNED['docs/evidence-reviews/gcp.json']}
+    assert row['source_sha256'] == repinned.get(proof['source_sha256'], proof['source_sha256'])
     assert description_for(cid)['description']
     assert proposal_provenance_for(cid)['signed_resource_kind'] == current[cid].kind
 
