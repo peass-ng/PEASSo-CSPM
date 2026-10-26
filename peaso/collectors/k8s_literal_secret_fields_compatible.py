@@ -161,7 +161,21 @@ identity = _GLOBALS['identity']
 _path = _GLOBALS['_path']
 
 
+# The copied functions above resolve limits from _GLOBALS, a snapshot of the
+# base module taken at import. Re-read them from the base module on every
+# collection so there is one source of limits for every read path.
+LIMITS = ('MAX_WIRE', 'MAX_CONTENT', 'MAX_VALUE', 'MAX_TOTAL', 'MAX_SECONDS',
+    'MAX_LITERALS', 'MAX_LEAKS', 'MAX_LOCATIONS')
+
+
+def sync_limits(*namespaces):
+    for namespace in (_GLOBALS, *namespaces):
+        for name in LIMITS:
+            namespace[name] = getattr(base, name)
+
+
 def collect(reader, api, options, scopes, cluster):
+    sync_limits()
     if enabled(options):
         with private_native_logs():
             return _GLOBALS['collect'](reader, api, options, scopes, cluster)

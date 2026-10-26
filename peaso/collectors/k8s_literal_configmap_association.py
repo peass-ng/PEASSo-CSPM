@@ -48,8 +48,8 @@ def _map(value, code):
     return value
 
 
-def _seq(value, code, limit=base.MAX_LITERALS):
-    if not isinstance(value, list) or len(value) > limit:
+def _seq(value, code, limit=None):
+    if not isinstance(value, list) or len(value) > (base.MAX_LITERALS if limit is None else limit):
         raise Incomplete(code)
     return value
 
@@ -378,6 +378,7 @@ enabled, selected_targets, identity, _path = (previous.enabled, previous.selecte
 
 
 def collect(reader, api, options, scopes, cluster):
+    previous.sync_limits(_GLOBALS)
     reader._configmap_association_phases = {}
     deadline_token = _SCAN_DEADLINE.set(time.monotonic() + base.MAX_SECONDS)
     try:

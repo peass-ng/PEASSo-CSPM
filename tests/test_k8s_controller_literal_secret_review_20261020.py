@@ -283,13 +283,27 @@ def test_dual_runner_timeout_never_clean(monkeypatch,kind,fail_engine,leak,reque
 
 @pytest.mark.parametrize('kind',CONTROLLERS)
 def test_references_are_counted_not_dereferenced(monkeypatch,kind,request):
+ # Secret references are counted and never read.
  t=target(kind);obj=native(t);c=podspec(obj,kind)['containers'][0]
  c['env'].append({'name':'FROM_SECRET','valueFrom':{'secretKeyRef':{'name':'unread-secret','key':'unread'}}})
- c['envFrom']=[{'configMapRef':{'name':'unread-map'}}]
+ c['envFrom']=[{'secretRef':{'name':'unread-secret'}}]
  c['args']=['$(FROM_SECRET)']
  snap,result,trace=capture(monkeypatch,[t],documents={route(t):obj},branch='references',testnode=request.node.nodeid)
  assert {r['status']for r in result['findings']}=={'PASS'}and len(trace.calls)==2
  assert result['findings'][0]['evidence']['reference_count']==2
+
+
+@pytest.mark.parametrize('kind',CONTROLLERS)
+def test_referenced_configmap_is_read_and_clean_passes(monkeypatch,kind,request):
+ t=target(kind);obj=native(t);c=podspec(obj,kind)['containers'][0]
+ c['env'].append({'name':'FROM_SECRET','valueFrom':{'secretKeyRef':{'name':'unread-secret','key':'unread'}}})
+ c['envFrom']=[{'configMapRef':{'name':'read-map'}}]
+ cm=route(target('ConfigMap','read-map'))
+ doc={'apiVersion':'v1','kind':'ConfigMap','metadata':{'namespace':NS,'name':'read-map','uid':'cm-uid','resourceVersion':'3'},
+  'data':{'MODE':CLEAN}}
+ snap,result,trace=capture(monkeypatch,[t],documents={route(t):obj,cm:doc},branch='references',testnode=request.node.nodeid)
+ assert {r['status']for r in result['findings']}=={'PASS'}and len(trace.calls)==4
+ assert sum(c['path_binding']==source._fingerprint(cm)for c in trace.calls)==2
 
 
 def test_eight_controller_ceiling_and_one_leak_multiple_engines_locations(monkeypatch,request):
