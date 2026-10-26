@@ -13,7 +13,7 @@
     },
     {
       "path": "docs/check-review/azure-archived-legacy-fixture-closure-20261020.json",
-      "sha256": "4d105c46868b6d16b501980d68e1f7fdaeb0d156e1c8155c009757617092edad"
+      "sha256": "91bda289d8b1c63b5774e762b2ce9b050ebabc3935a2d8b2ef91d340f1f4c2b4"
     }
   ],
   "fixture_successor": {
@@ -54,7 +54,7 @@
   "published": false,
   "followup_source_consumer_acceptance": {
     "path": "docs/check-review/azure-nsp-tde-admission-test-compatibility-20261020.json",
-    "sha256": "6e9709a2226c6ee52ea18d94e06ae0db2ac6d28c7c9c23d648d07f07ed7ec8be",
+    "sha256": "6cc220a8ab2f138004ffd295fbe24e7ea4d892e3688af9490153ee0c0e9927e6",
     "passed": 33
   }
 }

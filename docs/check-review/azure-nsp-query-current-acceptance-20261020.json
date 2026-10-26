@@ -8,7 +8,7 @@
   ],
   "worker_report": {
     "path": "docs/check-review/azure-nsp-query-cmk-production-review-20261020.json",
-    "sha256": "30fae84e088ba7f605c198c2e18062f604786a92b477cf97c286b0a0eb7f5c31"
+    "sha256": "acb8430e9cef15b6d40d414283e866c12bc0ffd60adbc0ac520c6c622f3d2064"
   },
   "verified_gates": [
     {

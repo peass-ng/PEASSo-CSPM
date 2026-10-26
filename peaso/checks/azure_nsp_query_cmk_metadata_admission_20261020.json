@@ -6,7 +6,7 @@
   ],
   "helper_path": "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.py",
   "sources": {
-    "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py": "328684f4582cb8949598595a066f9b4408a47f23f0fd4c1d9f635d1b968d695c",
+    "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py": "38015ca8b99f306b3499fcbf354805867ffa7e060c480c86c51c2a8b6217407d",
     "peaso/checks/azure_nsp_query_cmk_metadata_proposal_20261020.py": "0b18b00255300089e9c0f6d0348dd3baafa28e3137d27bc3dfedebdf6ea6de7e",
     "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.py": "0ee59ded88efe9f6a0a82ab8f96c39e6f8e031557be349600d1c542a5b03db3e"
   },
@@ -31,7 +31,7 @@
       "path": "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py",
       "qualname": "metadata_get",
       "line": 43,
-      "source_sha256": "b9d69fec93060c923eead74e42ad7b5656646c37a9ffb3568b3ebe3a8c797dcc",
+      "source_sha256": "7bdf3d854c46eb4e756face4201d11aef83920c164e711ff2a2cea22beb3c5bc",
       "defaults": null,
       "kwdefaults": null
     },
@@ -432,7 +432,7 @@
     },
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_proposal_20261020_proposal.json",
-      "sha256": "24178b9034947832ebc52ba2f014f87b245177280b20772c9cd4fad3899124c0"
+      "sha256": "9cd87d6563500227016e073f77f9ab2f3423eec9885948b77ab9279d2744bcf6"
     }
   ],
   "schema": {

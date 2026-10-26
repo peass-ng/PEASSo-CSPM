@@ -1080,7 +1080,7 @@
         "symbol": "peaso.collectors.azure_nsp_query_cmk_metadata_proposal_20261020.metadata_get",
         "path": "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py",
         "line": 43,
-        "sha256": "b9d69fec93060c923eead74e42ad7b5656646c37a9ffb3568b3ebe3a8c797dcc"
+        "sha256": "7bdf3d854c46eb4e756face4201d11aef83920c164e711ff2a2cea22beb3c5bc"
       },
       {
         "symbol": "peaso.collectors.azure_nsp_query_cmk_metadata_proposal_20261020.scope_id",
@@ -1262,7 +1262,7 @@
     "new_modules": [
       {
         "path": "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py",
-        "sha256": "328684f4582cb8949598595a066f9b4408a47f23f0fd4c1d9f635d1b968d695c",
+        "sha256": "38015ca8b99f306b3499fcbf354805867ffa7e060c480c86c51c2a8b6217407d",
         "bytes": 17913
       },
       {
@@ -1509,7 +1509,7 @@
   },
   "proposal": {
     "path": "peaso/checks/azure_nsp_query_cmk_metadata_proposal_20261020_proposal.json",
-    "sha256": "24178b9034947832ebc52ba2f014f87b245177280b20772c9cd4fad3899124c0",
+    "sha256": "9cd87d6563500227016e073f77f9ab2f3423eec9885948b77ab9279d2744bcf6",
     "bytes": 3276
   },
   "setup": {

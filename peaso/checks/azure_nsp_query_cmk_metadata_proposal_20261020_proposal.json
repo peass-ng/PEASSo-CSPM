@@ -46,8 +46,8 @@
   "source_bindings": [
     {
       "path": "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py",
-      "sha256": "328684f4582cb8949598595a066f9b4408a47f23f0fd4c1d9f635d1b968d695c",
-      "bytes": 17913
+      "sha256": "38015ca8b99f306b3499fcbf354805867ffa7e060c480c86c51c2a8b6217407d",
+      "bytes": 17735
     },
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_proposal_20261020.py",

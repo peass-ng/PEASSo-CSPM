@@ -254,7 +254,7 @@
       }
     ]
   },
-  "predecessor_receipt_sha256": "427a28d7c75dff75964a956ba1ccb66b280eac3167c6e3bab5112642811297ee",
+  "predecessor_receipt_sha256": "624865a9eafc8854b348d8377a66eb97261ac401b07565775808a84c80dda34e",
   "source_rule": "Whole new dedicated source bytes, helper masks only one RECEIPT_SHA256 assignment; original admission validates immutable predecessor modules, native fixtures and named shared runtime helpers.",
   "scope": "Prepared inputs only, no installation/registration function. ParentCapture binds context before first read; original completed native source receipts remain untouched."
 }

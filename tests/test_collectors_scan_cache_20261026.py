@@ -429,3 +429,92 @@ def test_azure_cached_body_still_rejects_an_invalid_byte_limit(monkeypatch, limi
     with pytest.raises(ValueError, match="invalid response byte limit"):
         transport.request(ARM_URL, max_response_bytes=limit)
     assert len(calls) == 1
+
+
+def _gated_azure_transport(monkeypatch, body):
+    """Opener whose first wire read blocks until released (in-flight overlap)."""
+    release, started, calls = threading.Event(), threading.Event(), []
+
+    class Opener:
+        def open(self, request, timeout=None):
+            calls.append(request.full_url)
+            if len(calls) == 1:
+                started.set()
+                assert release.wait(5)
+            return AzureResponse(body)
+    monkeypatch.setattr(azure, "build_opener", lambda *handlers: Opener())
+    transport = azure.AzureTransport({"method": "token", "arm_token": "x"})
+    return transport, calls, release, started
+
+
+@pytest.mark.parametrize("waiter_limit,rereads", [(None, True), (64, True), (8, False)])
+def test_azure_waiter_is_not_failed_by_another_callers_smaller_byte_limit(monkeypatch, waiter_limit, rereads):
+    body = json.dumps({"id": "x", "pad": "y" * 20}).encode()
+    transport, calls, release, started = _gated_azure_transport(monkeypatch, body)
+    outcome = {}
+
+    def owner():
+        try:
+            transport.request(ARM_URL, max_response_bytes=10)
+        except Exception as exc:
+            outcome["owner"] = exc
+    thread = threading.Thread(target=owner)
+    thread.start()
+    assert started.wait(5)
+    waiter = {}
+
+    def wait():
+        try:
+            waiter["value"] = transport.request(ARM_URL, max_response_bytes=waiter_limit)
+        except Exception as exc:
+            waiter["error"] = exc
+    second = threading.Thread(target=wait)
+    second.start()
+    deadline = time.monotonic() + 5
+    while transport.response_cache.coalesced < 1 and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert transport.response_cache.coalesced == 1
+    release.set()
+    thread.join(5)
+    second.join(5)
+    assert isinstance(outcome["owner"], azure.AzureReadError) and outcome["owner"].code == "response_too_large"
+    if rereads:
+        assert waiter["value"]["id"] == "x" and len(calls) == 2
+    else:
+        assert waiter["error"].code == "response_too_large" and len(calls) == 1
+
+
+def test_azure_strict_metadata_read_shares_the_transport_read(monkeypatch):
+    from peaso.collectors import azure_nsp_query_cmk_metadata_proposal_20261020 as native
+    transport, calls = azure_transport(monkeypatch, lambda n, r: {"id": "/subscriptions/x", "state": "Enabled"})
+    assert transport.request(ARM_URL) == native.metadata_get(transport, ARM_URL)
+    assert len(calls) == 1
+
+
+def test_azure_strict_metadata_read_keeps_its_own_failures(monkeypatch):
+    from peaso.collectors import azure_nsp_query_cmk_metadata_proposal_20261020 as native
+
+    class Partial(AzureResponse):
+        status = 206
+    transport, calls = azure_transport(monkeypatch, lambda n, r: {})
+    monkeypatch.setattr(azure, "build_opener", lambda *handlers: SimpleNamespace(open=lambda request, timeout=None: Partial(b"{}")))
+    with pytest.raises(ValueError, match="HTTP response incomplete"):
+        native.metadata_get(transport, ARM_URL)
+    big = json.dumps({"id": "x", "pad": "y" * native.MAX_BYTES}).encode()
+    monkeypatch.setattr(azure, "build_opener", lambda *handlers: SimpleNamespace(open=lambda request, timeout=None: AzureResponse(big)))
+    with pytest.raises(ValueError, match="budget exceeded"):
+        native.metadata_get(transport, ARM_URL)
+    duplicate = b'{"id": "x", "id": "y"}'
+    monkeypatch.setattr(azure, "build_opener", lambda *handlers: SimpleNamespace(open=lambda request, timeout=None: AzureResponse(duplicate)))
+    with pytest.raises(ValueError, match="duplicate native JSON field"):
+        native.metadata_get(transport, ARM_URL + "&x=1")
+
+
+def test_azure_graph_batch_bodies_are_not_retained(monkeypatch):
+    transport, calls = azure_transport(monkeypatch, lambda n, r: {"responses": []})
+    url = azure.GRAPH + "/v1.0/$batch"
+    monkeypatch.setattr(azure, "_validate_readonly_post", lambda *args: None)
+    for _ in range(2):
+        transport.request(url, body={"requests": []}, audience=azure.GRAPH)
+    assert len(calls) == 2
+    assert not transport.response_cache.entries

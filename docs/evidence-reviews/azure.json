@@ -48392,7 +48392,7 @@
     "review_receipt": "docs/check-review/azure-function-package-final-acceptance-20261020.json",
     "native_review_receipt": {
       "path": "docs/check-review/azure-function-package-head3-current-acceptance-20261020.json",
-      "sha256": "b89ae29f32d21d07e075cccdeeca213ac591b8efbc560ee0fec5506f99a1a65f"
+      "sha256": "f469e368c07efb9c30b007d7b01e7d71651a5baf355f1d42d7a9e9e5f9b349c2"
     },
     "offline_context_provenance": "supplied_snapshot_assertions",
     "offline_cloud_authenticity": "not_established",

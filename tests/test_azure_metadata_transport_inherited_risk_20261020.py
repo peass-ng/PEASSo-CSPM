@@ -35,4 +35,7 @@ def test_current_transport_and_strict_adapter_reject_preserved_risks(monkeypatch
     with pytest.raises((ValueError, azure.AzureReadError)):
         transport.request(URL, max_response_bytes=producer.MAX_BYTES)
     with pytest.raises(ValueError): producer.metadata_get(transport, URL)
-    assert calls == [URL, URL]
+    # A complete 200 body is shared through the per-scan response cache, so the
+    # strict adapter re-parses it without a second wire read; partial responses
+    # are never cached and are read again.
+    assert calls == ([URL, URL] if mode == 'http206' else [URL])

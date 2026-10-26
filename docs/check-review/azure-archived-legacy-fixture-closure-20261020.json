@@ -2187,12 +2187,12 @@
   "conserved_artifacts": [
     {
       "path": "docs/check-review/azure-metadata-transport-fix-review-20261020.json",
-      "sha256": "c33739066b4bed15135f9f0fc8c404be8a43dc3cd69c7914b1499a46f9543e76",
+      "sha256": "f77f5e2488bb1f8f7251a7fffe1074cbe2115d0465ebc611a14c59ec00c41db9",
       "bytes": 57464
     },
     {
       "path": "docs/check-review/azure-http-status-fixture-compatibility-review-20261020.json",
-      "sha256": "af25fd1394a5b3f5462906b4f62e9be7967d6077008dd98ac89f8f8c6b64f465",
+      "sha256": "90e1bf883968e9acf45a7c3319abe876d1205c32548eec4fd6370ff89ae9bd2b",
       "bytes": 151701
     },
     {
@@ -2250,12 +2250,12 @@
   "TDE_source_successor": {
     "helper": {
       "path": "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.py",
-      "sha256": "6fa3a2f35ff693ad089bf9abfc997e91f665d097cf62c74c53e5bc48fe1f4615",
+      "sha256": "956285dbde640082ea6f2b464376065db3469881bf45a5b2da271c53ec83b323",
       "bytes": 11969
     },
     "receipt": {
       "path": "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.json",
-      "sha256": "d4c02d6b3948889a4f69b643a8c872a259171507ec63812b6d4d9e4ad860223b",
+      "sha256": "3f22b3668920e0b6b76eeb12a8a9223d08270b26a8f9a2e94887a36c4e5fe1db",
       "bytes": 7761
     },
     "predecessor_pack": {

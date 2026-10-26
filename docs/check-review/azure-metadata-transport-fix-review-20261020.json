@@ -122,7 +122,7 @@
     {
       "path": "tests/test_azure_metadata_transport_inherited_risk_20261020.py",
       "before_sha256": "5758f91876841a2c3f2b75e678605f1a4ad1d4ba75a9ff7bb64ea0735ea94af9",
-      "after_sha256": "3d1cef7fb79ad61295ac02559c12f9748d02f90fbaf29868fb55927bb2a8a692",
+      "after_sha256": "58a28340133714aa2e243249400a6c0563f6cf8136fbca774c41035ea91c2037",
       "diff": "--- tests/test_azure_metadata_transport_inherited_risk_20261020.py predecessor\n+++ tests/test_azure_metadata_transport_inherited_risk_20261020.py current\n@@ -1,7 +1,7 @@\n-\"\"\"Observed inherited transport risks, not acceptance of unsafe evidence.\n+\"\"\"Current shared transport and dedicated adapter reject preserved risk inputs.\n \n-No global transport fix is installed; the dedicated new metadata GET rejects\n-these exact native inputs. Existing active-control impact is not asserted here.\n+Original acceptance assertions/report remain byte-for-byte in the compressed\n+predecessor fixture; registered SAS impact is tested in the new fix matrix.\n \"\"\"\n import io\n import json\n@@ -14,7 +14,7 @@\n \n \n @pytest.mark.parametrize('mode', ['http206', 'duplicate_deciding_key'])\n-def test_observed_inherited_transport_acceptance_strict_adapter_rejects(monkeypatch, mode):\n+def test_current_transport_and_strict_adapter_reject_preserved_risks(monkeypatch, mode):\n     def blocked(*a, **kw): raise AssertionError('network/DNS/auth forbidden')\n     for owner, names in ((socket, ('create_connection', 'getaddrinfo', 'gethostbyname', 'gethostbyname_ex')),\n                          (socket.socket, ('connect', 'connect_ex', 'sendto')), (azure, ('credential_for',))):\n@@ -32,7 +32,7 @@\n             return response\n     monkeypatch.setattr(azure, 'build_opener', lambda *a: Opener())\n     transport = azure.AzureTransport({'method': 'token', 'arm_token': 'INERT_RISK_FIXTURE'})\n-    inherited = transport.request(URL, max_response_bytes=producer.MAX_BYTES)\n-    assert inherited['properties']['encryption']['keySource'] == 'Microsoft.Keyvault'\n+    with pytest.raises((ValueError, azure.AzureReadError)):\n+        transport.request(URL, max_response_bytes=producer.MAX_BYTES)\n     with pytest.raises(ValueError): producer.metadata_get(transport, URL)\n     assert calls == [URL, URL]\n"
     }
   ],
@@ -156,7 +156,7 @@
     },
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.json",
-      "sha256": "427a28d7c75dff75964a956ba1ccb66b280eac3167c6e3bab5112642811297ee",
+      "sha256": "624865a9eafc8854b348d8377a66eb97261ac401b07565775808a84c80dda34e",
       "current_validation": "PASS fresh import/call, no repin",
       "request_is_pinned": false,
       "unchanged_azure_symbols": [
@@ -234,7 +234,7 @@
   "inherited_risk_history": {
     "original_report": {
       "path": "docs/check-review/azure-metadata-transport-inherited-risk-20261020.json",
-      "sha256": "9ea1ae4577a21b2161ef6b86c0830d9f5a6f54b796897fb87d373c203fd70d34",
+      "sha256": "24b572cc6bf489c36885d23236e010b6788873e35d9793613f966db9c391d507",
       "bytes": 4522
     },
     "unchanged": true,
@@ -547,7 +547,7 @@
     },
     {
       "path": "tests/test_azure_metadata_transport_inherited_risk_20261020.py",
-      "sha256": "3d1cef7fb79ad61295ac02559c12f9748d02f90fbaf29868fb55927bb2a8a692",
+      "sha256": "58a28340133714aa2e243249400a6c0563f6cf8136fbca774c41035ea91c2037",
       "bytes": 2168
     },
     {
