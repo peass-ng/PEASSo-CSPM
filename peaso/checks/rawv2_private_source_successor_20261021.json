@@ -675,7 +675,7 @@
   ],
   "private_helper_classes": {
     "Capture": {
-      "lineno": 255,
+      "lineno": 212,
       "methods": {
         "__init__": {
           "defaults": "(None, None)",
@@ -745,7 +745,7 @@
       ]
     },
     "EphemeralCipher": {
-      "lineno": 883,
+      "lineno": 794,
       "methods": {
         "__init__": {
           "defaults": "None",

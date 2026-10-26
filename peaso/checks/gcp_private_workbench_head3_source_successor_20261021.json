@@ -13,7 +13,7 @@
   "gcp_receipt_sha256": "0e987c9966fdbf61bc37452e724aebb18e9d5b5bf1e6c930bf31cb2e3d2de6ea",
   "gcp_source_sha256": "6afaa74643b19007f4ec9324c1977ae55899494b3808741a8b2a1245ed586c5c",
   "normalized_source_sha256": "03b2f79ed4ead8672c6b6d13a209b70cbdd0edcd410da069c6f5c503c326fa98",
-  "raw_receipt_sha256": "d0e9bcf0a1ecd045081ebc021c8d8baed10d43d895bc50c2313a9e46641056f4",
+  "raw_receipt_sha256": "2d0cef07f1ad290ec3a5f0b3deade46574717a61a9491069be7342ce8efabdbb",
   "raw_source_sha256": "adb16873adf517a30c11a280c94c748b90ba405f46b5219630eef877a4aabf67",
   "schema": "gcp-private-workbench-head3-source-successor-v1",
   "workbench_receipt_sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
