@@ -23,6 +23,9 @@ locals {
     PEASO_IDENTITY_DIR             = "/tmp/peaso/identity"
     AWS_DEFAULT_REGION             = var.region
     PEASO_SOURCE_VERSION           = var.source_version
+    # The worker image also sets this after its always-mode build proof;
+    # restated here so no task definition can fall back to runtime proofs.
+    PEASO_SOURCE_ATTESTATION = "trusted"
   }
   task_roles = { collector = aws_iam_role.collector.arn, analyzer = aws_iam_role.analyzer.arn }
 }

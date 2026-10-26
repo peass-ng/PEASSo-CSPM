@@ -70,6 +70,7 @@ resource "aws_ecs_task_definition" "ai" {
     readonlyRootFilesystem = true
     entryPoint             = ["python", "-m", "peaso.ai.task_runtime"]
     command                = [name]
+    environment            = [{ name = "PEASO_SOURCE_ATTESTATION", value = "trusted" }] # no runtime source proofs in production
     memory                 = name == "agent" ? 1792 : 256
     mountPoints            = [{ sourceVolume = "${name}-scratch", containerPath = "/tmp", readOnly = false }]
     linuxParameters        = { capabilities = { add = [], drop = ["ALL"] } }
