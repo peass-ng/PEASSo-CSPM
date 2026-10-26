@@ -1385,7 +1385,7 @@
     "peaso/image_findings_storage.py": "bc5dc81704fc5a58ab0ca20493974110a08730c50b902dc5b6f41ef724f5acc7",
     "peaso/image_layer_overlap_20261026.py": "3d769942dada5b9f82627d3046226f27913fc6e9a7c79acf541b17f5d8750c84",
     "peaso/image_tar_header_20261026.py": "81111a6efd6881f97ff6de739f36680daaf34617c4a00c5f50263d725391869a",
-    "peaso/incremental.py": "0e0050b84f5b7e015f3a5c7f6c6d10785cbf5d3b33d578dae1d306be7ede7c48",
+    "peaso/incremental.py": "2041264fb542bcea46f940734a6672dfa3294515af907df6b8b4f0df81d5ad7c",
     "peaso/jvm_class_constant_text_20261021.py": "82ac9c8f8f967e8444d3d65b8333d65e38a7a02625f4dc6f772d6046f38081ed",
     "peaso/k8s_image_source_association_20261020.py": "c5fdc84792aaaafa00c482975abc13a24c3b6e5d6271b200d92689a117089483",
     "peaso/k8s_image_source_association_current_20261023.py": "4e1a01e25f89c4243ec5eb48f368d148a3ba249390866806189190cfe0b0d783",
@@ -1803,7 +1803,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1695,
-  "python_source_sha256": "98d46d8226495fe9ec765cd1204dec8bb7c5506e489573a44ce6b8acff3d8d9f",
+  "python_source_sha256": "c0ca61ea09616e6fe7de09d7de75875d1c31bac5b36b40fd1670f2cf34a0e8f6",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
