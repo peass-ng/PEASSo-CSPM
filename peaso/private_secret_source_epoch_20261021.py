@@ -25,8 +25,8 @@ from types import CodeType, FunctionType, MethodType, ModuleType
 import zipfile
 from peaso import source_attestation_mode as _attestation_mode
 
-_RECEIPT_SHA256 = "8c65e0079b6e8f104a34283609998b5b6900dcdbcba51031a2e2d80b32082277"
-_SELF_SHA256 = "f8afbdd39e6db26ad889b4fb4278eca6f3f24651ae247c9d9f124253e1615b16"
+_RECEIPT_SHA256 = "530a08b506dd8c8869355e925e763d7041212063fa60ea2ac452e89b23ed5693"
+_SELF_SHA256 = "e2ac5c4c5f6a425ea0e4a1e6c9d8cde5872c24353c2274b5973f0c8ad41e3b9f"
 _ARCHIVE_SHA256 = "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0"
 _HELPER_SHA256 = "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a"
 _BASE = "6b6ee759234d7e2dad978342838cb3af4e1fe767"
@@ -523,7 +523,7 @@ def _root_path(root: str | Path, relative: str) -> Path:
 
 def _live(root: str | Path, relative: str, row: dict) -> tuple[bytes, Path]:
     helper = _root_path(root, "peaso/secret_evidence.py")
-    if _sha(helper.read_bytes()) != "4cc672240517d9447fa4287fd32fc56cb7d4ce94472e70153807aa603e769918":
+    if _sha(helper.read_bytes()) != "9258956d9a6ddfe0a65568fb75d9ccff8cac2fad625a57c70bd6175f9254ce56":
         raise AdmissionError("private dependency mismatch")
     path = _root_path(root, relative)
     data = path.read_bytes()
