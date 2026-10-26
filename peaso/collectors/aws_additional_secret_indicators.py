@@ -25,6 +25,42 @@ SAFE_BEANSTALK = {('aws:elasticbeanstalk:cloudwatch:logs', 'StreamLogs'), ('aws:
                  ('aws:elasticbeanstalk:environment', 'LoadBalancerType')}
 
 
+NAME_CHECKS = {
+    'codebuild_project': {'aws.c2b.codebuild.no_plaintext_sensitive_env_names', 'aws.nist.codebuild_exact_aws_key_env_names',
+        'aws.pci.codebuild.aws_key_environment_vars', 'aws_nist_codebuild_project_plaintext_env_variables_no_sensitive_aws_values'},
+    'ecs_task_definition': {'aws.c2b.ecs.no_credential_named_env_vars', 'aws_ecs_task_definition_credential_environment_names',
+        'aws_nist_ecs_task_definition_container_environment_no_secret'},
+}
+
+
+def _salvage_named(kind, row, region):
+    """Strict parsing rejected this resource, yet its environment names stay
+    projected and the name checks still report on them. Keep each clear value
+    those checks name in private evidence, entry by entry."""
+    from peaso.secret_evidence import enabled, named_literal
+    if not enabled() or kind not in NAME_CHECKS or not isinstance(row, dict):
+        return
+    arn = row.get('arn' if kind == 'codebuild_project' else 'taskDefinitionArn')
+    match = re.fullmatch(r'arn:(?:aws|aws-cn|aws-us-gov):[a-z0-9-]+:([a-z0-9-]+):([0-9]{12}):.+', arn) if isinstance(arn, str) else None
+    if match is None or region is not None and match[1] != region:
+        return
+    region = match[1]
+    if kind == 'codebuild_project':
+        environment = row.get('environment')
+        groups = [('environment.environmentVariables', environment.get('environmentVariables') if isinstance(environment, dict) else None)]
+    else:
+        containers = row.get('containerDefinitions')
+        groups = [('containerDefinitions[' + str(i) + '].environment', container.get('environment'))
+                  for i, container in enumerate(containers[:4096] if isinstance(containers, list) else []) if isinstance(container, dict)]
+    for path, entries in groups:
+        for entry in entries[:4096] if isinstance(entries, list) else []:
+            if (not isinstance(entry, dict) or not isinstance(entry.get('name'), str) or not isinstance(entry.get('value'), str)
+                    or 'valueFrom' in entry or kind == 'codebuild_project' and entry.get('type', 'PLAINTEXT') != 'PLAINTEXT'):
+                continue
+            named_literal(entry['name'], entry['value'], provider='aws', resource_id=arn, scope=match[2] + '/' + region,
+                          path=path + '[name=' + json.dumps(entry['name']) + '].value', checks=NAME_CHECKS[kind])
+
+
 def _bad():
     return {'Schema': SCHEMA, 'collection_status': 'malformed', 'NativeResponseComplete': False}
 
@@ -86,10 +122,7 @@ def _scan(kind, resource_id, groups, region, operation, coverage, arn=None, acco
                 'elastic_beanstalk_environment': 'OptionSettings',
                 'glue_job': 'DefaultArguments' if group_index == 0 else 'NonOverridableArguments',
                 'glue_connection': 'ConnectionProperties'}.get(kind, coverage + '[' + str(group_index) + ']')
-            name_checks = ({'aws.c2b.codebuild.no_plaintext_sensitive_env_names', 'aws.nist.codebuild_exact_aws_key_env_names',
-                'aws.pci.codebuild.aws_key_environment_vars', 'aws_nist_codebuild_project_plaintext_env_variables_no_sensitive_aws_values'}
-                if kind == 'codebuild_project' else {'aws.c2b.ecs.no_credential_named_env_vars', 'aws_ecs_task_definition_credential_environment_names',
-                'aws_nist_ecs_task_definition_container_environment_no_secret'} if kind == 'ecs_task_definition' else set())
+            name_checks = NAME_CHECKS.get(kind, set())
             named_mapping(mapping, provider='aws', resource_id=authority,
                           scope=(account + '/' + region) if account else region, path=group_path, checks=name_checks,
                           entry_list=kind in {'codebuild_project', 'ecs_task_definition'})
@@ -120,9 +153,12 @@ def codebuild_indicator(project, region=None):
         if not isinstance(environment, dict):
             raise ValueError('invalid project environment')
         pairs = _environment(environment.get('environmentVariables', []), typed=True)
-        return _scan('codebuild_project', project['name'], [pairs], region, 'codebuild:BatchGetProjects', 'plaintext_environment', arn=arn)
+        indicator = _scan('codebuild_project', project['name'], [pairs], region, 'codebuild:BatchGetProjects', 'plaintext_environment', arn=arn)
     except (ValueError, TypeError, KeyError):
-        return _bad()
+        indicator = _bad()
+    if indicator['collection_status'] != 'collected':
+        _salvage_named('codebuild_project', project, region if isinstance(region, str) else None)
+    return indicator
 
 
 def _redact(value):
@@ -233,6 +269,8 @@ def _row(kind, row, region, operation, arguments):
         indicator = _scan(kind, identity, groups, region, operation, coverage, arn=arn, account=account)
     except (ValueError, TypeError, KeyError, AttributeError):
         indicator = _bad()
+    if indicator['collection_status'] != 'collected':
+        _salvage_named(kind, row, region)
     projected = _redact(row) if isinstance(row, dict) else {}
     projected['AdditionalSecretIndicators'] = indicator
     return projected

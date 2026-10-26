@@ -117,10 +117,19 @@ def test_worker_private_persistence_and_ai_input_exclusion(tmp_path, monkeypatch
                'connector': {'provider': 'aws', 'auth': {}, 'input_mode': 'offline_snapshot'}, 'ai_enabled': False, 'ai_context': {'identity_dir': str(identity_dir)}}
     process = context.Process(target=_process, args=('collector', request, child))
     try:
-        process.start(); child.close(); assert parent.poll(15)
-        success, reference, *rest = parent.recv(); assert success, rest
+        process.start(); child.close()
+        while True:
+            # Metrics and checkpoints precede the final (success, reference) reply.
+            assert parent.poll(15)
+            message = parent.recv()
+            if isinstance(message, tuple) and isinstance(message[0], bool):
+                break
+        success, reference, *rest = message; assert success, rest
         snapshot = artifacts.get('alice', reference)
-        assert VALUE not in json.dumps(snapshot)
+        # Found values stay as collected in the snapshot; the private store adds the match record.
+        assert VALUE in json.dumps(snapshot)
+        private_file = artifacts.root / private_reference('alice', ident)
+        assert VALUE.encode() not in private_file.read_bytes()  # encrypted at rest
         from peaso.secret_evidence import load_details
         detail = load_details(artifacts, CredentialCipher(identity_dir), 'alice', ident, finding())
         assert detail['matches'][0]['value'] == VALUE

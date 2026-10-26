@@ -39,8 +39,8 @@
     "peaso/collectors/aws_code_log_content_indicators.py": "573e30bc578e5791476392c12321709d89c306e9593cf3c4e81a1755a5756668"
   },
   "companion_report_sha256": {
-    "prowler-parity.json": "8bbf40f4cd2b6bfd7d9005b1a5372de94699316b1c1b2c6f488f0b18960f0597",
-    "steampipe-parity.json": "abd3783ed4c7bf7fee2a4be62e92173e3623b47f9783ca40379404ef9070eb1c"
+    "prowler-parity.json": "f9831fbcf38470209701f09218fb80a20fa7b5e877ddbdf57ccf3a17b599bf11",
+    "steampipe-parity.json": "74f8e7f8aa04e37637412f3155344f33e0d0d5fdf35f113fd926d5ed535f348b"
   },
   "archived_exact_listener_contract": {
     "id": "aws_nist_ec2_instance_not_publicly_accessible",

@@ -62904,7 +62904,7 @@
     }
   ],
   "input_service_report": "/Users/carlospolop/git/Blue-CloudPEASS/docs/aws-review/services-closure-review.json",
-  "input_service_report_sha256": "580f8c67ba23cd976502b78a32aefe87810424a7283e8764250470f490496e2a",
+  "input_service_report_sha256": "0d104b6f9089a9733a740846879294c99000e2238efac7965afde8224fe2cdd8",
   "limitations": [
     "Only passing tests whose source and pipeline hashes still match are accepted as current receipts.",
     "Exact positive, negative, unavailable and foreign branches are recorded per consumer; emission of a shared field does not execute every consumer of that field.",
@@ -89894,7 +89894,7 @@
     "peaso/collectors/aws_lambda_environment_metadata.py": "eeeb768de5bfbecb1bb905f2bf32edcf2e60778d0eea9bbe64d98c7c65590b69",
     "peaso/collectors/aws_lambda_omission_native.py": "b4e26a8b731366e9be1d60d6e694bf360a2ef611ec9c753b1d94d8d664464b3d",
     "peaso/collectors/aws_lambda_role_usage.py": "5cc4316b57cec4ea05f81aabf487356152edef1d2409edebf5a138cca6f51493",
-    "peaso/collectors/aws_launch_configuration_redaction.py": "35773bbd43ec4b6cbee3fccfa32130d59b564fa02f6030bd824f6c1e432f2f80",
+    "peaso/collectors/aws_launch_configuration_redaction.py": "f4060385119f926cdccb9fb8a0773432cb050b4cfb2fdb511e35cc0d856bd60e",
     "peaso/collectors/aws_launch_template_instance_metadata.py": "31d6c56d9f88374031504d1c234f9a00d6009082397a306ebb1fb5a07a28fcee",
     "peaso/collectors/aws_lightsail_iam_native.py": "6d7c9f00c7a9da7e4c3f8da9e19de2c2d168664b32fa09c9753f3df2fb3d5047",
     "peaso/collectors/aws_macie_coverage_native.py": "5650b5a3e15a654cda7d2e5dcd2974124c6a0a711e1798202bf11e4ca5e65a7b",

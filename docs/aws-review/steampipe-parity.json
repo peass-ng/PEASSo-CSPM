@@ -32,7 +32,7 @@
     "peaso/rulepacks/manual_catalog.json": "c381370bad6526c18789b1110ea3b7cfc0ac3e780a5b15e486f98782daf6c03f",
     "peaso/collectors/aws.py": "fc2bf859c14a1767607e5b4ecc238fd689e08fd23634053f2123f7a728130bdf",
     "peaso/collectors/aws_facts_ext.py": "3e04007b730f56be31c7ab217b1713d05f6fbab0a7ecf512b09b107ad040f8db",
-    "peaso/collectors/aws_launch_configuration_redaction.py": "35773bbd43ec4b6cbee3fccfa32130d59b564fa02f6030bd824f6c1e432f2f80"
+    "peaso/collectors/aws_launch_configuration_redaction.py": "f4060385119f926cdccb9fb8a0773432cb050b4cfb2fdb511e35cc0d856bd60e"
   },
   "summary": {
     "control_count": 1674,
