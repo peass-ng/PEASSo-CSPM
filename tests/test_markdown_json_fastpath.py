@@ -94,3 +94,12 @@ def test_older_or_incompatible_backend_is_disabled_once(monkeypatch,mode):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     assert module._core_pretty_json is None
     assert module._json_block({'z':[1,2],'a':'é'})==original({'z':[1,2],'a':'é'})
+
+def test_backtick_free_blocks_skip_the_fence_scan_with_identical_output(monkeypatch):
+ values=[{'a':[1,'plain',None]},{'tick':'one ` and ``` three'}]
+ expected=[original(value) for value in values]
+ scans=[]
+ real=subject.re.finditer
+ monkeypatch.setattr(subject.re,'finditer',lambda *a,**k:scans.append(a[1]) or real(*a,**k))
+ assert [subject._json_block(value) for value in values]==expected
+ assert len(scans)==1 and '```' in scans[0]
