@@ -54,6 +54,15 @@ class Incomplete(ValueError):
     """Stable local reason; never includes URL, response, token or content."""
 
 
+class _Transient(Incomplete):
+    """A registry read that failed in transport or with a retryable status."""
+
+
+TRANSIENT_STATUS = frozenset((408, 429, 500, 502, 503, 504))
+TRANSIENT_RETRIES = 1
+TRANSIENT_BACKOFF = 1.0
+
+
 class RedactionOverflow(BaseException):
     """Abort snapshot output when detected values cannot all be redacted."""
 
@@ -302,6 +311,26 @@ class RegistryReader:
         record = {'id': 'registry-read-' + uuid4().hex, 'method': 'GET', 'category': category,
                   'digest': digest, 'status': 'unavailable', 'bytes': 0}
         self.receipts.append(record)
+        retryable = destination is None or isinstance(destination, Path) and not destination.exists()
+        for attempt in range(TRANSIENT_RETRIES + 1):
+            total = self.total
+            try:
+                return self._read(record, path, category, digest, cap, size, destination)
+            except _Transient:
+                # One bounded retry for transport errors and 408/429/5xx; never 401/403/404,
+                # framing or digest failures. The retry still counts against MAX_CALLS.
+                self.total = total
+                if destination is not None and retryable:
+                    destination.unlink(missing_ok=True)
+                if (attempt >= TRANSIENT_RETRIES or not retryable or self.calls >= MAX_CALLS
+                        or time.monotonic() + TRANSIENT_BACKOFF * (attempt + 1) + 1 >= self.end):
+                    raise Incomplete('registry_unavailable') from None
+                wake = time.monotonic() + TRANSIENT_BACKOFF * (attempt + 1)
+                while time.monotonic() < wake:
+                    self.check()
+                    time.sleep(min(.1, max(0, wake - time.monotonic())))
+
+    def _read(self, record, path, category, digest, cap, size, destination):
         connection = response = None
         try:
             headers = {'Accept': ', '.join((archive.OCI, archive.DOCKER, oci_index.OCI_INDEX, oci_index.DOCKER_LIST)) if category == 'manifests' else 'application/octet-stream',
@@ -349,6 +378,8 @@ class RegistryReader:
             if status != 200:
                 if status in (401, 403):
                     record['status'] = 'denied'
+                if status in TRANSIENT_STATUS:
+                    raise _Transient('registry_unavailable')
                 raise Incomplete('registry_denied' if status in (401, 403) else 'redirect_unsupported' if 300 <= status < 400 else 'registry_unavailable')
             headers = response.headers
             length = headers.get('Content-Length')
@@ -390,7 +421,7 @@ class RegistryReader:
         except Exception as exc:
             if getattr(exc, 'code', None) in ('collection_cancelled', 'intentional_scan_deadline', 'deadline_exceeded'):
                 raise
-            raise Incomplete('registry_unavailable') from None
+            raise _Transient('registry_unavailable') from None
         finally:
             if response is not None:
                 response.close()
