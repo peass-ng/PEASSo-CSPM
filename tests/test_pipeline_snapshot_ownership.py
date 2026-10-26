@@ -117,3 +117,29 @@ def test_artifact_json_decode_is_unchanged_and_restores_gc():
     body = json.dumps({"a": [1, {"b": "é"}]}, ensure_ascii=False).encode()
     assert artifact_module._loads(body) == json.loads(body)
     assert gc.isenabled()
+
+
+def test_live_collect_tail_adopts_its_own_copy_with_the_same_snapshot(monkeypatch):
+    import peaso.collectors as collectors
+    from peaso import engine
+
+    raw = make_snapshot("aws", ["123456789012"], [
+        {"type": "s3_bucket", "scope": "123456789012", "status": "collected", "items": [{"Name": "b", "Tags": [1]}]}],
+        created_at="2026-10-26T00:00:00+00:00")
+    source = copy.deepcopy(raw)
+    monkeypatch.setattr(collectors, "collect_live", lambda connector, requirements: source)
+    seen = []
+    request = {"connector": {"provider": "aws", "scopes": ["123456789012"], "auth": {}},
+               "checks": ["aws.s3.versioning"], "_collection_callback": seen.append}
+    try:
+        result = engine.collect_snapshot(request)
+    except ValueError as exc:  # pragma: no cover - selection drift
+        pytest.skip(str(exc))
+    expected = copy.deepcopy(result)
+    expected.pop("snapshot_id")
+    assert result["snapshot_id"] == seal(expected)["snapshot_id"] == validate(expected)["snapshot_id"]
+    # The collector's own object is never adopted or mutated.
+    assert source == raw
+    assert result["collections"][0]["items"] is not source["collections"][0]["items"]
+    assert result["collections"][0]["items"][0] is not source["collections"][0]["items"][0]
+    assert "collection_plan" in result["metadata"]

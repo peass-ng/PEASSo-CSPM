@@ -801,7 +801,7 @@ def collect_snapshot(request):
                   total=len(snapshot["collections"]), resources=sum(len(c["items"]) for c in snapshot["collections"]), dynamic_total=False)
     snapshot["metadata"]["collection_plan"] = {"mode": "collect_all" if options.get("collect_all") else "explicit_inventories" if "inventories" in options else "full_default" if _full_selection(connector["provider"], *_selection(connector["provider"], request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))) else "dependencies", "requirements": requirements,
         "categories": request.get("categories") or list(CATEGORIES), "checks": request.get("checks") or "all_selected", "frameworks": request.get("frameworks") or "all_selected"}
-    return validate(seal(snapshot))
+    return validate({key: value for key, value in snapshot.items() if key != "snapshot_id"}, owned=True)
 
 
 def _analysis_selection(provider, categories, checks, frameworks):
