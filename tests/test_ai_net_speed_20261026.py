@@ -246,3 +246,69 @@ def test_single_stage_proves_and_prepares_only_its_own_stage(monkeypatch, tmp_pa
     reused = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None,
                                   reused_stages={"hardening": early})
     assert reused["reviews"] == full["reviews"]
+
+
+def _expand(document):
+    return [{**document.get('checks', {}).get(item.get('check_id'), {}), **item} for item in document['items']]
+
+
+@pytest.mark.parametrize('seed', range(8))
+def test_shared_check_section_restores_every_reviewer_item_exactly(seed):
+    import copy
+    import random
+    from peaso.ai import pipeline
+    rng = random.Random(seed)
+    items = []
+    for position in range(rng.randint(1, 40)):
+        check = rng.choice(['c1', 'c2', 'c3', None, 7])
+        item = {'id': f'f{position}', 'resource_id': f'r{position}', 'evidence': {'fact': rng.choice(['a', 'b'])},
+                'supporting_resources': [{'id': f'r{position}'}], 'evidence_summary': 'same text'}
+        if check is not None:
+            item['check_id'] = check
+        for field in pipeline.SHARED_CHECK_FIELDS:
+            if rng.random() < .8:
+                item[field] = {'severity': rng.choice(['high', 'high', 'low'])}.get(field, f'{check}-{field}') \
+                    if rng.random() < .9 else [rng.random()]
+        items.append(item)
+    document = {'scan': {'provider': 'gcp'}, 'items': items}
+    original = copy.deepcopy(document)
+    compact = pipeline.compact_document(document)
+    assert document == original
+    assert compact['scan'] == original['scan'] and _expand(compact) == original['items']
+    assert [item['id'] for item in compact['items']] == [item['id'] for item in original['items']]
+    for shared in compact.get('checks', {}).values():
+        assert set(shared) <= set(pipeline.SHARED_CHECK_FIELDS)
+    for item in compact['items']:
+        assert {'id', 'resource_id', 'evidence', 'supporting_resources', 'evidence_summary'} <= set(item)
+
+
+def test_differing_control_text_stays_on_each_item():
+    from peaso.ai import pipeline
+    document = {'scan': {}, 'items': [{'id': 'a', 'check_id': 'c', 'title': 'T', 'severity': 'high'},
+                                      {'id': 'b', 'check_id': 'c', 'title': 'T', 'severity': 'low'},
+                                      {'id': 'c', 'check_id': 'c', 'title': 'T'}]}
+    compact = pipeline.compact_document(document)
+    assert compact['checks'] == {'c': {'title': 'T'}}
+    assert compact['items'] == [{'id': 'a', 'check_id': 'c', 'severity': 'high'},
+                                {'id': 'b', 'check_id': 'c', 'severity': 'low'}, {'id': 'c', 'check_id': 'c'}]
+    assert pipeline.compact_document({'scan': {}, 'items': [{'id': 'x'}]}) == {'scan': {}, 'items': [{'id': 'x'}]}
+
+
+@pytest.mark.parametrize('stage', ['hardening', 'exposure'])
+def test_reviewer_prompt_explains_shared_check_section(stage):
+    from pathlib import Path
+    import yaml
+    from peaso.ai import pipeline
+    prompt = yaml.safe_load((Path(pipeline.__file__).parent / f'agents/{stage}.yaml').read_text())['system_prompt']
+    assert "checks[item.check_id] merged with the item's own fields" in prompt
+    assert 'supporting_resources always stay in each item' in prompt
+
+
+def test_review_fingerprints_do_not_depend_on_the_written_shared_section(monkeypatch):
+    from peaso.ai import pipeline
+    rows = [{'id': f'f{i}', 'check_id': 'c', 'title': 'T', 'status': 'FAIL', 'category': 'hardening',
+             'resource_id': f'r{i}', 'evidence': {}} for i in range(3)]
+    report = {'provider': 'gcp', 'findings': rows}
+    before = pipeline.review_fingerprints(report, {}, rows, identity='i', entries=[])
+    monkeypatch.setattr(pipeline, 'compact_document', lambda document: {'changed': True})
+    assert pipeline.review_fingerprints(report, {}, rows, identity='i', entries=[]) == before

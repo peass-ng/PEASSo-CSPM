@@ -91,8 +91,8 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
         elif stage in ('hardening', 'exposure'):
             # Reviewers never receive the complete report, inventory or graphs,
             # even if a caller accidentally passes a broader context object.
-            files['findings'] = findings_document(platform.get('scan', {}), findings,
-                                                  platform.get('resources', []))
+            files['findings'] = compact_document(findings_document(platform.get('scan', {}), findings,
+                                                                   platform.get('resources', [])))
         for name, data in files.items():
             private_json(root / (name + '.json'), data)
         if remote:
@@ -246,6 +246,42 @@ def findings_document(scan, findings, resources=(), *, _references=None):
             bounded['truncated'] = bounded['truncated'] or coverage.get('truncated') is not False
             scan_document['collection_coverage'] = bounded
     return {'scan': scan_document, 'items': items}
+
+
+# Control-definition fields shared by every finding of one check. Finding
+# evidence, targets and resources are never moved out of their own item.
+SHARED_CHECK_FIELDS = ('title', 'description', 'rationale', 'remediation', 'frameworks', 'evaluated',
+                       'pass_when', 'fail_when', 'not_applicable_when', 'clarity_evaluation_contract',
+                       'category', 'service', 'severity', 'finding_type', 'status', 'provider')
+_MISSING = object()
+
+
+def compact_document(document):
+    """Write each check's repeated control definition once per reviewer batch.
+
+    A field moves to checks[check_id] only when every item of that check in
+    the batch has the same value, so {**checks[item['check_id']], **item}
+    restores every item exactly.
+    """
+    groups = {}
+    for item in document['items']:
+        check = item.get('check_id')
+        if isinstance(check, str):
+            groups.setdefault(check, []).append(item)
+    checks = {}
+    for check, items in groups.items():
+        shared = {}
+        for field in SHARED_CHECK_FIELDS:
+            value = items[0].get(field, _MISSING)
+            if value is not _MISSING and all(item.get(field, _MISSING) == value for item in items[1:]):
+                shared[field] = value
+        if shared:
+            checks[check] = shared
+    if not checks:
+        return document
+    items = [{key: value for key, value in item.items() if key not in checks.get(item.get('check_id'), ())}
+             if isinstance(item.get('check_id'), str) else item for item in document['items']]
+    return {**document, 'checks': checks, 'items': items}
 
 
 def review_fingerprints(report, inventory_by_id, findings, *, identity, entries):
