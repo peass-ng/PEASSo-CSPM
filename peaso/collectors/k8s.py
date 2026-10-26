@@ -2124,7 +2124,9 @@ def collect(connector, requirements=None, *, api=None):
     except Exception as exc:
         existing = {(c["type"], c["scope"]) for c in reader.collections}
         for scope in scopes:
-            for kind in sorted(wanted):
+            # node_clock is projected after this block from the settled inventories and reports its
+            # own unavailability; marking it here too produced a duplicate type/scope envelope.
+            for kind in sorted(wanted - {"node_clock"}):
                 if (kind, scope) not in existing:
                     reader.unavailable(kind, scope, "kubernetes", exc)
     finally:
