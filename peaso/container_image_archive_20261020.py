@@ -269,8 +269,9 @@ class _Mapped:
     discarded read buffer per member while returning the same bytes.
     """
 
-    def __init__(self, handle):
+    def __init__(self, handle, base=0, length=None):
         self.handle, self.map, self.at = handle, None, 0
+        self.base, self.length = base, length
 
     def __enter__(self):
         return self
@@ -285,7 +286,10 @@ class _Mapped:
     def read(self, size):
         if self.map is None:
             self.map = mmap.mmap(self.handle.fileno(), 0, access=mmap.ACCESS_READ)
-        data = self.map[self.at:self.at + size]
+            if self.length is None:
+                self.length = len(self.map) - self.base
+        start = self.base + self.at
+        data = self.map[start:min(start + size, self.base + self.length)]
         self.at += len(data)
         return data
 
@@ -295,13 +299,14 @@ class _Mapped:
         return self.at
 
 
-def _tar_members(path, nodes, count, check, layer_index, path_budget):
+def _tar_members(path, nodes, count, check, layer_index, path_budget, start=0, length=None):
+    """Index one expanded layer: the whole file, or `length` bytes at `start`."""
     seen, pending, global_pax = set(), {}, {}
     prior = set(nodes)
     parents = _Parents(nodes)
     headers = 0
-    with path.open('rb') as handle, _Mapped(handle) as source:
-        size = path.stat().st_size
+    with path.open('rb') as handle, _Mapped(handle, start, length) as source:
+        size = path.stat().st_size - start if length is None else length
         require(size >= 1024 and size % 512 == 0, 'truncated_tar')
         while True:
             check()
@@ -386,7 +391,7 @@ def _tar_members(path, nodes, count, check, layer_index, path_budget):
                             if old == victim or old.startswith(victim + '/'):
                                 nodes.pop(old, None)
                     else:
-                        nodes[actual] = ('file', (path, source.tell(), member.size, layer_index))
+                        nodes[actual] = ('file', (path, start + source.tell(), member.size, layer_index))
                 elif member.type == tarfile.DIRTYPE:
                     require(member.size == 0, 'unsupported_tar_member')
                     nodes[actual] = ('directory', '')
@@ -468,7 +473,7 @@ def _park(config_raw, descs, diffs, scratch, expanded, budget, stage):
     if not stage:
         shutil.rmtree(scratch, ignore_errors=True)
         return
-    _STAGED.park(_chain(config_raw, descs, diffs), scratch, tuple(expanded),
+    _STAGED.park(_chain(config_raw, descs, diffs), scratch, expanded,
                  budget[0] - len(config_raw))
 
 
@@ -524,13 +529,6 @@ class _Expanded:
 
     def stream(self):
         return _ExpandingReader(self, _source(self.raw, self.desc['size']))
-
-
-class _StagedLayer:
-    """An expanded layer file left by a full validation of the same chain."""
-
-    def __init__(self, path, diff, size):
-        self.path, self.diff, self.size = path, diff, size
 
 
 class _ExpandingReader:
@@ -593,30 +591,87 @@ class _ExpandingReader:
         self.source.close()
 
 
+def _member_header(name, size):
+    # The exact header tarfile.addfile writes for write_archive's members.
+    member = tarfile.TarInfo(name)
+    member.size, member.mode, member.mtime = size, 0o600, 0
+    return member.tobuf(tarfile.USTAR_FORMAT, tarfile.ENCODING, 'surrogateescape')
+
+
+def _docker_manifest(config_name, count):
+    return json.dumps([{'Config': config_name, 'RepoTags': [],
+                        'Layers': [f'layer-{n}/layer.tar' for n in range(count)]}]).encode()
+
+
+class _Built:
+    """A docker archive written by one validation, byte-identical to write_archive's."""
+
+    def __init__(self, path, config_digest):
+        info = path.lstat()
+        self.path, self.config_digest = path, config_digest
+        self.identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+    def place(self, target):
+        info = os.lstat(self.path)
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.getuid()
+                and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) == self.identity,
+                'layer_changed_during_archive')
+        try:
+            os.link(self.path, target)
+        except FileExistsError:
+            raise
+        except OSError:
+            # No hard link across file systems: copy the same private bytes.
+            require(shutil.disk_usage(target.parent).free >= info.st_size + MIN_FREE_DISK,
+                    'scratch_disk_bound')
+            with _source(self.path, info.st_size) as source, target.open('xb') as output:
+                shutil.copyfileobj(source, output, 1024 * 1024)
+        require(target.stat().st_size == info.st_size, 'layer_changed_during_archive')
+
+
 def _validate(image_identity, manifest_raw, config_raw, layers, root, check, partial_callback=None,
               ready=None):
+    """Expand and index every layer straight into the docker archive members.
+
+    The archive is written in write_archive's exact docker layout (manifest.json,
+    config, then each expanded layer); each layer is indexed in place.
+    """
     manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
-    expanded, budget, nodes, path_budget = [], (len(config_raw), 0), {}, [0]
+    budget, nodes, path_budget = (len(config_raw), 0), {}, [0]
     sizes = []
-    for index, (desc, raw, diff) in enumerate(zip(descs, layers, diffs)):
-        if ready is not None:
-            raw = ready(index)
-        check()
-        target = root / f'expanded-{index:04}.tar'
-        require(shutil.disk_usage(root).free >= MIN_FREE_DISK + DISK_CHECK_STEP,
-                'scratch_disk_bound')
-        with target.open('xb') as output:
+    archive = root / 'docker-archive.tar'
+    config_name = image_identity['config_digest'][7:] + '.json'
+    with archive.open('xb') as output:
+        for name, data in (('manifest.json', _docker_manifest(config_name, len(descs))),
+                           (config_name, config_raw)):
+            output.write(_member_header(name, len(data)) + data + bytes(-len(data) % 512))
+        for index, (desc, raw, diff) in enumerate(zip(descs, layers, diffs)):
+            if ready is not None:
+                raw = ready(index)
+            check()
+            require(shutil.disk_usage(root).free >= MIN_FREE_DISK + DISK_CHECK_STEP,
+                    'scratch_disk_bound')
+            header_at = output.tell()
+            output.write(bytes(512))
             size = _expand(raw, desc, diff, output, budget, check)
-        count = _tar_members(target, nodes, budget[1], check, index, path_budget)
-        if partial_callback is not None:
-            for name, node in sorted(nodes.items()):
-                if node[0] in ('file', 'hardlink') and node[1][3] == index:
-                    _visit_node(name, node, partial_callback, check)
-        budget = size + budget[0], count
-        expanded.append(target)
-        sizes.append(size)
+            output.write(bytes(-size % 512))
+            output.seek(header_at)
+            output.write(_member_header(f'layer-{index}/layer.tar', size))
+            output.seek(0, os.SEEK_END)
+            output.flush()
+            count = _tar_members(archive, nodes, budget[1], check, index, path_budget,
+                                 header_at + 512, size)
+            if partial_callback is not None:
+                for name, node in sorted(nodes.items()):
+                    if node[0] in ('file', 'hardlink') and node[1][3] == index:
+                        _visit_node(name, node, partial_callback, check)
+            budget = size + budget[0], count
+            sizes.append(size)
+        # tarfile's end of archive: two zero blocks, padded to a full record.
+        end = output.tell() + 2 * tarfile.BLOCKSIZE
+        output.write(bytes(2 * tarfile.BLOCKSIZE + (-end % tarfile.RECORDSIZE)))
     _PROVEN.put(_chain(config_raw, descs, diffs), (tuple(sizes), budget[1]))
-    return manifest, expanded, budget, nodes
+    return manifest, _Built(archive, image_identity['config_digest']), budget, nodes
 
 
 def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: None, *, stage=False,
@@ -721,16 +776,17 @@ def write_archive(path, image_identity, manifest_raw, config_raw, layers, *, arc
             staged = None if known is None else _STAGED.take(_chain(config_raw, descs, diffs))
             if staged is not None:
                 stack.callback(shutil.rmtree, staged[0], True)
+            built = None
             if known is None:
-                manifest, expanded, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
-                                                       Path(scratch), check)
-            elif staged is not None and len(staged[1]) == len(diffs):
-                # The caller's validation of these same bytes left the expanded
-                # layers in private scratch; copy them, re-hashed per diff_id.
+                manifest, built, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
+                                                    Path(scratch), check)
+            elif (staged is not None and type(staged[1]) is _Built
+                    and staged[1].config_digest == image_identity['config_digest']):
+                # The caller's validation of these same bytes already wrote this
+                # exact docker archive in private scratch.
                 budget = len(config_raw) + sum(known[0]), known[1]
-                expanded = [_StagedLayer(path, diff, size)
-                            for path, diff, size in zip(staged[1], diffs, known[0])]
-            else:
+                built = staged[1]
+            if built is None:
                 # Already-proven bytes: decompress each layer directly into its
                 # archive member instead of staging a second expanded copy.
                 budget = len(config_raw) + sum(known[0]), known[1]
@@ -744,61 +800,62 @@ def write_archive(path, image_identity, manifest_raw, config_raw, layers, *, arc
             total = 10240
             require(shutil.disk_usage(path.parent).free >= MIN_FREE_DISK + DISK_CHECK_STEP,
                     'scratch_disk_bound')
-            with path.open('xb') as output:
-                with tarfile.open(fileobj=output, mode='w', format=tarfile.USTAR_FORMAT) as tar:
-                    def add(name, value, expected_digest=None):
-                        nonlocal total
-                        if type(value) is _StagedLayer:
-                            require(value.path.lstat().st_size == value.size, 'layer_changed_during_archive')
-                            return add(name, value.path, value.diff)
-                        check()
-                        size = (len(value) if type(value) is bytes else value.size
-                                if type(value) is _Expanded else value.stat().st_size)
-                        total += 512 + ((size + 511) // 512) * 512
-                        require(total <= MAX_ARCHIVE, 'owned_archive_bound')
-                        require(shutil.disk_usage(path.parent).free >= size + MIN_FREE_DISK,
-                                'scratch_disk_bound')
-                        member = tarfile.TarInfo(name)
-                        member.size, member.mode, member.mtime = size, 0o600, 0
-                        if type(value) is bytes:
-                            tar.addfile(member, io.BytesIO(value))
-                        elif type(value) is _Expanded:
-                            reader = value.stream()
-                            try:
-                                tar.addfile(member, reader)
-                                reader.finish()
-                            finally:
-                                reader.close()
+            if archive_format == 'docker' and built is not None:
+                require(built.identity[2] <= MAX_ARCHIVE, 'owned_archive_bound')
+                built.place(path)
+            else:
+                with path.open('xb') as output:
+                    with tarfile.open(fileobj=output, mode='w', format=tarfile.USTAR_FORMAT) as tar:
+                        def add(name, value, expected_digest=None):
+                            nonlocal total
+                            check()
+                            size = (len(value) if type(value) is bytes else value.size
+                                    if type(value) is _Expanded else value.stat().st_size)
+                            total += 512 + ((size + 511) // 512) * 512
+                            require(total <= MAX_ARCHIVE, 'owned_archive_bound')
+                            require(shutil.disk_usage(path.parent).free >= size + MIN_FREE_DISK,
+                                    'scratch_disk_bound')
+                            member = tarfile.TarInfo(name)
+                            member.size, member.mode, member.mtime = size, 0o600, 0
+                            if type(value) is bytes:
+                                tar.addfile(member, io.BytesIO(value))
+                            elif type(value) is _Expanded:
+                                reader = value.stream()
+                                try:
+                                    tar.addfile(member, reader)
+                                    reader.finish()
+                                finally:
+                                    reader.close()
+                            else:
+                                with _source(value, size) as source:
+                                    reader = _CheckedReader(source, check)
+                                    tar.addfile(member, reader)
+                                    require(reader.count == size and (expected_digest is None or
+                                        'sha256:' + reader.hash.hexdigest() == expected_digest),
+                                        'layer_changed_during_archive')
+                        if archive_format == 'oci':
+                            add('oci-layout', b'{"imageLayoutVersion":"1.0.0"}')
+                            index = {'schemaVersion': 2, 'mediaType': 'application/vnd.oci.image.index.v1+json',
+                                     'manifests': [{'mediaType': manifest['mediaType'],
+                                        'digest': image_identity['manifest_digest'], 'size': len(manifest_raw),
+                                        'platform': {'os': decode(config_raw)['os'],
+                                                     'architecture': decode(config_raw)['architecture']}}]}
+                            add('index.json', json.dumps(index, separators=(',', ':')).encode())
+                            seen = set()
+                            for digest, value in [(image_identity['manifest_digest'], manifest_raw),
+                                                  (image_identity['config_digest'], config_raw)] + [
+                                                      (d['digest'], raw) for d, raw in zip(manifest['layers'], layers)]:
+                                if digest not in seen:
+                                    add('blobs/sha256/' + digest[7:], value, digest)
+                                    seen.add(digest)
                         else:
-                            with _source(value, size) as source:
-                                reader = _CheckedReader(source, check)
-                                tar.addfile(member, reader)
-                                require(reader.count == size and (expected_digest is None or
-                                    'sha256:' + reader.hash.hexdigest() == expected_digest),
-                                    'layer_changed_during_archive')
-                    if archive_format == 'oci':
-                        add('oci-layout', b'{"imageLayoutVersion":"1.0.0"}')
-                        index = {'schemaVersion': 2, 'mediaType': 'application/vnd.oci.image.index.v1+json',
-                                 'manifests': [{'mediaType': manifest['mediaType'],
-                                    'digest': image_identity['manifest_digest'], 'size': len(manifest_raw),
-                                    'platform': {'os': decode(config_raw)['os'],
-                                                 'architecture': decode(config_raw)['architecture']}}]}
-                        add('index.json', json.dumps(index, separators=(',', ':')).encode())
-                        seen = set()
-                        for digest, value in [(image_identity['manifest_digest'], manifest_raw),
-                                              (image_identity['config_digest'], config_raw)] + [
-                                                  (d['digest'], raw) for d, raw in zip(manifest['layers'], layers)]:
-                            if digest not in seen:
-                                add('blobs/sha256/' + digest[7:], value, digest)
-                                seen.add(digest)
-                    else:
-                        config_name = image_identity['config_digest'][7:] + '.json'
-                        names = [f'layer-{n}/layer.tar' for n in range(len(expanded))]
-                        add('manifest.json', json.dumps([{'Config': config_name,
-                            'RepoTags': [], 'Layers': names}]).encode())
-                        add(config_name, config_raw)
-                        for name, value in zip(names, expanded):
-                            add(name, value)
+                            config_name = image_identity['config_digest'][7:] + '.json'
+                            names = [f'layer-{n}/layer.tar' for n in range(len(expanded))]
+                            add('manifest.json', json.dumps([{'Config': config_name,
+                                'RepoTags': [], 'Layers': names}]).encode())
+                            add(config_name, config_raw)
+                            for name, value in zip(names, expanded):
+                                add(name, value)
         require(path.stat().st_size <= MAX_ARCHIVE, 'archive_disk_bound')
         return {'format': archive_format, 'bytes': path.stat().st_size,
                 'expanded_bytes': budget[0], 'members': budget[1],

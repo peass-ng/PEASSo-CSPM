@@ -355,13 +355,21 @@ def test_visit_files_hands_expanded_layers_to_archive(tmp_path, monkeypatch):
     assert staged_dirs() == []
 
 
-def test_tampered_staged_layer_is_refused_and_removed(tmp_path):
+@pytest.mark.parametrize('how', ['rewrite', 'replace', 'link'])
+def test_tampered_staged_layer_is_refused_and_removed(tmp_path, how):
     identity, manifest, config, layers = build(tmp_path)
     archive.validate(identity, manifest, config, layers, stage=True)
     (scratch,) = staged_dirs()
-    victim = sorted(scratch.iterdir())[1]
-    raw = bytearray(victim.read_bytes()); raw[1000] ^= 1
-    victim.write_bytes(bytes(raw))
+    (victim,) = scratch.iterdir()
+    raw = bytearray(victim.read_bytes()); raw[3000] ^= 1
+    if how == 'rewrite':
+        victim.write_bytes(bytes(raw))
+    elif how == 'replace':
+        other = scratch / 'other'
+        other.write_bytes(bytes(raw))
+        other.replace(victim)
+    else:
+        (tmp_path / 'alias').hardlink_to(victim)
     out = tmp_path / 'image.tar'
     with pytest.raises(ValueError, match='layer_changed_during_archive'):
         archive.write_archive(out, identity, manifest, config, layers, archive_format='docker')
@@ -410,3 +418,57 @@ def test_unstaged_validation_and_released_stage_leave_no_scratch(tmp_path, monke
     assert len(staged_dirs()) == 1
     archive.release_staged(identity, manifest, config, layers)
     assert staged_dirs() == [] and not Path(made[-1]).exists()
+
+
+def _variant(identity, manifest, config, os_name):
+    """The same layer chain under another config of the same length."""
+    other = config.replace(b'"amd64"', b'"arm64"')
+    assert len(other) == len(config) and other != config
+    doc = json.loads(manifest)
+    doc['config']['digest'] = archive.sha(other)
+    raw = wire(doc)
+    digest = archive.sha(raw)
+    return dict(identity, manifest_digest=digest, config_digest=archive.sha(other),
+                immutable_reference=identity['immutable_reference'].split('@')[0] + '@' + digest), raw, other
+
+
+def test_staged_archive_is_never_used_for_another_config_of_the_same_chain(tmp_path):
+    identity, manifest, config, layers = build(tmp_path)
+    other_identity, other_manifest, other_config = _variant(identity, manifest, config, 'arm64')
+    cold = tmp_path / 'cold.tar'
+    archive.write_archive(cold, other_identity, other_manifest, other_config, layers, archive_format='docker')
+    archive._PROVEN.clear()
+    archive.validate(identity, manifest, config, layers, stage=True)
+    assert len(staged_dirs()) == 1
+    warm = tmp_path / 'warm.tar'
+    archive.write_archive(warm, other_identity, other_manifest, other_config, layers, archive_format='docker')
+    assert warm.read_bytes() == cold.read_bytes() and staged_dirs() == []
+
+
+def test_staged_archive_is_copied_when_it_cannot_be_linked(tmp_path, monkeypatch):
+    import errno
+    identity, manifest, config, layers = build(tmp_path)
+    cold = tmp_path / 'cold.tar'
+    archive.write_archive(cold, identity, manifest, config, layers, archive_format='docker')
+    archive._PROVEN.clear()
+    archive.validate(identity, manifest, config, layers, stage=True)
+    (scratch,) = staged_dirs()
+
+    def cross_device(*args):
+        raise OSError(errno.EXDEV, 'cross-device link')
+    monkeypatch.setattr(archive.os, 'link', cross_device)
+    warm = tmp_path / 'warm.tar'
+    archive.write_archive(warm, identity, manifest, config, layers, archive_format='docker')
+    assert warm.read_bytes() == cold.read_bytes() and not scratch.exists()
+
+
+def test_staged_archive_is_linked_without_a_second_copy(tmp_path, monkeypatch):
+    identity, manifest, config, layers = build(tmp_path)
+    archive.validate(identity, manifest, config, layers, stage=True)
+    (scratch,) = staged_dirs()
+    (built,) = scratch.iterdir()
+    inode = built.stat().st_ino
+    monkeypatch.setattr(archive.shutil, 'copyfileobj', lambda *a: pytest.fail('copied'))
+    warm = tmp_path / 'warm.tar'
+    archive.write_archive(warm, identity, manifest, config, layers, archive_format='docker')
+    assert warm.stat().st_ino == inode and warm.stat().st_nlink == 1 and not scratch.exists()
