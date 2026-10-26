@@ -301,11 +301,11 @@ def detail_enricher(kind):
             if isinstance(body, dict):
                 row["NetworkDetails"] = project_network_data(body)
                 if kind == "app_runner_service":
-                    for field in ("AutoDeploymentsEnabled", "ImageIdentifier"):
-                        value = body.get(field)
-                        if (field == "AutoDeploymentsEnabled" and type(value) is bool or
-                                field == "ImageIdentifier" and isinstance(value, str)):
-                            row["NetworkDetails"][field] = value
+                    for attribute in ("AutoDeploymentsEnabled", "ImageIdentifier"):
+                        value = body.get(attribute)
+                        if (attribute == "AutoDeploymentsEnabled" and type(value) is bool or
+                                attribute == "ImageIdentifier" and isinstance(value, str)):
+                            row["NetworkDetails"][attribute] = value
                     instance = body.get("InstanceConfiguration")
                     role_arn = body.get("InstanceRoleArn") or (instance.get("InstanceRoleArn") if isinstance(instance, dict) else None)
                     if isinstance(role_arn, str) and role_arn.startswith("arn:"):

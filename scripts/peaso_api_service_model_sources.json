@@ -1058,7 +1058,7 @@
     "peaso/collectors/aws_lightsail_iam_native.py": "6d7c9f00c7a9da7e4c3f8da9e19de2c2d168664b32fa09c9753f3df2fb3d5047",
     "peaso/collectors/aws_macie_coverage_native.py": "5650b5a3e15a654cda7d2e5dcd2974124c6a0a711e1798202bf11e4ca5e65a7b",
     "peaso/collectors/aws_macie_findings_native.py": "adabf276b593708f504f6e7bc6e9f5536ff746ab5ca6fa1626e5c9f781d13d42",
-    "peaso/collectors/aws_network_catalog.py": "1810439802f6e63020cfa5a4ed7ebfc2c53cc432a1b95ed556348a63f74b2fe6",
+    "peaso/collectors/aws_network_catalog.py": "557c2ba6dcf9dc10194e2a95e5554d2bcef60e6eeb703cb68718d52edd007df5",
     "peaso/collectors/aws_network_inventory.py": "7bb1b2471c8bb9bd5b417a236bf7ba0e075cc023cf93e8ebca4ff4ec3440523a",
     "peaso/collectors/aws_network_service_metadata.py": "387f86bd51462610c486b6441c6f5f086f01c4de5f20f70409c4335a16d69a78",
     "peaso/collectors/aws_operational_groups_native.py": "06108480e7c2f75ca30343ea5ca4fe3dc0a3fa92d8dee9cf2ccf8f47150f2456",
@@ -1788,7 +1788,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1680,
-  "python_source_sha256": "2259acff47cc2b9561cc5f25dd323c4a1bc7a3e9c2d00d018c53a9b64738ca83",
+  "python_source_sha256": "ad451b2339ea4ca35aace5ae279447096167b75cadee3c3c2da130d68b125b0c",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
