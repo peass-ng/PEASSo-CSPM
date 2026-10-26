@@ -971,7 +971,7 @@
     "peaso/checks/post_dfaf_aws.py": "d7b41a3a3d86242c60f22dd412688f0b2ae1ec4fff8b78c930f2678668b6fb48",
     "peaso/checks/post_dfaf_aws_specs.py": "4f2410348d731c2c76c3db79b0b2b0aebedebf874ce9044f9dccb612622d2476",
     "peaso/checks/post_dfaf_azure.py": "c00e5f758009f1929eb97f83a096706874b97fc6e2269dea8ccdab06c8e5640e",
-    "peaso/checks/private_secret_shared_source_successor_20261021.py": "1ea96a84b82d10018e001005a08365e7dfba5937de28cf295fb7546199027605",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "a4dcb1d715aa10deda3704cc0c241a4122e415eed431e6bd161c843d5ad903c3",
     "peaso/checks/provider_content_native_cases_20261021.py": "3383f96e2670cf34f00d2224205ceba6cb97a6cba5a54c404d52759555ae6377",
     "peaso/checks/provider_group_install_20261021.py": "cde260817a6e2d046d6cb199772482d24abf58492591bd248cc1597670576def",
     "peaso/checks/provider_group_witnesses_20261021/test_gcp_job_image_vulnerability_product_20261021.py": "addfca8b8b2a53c44cd1ece9909bc1c5894e5a1485eb175b4f99799d82d9f835",
@@ -1798,7 +1798,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1690,
-  "python_source_sha256": "b3579ce04d88380f93e095098a24781868f6cf012f0efe8e8f030a6f4f03a695",
+  "python_source_sha256": "37c7714602b76c7b8579fda72a81db637dc6585ba3fb0c788db85c8886cd5913",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
