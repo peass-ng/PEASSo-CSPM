@@ -19,7 +19,7 @@ def session_for_test(monkeypatch, checkpoints, *, scopes=()):
     from types import SimpleNamespace
     native = [SimpleNamespace(id='native', kind='vpc', category='network', dependencies=()),
               SimpleNamespace(id='image', kind='image_vulnerabilities', category='vulnerability', dependencies=())]
-    monkeypatch.setattr(engine, '_selection', lambda *args: (['network', 'vulnerability'], native))
+    monkeypatch.setattr(engine, '_selection', lambda *args, content_checks=None: (['network', 'vulnerability'], native))
     monkeypatch.setattr(engine, '_analysis_selection', lambda *args: [])
     monkeypatch.setattr(engine, '_privesc_selected', lambda *args: None)
     monkeypatch.setattr(engine, 'plan_collection', lambda *args: ['vpc', 'iam_role', 'image_vulnerabilities'])

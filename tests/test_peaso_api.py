@@ -12,6 +12,8 @@ from peaso.storage import SQLiteStore, StoreError, FileArtifacts
 from peaso.worker import Worker
 
 TOKEN = "local-test-token-0123456789abcdef"
+# The worker's public identity adapter accepts only canonical native scopes.
+SCOPE = "123456789012/us-east-1"
 
 
 class TestIdentities:
@@ -35,7 +37,9 @@ def settings(tmp_path):
 def client(settings, monkeypatch):
     # Model a configured AI deployment for API quota/ownership tests. Agent
     # execution and missing-token/isolation rejection have dedicated tests.
-    monkeypatch.setattr('peaso.ai.auth.codex_available', lambda *args: True)
+    # Scan creation now proves a provider/model configuration through
+    # require_local_codex (resolve_access), not the codex_available probe.
+    monkeypatch.setattr('peaso.ai.auth.require_local_codex', lambda *args: None)
     monkeypatch.setattr('peaso.ai.isolation.available', lambda: True)
     monkeypatch.setattr('peaso.server.access_check.check_access', lambda *args, **kwargs: {
         'status': 'pass', 'issues': [], 'principals': []})
@@ -46,7 +50,7 @@ def client(settings, monkeypatch):
 
 
 def add_connector(client, **overrides):
-    body = {"name": "Fixture", "provider": "aws", "auth": {}, "scopes": ["scope"], "options": {}}
+    body = {"name": "Fixture", "provider": "aws", "auth": {}, "scopes": [SCOPE], "options": {}}
     body.update(overrides)
     if "snapshot" not in body["options"] and not body["options"].get("demo"):
         checked = client.post("/api/connectors/check-access", json=body)
@@ -59,7 +63,7 @@ def add_connector(client, **overrides):
 
 def snapshot():
     from peaso.snapshot import make_snapshot
-    return make_snapshot("aws", ["scope"], [{"type": "bucket", "scope": "scope", "service": "s3", "status": "collected", "items": [{"Name": "fixture-bucket", "public": True, "note": "secret-value-123456"}]}], created_at="2026-01-01T00:00:00+00:00")
+    return make_snapshot("aws", [SCOPE], [{"type": "bucket", "scope": SCOPE, "service": "s3", "status": "collected", "items": [{"Name": "fixture-bucket", "public": True, "note": "secret-value-123456"}]}], created_at="2026-01-01T00:00:00+00:00")
 
 
 def test_local_token_origin_and_host(settings):
@@ -97,9 +101,15 @@ def test_redaction_never_corrupts_connector_route_or_structural_metadata(client)
 
 
 def test_tenant_escape_all_owned_endpoints(client):
-    connector = add_connector(client)
-    scan = client.post("/api/scans", json={"connector_id": connector["id"]}).json()
-    schedule = client.post("/api/schedules", json={"connector_id": connector["id"], "interval_hours": 168}).json()
+    # Schedules require durable credentials (or offline input); temporary/empty
+    # live auth is rejected before ownership could be exercised.
+    connector = add_connector(client, options={"snapshot": snapshot()})
+    scan = client.post("/api/scans", json={"connector_id": connector["id"]})
+    assert scan.status_code == 201, scan.text
+    scan = scan.json()
+    schedule = client.post("/api/schedules", json={"connector_id": connector["id"], "interval_hours": 168})
+    assert schedule.status_code == 201, schedule.text
+    schedule = schedule.json()
     client.headers["Authorization"] = "Bearer bob"
     for path in ("connectors", "scans", "schedules"):
         assert client.get("/api/" + path).json() == {"items": []}
@@ -180,8 +190,17 @@ def test_lease_fencing_cancellation_deadline_and_restart(settings):
     restarted.cancel("tenant", job["id"])
     assert not restarted.finish(job["id"], analyzer["owner"], "completed", "late", now=1010)
     other = restarted.enqueue("other", {"connector_id": restarted.add_connector("other", {"provider": "aws"}, "encrypted")["id"]}, timeout=1, now=1000)
+    # A never-admitted job is bounded by the durable queue wait, not by its
+    # execution timeout; only an admitted job can exceed its scan deadline.
+    from peaso.storage.sqlite import QUEUE_WAIT_SECONDS
     restarted.expire(1002)
-    assert restarted.job("other", other["id"])["status"] == "timed_out"
+    assert restarted.job("other", other["id"])["status"] == "queued"
+    restarted.expire(1000 + QUEUE_WAIT_SECONDS)
+    assert restarted.job("other", other["id"])["status"] == "queue_exhausted"
+    admitted = restarted.enqueue("third", {"connector_id": restarted.add_connector("third", {"provider": "aws"}, "encrypted")["id"]}, timeout=1, now=5000)
+    assert restarted.claim("collector", now=5000, tenant="third", ident=admitted["id"])["id"] == admitted["id"]
+    restarted.expire(5002)
+    assert restarted.job("third", admitted["id"])["status"] == "timed_out"
 
 
 def test_scheduler_occurrence_atomic_and_manual_shared_quota(settings):

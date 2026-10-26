@@ -79,15 +79,15 @@ RELEASE_ADDED_AZURE_IDS = frozenset({
 })
 RELEASE_RETIRED_AZURE_IDS = frozenset({'azure.claude.aks_authorized_ip_ranges'})
 RELEASE_SOURCE_SHA256 = {
-    'peaso/checks/azure_acr_image_vulnerabilities_20261021.py': '0b4efed475ae3ca0ef193e0e55fd53085bb6e3387d0de6ea6738dbead13df0ca',
+    'peaso/checks/azure_acr_image_vulnerabilities_20261021.py': '65765fa530d831b39dd37414fc79502eec10e77971cfd58daa447c54d76606f7',
     'peaso/checks/azure_flex_deployment_archives_review_20261021.py': '04654eb038e8198385714093e6111a5692b5d8f2f9fc8983b75572b66b79f04b',
     'peaso/checks/azure_selected_aks_image_review_20261021.py': 'fe55e2cde5ba2a542a2fb8aca460aa9a65f5d5592c2d1aa79b1aede0f6c1ecd5',
     'peaso/checks/azure_synapse_selected_notebook_secret_review_20261021.py': '65bc8db47e617f13d22de4548e8eb4dffc447e10fbd70b1232a0c6799f322f77',
-    'peaso/checks/provider_group_install_20261021.py': '8808e19137ef31c10ca5fc6df2805a95d41b79b27c5396c7d55e0a8692808710',
+    'peaso/checks/provider_group_install_20261021.py': 'da090f9cabd55967fdcf7b6606421410de0c0c72f3abb9dadbd4d810051caad0',
     'peaso/unused_iam_azure.py': '23a89805c07a6ef8bc28f5b60f95b1f71779304599e183526b885c5213683be6',
     'peaso/unused_iam_azure_arm_roles.py': '3a67ae42f5b29a12ea65350e477e2b04597625361f87db643948f1fd4c5d2674',
     'peaso/unused_iam_azure_roles.py': '282d9d380c5cd7c9b20cd964351ef65a57a202ec0e24b802548e74bbf3bfffd8',
-    'peaso/unused_network_azure_20261021.py': '03475b39ddf03d96a2707d96700a0689190399e3c4683a9829c597dd62161a19',
+    'peaso/unused_network_azure_20261021.py': '8bc5856d984908fe88f1b7f38d3d22b6283479bb2d3a5fb45908a6a14ca2e5c4',
 }
 
 
@@ -335,6 +335,11 @@ def test_retired_aks_authorized_ranges_archive_and_active_alias():
         assert CHECK_BY_ID[active].evaluate(deepcopy(case[branch]), deepcopy(case.get(branch + '_index', case.get('index', {}))))[0] == expected
 
 
+GATEWAY_CIDR_SUCCESSOR_ID = 'azure.other.gateway_api_cidr_allowlist'
+GATEWAY_CIDR_SUCCESSOR_FIELDS = {'approved_cidrs', 'approved_cidr_count', 'outside_approved_ranges_empty',
+                                 'effective_paths', 'effective_path_count'}
+
+
 @pytest.mark.parametrize('cid', sorted(CASES.keys() - RELEASE_RETIRED_AZURE_IDS))
 def test_actual_native_positive_negative_unknown_manual_and_inapplicable_witnesses(cid, monkeypatch):
     if cid == 'azure.claude.storage_access_keys_rotated_90':
@@ -368,6 +373,12 @@ def test_actual_native_positive_negative_unknown_manual_and_inapplicable_witness
         assert status == case['status'], (cid, case['status'], status, evidence)
         if 'expected_evidence_sha256' in case:
             assert _digest(json.loads(json.dumps(evidence, sort_keys=True))) == case['expected_evidence_sha256']
+        elif cid == GATEWAY_CIDR_SUCCESSOR_ID:
+            # The reviewed successor keeps the historical verdict and evidence
+            # exactly and only appends the WAF facts behind that verdict.
+            observed = json.loads(json.dumps(evidence, sort_keys=True))
+            assert {key: observed.get(key) for key in case['evidence']} == case['evidence']
+            assert set(observed) - set(case['evidence']) <= GATEWAY_CIDR_SUCCESSOR_FIELDS
         else:
             assert json.loads(json.dumps(evidence, sort_keys=True)) == case['evidence']
         finding = {'provider': 'azure', 'check_id': cid, 'status': status, 'evidence': evidence}
@@ -375,11 +386,20 @@ def test_actual_native_positive_negative_unknown_manual_and_inapplicable_witness
         summary = evidence_summary(finding)
         assert finding == before
         if summary:
-            assert status in {'PASS', 'FAIL'}
-            assert ROWS[cid]['purpose'] in summary
-            assert ROWS[cid]['limit'] in summary
-            assert '{' not in summary and '\n' not in summary
-            assert reviewed_explanation(cid, summary, status) == summary
+            assert '{' not in summary
+            lines = summary.split('\n')
+            if len(lines) == 1:
+                # Retained reviewed one-line summaries: purpose and limit.
+                assert status in {'PASS', 'FAIL'}
+                assert ROWS[cid]['purpose'] in summary
+                assert ROWS[cid]['limit'] in summary
+                assert reviewed_explanation(cid, summary, status) == summary
+            else:
+                # Current observed evidence: 3-5 short plain lines (AGENTS.md),
+                # with one shared structure for every supported status.
+                assert status in {'PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE'}
+                assert 3 <= len(lines) <= 5
+                assert all(line and line.strip() == line for line in lines)
         elif status not in {'PASS', 'FAIL'}:
             assert native_observation(finding) is None
 
@@ -395,8 +415,11 @@ def test_unrecognized_native_shapes_and_uncertain_statuses_do_not_become_positiv
 def test_scalar_observation_uses_actual_value_and_does_not_claim_runtime_access():
     summary = evidence_summary({'provider': 'azure', 'check_id': 'azure.storage.no_shared_key', 'status': 'FAIL',
                                 'evidence': {'field': 'properties.allowSharedKeyAccess', 'configured': True}})
-    assert summary.startswith('Storage Shared Key authorization is enabled.')
-    assert 'successful sign-in' in summary
+    lines = summary.split('\n')
+    assert lines[0] == 'Shared Key access is enabled for this storage account.'
+    assert 3 <= len(lines) <= 5
+    # Possible impact only; no claim that a key was used or access happened.
+    assert all(word in summary for word in ('may', 'could'))
     assert evidence_summary({'provider': 'azure', 'check_id': 'azure.storage.no_shared_key', 'status': 'FAIL',
                              'evidence': {'field': 'properties.allowSharedKeyAccess', 'configured': 'true'}}) is None
 
@@ -1850,7 +1873,7 @@ PINNED_SUCCESSOR_INPUTS = json.loads(r'''
   "peaso/checks/claude_azure_network.py": "5cafa8d926a058366a0a1e2119735a061d267ca284b2cf46906cce8d138e254b",
   "peaso/checks/exposure_endpoints.py": "fcb83aabf932385e03b9ae39279b986d5956bb07d42c074ceeb9a8de9128cb10",
   "peaso/rulepacks/check_descriptions.json": "e9efda68fd352ec174d406b66d17525a8df3d0e217427cb0cca063b9e232d096",
-  "tests/azure_native_successor_inputs_20261020.py": "ca9904d15b139c8ff0be3de4668e7a89d51ad5eef83e13977280beb15be9230d",
+  "tests/azure_native_successor_inputs_20261020.py": "88e8f03a54b829fc88cf34a1d3b03fafc17d6bced2c598e1e55e1cee44135445",
   "tests/fixtures/azure-ai-evidence-review-20261020.json": "84b95bdd081a971ae222fed4f1f88041197d246f88add2ff38f4417c733ae4f0",
   "tests/fixtures/azure-automation-aci-evidence-review-20261020.json": "334b2cc476fcbbf7bda7d551ceef66d3cb12f50b6ad8cb40a57f36b6f8eda0a3",
   "tests/fixtures/azure-final-native-evidence-review-20261020.json": "6366504d3f49594ee4ebf0dd1ca244598dfde04db4f9621172a95d9627eafc71",

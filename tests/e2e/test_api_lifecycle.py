@@ -41,9 +41,13 @@ def headers(subject="one"):
     return {"Authorization": "Bearer qa-subject-" + subject}
 
 
+# The worker's public identity adapter accepts only canonical native scopes.
+QA_SCOPE = "123456789012/us-east-1"
+
+
 def connector(client):
-    snapshot = make_snapshot("aws", ["qa-scope"], [{"type": "bucket", "scope": "qa-scope", "service": "s3", "status": "empty", "items": []}])
-    response = client.post("/api/connectors", headers=headers(), json={"name": "peaso-test-inert", "provider": "aws", "scopes": ["qa-scope"],
+    snapshot = make_snapshot("aws", [QA_SCOPE], [{"type": "bucket", "scope": QA_SCOPE, "service": "s3", "status": "empty", "items": []}])
+    response = client.post("/api/connectors", headers=headers(), json={"name": "peaso-test-inert", "provider": "aws", "scopes": [QA_SCOPE],
         "auth": {"client_secret": SENTINEL}, "options": {"snapshot": snapshot}})
     assert response.status_code == 201, response.text
     assert SENTINEL not in response.text

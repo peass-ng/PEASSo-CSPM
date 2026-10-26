@@ -14,7 +14,8 @@ class StaleSearch:
         if "/Microsoft.Network/virtualNetworks?" in url:
             return {"value": [{"id": VNET, "name": "peaso-test", "type": "Microsoft.Network/virtualNetworks", "properties": {"addressSpace": {"addressPrefixes": ["10.248.0.0/24"]}, "subnets": []}}]}
         if VNET in url:
-            return {"id": VNET, "name": "peaso-test", "properties": {"subnets": []}}
+            # ARM resource GETs always carry the native type; the collector binds it to the selected kind.
+            return {"id": VNET, "name": "peaso-test", "type": "Microsoft.Network/virtualNetworks", "properties": {"subnets": []}}
         raise AssertionError("Unexpected cloud endpoint: " + url)
 
 

@@ -24,7 +24,7 @@ def test_all_current_azure_k8s_bodies_have_exact_existing_or_erratum_receipts():
         assert hashlib.sha256((root/path).read_bytes()).hexdigest()==expected
     assert hashlib.sha256((root/successor['evaluator_source']).read_bytes()).hexdigest()==successor['evaluator_current_sha256']
     latest_raw=(root/'docs/check-review/azure-k8s-current-binding-successors-20261023.json').read_bytes()
-    assert hashlib.sha256(latest_raw).hexdigest()=='7f807dace99bfd16dc0153072f84f6cc5ce4510a888c6962a4df667779c1f7e3'
+    assert hashlib.sha256(latest_raw).hexdigest()=='cfd149088c465534c624be722aa9fe4dc3e95ec14e45f6ad1899b3a87e80f23a'
     latest=json.loads(latest_raw)
     assert latest['schema']=='azure-k8s-current-binding-successors/v1'
     assert latest['historical_review_sha256']==hashlib.sha256((root/'docs/check-review/azure-k8s-current-predicate-bindings-20261020.json').read_bytes()).hexdigest()
