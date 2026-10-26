@@ -58,6 +58,9 @@ RUNTIME_ADMISSION_INPUTS = {
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_finding_index_concurrency.py',
+    'tests/test_independent_finding_index_20261026.py',
+    'tests/test_independent_finding_index_publication_20261026.py',
+    'tests/fixtures/report-index-publisher-before-20261026.py.gz',
     'tests/test_ai_fingerprint_canonical_coverage_20261026.py',
     'tests/test_artifact_text_file.py',
     'tests/test_markdown_streaming.py',

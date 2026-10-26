@@ -82,6 +82,42 @@ def _prepared_findings(artifacts, tenant, ident, findings, *, check_frameworks=N
         yield (finding, body) if encoded else finding
 
 
+INDEX_CHUNK_ROWS = 5000
+
+
+class _FindingIndexWriter:
+    """Pack complete summaries independently of evidence-sized detail chunks.
+
+    Keep one bounded JSON chunk in memory. Oversized individual rows retain
+    the ordinary artifact chunker's singleton behavior; no fields are omitted.
+    The caller publishes the manifest only after all writes have succeeded.
+    """
+    def __init__(self, artifacts, tenant, ident):
+        self.artifacts, self.tenant, self.ident = artifacts, tenant, ident
+        self.chunks, self.items, self.bodies = [], [], []
+        self.size = 2
+
+    def add(self, finding):
+        summary = finding_summary(finding)
+        body = _json_bytes(summary)
+        size = len(body) + 1
+        if self.items and (self.size + size > CHUNK_BYTES or len(self.items) >= INDEX_CHUNK_ROWS):
+            self.flush()
+        self.items.append(summary)
+        self.bodies.append(body)
+        self.size += size
+
+    def flush(self):
+        if not self.items:
+            return
+        encoded = callable(getattr(self.artifacts, '_put_json_bytes', None))
+        body = b'{"items":[' + b','.join(self.bodies) + b']}' if encoded else None
+        reference = _put_chunk(self.artifacts, self.tenant, self.ident,
+                               'finding-index', self.items, body)
+        self.chunks.append({'reference': reference, 'count': len(self.items)})
+        self.items, self.bodies, self.size = [], [], 2
+
+
 def finding_summary(finding):
     fields = _SECRET_SUMMARY_FIELDS if finding.get("secret_fingerprint") else _SUMMARY_FIELDS
     value = {k: v for k, v in finding.items() if k in fields}
@@ -262,7 +298,7 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
         del markdown
     manifest = {"bundle_version": 1, "report_grouping": "check-v1", "report_json": json_reference, "report_markdown": markdown_reference,
                 "summary": {k: v for k, v in report.items() if k not in {"resources", "findings", "coverage", "graphs", "snapshot", "check_frameworks", "check_meta", "check_meta_encoding", "remediation_templates"}},
-                "finding_chunks": [], "coverage_chunks": [], "coverage_chunk_counts": [],
+                "finding_chunks": [], "finding_index_chunks": [], "coverage_chunks": [], "coverage_chunk_counts": [],
                 "graphs": {}, "finding_count": len(report.get("findings", [])), "finding_group_count": len(presented.get("findings", [])), "observation_count": len(report.get("findings", [])), "coverage_count": len(report.get("coverage", []))}
     from peaso.image_findings_storage import attach_to_manifest
     metadata = snapshot.get("metadata", {}) if isinstance(snapshot, dict) else {}
@@ -302,10 +338,14 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
         if not encoded:
             # Preserve the existing detail-write order for legacy/custom stores.
             prepared = list(prepared)
+        index = _FindingIndexWriter(artifacts, tenant, ident)
         for group, body in _artifact_chunks(artifacts, prepared, preencoded=encoded):
             detail = _put_chunk(artifacts, tenant, ident, "findings", group, body)
-            index = artifacts.put(tenant, ident, "finding-index", {"items": [finding_summary(item) for item in group]})
-            manifest["finding_chunks"].append({"reference": detail, "index_reference": index, "first_id": group[0]["id"], "last_id": group[-1]["id"], "count": len(group)})
+            manifest["finding_chunks"].append({"reference": detail, "first_id": group[0]["id"], "last_id": group[-1]["id"], "count": len(group)})
+            for item in group:
+                index.add(item)
+        index.flush()
+        manifest["finding_index_chunks"] = index.chunks
     with _runtime_span("publication.chunk.coverage"):
         for group, body in _artifact_chunks(artifacts, report.get("coverage", [])):
             manifest["coverage_chunks"].append(_put_chunk(artifacts, tenant, ident, "coverage", group, body))

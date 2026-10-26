@@ -371,9 +371,9 @@ def test_api_hydrates_labels_and_filters_through_check_frameworks(tmp_path):
     ident, bundle = completed_job(store, artifacts, report)
     # Stored chunks and the index carry labels only where a finding overrides its check.
     assert bundle["check_frameworks"] == report["check_frameworks"] and "check_frameworks" not in bundle["summary"]
-    for chunk in bundle["finding_chunks"]:
-        for reference in (chunk["reference"], chunk["index_reference"]):
-            assert [f["id"] for f in artifacts.get("alice", reference)["items"] if "frameworks" in f] in ([], [override["id"]])
+    for reference in ([chunk["reference"] for chunk in bundle["finding_chunks"]]
+                      + [chunk["reference"] for chunk in bundle["finding_index_chunks"]]):
+        assert [f["id"] for f in artifacts.get("alice", reference)["items"] if "frameworks" in f] in ([], [override["id"]])
     with TestClient(create_app(settings, store=store, artifacts=artifacts, authenticator=Identities()), base_url="http://127.0.0.1") as client:
         page = client.get(f"/api/scans/{ident}/findings?limit=500").json()
         assert page["total"] == len(report["findings"])
@@ -479,7 +479,7 @@ def test_api_hydrates_per_check_fields_for_filters_facets_summary_and_detail(tmp
     ident, bundle = completed_job(store, artifacts, report)
     assert bundle["check_meta"] == report["check_meta"] and "check_meta" not in bundle["summary"]
     assert bundle["summary"]["stats"]["by_category"] == dict(Counter(f["category"] for f in full.values()))
-    stored = [f for chunk in bundle["finding_chunks"] for f in artifacts.get("alice", chunk["index_reference"])["items"]]
+    stored = [f for chunk in bundle["finding_index_chunks"] for f in artifacts.get("alice", chunk["reference"])["items"]]
     assert {f["id"] for f in stored if "severity" in f} == {override["id"]} and not any("title" in f for f in stored)
     with TestClient(create_app(settings, store=store, artifacts=artifacts, authenticator=Identities()), base_url="http://127.0.0.1") as client:
         page = client.get(f"/api/scans/{ident}/findings?limit=500").json()

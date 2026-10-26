@@ -453,6 +453,18 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         details = finding.get("remediation_details")
         return dict(finding, remediation_details=exposure_details(finding, details)) if isinstance(details, dict) else finding
 
+    def finding_index_references(bundle):
+        if "finding_index_chunks" not in bundle:
+            return tuple(chunk["index_reference"] for chunk in bundle["finding_chunks"])
+        chunks = bundle["finding_index_chunks"]
+        if (not isinstance(chunks, list)
+                or any(not isinstance(chunk, dict) or not isinstance(chunk.get("reference"), str)
+                       or type(chunk.get("count")) is not int or chunk["count"] < 1 for chunk in chunks)
+                or len({chunk["reference"] for chunk in chunks}) != len(chunks)
+                or sum(chunk["count"] for chunk in chunks) != bundle.get("finding_count")):
+            raise HTTPException(409, "Finding index manifest is inconsistent")
+        return tuple(chunk["reference"] for chunk in chunks)
+
     @lru_cache(maxsize=4)
     def finding_index(tenant, report_reference, references):
         # Cache only immutable, credential-free summaries, never download URLs.
@@ -1215,7 +1227,7 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         status_counts = FindingStatusCounts() if status_count_aggregation is not None else None
         facets = {"services": set(), "statuses": set(), "frameworks": set()}
         facet_checks = set()
-        groups = [finding_index(tenant, row["report"], tuple(chunk["index_reference"] for chunk in bundle["finding_chunks"]))] if bundle.get("bundle_version") == 1 else [bundle.get("findings", [])]
+        groups = [finding_index(tenant, row["report"], finding_index_references(bundle))] if bundle.get("bundle_version") == 1 else [bundle.get("findings", [])]
         from peaso.ai.finding_reviews import apply_review, _concrete_secret_observation
         # Index cards omit native detector evidence. Hydrate only canonical
         # secret candidates whose AI correction could hide a demonstrated match.
@@ -1890,7 +1902,7 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         if not known_privesc_node(index, principal_id):
             raise HTTPException(404, "Principal not found in the privilege-escalation map")
         if bundle.get("bundle_version") == 1:
-            summaries = finding_index(user.tenant_id, row["report"], tuple(chunk["index_reference"] for chunk in bundle["finding_chunks"]))
+            summaries = finding_index(user.tenant_id, row["report"], finding_index_references(bundle))
         else:
             summaries = (finding_summary(f) for f in bundle.get("findings", []))
         labels, meta = check_labels(bundle), check_fields(bundle)
