@@ -662,7 +662,10 @@ class Requests:
                         projection_contract.before_request(self)
                     if content_profile or service == 'sts' or _uncached_credential_exchange:
                         from .aws_content_sdk_logging import private_sdk_logs
-                        with private_sdk_logs():
+                        from contextlib import nullcontext
+                        admission = (self.raw_reads.admit(client, session, lambda: projection_contract.remaining(self))
+                            if _metadata_profile == 'aws-selected-configuration-content-v1' else nullcontext())
+                        with admission, private_sdk_logs():
                             response = getattr(client, operation)(**arguments)
                     else:
                         with shared_reads(not _cache_refresh and _metadata_profile in SHARED_PROFILES and _codecommit_routes is None):
