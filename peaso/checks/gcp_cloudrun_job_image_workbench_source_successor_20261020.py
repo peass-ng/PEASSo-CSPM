@@ -17,7 +17,7 @@ from .gcp_workbench_head3_admission_20261020 import (
     _IMPORTS, _IMPORT_CODES, _CANDIDATE_FUNCTIONS, candidate, EVALUATORS, CHECK_IDS,
 )
 RECEIPT = 'gcp_cloudrun_job_image_workbench_source_successor_20261020.json'
-RECEIPT_SHA256 = '2a9fac82c1097446f350ff92354882e25fbce5e98b52a5e21ba7fd0a4c462d9e'
+RECEIPT_SHA256 = '2ed55a5426abb32446e4a182e2542fb4754075cb99256c71cb40d4071ac0ebda'
 
 
 def _reviewed_delta(root):

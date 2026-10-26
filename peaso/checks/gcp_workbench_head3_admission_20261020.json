@@ -7,7 +7,7 @@
     "gcp.review.workbench.auto_upgrade_schedule_declared"
   ],
   "sources": {
-    "peaso/checks/gcp_workbench_head3_admission_20261020.py": "1ad27033c8efb6c8fdc0b10379d08639464b9a984e0ecda890892f0689ae9328",
+    "peaso/checks/gcp_workbench_head3_admission_20261020.py": "e9dff8becfff1ab2bf4e019620b9426e9e1f09028ebe9e2cd29dfe885e5f255d",
     "peaso/checks/gcp_workbench_head3_proposal_20261020.py": "7a8ed26b082d75379570dc65196916f5e8aea7899c5ddd1c0512a5674b130ba9",
     "peaso/collectors/gcp_workbench_head3_projection_20261020.py": "c23a79d7832e958de43e769d2cff1cdd8cefe554086f5f33d4c19a9b7906bdd1",
     "peaso/checks/facts.py": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
@@ -66,7 +66,7 @@
       "path": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
       "module": "peaso.checks.gcp_workbench_head3_admission_20261020",
       "qualname": "_checked",
-      "body_sha256": "f8bc01ca61312b76a94b6f619ffbdacc490c36fa7521c153f2077b8290a9d1cf"
+      "body_sha256": "09130f7dd598dce938a44b8f7754a5e212c41bd26097c9ba882f7d41e9bcb172"
     },
     "peaso.checks.gcp_workbench_head3_admission_20261020:terminal_access_disabled": {
       "path": "peaso/checks/gcp_workbench_head3_admission_20261020.py",

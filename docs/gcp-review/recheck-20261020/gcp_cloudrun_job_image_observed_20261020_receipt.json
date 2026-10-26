@@ -41,7 +41,7 @@
     }
   },
   "native_runtime_receipt": "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
-  "native_runtime_receipt_sha256": "dc63589448228096c334e087e84dd299cc49ac18a53941660a7a3ba8686eb8bc",
+  "native_runtime_receipt_sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d",
   "native_runtime_receipt_unchanged": true,
   "outcome": "succeeded",
   "partial_positive_derivation": "Explicit cleanup-incomplete variant of actual accepted native positive, replayed through unchanged pure consumer and existing public dedup; no detector/path/image observations added",
@@ -146,12 +146,12 @@
     "frontend/tests/gcp-cloudrun-job-image-evidence.spec.ts": "4a9a89cce02937fe15d64e9d8b160e53a2fa81c4cdf6f4fa57c64aeb8960dbab",
     "peaso/checks/gcp_cloudrun_job_image_observed_20261020.py": "f6180e6efe4ff213f13f328470b4ec898be5ca3f589b11502c634d264897572d",
     "peaso/checks/gcp_evidence_explanations.py": "ef658069466a230b16d450122b9203f57df8c039028a26981cfe055b76822313",
-    "tests/fixtures/gcp-cloudrun-job-image-observed-20261020.json": "51a9df2046d65f5f2c21067726b1ce19967e6080fee3508b9fe159bc06a0f1ec",
+    "tests/fixtures/gcp-cloudrun-job-image-observed-20261020.json": "20d0dc424f78ef27e14bf60e40ef84ff29f2be9fe322c62f7151a72b5937488b",
     "tests/test_gcp_cloudrun_job_image_observed_20261020.py": "7f53da9b3fe452ff6e5f22ffcd776bb071167cb942706676f3d8f4826eacde6c"
   },
   "unchanged_runtime_sources": {
     "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json": {
-      "sha256": "dc63589448228096c334e087e84dd299cc49ac18a53941660a7a3ba8686eb8bc",
+      "sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d",
       "unchanged": true
     },
     "peaso/checks/gcp_cloudrun_job_image_secret_review_20261020.py": {

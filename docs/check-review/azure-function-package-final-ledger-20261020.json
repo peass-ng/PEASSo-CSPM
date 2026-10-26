@@ -259,7 +259,7 @@
   "evidence": [
     {
       "path": "docs/check-review/azure-function-package-head3-current-acceptance-20261020.json",
-      "sha256": "ed99961d5aa09a57929cae6f1e71295e2ad612feefaaf0a7669e226addcc2062"
+      "sha256": "b89ae29f32d21d07e075cccdeeca213ac591b8efbc560ee0fec5506f99a1a65f"
     },
     {
       "path": "docs/check-review/azure-function-package-integrated-public-native-20261020.json",

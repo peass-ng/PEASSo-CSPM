@@ -24,7 +24,7 @@ CHECK_BY_ID = {check.id: check for check in CHECKS if check.provider == 'azure'}
 LEDGER = json.loads((ROOT / 'docs/evidence-reviews/azure.json').read_text())
 CASES = json.loads(gzip.decompress((ROOT / 'tests/fixtures/azure_evidence_review.json.gz').read_bytes()))
 ASSESSMENT_SUCCESSOR_RAW = (ROOT / 'docs/check-review/azure-defender-assessment-four-current-binding-20261021.json').read_bytes()
-assert hashlib.sha256(ASSESSMENT_SUCCESSOR_RAW).hexdigest() == '5fd8cf7122257785aa4c06aebaaf471b5e10e8f8f6148f2207e6b538010ec1e5'
+assert hashlib.sha256(ASSESSMENT_SUCCESSOR_RAW).hexdigest() == 'a9edc3b939c80350367a7dccaae69b5f49eee77cad41c4aa366698a0889c37a2'
 ASSESSMENT_SUCCESSOR = json.loads(ASSESSMENT_SUCCESSOR_RAW)
 CURRENT_RELEASE_BINDINGS = json.loads((ROOT / 'docs/evidence-reviews/azure-current-22-binding-20261022.json').read_text())
 CURRENT_SOURCE_BINDINGS = CURRENT_RELEASE_BINDINGS['source_bindings']
@@ -83,7 +83,7 @@ RELEASE_SOURCE_SHA256 = {
     'peaso/checks/azure_flex_deployment_archives_review_20261021.py': '04654eb038e8198385714093e6111a5692b5d8f2f9fc8983b75572b66b79f04b',
     'peaso/checks/azure_selected_aks_image_review_20261021.py': 'fe55e2cde5ba2a542a2fb8aca460aa9a65f5d5592c2d1aa79b1aede0f6c1ecd5',
     'peaso/checks/azure_synapse_selected_notebook_secret_review_20261021.py': '65bc8db47e617f13d22de4548e8eb4dffc447e10fbd70b1232a0c6799f322f77',
-    'peaso/checks/provider_group_install_20261021.py': '39b8141470157d3c79c3dcf1ff3e3f9303e1b762295027a3e35e6c9c5ac06b68',
+    'peaso/checks/provider_group_install_20261021.py': 'b9fa3f713344fae713843dce14646894cb4bc30e1fc1ec0ca39f74697284d9a5',
     'peaso/unused_iam_azure.py': '23a89805c07a6ef8bc28f5b60f95b1f71779304599e183526b885c5213683be6',
     'peaso/unused_iam_azure_arm_roles.py': '3a67ae42f5b29a12ea65350e477e2b04597625361f87db643948f1fd4c5d2674',
     'peaso/unused_iam_azure_roles.py': '282d9d380c5cd7c9b20cd964351ef65a57a202ec0e24b802548e74bbf3bfffd8',
@@ -1819,7 +1819,7 @@ PINNED_SUCCESSOR_INPUTS = json.loads(r'''
   "docs/check-review/azure-network-audit-admission-20261020.json": "daba95114a8c9f6af5d60e27f6195d7464d071d5cda2e2ad85a0bb5890db7b9c",
   "docs/check-review/azure-provider-integration-acceptance-20261020.json": "38e933aacafdc11eb01980cb22e0cb632ff06a21b683c358d8e566c6d2ad733f",
   "docs/check-review/azure-storage-compute-integration-20261020.json": "aa1527f425d7875ea2ab3f9d29207010c7207b2d436e1d0c4584b6b5997ebfbc",
-  "docs/evidence-reviews/azure.json": "f925b5f4f0f4d8f352eacad80647c64fb54e291441efa16b8892b486f36f8e34",
+  "docs/evidence-reviews/azure.json": "3760c5c01cd01bc19aa8275490c6fee07525b9a42abdcf660b94fd257f7e97e6",
   "peaso/checks/azure.py": "616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e",
   "peaso/checks/azure_acr_image_secret_review_20261020.py": "11821a6a2d2366602d993d79c58844d6f0c14b1a766ffd19c43894bef8f2dd39",
   "peaso/checks/azure_acr_image_secret_review_20261020_fixtures.json": "6920da6da7d3ef871ecccfd06bf3db9326891d6bcfdc0c37799dbcf9e6580af7",

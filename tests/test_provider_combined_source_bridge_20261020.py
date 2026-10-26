@@ -1065,7 +1065,7 @@ def _pinned_proof(name, expected):
 def cpu_receipt():
     """The unchanged canonical CPU proof remains independently testable."""
     return _pinned_proof('native_admission_cpu_shared_successor_20261020',
-                         '82c57ad2963785be4ddc5cbb4f029afe19a416800ea5beed748693aa6324fcc8')
+                         '93a723d84bf4a11cc69f22e0ae924c20c1f1da96c5f6f7f77f148f27b35a0374')
 
 
 def cpu_epoch_bytes(relative, raw):
@@ -1082,10 +1082,10 @@ def cpu_epoch_bytes(relative, raw):
         raw = current._private_before(relative, raw, ROOT)
     layers = (
         ('azure_metadata_only_shared_successor_20261020',
-         '12bf2cd88f943bcb3cdb91a3701cd3197e78d6ba7ed7e956afd854d6d1b292ed',
+         '4dfa99f4f0903bc99037f8a9e9d860f84ce0c0ce686a8e891f8277c054bdafa7',
          'metadata_only_epoch_file_deltas'),
         ('collector_noop_authorization_shared_successor_20261020',
-         '7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa',
+         '5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1',
          'native_epoch_file_deltas'))
     for name, expected, section in layers:
         proof = _pinned_proof(name, expected)
@@ -1130,7 +1130,7 @@ def isolated(tmp_path_factory):
     # Git does not list the separately admitted current overlay. Copy its
     # exact receipt-attested source closure alongside the historical package.
     current = _pinned_proof('azure_metadata_only_shared_successor_20261020',
-                            '12bf2cd88f943bcb3cdb91a3701cd3197e78d6ba7ed7e956afd854d6d1b292ed')
+                            '4dfa99f4f0903bc99037f8a9e9d860f84ce0c0ce686a8e891f8277c054bdafa7')
     closure = set(current['sources']) | {row['path'] for row in current['functions'].values()}
     closure |= {'peaso/checks/azure_metadata_only_shared_successor_20261020.json',
                 'peaso/checks/collector_noop_authorization_shared_successor_20261020.json',

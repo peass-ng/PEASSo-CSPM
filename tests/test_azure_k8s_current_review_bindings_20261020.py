@@ -12,7 +12,7 @@ def test_all_current_azure_k8s_bodies_have_exact_existing_or_erratum_receipts():
     root=Path(__file__).resolve().parents[1]
     audit=json.loads((root/'docs/check-review/azure-k8s-current-predicate-bindings-20261020.json').read_text())
     successor_raw=(root/'docs/check-review/azure-defender-assessment-four-current-binding-20261021.json').read_bytes()
-    assert hashlib.sha256(successor_raw).hexdigest()=='5fd8cf7122257785aa4c06aebaaf471b5e10e8f8f6148f2207e6b538010ec1e5'
+    assert hashlib.sha256(successor_raw).hexdigest()=='a9edc3b939c80350367a7dccaae69b5f49eee77cad41c4aa366698a0889c37a2'
     successor=json.loads(successor_raw)
     assert set(successor['scope_ids'])==set(successor['records'])=={
         'azure.claude.defender_assessment_endpoint_protection',

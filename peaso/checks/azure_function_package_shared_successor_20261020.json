@@ -127,9 +127,9 @@
     }
   },
   "sources": {
-    "peaso/checks/azure_function_package_head3_entrypoint_20261020.json": "23dd0fd518910d7494e82167caf02876f1d7446fb29efba9fdc08cdf338819e8",
+    "peaso/checks/azure_function_package_head3_entrypoint_20261020.json": "a4f778f1c366589e38ea6675d6b65591ec1796d75c3259a916b99d7b1c5bfff0",
     "peaso/checks/azure_function_package_head3_entrypoint_20261020.json.gz": "a62ee0eee688a489944ef9cbe11b9312708f9ad9defa49775225330f2478024b",
-    "peaso/checks/azure_function_package_head3_entrypoint_20261020.py": "e3936596031ff44d92f83f4584a7d45c79c6c87840e72b744cba0b12dd452d11",
+    "peaso/checks/azure_function_package_head3_entrypoint_20261020.py": "2d8637a8327781ac9cc465e72b61e8494cd63ad234853e554f64dc06002db187",
     "peaso/checks/azure_function_package_integration_predecessors_20261020.json.gz": "eac8ca72282644847f2cedae0c87f7f45bd7c895cb7116f57ac4bf287096d6c6",
     "peaso/checks/azure_function_package_shared_successor_20261020.py": "fdbd0ae09aab3f40f91f676ac997d53127d86e75af0f4e255d1de7026ba23ab9",
     "peaso/checks/azure_function_package_tde_successor_20261020.py": "2f46a1afd1351bdc62815492f0a1d5d3a30fbb81c07be6cbbab055d95b0c5105"

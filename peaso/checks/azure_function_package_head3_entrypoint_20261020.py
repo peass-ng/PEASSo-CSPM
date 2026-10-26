@@ -7,7 +7,7 @@ import re
 import types
 
 RECEIPT = 'azure_function_package_head3_entrypoint_20261020.json'
-RECEIPT_SHA256 = '23dd0fd518910d7494e82167caf02876f1d7446fb29efba9fdc08cdf338819e8'
+RECEIPT_SHA256 = 'a4f778f1c366589e38ea6675d6b65591ec1796d75c3259a916b99d7b1c5bfff0'
 
 
 def _self(raw):

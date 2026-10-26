@@ -12,7 +12,7 @@ import inspect
 
 from peaso import gcp_function_secret_pair_source_20261020 as predecessor
 
-RECEIPT_SHA256 = 'a9cf3dd72f0745e2c61cb9ace44afdbaa9dc06ba0e02a7a3ffd4c253d2d95b23'
+RECEIPT_SHA256 = '0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9'
 RECEIPT = 'peaso/checks/gcp_function_secret_page_admission_20261020.json'
 
 

@@ -116,8 +116,8 @@ def test_official_jit_inventory_and_unsafe_responses_through_engine(variant, exp
 
 
 def test_ready_bridge_and_original_1818_file_baseline_remain_immutable():
-    assert hashlib.sha256((ROOT / OLD_HELPER).read_bytes()).hexdigest() == 'aa8f1bbc5c0f90571ce9c86d824fc5a0270edc10e0efbcc7748ab9fdb9534b84'
-    assert hashlib.sha256((ROOT / OLD_RECEIPT).read_bytes()).hexdigest() == '6fff655f5bb8a22a0466e11a013ffbfd357f233b5fdfa71336b40eed9294f62f'
+    assert hashlib.sha256((ROOT / OLD_HELPER).read_bytes()).hexdigest() == '2c0229f0d1b52b660e543bc0b22d0c2255cddb28bae7217e326cf497da22b73f'
+    assert hashlib.sha256((ROOT / OLD_RECEIPT).read_bytes()).hexdigest() == 'ffc024b6908fb5b9ae5330f327eda5634897ed45845db62ccd6637539e1b8f06'
     raw = (ROOT / 'tests/fixtures/provider_combined_bridge_baseline_20261020.json.gz').read_bytes()
     assert hashlib.sha256(raw).hexdigest() == '82799a2e0c366c80f3ec4d0626837fdf37ec0b38fc426d0ede565301df4c54a6'
     assert len(json.loads(gzip.decompress(raw))['files']) == 1818

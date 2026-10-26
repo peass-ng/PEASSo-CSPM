@@ -53,7 +53,7 @@ _DATAFLOW_ADMISSION = importlib.import_module(__package__ + '.gcp_dataflow_batch
 _DATAFLOW_FUNCTIONS = dict(_DATAFLOW_ADMISSION._FUNCTIONS)
 _DATAFLOW_REVIEWED_INPUTS = _DATAFLOW_FUNCTIONS[_DATAFLOW_ADMISSION.__name__ + ':reviewed_inputs']
 RECEIPT = 'azure_metadata_only_shared_successor_20261020.json'
-RECEIPT_SHA256 = '12bf2cd88f943bcb3cdb91a3701cd3197e78d6ba7ed7e956afd854d6d1b292ed'
+RECEIPT_SHA256 = '4dfa99f4f0903bc99037f8a9e9d860f84ce0c0ce686a8e891f8277c054bdafa7'
 
 
 def _self(raw):

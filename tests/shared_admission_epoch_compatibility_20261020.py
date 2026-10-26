@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 ORIGINAL_TESTS = 'tests/fixtures/shared_admission_original_tests_20261020.json.gz'
 ORIGINAL_TESTS_SHA256 = 'b6dc973b3351d0979686171a4d0ba7313bf2edc7726d76dbac77d2cbe235daf9'
 RECEIPTS = {
-    'azure_jit_parent_type_shared_successor_20261020': '1e0a7fa1630680799025fe1ac012e75e82bd847a4c68785702029d9c67d9427a',
-    'aws_deployed_ai_shared_successor_20261020': '6fff655f5bb8a22a0466e11a013ffbfd357f233b5fdfa71336b40eed9294f62f',
-    'aws_workload_command_shared_successor_20261020': '473a758de6617333ec9232a5f9b86585595f0e2d8842a14d05cb9547a390310e',
-    'azure_function_package_shared_successor_20261020': '09ecf7b061269639a5660a361d7a78f48403476c2048ff0741f98d1bbb7692d1',
+    'azure_jit_parent_type_shared_successor_20261020': 'bf2cefbc561808e7001f3a0391f0b48e3e24b085c4cfae91c9c98dceb99943f7',
+    'aws_deployed_ai_shared_successor_20261020': 'ffc024b6908fb5b9ae5330f327eda5634897ed45845db62ccd6637539e1b8f06',
+    'aws_workload_command_shared_successor_20261020': '204e853cea9dfddaf2fa23c44a441c028fafcc9a1f28d4718aef485f0c35dea1',
+    'azure_function_package_shared_successor_20261020': '9bd4b45c79ae86af77ee58853bfe05692d5cf244a11c916756906f281e5f1c99',
     'aws_codebuild_buildspec_shared_successor_20261020': '3f850167f2dfc92c78222f38ae48b7bedb0b102e13578a9bb9508df0000cdcce',
     'gcp_dataflow_batch_shared_hook_successor_20261020': 'c6085a12b2468c039c605d314748f02a4963ee01cdf2edbc072f254aa73dc460',
     'gcp_workbench_shared_hook_successor_20261020': 'd6dc0461e17473bc437eb9a9f68c7e39103c6e6dcdccbc84ef469eda88002593',
@@ -49,11 +49,11 @@ def active_shared():
     from peaso.checks import azure_function_package_shared_successor_20261020 as current
     known = {
         'peaso.checks.azure_jit_parent_type_shared_successor_20261020': RECEIPTS['azure_jit_parent_type_shared_successor_20261020'],
-        'peaso.checks.native_admission_cpu_shared_successor_20261020': '82c57ad2963785be4ddc5cbb4f029afe19a416800ea5beed748693aa6324fcc8',
-        'peaso.checks.collector_noop_authorization_shared_successor_20261020': '7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa',
-        'peaso.checks.azure_metadata_only_shared_successor_20261020': '12bf2cd88f943bcb3cdb91a3701cd3197e78d6ba7ed7e956afd854d6d1b292ed',
-        'peaso.checks.gcp_positive_conservation_shared_source_successor_20261020': '12bf2cd88f943bcb3cdb91a3701cd3197e78d6ba7ed7e956afd854d6d1b292ed',
-        'peaso.checks.private_secret_shared_source_successor_20261021': '12bf2cd88f943bcb3cdb91a3701cd3197e78d6ba7ed7e956afd854d6d1b292ed',
+        'peaso.checks.native_admission_cpu_shared_successor_20261020': '93a723d84bf4a11cc69f22e0ae924c20c1f1da96c5f6f7f77f148f27b35a0374',
+        'peaso.checks.collector_noop_authorization_shared_successor_20261020': '5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1',
+        'peaso.checks.azure_metadata_only_shared_successor_20261020': '4dfa99f4f0903bc99037f8a9e9d860f84ce0c0ce686a8e891f8277c054bdafa7',
+        'peaso.checks.gcp_positive_conservation_shared_source_successor_20261020': '4dfa99f4f0903bc99037f8a9e9d860f84ce0c0ce686a8e891f8277c054bdafa7',
+        'peaso.checks.private_secret_shared_source_successor_20261021': '4dfa99f4f0903bc99037f8a9e9d860f84ce0c0ce686a8e891f8277c054bdafa7',
     }
     assert current.__name__ in known, 'Unknown shared admission source epoch'
     assert current is importlib.import_module(current.__name__), 'Shared admission alias pointer changed'
@@ -91,7 +91,7 @@ def _metadata_noop_parent(current, proof):
     """Finite metadata-only alias over the immutable 168-row no-op epoch."""
     latest = importlib.import_module('peaso.checks.private_secret_shared_source_successor_20261021')
     noop = importlib.import_module('peaso.checks.collector_noop_authorization_shared_successor_20261020')
-    noop_sha = '7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa'
+    noop_sha = '5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1'
     assert proof['accepted_noop_receipt_sha256'] == noop_sha, 'Metadata-only no-op receipt ancestry changed'
     assert current.accepted_noop is noop, 'Metadata-only no-op parent pointer changed'
     assert noop.RECEIPT == 'collector_noop_authorization_shared_successor_20261020.json'
@@ -135,7 +135,7 @@ def _noop_native_parent(current, proof):
     """Only the final no-op receipt may route the exact canonical CPU parent."""
     native = importlib.import_module('peaso.checks.native_admission_cpu_shared_successor_20261020')
     jit = importlib.import_module('peaso.checks.azure_jit_parent_type_shared_successor_20261020')
-    cpu_sha = '82c57ad2963785be4ddc5cbb4f029afe19a416800ea5beed748693aa6324fcc8'
+    cpu_sha = '93a723d84bf4a11cc69f22e0ae924c20c1f1da96c5f6f7f77f148f27b35a0374'
     assert proof['accepted_native_receipt_sha256'] == cpu_sha, 'No-op native receipt ancestry changed'
     assert proof['prior_bridge_receipt_sha256'] == RECEIPTS['azure_jit_parent_type_shared_successor_20261020'], 'No-op JIT receipt ancestry changed'
     assert current.accepted_native is native, 'No-op native parent pointer changed'
@@ -260,7 +260,7 @@ def azure_predecessor_tree(destination):
         active = active.accepted_noop
     if active.__name__ == 'peaso.checks.collector_noop_authorization_shared_successor_20261020':
         raw = (ROOT / 'peaso/checks' / active.RECEIPT).read_bytes()
-        assert digest(raw) == '7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa'
+        assert digest(raw) == '5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1'
         proof = json.loads(raw)
         assert set(proof['producer_file_deltas']) == {
             'peaso/collectors/aws_workload_command_runtime_20261020.py',

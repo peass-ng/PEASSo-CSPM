@@ -110,7 +110,7 @@
     "docs/check-review/gcp-workbench-head3-20261020-pure-native-results.json": "b7350eb8f70beb302383cb3e504a68edc02f64211b945522cf00d22b95c1dd3e",
     "docs/check-review/gcp-workbench-head3-20261020-proposal-bindings.json": "5b45c209e20f54cfa14649e0d4e26b21a291cab48ae89b63e347dec59b1ae7d8",
     "peaso/checks/gcp_workbench_head3_ordinary_native_20261020.json.gz": "e23bdde3f7428d3d9f320c39e99f308c34903fbaca161278d194754be26e2d61",
-    "docs/check-review/gcp-workbench-head3-20261020-collector-successor-proof.json": "5e3750593d95957db1d8965b6439a68ce570ccfa1b0a11ca484b718b299db147"
+    "docs/check-review/gcp-workbench-head3-20261020-collector-successor-proof.json": "e0d5177523b78df72e93c06dda3127f34bee7f41ef3c0cec83e0381805e70e37"
   },
   "actual_evaluators": {
     "gcp.review.workbench.terminal_access_disabled": {
@@ -1922,7 +1922,7 @@
   },
   "actual_collector_successor": {
     "path": "docs/check-review/gcp-workbench-head3-20261020-collector-successor-proof.json",
-    "sha256": "5e3750593d95957db1d8965b6439a68ce570ccfa1b0a11ca484b718b299db147",
+    "sha256": "e0d5177523b78df72e93c06dda3127f34bee7f41ef3c0cec83e0381805e70e37",
     "collector_current_sha256": "d7f5916616c6ba871fd82164fb74f139132bfa9f8a14967e1c2360937e5dd161",
     "schedule_helper_sha256": "c23a79d7832e958de43e769d2cff1cdd8cefe554086f5f33d4c19a9b7906bdd1"
   },

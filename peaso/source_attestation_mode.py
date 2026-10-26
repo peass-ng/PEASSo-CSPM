@@ -14,3 +14,20 @@ ALWAYS = os.environ.get('PEASO_SOURCE_ATTESTATION', '').strip().lower() == 'alwa
 def repeat(proven):
     """Return True when a verifier that already proved itself must run again."""
     return ALWAYS or not proven
+
+
+_ONCE = {}
+
+
+def prove_once(verifier, *args, **kwargs):
+    """Run a pinned verifier on a per-evaluation path.
+
+    Production reuses the first successful proof of this exact verifier object
+    and arguments for the rest of the process; a failed proof is never cached
+    and raises again on the next call.  With ``always`` every call re-proves.
+    """
+    key = (verifier, args, tuple(sorted(kwargs.items())))
+    if not repeat(key in _ONCE):
+        return
+    verifier(*args, **kwargs)
+    _ONCE[key] = True

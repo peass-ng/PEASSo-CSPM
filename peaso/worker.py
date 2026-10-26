@@ -366,6 +366,31 @@ def _collector_checkpoint_publisher(artifacts, publication_artifacts, tenant, id
     return checkpoint
 
 
+def _prewarmed_process(connection):
+    """Import and prove the native engine before an analyzer job arrives.
+
+    The progressive analyzer starts this child while collection is still
+    running, so the one-time pinned-source proof of ``peaso.checks`` uses idle
+    analyzer time instead of delaying final evaluation. The job request then
+    follows the exact fresh-child path; an import failure is reported there.
+    """
+    with open(os.devnull, "w") as sink:
+        os.dup2(sink.fileno(), 1)
+        os.dup2(sink.fileno(), 2)
+    try:
+        import peaso.checks  # noqa: F401
+        import peaso.engine  # noqa: F401
+    except Exception:  # noqa: BLE001 - _process re-imports and reports the failure
+        pass
+    try:
+        message = connection.recv()
+    except (EOFError, OSError):
+        return
+    if not (isinstance(message, tuple) and len(message) == 3 and message[0] == "__job__"):
+        return
+    _process(message[1], message[2], connection)
+
+
 def _process(role, request, connection):
     connection = _SynchronizedPipe(connection)
     from peaso import runtime_metrics
@@ -756,6 +781,52 @@ class Worker:
         if isinstance(self.authenticator, Authenticator):
             self.authenticator.store = self.store
         self.stopping = threading.Event()
+        self._prewarmed = None
+
+    def prewarm(self):
+        """Start one analyzer child that imports the engine ahead of its job."""
+        if self.role != "analyzer" or self._prewarmed is not None:
+            return
+        context = multiprocessing.get_context("spawn")
+        parent, child = context.Pipe(duplex=True)
+        process = context.Process(target=_prewarmed_process, args=(child,), daemon=True)
+        try:
+            process.start()
+        except Exception:  # noqa: BLE001 - run_once falls back to a fresh child
+            parent.close()
+            return
+        finally:
+            child.close()
+        self._prewarmed = (process, parent)
+
+    def _take_prewarmed(self, request):
+        warm, self._prewarmed = self._prewarmed, None
+        if warm is None:
+            return None
+        process, parent = warm
+        try:
+            if not process.is_alive():
+                raise OSError("prewarmed analyzer exited")
+            parent.send(("__job__", self.role, request))
+            return warm
+        except Exception:  # noqa: BLE001 - discard it and spawn a fresh child
+            self._discard(process, parent)
+            return None
+
+    @staticmethod
+    def _discard(process, parent):
+        parent.close()
+        if process.is_alive():
+            process.terminate()
+        process.join(timeout=2)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=2)
+
+    def discard_prewarmed(self):
+        warm, self._prewarmed = self._prewarmed, None
+        if warm is not None:
+            self._discard(*warm)
 
     def schedule_tick(self, now=None):
         if self.role != "collector":
@@ -856,11 +927,15 @@ class Worker:
             request.update(tenant_id=job["tenant"], scan_id=job["id"], deadline=job["deadline"], artifact_config={"mode": "file", "root": str(self.artifacts.root)} if isinstance(self.artifacts, FileArtifacts) else {"mode": "s3", "bucket": self.artifacts.bucket, "kms_key": self.artifacts.kms_key})
             request["ai_context"] = {"state_dir": str(self.settings.state_dir), "identity_dir": str(self.settings.identity_dir)}
             request["timeline"] = self.store.public_job(job)["timeline"]
-            context = multiprocessing.get_context("spawn")
-            parent, child = context.Pipe(duplex=True)
-            process = context.Process(target=_process, args=(self.role, request, child), daemon=True)
-            process.start()
-            child.close()
+            warm = self._take_prewarmed(request) if self.role == "analyzer" else None
+            if warm is not None:
+                process, parent = warm
+            else:
+                context = multiprocessing.get_context("spawn")
+                parent, child = context.Pipe(duplex=True)
+                process = context.Process(target=_process, args=(self.role, request, child), daemon=True)
+                process.start()
+                child.close()
             next_heartbeat = 0
             result = None
             control_read = getattr(self.store, "job_control", self.store.job)

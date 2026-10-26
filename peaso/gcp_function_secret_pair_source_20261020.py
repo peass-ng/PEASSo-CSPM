@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import types
 
-RECEIPT_SHA256 = 'eb01e33477b352960ce74d99c82a9344fcc5ff3bbef80f86d8c6199c25dbaf6e'
+RECEIPT_SHA256 = '2db48941c86ab55512285eb22f591eb17bf50be7b1a1cf099d7bd134d9393622'
 RECEIPT = 'peaso/checks/gcp_function_secret_paired_admission_20261020.json'
 
 

@@ -185,7 +185,7 @@ def current_missing_observation(cid, catalog):
 
 PINNED_FILES = json.loads(r'''
 {
-  "docs/check-review/gcp-function-current-ledger-erratum-20261020.json": "a0e89befb7eb83f29b37c23f5409e52c0e1e6a10e786314fa50364bae660967a",
+  "docs/check-review/gcp-function-current-ledger-erratum-20261020.json": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2",
   "docs/compliance-ledgers/native-extensions/gcp-batch-referenced-source-20261020.json": "53808fbafe6709eccb594951e5151d5a132298600ff18ae060e9ba44927ed233",
   "docs/compliance-ledgers/native-extensions/gcp-dataflow-referenced-source-20261020.json": "3602c9ef9ef8ba2a1cdcfee853587a2f67f1a08ec0f1d56b33425754a553eb70",
   "docs/compliance-ledgers/native-extensions/gcp-dataproc-referenced-source-20261020.json": "084b861b7cad7ca872d96a87a0b70431a0ebed2033cfa9ff0f5fe71102df9bce",
@@ -195,7 +195,7 @@ PINNED_FILES = json.loads(r'''
   "docs/gcp-review/recheck-20261020/bigquery-historical-native-closure.json": "aa4f777196baec8e451cce94d2d6f8baa958185ef6702a4a6b9fa298b576ad2c",
   "docs/gcp-review/recheck-20261020/compute-second-fixes.json": "cff94ec444905393e950ebfb2dee93a0a36fa503cd81881e917267b6923ebbd7",
   "docs/gcp-review/recheck-20261020/final-services-predicate-successors.json": "2ec7f70a441788f5049543caa045b4e5748e3855393990b3cae8acbfa582e8dd",
-  "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json": "dc63589448228096c334e087e84dd299cc49ac18a53941660a7a3ba8686eb8bc",
+  "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d",
   "peaso/checks/gcp_cloudrun_job_image_observed_20261020.py": "f6180e6efe4ff213f13f328470b4ec898be5ca3f589b11502c634d264897572d",
   "peaso/checks/gcp_cloudrun_job_image_secret_review_20261020.py": "6411b11c8d7926311ebd88da98890b42b56e0a63b936bf7568792c42c4cd3a22",
   "peaso/checks/gcp_dataflow_batch_source_runtime_cases_20261020.json": "3eaffaf2bc5124c9662acab4a09d39b0a5243ee29a3fb0b1fe47708b586d96a7",
@@ -204,17 +204,17 @@ PINNED_FILES = json.loads(r'''
   "peaso/checks/gcp_dataproc_source_runtime_cases_20261020.json": "ea6f724d024a80c76d50616bfe8be848088eced477b3b83b0b505768e2626bd5",
   "peaso/checks/gcp_evidence_explanations.json": "91d201e8a8c094c538dbc759d4fad695cb16c3cae41ae582925af03a79d14cfc",
   "peaso/checks/gcp_evidence_explanations.py": "ef658069466a230b16d450122b9203f57df8c039028a26981cfe055b76822313",
-  "peaso/checks/gcp_function_secret_page_admission_20261020.json": "a9cf3dd72f0745e2c61cb9ace44afdbaa9dc06ba0e02a7a3ffd4c253d2d95b23",
+  "peaso/checks/gcp_function_secret_page_admission_20261020.json": "0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9",
   "peaso/checks/gcp_function_secret_paired_predecessors_20261020.json.gz": "aa4d52a469ec2ef9525488aa1b9dfb2b67be07d69179e9e5772d7f90f36892e2",
   "peaso/checks/gcp_function_secret_partial_page_cases_20261020.json": "d21c09b9e550934994c26efd3cda3738918308189254f2c9a1252d487f9bb9e7",
   "peaso/checks/gcp_natural_evidence.py": "16ee1b2e9fb5b90d859c01778f83c5e3d95674e4b4fa92e72f49d527eb514ab8",
   "peaso/checks/gcp_task_routine_secret_review_20261020.py": "18a4701d7e40fb18bc75291f80383a376713aa4a3fc3c4703b7c7f5c275aeeb1",
   "peaso/checks/gcp_task_routine_secret_review_20261020_fixtures.json.gz": "567fc1842443b68cc2311415d8420961cdd09441e18b68f4ad31a3399b85ae5a",
-  "peaso/checks/gcp_workbench_head3_admission_20261020.py": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d",
+  "peaso/checks/gcp_workbench_head3_admission_20261020.py": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c",
   "peaso/checks/gcp_workbench_head3_admission_cases_20261020.json": "8552db02f92dd14f23e0095dc21fb49d02667f27d09b7d68dd49b19c37edd17f",
   "peaso/checks/gcp_workbench_source_runtime_cases_20261020.json": "07a5d9705d018212894baf3b4d2254fa7d025ca151d14cb8776fcdfbae55dd0f",
   "peaso/checks/gcp_workbench_source_runtime_consumer_20261020.py": "c72dacd26ccba160b22a919d5d4885984f69bf3aebc5c2e08539cf7ddf751ad7",
-  "tests/fixtures/gcp-cloudrun-job-image-observed-20261020.json": "51a9df2046d65f5f2c21067726b1ce19967e6080fee3508b9fe159bc06a0f1ec",
+  "tests/fixtures/gcp-cloudrun-job-image-observed-20261020.json": "20d0dc424f78ef27e14bf60e40ef84ff29f2be9fe322c62f7151a72b5937488b",
   "tests/fixtures/gcp-natural-evidence-golden.json": "2f9352c93dc0fabfea12914468ce2bc1f1b066c98da2410005a36dbff97a00c8"
 }
 ''')
@@ -253,11 +253,11 @@ ADDED_EXTENSION_REVIEWS = json.loads(r'''
     "fixture_sources": [
       {
         "path": "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
-        "sha256": "dc63589448228096c334e087e84dd299cc49ac18a53941660a7a3ba8686eb8bc"
+        "sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d"
       },
       {
         "path": "tests/fixtures/gcp-cloudrun-job-image-observed-20261020.json",
-        "sha256": "51a9df2046d65f5f2c21067726b1ce19967e6080fee3508b9fe159bc06a0f1ec"
+        "sha256": "20d0dc424f78ef27e14bf60e40ef84ff29f2be9fe322c62f7151a72b5937488b"
       }
     ],
     "reviewed_binding": {
@@ -362,7 +362,7 @@ ADDED_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "auto_upgrade_schedule_declared"
     },
     "source": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
-    "source_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d"
+    "source_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c"
   },
   "gcp.review.workbench.file_download_disabled": {
     "admission_path": "docs/compliance-ledgers/native-extensions/gcp-workbench-head3-20261020.json",
@@ -385,7 +385,7 @@ ADDED_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "file_download_disabled"
     },
     "source": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
-    "source_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d"
+    "source_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c"
   },
   "gcp.review.workbench.selected_referenced_source_secret_indicators_20261020": {
     "admission_path": "docs/compliance-ledgers/native-extensions/gcp-workbench-referenced-source-20261020.json",
@@ -431,7 +431,7 @@ ADDED_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "terminal_access_disabled"
     },
     "source": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
-    "source_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d"
+    "source_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c"
   }
 }
 ''')
@@ -455,11 +455,11 @@ CURRENT_FUNCTION_REVIEW = json.loads(r'''
     "module": "peaso.checks.gcp_function_secret_partial_page_20261020",
     "predicate_bindings": {},
     "predicate_qualname": "evaluate",
-    "predicate_source_sha256": "98efa2eb6559047701bae612ebe9297d56a547cb4bf5630c9931a62748ca2a42",
+    "predicate_source_sha256": "1a33e6939a97121ae0399001e124801773ac93deb721c6c1f836ce48bc42ef7c",
     "source_qualname": "evaluate"
   },
   "source": "peaso/checks/gcp_function_secret_partial_page_20261020.py",
-  "source_sha256": "56a16e3da541ed741109f02c7324fa54d8c7f95704eb342cc140a7d8b8454093"
+  "source_sha256": "ccd4db936dfab45936e8c736b443bade16df2e93fd61d47050b539a926e8b1a7"
 }
 ''')
 
@@ -760,7 +760,7 @@ OWNER_RUNTIME_RECEIPTS = json.loads(r'''
   },
   "gcp.review.cloudrun_job.declared_image_secret_indicators": {
     "path": "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
-    "sha256": "dc63589448228096c334e087e84dd299cc49ac18a53941660a7a3ba8686eb8bc"
+    "sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d"
   },
   "gcp.review.dataflow.selected_package_referenced_source_secret_indicators": {
     "path": "peaso/checks/gcp_dataflow_batch_source_runtime_admission_20261020.json",
@@ -776,11 +776,11 @@ OWNER_RUNTIME_RECEIPTS = json.loads(r'''
   },
   "gcp.review.workbench.auto_upgrade_schedule_declared": {
     "path": "peaso/checks/gcp_workbench_head3_admission_20261020.json",
-    "sha256": "2aa8483b6ba2583ab80a261c34e15cacdcf31e79e995210f180e4debd6a65179"
+    "sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
   },
   "gcp.review.workbench.file_download_disabled": {
     "path": "peaso/checks/gcp_workbench_head3_admission_20261020.json",
-    "sha256": "2aa8483b6ba2583ab80a261c34e15cacdcf31e79e995210f180e4debd6a65179"
+    "sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
   },
   "gcp.review.workbench.selected_referenced_source_secret_indicators_20261020": {
     "path": "peaso/checks/gcp_workbench_source_runtime_admission_20261020.json",
@@ -788,7 +788,7 @@ OWNER_RUNTIME_RECEIPTS = json.loads(r'''
   },
   "gcp.review.workbench.terminal_access_disabled": {
     "path": "peaso/checks/gcp_workbench_head3_admission_20261020.json",
-    "sha256": "2aa8483b6ba2583ab80a261c34e15cacdcf31e79e995210f180e4debd6a65179"
+    "sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
   }
 }
 ''')

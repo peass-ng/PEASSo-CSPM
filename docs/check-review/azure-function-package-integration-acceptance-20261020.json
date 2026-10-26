@@ -57,7 +57,7 @@
     "admission": "peaso.checks.gcp_function_secret_page_admission_20261020",
     "native_gcp_sha256": "d7f5916616c6ba871fd82164fb74f139132bfa9f8a14967e1c2360937e5dd161",
     "ownership": "GCP implementation and its exact scalar/source successors owned independently; only reviewed entrypoint wiring changed here",
-    "page_receipt_sha256": "a9cf3dd72f0745e2c61cb9ace44afdbaa9dc06ba0e02a7a3ffd4c253d2d95b23",
+    "page_receipt_sha256": "0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9",
     "post_dedup": "peaso.gcp_function_secret_page_persistence_20261020.retain_function_secret_pairs"
   },
   "date": "2026-10-20",

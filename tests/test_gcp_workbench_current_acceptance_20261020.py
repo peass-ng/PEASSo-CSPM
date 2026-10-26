@@ -36,7 +36,7 @@ AWS_COMMAND_ID = 'aws.review.workload.selected_command_literal_secret_indicators
 JOB_ID = 'gcp.review.cloudrun_job.declared_image_secret_indicators'
 THEMATIC_IDS = {AWS_COMMAND_ID, JOB_ID}
 THEMATIC_RECEIPT = Path('docs/check-review/commands-job-current-ledger-source-conservation-20261020.json')
-THEMATIC_RECEIPT_SHA256 = '47c78ae99de0c8b609b921fe5f23e5eb74b23c200f38f86558457e452e72dd72'
+THEMATIC_RECEIPT_SHA256 = '4cb0fcb32e316e310b8a3076d684444e03feea99c78ebef991c110785d85f1d9'
 THEMATIC_PREDECESSORS = Path('tests/fixtures/commands_job_current_acceptance_predecessors_20261020.json.gz')
 THEMATIC_PREDECESSORS_SHA256 = '0cb85c904f2ac18b7755bccc8bc5c7a2e6ba3971cfb89130d98d244fbdfd71af'
 

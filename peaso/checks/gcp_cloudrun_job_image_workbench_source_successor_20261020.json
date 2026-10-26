@@ -2,7 +2,7 @@
   "collector_delta": "peaso/checks/gcp_cloudrun_job_image_function_source_successor_20261020.json",
   "schema": "gcp-job-image-workbench-exact-source-successor-v1",
   "sources": {
-    "peaso/checks/gcp_cloudrun_job_image_function_source_successor_20261020.json": "29afd7c1684310e6398bc25e6ea17b865725bd3b3206eb71450baeb6b147ff5b",
+    "peaso/checks/gcp_cloudrun_job_image_function_source_successor_20261020.json": "f71fbc8297c9499e3f02fba9fd6bbee49a9b3cea1c6aadbbce04589da6741f93",
     "peaso/checks/gcp_cloudrun_job_image_workbench_source_successor_20261020.py": "35360fc606c2197956519535740294826c2276e395e598f2141b74a63ec09280"
   }
 }

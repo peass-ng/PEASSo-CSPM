@@ -858,77 +858,8 @@ def gcp_firewall_targets(item, index):
                 "target_instances_running": "unknown (target attribution unavailable)",
                 "target_instances_complete": False}
 
-    matched, unresolved = [], False
-    for instance in instances:
-        try:
-            nics = selected(instance, "networkInterfaces", list)
-        except Unavailable:
-            unresolved = True
-            continue
-        on_network, network_unknown = False, False
-        for nic in nics:
-            try:
-                if network(selected(nic, "network", str)) == wanted_network:
-                    on_network = True
-            except Unavailable:
-                network_unknown = True
-        if not on_network:
-            if network_unknown:
-                unresolved = True
-            continue
-        selectors = []
-        if tags:
-            try:
-                observed_tags = selected(instance, "tags", dict, {})
-                selectors.append(bool(tags & string_set(selected(observed_tags, "items", list, []))))
-            except Unavailable:
-                selectors.append(None)
-        if accounts:
-            try:
-                observed_accounts = selected(instance, "serviceAccounts", list, [])
-                account_match, account_unknown = False, False
-                for account in observed_accounts:
-                    try:
-                        email = selected(account, "email", str)
-                        if not email:
-                            raise Unavailable("service account identity unavailable")
-                        account_match = account_match or email in accounts
-                    except Unavailable:
-                        account_unknown = True
-                selectors.append(True if account_match else None if account_unknown else False)
-            except Unavailable:
-                selectors.append(None)
-        if False in selectors:
-            continue
-        if None in selectors:
-            unresolved = True
-            continue
-        try:
-            name = selected(instance, "name", str, None)
-        except Unavailable:
-            name = None
-        try:
-            status = selected(instance, "status", str)
-            if status not in ("PROVISIONING", "STAGING", "RUNNING", "STOPPING", "SUSPENDING", "SUSPENDED", "REPAIRING", "TERMINATED"):
-                raise Unavailable("unrecognized instance status")
-        except Unavailable:
-            status = None
-        external, external_unknown = False, False
-        for nic in nics:
-            for field in ("accessConfigs", "ipv6AccessConfigs"):
-                try:
-                    configs = selected(nic, field, list, [])
-                    for config in configs:
-                        try:
-                            selected(config, "collection_status", str, None)
-                            external = True
-                        except Unavailable:
-                            external_unknown = True
-                except Unavailable:
-                    external_unknown = True
-        matched.append({"name": name, "status": status,
-                        "external_ip": True if external else "unknown (external access configuration unavailable)" if external_unknown else False,
-                        "external_ip_semantics": "Configured external access, not observed address delivery or reachability."})
+    from .gcp_firewall_target_index import attributed
+    matched, unresolved = attributed(index, instances, wanted_network, tags, accounts, selected, network, string_set)
     running = sum(row["status"] == "RUNNING" for row in matched)
     running_unknown = unresolved or any(row["status"] is None for row in matched)
     evidence = {"target_instances": "unknown (target attribution incomplete)" if unresolved else len(matched),

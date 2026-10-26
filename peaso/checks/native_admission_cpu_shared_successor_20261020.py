@@ -37,7 +37,7 @@ _DATAFLOW_ADMISSION = importlib.import_module(__package__ + '.gcp_dataflow_batch
 _DATAFLOW_FUNCTIONS = dict(_DATAFLOW_ADMISSION._FUNCTIONS)
 _DATAFLOW_REVIEWED_INPUTS = _DATAFLOW_FUNCTIONS[_DATAFLOW_ADMISSION.__name__ + ':reviewed_inputs']
 RECEIPT = 'native_admission_cpu_shared_successor_20261020.json'
-RECEIPT_SHA256 = '82c57ad2963785be4ddc5cbb4f029afe19a416800ea5beed748693aa6324fcc8'
+RECEIPT_SHA256 = '93a723d84bf4a11cc69f22e0ae924c20c1f1da96c5f6f7f77f148f27b35a0374'
 
 
 def _self(raw):

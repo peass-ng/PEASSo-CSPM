@@ -23,14 +23,14 @@ from peaso import gcp_cloudrun_job_image_function_source_successor_20261020 as j
 
 _HISTORICAL_PAGE_REVIEWED_INPUTS = job_predecessor._HISTORICAL_PAGE_REVIEWED_INPUTS
 
-RECEIPT_SHA256 = '29afd7c1684310e6398bc25e6ea17b865725bd3b3206eb71450baeb6b147ff5b'
+RECEIPT_SHA256 = 'f71fbc8297c9499e3f02fba9fd6bbee49a9b3cea1c6aadbbce04589da6741f93'
 RECEIPT = 'peaso/checks/gcp_cloudrun_job_image_function_source_successor_20261020.json'
 PAGE_RECEIPT = 'peaso/checks/gcp_function_secret_page_admission_20261020.json'
-PAGE_RECEIPT_SHA256 = 'a9cf3dd72f0745e2c61cb9ace44afdbaa9dc06ba0e02a7a3ffd4c253d2d95b23'
+PAGE_RECEIPT_SHA256 = '0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9'
 SOURCE_DELTA = 'peaso/checks/gcp_positive_conservation_source_delta_20261020.json'
 SOURCE_DELTA_SHA256 = '6f803d15053fdccf982ab20883b76a72a821ef98f703192eba25c3a05695d6d6'
 BRIDGE_RECEIPT = 'peaso/checks/gcp_positive_conservation_source_bridge_20261020.json'
-BRIDGE_RECEIPT_SHA256 = '43996e67d3a3c8519c17480f3bacc211a24e0012187f1cf6c8672123bb5f5f99'
+BRIDGE_RECEIPT_SHA256 = '43847dfed6088003af66b008713495e49cbd08ad131e3e25c8566a6354a99afd'
 
 
 _MODULE_ARTIFACTS = ContextVar('gcp_positive_module_artifacts', default=None)

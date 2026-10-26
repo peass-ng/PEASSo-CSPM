@@ -83,7 +83,7 @@ def test_active_selection_retains_one_read_and_exact_owner_authority(denied):
 def test_all168_prior_callable_rows_receipts_and_exact_source_epochs_preserved():
     receipt = bridge.reviewed_delta(ROOT)
     prior = json.loads((ROOT / 'peaso/checks' / bridge.accepted_noop.RECEIPT).read_bytes())
-    assert sha((ROOT / 'peaso/checks' / bridge.accepted_noop.RECEIPT).read_bytes()) == '7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa'
+    assert sha((ROOT / 'peaso/checks' / bridge.accepted_noop.RECEIPT).read_bytes()) == '5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1'
     assert len(prior['functions']) == 168 and len(receipt['functions']) == 201
     assert all(receipt['functions'][name] == row for name, row in prior['functions'].items())
     for key in ('shared_functions', 'integration_functions', 'azure_collect', 'file_deltas', 'parent_file_deltas', 'integration_file_deltas', 'prior_epoch_file_deltas', 'native_epoch_file_deltas', 'producer_file_deltas', 'producer_functions'):

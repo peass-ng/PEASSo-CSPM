@@ -16,7 +16,7 @@ from . import azure_function_package_shared_successor_20261020 as predecessor
 original = predecessor.original
 PREDECESSOR_REVIEWED_INPUTS = predecessor.PREDECESSOR_REVIEWED_INPUTS
 RECEIPT = 'aws_workload_command_shared_successor_20261020.json'
-RECEIPT_SHA256 = '473a758de6617333ec9232a5f9b86585595f0e2d8842a14d05cb9547a390310e'
+RECEIPT_SHA256 = '204e853cea9dfddaf2fa23c44a441c028fafcc9a1f28d4718aef485f0c35dea1'
 
 
 def _self(raw):

@@ -6,7 +6,7 @@
     "peaso/engine.py": "031650060595e603467b560399226588523bb808c22ec10f3c61783e0d1b1524",
     "peaso/checks/__init__.py": "b9dea584eb17de810cde1fed5ec6146ce4ea8beb9b898c71e99f8de89ad03240",
     "peaso/collectors/gcp.py": "6ce909c690304de75114769bc6a78a723b075e4f3859abff3a95b6d40fa3f8bd",
-    "peaso/checks/gcp_function_secret_paired_admission_20261020.json": "eb01e33477b352960ce74d99c82a9344fcc5ff3bbef80f86d8c6199c25dbaf6e"
+    "peaso/checks/gcp_function_secret_paired_admission_20261020.json": "2db48941c86ab55512285eb22f591eb17bf50be7b1a1cf099d7bd134d9393622"
   },
   "records": [
     {
