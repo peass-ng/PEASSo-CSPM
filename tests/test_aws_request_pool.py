@@ -382,3 +382,63 @@ def test_object_acl_sample_reads_run_concurrently_and_keep_key_order(native):
     assert [obj["Key"] for obj in serial["objects"]] == ["k0", "k1", "k2", "k3", "k4", "k5"]
     assert serial["objects"][2]["error"]["code"] == "AccessDenied" and serial["collection_status"] == "partial"
     assert serial["errors"] == [{"operation": "ListObjectsV2", "status": "malformed", "code": "object_key_missing_or_duplicate"}]
+
+
+def _finding_history_responses(now):
+    from datetime import timedelta
+    account, product = "123456789012", f"arn:aws:securityhub:{REGION}::product/aws/securityhub"
+
+    def finding(index, label="HIGH", age_days=1, region=REGION):
+        created = (now - timedelta(days=age_days)).isoformat()
+        return {"SchemaVersion": "2018-10-08", "Id": f"f{index}", "ProductArn": product,
+                "GeneratorId": "fixture", "AwsAccountId": account, "Region": region,
+                "CreatedAt": created, "UpdatedAt": created, "Title": "t", "Description": "d",
+                "Resources": [], "RecordState": "ACTIVE", "Severity": {"Label": label},
+                "Workflow": {"Status": "NEW"}}
+
+    findings = [finding(0), finding(1, "LOW"), finding(2, age_days=120), finding(3), finding(4),
+                finding(5), finding(6, region="eu-west-1"), finding(7)]
+
+    def history(params):
+        fid = params["FindingIdentifier"]["Id"]
+        if fid == "f3":
+            raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "m"},
+                               "ResponseMetadata": {"HTTPStatusCode": 403}}, "GetFindingHistory")
+        created = now - timedelta(days=1)
+        records = [{"FindingIdentifier": params["FindingIdentifier"], "FindingCreated": True,
+                    "UpdateTime": created + timedelta(seconds=1),
+                    "UpdateSource": {"Type": "BATCH_IMPORT_FINDINGS", "Identity": product}, "Updates": []}]
+        if fid != "f4":
+            records.append({"FindingIdentifier": params["FindingIdentifier"], "FindingCreated": False,
+                            "UpdateTime": created + timedelta(hours=int(fid[1:]) + 1),
+                            "UpdateSource": {"Type": "BATCH_UPDATE_FINDINGS", "Identity": "arn:aws:iam::123456789012:role/r"},
+                            "Updates": [{"UpdatedField": "Workflow.Status", "OldValue": "NEW", "NewValue": "NOTIFIED"}]})
+        return {"Records": records}
+    return account, {"GetFindings": lambda params: {"Findings": findings}, "GetFindingHistory": history}
+
+
+def test_finding_histories_read_concurrently_match_serial_order_and_stop(native):
+    from datetime import datetime, timezone
+    from peaso.collectors import aws_wave_semantics_native as wave
+    calls, handlers = native
+    now = datetime.now(timezone.utc)
+
+    def run(options):
+        account, responses = _finding_history_responses(now)
+        state = _concurrent_handlers(handlers, responses)
+        requests = aws.Requests(options)
+        requests.observed_at = now
+        return wave.collect(requests, _session(), REGION, account), state
+    serial, _ = run({"service_concurrency": 1})
+    serial_calls = sorted(map(repr, calls))
+    calls.clear()
+    parallel, state = run({})
+    assert state["peak"] > 1
+    assert (parallel.items, parallel.status, parallel.error) == (serial.items, serial.status, serial.error)
+    assert sorted(map(repr, calls)) == serial_calls
+    # The out-of-scope finding stops the read where the serial loop returned.
+    assert serial.status == "partial" and serial.error == {"code": "securityhub_history_finding_scope_invalid"}
+    assert [row["id"] for row in serial.items] == ["f0", "f2", "f3", "f4", "f5"]
+    assert [row["complete"] for row in serial.items] == [True, False, False, True, True]
+    assert serial.items[2]["_coverage"]["history"]["reason"] == "history_read_incomplete"
+    assert all(call[2]["FindingIdentifier"]["Id"] != "f7" for call in calls if call[1] == "GetFindingHistory")

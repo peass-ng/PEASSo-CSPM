@@ -139804,7 +139804,7 @@
         "file": "peaso/collectors/aws_wave_semantics_native.py",
         "line": 196,
         "qualname": "collect",
-        "sha256": "b50eec1eb8325360d7b11cb3ed84623149c85c4eead8a6acb5040c60c95e171e"
+        "sha256": "f6f055f11de038cb6ff7bacdae371896522310f794af7748dc74f2d254aa387f"
       },
       "list_spec": [
         "securityhub",

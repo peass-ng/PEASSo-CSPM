@@ -62904,7 +62904,7 @@
     }
   ],
   "input_service_report": "/Users/carlospolop/git/Blue-CloudPEASS/docs/aws-review/services-closure-review.json",
-  "input_service_report_sha256": "7d8535ba8d37a42986a8700ad64e67fb4da65dd65cdf7a8f08e188b20a20f405",
+  "input_service_report_sha256": "580f8c67ba23cd976502b78a32aefe87810424a7283e8764250470f490496e2a",
   "limitations": [
     "Only passing tests whose source and pipeline hashes still match are accepted as current receipts.",
     "Exact positive, negative, unavailable and foreign branches are recorded per consumer; emission of a shared field does not execute every consumer of that field.",
@@ -89856,7 +89856,7 @@
     "peaso/collectors/aws_attached_tag_policy_native.py": "66f244b0da7fbb3343b9062f6103b22ade5f9b8ee2397c6df5a0ae2b0db7e794",
     "peaso/collectors/aws_b_services.py": "8d78a921cd7af6c50ceb198f608c7135a50e23bce290975f38bd0681fd98c1ba",
     "peaso/collectors/aws_beanstalk_runtime_metadata.py": "1a3f2a1405ac65d9aaf831704171485dd9f686aa6f1a1454a0b283adb798c7f3",
-    "peaso/collectors/aws_bedrock_reasoning_native.py": "971021c39efc3a96ce3071b0d879cf00b343e8b3ec83cb9b8a75f760db9e7b45",
+    "peaso/collectors/aws_bedrock_reasoning_native.py": "5afe41eaadacd6737c9fd60e30af7958c6e44f07786e20b1a5ad9bd07bd42c89",
     "peaso/collectors/aws_bedrock_security_metadata.py": "bd7fe474a7a34ff6ef55632a1339c49de3b445400e64e826c9323757bc1e0d30",
     "peaso/collectors/aws_budget_stop_native.py": "8001bc5895828ec8fc38baeda5a9e5f863866a3d32889e7b1804a06338dbba44",
     "peaso/collectors/aws_bulk_inventory.py": "39f311c350dcae48120c91c972f5dc569305e1262789d9e1e0fbd2f03e8cccc1",
@@ -89921,7 +89921,7 @@
     "peaso/collectors/aws_transport_native.py": "ab038928f14c3136df4c9425856e57b2b199afa24085d739b4f8526a225e53e6",
     "peaso/collectors/aws_user_data_secret_indicators.py": "077b5d258d6728c0b712935d34899c0feb27e3d11f758a81e793a6a240016205",
     "peaso/collectors/aws_waf_inventory_native.py": "10bcdf16a32dc1edd69ef751dd2a1427dbeb5a1c10cf91fd605b97c6dd2ada20",
-    "peaso/collectors/aws_wave_semantics_native.py": "4dd36385a9636f0fb19ecec5f6736583a5073006ea4efc45467e28cded4317fb"
+    "peaso/collectors/aws_wave_semantics_native.py": "10f62c608f3dbad73a6b393df69ea90d5e01d3ed2aeb5b2e81831a665e517b42"
   },
   "test_source_sha256": "2c50987983c8b5b89c37a92a6fb43aa767e71d6b4b4df23ea679f90667f2ef6f",
   "unexecuted_ids": [

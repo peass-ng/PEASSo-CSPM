@@ -1002,7 +1002,7 @@
     "peaso/collectors/aws_attached_tag_policy_native.py": "66f244b0da7fbb3343b9062f6103b22ade5f9b8ee2397c6df5a0ae2b0db7e794",
     "peaso/collectors/aws_b_services.py": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3",
     "peaso/collectors/aws_beanstalk_runtime_metadata.py": "1a3f2a1405ac65d9aaf831704171485dd9f686aa6f1a1454a0b283adb798c7f3",
-    "peaso/collectors/aws_bedrock_reasoning_native.py": "971021c39efc3a96ce3071b0d879cf00b343e8b3ec83cb9b8a75f760db9e7b45",
+    "peaso/collectors/aws_bedrock_reasoning_native.py": "5afe41eaadacd6737c9fd60e30af7958c6e44f07786e20b1a5ad9bd07bd42c89",
     "peaso/collectors/aws_bedrock_security_metadata.py": "bd7fe474a7a34ff6ef55632a1339c49de3b445400e64e826c9323757bc1e0d30",
     "peaso/collectors/aws_budget_stop_native.py": "8001bc5895828ec8fc38baeda5a9e5f863866a3d32889e7b1804a06338dbba44",
     "peaso/collectors/aws_build_deployment_referenced_source_indicators.py": "01fef4b047534454d8240eee23645ed531b16271952075afcfd5a0e6626a7c06",
@@ -1089,7 +1089,7 @@
     "peaso/collectors/aws_user_data_payload_20261021.py": "74654a2adf310f638f253d36b8e4609a6aba19d6e3c87e9c818535ff8cdebbb6",
     "peaso/collectors/aws_user_data_secret_indicators.py": "28eeada41f9d1b10d31ccd469e1eec85d38c53def87fd520b2556bd598ee5161",
     "peaso/collectors/aws_waf_inventory_native.py": "10bcdf16a32dc1edd69ef751dd2a1427dbeb5a1c10cf91fd605b97c6dd2ada20",
-    "peaso/collectors/aws_wave_semantics_native.py": "4dd36385a9636f0fb19ecec5f6736583a5073006ea4efc45467e28cded4317fb",
+    "peaso/collectors/aws_wave_semantics_native.py": "10f62c608f3dbad73a6b393df69ea90d5e01d3ed2aeb5b2e81831a665e517b42",
     "peaso/collectors/aws_workload_command_runtime_20261020.py": "de543276807257ff814980b78e523be21de02cecab7f9b31b2cb7dfb0940b09d",
     "peaso/collectors/aws_workload_command_source_20261020.py": "a5aa7cba18e0acc377a505abed400d82d835eb9bf7650460d0623fea0b1d6778",
     "peaso/collectors/aws_workload_detail_identity.py": "555dbc90c9d20a54b83fddd01037fff9f3ccaf92926f5f36234b70dab8873a2c",
@@ -1798,7 +1798,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1690,
-  "python_source_sha256": "37c7714602b76c7b8579fda72a81db637dc6585ba3fb0c788db85c8886cd5913",
+  "python_source_sha256": "c512e339ee183222c587f30448b5bea4eabd135ab0d477a9f5951610b994a77d",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
