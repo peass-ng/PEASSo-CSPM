@@ -29,7 +29,7 @@
     "peaso/ai/model_relay.py": "38b983c2a628e0b8d67aff0c58cdc3dabf5569262386c3124edfbd26b760cb6a",
     "peaso/ai/network.py": "f8da3a90c6fbc0e2c2bb8fa40f2007bf45abdfa149b37c92d8b7b693f5ebd6fd",
     "peaso/ai/output_validation.py": "bebdce6232ccc056823646411197a12741ff5462f48050c0c8a1b2dab241314f",
-    "peaso/ai/pipeline.py": "95f3194e61cf8b04842ca028160675930fbcfc27c4c9181d88672023caa51af6",
+    "peaso/ai/pipeline.py": "0d0d4ae831195f05e15428217eecd7aff2aead920db548e0d703e6673c33f335",
     "peaso/ai/prompting.py": "4e6c4f13dce2947dc23f037c5a95ebbf0d4efc6ba9a5ed97182a73ac3a2f2914",
     "peaso/ai/providers.py": "a33915979e16954365cd49a894dccba49a765ef1de060db5c15292a846e3f068",
     "peaso/ai/reconcile.py": "056c106512bdcc135b861be0f818af0e9161782c940cdc2aadf143cbe6fe548b",
@@ -1785,7 +1785,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1677,
-  "python_source_sha256": "b99115f4dc916fe58b1761c86f6ea071246c0170503b3141f9d98eb5f75c6187",
+  "python_source_sha256": "b227de7795ea652ef46e8fe58639cdc7a9879f0f62e59c777bc418f58ffd081c",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
