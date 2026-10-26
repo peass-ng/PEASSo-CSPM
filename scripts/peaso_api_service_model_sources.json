@@ -1073,7 +1073,7 @@
     "peaso/collectors/aws_public_ingress_native.py": "3dda8ed8ffdb9e3b650ffe50bc6da24d52f57e53c908357ef9bc4a2094309b7e",
     "peaso/collectors/aws_region_data_native.py": "e2440353ea5b31d50ce281e049dd4586e05710763c0b0b7ee8c737b79ae9f9e1",
     "peaso/collectors/aws_region_shield_native.py": "fb64d7f95397490c9043fde0e93c227286335a9a98746521e4f1f8bbffde1876",
-    "peaso/collectors/aws_request_pool.py": "a2ee7d3179dd552b7217b78a9b0f12673b884c2db949b692442dbc7a61f23647",
+    "peaso/collectors/aws_request_pool.py": "68d32ab92f5c022609b780808f4c48ab9aad474bd74e7adf1d329e37bf925c01",
     "peaso/collectors/aws_resolver_firewall_native.py": "ca0970fa271384e2167db3cb2ed855cceda0dd834348671654597ec3d8b19a52",
     "peaso/collectors/aws_resource_policy_families.py": "8385178d57b86f79e4f17accc1865c2145f2b86b7dfc5fabd501aef2852be322",
     "peaso/collectors/aws_resource_policy_native.py": "f6b42108736fde01c856defa11156820d85e617041c55ef6a1fe9900cf830a8e",
@@ -1086,6 +1086,7 @@
     "peaso/collectors/aws_securityhub_finding_metadata_native.py": "511f889ecafd805b946bce70c2d6ab2389a35b49909e974a58cfa6d77a49dc35",
     "peaso/collectors/aws_selected_configuration_secret_indicators.py": "ce20bc646db4d7bceb714594e9fc0772321b126f2fd1bd12a1de976c0fc10afb",
     "peaso/collectors/aws_ssm_inventory_events_native.py": "c495038efa6858ee77d75a1090fe357998076455da3c1c4bebc105fd9e00370a",
+    "peaso/collectors/aws_tls_context.py": "e2ed79a06130ce6a0b7329cd27c5fe84443a4c2f4236c8102c3b89f116f89491",
     "peaso/collectors/aws_transport_native.py": "35bf63bb1d2cc222574b4ef5985da2f0eb7ef03ca8d4203d234bf7b5b9e04bfc",
     "peaso/collectors/aws_user_data_payload_20261021.py": "74654a2adf310f638f253d36b8e4609a6aba19d6e3c87e9c818535ff8cdebbb6",
     "peaso/collectors/aws_user_data_secret_indicators.py": "28eeada41f9d1b10d31ccd469e1eec85d38c53def87fd520b2556bd598ee5161",
@@ -1806,8 +1807,8 @@
     "source_review": "Qualified factory/SW46/source-proof locality and network joins; current main offline event normalizers and historical ECS lineage; bounded S3 uploads retain tenant checks, encryption and manifest-last semantics. Added modules have no SDK calls. Exact API client closure unchanged.",
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
-  "python_source_count": 1699,
-  "python_source_sha256": "286456f53448afc89994a71c1ae46ff43ea038a4d35b69cd22586b6f4601e0a4",
+  "python_source_count": 1700,
+  "python_source_sha256": "d67afb981843e282e2239db7948d3c3564bbdabc04a25d61a1ad5da07962ce0c",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
