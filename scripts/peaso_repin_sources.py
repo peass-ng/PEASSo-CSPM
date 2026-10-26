@@ -63,6 +63,13 @@ def frozen_file(rel: str) -> bool:
 FROZEN_DIGESTS = frozenset((
     # peaso/collectors/k8s.py def _sanitize in the archived source epoch predecessor.
     '235505cc366adf66cb10ef7716d5b35ed5686ee27d42ae9b4f8bfb559955ced8',
+    # scripts/peaso_deploy.py SOURCE_ATTESTATION_SUCCESSOR predecessors (and the
+    # CURRENT_INDEXED_WORKFLOW/CURRENT_AI_RUNTIME/API_DELIVERY pins they equal):
+    # infra/aws api.tf, workflow.tf and ai_runtime.tf before the trusted-attestation
+    # lines; the deploy contract checks them against the bytes with those lines removed.
+    'ab8336af2ce98102c92abe6dfb6df9f4346cc8cee404e469c180c2aa4eb02787',
+    '361fef2318aef55d01ba351501cc79a4fa06884d368d380b714f2f42814e57ad',
+    '0948bda88c41ea79fd25dc9c2faa656b7d71c9d29012024156017921122834a6',
 ))
 
 
