@@ -83,7 +83,7 @@ RELEASE_SOURCE_SHA256 = {
     'peaso/checks/azure_flex_deployment_archives_review_20261021.py': '04654eb038e8198385714093e6111a5692b5d8f2f9fc8983b75572b66b79f04b',
     'peaso/checks/azure_selected_aks_image_review_20261021.py': 'fe55e2cde5ba2a542a2fb8aca460aa9a65f5d5592c2d1aa79b1aede0f6c1ecd5',
     'peaso/checks/azure_synapse_selected_notebook_secret_review_20261021.py': '65bc8db47e617f13d22de4548e8eb4dffc447e10fbd70b1232a0c6799f322f77',
-    'peaso/checks/provider_group_install_20261021.py': 'b9fa3f713344fae713843dce14646894cb4bc30e1fc1ec0ca39f74697284d9a5',
+    'peaso/checks/provider_group_install_20261021.py': '50fb8eeacf4facdc950ffe251b341c5c0b691f566dcf863ef713998bf403c907',
     'peaso/unused_iam_azure.py': '23a89805c07a6ef8bc28f5b60f95b1f71779304599e183526b885c5213683be6',
     'peaso/unused_iam_azure_arm_roles.py': '3a67ae42f5b29a12ea65350e477e2b04597625361f87db643948f1fd4c5d2674',
     'peaso/unused_iam_azure_roles.py': '282d9d380c5cd7c9b20cd964351ef65a57a202ec0e24b802548e74bbf3bfffd8',

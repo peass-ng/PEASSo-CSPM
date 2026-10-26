@@ -4,10 +4,15 @@ Entries are written only after a full local proof succeeded. Keys are built from
 sha256 content digests, so an entry can be reused only after the caller has
 re-verified that its current bytes hash to those same digests. Nothing here is
 persisted, shared across processes or derived from connector options.
+Staged scratch holds already-verified private files for one later consumer,
+which re-verifies them against the same digests before any use.
 """
+import atexit
 from collections import OrderedDict
 from contextlib import contextmanager
+import shutil
 import threading
+import time
 
 
 class BoundedMemo:
@@ -67,3 +72,58 @@ class BoundedMemo:
                 entry[1] -= 1
                 if not entry[1]:
                     self._inflight.pop(key, None)
+
+
+class StagedScratch:
+    """Bounded hand-off of private scratch directories between two local steps.
+
+    A producer parks a directory under a content key; at most one consumer
+    takes it, and the consumer owns its removal. Entries past the byte cap or
+    age limit are removed eagerly, and anything left is removed at exit.
+    """
+
+    def __init__(self, max_bytes, max_seconds):
+        self._max_bytes, self._max_seconds = max_bytes, max_seconds
+        self._items = OrderedDict()
+        self._lock = threading.Lock()
+        atexit.register(self.clear)
+
+    def _expire(self, now):
+        doomed = []
+        while self._items:
+            key, (born, scratch, value, size) = next(iter(self._items.items()))
+            if now - born <= self._max_seconds and sum(i[3] for i in self._items.values()) <= self._max_bytes:
+                break
+            self._items.popitem(last=False)
+            doomed.append(scratch)
+        return doomed
+
+    def park(self, key, scratch, value, size):
+        doomed = []
+        with self._lock:
+            old = self._items.pop(key, None)
+            if old is not None:
+                doomed.append(old[1])
+            if size > self._max_bytes:
+                doomed.append(scratch)
+            else:
+                self._items[key] = (time.monotonic(), scratch, value, size)
+                doomed += self._expire(time.monotonic())
+        for path in doomed:
+            shutil.rmtree(path, ignore_errors=True)
+
+    def take(self, key):
+        """Return (scratch, value) now owned by the caller, or None."""
+        with self._lock:
+            doomed = self._expire(time.monotonic())
+            item = self._items.pop(key, None)
+        for path in doomed:
+            shutil.rmtree(path, ignore_errors=True)
+        return None if item is None else (item[1], item[2])
+
+    def clear(self):
+        with self._lock:
+            doomed = [item[1] for item in self._items.values()]
+            self._items.clear()
+        for path in doomed:
+            shutil.rmtree(path, ignore_errors=True)

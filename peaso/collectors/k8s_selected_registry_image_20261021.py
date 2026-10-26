@@ -572,7 +572,8 @@ def inspect(target, pod_get, *, allowed_hosts=(), credentials=None, registry_fac
                               'location_kind': 'configuration'})
                     try:
                         archive.visit_files(image_identity, manifest, config, layers,
-                                            lambda *_: None, reader.check, partial_callback=visit)
+                                            lambda *_: None, reader.check, partial_callback=visit,
+                                            stage=trivy_enabled)
                     except Exception as exc:
                         if isinstance(exc, TimeoutError) or getattr(exc, 'code', None) in (
                                 'collection_cancelled', 'intentional_scan_deadline', 'deadline_exceeded') or (
@@ -582,7 +583,7 @@ def inspect(target, pod_get, *, allowed_hosts=(), credentials=None, registry_fac
                         raise
                     flush()
                 else:
-                    archive.validate(image_identity, manifest, config, layers, reader.check)
+                    archive.validate(image_identity, manifest, config, layers, reader.check, stage=trivy_enabled)
                 if trivy_enabled:
                     if trivy_runner is None:
                         from peaso import trivy_container_runner_20261020 as trivy

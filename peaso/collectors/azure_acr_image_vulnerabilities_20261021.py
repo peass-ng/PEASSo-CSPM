@@ -161,7 +161,7 @@ def _scan_index(reader, token, parent_raw, marker, target, scope, *, db_cache,
                 reader.check();path=root/('layer-'+str(number)+'.blob')
                 reader.blob('blobs',desc['digest'],archive.MAX_LAYER,token,desc['size'],destination=path)
                 paths.append(path)
-            archive.validate(image,manifest,raw,paths,reader.check)
+            archive.validate(image,manifest,raw,paths,reader.check,stage=True)
             fingerprints=tuple(_file_hash(path,desc,reader.check) for path,desc in zip(paths,layers))
             def verify():
                 fresh=reader.authenticate()
@@ -261,7 +261,7 @@ def _scan_target(outer, transport, receipts, scope, target, state, *, db_cache,
             path=root/('layer-'+str(number)+'.blob')
             reader.blob('blobs',desc['digest'],archive.MAX_LAYER,token,desc['size'],destination=path)
             paths.append(path)
-        archive.validate(image,manifest,config,paths,reader.check)
+        archive.validate(image,manifest,config,paths,reader.check,stage=True)
         fingerprints=tuple(_file_hash(path,desc,reader.check) for path,desc in zip(paths,layers))
         def verify():
             # Every call obtains a fresh native ARM registry identity and an exact

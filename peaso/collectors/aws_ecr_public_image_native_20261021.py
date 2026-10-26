@@ -234,9 +234,9 @@ def inspect(target, native, *, registry_factory=None, scanner=None, cancel=lambd
                                 secret_gaps.add('binary_file_uninspected')
                                 return
                             overlap=(overlap+chunk)[-OVERLAP:]
-                    archive.visit_files(image,manifest,config,layers,lambda *_:None,check,partial_callback=visit)
+                    archive.visit_files(image,manifest,config,layers,lambda *_:None,check,partial_callback=visit,stage=trivy_enabled)
                 else:
-                    archive.validate(image,manifest,config,layers,check)
+                    archive.validate(image,manifest,config,layers,check,stage=trivy_enabled)
                 if trivy_enabled:
                     if trivy_runner is None:
                         from peaso import trivy_container_runner_20261020 as trivy

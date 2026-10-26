@@ -4,6 +4,7 @@ No paths, image tags, Docker daemon, registry clients or credentials are inputs.
 The collector must independently reconstruct the exact identity at the runner's
 native-verifier seam; this module verifies every content descriptor locally.
 """
+import contextlib
 import hashlib
 import io
 import os
@@ -18,7 +19,7 @@ import shutil
 import tarfile
 import zlib
 
-from peaso.image_content_memo_20261026 import BoundedMemo
+from peaso.image_content_memo_20261026 import BoundedMemo, StagedScratch
 
 MAX_MANIFEST = 256 * 1024
 MAX_CONFIG = 1024 * 1024
@@ -385,6 +386,29 @@ def _graph(image_identity, manifest_raw, config_raw, layers):
 # chain and config size (the only inputs the layer walk depends on). A hit is
 # admitted only after the current compressed bytes re-hash to that chain.
 _PROVEN = BoundedMemo(1024)
+# Expanded layer files of the latest full validation, handed to the next
+# archive build of the same chain instead of decompressing every layer again.
+# They are re-hashed against their diff_ids while copied into the archive.
+_STAGED = StagedScratch(1024 * 1024 * 1024, 300)
+
+
+def _park(config_raw, descs, diffs, scratch, expanded, budget, stage):
+    if not stage:
+        shutil.rmtree(scratch, ignore_errors=True)
+        return
+    _STAGED.park(_chain(config_raw, descs, diffs), scratch, tuple(expanded),
+                 budget[0] - len(config_raw))
+
+
+def release_staged(image_identity, manifest_raw, config_raw, layers):
+    """Remove expanded layers a caller staged for this image and did not archive."""
+    try:
+        _, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
+    except ValueError:
+        return
+    staged = _STAGED.take(_chain(config_raw, descs, diffs))
+    if staged is not None:
+        shutil.rmtree(staged[0], ignore_errors=True)
 
 
 def _chain(config_raw, descs, diffs):
@@ -428,6 +452,13 @@ class _Expanded:
 
     def stream(self):
         return _ExpandingReader(self, _source(self.raw, self.desc['size']))
+
+
+class _StagedLayer:
+    """An expanded layer file left by a full validation of the same chain."""
+
+    def __init__(self, path, diff, size):
+        self.path, self.diff, self.size = path, diff, size
 
 
 class _ExpandingReader:
@@ -513,16 +544,25 @@ def _validate(image_identity, manifest_raw, config_raw, layers, root, check, par
     return manifest, expanded, budget, nodes
 
 
-def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: None):
-    """Validate a content graph; expanded layers live only in private scratch."""
+def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: None, *, stage=False):
+    """Validate a content graph; expanded layers live only in private scratch.
+
+    With `stage=True` (the caller archives this image next), the expanded layers
+    stay in that scratch for one write_archive, which re-hashes them.
+    """
     manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
     known = _proven(config_raw, descs, diffs, layers, check)
     if known is not None:
         return manifest, [], (len(config_raw) + sum(known[0]), known[1])
-    with tempfile.TemporaryDirectory(prefix='peaso-image-validate-') as scratch:
-        manifest, _, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
-                                        Path(scratch), check)
-        return manifest, [], budget
+    scratch = Path(tempfile.mkdtemp(prefix='peaso-image-validate-'))
+    try:
+        manifest, expanded, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
+                                               scratch, check)
+    except BaseException:
+        shutil.rmtree(scratch, ignore_errors=True)
+        raise
+    _park(config_raw, descs, diffs, scratch, expanded, budget, stage)
+    return manifest, [], budget
 
 
 class _BoundedReader:
@@ -546,13 +586,15 @@ def _visit_node(name, node, callback, check):
 
 
 def visit_files(image_identity, manifest_raw, config_raw, layers, callback,
-                check=lambda: None, *, partial_callback=None):
+                check=lambda: None, *, partial_callback=None, stage=False):
     """Visit final regular files after all layers validate; optionally report each verified layer."""
     require(callable(callback) and (partial_callback is None or callable(partial_callback)),
             'file_callback_required')
-    with tempfile.TemporaryDirectory(prefix='peaso-image-visit-') as scratch:
-        _, _, budget, nodes = _validate(image_identity, manifest_raw, config_raw, layers,
-                                        Path(scratch), check, partial_callback)
+    manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
+    scratch = Path(tempfile.mkdtemp(prefix='peaso-image-visit-'))
+    try:
+        _, expanded, budget, nodes = _validate(image_identity, manifest_raw, config_raw, layers,
+                                               scratch, check, partial_callback)
         visited = 0
         for name, node in sorted(nodes.items()):
             check()
@@ -560,9 +602,13 @@ def visit_files(image_identity, manifest_raw, config_raw, layers, callback,
                 continue
             _visit_node(name, node, callback, check)
             visited += 1
-        return {'expanded_bytes': budget[0], 'members': budget[1], 'visited_files': visited,
-                'links_seen': sum(node[0] in ('symlink', 'hardlink') for node in nodes.values()),
-                'links_skipped': sum(node[0] == 'symlink' for node in nodes.values())}
+    except BaseException:
+        shutil.rmtree(scratch, ignore_errors=True)
+        raise
+    _park(config_raw, descs, diffs, scratch, expanded, budget, stage)
+    return {'expanded_bytes': budget[0], 'members': budget[1], 'visited_files': visited,
+            'links_seen': sum(node[0] in ('symlink', 'hardlink') for node in nodes.values()),
+            'links_skipped': sum(node[0] == 'symlink' for node in nodes.values())}
 
 
 class _CheckedReader:
@@ -584,12 +630,22 @@ def write_archive(path, image_identity, manifest_raw, config_raw, layers, *, arc
     require(archive_format in ('oci', 'docker'), 'explicit_archive_format_required')
     require(isinstance(path, Path) and path.is_absolute(), 'private_archive_path_required')
     try:
-        with tempfile.TemporaryDirectory(prefix='peaso-image-layers-', dir=path.parent) as scratch:
+        with tempfile.TemporaryDirectory(prefix='peaso-image-layers-', dir=path.parent) as scratch, \
+                contextlib.ExitStack() as stack:
             manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
             known = _proven(config_raw, descs, diffs, layers, check)
+            staged = None if known is None else _STAGED.take(_chain(config_raw, descs, diffs))
+            if staged is not None:
+                stack.callback(shutil.rmtree, staged[0], True)
             if known is None:
                 manifest, expanded, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
                                                        Path(scratch), check)
+            elif staged is not None and len(staged[1]) == len(diffs):
+                # The caller's validation of these same bytes left the expanded
+                # layers in private scratch; copy them, re-hashed per diff_id.
+                budget = len(config_raw) + sum(known[0]), known[1]
+                expanded = [_StagedLayer(path, diff, size)
+                            for path, diff, size in zip(staged[1], diffs, known[0])]
             else:
                 # Already-proven bytes: decompress each layer directly into its
                 # archive member instead of staging a second expanded copy.
@@ -608,6 +664,9 @@ def write_archive(path, image_identity, manifest_raw, config_raw, layers, *, arc
                 with tarfile.open(fileobj=output, mode='w', format=tarfile.USTAR_FORMAT) as tar:
                     def add(name, value, expected_digest=None):
                         nonlocal total
+                        if type(value) is _StagedLayer:
+                            require(value.path.lstat().st_size == value.size, 'layer_changed_during_archive')
+                            return add(name, value.path, value.diff)
                         check()
                         size = (len(value) if type(value) is bytes else value.size
                                 if type(value) is _Expanded else value.stat().st_size)

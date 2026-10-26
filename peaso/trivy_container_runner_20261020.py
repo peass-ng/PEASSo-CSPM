@@ -367,6 +367,7 @@ def scan_image(image_identity, manifest, config, layers, *, native_verifier=None
         result.update(status='UNKNOWN', complete=False, scan_complete=False, coverage_status='UNKNOWN',
             reason=str(exc) if type(exc) is ValueError and str(exc) in allowed else 'input_or_scan_unavailable')
     finally:
+        archive.release_staged(image_identity, manifest, config, layers)
         if scratch is not None:
             try:
                 scratch.cleanup()

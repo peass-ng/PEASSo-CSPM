@@ -250,7 +250,7 @@ def _read_index(reference, scope, before, captured, *, runner, db_cache, cli, ti
                                 'child_read_sequence_changed')
                 archive.require(all(sha256(captured._blobs[key], captured.check).hexdigest() == key[1][7:]
                                     for key in keys), 'child_retained_bytes_changed')
-                archive.validate(identity, child_raw, config, payloads, captured.check)
+                archive.validate(identity, child_raw, config, payloads, captured.check, stage=True)
                 return identity
             verify_child()
             outcome = runner(identity, child['raw'], config, payloads,
@@ -322,7 +322,7 @@ def scan_captured(reference, scope, before, after, captured, metadata_reader, *,
     archive.require(len(set(ids)) == len(ids) and not set(ids) & seen, 'duplicate_native_receipts')
     identity = archive.identity({'provider': 'gcp', 'scope': scope,
         'immutable_reference': reference, 'manifest_digest': digest, 'config_digest': config_desc['digest']})
-    archive.validate(identity, manifest, config, payloads, captured.check)
+    archive.validate(identity, manifest, config, payloads, captured.check, stage=True)
     image_ledger = {r.get('id'): r for r in captured.transport.evidence}
     image_records = {rid:deepcopy(image_ledger[rid]) for rid in ids}
     archive.require(all(r.get('scope') == scope and r.get('http_status') == 200

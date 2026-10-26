@@ -58,10 +58,10 @@ def build(tmp_path, *, salt=b''):
 
 @pytest.fixture(autouse=True)
 def fresh_memos():
-    for memo in (archive._PROVEN, runner._SCANS):
+    for memo in (archive._PROVEN, runner._SCANS, archive._STAGED):
         memo.clear()
     yield
-    for memo in (archive._PROVEN, runner._SCANS):
+    for memo in (archive._PROVEN, runner._SCANS, archive._STAGED):
         memo.clear()
 
 
@@ -322,3 +322,91 @@ def test_selected_oci_collectors_request_docker_archives():
                  'azure_acr_image_vulnerabilities_20261021.py'):
         source = (root / name).read_text()
         assert "archive_format='oci'" not in source and "else 'docker'" not in source, name
+
+
+def staged_dirs():
+    return [item[1] for item in archive._STAGED._items.values()]
+
+
+@pytest.mark.parametrize('archive_format', ['docker', 'oci'])
+def test_validation_hands_expanded_layers_to_archive_once(tmp_path, archive_format, monkeypatch):
+    identity, manifest, config, layers = build(tmp_path)
+    cold = tmp_path / 'cold.tar'
+    archive.write_archive(cold, identity, manifest, config, layers, archive_format=archive_format)
+    archive._PROVEN.clear()
+    archive.validate(identity, manifest, config, layers, stage=True)
+    (scratch,) = staged_dirs()
+    assert scratch.is_dir()
+    monkeypatch.setattr(archive, '_ExpandingReader', lambda *a: pytest.fail('decompressed again'))
+    warm = tmp_path / 'warm.tar'
+    archive.write_archive(warm, identity, manifest, config, layers, archive_format=archive_format)
+    assert cold.read_bytes() == warm.read_bytes()
+    assert not scratch.exists() and staged_dirs() == []
+
+
+def test_visit_files_hands_expanded_layers_to_archive(tmp_path, monkeypatch):
+    identity, manifest, config, layers = build(tmp_path)
+    seen = []
+    archive.visit_files(identity, manifest, config, layers, lambda name, *rest: seen.append(name),
+                        stage=True)
+    assert seen and len(staged_dirs()) == 1
+    monkeypatch.setattr(archive, '_ExpandingReader', lambda *a: pytest.fail('decompressed again'))
+    archive.write_archive(tmp_path / 'image.tar', identity, manifest, config, layers, archive_format='docker')
+    assert staged_dirs() == []
+
+
+def test_tampered_staged_layer_is_refused_and_removed(tmp_path):
+    identity, manifest, config, layers = build(tmp_path)
+    archive.validate(identity, manifest, config, layers, stage=True)
+    (scratch,) = staged_dirs()
+    victim = sorted(scratch.iterdir())[1]
+    raw = bytearray(victim.read_bytes()); raw[1000] ^= 1
+    victim.write_bytes(bytes(raw))
+    out = tmp_path / 'image.tar'
+    with pytest.raises(ValueError, match='layer_changed_during_archive'):
+        archive.write_archive(out, identity, manifest, config, layers, archive_format='docker')
+    assert not out.exists() and not scratch.exists()
+
+
+def test_failed_validation_and_oversized_stage_leave_no_scratch(tmp_path, monkeypatch):
+    identity, manifest, config, layers = build(tmp_path)
+    monkeypatch.setattr(archive._STAGED, '_max_bytes', 10)
+    archive.validate(identity, manifest, config, layers, stage=True)
+    assert staged_dirs() == []
+    raw = bytearray(layers[1].read_bytes()); raw[5] ^= 1
+    layers[1].write_bytes(bytes(raw))
+    archive._PROVEN.clear()
+    made = []
+    original = archive.tempfile.mkdtemp
+    monkeypatch.setattr(archive.tempfile, 'mkdtemp', lambda **kw: made.append(original(**kw)) or made[-1])
+    with pytest.raises(ValueError):
+        archive.validate(identity, manifest, config, layers, stage=True)
+    assert made and not Path(made[0]).exists()
+
+
+def test_staged_scratch_expires_and_single_consumer(tmp_path):
+    from peaso.image_content_memo_20261026 import StagedScratch
+    stage = StagedScratch(100, 0.05)
+    first, second = tmp_path / 'a', tmp_path / 'b'
+    first.mkdir(); second.mkdir()
+    stage.park('a', first, 'value', 10)
+    assert stage.take('a') == (first, 'value') and stage.take('a') is None
+    stage.park('b', second, 'value', 10)
+    time.sleep(0.1)
+    assert stage.take('b') is None and not second.exists()
+
+
+def test_unstaged_validation_and_released_stage_leave_no_scratch(tmp_path, monkeypatch):
+    identity, manifest, config, layers = build(tmp_path)
+    made = []
+    original = archive.tempfile.mkdtemp
+    monkeypatch.setattr(archive.tempfile, 'mkdtemp', lambda **kw: made.append(original(**kw)) or made[-1])
+    archive.validate(identity, manifest, config, layers)
+    archive._PROVEN.clear()
+    archive.visit_files(identity, manifest, config, layers, lambda *a: None)
+    assert len(made) == 2 and staged_dirs() == [] and not any(Path(d).exists() for d in made)
+    archive._PROVEN.clear()
+    archive.validate(identity, manifest, config, layers, stage=True)
+    assert len(staged_dirs()) == 1
+    archive.release_staged(identity, manifest, config, layers)
+    assert staged_dirs() == [] and not Path(made[-1]).exists()
