@@ -48,6 +48,23 @@ def _links(endpoint, workspace):
     return output
 
 
+def _merge(parts):
+    """One collection per subscription scope, even with several workspaces."""
+    if len(parts) == 1:
+        return parts[0]
+    first = parts[0]
+    items = [item for part in parts for item in part["items"]]
+    failed = [part for part in parts if part["status"] not in ("collected", "empty")]
+    if not failed:
+        status = "collected" if items else "empty"
+        return {"type": first["type"], "scope": first["scope"], "service": first["service"], "status": status, "items": items}
+    merged = {"type": first["type"], "scope": first["scope"], "service": first["service"],
+              "status": "partial" if items else failed[0]["status"], "items": items}
+    error = next((part["error"] for part in failed if "error" in part), None)
+    if error is not None:
+        merged["error"] = error
+    return merged
+
 def required_types(wanted):
     return {"synapse_workspace"} if KIND in wanted else set()
 
@@ -55,12 +72,17 @@ def required_types(wanted):
 def collect_synapse_sql_private_endpoints(reader, request, collections, wanted):
     if KIND not in wanted:
         return
+    emitted = {}
+
+    def emit(record):
+        emitted.setdefault(record["scope"], []).append(record)
+
     for collection in list(collections):
         if collection["type"] != "synapse_workspace":
             continue
         scope = collection["scope"]
         if not collection["items"]:
-            reader.collections.append({"type": KIND, "scope": scope, "service": "Microsoft.Synapse",
+            emit({"type": KIND, "scope": scope, "service": "Microsoft.Synapse",
                                        "status": collection["status"], "items": []})
         for item in collection["items"]:
             rid = item.get("id")
@@ -69,7 +91,7 @@ def collect_synapse_sql_private_endpoints(reader, request, collections, wanted):
                     str(item.get("type", "")).casefold() != "microsoft.synapse/workspaces"):
                 for field in ("privateEndpointConnections", "resolvedPrivateEndpoints"):
                     item.setdefault("_coverage", {})[field] = {"status": "not_collected", "error": {"code": "native_parent_identity_unresolved"}}
-                reader.collections.append({"type": KIND, "scope": scope, "service": "Microsoft.Synapse",
+                emit({"type": KIND, "scope": scope, "service": "Microsoft.Synapse",
                                            "status": "not_collected", "items": [], "error": {"code": "native_parent_identity_unresolved"}})
                 continue
 
@@ -128,10 +150,12 @@ def collect_synapse_sql_private_endpoints(reader, request, collections, wanted):
             resolved = reader._read(("synapse_resolved_private_endpoints", scope, "Microsoft.Network", resolve))
             coverage["resolvedPrivateEndpoints"] = {key: resolved[key] for key in ("status", "error") if key in resolved}
             item["resolvedPrivateEndpoints"] = resolved["items"]
-            reader.collections.append({"type": KIND, "scope": scope, "service": "Microsoft.Synapse",
+            emit({"type": KIND, "scope": scope, "service": "Microsoft.Synapse",
                                        "status": "collected" if resolved["status"] in ("collected", "empty") else resolved["status"], "items": [{"id": rid, "parent_id": rid,
                                            "private_endpoint_connection_ids": [row["id"] for row in read["items"]],
                                            "resolved_private_endpoint_ids": [row["id"] for row in resolved["items"]],
                                            "_provenance": {"source_operation": "PrivateEndpointConnections_List+PrivateEndpoints_Get",
                                                            "read_only": True, "scope": scope}}] if resolved["status"] in ("collected", "empty") else [],
                                        **({"error": resolved["error"]} if "error" in resolved else {})})
+    for parts in emitted.values():
+        reader.collections.append(_merge(parts))

@@ -23432,9 +23432,9 @@
   "safety": "Four directed cases exercise the real official KubernetesApi/APIClient plus restricted pool with fake HTTPResponse transport; TLS verified config, exact GET host/path and close/cleanup remain active. All native tests hard-block sockets/DNS and credential acquisition and assert no attempted IO; Azure and Kubernetes fake transports assert finite exact method/host/path/API routes. No cluster credentials fetch, exec, dispatch, grants, writes, key content or log payload reads. Tokens and workload literals excluded from snapshot/capture/error output.",
   "schema_version": 1,
   "source_after": {
-    "docs/check-review/azure-automation-aci-metadata-review-20261020.json": "8b66f9f24bc235b0efea6283e97a753a46fe181cb31b8cdb3b8cedb8c9d6653e",
+    "docs/check-review/azure-automation-aci-metadata-review-20261020.json": "1e1e9142d4aee640e22aea7ac864f3a97688e3582e3cc697fedc1b2dff648797",
     "docs/check-review/azure-network-platform-1-native-review-20261020.json": "180978131673c21c27318228638c82c825f56fd55650b7bfdfb821158302d86d",
-    "docs/check-review/azure-remaining-services-1-native-review-20261020.json": "cae9905a728c8814069849b55a8c03fb8a6fb204d4f21ffaf1dd875f543112e0",
+    "docs/check-review/azure-remaining-services-1-native-review-20261020.json": "dff91e10c0708926586c31a766b9e4adce0f682cc84609aff3d055d6e00ae85e",
     "peaso/checks/azure_aks_legacy_projection_review_20261020.py": "d2aac095ecf0da4019853fb86c4be7129e5f2f75578c1484414bb8b17cfac633",
     "peaso/checks/azure_hsm_audit_destination_review_20261020.py": "bd46c2f53e4e7def85f390662c20bc1599d7dd9c5a0fcfcbecd5fdac5e064ca2",
     "peaso/checks/azure_hsm_audit_review_20261020.py": "b86d0b08d1a6b2ac30478393940cf5fd93427ecc0a4ff50377d005117f01c034",
@@ -23446,9 +23446,9 @@
     "tests/test_azure_aks_legacy_projection_review_20261020.py": "c354a3296450af95aa488fbd2b3ad54522f429adea46d7c70278034278758f23"
   },
   "source_before": {
-    "docs/check-review/azure-automation-aci-metadata-review-20261020.json": "8b66f9f24bc235b0efea6283e97a753a46fe181cb31b8cdb3b8cedb8c9d6653e",
+    "docs/check-review/azure-automation-aci-metadata-review-20261020.json": "1e1e9142d4aee640e22aea7ac864f3a97688e3582e3cc697fedc1b2dff648797",
     "docs/check-review/azure-network-platform-1-native-review-20261020.json": "180978131673c21c27318228638c82c825f56fd55650b7bfdfb821158302d86d",
-    "docs/check-review/azure-remaining-services-1-native-review-20261020.json": "cae9905a728c8814069849b55a8c03fb8a6fb204d4f21ffaf1dd875f543112e0",
+    "docs/check-review/azure-remaining-services-1-native-review-20261020.json": "dff91e10c0708926586c31a766b9e4adce0f682cc84609aff3d055d6e00ae85e",
     "peaso/checks/azure_hsm_audit_review_20261020.py": "b86d0b08d1a6b2ac30478393940cf5fd93427ecc0a4ff50377d005117f01c034",
     "peaso/checks/compliance_new_sw30.py": "107b0cc5d8efa0a1232f63506f469af409e1db3a567d36cbfd53e55d39376dd1",
     "peaso/collectors/azure.py": "4713a09b41191c2f04ea5f76af2212558ec49c15b8f6e25c495d06d82a88d174",
@@ -23925,8 +23925,8 @@
   },
   "unchanged_signed_artifacts": {
     "docs/check-review/azure-automation-aci-metadata-review-20261020.json": {
-      "after": "8b66f9f24bc235b0efea6283e97a753a46fe181cb31b8cdb3b8cedb8c9d6653e",
-      "before": "8b66f9f24bc235b0efea6283e97a753a46fe181cb31b8cdb3b8cedb8c9d6653e",
+      "after": "1e1e9142d4aee640e22aea7ac864f3a97688e3582e3cc697fedc1b2dff648797",
+      "before": "1e1e9142d4aee640e22aea7ac864f3a97688e3582e3cc697fedc1b2dff648797",
       "unchanged": true
     },
     "docs/check-review/azure-network-platform-1-native-review-20261020.json": {
@@ -23935,8 +23935,8 @@
       "unchanged": true
     },
     "docs/check-review/azure-remaining-services-1-native-review-20261020.json": {
-      "after": "cae9905a728c8814069849b55a8c03fb8a6fb204d4f21ffaf1dd875f543112e0",
-      "before": "cae9905a728c8814069849b55a8c03fb8a6fb204d4f21ffaf1dd875f543112e0",
+      "after": "dff91e10c0708926586c31a766b9e4adce0f682cc84609aff3d055d6e00ae85e",
+      "before": "dff91e10c0708926586c31a766b9e4adce0f682cc84609aff3d055d6e00ae85e",
       "unchanged": true
     },
     "peaso/checks/azure_hsm_audit_review_20261020.py": {

@@ -1816,7 +1816,7 @@ PINNED_SUCCESSOR_INPUTS = json.loads(r'''
   "docs/check-review/azure-identity-native-review-20261020.json": "912f4e70c3cf8df5159fc61c885ba68a7d76c2febc004774b2b5aad90f5893ac",
   "docs/check-review/azure-k8s-current-predicate-bindings-20261020.json": "23ab6679ae1f7a4a35a86da7477c7427126bc668b3067ddc678d442d58bb8799",
   "docs/check-review/azure-master-predicate-attestation-errata-20261020.json": "1de6ceb284293f23a530e382bb08a46d08a667290a5cc84f7ef9cfcb0cfe8fcb",
-  "docs/check-review/azure-network-audit-admission-20261020.json": "62d6943b509cd5bee15de3383541f58a9120c049146f6bbffb237a279fa5478f",
+  "docs/check-review/azure-network-audit-admission-20261020.json": "daba95114a8c9f6af5d60e27f6195d7464d071d5cda2e2ad85a0bb5890db7b9c",
   "docs/check-review/azure-provider-integration-acceptance-20261020.json": "38e933aacafdc11eb01980cb22e0cb632ff06a21b683c358d8e566c6d2ad733f",
   "docs/check-review/azure-storage-compute-integration-20261020.json": "aa1527f425d7875ea2ab3f9d29207010c7207b2d436e1d0c4584b6b5997ebfbc",
   "docs/evidence-reviews/azure.json": "f925b5f4f0f4d8f352eacad80647c64fb54e291441efa16b8892b486f36f8e34",

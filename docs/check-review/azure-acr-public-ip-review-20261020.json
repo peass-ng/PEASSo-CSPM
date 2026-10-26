@@ -1605,7 +1605,7 @@
     "native_witness_report": {
       "bytes": 608723,
       "path": "docs/check-review/azure-application-compute-2-native-review-20261020.json",
-      "sha256": "f7b6c2644766055192acf53d9cd799d58297e434354e7f7db30138026690f59e"
+      "sha256": "45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa"
     },
     "no_relabel": "No existing companion rewritten as exclusive/private/effective-access enforcement. No source equivalence or metadata collision invented."
   },
@@ -1619,8 +1619,8 @@
   },
   "immutable_prior_reports": [
     {
-      "before_sha256": "f7b6c2644766055192acf53d9cd799d58297e434354e7f7db30138026690f59e",
-      "current_sha256": "f7b6c2644766055192acf53d9cd799d58297e434354e7f7db30138026690f59e",
+      "before_sha256": "45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa",
+      "current_sha256": "45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa",
       "path": "docs/check-review/azure-application-compute-2-native-review-20261020.json",
       "unchanged": true
     },

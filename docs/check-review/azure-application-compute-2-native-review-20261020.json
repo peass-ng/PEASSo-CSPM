@@ -11645,22 +11645,22 @@
       "source_text_sha256": "259048253cc6ae0280564e48ffc3e73b6f63e784eec65a0cfa5568351530c93e"
     },
     "peaso/collectors/azure_application_compute_2_native.py::_links": {
-      "file_sha256": "9b425e22530b52ac4fe688de47bd93782a4f30861cdd97b82332ade2b307b72d",
+      "file_sha256": "a7c0898d9517e92f0f3e6802684fbcf08addc120bef638b9a7d6da0c8b104da0",
       "path": "peaso/collectors/azure_application_compute_2_native.py",
       "source_text_sha256": "233e00b8fbd650f546a654b2133e7e1bd2b82d8476e138db7913038fe1b5515d"
     },
     "peaso/collectors/azure_application_compute_2_native.py::_object": {
-      "file_sha256": "9b425e22530b52ac4fe688de47bd93782a4f30861cdd97b82332ade2b307b72d",
+      "file_sha256": "a7c0898d9517e92f0f3e6802684fbcf08addc120bef638b9a7d6da0c8b104da0",
       "path": "peaso/collectors/azure_application_compute_2_native.py",
       "source_text_sha256": "a9834123efb95315d35d982f16a0b8c3f8f57da77bc81db9f84b8c86d53cd8b9"
     },
     "peaso/collectors/azure_application_compute_2_native.py::collect_synapse_sql_private_endpoints": {
-      "file_sha256": "9b425e22530b52ac4fe688de47bd93782a4f30861cdd97b82332ade2b307b72d",
+      "file_sha256": "a7c0898d9517e92f0f3e6802684fbcf08addc120bef638b9a7d6da0c8b104da0",
       "path": "peaso/collectors/azure_application_compute_2_native.py",
-      "source_text_sha256": "73ffc11efce01de69f390bc768206d826186cf3d3a5f7a9a4b47144eeeec53b6"
+      "source_text_sha256": "4e6138a16f8d5dce612ced1f7d1d11cb1758e1c8810d20f219a729b168cdadf6"
     },
     "peaso/collectors/azure_application_compute_2_native.py::required_types": {
-      "file_sha256": "9b425e22530b52ac4fe688de47bd93782a4f30861cdd97b82332ade2b307b72d",
+      "file_sha256": "a7c0898d9517e92f0f3e6802684fbcf08addc120bef638b9a7d6da0c8b104da0",
       "path": "peaso/collectors/azure_application_compute_2_native.py",
       "source_text_sha256": "59e569bc1e1a0bc583590a1ba6c5c6078311c16123877f288de326aa6af52b4e"
     },
