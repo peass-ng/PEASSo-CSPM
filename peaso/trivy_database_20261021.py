@@ -373,10 +373,10 @@ def current_cache(root: Path, now: dt.datetime | None = None) -> Path:
 @contextmanager
 def _database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
                    trivy="/usr/local/bin/trivy", force_refresh=False):
-    """Refresh once when selected; hold an exclusive lease through offline reads.
+    """Refresh once when selected; hold a shared lease through offline reads.
 
     The path and binary are trusted worker configuration, never connector input.
-    Serializing readers with refresh prevents deletion of an in-use generation.
+    Refresh is exclusive with every reader, preventing deletion of an in-use generation.
     Disabled mode creates no files and runs no command. Lock acquisition is bounded.
     """
     if enabled is not True:
@@ -390,27 +390,58 @@ def _database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "a+") as lock:
         deadline = time.monotonic() + 30
-        while True:
+
+        def wait():
+            if time.monotonic() >= deadline:
+                raise DatabaseUnavailable("DB cache is busy")
+            time.sleep(0.1)
+
+        held = [False]
+
+        def take(mode):
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
+                fcntl.flock(lock, mode | fcntl.LOCK_NB)
             except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise DatabaseUnavailable("DB cache is busy")
-                time.sleep(0.1)
+                return False
+            held[0] = True
+            return True
+
+        def release():
+            held[0] = False
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+        # Offline readers share one admitted generation under LOCK_SH. Only a
+        # refresh, which may delete an older generation, takes LOCK_EX, so
+        # concurrent regions and collectors no longer wait for each other's
+        # complete image scans (and then fail as busy after 30 seconds).
         try:
-            try:
-                if force_refresh:
-                    raise DatabaseUnavailable("explicit refresh")
-                cache = current_cache(root)
-            except (DatabaseUnavailable, OSError, ValueError):
-                refresh(root, trivy=trivy)
-                cache = current_cache(root)
+            cache = None
+            while cache is None:
+                if not force_refresh and take(fcntl.LOCK_SH):
+                    try:
+                        cache = current_cache(root)
+                        break
+                    except (DatabaseUnavailable, OSError, ValueError):
+                        release()
+                if take(fcntl.LOCK_EX):
+                    try:
+                        if force_refresh:
+                            raise DatabaseUnavailable("explicit refresh")
+                        current_cache(root)  # another holder may have refreshed
+                    except (DatabaseUnavailable, OSError, ValueError):
+                        refresh(root, trivy=trivy)
+                        current_cache(root)
+                    # Downgrade (not atomic), then admit current under LOCK_SH.
+                    release()
+                    force_refresh = False
+                    continue
+                wait()
             # Resolve once under the lease: the scanner must not chase a
             # subsequently changed current pointer between before/after hashes.
             yield cache.resolve(strict=True)
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            if held[0]:
+                release()
 
 
 @contextmanager

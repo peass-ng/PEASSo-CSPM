@@ -16,6 +16,12 @@ import time
 
 from . import container_image_archive_20261020 as archive
 from . import container_scan_process_20261020 as process
+from .image_content_memo_20261026 import BoundedMemo
+
+# Clean offline reports for identical immutable content, the same executable
+# file and the same unchanged DB generation. Inputs are re-proven against their
+# digests before reuse, and native binding checks always run again.
+_SCANS = BoundedMemo(256, 96 * 1024 * 1024)
 
 SCHEMA = 'trivy-native-immutable-image-vulnerabilities-20261020-v1'
 CLI_VERSION = '0.68.1'
@@ -296,22 +302,41 @@ def scan_image(image_identity, manifest, config, layers, *, native_verifier=None
         root.chmod(0o700)
         env = _environment(root)
         path = root / 'image.tar'
-        proof = archive.write_archive(path, selected, manifest, config, layers,
-                                      archive_format=archive_format, check=check)
-        result['archive'] = proof
         diff_ids = archive.decode(config)['rootfs']['diff_ids']
-        policy = root / 'trivy.yaml'
-        policy.write_text('{}\n')
-        ignore = root / '.trivyignore'
-        ignore.write_text('')
-        version, _, version_exit, version_reason, _ = process._execute(
-            [str(executable), '--version'], env, root, min(end, time.monotonic() + 10), cancel)
-        archive.require(version_exit == 0 and version_reason is None
-                        and re.search(rb'(?m)^Version: 0\.68\.1\s*$', version), 'pinned_trivy_version_unavailable')
-        argv = [str(executable), 'image', '--input', str(path), *FLAGS,
-                '--cache-dir', str(Path(db_cache)), '--config', str(policy), '--ignorefile', str(ignore),
-                '--timeout', str(max(1, math.ceil(end - time.monotonic()))) + 's']
-        raw, stderr, code, reason, peak = process._execute(argv, env, root, end, cancel)
+        info = executable.stat()
+        executable_key = (str(executable), info.st_dev, info.st_ino, info.st_size,
+                          info.st_mtime_ns, info.st_ctime_ns)
+        key = (selected['manifest_digest'], selected['config_digest'], archive_format,
+               str(Path(db_cache)), executable_key,
+               tuple(repr(before.get(k)) for k in ('schema_version', 'updated_at', 'next_update',
+                                               'downloaded_at', 'db_stat_identity', 'metadata_sha256')))
+        with _SCANS.single_flight(key, check):
+            cached = _SCANS.get(key)
+            if cached is not None:
+                # Same verified bytes, executable file and unchanged DB generation:
+                # the offline report is identical. Re-prove the current inputs first.
+                archive.validate(selected, manifest, config, layers, check)
+                proof, raw, stderr, code, peak = cached
+                proof, reason = dict(proof), None
+            else:
+                proof = archive.write_archive(path, selected, manifest, config, layers,
+                                              archive_format=archive_format, check=check)
+                result['archive'] = proof
+                policy = root / 'trivy.yaml'
+                policy.write_text('{}\n')
+                ignore = root / '.trivyignore'
+                ignore.write_text('')
+                version, _, version_exit, version_reason, _ = process._execute(
+                    [str(executable), '--version'], env, root, min(end, time.monotonic() + 10), cancel)
+                archive.require(version_exit == 0 and version_reason is None
+                                and re.search(rb'(?m)^Version: 0\.68\.1\s*$', version), 'pinned_trivy_version_unavailable')
+                argv = [str(executable), 'image', '--input', str(path), *FLAGS,
+                        '--cache-dir', str(Path(db_cache)), '--config', str(policy), '--ignorefile', str(ignore),
+                        '--timeout', str(max(1, math.ceil(end - time.monotonic()))) + 's']
+                raw, stderr, code, reason, peak = process._execute(argv, env, root, end, cancel)
+                if type(code) is int and code == 0 and reason is None and raw:
+                    _SCANS.put(key, (dict(proof), raw, stderr, code, peak), len(raw) + len(stderr))
+        result['archive'] = proof
         result.update(parse_report(raw, code, selected, diff_ids=diff_ids, database=before,
                                    interrupted=reason, stderr=stderr))
         result['archive'] = proof

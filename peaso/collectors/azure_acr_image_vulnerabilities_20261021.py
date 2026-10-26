@@ -347,6 +347,19 @@ def _unavailable_row(scope,target,reason):
             '_provenance':{'scope':scope,'source_requests':[]}}
 
 
+def _append_receipts(result,row,local):
+    """Number a target's private receipts as one contiguous serial block."""
+    offset=len(result['receipts']);mapping={}
+    for number,receipt in enumerate(local,offset+1):
+        new='acr-read-'+str(number)
+        mapping[receipt['id']]=new
+        receipt['id']=new
+    result['receipts'].extend(local)
+    marker=row[MARKER]
+    marker['source_requests']=[mapping.get(rid,rid) for rid in marker['source_requests']]
+    row['_provenance']['source_requests']=list(marker['source_requests'])
+
+
 def collect_native(outer,transport,scopes,options,*,db_cache=DEFAULT_DB_CACHE,
         cli=trivy.DEFAULT_CLI,runner=None,scratch_parent=None,
         database_check=None, database_diagnostics=None):
@@ -372,12 +385,14 @@ def collect_native(outer,transport,scopes,options,*,db_cache=DEFAULT_DB_CACHE,
         result['observations']=[None for _ in result['rows']]
         return result
     limit={'deadline':time.monotonic()+MAX_SECONDS,'bytes':0,'calls':0}
-    for scope in scopes:
-        for target in targets:
-            if acr._REGISTRY.fullmatch(target['registry_id'])[1].casefold()!=scope.casefold():continue
-            row=_scan_target(outer,transport,result['receipts'],scope,target,limit,
-                db_cache=db_cache,cli=cli,runner=runner,scratch_parent=scratch_parent)
-            result['rows'].append(row)
+    jobs=[(scope,target) for scope in scopes for target in targets
+          if acr._REGISTRY.fullmatch(target['registry_id'])[1].casefold()==scope.casefold()]
+    from .azure_acr_image_parallel_20261026 import scan_targets
+    for row,local in scan_targets(jobs,lambda scope,target,receipts:_scan_target(
+            outer,transport,receipts,scope,target,limit,db_cache=db_cache,cli=cli,
+            runner=runner,scratch_parent=scratch_parent)):
+        _append_receipts(result,row,local)
+        result['rows'].append(row)
     observations=[]
     for row in result['rows']:
         marker=row[MARKER];graph=marker.get('graph')

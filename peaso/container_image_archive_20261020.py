@@ -18,6 +18,8 @@ import shutil
 import tarfile
 import zlib
 
+from peaso.image_content_memo_20261026 import BoundedMemo
+
 MAX_MANIFEST = 256 * 1024
 MAX_CONFIG = 1024 * 1024
 MAX_COMPRESSED = 1024 * 1024 * 1024
@@ -349,7 +351,8 @@ def _tar_members(path, nodes, count, check, layer_index, path_budget):
             require(len(source.read(pad)) == pad, 'truncated_tar_member')
 
 
-def _validate(image_identity, manifest_raw, config_raw, layers, root, check, partial_callback=None):
+def _graph(image_identity, manifest_raw, config_raw, layers):
+    """Bounded descriptor graph checks that precede any layer byte access."""
     checked = identity(image_identity)
     require(type(manifest_raw) is bytes and 0 < len(manifest_raw) <= MAX_MANIFEST
             and sha(manifest_raw) == checked['manifest_digest'], 'manifest_digest_or_size_mismatch')
@@ -375,7 +378,122 @@ def _validate(image_identity, manifest_raw, config_raw, layers, root, check, par
     diffs = config['rootfs'].get('diff_ids')
     require(type(diffs) is list and len(diffs) == len(descs)
             and all(type(d) is str and DIGEST.fullmatch(d) for d in diffs), 'rootfs_diff_ids_required')
+    return manifest, descs, diffs
+
+
+# Successful full validations, keyed by the exact compressed/expanded digest
+# chain and config size (the only inputs the layer walk depends on). A hit is
+# admitted only after the current compressed bytes re-hash to that chain.
+_PROVEN = BoundedMemo(1024)
+
+
+def _chain(config_raw, descs, diffs):
+    limits = (MAX_EXPANDED, MAX_MEMBERS, MAX_PATH, MAX_PATH_BYTES, MAX_LINKS, MAX_PAX,
+              tuple(sorted(STANDARD_CHAR_DEVICES.items())))
+    return limits, (len(config_raw), tuple((d['mediaType'], d['digest'], d['size'], diff)
+                                   for d, diff in zip(descs, diffs)))
+
+
+def _verify_compressed(raw, desc, check):
+    digest, size = hashlib.sha256(), 0
+    with _source(raw, desc['size']) as source:
+        while True:
+            check()
+            part = source.read(1024 * 1024)
+            if not part:
+                break
+            size += len(part)
+            require(size <= desc['size'], 'layer_descriptor_mismatch')
+            digest.update(part)
+    require(size == desc['size'] and 'sha256:' + digest.hexdigest() == desc['digest'],
+            'layer_descriptor_mismatch')
+
+
+def _proven(config_raw, descs, diffs, layers, check):
+    """Return (layer sizes, members) for already-proven content, else None."""
+    known = _PROVEN.get(_chain(config_raw, descs, diffs))
+    if known is None:
+        return None
+    for desc, raw in zip(descs, layers):
+        check()
+        _verify_compressed(raw, desc, check)
+    return known
+
+
+class _Expanded:
+    """One proven layer streamed straight into an archive member, re-verified."""
+
+    def __init__(self, raw, desc, diff, size, check):
+        self.raw, self.desc, self.diff, self.size, self.check = raw, desc, diff, size, check
+
+    def stream(self):
+        return _ExpandingReader(self, _source(self.raw, self.desc['size']))
+
+
+class _ExpandingReader:
+    def __init__(self, layer, source):
+        self.layer, self.source = layer, source
+        self.inflater = (zlib.decompressobj(zlib.MAX_WBITS | 16)
+                         if layer.desc['mediaType'].endswith('gzip') else None)
+        self.tail, self.done = b'', False
+        self.compressed, self.expanded = hashlib.sha256(), hashlib.sha256()
+        self.compressed_size = self.expanded_size = 0
+
+    def _next(self, limit=CHUNK):
+        self.layer.check()
+        part = self.source.read(limit)
+        self.compressed_size += len(part)
+        require(self.compressed_size <= self.layer.desc['size'], 'layer_changed_during_archive')
+        self.compressed.update(part)
+        return part
+
+    def read(self, size=-1):
+        size = CHUNK if size is None or size < 0 else size
+        out = bytearray()
+        while len(out) < size and not self.done:
+            if self.inflater is None:
+                part = self._next(min(CHUNK, size - len(out)))
+                if not part:
+                    self.done = True
+                out += part
+                continue
+            if not self.tail:
+                if self.inflater.eof:
+                    require(not self._next(), 'layer_changed_during_archive')
+                    self.done = True
+                    break
+                self.tail = self._next()
+                if not self.tail:
+                    out += self.inflater.flush()
+                    self.done = True
+                    break
+            out += self.inflater.decompress(self.tail, size - len(out))
+            require(not self.inflater.unused_data, 'layer_changed_during_archive')
+            self.tail = self.inflater.unconsumed_tail
+        data = bytes(out[:size])
+        require(len(out) <= size, 'layer_changed_during_archive')
+        self.expanded_size += len(data)
+        require(self.expanded_size <= self.layer.size, 'layer_changed_during_archive')
+        self.expanded.update(data)
+        return data
+
+    def finish(self):
+        require(not self.read(CHUNK), 'layer_changed_during_archive')
+        require(self.compressed_size == self.layer.desc['size']
+                and 'sha256:' + self.compressed.hexdigest() == self.layer.desc['digest']
+                and (self.inflater is None or (self.inflater.eof and not self.inflater.unused_data))
+                and self.expanded_size == self.layer.size
+                and 'sha256:' + self.expanded.hexdigest() == self.layer.diff,
+                'layer_changed_during_archive')
+
+    def close(self):
+        self.source.close()
+
+
+def _validate(image_identity, manifest_raw, config_raw, layers, root, check, partial_callback=None):
+    manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
     expanded, budget, nodes, path_budget = [], (len(config_raw), 0), {}, [0]
+    sizes = []
     for index, (desc, raw, diff) in enumerate(zip(descs, layers, diffs)):
         check()
         target = root / f'expanded-{index:04}.tar'
@@ -390,11 +508,17 @@ def _validate(image_identity, manifest_raw, config_raw, layers, root, check, par
                     _visit_node(name, node, partial_callback, check)
         budget = size + budget[0], count
         expanded.append(target)
+        sizes.append(size)
+    _PROVEN.put(_chain(config_raw, descs, diffs), (tuple(sizes), budget[1]))
     return manifest, expanded, budget, nodes
 
 
 def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: None):
     """Validate a content graph; expanded layers live only in private scratch."""
+    manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
+    known = _proven(config_raw, descs, diffs, layers, check)
+    if known is not None:
+        return manifest, [], (len(config_raw) + sum(known[0]), known[1])
     with tempfile.TemporaryDirectory(prefix='peaso-image-validate-') as scratch:
         manifest, _, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
                                         Path(scratch), check)
@@ -461,8 +585,17 @@ def write_archive(path, image_identity, manifest_raw, config_raw, layers, *, arc
     require(isinstance(path, Path) and path.is_absolute(), 'private_archive_path_required')
     try:
         with tempfile.TemporaryDirectory(prefix='peaso-image-layers-', dir=path.parent) as scratch:
-            manifest, expanded, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
-                                                   Path(scratch), check)
+            manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
+            known = _proven(config_raw, descs, diffs, layers, check)
+            if known is None:
+                manifest, expanded, budget, _ = _validate(image_identity, manifest_raw, config_raw, layers,
+                                                       Path(scratch), check)
+            else:
+                # Already-proven bytes: decompress each layer directly into its
+                # archive member instead of staging a second expanded copy.
+                budget = len(config_raw) + sum(known[0]), known[1]
+                expanded = [_Expanded(raw, desc, diff, size, check)
+                            for raw, desc, diff, size in zip(layers, descs, diffs, known[0])]
             if archive_format == 'oci':
                 require(manifest['mediaType'] == OCI and
                         manifest['config']['mediaType'] == 'application/vnd.oci.image.config.v1+json'
@@ -476,7 +609,8 @@ def write_archive(path, image_identity, manifest_raw, config_raw, layers, *, arc
                     def add(name, value, expected_digest=None):
                         nonlocal total
                         check()
-                        size = len(value) if type(value) is bytes else value.stat().st_size
+                        size = (len(value) if type(value) is bytes else value.size
+                                if type(value) is _Expanded else value.stat().st_size)
                         total += 512 + ((size + 511) // 512) * 512
                         require(total <= MAX_ARCHIVE, 'owned_archive_bound')
                         require(shutil.disk_usage(path.parent).free >= size + MIN_FREE_DISK,
@@ -485,6 +619,13 @@ def write_archive(path, image_identity, manifest_raw, config_raw, layers, *, arc
                         member.size, member.mode, member.mtime = size, 0o600, 0
                         if type(value) is bytes:
                             tar.addfile(member, io.BytesIO(value))
+                        elif type(value) is _Expanded:
+                            reader = value.stream()
+                            try:
+                                tar.addfile(member, reader)
+                                reader.finish()
+                            finally:
+                                reader.close()
                         else:
                             with _source(value, size) as source:
                                 reader = _CheckedReader(source, check)
