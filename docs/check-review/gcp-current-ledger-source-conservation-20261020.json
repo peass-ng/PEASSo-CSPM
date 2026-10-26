@@ -30,7 +30,7 @@
   },
   "head_runtime_admission": {
     "path": "docs/check-review/gcp-workbench-head3-runtime-20261020-admission.json",
-    "sha256": "adf908944e949ce80f98872c3315dde61fe7a2e5f6df30b4c964d938f90286a3"
+    "sha256": "aa54992f8b2d823828e77941c1e2cea10bdce37bff2efb64a5e981d36be096e1"
   },
   "predecessors": {
     "path": "tests/fixtures/gcp_current_ledger_head3_predecessors_20261020.json.gz",
@@ -57,7 +57,7 @@
         "path": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
         "qualname": "peaso.checks.gcp_workbench_head3_admission_20261020.terminal_access_disabled",
         "body_sha256": "48326cbfeda5f2c4d042a124f29f4aa701820b174fae6193a0f9ad78ae40546c",
-        "file_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d"
+        "file_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c"
       }
     },
     "gcp.review.workbench.file_download_disabled": {
@@ -66,7 +66,7 @@
         "path": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
         "qualname": "peaso.checks.gcp_workbench_head3_admission_20261020.file_download_disabled",
         "body_sha256": "ac2c7002518abb2fd5aa58d056b450c57e618455c66818fd40ed9e270637194d",
-        "file_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d"
+        "file_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c"
       }
     },
     "gcp.review.workbench.auto_upgrade_schedule_declared": {
@@ -75,14 +75,14 @@
         "path": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
         "qualname": "peaso.checks.gcp_workbench_head3_admission_20261020.auto_upgrade_schedule_declared",
         "body_sha256": "5d45c3d0a93909291b433855598398879ca3b21c91235ed5b78c4363093e79a4",
-        "file_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d"
+        "file_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c"
       }
     }
   },
   "current_predicate_errata": {
     "gcp.review.function.literal_environment_secret_indicators": {
       "path": "docs/check-review/gcp-function-current-ledger-erratum-20261020.json",
-      "sha256": "a0e89befb7eb83f29b37c23f5409e52c0e1e6a10e786314fa50364bae660967a"
+      "sha256": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2"
     }
   },
   "head_source_successors": [

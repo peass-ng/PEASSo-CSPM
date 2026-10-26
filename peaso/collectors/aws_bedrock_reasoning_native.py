@@ -223,9 +223,16 @@ def collect(requests, session, region, account):
 FETCHERS = {KIND: collect}
 
 
+@lru_cache(maxsize=64)
+def _partition_for_region(region):
+    # Endpoint metadata only; one resolver per region instead of one SDK
+    # session per assessed row.
+    import botocore.session
+    return botocore.session.get_session().get_partition_for_region(region)
+
+
 def assess(row, account, region):
     """Evaluate the native observation without manufacturing an AWS status."""
-    import botocore.session
     evidence = {'semantics': SEMANTICS, 'application_id': row.get('ApplicationId')}
     def unknown(): return 'UNKNOWN', {**evidence, 'reason': 'native configuration binding or resolution unavailable'}
     proof = row.get('_provenance')
@@ -233,7 +240,7 @@ def assess(row, account, region):
             or not isinstance(proof, dict) or proof.get('read_only') is not True
             or proof.get('source_operation') != CHAIN): return unknown()
     if row.get('NativeBinding') != 'verified': return unknown()
-    partition = botocore.session.get_session().get_partition_for_region(region)
+    partition = _partition_for_region(region)
     agent, alias, version = row.get('NativeAgentId'), row.get('NativeAliasId'), row.get('NativeAgentVersion')
     gid, gv = row.get('GuardrailIdentifier'), row.get('GuardrailVersion')
     if (not isinstance(agent, str) or ID.fullmatch(agent) is None or not isinstance(alias, str) or ID.fullmatch(alias) is None

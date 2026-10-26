@@ -13,6 +13,9 @@ import pytest
 def test_cli_signal_waits_for_provider_cleanup_and_returns_signal_exit(tmp_path, signum):
     script = textwrap.dedent('''
         import pathlib, sys, time
+        # Import-time source attestation must see the pristine collector; patch
+        # the provider seam only after the attested catalog is loaded.
+        import peaso.checks
         from peaso import cli
         from peaso.collectors import aws
         from peaso.snapshot import make_snapshot

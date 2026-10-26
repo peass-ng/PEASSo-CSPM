@@ -57,7 +57,7 @@
     "admission": "peaso.checks.gcp_function_secret_page_admission_20261020",
     "native_gcp_sha256": "d7f5916616c6ba871fd82164fb74f139132bfa9f8a14967e1c2360937e5dd161",
     "ownership": "GCP implementation and its exact scalar/source successors owned independently; only reviewed entrypoint wiring changed here",
-    "page_receipt_sha256": "a9cf3dd72f0745e2c61cb9ace44afdbaa9dc06ba0e02a7a3ffd4c253d2d95b23",
+    "page_receipt_sha256": "0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9",
     "post_dedup": "peaso.gcp_function_secret_page_persistence_20261020.retain_function_secret_pairs"
   },
   "date": "2026-10-20",
@@ -74,10 +74,10 @@
   "head3_hook": {
     "callable": "install_bundle",
     "module": "peaso.checks.gcp_workbench_head3_admission_20261020",
-    "module_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d",
+    "module_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c",
     "normal_registered_count_observed": 4113,
     "owner_reported_tests": 50,
-    "receipt_sha256": "2aa8483b6ba2583ab80a261c34e15cacdcf31e79e995210f180e4debd6a65179",
+    "receipt_sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13",
     "registered_check_ids": [
       "gcp.review.workbench.terminal_access_disabled",
       "gcp.review.workbench.file_download_disabled",
@@ -90,7 +90,7 @@
     ],
     "source_successor_receipt": {
       "path": "peaso/checks/azure_function_package_head3_entrypoint_20261020.json",
-      "sha256": "23dd0fd518910d7494e82167caf02876f1d7446fb29efba9fdc08cdf338819e8"
+      "sha256": "a4f778f1c366589e38ea6675d6b65591ec1796d75c3259a916b99d7b1c5bfff0"
     }
   },
   "limits": {
@@ -145,7 +145,7 @@
       "sha256": "62e77a9244adc9c80014d1ac95d60ca07b61ab0c54e443d6839cb3df318ecb2a"
     },
     "prior_distinct_passing_nodes": 89,
-    "sha256": "9ab5d69189402553ead34e175b0f78b618da87f2dc4c29b3b6cb053accb8bb55"
+    "sha256": "09c60363c1342fa3e0a23de12d0d3f3da9d8771013f80396a8fcc47033328c42"
   },
   "privacy": "both real readers contribute match context before old finalizers clear it; collections, metadata, errors, input/internal options, response caches and tuple keys, pending reader surfaces and transport token caches scrubbed/cleared; overflow and key collision withhold export",
   "public_dedup": "existing one-leak fingerprint DTO unchanged; attach only actual matching source part evidence and provenance, with every retained part.leaks filtered to the DTO fingerprint and original engine receipts/path/bytes preserved",
@@ -185,7 +185,7 @@
       "previously_accepted_nodes": 250,
       "sha256": "27ccd7d41cd1c9df4ec516ce390fd9121909392ee7c03d040e8a82a7f22afe1f"
     },
-    "combined_shared_receipt_sha256": "09ecf7b061269639a5660a361d7a78f48403476c2048ff0741f98d1bbb7692d1",
+    "combined_shared_receipt_sha256": "9bd4b45c79ae86af77ee58853bfe05692d5cf244a11c916756906f281e5f1c99",
     "file_deltas": {
       "peaso/checks/__init__.py": {
         "current_sha256": "9df972651807a84c1daf17b05e4abb6be01b24d82868424928850d5bfe591baa",
@@ -253,20 +253,20 @@
     "native_source_hash_count": 28,
     "new_package_data_hashes": {
       "peaso/checks/azure_function_package_accepted_epoch_20261020.json.gz": "62e77a9244adc9c80014d1ac95d60ca07b61ab0c54e443d6839cb3df318ecb2a",
-      "peaso/checks/azure_function_package_head3_entrypoint_20261020.json": "23dd0fd518910d7494e82167caf02876f1d7446fb29efba9fdc08cdf338819e8",
+      "peaso/checks/azure_function_package_head3_entrypoint_20261020.json": "a4f778f1c366589e38ea6675d6b65591ec1796d75c3259a916b99d7b1c5bfff0",
       "peaso/checks/azure_function_package_head3_entrypoint_20261020.json.gz": "a62ee0eee688a489944ef9cbe11b9312708f9ad9defa49775225330f2478024b",
       "peaso/checks/azure_function_package_integration_admission_20261020.json": "4875a73474106124b0347f9e676b2faf801c2cb0585e514a72f46daf6c4f0612",
       "peaso/checks/azure_function_package_integration_cases_20261020.json": "0d6e8528501d483c8c76027d255a2d21d4196faf82a79dd0420e4f59663ba2f5",
       "peaso/checks/azure_function_package_integration_predecessors_20261020.json.gz": "eac8ca72282644847f2cedae0c87f7f45bd7c895cb7116f57ac4bf287096d6c6",
-      "peaso/checks/azure_function_package_shared_successor_20261020.json": "09ecf7b061269639a5660a361d7a78f48403476c2048ff0741f98d1bbb7692d1"
+      "peaso/checks/azure_function_package_shared_successor_20261020.json": "9bd4b45c79ae86af77ee58853bfe05692d5cf244a11c916756906f281e5f1c99"
     },
     "new_source_hashes": {
       "peaso/azure_function_package_index_20261020.py": "84d8aa9b2b960c611fa912eae6a2ed5be53f71e136fc4c03112fa33ecd6a43d2",
       "peaso/azure_function_package_provenance_20261020.py": "c44bdfd8005f4f999f10496379ad2ef8fb8eb28d404ce813142e54632f8bc978",
-      "peaso/checks/azure_function_package_head3_entrypoint_20261020.py": "e3936596031ff44d92f83f4584a7d45c79c6c87840e72b744cba0b12dd452d11",
+      "peaso/checks/azure_function_package_head3_entrypoint_20261020.py": "2d8637a8327781ac9cc465e72b61e8494cd63ad234853e554f64dc06002db187",
       "peaso/checks/azure_function_package_integrated_consumer_20261020.py": "277b1e6115a683b72c7fbcebbde6eb163dff34196359a61af0c1b78e05de1129",
       "peaso/checks/azure_function_package_integration_admission_20261020.py": "794328c6778413d3205ce55f7c149c20277cadb65ba611bea1d1241f17bdb7e7",
-      "peaso/checks/azure_function_package_shared_successor_20261020.py": "318cdd4dbd9d7c37d0aff8e29e3593c6076247704806bd7e1545b66190dc448e",
+      "peaso/checks/azure_function_package_shared_successor_20261020.py": "ac0f5787d4673a84b8332248adcb927472fec01a1606f68e8fc1176cb0cd3ad3",
       "peaso/checks/azure_function_package_tde_successor_20261020.py": "2f46a1afd1351bdc62815492f0a1d5d3a30fbb81c07be6cbbab055d95b0c5105",
       "peaso/collectors/azure_function_package_integration_20261020.py": "678fc74f19156541992b9ce3536cf642253842b34583e6408005a4e38858c0e0"
     },
@@ -278,8 +278,8 @@
       "peaso/checks/aws_codebuild_buildspec_shared_successor_20261020.json": "3f850167f2dfc92c78222f38ae48b7bedb0b102e13578a9bb9508df0000cdcce",
       "peaso/checks/aws_codebuild_buildspec_shared_successor_20261020.py": "3e8ad3d0c087e042a19aa68bfeb4772d2f03f339f48a5836e4b74254a977dd5b",
       "peaso/checks/azure_function_package_runtime_consumer_20261020.py": "7e2101142c442ec899d30ec6d4a6690819dca196a3446ac53267dcc1ed9450b4",
-      "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.json": "4a9cd11f612c25b16c9668b29c86e2e87900a0d373e06872a12f762f09e019d5",
-      "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.py": "2995933270e76fed2df1ea00a6cec65ec7663cc5354bc7845a87b1548d6037be",
+      "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.json": "3f22b3668920e0b6b76eeb12a8a9223d08270b26a8f9a2e94887a36c4e5fe1db",
+      "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.py": "956285dbde640082ea6f2b464376065db3469881bf45a5b2da271c53ec83b323",
       "peaso/collectors/aws_package_content_indicators.py": "ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6",
       "peaso/collectors/azure_app_settings_secret_indicators.py": "f7fed346ff359f463e72cff63f4de9e1971e2aeef2223ed8b338c91c7520248b",
       "peaso/collectors/azure_function_package_portable_20261020.py": "54a7bb3e2a69465b3b5537cad597d8b8c537e35d16416d1f0ff81e551ece0569",

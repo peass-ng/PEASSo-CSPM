@@ -45,7 +45,7 @@ _DATAFLOW_ADMISSION = importlib.import_module(__package__ + '.gcp_dataflow_batch
 _DATAFLOW_FUNCTIONS = dict(_DATAFLOW_ADMISSION._FUNCTIONS)
 _DATAFLOW_REVIEWED_INPUTS = _DATAFLOW_FUNCTIONS[_DATAFLOW_ADMISSION.__name__ + ':reviewed_inputs']
 RECEIPT = 'collector_noop_authorization_shared_successor_20261020.json'
-RECEIPT_SHA256 = '7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa'
+RECEIPT_SHA256 = '5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1'
 
 
 def _self(raw):

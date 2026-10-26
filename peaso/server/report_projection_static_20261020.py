@@ -6,7 +6,7 @@ lookups. Request handling never imports the engine or checks registry.
 """
 import copy
 
-SOURCE_SHA256 = {'peaso/engine.py': '23aaa0374c25931d54b24fc935ea837b8185dc555aa0bf88bab7c5d976ce4b70',
+SOURCE_SHA256 = {'peaso/engine.py': '804460acc02bad609d5d0161e0a53715662f28653ecd7d4b99b3c27243e0a3ba',
  'peaso/remediation.py': '32cec77aafda1498ff57831c11756c195985d8a26a02fc30879e232cf446081b'}
 
 

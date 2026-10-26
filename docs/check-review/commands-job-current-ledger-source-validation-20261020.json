@@ -8,16 +8,16 @@
   "scope": "Exactly AWS selected command literals1 and GCP Cloud Run Job declared image1 current review bookkeeping",
   "source_conservation": {
     "path": "docs/check-review/commands-job-current-ledger-source-conservation-20261020.json",
-    "sha256": "47c78ae99de0c8b609b921fe5f23e5eb74b23c200f38f86558457e452e72dd72"
+    "sha256": "4cb0fcb32e316e310b8a3076d684444e03feea99c78ebef991c110785d85f1d9"
   },
   "current_acceptances": {
     "aws.review.workload.selected_command_literal_secret_indicators": {
       "path": "docs/check-review/aws-workload-commands-current-acceptance-20261020.json",
-      "sha256": "b25f797503249c56c09f1ab8009334454197195ff47912d2052537d864e48d59"
+      "sha256": "f5b04024d242eab0697817a3b8d9d3f8e76aeba73eed4928e989fb926283580a"
     },
     "gcp.review.cloudrun_job.declared_image_secret_indicators": {
       "path": "docs/check-review/gcp-cloudrun-job-image-current-acceptance-20261020.json",
-      "sha256": "1ce1d17d045c862129f45ce9ba7479e0be009295e19763e2f8daaf343537e07c"
+      "sha256": "c5779a68d68dd3e06da73b00937c7d1da01df7d7de90b6c5fa2511b2203c0cac"
     }
   },
   "counts": {
@@ -238,7 +238,7 @@
   },
   "current_source_hashes": {
     "docs/check-review/checks.csv": "5f6a18e75b0f05737aff9ed3175464ea0303b043a02e9dee54ca7ac11c97e2c1",
-    "docs/evidence-reviews/aws.json": "6dd7dc6a3eec10b001081b930d8c5966cf7ac41182c384767cdaaf3040e05f7b",
+    "docs/evidence-reviews/aws.json": "1ed69c52a0f8436b2604f27d4eda35ad364a0fa7da9a7bb7964956825d3c9d4c",
     "docs/evidence-reviews/gcp.json": "e541d439776a541992b52950b04b011cb41966eae441bdb51b9d6a141c740e55",
     "tests/test_gcp_workbench_current_acceptance_20261020.py": "613908d38869dd9815ad587f2c0394aa12e686b8218b53d496f07ef5e773c0d4",
     "tests/test_gcp_current_source_reconciliation_20261020.py": "179984be7ebc5f0c73c0294a656350499e02926217bffd306198eb996fb9787b"
@@ -250,7 +250,7 @@
     },
     "function_erratum": {
       "path": "docs/check-review/gcp-function-current-ledger-erratum-20261020.json",
-      "sha256": "a0e89befb7eb83f29b37c23f5409e52c0e1e6a10e786314fa50364bae660967a"
+      "sha256": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2"
     },
     "old_registered_native": 535,
     "new_registered_native": 536,

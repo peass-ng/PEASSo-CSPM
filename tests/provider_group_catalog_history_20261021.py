@@ -53,7 +53,7 @@ def combined_predecessor_catalog(value):
     assert hashlib.sha256(prior_raw).hexdigest()==PRIOR_CURRENT_PRIVESC_SUCCESSOR_SHA256
     prior=json.loads(gzip.decompress(prior_raw))
     successor_raw=(Path(__file__).with_name('fixtures')/'current_privesc_catalog_successor_20261022.json.gz').read_bytes()
-    assert hashlib.sha256(successor_raw).hexdigest()=='83175377a9cb40da8a250eb44833ad17e742631314e9c0a534515ec643e9813b'
+    assert hashlib.sha256(successor_raw).hexdigest()=='139a1b68423bc8d70cb158e4867eeba5afe553fe5f97421ba6f7f5fa1a791a69'
     successor=json.loads(gzip.decompress(successor_raw))
     assert set(successor['top_changes'])=={'privesc_catalog','privesc_techniques','inventories','inventory_coverage'}
     assert successor['before_catalog_sha256']==archived['before_catalog_sha256']
@@ -61,6 +61,16 @@ def combined_predecessor_catalog(value):
         key: change['before'] for key,change in archived['top_changes'].items()}
     assert prior['before_catalog_sha256']==successor['before_catalog_sha256']
     assert {key: change['before'] for key,change in prior['top_changes'].items()}=={
+        key: change['before'] for key,change in successor['top_changes'].items()}
+    # Later AWS exclusion lineage syncs replaced the recorded privesc after-state.
+    # The pinned successor names the link it superseded, which keeps the same
+    # reviewed before-state.
+    superseded_sha256=successor['superseded_successor_sha256']
+    superseded_raw=(Path(__file__).with_name('fixtures')/f'current_privesc_catalog_successor_20261022-{superseded_sha256}.json.gz').read_bytes()
+    assert hashlib.sha256(superseded_raw).hexdigest()==superseded_sha256
+    superseded=json.loads(gzip.decompress(superseded_raw))
+    assert superseded['before_catalog_sha256']==successor['before_catalog_sha256']
+    assert {key: change['before'] for key,change in superseded['top_changes'].items()}=={
         key: change['before'] for key,change in successor['top_changes'].items()}
     candidate=deepcopy(value)
     for row in candidate['checks']:row.pop('clarity_evaluation_contract',None)

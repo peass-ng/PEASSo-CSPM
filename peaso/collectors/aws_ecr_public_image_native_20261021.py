@@ -234,9 +234,9 @@ def inspect(target, native, *, registry_factory=None, scanner=None, cancel=lambd
                                 secret_gaps.add('binary_file_uninspected')
                                 return
                             overlap=(overlap+chunk)[-OVERLAP:]
-                    archive.visit_files(image,manifest,config,layers,lambda *_:None,check,partial_callback=visit)
+                    archive.visit_files(image,manifest,config,layers,lambda *_:None,check,partial_callback=visit,stage=trivy_enabled)
                 else:
-                    archive.validate(image,manifest,config,layers,check)
+                    archive.validate(image,manifest,config,layers,check,stage=trivy_enabled)
                 if trivy_enabled:
                     if trivy_runner is None:
                         from peaso import trivy_container_runner_20261020 as trivy
@@ -247,9 +247,11 @@ def inspect(target, native, *, registry_factory=None, scanner=None, cancel=lambd
                         if native.bind(target) != before:
                             raise Incomplete('native_image_changed')
                         return image
+                    # Pinned Trivy reads an --input tar only in docker-save layout; an
+                    # OCI layout tar fails ("index.json: not a directory") and stays UNKNOWN.
                     report = trivy_runner(image,manifest,config,layers,
                         native_verifier=verify,enabled=True,db_cache=trivy_db,cli=trivy_cli or default_cli,
-                        cancel=check,archive_format='oci' if decoded['mediaType']==archive.OCI else 'docker')
+                        cancel=check,archive_format='docker')
                     if type(report) is not dict or type(report.get('findings')) is not list:
                         raise Incomplete('vulnerability_result_unavailable')
                     vulnerability_results.append(report)

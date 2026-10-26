@@ -35,6 +35,9 @@ RUN pip install --no-cache-dir --constraint /app/infra/aws/sdk-constraints.txt '
 # Fargate copies ownership from this exact image volume path. Without VOLUME,
 # its empty bind mount is root-owned 0755 and the non-root worker cannot write.
 VOLUME ["/tmp"]
+# PYTHONDONTWRITEBYTECODE stops every short-lived worker process from writing
+# bytecode, so without this each one recompiles all of /app/peaso on import.
+RUN python -m compileall -q -j 0 /app/peaso /app/bluepeass /app/scripts
 USER 10001:10001
 RUN aws --version && kubectl version --client=true && gcloud --version && az version
 # Workers prove pinned check sources once per process. Run every repeated

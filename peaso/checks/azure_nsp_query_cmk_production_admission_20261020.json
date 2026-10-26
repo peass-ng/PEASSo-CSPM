@@ -40,7 +40,7 @@
       "registered": false
     }
   ],
-  "prepared_receipt_sha256": "1dbe57d0210ef8dcf1ce9dbc6f645e0e8dd3b8e29b877211b267ac17c9a32c99",
+  "prepared_receipt_sha256": "e878f811e7af3dc11e84dac2a18fb40c542d6606850c3b9a3de2995087fb741d",
   "helper_path": "peaso/checks/azure_nsp_query_cmk_production_admission_20261020.py",
   "helper_sha256": "edd3672071dc175c0f1563164c684100c184c6740abfe5e72f37c2746eb3795f",
   "functions": {

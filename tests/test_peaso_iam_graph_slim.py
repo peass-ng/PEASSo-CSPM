@@ -125,8 +125,11 @@ def test_least_privilege_findings_come_from_complete_grants_on_demo_snapshots(pr
     snap = collect_snapshot({"provider": provider, "options": {"demo": True}})
     report = hydrate_frameworks(evaluate_snapshot(snap, include_not_applicable=True))
     # The engine names the reason of every UNKNOWN finding; the analyzer output gets the same contract.
-    direct = [f for f in normalize_unknown_reasons(analyze_findings(snap)) if f["category"] == "least_privilege"]
+    # Manual-only grant reviews stay library/archive identities and are excluded from scans.
+    from peaso.analysis import MANUAL_ONLY_ANALYSIS_CHECK_IDS
+    direct = [f for f in normalize_unknown_reasons(analyze_findings(snap, include_manual_only=False)) if f["category"] == "least_privilege"]
     reported = [f for f in report["findings"] if f["category"] == "least_privilege" and f["check_id"].startswith("analysis.")]
+    assert not any(f["check_id"] in MANUAL_ONLY_ANALYSIS_CHECK_IDS for f in reported)
     key = lambda f: (f["id"], f["status"], f["severity"], json.dumps(f["evidence"], sort_keys=True, default=str))
     assert sorted(map(key, reported)) == sorted(map(key, direct))
     inventory = {r["id"]: r for r in resources(snap)}

@@ -301,7 +301,7 @@ print("8 serialized case branches replayed")'''
                    'vulnerability_id': 'CVE-2026-1001', 'package': 'pkg', 'version': '1'}
         def runner(identity, manifest, config, layers, **kwargs):
             self.assertEqual(kwargs['native_verifier'](), identity)
-            self.assertEqual(kwargs['archive_format'], 'oci')
+            self.assertEqual(kwargs['archive_format'], 'docker')
             return {'status': 'FAIL', 'complete': False, 'findings': [finding]}
         result = namespace['inspect'](self.target, lambda _: deepcopy(self.pod), allowed_hosts=['ghcr.io'],
             registry_factory=lambda h, r, c, **kw: namespace['RegistryReader'](h, r, c, open_https=FakeWire(self.blobs), **kw),

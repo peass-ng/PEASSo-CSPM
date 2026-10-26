@@ -810,7 +810,8 @@ def test_actual_findings_file_contains_only_failed_checks_for_reviewer(stage, mo
         returncode = 0
         def __init__(self, argv, *, cwd, **kw):
             root = Path(cwd)
-            written = json.loads((root/'findings.json').read_text())['items']
+            document = json.loads((root/'findings.json').read_text())
+            written = [{**document.get('checks', {}).get(row.get('check_id'), {}), **row} for row in document['items']]
             assert not (root/'evidence.json').exists()
             assert len(written) == 1
             assert written[0]['id'] == ('h1' if stage == 'hardening' else 'e1')
@@ -840,9 +841,15 @@ def test_combined_findings_file_keeps_each_checks_own_evidence(stage, monkeypatc
             root = Path(cwd)
             assert not (root/'evidence.json').exists()
             document = json.loads((root/'findings.json').read_text())
-            assert set(document) == {'scan', 'items'}
+            assert set(document) == {'scan', 'checks', 'items'}
             assert set(document['scan']) == {'provider', 'snapshot_id', 'created_at'}
-            first, second = document['items']
+            # The shared control definition is written once; each item keeps
+            # its own evidence and resources and expands back exactly.
+            shared, = document['checks'].values()
+            assert 'evidence' not in shared and 'supporting_resources' not in shared
+            first, second = ({**document['checks'][row['check_id']], **row} for row in document['items'])
+            assert {key: first[key] for key in pipeline.SHARED_CHECK_FIELDS if key in rows[0]} == \
+                {key: rows[0][key] for key in pipeline.SHARED_CHECK_FIELDS if key in rows[0]}
             assert first['evidence'] == rows[0]['evidence']
             assert second['evidence'] == rows[1]['evidence']
             assert {r['id'] for r in first['supporting_resources']} == {'r1', 'policy1'}

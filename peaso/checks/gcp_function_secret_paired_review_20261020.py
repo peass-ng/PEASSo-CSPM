@@ -108,7 +108,8 @@ def _evaluate(item, index):
 def evaluate(item, index):
     try:
         from peaso.gcp_function_secret_pair_source_20261020 import reviewed_inputs
-        reviewed_inputs()
+        from peaso.source_attestation_mode import prove_once
+        prove_once(reviewed_inputs)
     except (RuntimeError, OSError, ValueError, TypeError, AttributeError, KeyError):
         return 'UNKNOWN', {'observed': 'Reviewed function literal scan sources are unavailable or changed; the result could not be assessed.'}
     return _evaluate(item, index)

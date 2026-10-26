@@ -1,5 +1,5 @@
 {
-  "canonical_bridge_sha256": "5889b51b210bf8a45f3eb07c5b4a027a2fceec9562e5b6baed8c2ba614d27f1e",
+  "canonical_bridge_sha256": "43847dfed6088003af66b008713495e49cbd08ad131e3e25c8566a6354a99afd",
   "canonical_delta_sha256": "6f803d15053fdccf982ab20883b76a72a821ef98f703192eba25c3a05695d6d6",
   "live_functions": {
     "_bridge_source": {
@@ -39,7 +39,7 @@
       "kwdefaults": "None"
     }
   },
-  "normalized_module_sha256": "3a7ac4aa5911bedf21b0d26353f3cd7818fac4f6a19030df74095ec910f12d62",
+  "normalized_module_sha256": "2a4db19d5739615b667079ada5111093302db847de7c7205678741bdd618fe98",
   "private_manifest_sha256": "51ef62b67de055de2a048dd9702d7a0dc163dc8da8c2f8f26c438ab00114ea69",
   "private_roster": [
     "peaso/collectors/aws_additional_secret_indicators.py",

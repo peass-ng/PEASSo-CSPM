@@ -43,7 +43,7 @@
       },
       "runtime_receipt": {
         "path": "docs/check-review/aws-workload-command-runtime-20261020.json",
-        "sha256": "b4bc249947fb0ec67f24a59ba55df4ac8baa5f674d9055d904631394fec4d791"
+        "sha256": "51c78497fb81e2c9d988753cb3ff7e44820cbe708cc59842c868db9eee5b3409"
       },
       "runtime_unique_passing_nodes": 37,
       "native_status_contracts": {
@@ -78,7 +78,7 @@
   ],
   "runtime_receipt": {
     "path": "docs/check-review/aws-workload-command-runtime-20261020.json",
-    "sha256": "b4bc249947fb0ec67f24a59ba55df4ac8baa5f674d9055d904631394fec4d791"
+    "sha256": "51c78497fb81e2c9d988753cb3ff7e44820cbe708cc59842c868db9eee5b3409"
   },
   "root_owned_remaining": [
     "Root final concise native/merged renderer acceptance",

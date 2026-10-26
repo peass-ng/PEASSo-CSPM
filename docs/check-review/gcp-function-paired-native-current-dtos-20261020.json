@@ -7,8 +7,8 @@
     "peaso/server/validation.py": "96648403f077659d73c188c434f8c3dfc26d1b97b429b35f9361d3a66933456b",
     "peaso/checks/__init__.py": "6f5b40f4339d8f7ac39b98b93e517e4d47c7fb7632d0517a8a38d81ecad3a005",
     "peaso/collectors/gcp.py": "d7f5916616c6ba871fd82164fb74f139132bfa9f8a14967e1c2360937e5dd161",
-    "peaso/checks/gcp_function_secret_paired_admission_20261020.json": "eb01e33477b352960ce74d99c82a9344fcc5ff3bbef80f86d8c6199c25dbaf6e",
-    "peaso/checks/gcp_function_secret_page_admission_20261020.json": "a9cf3dd72f0745e2c61cb9ace44afdbaa9dc06ba0e02a7a3ffd4c253d2d95b23",
+    "peaso/checks/gcp_function_secret_paired_admission_20261020.json": "2db48941c86ab55512285eb22f591eb17bf50be7b1a1cf099d7bd134d9393622",
+    "peaso/checks/gcp_function_secret_page_admission_20261020.json": "0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9",
     "peaso/checks/azure_function_package_shared_successor_20261020.json": "ce6fa301314a9be2e843502138f3c675506c850a1c3f10458eb6ebd5c2aab7f0",
     "peaso/checks/azure_function_package_shared_successor_20261020.py": "8f7f8e308f26cd660accddf628ca229610136fabb15bebaf2bb02e7812123834"
   },

@@ -267,6 +267,15 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
             next_heartbeat = time.time() + lease_seconds / 3
         return not active
 
+    prewarm = getattr(worker, "prewarm", None)
+    if callable(prewarm):
+        # Final evaluation's one-time engine import and source proof overlaps
+        # collection on this otherwise idle analyzer instead of following it.
+        try:
+            provider = json.loads(worker.store.job(tenant, ident)["connector"])["data"].get("provider")
+        except Exception:  # noqa: BLE001 - an unknown provider only skips the warm evaluation
+            provider = None
+        prewarm(provider)
     try:
         while not worker.stopping.is_set():
             job = worker.store.job(tenant, ident)
@@ -336,4 +345,7 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
             worker.stopping.wait(poll_seconds)
     finally:
         _stop_active(active)
+        discard = getattr(worker, "discard_prewarmed", None)
+        if callable(discard):
+            discard()
     return worker.store.job(tenant, ident)["status"]

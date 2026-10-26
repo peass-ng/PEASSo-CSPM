@@ -41,27 +41,26 @@ def _reject_constant(value):
 
 
 def metadata_get(transport, url):
-    """Strict metadata GET using the existing AzureTransport authentication.
+    """Strict metadata GET through the existing AzureTransport read path.
 
-    AzureTransport.request currently discards HTTP status and accepts duplicate
-    JSON fields. This uninstalled adapter preserves those response boundaries
-    without changing shared transport or obtaining another credential.
+    The transport returns the exact 200 response bytes (no redirects) and
+    shares them with identical reads in this scan. This adapter keeps its own
+    response budget and rejects duplicate or nonfinite JSON fields.
     """
     from . import azure
     parsed = urlsplit(url)
     if (parsed.scheme != 'https' or parsed.netloc != 'management.azure.com'
             or parsed.username or parsed.password or parsed.fragment):
         raise ValueError('untrusted ARM metadata origin')
-    token = transport.token(azure.ARM)
-    request = azure.Request(url, method='GET', headers={
-        'Authorization': 'Bearer ' + token, 'Accept': 'application/json'})
-    with azure.build_opener(azure._NoRedirect()).open(request, timeout=20) as response:
-        if response.status != 200:
-            raise ValueError('native metadata HTTP response incomplete')
-        raw = response.read(MAX_BYTES + 1)
-        if len(raw) > MAX_BYTES:
-            raise ValueError('native metadata response budget exceeded')
-        return json.loads(raw, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    try:
+        raw = transport.raw_get(url, audience=azure.ARM)
+    except azure.AzureReadError as exc:
+        if exc.code == 'incomplete_native_response':
+            raise ValueError('native metadata HTTP response incomplete') from None
+        raise
+    if len(raw) > MAX_BYTES:
+        raise ValueError('native metadata response budget exceeded')
+    return json.loads(raw, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
 
 
 def scope_id(value):

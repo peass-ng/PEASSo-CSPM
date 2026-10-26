@@ -22,6 +22,12 @@ def _known_types(provider):
         # reviewed adapters fold them into public native inventories.
         native.update({'_native_vpn_connection_rg', '_native_access_review_instance',
                        '_native_access_review_decision'})
+        # The opt-in native disclosure reader emits these exact envelopes.
+        from .collectors.azure_disclosure_native import KINDS
+        native.update(KINDS)
+    # The privesc evaluator consumes this exact reviewed challenge contract
+    # (docs/peaso-privesc-schema.md); it reaches scans in offline snapshots.
+    native.add(provider + '_privesc_challenge_evidence')
     from .collectors.bulk_evidence import ALIASES, declared_types
     return frozenset(native | declared_types(provider) | set(ALIASES[provider]))
 

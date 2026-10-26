@@ -32,7 +32,7 @@ _DATAFLOW_ADMISSION = importlib.import_module(__package__ + '.gcp_dataflow_batch
 _DATAFLOW_FUNCTIONS = dict(_DATAFLOW_ADMISSION._FUNCTIONS)
 _DATAFLOW_REVIEWED_INPUTS = _DATAFLOW_FUNCTIONS[_DATAFLOW_ADMISSION.__name__ + ':reviewed_inputs']
 RECEIPT = 'azure_jit_parent_type_shared_successor_20261020.json'
-RECEIPT_SHA256 = '1e0a7fa1630680799025fe1ac012e75e82bd847a4c68785702029d9c67d9427a'
+RECEIPT_SHA256 = 'bf2cefbc561808e7001f3a0391f0b48e3e24b085c4cfae91c9c98dceb99943f7'
 
 
 def _self(raw):

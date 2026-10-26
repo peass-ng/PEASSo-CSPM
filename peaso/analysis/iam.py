@@ -358,12 +358,28 @@ def _grants(resource):
                 from bluepeass.k8s_risks import PermissionKey, classify_permission
                 # Resource and verb declarations are individually classified;
                 # no graph expansion into escalation prerequisites or targets.
+                # The classification is a pure function of the key and the canonical rules,
+                # so equal keys are classified once per analysis context.
+                context = _CONTEXT.get()
+                memo = None if context is None else context["derivations"].setdefault(
+                    ("snapshot", "k8s_permission_levels", classify_permission), {})
                 for verb in as_list(rule.get("verbs")):
                     for group in as_list(rule.get("apiGroups", [""])):
                         for res in as_list(rule.get("resources")):
                             base, _, sub = res.partition("/")
-                            level, _ = classify_permission(PermissionKey(verb, group=group, resource=base,
-                                subresource=sub, namespace=data.get("metadata", {}).get("namespace", "")))
+                            key = PermissionKey(verb, group=group, resource=base,
+                                subresource=sub, namespace=data.get("metadata", {}).get("namespace", ""))
+                            try:
+                                level = memo[key] if memo is not None else None
+                            except (KeyError, TypeError):
+                                level = None
+                            if level is None:
+                                level, _ = classify_permission(key)
+                                if memo is not None:
+                                    try:
+                                        memo[key] = level
+                                    except TypeError:
+                                        pass
                             levels.append(level)
             except (ImportError, OSError, ValueError):
                 pass

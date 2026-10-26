@@ -21,7 +21,7 @@ from peaso.collectors import gcp_workbench_head3_projection_20261020 as projecti
 from peaso.collectors import gcp
 
 RECEIPT = 'gcp_workbench_head3_admission_20261020.json'
-RECEIPT_SHA256 = '2aa8483b6ba2583ab80a261c34e15cacdcf31e79e995210f180e4debd6a65179'
+RECEIPT_SHA256 = '2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13'
 CHECK_IDS = (
     'gcp.review.workbench.terminal_access_disabled',
     'gcp.review.workbench.file_download_disabled',
@@ -182,7 +182,8 @@ def reviewed_inputs(root=None, *, verify_cases=True):
 
 def _checked(cid, item, index):
     try:
-        reviewed_inputs(verify_cases=False)
+        from peaso.source_attestation_mode import prove_once
+        prove_once(reviewed_inputs, verify_cases=False)
         return _CANDIDATE_FUNCTIONS[cid](item, index)
     except Exception:
         return 'UNKNOWN', {'observed': 'The reviewed Workbench configuration predicate or its source bindings were unavailable.'}

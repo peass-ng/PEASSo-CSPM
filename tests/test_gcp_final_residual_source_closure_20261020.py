@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = 'tests/fixtures/gcp-final-residual-source-closure-20261020.json'
-SHA256 = 'e2a41a97c2308e4850935f2e491f267ff2ba395cb196a8f6a44ad0c1a26bb434'
+SHA256 = 'd7e42eb82722d28c9b22c3abc338b9ac361e0b754c720d425ff4f320d5d44b23'
 
 
 def test_exact_historical_tests_and_current_source_fixture_closure():

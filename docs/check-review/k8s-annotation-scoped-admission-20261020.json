@@ -261,7 +261,7 @@
           {
             "definitions": 10,
             "path": "peaso/checks/k8s_managed.py",
-            "verified_unit_sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+            "verified_unit_sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
           },
           {
             "definitions": 9,
@@ -410,7 +410,7 @@
           {
             "definitions": 10,
             "path": "peaso/checks/k8s_managed.py",
-            "verified_unit_sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+            "verified_unit_sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
           },
           {
             "definitions": 9,
@@ -559,7 +559,7 @@
           {
             "definitions": 10,
             "path": "peaso/checks/k8s_managed.py",
-            "verified_unit_sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+            "verified_unit_sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
           },
           {
             "definitions": 9,
@@ -708,7 +708,7 @@
           {
             "definitions": 10,
             "path": "peaso/checks/k8s_managed.py",
-            "verified_unit_sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+            "verified_unit_sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
           },
           {
             "definitions": 9,
@@ -857,7 +857,7 @@
           {
             "definitions": 10,
             "path": "peaso/checks/k8s_managed.py",
-            "verified_unit_sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+            "verified_unit_sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
           },
           {
             "definitions": 9,
@@ -892,13 +892,13 @@
   "new_scoped_receipt": {
     "bytes": 36996,
     "path": "/Users/carlospolop/git/Blue-CloudPEASS/peaso/checks/k8s_annotation_native_admission_scoped_20261020.json",
-    "sha256": "20db2a27e82c4bf2ef7ab2c0827064c4310fc91187046f32ed51288624a87496"
+    "sha256": "f8dc3b5ca12836f3aa77234b613331be7c724a18e32581439bb4fc2e1f4491e9"
   },
   "original_CASES_unchanged": true,
   "previous_report_unchanged": {
     "bytes": 79543,
     "path": "docs/check-review/k8s-annotation-native-admission-portability-20261020.json",
-    "sha256": "77a1f09d006e763343e22d8dcc0c61dd4acb00420596aea23e5439eb3440c3e5"
+    "sha256": "8cfff12c6ceffd65617d3ddfbffdf6e9b481b04df5fa31edf6f7a5a230e85f3f"
   },
   "prior_cases": 445,
   "probe_successor": {
@@ -923,7 +923,7 @@
       "bytes": 29829,
       "gzip_sha256": "edc984c6ef8edf7410843752fef6e00359afce50d022c7587b57b79e700dc21f",
       "retained_gzip": "docs/check-review/k8s-annotation-admission-scoped-lineage-20261020/k8s_annotation_native_admission_portable_20261020.json.pre-scoped.gz",
-      "sha256": "865e60a2c3cb5fd086197d6150e5b9a88206ddaf5c6009ec98d969b8873a47a2",
+      "sha256": "0f7ef564ac8c726b92ed996a7977dbc4f75d5bb48d5f7f995d86c95e5753eca1",
       "source": "peaso/checks/k8s_annotation_native_admission_portable_20261020.json"
     },
     {
@@ -937,7 +937,7 @@
       "bytes": 79543,
       "gzip_sha256": "a04696c7681bc0491de102c0efdba8d534f1f80de0e7037705ba29a6027b15e4",
       "retained_gzip": "docs/check-review/k8s-annotation-admission-scoped-lineage-20261020/k8s-annotation-native-admission-portability-20261020.json.pre-scoped.gz",
-      "sha256": "77a1f09d006e763343e22d8dcc0c61dd4acb00420596aea23e5439eb3440c3e5",
+      "sha256": "8cfff12c6ceffd65617d3ddfbffdf6e9b481b04df5fa31edf6f7a5a230e85f3f",
       "source": "docs/check-review/k8s-annotation-native-admission-portability-20261020.json"
     },
     {
@@ -1054,7 +1054,7 @@
     },
     "peaso/checks/k8s_annotation_indicators_review_20261020.py": "61e9a76239a9cb63e1abcbe25c6b3a2e7a8fbd89fd27cc0365617bb8856e6df6",
     "peaso/checks/k8s_annotation_native_admission_20261020.py": "3525d3327a92a109358988faedc541e3cf02bf959abd0d337dca90a776bdfcc7",
-    "peaso/checks/k8s_managed.py": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b",
+    "peaso/checks/k8s_managed.py": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e",
     "peaso/collectors/k8s.py": {
       "functions": {
         "_native": {

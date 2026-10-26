@@ -14,7 +14,9 @@ import threading
 import time
 from collections import defaultdict
 
+from .gc_pause import gc_paused
 from .snapshot import make_snapshot, validate, seal
+from .settle_memo import settle_token
 
 
 # Adaptive quiet period after a cumulative report pass (CPU seconds factor, cap).
@@ -117,6 +119,8 @@ class CheckpointSession:
         self.sequence = 0
         self.next_sequence = 0
         self.pending = {}
+        # (type, scope) -> (raw settle token, public envelope it produced).
+        self.settle_memo = {}
         self.pending_bytes = 0
         self.pending_since = None
         self.batch_size = max(1, int(batch_size))
@@ -345,7 +349,10 @@ class CheckpointSession:
         with private_evidence_lock:
             raw = self._snapshot([envelope], sequence=sequence)
             raw['metadata']['incremental']['data_revision'] = self.collection_revisions[(envelope['type'], envelope['scope'])]
-            delta = validate(self.public_snapshot(seal(raw)))
+            # raw and each public result are fresh documents owned here: seal
+            # and validate adopt them instead of copying the inventory again.
+            with gc_paused():
+                delta = validate(self.public_snapshot(seal(raw, owned=True)), owned=True)
         try:
             self.on_checkpoint(delta, None, sequence)
         except BaseException as exc:
@@ -358,14 +365,26 @@ class CheckpointSession:
             raise TypeError("collection envelope must be an object")
         from .secret_evidence import _lock as private_evidence_lock
         with private_evidence_lock:
+            # Collectors re-emit every settled envelope after their finalizers.
+            # An identical native envelope under the same public-state token
+            # (connector credentials and private-evidence state) yields the
+            # same public envelope with no new side effect: skip rebuilding it.
+            token = settle_token(self.public_snapshot, envelope)
+            if token is not None:
+                memo = self.settle_memo.get(token[0])
+                current = self.pending.get(token[0], (None, self.collections.get(token[0]), 0))[1]
+                if memo is not None and memo[0] == token and current is not None and memo[1] is current:
+                    return self.next_sequence
             # make_snapshot owns the independent structural copy. Copying the
             # same native envelope before that repeated a complete traversal.
             one = self._snapshot([envelope], sequence=self.next_sequence + 1)
-            one = validate(self.public_snapshot(one))
+            with gc_paused():
+                one = validate(self.public_snapshot(one), owned=True)
         public_envelope = one["collections"][0]
         key = (public_envelope["type"], public_envelope["scope"])
         previous = self.pending.get(key, (None, self.collections.get(key), 0))[1]
         if previous == public_envelope:
+            self._remember_settle(token, key, previous)
             return self.next_sequence
         self.next_sequence += 1
         size = len(json.dumps(public_envelope, separators=(',', ':'), ensure_ascii=False).encode())
@@ -375,10 +394,17 @@ class CheckpointSession:
         if prior:
             self.pending_bytes -= prior[2]
         self.pending[key] = (self.next_sequence, public_envelope, size)
+        self._remember_settle(token, key, public_envelope)
         self.pending_bytes += size
         if len(self.pending) >= self.batch_size or self.pending_bytes >= self.batch_bytes:
             self._flush_pending()
         return self.next_sequence
+
+    def _remember_settle(self, token, key, public_envelope):
+        if token is None or token[0] != key:
+            self.settle_memo.pop(key, None)
+        else:
+            self.settle_memo[key] = (token, public_envelope)
 
     def _flush_pending(self):
         """Commit one immutable batch before advancing the visible watermark.
@@ -393,15 +419,19 @@ class CheckpointSession:
         raw = self._snapshot([row for _, row, _ in entries], sequence=end)
         raw['metadata']['incremental']['batch_revisions'] = [revision for revision, _, _ in entries]
         from .secret_evidence import _lock as private_evidence_lock
-        with private_evidence_lock:
-            batch = validate(self.public_snapshot(seal(raw)))
+        with private_evidence_lock, gc_paused():
+            batch = validate(self.public_snapshot(seal(raw, owned=True)), owned=True)
         try:
             self.on_checkpoint(batch, None, end)
         except BaseException as exc:
             self.error = exc
             raise
-        for (revision, _, _), row in zip(entries, batch['collections']):
+        for (revision, pending_row, _), row in zip(entries, batch['collections']):
             key = (row['type'], row['scope'])
+            memo = self.settle_memo.get(key)
+            if memo is not None and memo[1] is pending_row:
+                # The committed row is this pending envelope's validated copy.
+                self.settle_memo[key] = (memo[0], row)
             self.collections[key] = row
             self.collection_revisions[key] = revision
             if self.provider == 'azure' and row['type'] == 'subscription' and '*' in self.requested_scopes:
@@ -479,8 +509,8 @@ class CheckpointSession:
             cpu_started = time.thread_time()
             raw = self._snapshot(list(collections.values()), sequence=sequence, sections=sections)
             from .secret_evidence import _lock as private_evidence_lock
-            with private_evidence_lock:
-                snapshot = validate(self.public_snapshot(raw))
+            with private_evidence_lock, gc_paused():
+                snapshot = validate(self.public_snapshot(raw), owned=True)
             from .engine import evaluate_snapshot
             report = evaluate_snapshot(snapshot, categories=self.categories, checks=ready,
                                        frameworks=self.frameworks, include_not_applicable=False,

@@ -50696,7 +50696,7 @@
       "qualname": "apply",
       "sha256": "0ab4b4bd07387a4077c5f1cefd0a4a983ccdea51d76056cc2fc317f0c22ab6d8",
       "body": "def apply(kind, item, index, status, evidence):\n    \"\"\"Re-label a non-passing native k8s result on a managed object as NOT_APPLICABLE.\"\"\"\n    if status not in ACTIONABLE:\n        return status, evidence\n    key = (id(item), id(index), kind)\n    cached = _CACHE.get(key)\n    if cached is not None and cached[0] is item and cached[1] is index:\n        reason = cached[2]\n    else:\n        reason = managed_reason(item, kind, index)\n        if len(_CACHE) > 50000:\n            _CACHE.clear()\n        _CACHE[key] = (item, index, reason)\n    if reason is None:\n        return status, evidence\n    return \"NOT_APPLICABLE\", {\"reason\": \"Provider- or control-plane-managed component; the customer cannot change it\",\n                              \"provider_managed\": True, \"managed_reason\": reason,\n                              \"underlying_status\": status, \"underlying_evidence\": evidence}\n",
-      "module_sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+      "module_sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
     },
     "peaso.checks.k8s_managed.managed_reason": {
       "path": "peaso/checks/k8s_managed.py",
@@ -50704,7 +50704,7 @@
       "qualname": "managed_reason",
       "sha256": "a076dc42cf8ce475b74e019e1bbd319b79a79c524bfd3cf25540719be0997d8e",
       "body": "def managed_reason(item, kind, index=None):\n    \"\"\"Why ``item`` (a native object of check ``kind``) is provider/control-plane managed, or None.\"\"\"\n    metadata = _metadata(item)\n    if not metadata or not isinstance(metadata.get(\"name\"), str):\n        return None\n    name, namespace = metadata[\"name\"], metadata.get(\"namespace\")\n    index = _mapping(index)\n    if kind == \"namespace\":\n        if name in SYSTEM_NAMESPACES:\n            return \"control-plane namespace \" + name\n        return _namespace_reason(name) or marker_reason(metadata)\n    reason = _namespace_reason(namespace) or marker_reason(metadata)\n    if reason:\n        return reason\n    if kind in RBAC_KINDS and name.startswith(RESERVED_RBAC_PREFIXES):\n        return \"reserved RBAC name prefix \" + name.split(\":\", 1)[0] + \":\"\n    if kind == \"configmap_metadata\" and name == \"kube-root-ca.crt\":\n        return \"root-ca-cert-publisher ConfigMap\"\n    if kind == \"service\" and namespace == \"default\" and name == \"kubernetes\":\n        # Only the Service object. Its EndpointSlice carries the API server's real address and port,\n        # which cluster-level controls (secure port) still evaluate.\n        labels = _mapping(metadata.get(\"labels\"))\n        if labels.get(\"component\") == \"apiserver\" and labels.get(\"provider\") == \"kubernetes\":\n            return \"API server Service\"\n    if namespace in SYSTEM_NAMESPACES:\n        if kind == \"serviceaccount\" and (name == \"default\" or (namespace == \"kube-system\" and name in CONTROLLER_SERVICE_ACCOUNTS)):\n            return \"control-plane ServiceAccount \" + namespace + \"/\" + name\n        if kind in WORKLOAD_TEMPLATE_KINDS:\n            return _owner_reason(metadata, index) or (_mirror_pod_reason(item, metadata, index) if kind == \"pod\" else None)\n        return None\n    if kind in WORKLOAD_TEMPLATE_KINDS:\n        return _owner_reason(metadata, index)\n    return None\n",
-      "module_sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+      "module_sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
     },
     "peaso.checks.k8s_managed.marker_reason": {
       "path": "peaso/checks/k8s_managed.py",
@@ -50712,7 +50712,7 @@
       "qualname": "marker_reason",
       "sha256": "4c21d012281f5d87b8b5aed8fe45a62c9d1c862ab9c7161a8264bf7d883bc2cb",
       "body": "def marker_reason(metadata):\n    \"\"\"A managed marker carried by the object's own labels or annotations.\"\"\"\n    labels = _mapping(metadata.get(\"labels\"))\n    annotations = _mapping(metadata.get(\"annotations\"))\n    mode = labels.get(\"addonmanager.kubernetes.io/mode\")\n    if isinstance(mode, str) and mode in ADDON_MODES:\n        return \"label addonmanager.kubernetes.io/mode=\" + mode\n    if labels.get(\"kubernetes.io/bootstrapping\") == \"rbac-defaults\":\n        return \"label kubernetes.io/bootstrapping=rbac-defaults\"\n    for source, values in ((\"label\", labels), (\"annotation\", annotations)):\n        value = values.get(GKE_COMPONENT_MARKER)\n        if isinstance(value, str) and value:\n            return source + \" \" + GKE_COMPONENT_MARKER + \"=\" + value\n    for key in sorted(EKS_LABELS | AKS_LABELS):\n        value = labels.get(key)\n        if isinstance(value, str) and value:\n            return \"label \" + key + \"=\" + value\n    return None\n",
-      "module_sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+      "module_sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
     },
     "peaso.collectors.k8s.collect": {
       "path": "peaso/collectors/k8s.py",

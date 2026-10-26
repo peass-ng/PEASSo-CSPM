@@ -162,7 +162,7 @@
       "qualname": "AzureTransport.__init__",
       "path": "peaso/collectors/azure.py",
       "line": 877,
-      "sha256": "701c27ca9c554e4cfa5d67cd4ffe204507f15c8f6140866c77ea3264ac395f38"
+      "sha256": "dfc016bae2d0d2063538a53e34c63a26c7689acae67c34e273e984ecb230a11d"
     },
     {
       "module": "peaso.collectors.azure",

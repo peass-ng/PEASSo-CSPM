@@ -14,6 +14,7 @@ from peaso.checks.catalog import description_for, proposal_provenance_for
 from peaso.checks.gcp_evidence_explanations import CATALOG, evidence_summary
 from peaso.finding_types import type_for
 from peaso.check_services import service_for
+from tests.retained_evidence_ledgers_20261022 import REPINNED, ledger_bytes
 
 CID='gcp.review.workbench.selected_referenced_source_secret_indicators_20261020'
 RECEIPT=Path('docs/check-review/workbench-current-acceptance-20261020.json')
@@ -36,7 +37,7 @@ AWS_COMMAND_ID = 'aws.review.workload.selected_command_literal_secret_indicators
 JOB_ID = 'gcp.review.cloudrun_job.declared_image_secret_indicators'
 THEMATIC_IDS = {AWS_COMMAND_ID, JOB_ID}
 THEMATIC_RECEIPT = Path('docs/check-review/commands-job-current-ledger-source-conservation-20261020.json')
-THEMATIC_RECEIPT_SHA256 = '47c78ae99de0c8b609b921fe5f23e5eb74b23c200f38f86558457e452e72dd72'
+THEMATIC_RECEIPT_SHA256 = '4cb0fcb32e316e310b8a3076d684444e03feea99c78ebef991c110785d85f1d9'
 THEMATIC_PREDECESSORS = Path('tests/fixtures/commands_job_current_acceptance_predecessors_20261020.json.gz')
 THEMATIC_PREDECESSORS_SHA256 = '0cb85c904f2ac18b7755bccc8bc5c7a2e6ba3971cfb89130d98d244fbdfd71af'
 
@@ -67,7 +68,7 @@ def thematic_predecessors():
 
 
 def checked_thematic_reference(reference):
-    raw = Path(reference['path']).read_bytes()
+    raw = ledger_bytes('.', reference['path'], reference['sha256'])
     assert hashlib.sha256(raw).hexdigest() == reference['sha256'], reference['path']
     return json.loads(raw)
 
@@ -287,7 +288,9 @@ def test_head3_actual_predicates_master_rows_and_runtime50_proof(cid):
     assert row['current_goal_status'] == 'accepted_local_bounded_native_review'
     assert row['current_bound_predicate_sha256'] == proof['body_sha256']
     assert row['bound_predicate_qualname'] == proof['qualname']
-    assert row['source_sha256'] == proof['source_sha256']
+    # checks.csv rows are frozen; a reviewed later re-pin of this source is recorded in REPINNED.
+    repinned = {after: before for before, after, _ in REPINNED['docs/evidence-reviews/gcp.json']}
+    assert row['source_sha256'] == repinned.get(proof['source_sha256'], proof['source_sha256'])
     assert description_for(cid)['description']
     assert proposal_provenance_for(cid)['signed_resource_kind'] == current[cid].kind
 

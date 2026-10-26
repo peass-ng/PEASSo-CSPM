@@ -25,7 +25,7 @@
       "reason": "Explicit consumer successor validates additive real scan provenance before copying original predicate inputs; original sources/admission/nativegzip unchanged."
     },
     "receipt": "peaso/checks/azure_function_settings_runtime_admission_20261020.json",
-    "receipt_sha256": "39c99db8cab98e9814e58fe4d4fa634b5f16974eaa80f4ffa101e78781efc589"
+    "receipt_sha256": "178950d8db8913f2fd070240139c0c467fbd8fc105cd1d2d973fcda98f6afab3"
   },
   "authorization": "Exact named telemetry/runtime check(s) AND content_secret_scans=true AND1\u20134 exact native site ARM IDs in explicit1\u20138 subscription scopes; slots/custom hosts/URLs rejected before credentials. Defaults/category/framework/inventory/private-kind or private-check spoof cannot authorize settings reads. No detectors for configuration declarations.",
   "bounds": {
@@ -134,11 +134,11 @@
     },
     {
       "path": "peaso/checks/azure_function_settings_runtime_admission_20261020.py",
-      "sha256": "788020c5ecd8e35e610ad2cd141c2f75e54f722b6894afd334fd2cb07d172ea8"
+      "sha256": "025e27685babc296e2a3aca56af2789a5ed26f386d50a3b2a5d3c54164c01ebf"
     },
     {
       "path": "peaso/checks/azure_function_settings_runtime_admission_20261020.json",
-      "sha256": "39c99db8cab98e9814e58fe4d4fa634b5f16974eaa80f4ffa101e78781efc589"
+      "sha256": "178950d8db8913f2fd070240139c0c467fbd8fc105cd1d2d973fcda98f6afab3"
     },
     {
       "path": "peaso/checks/azure_function_settings_runtime_cases_20261020.json",
@@ -415,7 +415,7 @@
       "original_line": 877,
       "path": "peaso/collectors/azure.py",
       "qualname": "AzureTransport.__init__",
-      "sha256": "701c27ca9c554e4cfa5d67cd4ffe204507f15c8f6140866c77ea3264ac395f38",
+      "sha256": "dfc016bae2d0d2063538a53e34c63a26c7689acae67c34e273e984ecb230a11d",
       "unchanged": true
     },
     {
@@ -482,7 +482,7 @@
   ],
   "prior_source_matrix": {
     "path": "docs/check-review/azure-function-settings-declarations-native-review-20261020.json",
-    "sha256": "f77e9e0f6c185021a2cb8004040a1e705c4396bdff1d6cbb52c98199e76121e1"
+    "sha256": "164b72544edbb5cf4d838c11ec966238ef551297aeb4aac1b2fdb6edd2dcfd29"
   },
   "privacy_proofs": [
     "Native DEBUG credential/content/error output suppressed, filters restored and other thread unaffected.",
@@ -664,7 +664,7 @@
     },
     {
       "path": "peaso/checks/azure_function_settings_admission_20261020.json",
-      "sha256": "740ade22ca008fc00b4faf062110d4ab6081c6bdd7dde0537e208d6dbf97dda1",
+      "sha256": "b78a07d72ab8ee89fe467aca868182bf62cc33fd89b41d89cce04ba3516292e5",
       "unchanged": true
     },
     {
@@ -729,7 +729,7 @@
     },
     {
       "path": "docs/check-review/azure-function-settings-declarations-native-review-20261020.json",
-      "sha256": "f77e9e0f6c185021a2cb8004040a1e705c4396bdff1d6cbb52c98199e76121e1",
+      "sha256": "164b72544edbb5cf4d838c11ec966238ef551297aeb4aac1b2fdb6edd2dcfd29",
       "unchanged": true
     },
     {

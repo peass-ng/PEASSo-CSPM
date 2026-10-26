@@ -13,7 +13,7 @@
   "schema_version": 1,
   "sources": {
     "peaso/checks/azure_function_package_head3_entrypoint_20261020.py": "e99814e477bbe6a54897b9f75e94061b38e2a280540364a5d2d4c977d7d584a2",
-    "peaso/checks/gcp_workbench_head3_admission_20261020.json": "2aa8483b6ba2583ab80a261c34e15cacdcf31e79e995210f180e4debd6a65179",
-    "peaso/checks/gcp_workbench_head3_admission_20261020.py": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d"
+    "peaso/checks/gcp_workbench_head3_admission_20261020.json": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13",
+    "peaso/checks/gcp_workbench_head3_admission_20261020.py": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c"
   }
 }

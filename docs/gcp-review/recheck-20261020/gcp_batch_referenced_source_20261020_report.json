@@ -9,7 +9,7 @@
   ],
   "input": {
     "path": "docs/gcp-review/recheck-20261020/current-source-reconciliation-20261020.json",
-    "sha256": "603b9e467d9bc7eda42ad11228c0078c9b98101aa049e81217da363f659f444b",
+    "sha256": "653e2198d2c126e01fa2f137ceed80b3e70d114c67b9574d58f1dc33e398ae72",
     "bytes": 1092641,
     "record": [
       "secret_surface_reconciliation",

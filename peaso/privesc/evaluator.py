@@ -523,12 +523,24 @@ class Evaluator:
     def _index(self):
         model = self.model
         self.by_key, self.universal = {}, set()
+        # Only requirement keys of compiled alternatives are ever looked up (_alt_sources). Models return one
+        # shared key set per equal permission key, so index each distinct set once for all of its sources.
+        wanted = {r.key for c in self.compiled for alt in c["alternatives"] for r in alt}
+        groups = {}
         for node in model.sources():
             keys, universal = model.possible(node)
             if universal:
                 self.universal.add(node.id)
-            for key in keys:
-                self.by_key.setdefault(key, set()).add(node.id)
+            if not isinstance(keys, (set, frozenset)):
+                keys = frozenset(keys)
+            group = groups.get(id(keys))
+            if group is None:
+                groups[id(keys)] = group = (keys, [])
+            group[1].append(node.id)
+        for keys, ids in groups.values():
+            hits = wanted.intersection(keys) if len(keys) > len(wanted) else [k for k in keys if k in wanted]
+            for key in hits:
+                self.by_key.setdefault(key, set()).update(ids)
         self.all_sources = {n.id: n for n in model.sources()}
         self.service_managed_sources = {sid for sid, n in self.all_sources.items() if model.managed_source(n)}
 
@@ -879,6 +891,7 @@ class Evaluator:
         target.removes_blockers technique lifts the blocker, reported in Evaluator.blocked). A dict verdict is per
         target id (targets missing from it are not affected)."""
         blocked = {}   # target id (or None: the whole reach) -> [(blocker, evidence)]
+        owned = False  # per-target downgrades update one private copy of `reached` (keys keep their order)
         for blocker in compiled["model_blockers"]:
             verdict = self.model.blocker_verdict(blocker, source, compiled, pivots=pivots, reached=reached, cset=cset)
             per_target = verdict if isinstance(verdict, dict) else None
@@ -907,9 +920,11 @@ class Evaluator:
                     level = "conditional" if self.model.provider == "k8s" else None
                     fn = lambda g, why=why, level=level: downgrade(g, level or g.confidence, why)
                 if tid is None:
-                    reached = _map_grants(reached, fn)
+                    reached, owned = _map_grants(reached, fn), False
                 else:
-                    reached = {**reached, tid: fn(reached[tid])}
+                    if not owned:
+                        reached, owned = dict(reached), True
+                    reached[tid] = fn(reached[tid])
         if not blocked:
             return reached
         if None in blocked:
@@ -1222,7 +1237,7 @@ class Evaluator:
                     self.note("selector", "*", "unresolved", f"selector {key} unresolved ({why[1]})",
                               "Targets matching only on missing facts reported as one unresolved placeholder per scope; needs "
                               + FACTS_NEEDED.get(key, "facts not in snapshot"))
-            current = {tid: (downgrade(g, *verdict[tid]) if verdict[tid] else g) for tid, g in current.items() if tid in verdict}
+            current = _downgrade_each(current, verdict)
             if not current:
                 return unknown or None
         result = {}
@@ -1355,6 +1370,29 @@ def _combine_each(grants, other, left):
         if got is None:
             got = seen[key] = (combine(g, other) if left else combine(other, g), g)
         out[t] = got[0]
+    return out
+
+
+def _downgrade_each(current, verdict):
+    """{t: downgrade(g, *verdict[t]) or g} for the targets the verdict keeps, with one downgrade per distinct
+    (grant object, verdict): Grants are immutable, so equal inputs share one result like _combine_each."""
+    out, seen = {}, {}
+    for tid, g in current.items():
+        if tid not in verdict:
+            continue
+        why = verdict[tid]
+        if not why:
+            out[tid] = g
+            continue
+        try:
+            key = (id(g), why)
+            got = seen.get(key)
+        except TypeError:  # unhashable verdict
+            out[tid] = downgrade(g, *why)
+            continue
+        if got is None:
+            got = seen[key] = (downgrade(g, *why), g)
+        out[tid] = got[0]
     return out
 
 

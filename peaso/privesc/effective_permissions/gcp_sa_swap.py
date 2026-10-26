@@ -43,6 +43,7 @@ def selector(model, value, candidates, source):
             rows.append((project, resource, vm))
     counts = Counter(resource for _, resource, _ in rows)
     result = {}
+    vm_rights = {}  # source rights on one VM do not depend on the target
     for tid, target in candidates.items():
         if target.attrs.get("disabled") is True:
             continue
@@ -55,8 +56,12 @@ def selector(model, value, candidates, source):
                    for account in vm.get("serviceAccounts") or []):
                 continue
             model.parents.setdefault(resource, project)
-            change = _scope_grant(model, source, "compute.instances.setServiceAccount", resource)
-            start = _scope_grant(model, source, "compute.instances.start", resource)
+            rights = vm_rights.get(resource)
+            if rights is None:
+                rights = vm_rights[resource] = (
+                    _scope_grant(model, source, "compute.instances.setServiceAccount", resource),
+                    _scope_grant(model, source, "compute.instances.start", resource))
+            change, start = rights
             if change is None:
                 continue
             state = vm.get("status")

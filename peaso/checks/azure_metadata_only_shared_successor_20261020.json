@@ -1,8 +1,8 @@
 {
-  "accepted_bridge_receipt_sha256": "6fff655f5bb8a22a0466e11a013ffbfd357f233b5fdfa71336b40eed9294f62f",
-  "accepted_native_receipt_sha256": "82c57ad2963785be4ddc5cbb4f029afe19a416800ea5beed748693aa6324fcc8",
-  "accepted_noop_receipt_sha256": "7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa",
-  "accepted_receipt_sha256": "473a758de6617333ec9232a5f9b86585595f0e2d8842a14d05cb9547a390310e",
+  "accepted_bridge_receipt_sha256": "ffc024b6908fb5b9ae5330f327eda5634897ed45845db62ccd6637539e1b8f06",
+  "accepted_native_receipt_sha256": "93a723d84bf4a11cc69f22e0ae924c20c1f1da96c5f6f7f77f148f27b35a0374",
+  "accepted_noop_receipt_sha256": "5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1",
+  "accepted_receipt_sha256": "204e853cea9dfddaf2fa23c44a441c028fafcc9a1f28d4718aef485f0c35dea1",
   "authorization_bindings": {
     "peaso.checks.collector_noop_codebuild_admission_successor_20261020": [
       "runtime",
@@ -1287,7 +1287,7 @@
       "kwdefaults": null,
       "path": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
       "qualname": "_checked",
-      "sha256": "f8bc01ca61312b76a94b6f619ffbdacc490c36fa7521c153f2077b8290a9d1cf"
+      "sha256": "09130f7dd598dce938a44b8f7754a5e212c41bd26097c9ba882f7d41e9bcb172"
     },
     "peaso.checks.gcp_workbench_head3_admission_20261020:_compiled_functions": {
       "defaults": null,
@@ -1899,7 +1899,7 @@
       "__static_attributes__"
     ]
   },
-  "prior_bridge_receipt_sha256": "1e0a7fa1630680799025fe1ac012e75e82bd847a4c68785702029d9c67d9427a",
+  "prior_bridge_receipt_sha256": "bf2cefbc561808e7001f3a0391f0b48e3e24b085c4cfae91c9c98dceb99943f7",
   "prior_epoch_file_deltas": {
     "peaso/checks/__init__.py": {
       "current_sha256": "c5c65a53e4b668e7517e8b533cccc0ec344d9816cd5222d061bb76951fb234ce",
@@ -2081,11 +2081,11 @@
     },
     "peaso/checks/aws_deployed_ai_shared_successor_20261020.json": {
       "normalization": "none",
-      "sha256": "6fff655f5bb8a22a0466e11a013ffbfd357f233b5fdfa71336b40eed9294f62f"
+      "sha256": "ffc024b6908fb5b9ae5330f327eda5634897ed45845db62ccd6637539e1b8f06"
     },
     "peaso/checks/aws_deployed_ai_shared_successor_20261020.py": {
       "normalization": "none",
-      "sha256": "aa8f1bbc5c0f90571ce9c86d824fc5a0270edc10e0efbcc7748ab9fdb9534b84"
+      "sha256": "2c0229f0d1b52b660e543bc0b22d0c2255cddb28bae7217e326cf497da22b73f"
     },
     "peaso/checks/aws_workload_command_codebuild_successor_20261020.py": {
       "normalization": "none",
@@ -2097,11 +2097,11 @@
     },
     "peaso/checks/aws_workload_command_shared_successor_20261020.json": {
       "normalization": "none",
-      "sha256": "473a758de6617333ec9232a5f9b86585595f0e2d8842a14d05cb9547a390310e"
+      "sha256": "204e853cea9dfddaf2fa23c44a441c028fafcc9a1f28d4718aef485f0c35dea1"
     },
     "peaso/checks/aws_workload_command_shared_successor_20261020.py": {
       "normalization": "none",
-      "sha256": "a77194b938172020f9ada7f48119382e4db5eafd4508d5d9cc073f32e6eb718a"
+      "sha256": "0ff6d6307cac58bf083e5d02d1d5f26e5287e4c9814a1673f765731b4f7575b9"
     },
     "peaso/checks/azure_function_package_callable_cpu_successor_20261020.py": {
       "normalization": "none",
@@ -2109,19 +2109,19 @@
     },
     "peaso/checks/azure_function_package_head3_entrypoint_20261020.json": {
       "normalization": "none",
-      "sha256": "23dd0fd518910d7494e82167caf02876f1d7446fb29efba9fdc08cdf338819e8"
+      "sha256": "a4f778f1c366589e38ea6675d6b65591ec1796d75c3259a916b99d7b1c5bfff0"
     },
     "peaso/checks/azure_function_package_head3_entrypoint_20261020.py": {
       "normalization": "none",
-      "sha256": "e3936596031ff44d92f83f4584a7d45c79c6c87840e72b744cba0b12dd452d11"
+      "sha256": "2d8637a8327781ac9cc465e72b61e8494cd63ad234853e554f64dc06002db187"
     },
     "peaso/checks/azure_function_package_shared_successor_20261020.json": {
       "normalization": "none",
-      "sha256": "09ecf7b061269639a5660a361d7a78f48403476c2048ff0741f98d1bbb7692d1"
+      "sha256": "9bd4b45c79ae86af77ee58853bfe05692d5cf244a11c916756906f281e5f1c99"
     },
     "peaso/checks/azure_function_package_shared_successor_20261020.py": {
       "normalization": "none",
-      "sha256": "318cdd4dbd9d7c37d0aff8e29e3593c6076247704806bd7e1545b66190dc448e"
+      "sha256": "ac0f5787d4673a84b8332248adcb927472fec01a1606f68e8fc1176cb0cd3ad3"
     },
     "peaso/checks/azure_function_package_tde_successor_20261020.py": {
       "normalization": "none",
@@ -2129,11 +2129,11 @@
     },
     "peaso/checks/azure_jit_parent_type_shared_successor_20261020.json": {
       "normalization": "none",
-      "sha256": "1e0a7fa1630680799025fe1ac012e75e82bd847a4c68785702029d9c67d9427a"
+      "sha256": "bf2cefbc561808e7001f3a0391f0b48e3e24b085c4cfae91c9c98dceb99943f7"
     },
     "peaso/checks/azure_jit_parent_type_shared_successor_20261020.py": {
       "normalization": "none",
-      "sha256": "98318105cf26cc99df25fefffa1968bba40911c64f39e16f74e35aadb98530f0"
+      "sha256": "251a7e3733662645f56527c3700c2ddf4cfceea28a693500805e0d41d1790184"
     },
     "peaso/checks/azure_metadata_only_shared_successor_20261020.py": {
       "normalization": "self",
@@ -2145,11 +2145,11 @@
     },
     "peaso/checks/collector_noop_authorization_shared_successor_20261020.json": {
       "normalization": "none",
-      "sha256": "7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa"
+      "sha256": "5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1"
     },
     "peaso/checks/collector_noop_authorization_shared_successor_20261020.py": {
       "normalization": "none",
-      "sha256": "0da849f659d48250b465f3db86000e7162e04575a37d19b56015cbd91ade6eca"
+      "sha256": "2dd1a5038ec2fb4e52126977aa5bf230a2fdeeeb22c7ecf80311a85716d1134f"
     },
     "peaso/checks/collector_noop_codebuild_admission_successor_20261020.py": {
       "normalization": "none",
@@ -2165,15 +2165,15 @@
     },
     "peaso/checks/gcp_cloudrun_job_image_function_source_successor_20261020.json": {
       "normalization": "none",
-      "sha256": "29afd7c1684310e6398bc25e6ea17b865725bd3b3206eb71450baeb6b147ff5b"
+      "sha256": "f71fbc8297c9499e3f02fba9fd6bbee49a9b3cea1c6aadbbce04589da6741f93"
     },
     "peaso/checks/gcp_cloudrun_job_image_workbench_source_successor_20261020.json": {
       "normalization": "none",
-      "sha256": "2a9fac82c1097446f350ff92354882e25fbce5e98b52a5e21ba7fd0a4c462d9e"
+      "sha256": "2ed55a5426abb32446e4a182e2542fb4754075cb99256c71cb40d4071ac0ebda"
     },
     "peaso/checks/gcp_cloudrun_job_image_workbench_source_successor_20261020.py": {
       "normalization": "none",
-      "sha256": "0ef9e6772d5f618b279da9204cb620a9484894460926eed6ea2e74d59059713d"
+      "sha256": "93de663936635314581e858c63bb779ed34232a26db0a208313276e72b44d92e"
     },
     "peaso/checks/gcp_dataflow_batch_shared_hook_successor_20261020.json": {
       "normalization": "none",
@@ -2185,11 +2185,11 @@
     },
     "peaso/checks/gcp_workbench_head3_admission_20261020.json": {
       "normalization": "none",
-      "sha256": "2aa8483b6ba2583ab80a261c34e15cacdcf31e79e995210f180e4debd6a65179"
+      "sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
     },
     "peaso/checks/gcp_workbench_head3_admission_20261020.py": {
       "normalization": "none",
-      "sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d"
+      "sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c"
     },
     "peaso/checks/gcp_workbench_shared_hook_successor_20261020.json": {
       "normalization": "none",
@@ -2201,11 +2201,11 @@
     },
     "peaso/checks/native_admission_cpu_shared_successor_20261020.json": {
       "normalization": "none",
-      "sha256": "82c57ad2963785be4ddc5cbb4f029afe19a416800ea5beed748693aa6324fcc8"
+      "sha256": "93a723d84bf4a11cc69f22e0ae924c20c1f1da96c5f6f7f77f148f27b35a0374"
     },
     "peaso/checks/native_admission_cpu_shared_successor_20261020.py": {
       "normalization": "none",
-      "sha256": "e03a1657969c090d84a7223060e6e5b4a207939c4c374e044d2a64f320f25c6a"
+      "sha256": "5ea71fa077ca4c05a72a5cd357e4c1885ea269f816c671a3904c4b9d653d0046"
     },
     "peaso/collectors/aws_ai_recheck_facts_20261020.py": {
       "normalization": "none",
@@ -2229,11 +2229,11 @@
     },
     "peaso/gcp_cloudrun_job_image_function_source_successor_20261020.py": {
       "normalization": "none",
-      "sha256": "aa74aadf9e59d60d846fcdafa8d49a0ac20985fa7a0f2fc330049cfe08ffd5ba"
+      "sha256": "ec415755c152d0d594f1a31b5bf3baa0ba4d61020def11cdae7bc6ddce6c53b5"
     },
     "peaso/gcp_function_secret_page_source_20261020.py": {
       "normalization": "none",
-      "sha256": "e953bc56d70c54dbc6e80392309a5b4f971cdb1dfa3f47a14d73c27ae2a61feb"
+      "sha256": "f5d15c067e3d15c876acd338f8f7bb312b4936637f1730d52fcb3de679cf8e99"
     }
   }
 }

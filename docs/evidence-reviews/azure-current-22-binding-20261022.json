@@ -195,9 +195,9 @@
     },
     "azure.review.acr.selected_image_secret_indicators": {
       "current_description_sha256": "49c391559b551ae03e4dc06ba89430408e82624bded15d289376b55db367f5c5",
-      "current_evaluator_sha256": "4f75c254ea372e6f665d2e549ec4d83285af995191e473883a4b90c888f4a707",
+      "current_evaluator_sha256": "f42d6747eed33d557f10ca12f76038cc7621695850578c83f02d87402a256398",
       "current_observed_text_sha256": "eb78810a636ffe240d8240b1849c3314998949a8e700009b56f7ce82d8a8b5b8",
-      "current_source_sha256": "21bd5647cfd7b552a4f79506872c28d905cba1eb93ba7576c216bfb584480c58",
+      "current_source_sha256": "35cedadfac4e25d2ae11c43ce9ec82647270bc5fd85ea9571ddad5d31626e1ac",
       "historical_description_sha256": null,
       "historical_predicate_sha256": null,
       "historical_source_sha256": null,

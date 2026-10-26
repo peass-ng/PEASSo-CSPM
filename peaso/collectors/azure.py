@@ -861,6 +861,14 @@ class AzureReadError(RuntimeError):
         self.code, self.status_code = code, status
 
 
+class _CallerLimitError(Exception):
+    """A byte-limit failure that belongs to the caller that set the limit."""
+
+    def __init__(self, error, limit):
+        super().__init__(str(error))
+        self.error, self.limit = error, limit
+
+
 
 def _validate_readonly_post(url, audience, body):
     """Only documented metadata-query POSTs may reach credential or HTTP use."""
@@ -1220,6 +1228,9 @@ class AzureTransport:
         self.vault_hosts = set()
         self.storage_hosts = set()
         self.verified_tenant = None
+        from .scan_cache import RawResponseCache
+        # Per-scan, per-credential single-flight cache of complete read bodies.
+        self.response_cache = RawResponseCache()
 
     def allow_vault(self, uri):
         parsed = urlsplit(uri)
@@ -1309,13 +1320,36 @@ class AzureTransport:
             return token
 
     def request(self, url, *, body=None, audience=ARM, capture_subject=False, max_response_bytes=None):
+        raw, token = self._raw_response(url, body, audience, capture_subject, max_response_bytes)
+        value = _strict_native_json(raw)
+        from peaso.secret_evidence import native_environment_resources
+        native_environment_resources(value, provider='azure', method='GET' if body is None else 'POST', url=url, body=body)
+        from .azure_network_data import is_network_audience, project_response
+        if is_network_audience(audience):
+            value = project_response(value, audience)
+        if capture_subject:
+            from .azure_disclosure_native import accepted_subject
+            if not hasattr(self, "disclosure_accepted_subjects"):
+                self.disclosure_accepted_subjects = {}
+            self.disclosure_accepted_subjects[audience] = accepted_subject(token, audience)
+        return value
+
+    def raw_get(self, url, *, audience=ARM):
+        """Exact 200 response bytes of one validated GET, shared with request().
+
+        Callers that apply their own stricter parsing reuse the per-scan
+        response cache instead of opening a second connection for the same read.
+        """
+        return self._raw_response(url, None, audience, False, None)[0]
+
+    def _raw_response(self, url, body, audience, capture_subject, max_response_bytes):
         parsed = urlsplit(url)
         origin_allowed = parsed.netloc == urlsplit(audience).netloc
         if audience == VAULT:
             origin_allowed = (parsed.hostname or "").lower() in self.vault_hosts and parsed.port in (None, 443)
         if audience == LOGS:
             origin_allowed = (parsed.hostname or "").lower() == "api.loganalytics.azure.com" and parsed.port in (None, 443)
-        from .azure_network_data import is_network_audience, allowed_route, project_response
+        from .azure_network_data import is_network_audience, allowed_route
         if is_network_audience(audience):
             origin_allowed = body is None and allowed_route(url, audience)
         if parsed.scheme != "https" or not origin_allowed or parsed.username or parsed.password or parsed.fragment:
@@ -1328,35 +1362,64 @@ class AzureTransport:
         if payload is not None:
             headers["Content-Type"] = "application/json"
         request = Request(url, data=payload, headers=headers, method="POST" if body is not None else "GET")
-        with _native_open(request, 20, build_opener) as response:
-            # These GET/read-only query endpoints document200 representations;
-            # partial, asynchronous and empty responses are not native evidence.
-            if type(getattr(response, 'status', None)) is not int or response.status != 200:
-                raise AzureReadError('incomplete_native_response')
-            if max_response_bytes is None:
-                raw = response.read()
-            else:
-                if type(max_response_bytes) is not int or not 0 < max_response_bytes <= 20_000_000:
-                    raise ValueError("invalid response byte limit")
+        def valid_limit():
+            if type(max_response_bytes) is not int or not 0 < max_response_bytes <= 20_000_000:
+                raise ValueError("invalid response byte limit")
+        owner = []
+        def load():
+            owner.append(True)
+            with _native_open(request, 20, build_opener) as response:
+                # These GET/read-only query endpoints document200 representations;
+                # partial, asynchronous and empty responses are not native evidence.
+                if type(getattr(response, 'status', None)) is not int or response.status != 200:
+                    raise AzureReadError('incomplete_native_response')
+                if max_response_bytes is None:
+                    return response.read()
+                try:
+                    valid_limit()
+                except ValueError as exc:
+                    raise _CallerLimitError(exc, None) from None
                 raw = response.read(max_response_bytes + 1)
                 if len(raw) > max_response_bytes:
-                    raise AzureReadError("response_too_large")
-            value = _strict_native_json(raw)
-            from peaso.secret_evidence import native_environment_resources
-            native_environment_resources(value, provider='azure', method='GET' if body is None else 'POST', url=url, body=body)
-            if is_network_audience(audience):
-                value = project_response(value, audience)
-            if capture_subject:
-                from .azure_disclosure_native import accepted_subject
-                if not hasattr(self, "disclosure_accepted_subjects"):
-                    self.disclosure_accepted_subjects = {}
-                self.disclosure_accepted_subjects[audience] = accepted_subject(token, audience)
-            return value
+                    raise _CallerLimitError(AzureReadError("response_too_large"), max_response_bytes)
+                return raw
+        cache = getattr(self, "response_cache", None)
+        if cache is None or capture_subject or parsed.path.endswith("/$batch"):
+            # Graph $batch bodies are one-shot; retaining them has no reuse value.
+            try:
+                raw = load()
+            except _CallerLimitError as exc:
+                raise exc.error from None
+        else:
+            # Only validated reads reach here (GET or allow-listed query POST).
+            # Same audience, URL and body within this scan reads the wire once;
+            # failures are never retained. Parsing and projection rerun per call.
+            try:
+                raw = cache.fetch((audience, url, payload), load)
+            except _CallerLimitError as exc:
+                # Another in-flight caller's own byte limit failed. It decides
+                # this read only when that limit was at least this caller's.
+                if owner or (max_response_bytes is not None and exc.limit is not None
+                             and type(max_response_bytes) is int and exc.limit >= max_response_bytes):
+                    raise exc.error from None
+                owner.clear()
+                try:
+                    raw = load()
+                except _CallerLimitError as own:
+                    raise own.error from None
+            if max_response_bytes is not None:
+                valid_limit()
+            if max_response_bytes is not None and len(raw) > max_response_bytes:
+                raise AzureReadError("response_too_large")
+        return raw, token
 
     def request_databricks(self, url):
         return azure_databricks_native.request_metadata(url, self.auth)
 
     def close(self):
+        cache = getattr(self, "response_cache", None)
+        if cache is not None:
+            cache.clear()
         if self.owned and self.credential is not None:
             self.credential.close()
 

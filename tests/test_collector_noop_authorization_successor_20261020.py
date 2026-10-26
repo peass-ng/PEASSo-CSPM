@@ -28,7 +28,7 @@ def test_all137_native_epoch_callable_proof_rows_and_original_objects_preserved(
     prior = json.loads((ROOT / 'peaso/checks' / bridge.accepted_native.RECEIPT).read_bytes())
     current = bridge.reviewed_delta(ROOT)
     noop_raw = (ROOT / 'peaso/checks' / canonical_noop.RECEIPT).read_bytes()
-    assert sha(noop_raw) == canonical_noop.RECEIPT_SHA256 == '7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa'
+    assert sha(noop_raw) == canonical_noop.RECEIPT_SHA256 == '5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1'
     noop_receipt = json.loads(noop_raw)
     assert len(noop_receipt['functions']) == 168
     assert bridge.accepted_noop is canonical_noop

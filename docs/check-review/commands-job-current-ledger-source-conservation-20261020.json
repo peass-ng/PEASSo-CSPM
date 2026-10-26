@@ -8,11 +8,11 @@
   "thematic_admissions": {
     "aws.review.workload.selected_command_literal_secret_indicators": {
       "path": "docs/check-review/aws-workload-commands-current-acceptance-20261020.json",
-      "sha256": "b25f797503249c56c09f1ab8009334454197195ff47912d2052537d864e48d59"
+      "sha256": "f5b04024d242eab0697817a3b8d9d3f8e76aeba73eed4928e989fb926283580a"
     },
     "gcp.review.cloudrun_job.declared_image_secret_indicators": {
       "path": "docs/check-review/gcp-cloudrun-job-image-current-acceptance-20261020.json",
-      "sha256": "1ce1d17d045c862129f45ce9ba7479e0be009295e19763e2f8daaf343537e07c"
+      "sha256": "c5779a68d68dd3e06da73b00937c7d1da01df7d7de90b6c5fa2511b2203c0cac"
     }
   },
   "predecessors": {
@@ -26,7 +26,7 @@
   "ledgers": {
     "aws": {
       "path": "docs/evidence-reviews/aws.json",
-      "sha256": "6dd7dc6a3eec10b001081b930d8c5966cf7ac41182c384767cdaaf3040e05f7b"
+      "sha256": "1ed69c52a0f8436b2604f27d4eda35ad364a0fa7da9a7bb7964956825d3c9d4c"
     },
     "gcp": {
       "path": "docs/evidence-reviews/gcp.json",
@@ -57,7 +57,7 @@
   },
   "historical_function_erratum": {
     "path": "docs/check-review/gcp-function-current-ledger-erratum-20261020.json",
-    "sha256": "a0e89befb7eb83f29b37c23f5409e52c0e1e6a10e786314fa50364bae660967a"
+    "sha256": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2"
   },
   "upstream_semantic_equivalence_claimed": false,
   "full_goal_complete": false,

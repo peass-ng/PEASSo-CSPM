@@ -8,10 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 import peaso.checks
+from peaso.redaction_memo import credential_redaction
 from peaso import worker
 from peaso.auth.secrets import redact
 from peaso.secret_evidence import capture, EphemeralCipher
 from peaso.snapshot import seal, validate
+from peaso.snapshot_public_identity import public_snapshot_adapter
 from tests.test_incremental_report_cadence import manual_session
 from tests.test_incremental_checkpoint import SCOPE, TENANT
 
@@ -154,7 +156,10 @@ def test_worker_reseals_only_changed_access_metadata(branch, tmp_path):
         return [{'provider': 'fixture'}] if branch == 'bound' else []
     namespace = dict(vars(worker), seal=counted, redact=redact,
         secret_capture=SimpleNamespace(public_snapshot=lambda value: value),
+        # The worker binds this outer-scope adapter before defining the callback.
+        public_content=public_snapshot_adapter(lambda value: value, provider='aws', trusted_scopes=[SCOPE]),
         connector={'auth': {}}, request={'ai_enabled': branch != 'disabled'},
+        credential_redaction=credential_redaction({'auth': {}}, worker.credential_values),
         ai_access=SimpleNamespace(peek=peek, bind_targets=lambda entries, public: entries),
         ai_access_cache={}, artifacts=object(), tenant=TENANT, ident='a'*32, _cached_ai_access_reference=lambda *a: 'opaque-private-reference')
     callback = worker_callback(namespace)

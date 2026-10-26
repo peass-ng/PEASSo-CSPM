@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / 'docs/gcp-review/recheck-20261020/current-source-reconciliation-20261020.json'
 REPORT_SHA256 = '603b9e467d9bc7eda42ad11228c0078c9b98101aa049e81217da363f659f444b'
 CURRENT_RECEIPT = ROOT / 'docs/check-review/gcp-current-ledger-source-conservation-20261020.json'
-CURRENT_RECEIPT_SHA256 = 'afed6d3eb80422884312df939b9360aaa73dac07a525b1d64dd2ac675a34f7d8'
+CURRENT_RECEIPT_SHA256 = 'd6881c34d1401795aa0375ddd3c3d7a6f17894905fa786ad5f5d5d8cdd42b6f6'
 FUNCTION_ID = 'gcp.review.function.literal_environment_secret_indicators'
 
 

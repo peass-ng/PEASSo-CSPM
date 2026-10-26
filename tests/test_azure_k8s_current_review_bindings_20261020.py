@@ -12,7 +12,7 @@ def test_all_current_azure_k8s_bodies_have_exact_existing_or_erratum_receipts():
     root=Path(__file__).resolve().parents[1]
     audit=json.loads((root/'docs/check-review/azure-k8s-current-predicate-bindings-20261020.json').read_text())
     successor_raw=(root/'docs/check-review/azure-defender-assessment-four-current-binding-20261021.json').read_bytes()
-    assert hashlib.sha256(successor_raw).hexdigest()=='495d31b83d1586a453b4aa325d4f287d694c950a389e0fa0fdbde6a27f6fe02d'
+    assert hashlib.sha256(successor_raw).hexdigest()=='588a29f9bb3dc8e4ac7a0d1f16e58b94b0ae4f834327e236d92800084728e855'
     successor=json.loads(successor_raw)
     assert set(successor['scope_ids'])==set(successor['records'])=={
         'azure.claude.defender_assessment_endpoint_protection',
@@ -24,7 +24,7 @@ def test_all_current_azure_k8s_bodies_have_exact_existing_or_erratum_receipts():
         assert hashlib.sha256((root/path).read_bytes()).hexdigest()==expected
     assert hashlib.sha256((root/successor['evaluator_source']).read_bytes()).hexdigest()==successor['evaluator_current_sha256']
     latest_raw=(root/'docs/check-review/azure-k8s-current-binding-successors-20261023.json').read_bytes()
-    assert hashlib.sha256(latest_raw).hexdigest()=='7f807dace99bfd16dc0153072f84f6cc5ce4510a888c6962a4df667779c1f7e3'
+    assert hashlib.sha256(latest_raw).hexdigest()=='cfd149088c465534c624be722aa9fe4dc3e95ec14e45f6ad1899b3a87e80f23a'
     latest=json.loads(latest_raw)
     assert latest['schema']=='azure-k8s-current-binding-successors/v1'
     assert latest['historical_review_sha256']==hashlib.sha256((root/'docs/check-review/azure-k8s-current-predicate-bindings-20261020.json').read_bytes()).hexdigest()

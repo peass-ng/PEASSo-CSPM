@@ -16394,7 +16394,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1112,
         "qualname": "_enrich",
-        "sha256": "0f0a7c759ca7250e765ebff1007c4b0bf623e5fb7512580f78c6186dd120878e"
+        "sha256": "5e09138c01964d123e77ff0bf09f3c3692aa0b4e75b141b937fc7c7b2e493472"
       },
       "projection_statement": "SPECS pages -> _enrich deepcopy with no matching kind mutation -> append/_safe; no FETCHER or extension ENRICHER for this kind.",
       "reviewed_paths": {
@@ -16464,7 +16464,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1112,
         "qualname": "_enrich",
-        "sha256": "0f0a7c759ca7250e765ebff1007c4b0bf623e5fb7512580f78c6186dd120878e"
+        "sha256": "5e09138c01964d123e77ff0bf09f3c3692aa0b4e75b141b937fc7c7b2e493472"
       },
       "projection_statement": "SPECS pages -> _enrich deepcopy with no matching kind mutation -> append/_safe; no FETCHER or extension ENRICHER for this kind.",
       "reviewed_paths": {
@@ -16507,7 +16507,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1112,
         "qualname": "_enrich",
-        "sha256": "0f0a7c759ca7250e765ebff1007c4b0bf623e5fb7512580f78c6186dd120878e"
+        "sha256": "5e09138c01964d123e77ff0bf09f3c3692aa0b4e75b141b937fc7c7b2e493472"
       },
       "projection_statement": "SPECS pages -> _enrich deepcopy with no matching kind mutation -> append/_safe; no FETCHER or extension ENRICHER for this kind.",
       "reviewed_paths": {
@@ -16549,7 +16549,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1112,
         "qualname": "_enrich",
-        "sha256": "0f0a7c759ca7250e765ebff1007c4b0bf623e5fb7512580f78c6186dd120878e"
+        "sha256": "5e09138c01964d123e77ff0bf09f3c3692aa0b4e75b141b937fc7c7b2e493472"
       },
       "projection_statement": "SPECS pages -> _enrich deepcopy with no matching kind mutation -> append/_safe; no FETCHER or extension ENRICHER for this kind.",
       "reviewed_paths": {
@@ -16607,7 +16607,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1112,
         "qualname": "_enrich",
-        "sha256": "0f0a7c759ca7250e765ebff1007c4b0bf623e5fb7512580f78c6186dd120878e"
+        "sha256": "5e09138c01964d123e77ff0bf09f3c3692aa0b4e75b141b937fc7c7b2e493472"
       },
       "projection_statement": "SPECS pages -> _enrich deepcopy with no matching kind mutation -> append/_safe; no FETCHER or extension ENRICHER for this kind.",
       "reviewed_paths": {
@@ -16662,7 +16662,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1112,
         "qualname": "_enrich",
-        "sha256": "0f0a7c759ca7250e765ebff1007c4b0bf623e5fb7512580f78c6186dd120878e"
+        "sha256": "5e09138c01964d123e77ff0bf09f3c3692aa0b4e75b141b937fc7c7b2e493472"
       },
       "projection_statement": "SPECS pages -> _enrich deepcopy with no matching kind mutation -> append/_safe; no FETCHER or extension ENRICHER for this kind.",
       "reviewed_paths": {

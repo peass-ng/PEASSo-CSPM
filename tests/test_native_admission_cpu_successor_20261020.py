@@ -6,6 +6,7 @@ from tests.shared_admission_epoch_compatibility_20261020 import active_shared
 from tests.test_provider_combined_source_bridge_20261020 import cpu_epoch_bytes, cpu_receipt
 from tests.retained_upstream_manifest_20261020 import ORIGINAL as RETAINED_UPSTREAM_PATH, original_bytes as retained_upstream_bytes
 from tests.retired_privesc_catalog_20261022 import REMOVED as RETIRED_CATALOG_PATH, original_bytes as retired_catalog_bytes
+from tests.reviewed_current_successors_20261026 import extend as extend_reviewed_successors
 from peaso.checks import native_admission_cpu_shared_successor_20261020 as bridge
 from peaso.checks import azure_function_package_callable_cpu_successor_20261020 as package
 from peaso import checks
@@ -320,8 +321,8 @@ REVIEWED_CURRENT_CHANGES = {'.github/workflows/tests.yml': {'after_sha256': 'fdf
  'peaso/checks/aws_selected_configuration_secret_review_20261020.py': {'after_sha256': '633e8ef1e4f7d2fe1f49a07e57b3e37c62096e464cbd7f4dd7ebf113131c1ab3',
                                                                        'after_size': 8460,
                                                                        'before_sha256': '819cb82c47a3eefca9e4e7c6a3d14a6624f4e0e836e2b50638384533cb9d6b65'},
- 'peaso/checks/azure_acr_image_secret_review_20261020.py': {'after_sha256': '21bd5647cfd7b552a4f79506872c28d905cba1eb93ba7576c216bfb584480c58',
-                                                            'after_size': 26416,
+ 'peaso/checks/azure_acr_image_secret_review_20261020.py': {'after_sha256': '35cedadfac4e25d2ae11c43ce9ec82647270bc5fd85ea9571ddad5d31626e1ac',
+                                                            'after_size': 28509,
                                                             'before_sha256': '11821a6a2d2366602d993d79c58844d6f0c14b1a766ffd19c43894bef8f2dd39'},
  'peaso/checks/azure_databricks_notebook_secret_review_20261020.py': {'after_sha256': '0c33f325736990b88d2dd6c1a17d484f935186a6a82000cf54230f41d09c4e77',
                                                                       'after_size': 10023,
@@ -2048,6 +2049,7 @@ REVIEWED_NEW_BYTES = {'docs/peaso-engine.md': {'after_sha256': '2271e2a0eeb1055f
                                        'before_sha256': '64caf1a27a43b8103a7fecb7fb7710dc17b2bcd9e2954f742c98d56f93ed2aad'}}
 REVIEWED_CURRENT_CHANGES.update(REVIEWED_NEW_BYTES)
 REVIEWABLE_CURRENT_PATHS = REVIEWABLE_CURRENT_PATHS | frozenset(REVIEWED_NEW_BYTES)
+REVIEWABLE_CURRENT_PATHS = extend_reviewed_successors('native_admission_cpu_successor_20261020', REVIEWED_CURRENT_CHANGES, REVIEWABLE_CURRENT_PATHS)
 
 sha=lambda raw:hashlib.sha256(raw).hexdigest()
 
@@ -2210,19 +2212,24 @@ for owner,names in ((socket,('create_connection','getaddrinfo')),(socket.socket,
  for name in names:setattr(owner,name,blocked)
 from tests.shared_admission_epoch_compatibility_20261020 import active_shared
 bridge=active_shared();package=bridge._PACKAGE_SUCCESSOR
+from peaso import source_attestation_mode
+source_attestation_mode.ALWAYS=True  # warm calls below must re-prove, as in tests and the image build
+from peaso.private_secret_source_epoch_20261021 import AdmissionError
 root=pathlib.Path.cwd();path=root/sys.argv[1];raw=path.read_bytes()
 token=bridge._COMPILED_TRANSACTION.set(bridge._transaction_compiler())
 try:
  package.reviewed_inputs(root)
  path.write_bytes(raw+b'\\n# deliberate directed tamper\\n')
  try:package.reviewed_inputs(root)
- except RuntimeError:print('rejected')
+ except (RuntimeError,AdmissionError):print('rejected')  # AdmissionError is the epoch refusal
  else:raise AssertionError('Tamper unexpectedly admitted')
 finally:
  path.write_bytes(raw);bridge._COMPILED_TRANSACTION.reset(token)
 """
- env=dict(os.environ,PYTHONPATH=str(isolated_package),PYTHONDONTWRITEBYTECODE='1',AWS_EC2_METADATA_DISABLED='true',AWS_CONFIG_FILE='/nonexistent/offline',AWS_SHARED_CREDENTIALS_FILE='/nonexistent/offline')
- result=subprocess.run([sys.executable,'-B','-c',code,relative],cwd=isolated_package,env=env,capture_output=True,text=True,timeout=90)
+ # The cold import runs the shipped first-use proofs; conftest's repeat-every-proof mode costs minutes.
+ env={key:value for key,value in os.environ.items() if key!='PEASO_SOURCE_ATTESTATION'}
+ env.update(PYTHONPATH=str(isolated_package),PYTHONDONTWRITEBYTECODE='1',AWS_EC2_METADATA_DISABLED='true',AWS_CONFIG_FILE='/nonexistent/offline',AWS_SHARED_CREDENTIALS_FILE='/nonexistent/offline')
+ result=subprocess.run([sys.executable,'-B','-c',code,relative],cwd=isolated_package,env=env,capture_output=True,text=True,timeout=300)
  assert result.returncode==0,result.stderr[-9000:]
  assert result.stdout.strip()=='rejected'
 

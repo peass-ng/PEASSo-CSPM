@@ -31,7 +31,7 @@ def test_bound_native_pod_cve_reaches_private_artifact_and_rows(provider, varian
     status = 'PASS' if variant in {'clean', 'clean_marker_positive'} else 'UNKNOWN' if variant == 'unknown_marker_positive' else 'FAIL'
     def trivy(image, manifest, config, layers, **kwargs):
         assert kwargs['native_verifier']() == image
-        assert kwargs['archive_format'] == 'oci'
+        assert kwargs['archive_format'] == 'docker'
         return {'image':deepcopy(image),'status':status,'complete':status!='UNKNOWN',
             'scan_complete':status!='UNKNOWN','coverage_status':'UNKNOWN' if status=='UNKNOWN' else 'COMPLETE',
             'database':{'fresh':True},'findings':[] if variant=='clean' else [deepcopy(finding)]}

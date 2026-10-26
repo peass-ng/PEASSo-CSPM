@@ -13,7 +13,7 @@ from . import aws_codebuild_buildspec_shared_successor_20261020 as predecessor
 original = predecessor.original
 PREDECESSOR_REVIEWED_INPUTS = predecessor.PREDECESSOR_REVIEWED_INPUTS
 RECEIPT = 'azure_function_package_shared_successor_20261020.json'
-RECEIPT_SHA256 = '09ecf7b061269639a5660a361d7a78f48403476c2048ff0741f98d1bbb7692d1'
+RECEIPT_SHA256 = '9bd4b45c79ae86af77ee58853bfe05692d5cf244a11c916756906f281e5f1c99'
 
 
 def _self(raw):

@@ -20,6 +20,6 @@
     "peaso/checks/gcp_workload_image_source_association_20261020.py": "563a29ef77c6b7f5f447a4490728b8c9003e5005191cd5592fd4277b9ce51578",
     "peaso/collectors/gcp_cloudrun_v2_job_declared_images_20261020.py": "91e6118e969286fd577eea11c65f5f2129e4711604c45414f601fbeb71ed0f51",
     "peaso/collectors/gcp_image_secret_indicators.py": "7891365e7a5ecd82734dd385d1ed64b56b11e1283e07dc2f3b9e16cbee2e104e",
-    "peaso/gcp_cloudrun_job_image_function_source_successor_20261020.py": "419f5d5f2dea59c90f941b250c113e85b72bc2fce6b2199ca35480a31a2b3bcd"
+    "peaso/gcp_cloudrun_job_image_function_source_successor_20261020.py": "0344a29bf2593f0d0367222a68bf71c11db90663ee7d7ddd5f1364bba3f3f9ee"
   }
 }

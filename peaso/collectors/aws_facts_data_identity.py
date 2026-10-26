@@ -393,7 +393,9 @@ FETCHERS = {
 
 def _each(function):
     def enrich(requests, session, region, items):
-        return [function(requests, session, region, copy.deepcopy(item)) for item in items]
+        # Independent per-resource reads run concurrently, in input order.
+        from .aws_request_pool import ordered_map
+        return ordered_map(requests, items, lambda item: function(requests, session, region, copy.deepcopy(item)))
     return enrich
 
 
@@ -625,28 +627,30 @@ def _knowledge_base(requests, session, region, item):
 # ----------------------------------------------------------------------------- devtools enrichers
 
 def _codebuild_project(requests, session, region, items):
-    output = []
-    for original in items:
-        item = copy.deepcopy(original)
-        name = item.get("name")
-        configuration = item.get("Configuration")
-        if isinstance(name, str) and isinstance(configuration, dict) and configuration.get("collection_status") == "collected":
-            # Same cached BatchGetProjects response; keep each variable's name and
-            # type only (the value member is never copied).
-            try:
-                raw = requests.call(session, "codebuild", region, "batch_get_projects", names=[name])
-            except Exception:
-                raw = {}
-            raw_rows = [row for row in raw.get("projects", []) if isinstance(row, dict) and row.get("name") == name]
-            kept_rows = [row for row in configuration.get("projects", []) if isinstance(row, dict) and row.get("name") == name]
-            if len(raw_rows) == 1 and len(kept_rows) == 1 and isinstance(kept_rows[0].get("environment"), dict):
-                variables = raw_rows[0].get("environment", {}).get("environmentVariables", [])
-                if isinstance(variables, list):
-                    kept_rows[0]["environment"]["environmentVariables"] = [_pick(v, ["name", "type"]) for v in variables if isinstance(v, dict)]
-        if isinstance(name, str):
-            item["Builds"] = _builds(requests, session, region, name)
-        output.append(item)
-    return output
+    from .aws_request_pool import ordered_map
+    return ordered_map(requests, items, lambda original: _codebuild_project_one(requests, session, region, original))
+
+
+def _codebuild_project_one(requests, session, region, original):
+    item = copy.deepcopy(original)
+    name = item.get("name")
+    configuration = item.get("Configuration")
+    if isinstance(name, str) and isinstance(configuration, dict) and configuration.get("collection_status") == "collected":
+        # Same cached BatchGetProjects response; keep each variable's name and
+        # type only (the value member is never copied).
+        try:
+            raw = requests.call(session, "codebuild", region, "batch_get_projects", names=[name])
+        except Exception:
+            raw = {}
+        raw_rows = [row for row in raw.get("projects", []) if isinstance(row, dict) and row.get("name") == name]
+        kept_rows = [row for row in configuration.get("projects", []) if isinstance(row, dict) and row.get("name") == name]
+        if len(raw_rows) == 1 and len(kept_rows) == 1 and isinstance(kept_rows[0].get("environment"), dict):
+            variables = raw_rows[0].get("environment", {}).get("environmentVariables", [])
+            if isinstance(variables, list):
+                kept_rows[0]["environment"]["environmentVariables"] = [_pick(v, ["name", "type"]) for v in variables if isinstance(v, dict)]
+    if isinstance(name, str):
+        item["Builds"] = _builds(requests, session, region, name)
+    return item
 
 
 def _builds(requests, session, region, name):

@@ -793,7 +793,12 @@ def _verified_current(catalog_dir, manifest_path):
     tree = ''.join(f'{name} {actual[name]}\n' for name in sorted(actual))
     if hashlib.sha256(tree.encode()).hexdigest() != CURRENT_TREE:
         raise ValueError("v4_catalog_tree_mismatch")
-    loaded = load_catalog(root, strict=True)
+    from . import loaded_catalog_for
+    loaded = loaded_catalog_for(catalog_dir, actual)
+    if loaded is None:
+        loaded = load_catalog(root, strict=True)
+    elif loaded["errors"]:  # same failure the strict load raises for these bytes
+        raise CatalogError("; ".join(loaded["errors"][:20]))
     if len(loaded["entries"]) != CURRENT_ENTRY_COUNT or loaded["excluded"] != CURRENT_EXCLUDED_COUNT:
         raise ValueError("v4_catalog_counts_mismatch")
     return {entry["id"]: entry for entry in loaded["entries"]}

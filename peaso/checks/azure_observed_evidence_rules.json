@@ -20873,7 +20873,7 @@
           "key_url": "https://vault.vault.azure.net/keys/key/version"
         },
         "lines": [
-          "This Bot Service records a customer key URL",
+          "This Bot Service records a customer key URL.",
           "That key may protect stored service data.",
           "The team may have more control over that encryption key."
         ]
@@ -21391,7 +21391,7 @@
           "key_uri": "https://vault.vault.azure.net/keys/key/version"
         },
         "lines": [
-          "The recovery vault records a customer key and its identity",
+          "The recovery vault records a customer key and its identity.",
           "That identity may use the key for backup encryption.",
           "The team may have more control over the key for backups."
         ]

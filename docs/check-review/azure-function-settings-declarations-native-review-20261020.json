@@ -215,7 +215,7 @@
   ],
   "source_receipt": {
     "path": "peaso/checks/azure_function_settings_admission_20261020.json",
-    "sha256": "740ade22ca008fc00b4faf062110d4ab6081c6bdd7dde0537e208d6dbf97dda1",
+    "sha256": "b78a07d72ab8ee89fe467aca868182bf62cc33fd89b41d89cce04ba3516292e5",
     "description_path": "peaso/checks/azure_function_settings_descriptions_20261020.json",
     "description_sha256": "386aa50eca911b4d12671fabc54a983332bd683c55cfa5b410adeacb310364e7",
     "native_cases": {
@@ -405,7 +405,7 @@
         "qualname": "AzureTransport.__init__",
         "path": "peaso/collectors/azure.py",
         "line": 877,
-        "sha256": "701c27ca9c554e4cfa5d67cd4ffe204507f15c8f6140866c77ea3264ac395f38",
+        "sha256": "dfc016bae2d0d2063538a53e34c63a26c7689acae67c34e273e984ecb230a11d",
         "body": "    def __init__(self, auth, credential=None):\n        self.auth = auth\n        import uuid\n        self.ai_context_id = uuid.uuid4().hex\n        self.credential = credential\n        self.owned = credential is None\n        self.direct = auth.get(\"method\", \"auto\") in (\"auto\", \"token\", \"arm-token\") and bool(auth.get(\"arm_token\") or auth.get(\"token\") or auth.get(\"graph_token\") or auth.get(\"vault_token\") or auth.get(\"storage_token\") or auth.get(\"logs_token\"))\n        if self.credential is None and not self.direct:\n            self.credential = credential_for(auth)\n        self.tokens = {}\n        self.lock = threading.Lock()\n        self.tenant = auth.get(\"tenant_id\")\n        self.vault_hosts = set()\n        self.storage_hosts = set()\n        self.verified_tenant = None\n",
         "provenance_rule": "Path, line, body and hash all derive from this same inspect.unwrap callable."
       },
@@ -722,7 +722,7 @@
     },
     {
       "path": "peaso/checks/azure_function_settings_admission_20261020.json",
-      "sha256": "740ade22ca008fc00b4faf062110d4ab6081c6bdd7dde0537e208d6dbf97dda1",
+      "sha256": "b78a07d72ab8ee89fe467aca868182bf62cc33fd89b41d89cce04ba3516292e5",
       "bytes": 8864
     },
     {

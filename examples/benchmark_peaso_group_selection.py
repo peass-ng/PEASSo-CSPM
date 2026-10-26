@@ -25,8 +25,8 @@ def reference_factory():
     changed = 0
     for node in ast.walk(source):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'finding_selection':
-            if any(keyword.arg == 'build_sort_cards' for keyword in node.keywords):
-                node.keywords = [keyword for keyword in node.keywords if keyword.arg != 'build_sort_cards']
+            if any(keyword.arg == 'sort_cards' for keyword in node.keywords):
+                node.keywords = [keyword for keyword in node.keywords if keyword.arg != 'sort_cards']
                 changed += 1
     assert changed == 3, 'review the benchmark reference when selection callers change'
     namespace = dict(vars(module))

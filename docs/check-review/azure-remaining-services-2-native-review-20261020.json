@@ -788,7 +788,7 @@
       "path": "peaso/snapshot.py",
       "line": 104,
       "qualname": "seal",
-      "sha256": "22352dc63501d401531fea38cfa58e6945f91e81dea7569fa229aee9756a41e7",
+      "sha256": "4083b08cb34a891bbe219521188e3200c838340de31edb585fe695cd0502d5c2",
       "module_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
       "source": "def seal(snapshot):\n    result = _sealed_structure(snapshot)\n    result.pop(\"snapshot_id\", None)\n    result[\"snapshot_id\"] = digest(result)\n    return result\n",
       "reachable_helpers": [
@@ -801,7 +801,7 @@
       "path": "peaso/snapshot.py",
       "line": 71,
       "qualname": "_sealed_structure",
-      "sha256": "9a50f94783d434e3c351ce287262dc4e2e534998b6fd21508904ccbd1597afe6",
+      "sha256": "335878a75f7990806b79506e9d26cbb3bdfa99c79940b377a37462f88f22a961",
       "module_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
       "source": "def _sealed_structure(snapshot, read_only=False):\n    \"\"\"New envelope (top level, metadata, collection dicts) around the native items.\n\n    Envelopes stay mutable plain dicts because callers annotate metadata after validation. With read_only\n    the items (the large native facts) are frozen exactly once and shared afterwards; otherwise they are\n    copied into ordinary mutable objects.\n    \"\"\"\n    items_of = (lambda value: FrozenList([freeze(item) for item in value])) if read_only else thaw\n    result = {key: (thaw(value) if key != \"collections\" else value) for key, value in snapshot.items()}\n    collections = result.get(\"collections\")\n    if isinstance(collections, list):\n        sealed = []\n        for collection in collections:\n            if isinstance(collection, dict):\n                collection = {key: (items_of(value) if key == \"items\" and isinstance(value, list)\n                                    else thaw(value)) for key, value in collection.items()}\n            sealed.append(collection)\n        result[\"collections\"] = sealed\n    return result\n",
       "reachable_helpers": [
@@ -813,7 +813,7 @@
       "path": "peaso/snapshot.py",
       "line": 62,
       "qualname": "thaw",
-      "sha256": "7e37089ffcf670bcd19d606e9880108e13550cadf2a3031f5dfa63645840ad90",
+      "sha256": "b39acafb8489fc2693568ab52c8363d77f0a9394befc935385214e8880c07b83",
       "module_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
       "source": "def thaw(value):\n    \"\"\"Ordinary mutable deep copy of (possibly frozen) JSON-like data.\"\"\"\n    if isinstance(value, dict):\n        return {key: thaw(item) for key, item in value.items()}\n    if isinstance(value, (list, tuple)):\n        return [thaw(item) for item in value]\n    return value\n",
       "reachable_helpers": [
@@ -825,7 +825,7 @@
       "path": "peaso/snapshot.py",
       "line": 100,
       "qualname": "digest",
-      "sha256": "63b42db979bdecaa4e1fd41c56cdca364c72bf0034ce2735f4bf967cb1e49b2d",
+      "sha256": "744562216104a547bf8d5c0be9bfac718523a7ef8eb91d738e610a2502708de5",
       "module_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
       "source": "def digest(value):\n    return \"sha256:\" + hashlib.sha256(canonical(value).encode()).hexdigest()\n",
       "reachable_helpers": [
@@ -847,7 +847,7 @@
       "path": "peaso/snapshot.py",
       "line": 111,
       "qualname": "validate",
-      "sha256": "33bacac7fc2c0bc1a93dd5cc74d29f2cffc6eb30a51d27044a599f0d0976f937",
+      "sha256": "3f54f9f020560cb5dee10e1a518e74b24f584d9b0df702eb988801ef0996416f",
       "module_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
       "source": "def validate(snapshot, *, read_only=False):\n    \"\"\"Validated copy of a snapshot; read_only=True shares sealed read-only item views (evaluation paths).\"\"\"\n    if not isinstance(snapshot, dict):\n        raise ValueError(\"snapshot must be an object\")\n    result = _sealed_structure(snapshot, read_only)\n    if result.get(\"schema_version\") != SCHEMA_VERSION:\n        raise ValueError(\"unsupported snapshot schema_version\")\n    if result.get(\"provider\") not in PROVIDERS:\n        raise ValueError(\"snapshot provider must be aws, gcp, azure, or k8s\")\n    if not isinstance(result.get(\"scopes\"), list) or not all(isinstance(x, str) for x in result[\"scopes\"]):\n        raise ValueError(\"snapshot scopes must be a string list\")\n    if not isinstance(result.get(\"created_at\"), str):\n        raise ValueError(\"snapshot created_at must be a string\")\n    if not isinstance(result.get(\"collections\"), list):\n        raise ValueError(\"snapshot collections must be a list\")\n    if not isinstance(result.get(\"metadata\", {}), dict):\n        raise ValueError(\"snapshot metadata must be an object\")\n    seen = set()\n    for collection in result[\"collections\"]:\n        if not isinstance(collection, dict) or not all(isinstance(collection.get(k), str) for k in (\"type\", \"scope\", \"status\")):\n            raise ValueError(\"collection requires type, scope, and status strings\")\n        if collection[\"status\"] not in STATUSES or not isinstance(collection.get(\"items\"), list):\n            raise ValueError(\"collection requires a known status and items list\")\n        if \"error\" in collection and not isinstance(collection[\"error\"], dict):\n            raise ValueError(\"collection error must be an object\")\n        if \"service\" in collection and not isinstance(collection[\"service\"], str):\n            raise ValueError(\"collection service must be a string\")\n        if any(not isinstance(item, dict) for item in collection[\"items\"]):\n            raise ValueError(\"collection items must be native objects\")\n        key = (collection[\"type\"], collection[\"scope\"])\n        if key in seen:\n            raise ValueError(\"duplicate collection type/scope\")\n        seen.add(key)\n        if collection[\"status\"] in (\"empty\", \"denied\", \"unknown\", \"malformed\", \"timeout\", \"not_collected\") and collection[\"items\"]:\n            raise ValueError(\"unavailable/empty collection cannot contain items\")\n    original = result.pop(\"snapshot_id\", None)\n    calculated = digest(result)\n    if original is not None and original != calculated:\n        raise ValueError(\"snapshot content digest mismatch\")\n    result[\"snapshot_id\"] = calculated\n    return result\n",
       "reachable_helpers": [

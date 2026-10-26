@@ -43,7 +43,7 @@
       },
       "runtime_receipt": {
         "path": "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
-        "sha256": "dc63589448228096c334e087e84dd299cc49ac18a53941660a7a3ba8686eb8bc"
+        "sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d"
       },
       "runtime_unique_passing_nodes": 55,
       "native_status_contracts": {
@@ -78,7 +78,7 @@
   ],
   "runtime_receipt": {
     "path": "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
-    "sha256": "dc63589448228096c334e087e84dd299cc49ac18a53941660a7a3ba8686eb8bc"
+    "sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d"
   },
   "root_owned_remaining": [
     "Root final concise native/merged renderer acceptance",

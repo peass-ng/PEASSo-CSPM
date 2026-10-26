@@ -17,6 +17,7 @@ provider. Port sets are evaluated as exact interval arithmetic per protocol.
 from __future__ import annotations
 
 import ipaddress
+from functools import lru_cache
 import json
 import re
 from peaso.snapshot import freeze
@@ -165,6 +166,15 @@ def _internet(value):
     """True when the declared source covers the whole IPv4 or IPv6 internet."""
     if value in ("*", "Internet", "internet", "Any", "any", "0.0.0.0/0", "::/0", "0.0.0.0", "<nw>/0"):
         return True
+    if type(value) is str:
+        return _internet_text(value)
+    network = _cidr(value)
+    return network is not None and network.prefixlen == 0
+
+
+@lru_cache(maxsize=65536)
+def _internet_text(value):
+    # The same few source ranges repeat across every rule and interface.
     network = _cidr(value)
     return network is not None and network.prefixlen == 0
 
@@ -995,6 +1005,65 @@ def _gcp_rule_ports(entries):
     return ports
 
 
+def _gcp_policy_internet_rules(inventory, policy):
+    """Enabled ingress rules of one firewall policy with an internet source, in priority order.
+
+    Independent of the instance, so it is computed once per policy and reused
+    for every exposed interface (same rules, same order as a per-interface scan).
+    """
+    key = ("gcp_policy_internet_rules", id(policy))
+    cached = inventory.network_cache.get(key)
+    if cached is None or cached[0] is not policy:
+        rules = sorted((r for r in as_list(policy["data"].get("rules")) if isinstance(r, dict) and r.get("direction", "INGRESS") == "INGRESS"
+                        and not r.get("disabled")), key=lambda r: int(r.get("priority", 1000)))
+        rules = [rule for rule in rules
+                 if any(_internet(x) for x in as_list((rule.get("match") or {}).get("srcIpRanges")))]
+        cached = inventory.network_cache[key] = (policy, rules)
+    return cached[1]
+
+
+def _gcp_network_internet_rules(inventory, network):
+    """VPC firewall rules of one network that admit internet ingress, in inventory order.
+
+    The network/direction/source filters do not depend on the instance, so the
+    rules are grouped by network once instead of rescanning every rule for each
+    exposed interface. Target tag/service-account filters stay per interface.
+    """
+    def eligible(rule):
+        r = rule["data"]
+        if r.get("direction", "INGRESS") != "INGRESS" or r.get("disabled"):
+            return False
+        sources = as_list(r.get("sourceRanges"))
+        if not sources and (r.get("sourceTags") or r.get("sourceServiceAccounts")):
+            return False
+        return not sources or any(_internet(x) for x in sources)
+    try:
+        hash(network)
+    except TypeError:
+        return [rule for rule in inventory.items("firewall")
+                if rule["data"].get("network") == network and eligible(rule)]
+    index = inventory.network_cache.get("gcp_network_internet_rules")
+    if index is None:
+        grouped, unhashable = {}, []
+        for rule in inventory.items("firewall"):
+            value = rule["data"].get("network")
+            try:
+                grouped.setdefault(value, []).append(rule)
+            except TypeError:
+                unhashable.append(rule)
+        index = inventory.network_cache["gcp_network_internet_rules"] = ({}, grouped, unhashable)
+    resolved, grouped, unhashable = index
+    if network not in resolved:
+        if unhashable:
+            # Rare non-string network values keep the exact equality scan.
+            rules = [rule for rule in inventory.items("firewall")
+                     if rule["data"].get("network") == network and eligible(rule)]
+        else:
+            rules = [rule for rule in grouped.get(network, ()) if eligible(rule)]
+        resolved[network] = rules
+    return resolved[network]
+
+
 def _gcp_firewall(inventory, instance, interface, assessment):
     data = instance["data"]
     network = interface.get("network")
@@ -1003,12 +1072,8 @@ def _gcp_firewall(inventory, instance, interface, assessment):
     allowed, decided = {}, {}
     policies = inventory.items("firewall_policy")
     for policy in policies:
-        rules = sorted((r for r in as_list(policy["data"].get("rules")) if isinstance(r, dict) and r.get("direction", "INGRESS") == "INGRESS"
-                        and not r.get("disabled")), key=lambda r: int(r.get("priority", 1000)))
-        for rule in rules:
+        for rule in _gcp_policy_internet_rules(inventory, policy):
             match = rule.get("match") or {}
-            if not any(_internet(x) for x in as_list(match.get("srcIpRanges"))):
-                continue
             targets = as_list(rule.get("targetResources"))
             if targets and network not in targets:
                 continue
@@ -1029,15 +1094,8 @@ def _gcp_firewall(inventory, instance, interface, assessment):
         assessment.gap("firewall_policy", "hierarchical/network firewall policies not collected", "compute firewallPolicies")
         assessment.unresolved[-1]["decisive"] = False
     candidates = []
-    for rule in inventory.items("firewall"):
+    for rule in _gcp_network_internet_rules(inventory, network):
         r = rule["data"]
-        if r.get("network") != network or r.get("direction", "INGRESS") != "INGRESS" or r.get("disabled"):
-            continue
-        sources = as_list(r.get("sourceRanges"))
-        if not sources and (r.get("sourceTags") or r.get("sourceServiceAccounts")):
-            continue
-        if sources and not any(_internet(x) for x in sources):
-            continue
         if r.get("targetTags") and not tags & set(r["targetTags"]):
             continue
         if r.get("targetServiceAccounts") and not accounts & set(r["targetServiceAccounts"]):
@@ -1419,14 +1477,55 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
     return a
 
 
-def _azure_backend_nics(inventory, pool_ids):
-    pools = {str(p).lower() for p in pool_ids}
+def _azure_nic_config_index(inventory):
+    """NIC IP configurations indexed by backend pool id and by configuration id.
+
+    Built once per inventory instead of rescanning every NIC for each load
+    balancer rule; positions keep the original inventory order.
+    """
+    index = inventory.network_cache.get("azure_nic_configs")
+    if index is None:
+        try:
+            index = _azure_nic_config_entries(inventory)
+        except (AttributeError, TypeError):
+            # Malformed native records keep the original per-rule scans and errors.
+            index = False
+        inventory.network_cache["azure_nic_configs"] = index
+    return index or None
+
+
+def _azure_nic_config_entries(inventory):
+    by_pool, by_config = {}, {}
+    position = 0
     for nic in inventory.items("nic"):
         for config in as_list(_props(nic).get("ipConfigurations")):
             cp = (config or {}).get("properties") or {}
             refs = {str(x.get("id", "")).lower() for x in as_list(cp.get("loadBalancerBackendAddressPools")) + as_list(cp.get("applicationGatewayBackendAddressPools")) if isinstance(x, dict)}
-            if refs & pools:
-                yield nic, config
+            for ref in refs:
+                by_pool.setdefault(ref, []).append((position, nic, config))
+            by_config.setdefault(str((config or {}).get("id", "")).lower(), []).append((nic, config))
+            position += 1
+    return by_pool, by_config
+
+
+def _azure_backend_nics(inventory, pool_ids):
+    pools = {str(p).lower() for p in pool_ids}
+    index = _azure_nic_config_index(inventory)
+    if index is None:
+        for nic in inventory.items("nic"):
+            for config in as_list(_props(nic).get("ipConfigurations")):
+                cp = (config or {}).get("properties") or {}
+                refs = {str(x.get("id", "")).lower() for x in as_list(cp.get("loadBalancerBackendAddressPools")) + as_list(cp.get("applicationGatewayBackendAddressPools")) if isinstance(x, dict)}
+                if refs & pools:
+                    yield nic, config
+        return
+    by_pool = index[0]
+    matched = {}
+    for pool in pools:
+        for position, nic, config in by_pool.get(pool, ()):
+            matched[position] = (nic, config)
+    for position in sorted(matched):
+        yield matched[position]
 
 
 def _azure_lb(snapshot, inventory, resource):
@@ -1460,8 +1559,10 @@ def _azure_lb(snapshot, inventory, resource):
         nics = list(_azure_backend_nics(inventory, pools)) if pools else []
         if kind == "inboundNatRules":
             target = (rp.get("backendIPConfiguration") or {}).get("id")
-            nics = [(n, c) for n in inventory.items("nic") for c in as_list(_props(n).get("ipConfigurations"))
-                    if target and str((c or {}).get("id", "")).lower() == str(target).lower()]
+            index = _azure_nic_config_index(inventory) if target else None
+            nics = (list(index[1].get(str(target).lower(), ())) if index is not None else
+                    [(n, c) for n in inventory.items("nic") for c in as_list(_props(n).get("ipConfigurations"))
+                     if target and str((c or {}).get("id", "")).lower() == str(target).lower()])
         if not nics:
             a.gap("backend", f"{kind} {rule.get('name')}: backend NICs not resolved", "Microsoft.Network/networkInterfaces")
             continue

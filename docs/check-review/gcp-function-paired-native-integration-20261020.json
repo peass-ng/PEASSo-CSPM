@@ -9,7 +9,7 @@
   "source_chain": [
     {
       "receipt": "peaso/checks/gcp_function_secret_paired_admission_20261020.json",
-      "sha256": "eb01e33477b352960ce74d99c82a9344fcc5ff3bbef80f86d8c6199c25dbaf6e",
+      "sha256": "2db48941c86ab55512285eb22f591eb17bf50be7b1a1cf099d7bd134d9393622",
       "sources": 14,
       "functions": 29,
       "epoch_native_result": "99 passed in 30.02s",
@@ -17,11 +17,11 @@
     },
     {
       "receipt": "peaso/checks/gcp_function_secret_page_admission_20261020.json",
-      "sha256": "a9cf3dd72f0745e2c61cb9ace44afdbaa9dc06ba0e02a7a3ffd4c253d2d95b23",
+      "sha256": "0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9",
       "additional_sources": 7,
       "additional_functions": 12,
       "module_bindings": 8,
-      "predecessor_receipt_sha256": "eb01e33477b352960ce74d99c82a9344fcc5ff3bbef80f86d8c6199c25dbaf6e"
+      "predecessor_receipt_sha256": "2db48941c86ab55512285eb22f591eb17bf50be7b1a1cf099d7bd134d9393622"
     }
   ],
   "exact_gcp_deltas": {
@@ -74,7 +74,7 @@
   ],
   "actual_current_native_public_dtos": {
     "path": "docs/check-review/gcp-function-paired-native-current-dtos-20261020.json",
-    "sha256": "2126dad0c4803cc36f9a693813cb106510b96a1c98219e817847aa045b33a1f5",
+    "sha256": "ba811560952770dcf0d67a62657cea9ec4759b3f22fde261cb5566d1a5544643",
     "statuses": {
       "full_clean": [
         "PASS"
@@ -107,7 +107,7 @@
   },
   "actual_before_page_successor_dtos": {
     "path": "docs/check-review/gcp-function-paired-native-dtos-20261020.json",
-    "sha256": "3757df95a6edf12e83eaf5220b7fcd744e66b0731d9b901bd262f279900544e9"
+    "sha256": "069a15624bd4664e1a2b34aee004f02dd322726e7985aac8f2488a6d63af58d6"
   },
   "shared_epoch_owner": "ctx_1b331c7801a9",
   "shared_epoch": {
@@ -151,25 +151,25 @@
   "owned_artifact_hashes": {
     "peaso/collectors/gcp.py": "d7f5916616c6ba871fd82164fb74f139132bfa9f8a14967e1c2360937e5dd161",
     "peaso/collectors/gcp_function_secret_pairs_20261020.py": "e6f344088f0fbbbb50ff782852495cc9c23a874448e9b732543027e01e068598",
-    "peaso/checks/gcp_function_secret_paired_review_20261020.py": "f813bced01a020adf8c11393424080a0412270862aabe871c46f090aa57640aa",
+    "peaso/checks/gcp_function_secret_paired_review_20261020.py": "18185f7adb0cb2ddc64f40b780f6d1173bcac8ccf4693ed39dbbe7ad1a71cec5",
     "peaso/checks/gcp_function_secret_paired_admission_20261020.py": "e14b8f8833c5801a6f9c5cf6f94ef37df7f6be0df444f467d0ac0228d5fbfe7a",
-    "peaso/checks/gcp_function_secret_paired_admission_20261020.json": "eb01e33477b352960ce74d99c82a9344fcc5ff3bbef80f86d8c6199c25dbaf6e",
+    "peaso/checks/gcp_function_secret_paired_admission_20261020.json": "2db48941c86ab55512285eb22f591eb17bf50be7b1a1cf099d7bd134d9393622",
     "peaso/checks/gcp_function_secret_paired_source_successor_20261020.py": "302cb4189bbb4cdd40461aa39255346df62e6605b07aafda4a3c2f328e34a17c",
     "peaso/checks/gcp_function_secret_paired_predecessors_20261020.json.gz": "aa4d52a469ec2ef9525488aa1b9dfb2b67be07d69179e9e5772d7f90f36892e2",
     "peaso/checks/gcp_function_secret_paired_cases_20261020.json": "7c5ba61b8dc3df3b2383ba11427675b21e3606cf6db51b067e25e9de1b6c3f7e",
-    "peaso/gcp_function_secret_pair_source_20261020.py": "9197257fc8b3f2088a5eed3987c04742434df5fbcbfdb6d4cf6465a917bec888",
+    "peaso/gcp_function_secret_pair_source_20261020.py": "fed05568c1c33ee863e6452918050296ed2a660cf74783a63322fa8126ab0403",
     "peaso/gcp_function_secret_pair_persistence_20261020.py": "40a8ba26d931dca017567d07f9c58f159ce35fbff7d3f2f3042fd7947a259580",
-    "peaso/checks/gcp_function_secret_partial_page_20261020.py": "56a16e3da541ed741109f02c7324fa54d8c7f95704eb342cc140a7d8b8454093",
+    "peaso/checks/gcp_function_secret_partial_page_20261020.py": "ccd4db936dfab45936e8c736b443bade16df2e93fd61d47050b539a926e8b1a7",
     "peaso/checks/gcp_function_secret_page_admission_20261020.py": "560dd194b75eb23bae32fc9c7452c8c009712d111e25ee4ecde5fe498a541a47",
-    "peaso/checks/gcp_function_secret_page_admission_20261020.json": "a9cf3dd72f0745e2c61cb9ace44afdbaa9dc06ba0e02a7a3ffd4c253d2d95b23",
+    "peaso/checks/gcp_function_secret_page_admission_20261020.json": "0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9",
     "peaso/checks/gcp_function_secret_partial_page_cases_20261020.json": "d21c09b9e550934994c26efd3cda3738918308189254f2c9a1252d487f9bb9e7",
-    "peaso/gcp_function_secret_page_source_20261020.py": "e953bc56d70c54dbc6e80392309a5b4f971cdb1dfa3f47a14d73c27ae2a61feb",
+    "peaso/gcp_function_secret_page_source_20261020.py": "f5d15c067e3d15c876acd338f8f7bb312b4936637f1730d52fcb3de679cf8e99",
     "peaso/gcp_function_secret_page_persistence_20261020.py": "499d9311a190c268740895dd362afc69bc51cefea99cf0ba962583a2aca1bc3a",
     "tests/gcp_function_secret_paired_native_20261020.py": "51c72bf0f37d1874bb418f4b021fa3c8ee078c7f6ffc2cb225adc110b9f2260d",
     "tests/test_gcp_function_secret_paired_integration_20261020.py": "8c5b49815e8d5748b45afdc684beeeb2d0a60cf0903ba8292394fa0339d7d6f4",
     "tests/test_gcp_function_secret_partial_page_20261020.py": "749b53b9208311f16c768705c10c2a7df8ddcc614711f4ae43bb18df8aaf1cb5",
-    "docs/check-review/gcp-function-paired-native-dtos-20261020.json": "3757df95a6edf12e83eaf5220b7fcd744e66b0731d9b901bd262f279900544e9",
-    "docs/check-review/gcp-function-paired-native-current-dtos-20261020.json": "2126dad0c4803cc36f9a693813cb106510b96a1c98219e817847aa045b33a1f5",
+    "docs/check-review/gcp-function-paired-native-dtos-20261020.json": "069a15624bd4664e1a2b34aee004f02dd322726e7985aac8f2488a6d63af58d6",
+    "docs/check-review/gcp-function-paired-native-current-dtos-20261020.json": "ba811560952770dcf0d67a62657cea9ec4759b3f22fde261cb5566d1a5544643",
     "docs/check-review/gcp-function-partial-page-20261020-tests.xml": "07b48a35fa1782175bbd77666d92e1163906e66f66c7f8ccdf8a83982a420cd1"
   }
 }

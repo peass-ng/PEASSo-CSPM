@@ -231,12 +231,12 @@
   ],
   "ledger": {
     "path": "docs/check-review/azure-function-package-final-ledger-20261020.json",
-    "sha256": "ae83d7c90f2b7e3f49186d391aa1a7c954474bb2ac2cec9d59febc3612779fad"
+    "sha256": "a13af210a8fffa58b6a6c495e385277c4d901db568d8add548399dafeed66f12"
   },
   "evidence": [
     {
       "path": "docs/check-review/azure-function-package-head3-current-acceptance-20261020.json",
-      "sha256": "89266f0e8baf9e0ab42d285555ed45c2761ff4134f3ba8d072bf6828e1581d02"
+      "sha256": "f469e368c07efb9c30b007d7b01e7d71651a5baf355f1d42d7a9e9e5f9b349c2"
     },
     {
       "path": "docs/check-review/azure-function-package-integrated-public-native-20261020.json",
@@ -270,7 +270,7 @@
       },
       {
         "path": "docs/check-review/tests/test_azure_function_package_final_20261020.py",
-        "sha256": "4742239aae02fd7b25c417a73294a8bd0c99fdda4a5bae70792032a50bc69d19"
+        "sha256": "f2cc3337ceba4bca308eda5e24438022bacb35aa530b844a9f473e7eccdceed1"
       }
     ]
   }

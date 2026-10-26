@@ -222,6 +222,22 @@ def _project_activity_response(response):
     return projected
 
 
+def _project_activity_scan_response(response):
+    """Unfiltered window page: keep only declared activity names, projected
+    exactly as a per-name query, plus the page's oldest event time."""
+    if not isinstance(response, dict) or not isinstance(response.get("Events"), list):
+        raise ReadFailure("malformed", "malformed_activity_response")
+    names = {name for values in ACTIVITY_ACTIONS.values() for name in values}
+    times = [event.get("EventTime") for event in response["Events"] if isinstance(event, dict)]
+    if len(times) != len(response["Events"]) or any(not isinstance(when, datetime) for when in times):
+        raise ReadFailure("malformed", "malformed_activity_metadata")
+    declared = {**response, "Events": [event for event in response["Events"] if event.get("EventName") in names]}
+    projected = _project_activity_response(declared)
+    if times:
+        projected["OldestEventTime"] = min(times).isoformat()
+    return projected
+
+
 def _project_user_data_indicators(response, instance_id, *, dual_scanner=False):
     """Ephemeral source-pattern review, never retain script/value bytes."""
     from .aws_user_data_secret_indicators import project as project_secret_indicators, scan_selected_content
@@ -300,6 +316,9 @@ class Requests:
         self.calls = 0
         self.cache_hits = 0
         self._cache, self._clients, self._sessions = {}, {}, {}
+        from .aws_request_pool import RawReadCache
+        # Native reads shared below projections for this scan only.
+        self.raw_reads = RawReadCache()
         # One later recovery read per key after a transient failure.
         self._transient_refreshes = set()
         self._lock = threading.RLock()
@@ -332,6 +351,8 @@ class Requests:
 
     def client(self, session, service, region, *, _metadata_profile=None):
         from botocore.config import Config
+        from .aws_request_pool import canonical_wrapper
+        session = canonical_wrapper(self, session)
         key = (id(session), service, region)
 
         def cached_client(create):
@@ -374,16 +395,25 @@ class Requests:
             raise ReadFailure('not_collected', 'undeclared_client_profile')
         if lambda_environment_profile:
             key += (_metadata_profile,)
-        return cached_client(
-            lambda: session.client(service, region_name=region, config=Config(
+        def create():
+            client = session.client(service, region_name=region, config=Config(
                     connect_timeout=min(3, self.connect_timeout) if lambda_environment_profile else self.connect_timeout,
                     read_timeout=min(5, self.timeout) if lambda_environment_profile else self.timeout,
                     retries={"total_max_attempts": 1, "mode": "standard"},
                     max_pool_connections=self.workers,
                     **({'ignore_configured_endpoint_urls': True, 'use_fips_endpoint': False, 'use_dualstack_endpoint': False}
-                       if _metadata_profile == 'aws-selected-configuration-content-v1' else {}))))
+                       if _metadata_profile == 'aws-selected-configuration-content-v1' else {})))
+            raw_reads = getattr(self, 'raw_reads', None)
+            if _metadata_profile is None and raw_reads is not None:
+                from botocore.client import BaseClient
+                if isinstance(client, BaseClient):
+                    raw_reads.install(client, session)
+            return client
+        return cached_client(create)
 
     def call(self, session, service, region, operation, *, _cache_refresh=False, _uncached_credential_exchange=False, _metadata_profile=None, _projection_context=None, _codecommit_routes=None, **arguments):
+        from .aws_request_pool import SHARED_PROFILES, canonical_wrapper, shared_reads
+        session = canonical_wrapper(self, session)
         if _metadata_profile == 'aws-build-deployment-referenced-source-v1':
             if _cache_refresh or _uncached_credential_exchange or _codecommit_routes is not None:
                 raise ReadFailure('not_collected', 'invalid_build_deployment_source_controls')
@@ -489,7 +519,10 @@ class Requests:
             from .aws_ssm_inventory_events_native import is_inventory_query
             activity_query = (isinstance(attributes, list) and len(attributes) == 1 and isinstance(attributes[0], dict)
                 and attributes[0].get("AttributeKey") == "EventName" and attributes[0].get("AttributeValue") in names)
-            if not activity_query and not is_enclave_query(attributes) and not is_inventory_query(attributes):
+            # One unfiltered pass over the same window (no other filters),
+            # projected to the declared activity names only.
+            activity_scan = "LookupAttributes" not in arguments and set(arguments) <= {"StartTime", "EndTime", "NextToken"}
+            if not activity_query and not activity_scan and not is_enclave_query(attributes) and not is_inventory_query(attributes):
                 raise ReadFailure("not_collected", "undeclared_activity_event_query")
             if not isinstance(arguments.get("StartTime"), datetime) or not isinstance(arguments.get("EndTime"), datetime) or arguments["StartTime"].tzinfo is None or arguments["EndTime"].tzinfo is None or arguments["StartTime"] > arguments["EndTime"]:
                 raise ReadFailure("not_collected", "invalid_activity_window")
@@ -587,7 +620,8 @@ class Requests:
                         with private_sdk_logs():
                             response = getattr(client, operation)(**arguments)
                     else:
-                        response = getattr(client, operation)(**arguments)
+                        with shared_reads(not _cache_refresh and _metadata_profile in SHARED_PROFILES and _codecommit_routes is None):
+                            response = getattr(client, operation)(**arguments)
                     if metadata_report:
                         with self._lock:
                             if operation == 'generate_credential_report':
@@ -641,7 +675,9 @@ class Requests:
                         # snapshot sees request/response/token/content fields.
                         from .aws_kms_enclave_native import is_enclave_query, project
                         from .aws_ssm_inventory_events_native import is_inventory_query, project as project_inventory
-                        if is_inventory_query(arguments.get("LookupAttributes")):
+                        if "LookupAttributes" not in arguments:
+                            response = _project_activity_scan_response(response)
+                        elif is_inventory_query(arguments.get("LookupAttributes")):
                             response = project_inventory(response, arguments["LookupAttributes"][0]["AttributeValue"])
                         else:
                             response = project(response, arguments["LookupAttributes"][0]["AttributeValue"]) if is_enclave_query(arguments.get("LookupAttributes")) else _project_activity_response(response)
@@ -783,6 +819,8 @@ class Requests:
         operation that botocore declares without a paginator; an unpaginated
         response carrying a continuation token is never reported complete."""
         import jmespath
+        from .aws_request_pool import canonical_wrapper
+        session = canonical_wrapper(self, session)
         items, seen = [], set()
         try:
             with self._lock:
@@ -1131,8 +1169,7 @@ def _enrich(requests, session, region, kind, items, *, account=None, partition=N
     def detail(service, operation, **arguments):
         return requests.detail(session, service, region, operation, **arguments)
 
-    output = []
-    for original in items:
+    def enrich_one(original):
         if isinstance(original, str):
             names = {"eks_cluster": "name", "guardduty_detector": "DetectorId", "sqs_queue": "QueueUrl", "dynamodb_table": "TableName"}
             item = {names.get(kind, _NATIVE_IDS.get(kind, "Name")): original}
@@ -1349,8 +1386,11 @@ def _enrich(requests, session, region, kind, items, *, account=None, partition=N
             item["Table"] = detail("dynamodb", "describe_table", TableName=item["TableName"])
         if isinstance(item.get("Policy"), str):
             item["Policy"] = _policy(item["Policy"])
-        output.append(item)
-    return output
+        return item
+    # Per-resource reads are independent: run them concurrently and keep the
+    # input order (the first failing resource raises, as the serial loop did).
+    from .aws_request_pool import ordered_map
+    return ordered_map(requests, items, enrich_one)
 
 
 def _access_keys(requests, session, region):
@@ -1376,6 +1416,39 @@ def _access_keys(requests, session, region):
     return ReadResult(items, "collected" if items else "empty")
 
 
+def _iam_user_details(requests, session, region, item):
+    """Per-user credential metadata reads; depend only on the user name."""
+    fields = {}
+    name = item["UserName"]
+    access = requests.pages(session, "iam", region, "list_access_keys", "AccessKeyMetadata", UserName=name)
+    for key_item in access.items:
+        key_item["LastUsed"] = requests.detail(session, "iam", region, "get_access_key_last_used", AccessKeyId=key_item["AccessKeyId"])
+    fields["AccessKeys"] = {"collection_status": access.status, "items": access.items}
+    if access.error:
+        fields["AccessKeys"]["error"] = access.error
+    fields["LoginProfile"] = requests.detail(session, "iam", region, "get_login_profile", UserName=name, absent=("NoSuchEntity",))
+    mfa = requests.pages(session, "iam", region, "list_mfa_devices", "MFADevices", UserName=name)
+    fields["MFADevices"] = {"collection_status": mfa.status, "items": mfa.items}
+    ssh = requests.pages(session, "iam", region, "list_ssh_public_keys", "SSHPublicKeys", UserName=name)
+    fields["SSHPublicKeys"] = {"collection_status": ssh.status,
+                               "items": [{key: value for key, value in row.items()
+                                          if key in ("SSHPublicKeyId", "Status")}
+                                         for row in ssh.items if isinstance(row, dict)]}
+    if ssh.error:
+        fields["SSHPublicKeys"]["error"] = ssh.error
+    service_credentials = requests.pages(session, "iam", region,
+        "list_service_specific_credentials", "ServiceSpecificCredentials", UserName=name)
+    fields["ServiceSpecificCredentials"] = {
+        "collection_status": service_credentials.status,
+        "items": [{key: credential[key] for key in
+                   ("ServiceName", "ServiceSpecificCredentialId", "Status") if key in credential}
+                  for credential in service_credentials.items if isinstance(credential, dict)],
+    }
+    if service_credentials.error:
+        fields["ServiceSpecificCredentials"]["error"] = service_credentials.error
+    return fields
+
+
 def _iam(requests, session, region, wanted):
     keys = {"iam_user": "UserDetailList", "iam_group": "GroupDetailList", "iam_role": "RoleDetailList", "iam_policy": "Policies"}
     result = {}
@@ -1384,7 +1457,13 @@ def _iam(requests, session, region, wanted):
             continue
         read = requests.pages(session, "iam", region, "get_account_authorization_details", key)
         # Identical calls for four IAM projections are single-flight cached.
-        for item in read.items:
+        if kind == "iam_user":
+            # Users' reads are independent; fetch them concurrently and apply
+            # them in list order, so every user row is built as before.
+            from .aws_request_pool import ordered_map
+            user_details = ordered_map(requests, read.items,
+                                       lambda user: _iam_user_details(requests, session, region, user))
+        for index, item in enumerate(read.items):
             item["_provenance"] = {"operation": "iam:GetAccountAuthorizationDetails", "native_response_complete": True}
             if kind in {"iam_user", "iam_group", "iam_role"}:
                 _documented_omission(item, "AttachedManagedPolicies", [], "iam:GetAccountAuthorizationDetails")
@@ -1410,33 +1489,7 @@ def _iam(requests, session, region, wanted):
                  "policy_arn": p.get("PolicyArn"), "policy_name": p.get("PolicyName")}
                  for p in item.get("AttachedManagedPolicies", []))
             if kind == "iam_user":
-                name = item["UserName"]
-                access = requests.pages(session, "iam", region, "list_access_keys", "AccessKeyMetadata", UserName=name)
-                for key_item in access.items:
-                    key_item["LastUsed"] = requests.detail(session, "iam", region, "get_access_key_last_used", AccessKeyId=key_item["AccessKeyId"])
-                item["AccessKeys"] = {"collection_status": access.status, "items": access.items}
-                if access.error:
-                    item["AccessKeys"]["error"] = access.error
-                item["LoginProfile"] = requests.detail(session, "iam", region, "get_login_profile", UserName=name, absent=("NoSuchEntity",))
-                mfa = requests.pages(session, "iam", region, "list_mfa_devices", "MFADevices", UserName=name)
-                item["MFADevices"] = {"collection_status": mfa.status, "items": mfa.items}
-                ssh = requests.pages(session, "iam", region, "list_ssh_public_keys", "SSHPublicKeys", UserName=name)
-                item["SSHPublicKeys"] = {"collection_status": ssh.status,
-                                         "items": [{key: value for key, value in row.items()
-                                                    if key in ("SSHPublicKeyId", "Status")}
-                                                   for row in ssh.items if isinstance(row, dict)]}
-                if ssh.error:
-                    item["SSHPublicKeys"]["error"] = ssh.error
-                service_credentials = requests.pages(session, "iam", region,
-                    "list_service_specific_credentials", "ServiceSpecificCredentials", UserName=name)
-                item["ServiceSpecificCredentials"] = {
-                    "collection_status": service_credentials.status,
-                    "items": [{key: credential[key] for key in
-                               ("ServiceName", "ServiceSpecificCredentialId", "Status") if key in credential}
-                              for credential in service_credentials.items if isinstance(credential, dict)],
-                }
-                if service_credentials.error:
-                    item["ServiceSpecificCredentials"]["error"] = service_credentials.error
+                item.update(user_details[index])
         if kind == "iam_user":
             _services_last_accessed(requests, session, region, read.items)
         if kind == "iam_role":
@@ -1550,17 +1603,27 @@ def _buckets(requests, session, region):
         ("Replication", "get_bucket_replication", ("ReplicationConfigurationNotFoundError",)),
         ("ObjectLock", "get_object_lock_configuration", ("ObjectLockConfigurationNotFoundError",)),
         ("Tags", "get_bucket_tagging", ("NoSuchTagSet",))]
-    for item in result.items:
-        name = item["Name"]
-        location = requests.detail(session, "s3", region, "get_bucket_location", Bucket=name)
-        item["Location"] = location
+    from .aws_request_pool import ordered_map
+    items = list(result.items)
+    # Independent per-bucket reads run concurrently; results are assigned in
+    # the serial order, so every bucket row is built exactly as before.
+    locations = ordered_map(requests, items, lambda item: requests.detail(
+        session, "s3", region, "get_bucket_location", Bucket=item["Name"]))
+    targets = []
+    for location in locations:
         selected = location.get("LocationConstraint") or region
         if location.get("collection_status") in (None, "collected"):
             selected = "eu-west-1" if selected == "EU" else selected
             if location.get("LocationConstraint") is None:
                 selected = "us-east-1"
-        for field_name, operation, absent in reads:
-            item[field_name] = requests.detail(session, "s3", selected, operation, Bucket=name, absent=absent)
+        targets.append(selected)
+    pairs = [(item["Name"], selected, read) for item, selected in zip(items, targets) for read in reads]
+    values = iter(ordered_map(requests, pairs, lambda pair: requests.detail(
+        session, "s3", pair[1], pair[2][1], Bucket=pair[0], absent=pair[2][2])))
+    for item, location in zip(items, locations):
+        item["Location"] = location
+        for field_name, _operation, _absent in reads:
+            item[field_name] = next(values)
         if "Policy" in item["Policy"]:
             item["Policy"]["Policy"] = _policy(item["Policy"]["Policy"])
     return result
@@ -1866,14 +1929,72 @@ def activity_event_names(region):
     return names
 
 
+ACTIVITY_SCAN_MIN_PAGES = 2
+
+
+def _activity_scan(requests, session, region, start, end, names):
+    """Per-name event lists from ONE unfiltered LookupEvents pass, or None.
+
+    After each page the pass extrapolates, from the share of the window
+    already covered (pages are newest first), its own total page count and
+    the per-name cost (one call per name plus one per 50 events seen for it),
+    and gives up once the pass would be the dearer one. Any failure, repeated
+    cursor, page without progress information or per-read cap also gives up;
+    the caller then runs the unchanged per-name queries over the full window.
+    A completed pass covers the same window, so bucketing its events by
+    EventName gives each name exactly the events a per-name query returns.
+    """
+    if (requests.max_pages is not None or requests.max_items is not None or requests.max_calls is not None
+            or len(names) <= ACTIVITY_SCAN_MIN_PAGES):
+        return None
+    buckets = {name: [] for name in names}
+    arguments, seen, pages, oldest = {"StartTime": start, "EndTime": end}, set(), 0, None
+    window = (end - start).total_seconds()
+    while True:
+        try:
+            response = requests.call(session, "cloudtrail", region, "lookup_events", **arguments)
+        except Exception:
+            return None
+        pages += 1
+        for event in response["Events"]:
+            if event.get("EventName") in buckets:
+                buckets[event["EventName"]].append(event)
+        token = response.get("NextToken")
+        if not token:
+            return buckets
+        if token in seen:
+            return None
+        seen.add(token)
+        arguments["NextToken"] = token
+        oldest = response.get("OldestEventTime", oldest)
+        if pages >= ACTIVITY_SCAN_MIN_PAGES:
+            if not isinstance(oldest, str):
+                return None
+            covered = (end - datetime.fromisoformat(oldest)).total_seconds()
+            if covered <= 0:
+                return None
+            # Extrapolate both costs from the share of the window covered.
+            scale = window / covered
+            per_name = sum(max(1, math.ceil(len(rows) * scale / 50)) for rows in buckets.values())
+            if pages * scale > per_name:
+                return None
+
+
 def _cloudtrail_activity(requests, session, region):
     end = requests.observed_at
     start = end - timedelta(minutes=requests.activity_minutes)
     names = activity_event_names(region)
     items, failures = {}, []
-    for name in names:
-        read = requests.pages(session, "cloudtrail", region, "lookup_events", "Events",
-            LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": name}], StartTime=start, EndTime=end)
+    buckets = _activity_scan(requests, session, region, start, end, names)
+    if buckets is not None:
+        reads = [ReadResult(buckets[name], "collected" if buckets[name] else "empty") for name in names]
+    else:
+        from .aws_request_pool import ordered_reads
+        # Event names are read concurrently under the same 2 TPS Region limiter;
+        # results are merged in the original name order.
+        reads = ordered_reads(requests, names, lambda name: requests.pages(session, "cloudtrail", region, "lookup_events", "Events",
+            LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": name}], StartTime=start, EndTime=end))
+    for name, read in zip(names, reads):
         for event in read.items:
             if event.get("EventName") != name:
                 failures.append(ReadFailure("malformed", "activity_query_name_mismatch"))
@@ -3141,6 +3262,8 @@ def _load_metadata_extension(name="peaso.collectors.aws_b_services"):
     for kind, enricher in getattr(extension, "ENRICHERS", {}).items():
         if name in {'peaso.collectors.aws_code_log_content_indicators', 'peaso.collectors.aws_package_content_indicators'}:
             enricher = _explicit_content_enricher(kind, enricher)
+        from .aws_request_pool import item_wise
+        enricher = item_wise(name, enricher)
         ENRICHERS[kind] = _chain(ENRICHERS[kind], enricher) if kind in ENRICHERS else enricher
     AWS_TYPES[:] = sorted(set(SPECS) | GLOBAL_TYPES)
 

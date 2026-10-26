@@ -176,6 +176,45 @@ class CredentialExpired(PermissionError):
     pass
 
 
+def _import_checks():
+    import peaso.checks  # noqa: F401
+
+
+def _verify_aws_credentials_while(connector, work):
+    """Run CPU-bound ``work`` while the AWS STS preflight waits on the network.
+
+    Every live collection imports the native check registry before it plans
+    collection, so importing it during the credential round trip only moves
+    work earlier. Modules the preflight needs are imported here first, so the
+    preflight thread never imports a peaso module concurrently with ``work``.
+    Credential errors still surface before any collection is scheduled.
+    """
+    if (connector.get("provider") != "aws" or
+            connector.get("input_mode") in {"offline_snapshot", "demo"}):
+        _verify_aws_credentials(connector)
+        return work()
+    import boto3  # noqa: F401
+    import botocore.config  # noqa: F401
+    import peaso.collectors.aws  # noqa: F401
+    failure = []
+
+    def verify():
+        try:
+            _verify_aws_credentials(connector)
+        except BaseException as exc:
+            failure.append(exc)
+
+    thread = threading.Thread(target=verify, name="peaso-credential-preflight", daemon=True)
+    thread.start()
+    try:
+        result = work()
+    finally:
+        thread.join()
+    if failure:
+        raise failure[0]
+    return result
+
+
 class _SynchronizedPipe:
     """Serialize child progress and background checkpoint frames on one pipe."""
     def __init__(self, connection):
@@ -366,6 +405,67 @@ def _collector_checkpoint_publisher(artifacts, publication_artifacts, tenant, id
     return checkpoint
 
 
+# One placeholder scope per provider: an empty evaluation of the job's provider
+# runs every lazy per-process install (admission bundles, framework and report
+# template tables) that the first real evaluation would otherwise pay.
+_PREWARM_SCOPES = {"aws": "123456789012", "gcp": "peaso-prewarm", "azure": "00000000-0000-0000-0000-000000000000",
+                   "k8s": "peaso-prewarm"}
+
+
+def _prewarm_evaluation(provider):
+    scope = _PREWARM_SCOPES.get(provider)
+    if scope is None:
+        return
+    from peaso.engine import evaluate_snapshot
+    from peaso.snapshot import make_snapshot
+    evaluate_snapshot(make_snapshot(provider, [scope], [], created_at="2026-01-01T00:00:00+00:00"),
+                      include_not_applicable=False)
+
+
+def _prewarmed_process(connection, provider=None):
+    """Import and prove the native engine before an analyzer job arrives.
+
+    The progressive analyzer starts this child while collection is still
+    running, so the one-time pinned-source proof of ``peaso.checks`` uses idle
+    analyzer time instead of delaying final evaluation. The job request then
+    follows the exact fresh-child path; an import failure is reported there.
+    """
+    with open(os.devnull, "w") as sink:
+        os.dup2(sink.fileno(), 1)
+        os.dup2(sink.fileno(), 2)
+    try:
+        import peaso.checks  # noqa: F401
+        import peaso.engine  # noqa: F401
+        _prewarm_evaluation(provider)
+    except Exception:  # noqa: BLE001 - _process re-imports and reports the failure
+        pass
+    try:
+        message = connection.recv()
+    except (EOFError, OSError):
+        return
+    if not (isinstance(message, tuple) and len(message) == 3 and message[0] == "__job__"):
+        return
+    _process(message[1], message[2], connection)
+
+
+_WARM_PRELOAD = ["peaso.worker_preload"]
+
+
+def _warm_context():
+    """A forkserver context whose server has imported and proven the engine.
+
+    ``PEASO_SOURCE_ATTESTATION=always`` (tests, CI, image build) and platforms
+    without a forkserver keep a fresh spawned interpreter per job, which proves
+    every pinned source again.
+    """
+    from peaso.source_attestation_mode import ALWAYS
+    if ALWAYS or "forkserver" not in multiprocessing.get_all_start_methods():
+        return multiprocessing.get_context("spawn")
+    context = multiprocessing.get_context("forkserver")
+    context.set_forkserver_preload(_WARM_PRELOAD)
+    return context
+
+
 def _process(role, request, connection):
     connection = _SynchronizedPipe(connection)
     from peaso import runtime_metrics
@@ -406,8 +506,8 @@ def _process(role, request, connection):
                 from peaso.server.scan_resume import validate_resume_proof
                 validate_resume_proof(proof, artifacts, tenant, ident,
                                       request["connector"], request.get("checkpoint_refs", []))
-            _verify_aws_credentials(request.get("connector", {}))
             with _runtime_span('worker.startup'):
+                _verify_aws_credentials_while(request.get("connector", {}), _import_checks)
                 from peaso.engine import collect_snapshot
             from peaso.snapshot import seal
             connector = request.get("connector", {})
@@ -467,6 +567,11 @@ def _process(role, request, connection):
 
                 public_checkpoint = public_snapshot_adapter(public_checkpoint,
                     provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
+                from peaso.settle_memo import public_state
+                # Envelope output depends only on native content, the exact
+                # connector credentials and the capture's private state.
+                public_checkpoint.settle_state = lambda: public_state(
+                    credential_values(connector.get("auth", {})), secret_capture)
 
                 checkpoint = _collector_checkpoint_publisher(artifacts, publication_artifacts,
                     tenant, ident, secret_capture, private_checkpoint, connection)
@@ -553,7 +658,8 @@ def _process(role, request, connection):
                     del checkpoint_session
             # Separate encrypted per-scan object; no reference or value enters
             # the native snapshot, public report, supervisor pipe or AI context.
-            with _runtime_span('worker.redact'):
+            from peaso.gc_pause import gc_paused
+            with _runtime_span('worker.redact'), gc_paused():
                 snapshot = public_content(snapshot)
             with _runtime_span("worker.private_document"):
                 artifacts.put_secret_evidence(tenant, ident, private_checkpoint.document(secret_capture))
@@ -575,10 +681,12 @@ def _process(role, request, connection):
                 failure_reasons = _curated_target_reasons(snapshot, request["connector"])
                 raise PermissionError("no collection was readable with the connector credentials")
             snapshot.setdefault("metadata", {})["input_mode"] = request["connector"].get("input_mode", "live")
-            with _runtime_span('worker.final_snapshot'):
+            with _runtime_span('worker.final_snapshot'), gc_paused():
+                # redact() returns a fresh plain copy; seal adopts it instead
+                # of copying the complete native inventory a second time.
                 public_final = public_snapshot_adapter(
                     lambda native: seal(redact(native, tuple(credential_values(
-                        request["connector"].get("auth", {}))))), provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
+                        request["connector"].get("auth", {})))), owned=True), provider=connector["provider"], trusted_scopes=connector.get("scopes") or ["*"])
                 value = public_final(snapshot)
             reference = artifacts.put(tenant, ident, "snapshot", value)
             if expired:
@@ -588,7 +696,10 @@ def _process(role, request, connection):
             with _runtime_span('worker.startup'):
                 from peaso.engine import evaluate_snapshot
             selectors = request["selectors"]
-            snapshot = artifacts.get(tenant, request["snapshot_ref"])
+            from peaso.snapshot import frozen_view
+            # Freeze the native items once; evaluation, publication and AI
+            # review share them instead of each making a read-only copy.
+            snapshot = frozen_view(artifacts.get(tenant, request["snapshot_ref"]))
             related, sources = [], {}
             for entry in request.get("related", []):
                 try:
@@ -612,6 +723,8 @@ def _process(role, request, connection):
             value["runtime"] = runtime_estimate(request["timeline"])
             from peaso.storage.reports import publish_report
             native_sequence = int(request.get("checkpoint_sequence", 0)) + 1
+            # Snapshot-only artifacts are shared by the native and final bundles.
+            publication_shared = {}
             sections = snapshot.get("metadata", {}).get("sections", {})
             sections = sections if isinstance(sections, dict) else {}
             from peaso.ai.pipeline import review_scan
@@ -627,7 +740,8 @@ def _process(role, request, connection):
                 "phase": "completed" if ai_disabled else "analyzing",
                 "sequence": native_sequence, "sections": sections})
             with _runtime_span('worker.final_publish'):
-                native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot)
+                native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot,
+                                                  _shared=publication_shared)
             connection.send(("__checkpoint__", {"sequence": native_sequence,
                 "stage": "analyzer_native", "snapshot_ref": request["snapshot_ref"],
                 "report_ref": native_reference, "kind": None, "scope": None}))
@@ -655,7 +769,8 @@ def _process(role, request, connection):
                 value["publication"] = {"state": "final", "phase": "completed", "sequence": native_sequence,
                                         "sections": sections}
                 with _runtime_span('worker.final_publish'):
-                    reference = publish_report(publication_artifacts, tenant, ident, value, snapshot)
+                    reference = publish_report(publication_artifacts, tenant, ident, value, snapshot,
+                                               _shared=publication_shared)
         # Large evidence/report objects never cross the supervisor process pipe.
         if aws_metrics is not None:
             aws_metrics.close()
@@ -753,6 +868,69 @@ class Worker:
         if isinstance(self.authenticator, Authenticator):
             self.authenticator.store = self.store
         self.stopping = threading.Event()
+        self._prewarmed = None
+        # Only a long-lived worker (run) serves many jobs from one forkserver;
+        # a one-shot task keeps its single spawned child.
+        self.warm_children = False
+
+    def _child_context(self):
+        return _warm_context() if getattr(self, "warm_children", False) else multiprocessing.get_context("spawn")
+
+    def _start_warm_children(self):
+        """Start the forkserver now so its one engine import overlaps the first claim."""
+        self.warm_children = True
+        if self._child_context().get_start_method() != "forkserver":
+            return
+        try:
+            from multiprocessing import forkserver
+            forkserver.ensure_running()
+        except Exception:  # noqa: BLE001 - the first job child starts it again or fails visibly
+            pass
+
+    def prewarm(self, provider=None):
+        """Start one analyzer child that imports the engine ahead of its job."""
+        if self.role != "analyzer" or self._prewarmed is not None:
+            return
+        context = self._child_context()
+        parent, child = context.Pipe(duplex=True)
+        process = context.Process(target=_prewarmed_process, args=(child, provider), daemon=True)
+        try:
+            process.start()
+        except Exception:  # noqa: BLE001 - run_once falls back to a fresh child
+            parent.close()
+            return
+        finally:
+            child.close()
+        self._prewarmed = (process, parent)
+
+    def _take_prewarmed(self, request):
+        warm, self._prewarmed = self._prewarmed, None
+        if warm is None:
+            return None
+        process, parent = warm
+        try:
+            if not process.is_alive():
+                raise OSError("prewarmed analyzer exited")
+            parent.send(("__job__", self.role, request))
+            return warm
+        except Exception:  # noqa: BLE001 - discard it and spawn a fresh child
+            self._discard(process, parent)
+            return None
+
+    @staticmethod
+    def _discard(process, parent):
+        parent.close()
+        if process.is_alive():
+            process.terminate()
+        process.join(timeout=2)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=2)
+
+    def discard_prewarmed(self):
+        warm, self._prewarmed = self._prewarmed, None
+        if warm is not None:
+            self._discard(*warm)
 
     def schedule_tick(self, now=None):
         if self.role != "collector":
@@ -853,11 +1031,15 @@ class Worker:
             request.update(tenant_id=job["tenant"], scan_id=job["id"], deadline=job["deadline"], artifact_config={"mode": "file", "root": str(self.artifacts.root)} if isinstance(self.artifacts, FileArtifacts) else {"mode": "s3", "bucket": self.artifacts.bucket, "kms_key": self.artifacts.kms_key})
             request["ai_context"] = {"state_dir": str(self.settings.state_dir), "identity_dir": str(self.settings.identity_dir)}
             request["timeline"] = self.store.public_job(job)["timeline"]
-            context = multiprocessing.get_context("spawn")
-            parent, child = context.Pipe(duplex=True)
-            process = context.Process(target=_process, args=(self.role, request, child), daemon=True)
-            process.start()
-            child.close()
+            warm = self._take_prewarmed(request) if self.role == "analyzer" else None
+            if warm is not None:
+                process, parent = warm
+            else:
+                context = self._child_context()
+                parent, child = context.Pipe(duplex=True)
+                process = context.Process(target=_process, args=(self.role, request, child), daemon=True)
+                process.start()
+                child.close()
             next_heartbeat = 0
             result = None
             control_read = getattr(self.store, "job_control", self.store.job)
@@ -972,6 +1154,9 @@ class Worker:
                     # A transient scheduler failure is retried without logging credentials.
                     pass
                 self.stopping.wait(30)
+        # Each job child forks from one forkserver that imported and proved
+        # peaso.checks once, instead of every child repeating that import.
+        self._start_warm_children()
         scheduler = threading.Thread(target=schedule_loop, name='scan-scheduler', daemon=True) if self.role == 'collector' else None
         if scheduler:
             scheduler.start()

@@ -131,7 +131,7 @@ def scan_captured(selection, scope, before, after, captured, *, enabled=False,
         identity = archive.identity({'provider': 'gcp', 'scope': scope,
             'immutable_reference': captured._uri.removeprefix('https://'), 'manifest_digest': digest,
             'config_digest': config_desc['digest']})
-        archive.validate(identity, manifest, config, payloads, captured.check)
+        archive.validate(identity, manifest, config, payloads, captured.check, stage=True)
         fingerprint = (tuple(ids), tuple((key, hashlib.sha256(raw).digest())
                        for key, raw in captured._blobs.items()))
 

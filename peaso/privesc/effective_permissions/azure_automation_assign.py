@@ -58,6 +58,25 @@ def _child_scopes(model, source, account, child_type):
             and "/" not in str(assignment["scope"])[len(prefix):]}
 
 
+def _runbook_index(model):
+    """Runbook resource ids in model.resources order: ({account: ids with exactly one "/runbooks/"}, [other ids]).
+    model.resources is fixed after _load."""
+    index = model.__dict__.get("_automation_runbook_index") if hasattr(model, "__dict__") else None
+    if index is None:
+        single, nested = {}, []
+        for rid, resource in model.resources.items():
+            if resource.get("type") != RUNBOOK_TYPE:
+                continue
+            if rid.count("/runbooks/") == 1:
+                single.setdefault(rid.partition("/runbooks/")[0], []).append(rid)
+            else:
+                nested.append(rid)
+        index = (single, nested)
+        if hasattr(model, "__dict__"):
+            model.__dict__["_automation_runbook_index"] = index
+    return index
+
+
 def execution_paths(model, source, account, created=False):
     paths = []
     missing_runbook_inventory = False
@@ -75,16 +94,13 @@ def execution_paths(model, source, account, created=False):
             paths.append((created, _path(model, source, [
                 ("runbooks/write", runbook), ("runbooks/draft/content/write", runbook),
                 ("runbooks/publish/action", runbook), ("jobs/write", job)])))
-    if not any(resource.get("type") == RUNBOOK_TYPE and rid.startswith(prefix)
-               for rid, resource in model.resources.items()):
+    single, nested = _runbook_index(model)
+    if not single.get(account) and not any(rid.startswith(prefix) for rid in nested):
         if any(_check(model, source, "runbooks/draft/write", runbook) is not None
                and _check(model, source, "runbooks/draft/content/write", runbook) is not None
                for runbook in runbooks):
             missing_runbook_inventory = True
-    for rid, resource in model.resources.items():
-        if (resource.get("type") != RUNBOOK_TYPE or not rid.startswith(account + "/runbooks/")
-                or rid.count("/runbooks/") != 1):
-            continue
+    for rid in single.get(account, ()):
         content = [("runbooks/draft/write", rid), ("runbooks/draft/content/write", rid)]
         for job in sorted(jobs):
             paths.append((created, _path(model, source, content + [

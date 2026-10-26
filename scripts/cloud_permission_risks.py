@@ -49,9 +49,16 @@ def _cache_dir() -> Path:
     return Path.home() / ".cache" / "cloudpeass" / "risk_rules"
 
 
+@lru_cache(maxsize=1)
+def _install_root() -> Path:
+    # The module's own location does not move while it is loaded; resolving it
+    # (realpath + per-component stat) once keeps per-permission validation cheap.
+    return Path(__file__).resolve().parent.parent
+
+
 def _bundled_rules_path(provider: str) -> Path:
     """Return the permissionless/offline baseline shipped with CloudPEASS."""
-    return Path(__file__).resolve().parent.parent / "risk_rules" / f"{provider}.yaml"
+    return _install_root() / "risk_rules" / f"{provider}.yaml"
 
 
 def _parse_rules_yaml(yaml_text: Optional[str], provider: str, source: str) -> dict:

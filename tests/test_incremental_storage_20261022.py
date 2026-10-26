@@ -301,27 +301,39 @@ def test_worker_offline_collection_commits_public_partial_before_analyzer(tmp_pa
     assert Worker("collector", settings, store=store, artifacts=artifacts).run_once(TENANT, job["id"])
     row = store.job(TENANT, job["id"])
     assert row["status"] == "collected", row
-    assert row["partial_report"] and row["snapshot"]
+    assert row["snapshot"]
     checkpoints = store.checkpoint_collections(TENANT, job["id"])
     assert len(checkpoints) == 2  # bounded batch, then section-closure revision
     assert checkpoints[0]["kind"] == "__checkpoint_batch__"
     assert checkpoints[1]["kind"] == "bucket"
-    partial_manifest = artifacts.get(TENANT, row["partial_report"])
-    assert partial_manifest["bundle_version"] == 1
-    partial = artifacts.get(TENANT, partial_manifest["report_json"])
-    assert partial["publication"]["state"] == "partial"
-    assert partial["publication"]["sections"]["hardening"]["status"] == "complete"
+    # Since c7e3c243 a finished collection skips the redundant final cumulative
+    # report; the background publisher may or may not have rendered one first.
+    # Every durable batch and the section watermark are committed either way.
+    if row["partial_report"]:
+        assert row["partial_snapshot"]
+        partial_manifest = artifacts.get(TENANT, row["partial_report"])
+        assert partial_manifest["bundle_version"] == 1
+        partial = artifacts.get(TENANT, partial_manifest["report_json"])
+        assert partial["publication"]["state"] == "partial"
+        assert partial["publication"]["sections"]["hardening"]["status"] == "complete"
+        assert any(f["check_id"] == "aws.s3.default_encryption" and f["status"] == "PASS"
+                   for f in partial["findings"])
     final_snapshot = artifacts.get(TENANT, row["snapshot"])
     assert final_snapshot["metadata"]["sections"]["hardening"]["status"] == "complete"
-    assert any(f["check_id"] == "aws.s3.default_encryption" and f["status"] == "PASS"
-               for f in partial["findings"])
     assert Worker("analyzer", settings, store=store, artifacts=artifacts).run_once(TENANT, job["id"])
     completed = store.job(TENANT, job["id"])
     assert completed["status"] == "completed", completed
-    assert completed["report"] and completed["report"] != completed["partial_report"]
+    # With AI disabled the analyzer's acknowledged native checkpoint is already
+    # the final publication (168d57fb); it is reused instead of republished.
+    assert completed["report"] and completed["report"] != row["partial_report"]
+    assert completed["report"] == completed["partial_report"]
     final_manifest = artifacts.get(TENANT, completed["report"])
     assert final_manifest["bundle_version"] == 1
-    assert artifacts.get(TENANT, final_manifest["report_json"])["publication"]["sections"]["hardening"]["status"] == "complete"
+    final = artifacts.get(TENANT, final_manifest["report_json"])
+    assert final["publication"]["state"] == "final" and final["publication"]["phase"] == "completed"
+    assert final["publication"]["sections"]["hardening"]["status"] == "complete"
+    assert any(f["check_id"] == "aws.s3.default_encryption" and f["status"] == "PASS"
+               for f in final["findings"])
 
 
 def test_reclaimed_collector_preserves_prior_encrypted_private_witnesses(tmp_path):

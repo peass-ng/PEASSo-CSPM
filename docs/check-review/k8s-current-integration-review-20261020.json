@@ -228,7 +228,7 @@
   "portable_retention": {
     "schema_version": 1,
     "source_report": "docs/check-review/k8s-cluster-native-review-20261020.json",
-    "source_report_sha256": "214034ee33aec42c30e525cfcd7932e3060904c8884b39f372c2f33d0231dffc",
+    "source_report_sha256": "540c0bfdf4a1db8a65e0c58fa0d97bd3634075535e093bfd77afff1927ed7e87",
     "retained_path": "tests/fixtures/k8s_cluster_native_inputs_20261020.tar.gz",
     "retained_sha256": "60812356285354c3d0ed08742ccb8ba2cea225abc0199cf527b8d04393d419e2",
     "retained_bytes": 817896,
@@ -5983,7 +5983,7 @@
       "accepted_current_native_successor": {
         "report": {
           "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-          "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
+          "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
           "bytes": 261157,
           "status": "scoped_native_admission_complete",
           "gate_summary": {
@@ -6187,7 +6187,7 @@
       "accepted_current_native_successor": {
         "report": {
           "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-          "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
+          "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
           "bytes": 261157,
           "status": "scoped_native_admission_complete",
           "gate_summary": {
@@ -6391,7 +6391,7 @@
       "accepted_current_native_successor": {
         "report": {
           "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-          "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
+          "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
           "bytes": 261157,
           "status": "scoped_native_admission_complete",
           "gate_summary": {
@@ -13892,7 +13892,7 @@
       "accepted_current_native_successor": {
         "report": {
           "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-          "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
+          "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
           "bytes": 261157,
           "status": "scoped_native_admission_complete",
           "gate_summary": {
@@ -14102,7 +14102,7 @@
       "accepted_current_native_successor": {
         "report": {
           "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-          "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
+          "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
           "bytes": 261157,
           "status": "scoped_native_admission_complete",
           "gate_summary": {
@@ -20014,7 +20014,7 @@
       "current_source_sha256": "235505cc366adf66cb10ef7716d5b35ed5686ee27d42ae9b4f8bfb559955ced8",
       "accepted_successor": {
         "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-        "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
+        "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
         "bytes": 261157,
         "status": "scoped_native_admission_complete",
         "gate_summary": {
@@ -20963,7 +20963,7 @@
     "e78c37def03ffca38341f4fec4f8a510bb4f3fa2738053de026263a13c4f3aff": {
       "path": "peaso/collectors/k8s.py",
       "qualname": "_metadata_pages",
-      "prior_source_sha256": "a7207b57e629bf864da2f9256a075416df1bad975c857aa0abed2eea3528f142",
+      "prior_source_sha256": "11db81bbea65ff49af907659bea2775d071907e07bf1057b64a6a2d0a82d4ccf",
       "prior_exact_body_present_in_current_module": true,
       "current_module_sha256": "8157bb5d2a1d4931b13d8410589ed3890cf54b74d9412c8990a0013dc851b594",
       "assessment": "Exact old function text retained; this alone is not a new reachable-helper/native transport proof."
@@ -21010,7 +21010,7 @@
       "current_source_sha256": "b671e2a49a9208ffd7c4c6bde9956866001e3152d6f90bdc716cbba80bee631b",
       "accepted_successor": {
         "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-        "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
+        "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
         "bytes": 261157,
         "status": "scoped_native_admission_complete",
         "gate_summary": {
@@ -24221,17 +24221,17 @@
   "preservation": {
     "cluster_report": {
       "path": "/Users/carlospolop/git/Blue-CloudPEASS/docs/check-review/k8s-cluster-native-review-20261020.json",
-      "sha256": "214034ee33aec42c30e525cfcd7932e3060904c8884b39f372c2f33d0231dffc",
+      "sha256": "540c0bfdf4a1db8a65e0c58fa0d97bd3634075535e093bfd77afff1927ed7e87",
       "bytes": 3511949
     },
     "workloads192_report": {
       "path": "/Users/carlospolop/git/Blue-CloudPEASS/docs/check-review/k8s-workloads-native-review-20261020.json",
-      "sha256": "df5977f3ad588112397045ee90940c5146352dbb5de3b2b82730e461385bc01c",
+      "sha256": "3b50c6fabcde4de7df67640510f1628585ccd61e44afde5ecbecd80fd14f2ae3",
       "bytes": 2393944
     },
     "controller_report": {
       "path": "/Users/carlospolop/git/Blue-CloudPEASS/docs/check-review/k8s-controller-literal-secret-implementation-20261020.json",
-      "sha256": "dcee0998647b73285a3ab32497da4c51c78a323a942841514e8052e7bcbc079c",
+      "sha256": "89d353951329f0f80f8b21daf43ff2e70678435c6418bcb051e2a56186b8a640",
       "bytes": 386672
     },
     "legacy_declarations_edited": false,
@@ -24240,14 +24240,14 @@
   "new_sources": {
     "peaso/checks/k8s_literal_current_metadata_20261020.py": "b57a0c7e050d31f00f3225bcdc5597212751698ac6b37058c640adebbea04983",
     "peaso/checks/k8s_workload_finding_summary.py": "e4a6d8c4440426816b678ecfe25ff678043ea6d3d5a57bb656c35d58f1f1652e",
-    "tests/k8s_cluster_retained_inputs_20261020.py": "269fa052f95c38bc9ba11ee202572dc6c0fb889f55b3b0ad2ef085297f8e895a",
+    "tests/k8s_cluster_retained_inputs_20261020.py": "115d487a8f47928c6fdc798373a2e78fb98205b4008842fb6a3658f529526534",
     "tests/test_k8s_current_integration_review_20261020.py": "947e1a762b9215dad169e020c75fb32b9c47b1eb330249c8089559394b96902a",
     "frontend/tests/k8s-current-literal-evidence.spec.ts": "7dd5794adb02906f03ed2670aaa9b321bb1bc0c55e57de13e0ef3cc0b71b2b06",
     "frontend/playwright.k8s-current-literal.config.ts": "805a77b0822cb662919fda7f597ef5c99414d6ecdc200ec53bf97ea07ae29ead"
   },
   "accepted_C_annotation_source_successor": {
     "path": "docs/check-review/k8s-annotation-native-admission-20261020.json",
-    "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
+    "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
     "bytes": 261157,
     "status": "scoped_native_admission_complete",
     "gate_summary": {

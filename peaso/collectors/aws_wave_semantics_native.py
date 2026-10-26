@@ -5,6 +5,7 @@ for one finding. No API calls or owner-policy decisions happen here.
 """
 
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from math import isfinite
 import re
 
@@ -132,15 +133,22 @@ def _invalid(code='securityhub_history_metadata_invalid'):
     raise ReadFailure('malformed', code)
 
 
+@lru_cache(maxsize=1)
+def _history_shape():
+    # The installed SDK model is immutable for the process; load it once
+    # instead of building a fresh SDK session for every history page.
+    import botocore.session
+    return botocore.session.get_session().get_service_model('securityhub').operation_model('GetFindingHistory').output_shape
+
+
 def project_response(response, service, operation, arguments):
     """Validate SDK shape, then discard all unrelated ASFF change values."""
     from botocore.validate import validate_parameters
     from botocore.exceptions import ParamValidationError
-    import botocore.session
 
     if (service, operation) not in PROJECTION_OPERATIONS or not isinstance(response, dict):
         _invalid()
-    shape = botocore.session.get_session().get_service_model('securityhub').operation_model('GetFindingHistory').output_shape
+    shape = _history_shape()
     try:
         validate_parameters({key: value for key, value in response.items() if key != 'ResponseMetadata'}, shape)
     except ParamValidationError:
@@ -204,11 +212,14 @@ def collect(requests, session, region, account):
     if findings.status not in {'collected', 'empty'}:
         return ReadResult([], findings.status, findings.error)
     capture = requests.observed_at.astimezone(timezone.utc)
-    rows, seen = [], set()
+    rows, seen, selected, stop = [], set(), [], None
     partition = 'aws-cn' if region.startswith('cn-') else 'aws-us-gov' if region.startswith('us-gov-') else 'aws'
+    # Pass 1 validates findings in order and stops where the serial loop
+    # returned; pass 2 consumes the independent history reads in that order.
     for finding in findings.items:
         if not isinstance(finding, dict):
-            return ReadResult(rows, 'partial' if rows else 'malformed', {'code': 'securityhub_finding_invalid'})
+            stop = 'securityhub_finding_invalid'
+            break
         severity = finding.get('Severity')
         if not isinstance(severity, dict) or severity.get('Label') not in {'HIGH', 'CRITICAL'}:
             continue
@@ -218,7 +229,8 @@ def collect(requests, session, region, account):
                 or not re.fullmatch(r'arn:' + partition + ':securityhub:' + re.escape(region) + r':[0-9]{0,12}:product/.+', product)
                 or finding.get('AwsAccountId') != account or finding.get('Region') != region
                 or created is None or created > capture or (fid, product) in seen):
-            return ReadResult(rows, 'partial' if rows else 'malformed', {'code': 'securityhub_history_finding_scope_invalid'})
+            stop = 'securityhub_history_finding_scope_invalid'
+            break
         seen.add((fid, product))
         row = {'id': fid, 'ProductArn': product, 'AccountId': account, 'Region': region,
                'CreatedAt': created.isoformat(), 'capture_at': capture.isoformat(),
@@ -227,11 +239,19 @@ def collect(requests, session, region, account):
                    'history_retention_days_at_most': 90}}
         if capture - created >= timedelta(days=90):
             row['_coverage'] = {'history': {'status': 'not_collected', 'reason': 'creation_older_than_history_retention'}}
+        selected.append((row, created))
+    def history_read(entry):
+        row = entry[0]
+        if '_coverage' in row:
+            return None
+        return requests.pages(session, 'securityhub', region, 'get_finding_history', 'Records',
+            _metadata_profile=PROFILE, FindingIdentifier={'Id': row['id'], 'ProductArn': row['ProductArn']},
+            EndTime=capture, MaxResults=100)
+    from .aws_request_pool import ordered_map
+    for (row, created), history in zip(selected, ordered_map(requests, selected, history_read)):
+        if history is None:
             rows.append(row)
             continue
-        history = requests.pages(session, 'securityhub', region, 'get_finding_history', 'Records',
-            _metadata_profile=PROFILE, FindingIdentifier={'Id': fid, 'ProductArn': product},
-            EndTime=capture, MaxResults=100)
         if history.status not in {'collected', 'empty'}:
             row['_coverage'] = {'history': {'status': 'not_collected', 'reason': 'history_read_incomplete'}}
             rows.append(row)
@@ -246,6 +266,8 @@ def collect(requests, session, region, account):
         row['Records'] = records
         row['complete'] = True
         rows.append(row)
+    if stop is not None:
+        return ReadResult(rows, 'partial' if rows else 'malformed', {'code': stop})
     return ReadResult(rows, 'collected' if rows else 'empty')
 
 

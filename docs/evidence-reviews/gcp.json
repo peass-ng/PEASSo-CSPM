@@ -21630,7 +21630,7 @@
       "source": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
       "evaluator_line": 191,
       "evaluator_sha256": "48326cbfeda5f2c4d042a124f29f4aa701820b174fae6193a0f9ad78ae40546c",
-      "source_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d",
+      "source_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c",
       "observation_contract": "Complete native Workbench v2 metadata declarations with documented omission defaults; incomplete, malformed, redacted and unsupported values remain UNKNOWN. No runtime enforcement or patch-state claim.",
       "purpose": "Kernel execution and other shell paths are outside this check.",
       "branch_coverage": {
@@ -21685,7 +21685,7 @@
       "source": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
       "evaluator_line": 195,
       "evaluator_sha256": "ac2c7002518abb2fd5aa58d056b450c57e618455c66818fd40ed9e270637194d",
-      "source_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d",
+      "source_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c",
       "observation_contract": "Complete native Workbench v2 metadata declarations with documented omission defaults; incomplete, malformed, redacted and unsupported values remain UNKNOWN. No runtime enforcement or patch-state claim.",
       "purpose": "Other transfer paths and effective DLP enforcement are not established.",
       "branch_coverage": {
@@ -21740,7 +21740,7 @@
       "source": "peaso/checks/gcp_workbench_head3_admission_20261020.py",
       "evaluator_line": 199,
       "evaluator_sha256": "5d45c3d0a93909291b433855598398879ca3b21c91235ed5b78c4363093e79a4",
-      "source_sha256": "c974c7adbba841fa2b17a54e02fb677fe859f08eda0885c292b5be33da4b3a7d",
+      "source_sha256": "8c012bfbe24bdfbe1b5915f500ee61720f1f3a70c4eec757a428d8620c6c049c",
       "observation_contract": "Complete native Workbench v2 metadata declarations with documented omission defaults; incomplete, malformed, redacted and unsupported values remain UNKNOWN. No runtime enforcement or patch-state claim.",
       "purpose": "Upgrade execution and patch status were not established.",
       "branch_coverage": {
@@ -21837,7 +21837,7 @@
       },
       "runtime_receipt": {
         "path": "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
-        "sha256": "dc63589448228096c334e087e84dd299cc49ac18a53941660a7a3ba8686eb8bc"
+        "sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d"
       },
       "native_replay_witnesses": {
         "path": "docs/check-review/gcp-cloudrun-job-image-current-native-witnesses-20261020.json.gz",

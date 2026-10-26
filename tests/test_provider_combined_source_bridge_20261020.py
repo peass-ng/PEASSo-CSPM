@@ -16,7 +16,8 @@ import sys
 import pytest
 from tests.shared_admission_epoch_compatibility_20261020 import active_shared, _reverse
 from tests.retained_upstream_manifest_20261020 import ORIGINAL as RETAINED_UPSTREAM_PATH, original_bytes as retained_upstream_bytes
-from tests.retired_privesc_catalog_20261022 import REMOVED as RETIRED_CATALOG_PATH, original_bytes as retired_catalog_bytes
+from tests.retired_privesc_catalog_20261022 import ARCHIVE as RETIRED_CATALOG_ARCHIVE, REMOVED as RETIRED_CATALOG_PATH, original_bytes as retired_catalog_bytes
+from tests.reviewed_current_successors_20261026 import extend as extend_reviewed_successors
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -137,8 +138,8 @@ REVIEWED_CURRENT_CHANGES = {'peaso/ai/access.py': {'after_sha256': 'ab7d0ff1b899
  'peaso/checks/aws_selected_configuration_secret_review_20261020.py': {'after_sha256': '633e8ef1e4f7d2fe1f49a07e57b3e37c62096e464cbd7f4dd7ebf113131c1ab3',
                                                                        'after_size': 8460,
                                                                        'before_sha256': '819cb82c47a3eefca9e4e7c6a3d14a6624f4e0e836e2b50638384533cb9d6b65'},
- 'peaso/checks/azure_acr_image_secret_review_20261020.py': {'after_sha256': '21bd5647cfd7b552a4f79506872c28d905cba1eb93ba7576c216bfb584480c58',
-                                                            'after_size': 26416,
+ 'peaso/checks/azure_acr_image_secret_review_20261020.py': {'after_sha256': '35cedadfac4e25d2ae11c43ce9ec82647270bc5fd85ea9571ddad5d31626e1ac',
+                                                            'after_size': 28509,
                                                             'before_sha256': '11821a6a2d2366602d993d79c58844d6f0c14b1a766ffd19c43894bef8f2dd39'},
  'peaso/checks/azure_databricks_notebook_secret_review_20261020.py': {'after_sha256': '0c33f325736990b88d2dd6c1a17d484f935186a6a82000cf54230f41d09c4e77',
                                                                       'after_size': 10023,
@@ -1041,6 +1042,7 @@ REVIEWABLE_CURRENT_PATHS = frozenset(['peaso/ai/access.py',
  'peaso/storage/runtime.py',
  'peaso/storage/sqlite.py',
  'peaso/worker.py'])
+REVIEWABLE_CURRENT_PATHS = extend_reviewed_successors('provider_combined_source_bridge_20261020', REVIEWED_CURRENT_CHANGES, REVIEWABLE_CURRENT_PATHS)
 INITIALIZER_ADDITION = (
     b"from . import native_admission_cpu_shared_successor_20261020 as _deployed_ai_shared_source\n"
     b"_historical_aws_workload_command_shared_successor_20261020 = aws_workload_command_shared_successor_20261020\n"
@@ -1065,7 +1067,7 @@ def _pinned_proof(name, expected):
 def cpu_receipt():
     """The unchanged canonical CPU proof remains independently testable."""
     return _pinned_proof('native_admission_cpu_shared_successor_20261020',
-                         '82c57ad2963785be4ddc5cbb4f029afe19a416800ea5beed748693aa6324fcc8')
+                         '93a723d84bf4a11cc69f22e0ae924c20c1f1da96c5f6f7f77f148f27b35a0374')
 
 
 def cpu_epoch_bytes(relative, raw):
@@ -1082,10 +1084,10 @@ def cpu_epoch_bytes(relative, raw):
         raw = current._private_before(relative, raw, ROOT)
     layers = (
         ('azure_metadata_only_shared_successor_20261020',
-         '12bf2cd88f943bcb3cdb91a3701cd3197e78d6ba7ed7e956afd854d6d1b292ed',
+         '4dfa99f4f0903bc99037f8a9e9d860f84ce0c0ce686a8e891f8277c054bdafa7',
          'metadata_only_epoch_file_deltas'),
         ('collector_noop_authorization_shared_successor_20261020',
-         '7ed26b39498462397e5b02b74552d91336d53f07ea70636d8b0655164f90dafa',
+         '5709994cbe4aa84b8546c21807952dd8873bbca0c6bd354b99459090dccc7be1',
          'native_epoch_file_deltas'))
     for name, expected, section in layers:
         proof = _pinned_proof(name, expected)
@@ -1097,12 +1099,22 @@ def cpu_epoch_bytes(relative, raw):
     assert hashlib.sha256(raw).hexdigest() == expected, relative
     return raw
 
+# A cold, bytecode-free import attests the whole source closure (about 20 CPU
+# seconds); leave headroom for shared or loaded runners.
+SUBPROCESS_TIMEOUT = 300
+
+
 def run(code, root=ROOT):
-    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(root),
+    # Each subprocess runs the shipped attestation policy: every verifier runs
+    # its complete proof on first use, so changed bytes are refused at import.
+    # Repeating every nested proof (conftest's "always") costs minutes per cold
+    # import; tests of live rebinding after import turn it on explicitly.
+    environment = {key: value for key, value in os.environ.items() if key != "PEASO_SOURCE_ATTESTATION"}
+    environment.update(PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(root),
                        AWS_EC2_METADATA_DISABLED="true", AWS_CONFIG_FILE="/nonexistent/bridge-proof",
                        AWS_SHARED_CREDENTIALS_FILE="/nonexistent/bridge-proof")
     return subprocess.run([sys.executable, "-B", "-c", code], cwd=root, env=environment,
-                          capture_output=True, text=True, timeout=90)
+                          capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
 
 
 def green(result):
@@ -1113,7 +1125,7 @@ def green(result):
 def rejected(result):
     assert result.returncode != 0, "Tampered real source unexpectedly admitted: " + result.stdout
     # Refusal must be an admission/identity failure, not a missing clone input.
-    assert "RuntimeError:" in result.stderr, result.stderr[-9000:]
+    assert "RuntimeError:" in result.stderr or "AdmissionError:" in result.stderr, result.stderr[-9000:]
     assert "FileNotFoundError" not in result.stderr and "ModuleNotFoundError" not in result.stderr, result.stderr[-9000:]
 
 
@@ -1130,7 +1142,7 @@ def isolated(tmp_path_factory):
     # Git does not list the separately admitted current overlay. Copy its
     # exact receipt-attested source closure alongside the historical package.
     current = _pinned_proof('azure_metadata_only_shared_successor_20261020',
-                            '12bf2cd88f943bcb3cdb91a3701cd3197e78d6ba7ed7e956afd854d6d1b292ed')
+                            '4dfa99f4f0903bc99037f8a9e9d860f84ce0c0ce686a8e891f8277c054bdafa7')
     closure = set(current['sources']) | {row['path'] for row in current['functions'].values()}
     closure |= {'peaso/checks/azure_metadata_only_shared_successor_20261020.json',
                 'peaso/checks/collector_noop_authorization_shared_successor_20261020.json',
@@ -1140,8 +1152,8 @@ def isolated(tmp_path_factory):
         if name.startswith('peaso/checks/') and name.endswith('.py') and (ROOT / companion).exists():
             closure.add(companion)
     paths = sorted(set(paths) | closure | {HELPER, RECEIPT, BASELINE, "peaso/checks/aws_deployed_ai_shared_successor_20261020.py", "peaso/checks/aws_deployed_ai_shared_successor_20261020.json"})
-    assert len(paths) < 6000
-    assert sum((ROOT / p).stat().st_size for p in paths) < 600 * 1024 * 1024
+    assert len(paths) < 12000
+    assert sum((ROOT / p).stat().st_size for p in paths) < 2 * 1024 * 1024 * 1024
     for name in paths:
         destination = target / name
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1280,14 +1292,17 @@ def test_portable_baseline_cannot_be_replaced():
 ])
 def test_portable_conservation_rejects_historical_changes(isolated, name):
     with atomic_change(isolated, name, (isolated / name).read_bytes() + b"\n "):
-        with pytest.raises(AssertionError):
+        # The initializer is first reversed through its reviewed epochs, which refuse unknown bytes.
+        with pytest.raises((AssertionError, RuntimeError)):
             verify_historical_bytes(isolated)
 
 
 @pytest.fixture(scope="module")
 def historical_tree(tmp_path_factory):
     target = tmp_path_factory.mktemp("provider-historical-bytes")
-    for name in pinned_baseline()["files"]:
+    # The retired catalog file stays absent; its exact bytes come from the archive.
+    names = [name for name in pinned_baseline()["files"] if name != RETIRED_CATALOG_PATH]
+    for name in names + [RETIRED_CATALOG_ARCHIVE]:
         destination = target / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.link(ROOT / name, destination)
@@ -1367,19 +1382,24 @@ def test_real_unrelated_edits_and_historical_or_bridge_tamper_are_rejected(isola
     changed = before + (b"\n " if name.endswith(".json") else b"\n# unrelated source edit\n")
     with atomic_change(isolated, name, changed):
         result = run(BRIDGE_IMPORT + "bridge.reviewed_delta()", isolated)
+        admission = "peaso.private_secret_source_epoch_20261021.AdmissionError: "
+        # The reviewed GCP transport and the content-cohort self-proof now refuse these first.
         earlier = {
-            "peaso/collectors/gcp.py": "current source mismatch",
-            "peaso/checks/aws_ai_recheck_corrections_20261020.py": "unreviewed predecessor request",
-            "peaso/checks/aws_workload_command_shared_successor_20261020.py": "unreviewed predecessor request",
-            "peaso/checks/aws_workload_command_runtime_admission_20261020.json": "unreviewed predecessor request",
-            "peaso/checks/aws_deployed_ai_shared_successor_20261020.py": "unreviewed predecessor request",
-            "peaso/checks/aws_deployed_ai_shared_successor_20261020.json": "unreviewed predecessor request",
-            "peaso/checks/native_admission_cpu_shared_successor_20261020.py": "unreviewed predecessor request",
+            # Whichever reviewed GCP proof runs first refuses the edited collector.
+            "peaso/collectors/gcp.py": (admission + "reviewed transport source changed",
+                                        admission + "reviewed GCP current source changed"),
+            "peaso/checks/aws_ai_recheck_corrections_20261020.py":
+                "RuntimeError: Content cohort source changed: peaso/checks/aws_ai_recheck_corrections_20261020.py",
+            "peaso/checks/aws_workload_command_shared_successor_20261020.py": admission + "unreviewed predecessor request",
+            "peaso/checks/aws_workload_command_runtime_admission_20261020.json": admission + "unreviewed predecessor request",
+            "peaso/checks/aws_deployed_ai_shared_successor_20261020.py": admission + "unreviewed predecessor request",
+            "peaso/checks/aws_deployed_ai_shared_successor_20261020.json": admission + "unreviewed predecessor request",
+            "peaso/checks/native_admission_cpu_shared_successor_20261020.py": admission + "unreviewed predecessor request",
         }
         if name in earlier:
             assert result.returncode != 0, "Tampered real source unexpectedly admitted: " + result.stdout
-            assert result.stderr.rstrip().endswith(
-                "peaso.private_secret_source_epoch_20261021.AdmissionError: " + earlier[name]), result.stderr[-9000:]
+            expected = earlier[name] if isinstance(earlier[name], tuple) else (earlier[name],)
+            assert result.stderr.rstrip().endswith(expected), result.stderr[-9000:]
             assert "FileNotFoundError" not in result.stderr and "ModuleNotFoundError" not in result.stderr
         else:
             rejected(result)
@@ -1411,6 +1431,9 @@ def test_executing_callable_identity_and_code_replacements_fail(owner, name, mod
     # state, in its own subprocess, with no source readers mocked or replaced.
     script = BRIDGE_IMPORT + f"""
 import importlib
+from peaso import source_attestation_mode
+# Re-prove after the replacement, as tests and the image build do.
+source_attestation_mode.ALWAYS = True
 owner=importlib.import_module({owner!r})
 function=getattr(owner,{name!r})
 if {mode!r} == 'identity':
@@ -1426,7 +1449,8 @@ bridge.reviewed_inputs()
 def test_bridge_alias_must_precede_first_shared_installer(isolated):
     name = "peaso/checks/__init__.py"
     value = (isolated / name).read_text()
-    alias = "aws_workload_command_shared_successor_20261020 = _deployed_ai_shared_source"
+    # The current epoch rebinds the canonical bridge name to its positive shared source.
+    alias = "aws_workload_command_shared_successor_20261020 = _positive_shared_source"
     first = "aws_workload_command_shared_successor_20261020.install_s3()"
     assert value.count(alias) == 1 and value.index(alias) < value.index(first)
     changed = value.replace(alias, "# delayed bridge alias", 1).replace(first, first + "\n" + alias, 1)

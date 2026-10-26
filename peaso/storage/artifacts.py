@@ -10,6 +10,13 @@ import uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Protocol
 from peaso.runtime_metrics import span as _runtime_span, add_bytes as _runtime_bytes
+from peaso.gc_pause import gc_paused
+
+
+def _loads(body):
+    # Decoding builds only acyclic containers; skip cyclic GC heap rescans.
+    with gc_paused():
+        return json.loads(body)
 
 
 class ArtifactStore(Protocol):
@@ -101,7 +108,7 @@ class FileArtifacts:
 
     def get(self, tenant, reference):
         check_reference(tenant, reference)
-        return json.loads((self.root / reference).read_text())
+        return _loads((self.root / reference).read_text())
 
     def get_text(self, tenant, reference):
         check_reference(tenant, reference)
@@ -191,7 +198,7 @@ class S3Artifacts:
         return gzip.decompress(body) if body.startswith(b"\x1f\x8b") else body
 
     def get(self, tenant, reference):
-        return json.loads(self._get_bytes(tenant, reference))
+        return _loads(self._get_bytes(tenant, reference))
 
     def put_text(self, tenant, job_id, kind, value):
         with _runtime_span("artifact.serialize"):

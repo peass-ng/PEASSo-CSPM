@@ -94,6 +94,7 @@ def select(model, candidates, source):
         return {}
     projects = sorted({model._norm_scope(scope) for scope, _ in items(model.snapshot, 'project')})
     out = {}
+    project_rights = {}  # source rights per project do not depend on the target
     for target_id, target in candidates.items():
         if target_id == source.id or target.kind != 'gcp_service_account' or target.attrs.get('disabled'):
             continue
@@ -106,8 +107,12 @@ def select(model, candidates, source):
             continue
         uncertain = actas == 'uncertain'
         for project in projects:
-            cluster = _rights(model, source, project, ('dataproc.clusters.create',))
-            batch = _rights(model, source, project, ('dataproc.batches.create',))
+            rights = project_rights.get(project)
+            if rights is None:
+                rights = project_rights[project] = (
+                    _rights(model, source, project, ('dataproc.clusters.create',)),
+                    _rights(model, source, project, ('dataproc.batches.create',)))
+            cluster, batch = rights
             if cluster == batch == 'denied':
                 continue
             if target_project != project:

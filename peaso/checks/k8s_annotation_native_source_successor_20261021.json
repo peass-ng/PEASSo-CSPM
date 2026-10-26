@@ -104,6 +104,9 @@
         "defaults": "None",
         "kwdefaults": "None"
       },
+      "k8s_id_parts": {
+        "module": "peaso.collectors.k8s_id_parts"
+      },
       "quote": {
         "callable": "urllib.parse:quote",
         "code_sha256": "92e6f8a489584ce5a12c6eaab33b08eb61117adb33ee8a1842f5a148e0470e5b",
@@ -155,6 +158,12 @@
         "code_sha256": "d1e09bd88af613ca32ddc0d22f874ca1918f1a7d53b0c3db1387f27353c66297",
         "defaults": "None",
         "kwdefaults": "None"
+      },
+      "annotation_indicators": {
+        "module": "peaso.collectors.k8s_annotation_indicators_20261020"
+      },
+      "k8s_sanitize_keys": {
+        "module": "peaso.collectors.k8s_sanitize_keys"
       },
       "re": {
         "module": "re"
@@ -3302,9 +3311,9 @@
       },
       "make_snapshot": {
         "callable": "peaso.snapshot:make_snapshot",
-        "code_sha256": "425c9af9d8361e2277d2c4c3ad21374c0c2d776bc80cd3f3bc3d862517803dcf",
+        "code_sha256": "780ec7016e3695e56f1c2d845261472c1e8f1654037a411250827f2ade580e39",
         "defaults": "None",
-        "kwdefaults": "{'created_at': None, 'metadata': None}"
+        "kwdefaults": "{'created_at': None, 'metadata': None, 'owned': False}"
       },
       "quote": {
         "callable": "urllib.parse:quote",
@@ -3329,7 +3338,7 @@
   },
   "helper_sha256": "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a",
   "historical_guard_sha256": "73cecf776d322c3f81293b342e09127465383a3b2cfcdcebaf276b62f3fa11f8",
-  "historical_receipt_sha256": "9754e8b33e7177963856ef8f6440bdcd16dce1a148067aa36b80a93baa25fb41",
+  "historical_receipt_sha256": "35ffe7d28a2f9bf0aa1432cbc467562d7098ede9dab3d2a4f0fee1c0b4ea0b1d",
   "ids": [
     "k8s.claude.ingress.no_nginx_snippets",
     "k8s.claude.ingress.no_nginx_snippet_alias",

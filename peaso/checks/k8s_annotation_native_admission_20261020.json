@@ -643,7 +643,7 @@
     },
     {
       "path": "peaso/checks/k8s_managed.py",
-      "sha256": "0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b"
+      "sha256": "87ae0d80e37dee3a6201bbeac0d3a97bf5670b04df192307ad8c750790f7e13e"
     }
   ]
 }

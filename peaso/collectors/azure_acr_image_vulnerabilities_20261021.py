@@ -161,7 +161,7 @@ def _scan_index(reader, token, parent_raw, marker, target, scope, *, db_cache,
                 reader.check();path=root/('layer-'+str(number)+'.blob')
                 reader.blob('blobs',desc['digest'],archive.MAX_LAYER,token,desc['size'],destination=path)
                 paths.append(path)
-            archive.validate(image,manifest,raw,paths,reader.check)
+            archive.validate(image,manifest,raw,paths,reader.check,stage=True)
             fingerprints=tuple(_file_hash(path,desc,reader.check) for path,desc in zip(paths,layers))
             def verify():
                 fresh=reader.authenticate()
@@ -177,7 +177,9 @@ def _scan_index(reader, token, parent_raw, marker, target, scope, *, db_cache,
             verify()
             report=(runner or trivy.scan_image)(image,manifest,raw,paths,
                 native_verifier=verify,enabled=True,db_cache=db_cache,cli=cli,
-                archive_format='oci' if archive.decode(manifest)['mediaType']==archive.OCI else 'docker',
+                # Pinned Trivy reads an --input tar only in docker-save layout;
+                # an OCI layout tar fails ("index.json: not a directory").
+                archive_format='docker',
                 timeout=min(trivy.MAX_SECONDS,max(1,int(reader.state['deadline']-time.monotonic()))),
                 cancel=reader.check,scratch_parent=scratch_parent)
             verify()
@@ -259,7 +261,7 @@ def _scan_target(outer, transport, receipts, scope, target, state, *, db_cache,
             path=root/('layer-'+str(number)+'.blob')
             reader.blob('blobs',desc['digest'],archive.MAX_LAYER,token,desc['size'],destination=path)
             paths.append(path)
-        archive.validate(image,manifest,config,paths,reader.check)
+        archive.validate(image,manifest,config,paths,reader.check,stage=True)
         fingerprints=tuple(_file_hash(path,desc,reader.check) for path,desc in zip(paths,layers))
         def verify():
             # Every call obtains a fresh native ARM registry identity and an exact
@@ -347,6 +349,19 @@ def _unavailable_row(scope,target,reason):
             '_provenance':{'scope':scope,'source_requests':[]}}
 
 
+def _append_receipts(result,row,local):
+    """Number a target's private receipts as one contiguous serial block."""
+    offset=len(result['receipts']);mapping={}
+    for number,receipt in enumerate(local,offset+1):
+        new='acr-read-'+str(number)
+        mapping[receipt['id']]=new
+        receipt['id']=new
+    result['receipts'].extend(local)
+    marker=row[MARKER]
+    marker['source_requests']=[mapping.get(rid,rid) for rid in marker['source_requests']]
+    row['_provenance']['source_requests']=list(marker['source_requests'])
+
+
 def collect_native(outer,transport,scopes,options,*,db_cache=DEFAULT_DB_CACHE,
         cli=trivy.DEFAULT_CLI,runner=None,scratch_parent=None,
         database_check=None, database_diagnostics=None):
@@ -372,12 +387,14 @@ def collect_native(outer,transport,scopes,options,*,db_cache=DEFAULT_DB_CACHE,
         result['observations']=[None for _ in result['rows']]
         return result
     limit={'deadline':time.monotonic()+MAX_SECONDS,'bytes':0,'calls':0}
-    for scope in scopes:
-        for target in targets:
-            if acr._REGISTRY.fullmatch(target['registry_id'])[1].casefold()!=scope.casefold():continue
-            row=_scan_target(outer,transport,result['receipts'],scope,target,limit,
-                db_cache=db_cache,cli=cli,runner=runner,scratch_parent=scratch_parent)
-            result['rows'].append(row)
+    jobs=[(scope,target) for scope in scopes for target in targets
+          if acr._REGISTRY.fullmatch(target['registry_id'])[1].casefold()==scope.casefold()]
+    from .azure_acr_image_parallel_20261026 import scan_targets
+    for row,local in scan_targets(jobs,lambda scope,target,receipts:_scan_target(
+            outer,transport,receipts,scope,target,limit,db_cache=db_cache,cli=cli,
+            runner=runner,scratch_parent=scratch_parent)):
+        _append_receipts(result,row,local)
+        result['rows'].append(row)
     observations=[]
     for row in result['rows']:
         marker=row[MARKER];graph=marker.get('graph')

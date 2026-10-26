@@ -30,7 +30,7 @@ _DATAFLOW_ADMISSION = importlib.import_module(__package__ + '.gcp_dataflow_batch
 _DATAFLOW_FUNCTIONS = dict(_DATAFLOW_ADMISSION._FUNCTIONS)
 _DATAFLOW_REVIEWED_INPUTS = _DATAFLOW_FUNCTIONS[_DATAFLOW_ADMISSION.__name__ + ':reviewed_inputs']
 RECEIPT = 'aws_deployed_ai_shared_successor_20261020.json'
-RECEIPT_SHA256 = '6fff655f5bb8a22a0466e11a013ffbfd357f233b5fdfa71336b40eed9294f62f'
+RECEIPT_SHA256 = 'ffc024b6908fb5b9ae5330f327eda5634897ed45845db62ccd6637539e1b8f06'
 
 
 def _self(raw):

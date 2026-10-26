@@ -12,7 +12,7 @@
     "symbol": "peaso.collectors.azure_nsp_query_cmk_metadata_proposal_20261020.metadata_get",
     "path": "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py",
     "line": 43,
-    "sha256": "b9d69fec93060c923eead74e42ad7b5656646c37a9ffb3568b3ebe3a8c797dcc"
+    "sha256": "7bdf3d854c46eb4e756face4201d11aef83920c164e711ff2a2cea22beb3c5bc"
   },
   "endpoint": {
     "method": "GET",
