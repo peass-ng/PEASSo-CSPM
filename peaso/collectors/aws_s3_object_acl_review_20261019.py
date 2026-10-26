@@ -77,6 +77,7 @@ def _grants(response):
 def sample_bucket(requests, session, item, *, limit=DEFAULT_LIMIT):
     """At most limit current-object ACL reads; pagination also has a finite cap."""
     from .aws import _failure
+    from .aws_request_pool import run_all
     sample = {'collection_status': 'not_collected', 'bucket': item.get('Name') if isinstance(item, dict) else None, 'region': None,
               'limit': limit, 'sampled_count': 0, 'listing_complete': False, 'truncated': False,
               'objects': [], 'errors': [], 'scope': 'sampled_current_object_acls_only'}
@@ -134,6 +135,7 @@ def sample_bucket(requests, session, item, *, limit=DEFAULT_LIMIT):
             return sample
 
         sample['listing_complete'] = not more
+        page_objects = []
         for row in keys:
             key = row.get('Key') if isinstance(row, dict) else None
             try:
@@ -148,9 +150,16 @@ def sample_bucket(requests, session, item, *, limit=DEFAULT_LIMIT):
             obj = {'Key': key, 'collection_status': 'not_collected', 'Grants': []}
             sample['objects'].append(obj)
             sample['sampled_count'] = len(sample['objects'])
+            page_objects.append(obj)
+        # The page's object ACL reads are independent; run them concurrently
+        # and apply each outcome in key order exactly as the serial loop did.
+        outcomes = run_all(requests, [lambda key=obj['Key']: requests.call(
+            session, 's3', selected, 'get_object_acl', Bucket=name, Key=key) for obj in page_objects])
+        for obj, (ok, value) in zip(page_objects, outcomes):
             try:
-                acl = requests.call(session, 's3', selected, 'get_object_acl', Bucket=name, Key=key)
-                obj['Grants'], malformed = _grants(acl)
+                if not ok:
+                    raise value
+                obj['Grants'], malformed = _grants(value)
                 obj['collection_status'] = 'partial' if malformed else 'collected'
                 if malformed:
                     failed = True

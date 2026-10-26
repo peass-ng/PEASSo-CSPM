@@ -349016,7 +349016,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1318,
         "qualname": "_buckets",
-        "sha256": "f7606868c9074c6b0fd530d66753bb1e9d01dffa849bc768f61463a38efd5646"
+        "sha256": "9752836117e80803372d9a3396393eab8c07015996fc509e628cedcbade1917b"
       }
     },
     "classic_elb": {
@@ -371518,7 +371518,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1318,
         "qualname": "_buckets",
-        "sha256": "f7606868c9074c6b0fd530d66753bb1e9d01dffa849bc768f61463a38efd5646"
+        "sha256": "9752836117e80803372d9a3396393eab8c07015996fc509e628cedcbade1917b"
       }
     },
     "s3_directory_bucket": {
@@ -382194,7 +382194,7 @@
     "peaso/collectors/aws_resource_policy_native.py": "f6b42108736fde01c856defa11156820d85e617041c55ef6a1fe9900cf830a8e",
     "peaso/collectors/aws_resource_tag_compliance_native.py": "3713fc6b0629b1647e9ea68a649b129038168b371f6e3efd67cfc5fb244adea8",
     "peaso/collectors/aws_s3_backup_native.py": "48654c9bb7c4fcbb5ee52c8035cb0fd29d0d8a716b358e9d8399a4595aad3ffd",
-    "peaso/collectors/aws_s3_object_acl_review_20261019.py": "bc578e30d48e84e269e89de22530408cf97cdb13c4803a12f9e94a6525748337",
+    "peaso/collectors/aws_s3_object_acl_review_20261019.py": "ef8c71632b936cd9030c09c4f20d4fa0c636d4053b736ac42fbc09485e5e482d",
     "peaso/collectors/aws_sagemaker_clarify_native.py": "f6695218f1c6f5dd060b7871b516d975fb54e1560aba5a413698b589aaa113af",
     "peaso/collectors/aws_securityhub_finding_metadata_native.py": "511f889ecafd805b946bce70c2d6ab2389a35b49909e974a58cfa6d77a49dc35",
     "peaso/collectors/aws_ssm_inventory_events_native.py": "c495038efa6858ee77d75a1090fe357998076455da3c1c4bebc105fd9e00370a",

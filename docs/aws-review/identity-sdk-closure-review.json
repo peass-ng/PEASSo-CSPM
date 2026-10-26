@@ -2,7 +2,7 @@
   "schema_version": 1,
   "review_date": "2026-10-19",
   "input_path": "docs/aws-review/identity-closure-review.json",
-  "input_sha256": "683cea192ee605341a506fc1cee20f1b2ad78729ea21815957f01fdb03bd0bde",
+  "input_sha256": "f0693608348cfbb0e05035941196a797a0128936214dbc58fdd0e7b45da0ae9d",
   "input_ids": [
     "aws.a.accessanalyzer.region_active",
     "aws.a.accessanalyzer.region_present",

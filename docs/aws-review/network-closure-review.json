@@ -73946,7 +73946,7 @@
         "file": "peaso/collectors/aws.py",
         "line": 1318,
         "qualname": "_buckets",
-        "sha256": "f7606868c9074c6b0fd530d66753bb1e9d01dffa849bc768f61463a38efd5646"
+        "sha256": "9752836117e80803372d9a3396393eab8c07015996fc509e628cedcbade1917b"
       }
     },
     "client_vpn_endpoint": {

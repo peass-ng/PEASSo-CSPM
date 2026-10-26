@@ -269,3 +269,116 @@ def test_app_runner_detail_enricher_reads_every_row_without_wrapper(native):
     from peaso.collectors.aws_network_catalog import detail_enricher
     rows = detail_enricher("app_runner_service")(aws.Requests({}), _session(), REGION, [{"ServiceArn": arn} for arn in arns])
     assert [row["NetworkDetails"].get("ImageIdentifier") for row in rows] == ["img"] * 3
+
+
+def _concurrent_handlers(handlers, responses):
+    """Install handlers that sleep briefly and record peak concurrency."""
+    state = {"active": 0, "peak": 0}
+    lock = threading.Lock()
+
+    def wrap(build):
+        def handler(params):
+            with lock:
+                state["active"] += 1
+                state["peak"] = max(state["peak"], state["active"])
+            try:
+                time.sleep(0.01)
+                return build(params)
+            finally:
+                with lock:
+                    state["active"] -= 1
+        return handler
+    for operation, build in responses.items():
+        handlers[operation] = wrap(build)
+    return state
+
+
+def _bucket_responses():
+    def location(params):
+        return {"LocationConstraint": {"b0": None, "b1": "EU", "b2": "eu-west-2"}.get(params["Bucket"], "ap-south-1")}
+
+    def missing(code):
+        def raise_(params):
+            raise ClientError({"Error": {"Code": code, "Message": "m"},
+                               "ResponseMetadata": {"HTTPStatusCode": 404}}, "GetBucketPolicy")
+        return raise_
+    return {
+        "ListBuckets": lambda params: {"Buckets": [{"Name": "b%d" % i} for i in range(5)]},
+        "GetBucketLocation": location,
+        "GetBucketPolicy": lambda params: (missing("NoSuchBucketPolicy")(params) if params["Bucket"] == "b3"
+                                            else {"Policy": '{"Statement": [{"Sid": "%s"}]}' % params["Bucket"]}),
+        "GetBucketVersioning": lambda params: {"Status": "Enabled" if params["Bucket"] < "b2" else "Suspended"},
+        "GetBucketTagging": missing("NoSuchTagSet"),
+        "GetBucketAcl": lambda params: {"Grants": [{"Permission": params["Bucket"]}]},
+    }
+
+
+def test_bucket_reads_run_concurrently_and_build_the_serial_rows(native):
+    calls, handlers = native
+    _concurrent_handlers(handlers, _bucket_responses())
+    serial = aws._buckets(aws.Requests({"service_concurrency": 1}), _session(), REGION)
+    serial_calls = sorted(map(repr, calls))
+    calls.clear()
+    state = _concurrent_handlers(handlers, _bucket_responses())
+    parallel = aws._buckets(aws.Requests({}), _session(), REGION)
+    assert state["peak"] > 1
+    assert parallel.items == serial.items and parallel.status == serial.status
+    assert [list(item) for item in parallel.items] == [list(item) for item in serial.items]
+    assert sorted(map(repr, calls)) == serial_calls
+    assert serial.items[1]["Versioning"]["Status"] == "Enabled"
+    assert serial.items[0]["Policy"]["Policy"]["Statement"][0]["Sid"] == "b0"
+
+
+def _user_responses():
+    return {
+        "GetAccountAuthorizationDetails": lambda params: {
+            "UserDetailList": [{"UserName": "u%d" % i, "Arn": "arn:aws:iam::1:user/u%d" % i} for i in range(4)],
+            "IsTruncated": False},
+        "ListAccessKeys": lambda params: {"AccessKeyMetadata": [
+            {"AccessKeyId": "AKIA" + params["UserName"] + str(n)} for n in range(int(params["UserName"][1:]) % 3)]},
+        "GetAccessKeyLastUsed": lambda params: {"AccessKeyLastUsed": {"ServiceName": params["AccessKeyId"]}},
+        "ListMFADevices": lambda params: {"MFADevices": [{"SerialNumber": params["UserName"]}]},
+        "ListSSHPublicKeys": lambda params: {"SSHPublicKeys": [{"SSHPublicKeyId": params["UserName"], "Status": "Active",
+                                                                "UserName": "dropped"}]},
+    }
+
+
+def test_iam_user_reads_run_concurrently_and_build_the_serial_rows(native, monkeypatch):
+    calls, handlers = native
+    monkeypatch.setattr(aws, "_services_last_accessed", lambda *args: None)
+    _concurrent_handlers(handlers, _user_responses())
+    serial = aws._iam(aws.Requests({"service_concurrency": 1}), _session(), REGION, {"iam_user"})["iam_user"]
+    serial_calls = sorted(map(repr, calls))
+    calls.clear()
+    state = _concurrent_handlers(handlers, _user_responses())
+    parallel = aws._iam(aws.Requests({}), _session(), REGION, {"iam_user"})["iam_user"]
+    assert state["peak"] > 1
+    assert parallel.items == serial.items
+    assert [list(item) for item in parallel.items] == [list(item) for item in serial.items]
+    assert sorted(map(repr, calls)) == serial_calls
+    assert [len(item["AccessKeys"]["items"]) for item in serial.items] == [0, 1, 2, 0]
+
+
+def test_object_acl_sample_reads_run_concurrently_and_keep_key_order(native):
+    from peaso.collectors import aws_s3_object_acl_review_20261019 as review
+    calls, handlers = native
+
+    def acl(params):
+        if params["Key"] == "k2":
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "m"},
+                               "ResponseMetadata": {"HTTPStatusCode": 403}}, "GetObjectAcl")
+        return {"Grants": [{"Grantee": {"Type": "CanonicalUser", "ID": params["Key"]}, "Permission": "READ"}]}
+    responses = {"ListObjectsV2": lambda params: {"Name": "bucket", "IsTruncated": False, "KeyCount": 7,
+                                                  "Contents": [{"Key": "k%d" % i} for i in range(6)] + [{"Key": "k1"}]},
+                 "GetObjectAcl": acl}
+    item = {"Name": "bucket", "Location": {"collection_status": "collected", "LocationConstraint": None}}
+    _concurrent_handlers(handlers, responses)
+    serial = review.sample_bucket(aws.Requests({"service_concurrency": 1}), _session(), item)
+    calls.clear()
+    state = _concurrent_handlers(handlers, responses)
+    parallel = review.sample_bucket(aws.Requests({}), _session(), item)
+    assert state["peak"] > 1
+    assert parallel == serial
+    assert [obj["Key"] for obj in serial["objects"]] == ["k0", "k1", "k2", "k3", "k4", "k5"]
+    assert serial["objects"][2]["error"]["code"] == "AccessDenied" and serial["collection_status"] == "partial"
+    assert serial["errors"] == [{"operation": "ListObjectsV2", "status": "malformed", "code": "object_key_missing_or_duplicate"}]

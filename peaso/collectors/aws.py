@@ -1395,6 +1395,39 @@ def _access_keys(requests, session, region):
     return ReadResult(items, "collected" if items else "empty")
 
 
+def _iam_user_details(requests, session, region, item):
+    """Per-user credential metadata reads; depend only on the user name."""
+    fields = {}
+    name = item["UserName"]
+    access = requests.pages(session, "iam", region, "list_access_keys", "AccessKeyMetadata", UserName=name)
+    for key_item in access.items:
+        key_item["LastUsed"] = requests.detail(session, "iam", region, "get_access_key_last_used", AccessKeyId=key_item["AccessKeyId"])
+    fields["AccessKeys"] = {"collection_status": access.status, "items": access.items}
+    if access.error:
+        fields["AccessKeys"]["error"] = access.error
+    fields["LoginProfile"] = requests.detail(session, "iam", region, "get_login_profile", UserName=name, absent=("NoSuchEntity",))
+    mfa = requests.pages(session, "iam", region, "list_mfa_devices", "MFADevices", UserName=name)
+    fields["MFADevices"] = {"collection_status": mfa.status, "items": mfa.items}
+    ssh = requests.pages(session, "iam", region, "list_ssh_public_keys", "SSHPublicKeys", UserName=name)
+    fields["SSHPublicKeys"] = {"collection_status": ssh.status,
+                               "items": [{key: value for key, value in row.items()
+                                          if key in ("SSHPublicKeyId", "Status")}
+                                         for row in ssh.items if isinstance(row, dict)]}
+    if ssh.error:
+        fields["SSHPublicKeys"]["error"] = ssh.error
+    service_credentials = requests.pages(session, "iam", region,
+        "list_service_specific_credentials", "ServiceSpecificCredentials", UserName=name)
+    fields["ServiceSpecificCredentials"] = {
+        "collection_status": service_credentials.status,
+        "items": [{key: credential[key] for key in
+                   ("ServiceName", "ServiceSpecificCredentialId", "Status") if key in credential}
+                  for credential in service_credentials.items if isinstance(credential, dict)],
+    }
+    if service_credentials.error:
+        fields["ServiceSpecificCredentials"]["error"] = service_credentials.error
+    return fields
+
+
 def _iam(requests, session, region, wanted):
     keys = {"iam_user": "UserDetailList", "iam_group": "GroupDetailList", "iam_role": "RoleDetailList", "iam_policy": "Policies"}
     result = {}
@@ -1403,7 +1436,13 @@ def _iam(requests, session, region, wanted):
             continue
         read = requests.pages(session, "iam", region, "get_account_authorization_details", key)
         # Identical calls for four IAM projections are single-flight cached.
-        for item in read.items:
+        if kind == "iam_user":
+            # Users' reads are independent; fetch them concurrently and apply
+            # them in list order, so every user row is built as before.
+            from .aws_request_pool import ordered_map
+            user_details = ordered_map(requests, read.items,
+                                       lambda user: _iam_user_details(requests, session, region, user))
+        for index, item in enumerate(read.items):
             item["_provenance"] = {"operation": "iam:GetAccountAuthorizationDetails", "native_response_complete": True}
             if kind in {"iam_user", "iam_group", "iam_role"}:
                 _documented_omission(item, "AttachedManagedPolicies", [], "iam:GetAccountAuthorizationDetails")
@@ -1429,33 +1468,7 @@ def _iam(requests, session, region, wanted):
                  "policy_arn": p.get("PolicyArn"), "policy_name": p.get("PolicyName")}
                  for p in item.get("AttachedManagedPolicies", []))
             if kind == "iam_user":
-                name = item["UserName"]
-                access = requests.pages(session, "iam", region, "list_access_keys", "AccessKeyMetadata", UserName=name)
-                for key_item in access.items:
-                    key_item["LastUsed"] = requests.detail(session, "iam", region, "get_access_key_last_used", AccessKeyId=key_item["AccessKeyId"])
-                item["AccessKeys"] = {"collection_status": access.status, "items": access.items}
-                if access.error:
-                    item["AccessKeys"]["error"] = access.error
-                item["LoginProfile"] = requests.detail(session, "iam", region, "get_login_profile", UserName=name, absent=("NoSuchEntity",))
-                mfa = requests.pages(session, "iam", region, "list_mfa_devices", "MFADevices", UserName=name)
-                item["MFADevices"] = {"collection_status": mfa.status, "items": mfa.items}
-                ssh = requests.pages(session, "iam", region, "list_ssh_public_keys", "SSHPublicKeys", UserName=name)
-                item["SSHPublicKeys"] = {"collection_status": ssh.status,
-                                         "items": [{key: value for key, value in row.items()
-                                                    if key in ("SSHPublicKeyId", "Status")}
-                                                   for row in ssh.items if isinstance(row, dict)]}
-                if ssh.error:
-                    item["SSHPublicKeys"]["error"] = ssh.error
-                service_credentials = requests.pages(session, "iam", region,
-                    "list_service_specific_credentials", "ServiceSpecificCredentials", UserName=name)
-                item["ServiceSpecificCredentials"] = {
-                    "collection_status": service_credentials.status,
-                    "items": [{key: credential[key] for key in
-                               ("ServiceName", "ServiceSpecificCredentialId", "Status") if key in credential}
-                              for credential in service_credentials.items if isinstance(credential, dict)],
-                }
-                if service_credentials.error:
-                    item["ServiceSpecificCredentials"]["error"] = service_credentials.error
+                item.update(user_details[index])
         if kind == "iam_user":
             _services_last_accessed(requests, session, region, read.items)
         if kind == "iam_role":
@@ -1569,17 +1582,27 @@ def _buckets(requests, session, region):
         ("Replication", "get_bucket_replication", ("ReplicationConfigurationNotFoundError",)),
         ("ObjectLock", "get_object_lock_configuration", ("ObjectLockConfigurationNotFoundError",)),
         ("Tags", "get_bucket_tagging", ("NoSuchTagSet",))]
-    for item in result.items:
-        name = item["Name"]
-        location = requests.detail(session, "s3", region, "get_bucket_location", Bucket=name)
-        item["Location"] = location
+    from .aws_request_pool import ordered_map
+    items = list(result.items)
+    # Independent per-bucket reads run concurrently; results are assigned in
+    # the serial order, so every bucket row is built exactly as before.
+    locations = ordered_map(requests, items, lambda item: requests.detail(
+        session, "s3", region, "get_bucket_location", Bucket=item["Name"]))
+    targets = []
+    for location in locations:
         selected = location.get("LocationConstraint") or region
         if location.get("collection_status") in (None, "collected"):
             selected = "eu-west-1" if selected == "EU" else selected
             if location.get("LocationConstraint") is None:
                 selected = "us-east-1"
-        for field_name, operation, absent in reads:
-            item[field_name] = requests.detail(session, "s3", selected, operation, Bucket=name, absent=absent)
+        targets.append(selected)
+    pairs = [(item["Name"], selected, read) for item, selected in zip(items, targets) for read in reads]
+    values = iter(ordered_map(requests, pairs, lambda pair: requests.detail(
+        session, "s3", pair[1], pair[2][1], Bucket=pair[0], absent=pair[2][2])))
+    for item, location in zip(items, locations):
+        item["Location"] = location
+        for field_name, _operation, _absent in reads:
+            item[field_name] = next(values)
         if "Policy" in item["Policy"]:
             item["Policy"]["Policy"] = _policy(item["Policy"]["Policy"])
     return result
