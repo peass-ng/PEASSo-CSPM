@@ -1071,6 +1071,7 @@
     "peaso/collectors/aws_public_ingress_native.py": "3dda8ed8ffdb9e3b650ffe50bc6da24d52f57e53c908357ef9bc4a2094309b7e",
     "peaso/collectors/aws_region_data_native.py": "e2440353ea5b31d50ce281e049dd4586e05710763c0b0b7ee8c737b79ae9f9e1",
     "peaso/collectors/aws_region_shield_native.py": "fb64d7f95397490c9043fde0e93c227286335a9a98746521e4f1f8bbffde1876",
+    "peaso/collectors/aws_request_pool.py": "97b8ac0f8b7c91611ad5e47557a007c5a4f475ccf6efcaa85f36869135c84f18",
     "peaso/collectors/aws_resolver_firewall_native.py": "ca0970fa271384e2167db3cb2ed855cceda0dd834348671654597ec3d8b19a52",
     "peaso/collectors/aws_resource_policy_families.py": "0616427feafe90695dc52c3ed6b88f122d26260ff03c9b45ccf413ec0b98e7e6",
     "peaso/collectors/aws_resource_policy_native.py": "f6b42108736fde01c856defa11156820d85e617041c55ef6a1fe9900cf830a8e",
@@ -1678,8 +1679,7 @@
     "peaso/worker.py": "b322a30eed7c92ac7de3a1d5e142148526a35cd2f08fc0eb6c11158d6ea5e712",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
-    "scripts/cloud_permission_risks.py": "81da211c3f374714634956f8b33d1dd3b525078a59fd6496635a7bae33b6b0bb",
-    "peaso/collectors/aws_request_pool.py": "97b8ac0f8b7c91611ad5e47557a007c5a4f475ccf6efcaa85f36869135c84f18"
+    "scripts/cloud_permission_risks.py": "81da211c3f374714634956f8b33d1dd3b525078a59fd6496635a7bae33b6b0bb"
   },
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
