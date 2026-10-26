@@ -5911,22 +5911,29 @@ class AwsModel(Model):
                 if (self._statements(source, "dynamodb:createtable")[0] and
                         self._statements(source, "lambda:createfunction")[0]):
                     unknown = True
+            # Function-side grants and ListStreams do not depend on the table, so
+            # each is checked once per Region instead of once per table pair.
+            function_grants, region_grants = {}, {}
             for table_name in tables:
                 table_arn = table_prefix + table_name
                 stream_arn = table_arn + "/stream/__peaso_generated_stream_version__"
                 table_create = self.check(source, {"action": "dynamodb:CreateTable",
                                                    "request_context": {"aws:RequestedRegion": region}}, table_arn)
+                if table_create is None:
+                    continue  # Checks are read-only; later grants cannot change this skip.
                 item_write = self.check(source, {"action": "dynamodb:PutItem",
                                                  "request_context": {"aws:RequestedRegion": region}}, table_arn)
+                if item_write is None:
+                    continue
                 stream_reads = [self.check(role, {"action": action,
                                                   "request_context": {"aws:RequestedRegion": region}}, stream_arn)
                                 for action in ("dynamodb:DescribeStream", "dynamodb:GetShardIterator",
                                                "dynamodb:GetRecords")]
-                list_streams = self.check(role, {"action": "dynamodb:ListStreams",
-                                                 "request_context": {"aws:RequestedRegion": region}},
-                                          "__peaso_resource_less_action__")
-                if table_create is None or item_write is None:
-                    continue
+                if "list_streams" not in region_grants:
+                    region_grants["list_streams"] = self.check(role, {"action": "dynamodb:ListStreams",
+                                                                      "request_context": {"aws:RequestedRegion": region}},
+                                                               "__peaso_resource_less_action__")
+                list_streams = region_grants["list_streams"]
                 if any(g is None for g in stream_reads):
                     # A role may name a subset of future stream versions; the
                     # generated version is not known until CreateTable returns.
@@ -5939,18 +5946,22 @@ class AwsModel(Model):
                     continue
                 for function_name in functions:
                     function_arn = function_prefix + function_name
-                    trust = self._service_trust_for_source_arn(role.id, "lambda.amazonaws.com", function_arn)
+                    if function_name not in function_grants:
+                        trust = self._service_trust_for_source_arn(role.id, "lambda.amazonaws.com", function_arn)
+                        function_grants[function_name] = (trust,) if trust is False else (trust, self.check(
+                            source, {"action": "lambda:CreateFunction",
+                                     "request_context": {"aws:RequestedRegion": region}}, function_arn), self.check(
+                            source, {"action": "iam:PassRole", "request_context": {
+                                "iam:PassedToService": "lambda.amazonaws.com",
+                                "iam:AssociatedResourceArn": function_arn}}, role.id), self.check(
+                            source, {"action": "lambda:CreateEventSourceMapping",
+                                     "request_context": {"lambda:FunctionArn": function_arn,
+                                                         "aws:RequestedRegion": region}},
+                            "__peaso_resource_less_action__"))
+                    trust, *function_side = function_grants[function_name]
                     if trust is False:
                         continue
-                    function_create = self.check(source, {"action": "lambda:CreateFunction",
-                                                          "request_context": {"aws:RequestedRegion": region}}, function_arn)
-                    pass_role = self.check(source, {"action": "iam:PassRole", "request_context": {
-                        "iam:PassedToService": "lambda.amazonaws.com",
-                        "iam:AssociatedResourceArn": function_arn}}, role.id)
-                    mapping = self.check(source, {"action": "lambda:CreateEventSourceMapping",
-                                                  "request_context": {"lambda:FunctionArn": function_arn,
-                                                                      "aws:RequestedRegion": region}},
-                                         "__peaso_resource_less_action__")
+                    function_create, pass_role, mapping = function_side
                     grants = (table_create, item_write, *stream_reads, list_streams,
                               function_create, pass_role, mapping)
                     if any(g is None for g in grants):
