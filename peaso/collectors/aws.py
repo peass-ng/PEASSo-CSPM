@@ -15,6 +15,7 @@ import re
 import threading
 import time
 import math
+from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass, field
@@ -273,6 +274,27 @@ def _project_user_data_indicators(response, instance_id, *, dual_scanner=False):
             "UserDataSecretIndicators": indicators(value)}
 
 
+# Each SDK client holds its own service model, generated methods and TLS
+# connection pool (~0.5 MB). A full scan touches thousands of (session,
+# service, Region) keys, so only the most recently used clients stay cached.
+# An evicted client is released after its in-flight calls return and is built
+# again if a later read needs it.
+MAX_CACHED_CLIENTS = 256
+
+
+def _cache_client(clients, key, client):
+    clients[key] = client
+    while len(clients) > MAX_CACHED_CLIENTS:
+        clients.pop(next(iter(clients)))
+
+
+def _cached_client(clients, key):
+    found = clients.get(key)
+    if found is not None and hasattr(clients, 'move_to_end'):
+        clients.move_to_end(key)
+    return found
+
+
 _CONTINUATION_KEYS = ("NextToken", "nextToken", "NextPageToken", "nextPageToken", "NextMarker", "nextMarker", "Marker", "PaginationToken")
 
 
@@ -317,7 +339,7 @@ class Requests:
         self.connect_timeout = _bound(options, "connect_timeout", 5, maximum=30)
         self.calls = 0
         self.cache_hits = 0
-        self._cache, self._clients, self._sessions = {}, {}, {}
+        self._cache, self._clients, self._sessions = {}, OrderedDict(), {}
         from .aws_request_pool import RawReadCache
         # Native reads shared below projections for this scan only.
         self.raw_reads = RawReadCache()
@@ -364,19 +386,22 @@ class Requests:
             # need neither that creation lock nor another SDK construction.
             with self._lock:
                 self._sessions[id(session)] = session
-                if key in self._clients:
-                    return self._clients[key]
+                found = _cached_client(self._clients, key)
+                if found is not None:
+                    return found
                 locks = getattr(self, "_client_creation_locks", None)
                 if locks is None:
                     locks = self._client_creation_locks = {}
                 creation_lock = locks.setdefault(id(session), threading.RLock())
             with creation_lock:
                 with self._lock:
-                    if key in self._clients:
-                        return self._clients[key]
+                    found = _cached_client(self._clients, key)
+                    if found is not None:
+                        return found
                 client = create()
                 with self._lock:
-                    self._clients[key] = client
+                    _cache_client(self._clients, key, client)
+                    self.clients_created = getattr(self, 'clients_created', 0) + 1
                 return client
         s3_bootstrap = (_metadata_profile is None and service == 'sts' and self.content_secret_scans
             and bool({'s3_selected_source_content', 'ecs_selected_environment_file_content', 'workload_referenced_source_content', 'build_deployment_referenced_source_content'} & set(getattr(self, 'content_secret_scan_kinds', ()))))
