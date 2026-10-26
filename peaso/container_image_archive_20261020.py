@@ -627,11 +627,19 @@ class _Built:
         require(size == self.identity[2], 'layer_changed_during_archive')
         return digest.digest()
 
-    def place(self, target, check=lambda: None):
+    def _checked_identity(self):
         info = os.lstat(self.path)
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.getuid()
                 and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) == self.identity,
                 'layer_changed_during_archive')
+        return info
+
+    def verify(self, check=lambda: None):
+        self._checked_identity()
+        require(self._digest(self.path, check) == self.digest, 'layer_changed_during_archive')
+
+    def place(self, target, check=lambda: None):
+        info = self._checked_identity()
         try:
             os.link(self.path, target)
         except FileExistsError:
@@ -649,7 +657,7 @@ class _Built:
 
 
 def _validate(image_identity, manifest_raw, config_raw, layers, root, check, partial_callback=None,
-              ready=None):
+              ready=None, snapshots=None):
     """Expand and index every layer straight into the docker archive members.
 
     The archive is written in write_archive's exact docker layout (manifest.json,
@@ -684,6 +692,10 @@ def _validate(image_identity, manifest_raw, config_raw, layers, root, check, par
                 for name, node in sorted(nodes.items()):
                     if node[0] in ('file', 'hardlink') and node[1][3] == index:
                         _visit_node(name, node, partial_callback, check)
+            if snapshots is not None:
+                # The files this layer's partial visit would see, for a later replay.
+                snapshots.append([(name, node) for name, node in sorted(nodes.items())
+                                  if node[0] in ('file', 'hardlink') and node[1][3] == index])
             budget = size + budget[0], count
             sizes.append(size)
         # tarfile's end of archive: two zero blocks, padded to a full record.
@@ -693,8 +705,86 @@ def _validate(image_identity, manifest_raw, config_raw, layers, root, check, par
     return manifest, _Built(archive, image_identity['config_digest'], check), budget, nodes
 
 
+class Prebuilt:
+    """One image validated ahead of its caller, used at most once by that caller.
+
+    It is used only for the identical image digests, manifest, config and
+    layer list; otherwise its scratch is removed and the caller validates as
+    before. Unused scratch is removed when the object is released.
+    """
+
+    def __init__(self, key, scratch, built, budget, nodes, snapshots):
+        import weakref
+        self._key, self.scratch, self.built, self.budget = key, scratch, built, budget
+        self.nodes, self.snapshots = nodes, snapshots
+        self._finalizer = weakref.finalize(self, shutil.rmtree, scratch, True)
+
+    def take(self, key):
+        if not self._finalizer.alive:
+            return None
+        if key != self._key:
+            self._finalizer()
+            return None
+        self._finalizer.detach()
+        return self
+
+    def discard(self):
+        self._finalizer()
+
+
+def _prebuilt_key(image_identity, manifest_raw, config_raw, layers):
+    # The archive depends only on these; the caller's full identity is checked
+    # by _graph before a prebuilt image is taken.
+    return (image_identity['manifest_digest'], image_identity['config_digest'], bytes(manifest_raw),
+            bytes(config_raw), tuple(layers))
+
+
+def prebuild(image_identity, manifest_raw, config_raw, count, check, ready, *, for_validate=False):
+    """Validate an image whose layer `index` is returned by `ready(index)`.
+
+    The result is handed to validate()/visit_files() of the same image with
+    `prebuilt=`, which then replay exactly what they would have done.
+    With `for_validate`, an already proven chain is not expanded again (None):
+    validate() then re-hashes the compressed bytes against that proof as before.
+    """
+    layers = [None] * count
+    _, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
+    if for_validate and _PROVEN.get(_chain(config_raw, descs, diffs)) is not None:
+        return None
+    scratch = Path(tempfile.mkdtemp(prefix='peaso-image-visit-'))
+    snapshots = []
+    try:
+        _, built, budget, nodes = _validate(image_identity, manifest_raw, config_raw, layers,
+                                            scratch, check, ready=ready, snapshots=snapshots)
+        layers = [ready(index) for index in range(count)]
+    except BaseException:
+        shutil.rmtree(scratch, ignore_errors=True)
+        raise
+    return Prebuilt(_prebuilt_key(image_identity, manifest_raw, config_raw, layers),
+                    scratch, built, budget, nodes, snapshots)
+
+
+def _take_prebuilt(prebuilt, image_identity, manifest_raw, config_raw, layers, check=lambda: None):
+    if prebuilt is None:
+        return None
+    require(type(prebuilt) is Prebuilt, 'prebuilt_image_required')
+    try:
+        key = _prebuilt_key(image_identity, manifest_raw, config_raw, layers)
+    except TypeError:
+        prebuilt.discard()
+        return None
+    taken = prebuilt.take(key)
+    if taken is not None:
+        try:
+            taken.built.verify(check)
+        except BaseException:
+            shutil.rmtree(taken.scratch, ignore_errors=True)
+            raise
+    return taken
+
+
 def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: None, *, stage=False,
-             ready=None):
+             ready=None, prebuilt=None):
     """Validate a content graph; expanded layers live only in private scratch.
 
     With `stage=True` (the caller archives this image next), the expanded layers
@@ -703,6 +793,10 @@ def validate(image_identity, manifest_raw, config_raw, layers, check=lambda: Non
     layer once it is available (still downloading layers are waited for).
     """
     manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
+    prebuilt = _take_prebuilt(prebuilt, image_identity, manifest_raw, config_raw, layers, check)
+    if prebuilt is not None:
+        _park(config_raw, descs, diffs, prebuilt.scratch, prebuilt.built, prebuilt.budget, stage)
+        return manifest, [], prebuilt.budget
     if ready is None:
         known = _proven(config_raw, descs, diffs, layers, check)
     elif _PROVEN.get(_chain(config_raw, descs, diffs)) is not None:
@@ -744,15 +838,25 @@ def _visit_node(name, node, callback, check):
 
 
 def visit_files(image_identity, manifest_raw, config_raw, layers, callback,
-                check=lambda: None, *, partial_callback=None, stage=False):
+                check=lambda: None, *, partial_callback=None, stage=False, prebuilt=None):
     """Visit final regular files after all layers validate; optionally report each verified layer."""
     require(callable(callback) and (partial_callback is None or callable(partial_callback)),
             'file_callback_required')
     manifest, descs, diffs = _graph(image_identity, manifest_raw, config_raw, layers)
-    scratch = Path(tempfile.mkdtemp(prefix='peaso-image-visit-'))
+    prebuilt = _take_prebuilt(prebuilt, image_identity, manifest_raw, config_raw, layers, check)
+    scratch = Path(tempfile.mkdtemp(prefix='peaso-image-visit-')) if prebuilt is None else prebuilt.scratch
     try:
-        _, expanded, budget, nodes = _validate(image_identity, manifest_raw, config_raw, layers,
-                                               scratch, check, partial_callback)
+        if prebuilt is None:
+            _, expanded, budget, nodes = _validate(image_identity, manifest_raw, config_raw, layers,
+                                                   scratch, check, partial_callback)
+        else:
+            # The same per-layer visits, in the same order, as the expansion above.
+            expanded, budget, nodes = prebuilt.built, prebuilt.budget, prebuilt.nodes
+            for layer_nodes in prebuilt.snapshots:
+                check()
+                if partial_callback is not None:
+                    for name, node in layer_nodes:
+                        _visit_node(name, node, partial_callback, check)
         visited = 0
         for name, node in sorted(nodes.items()):
             check()

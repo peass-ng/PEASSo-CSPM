@@ -155,9 +155,11 @@ class NetworkQueries:
             elif body is not None:unavailable('unsafe_network_metadata_body')
         elif body is not None:unavailable('unsafe_network_metadata_body')
         self.reader.check_cancelled()
-        with self._budget_lock:
-            if self.clock()-self.started >= 120 or self.calls >= 300:unavailable('network_query_budget')
-            self.calls += 1
+        ledger = getattr(self, 'ledger', None)
+        if ledger is None or not ledger.admit(self):
+            with self._budget_lock:
+                if self.clock()-self.started >= 120 or self.calls >= 300:unavailable('network_query_budget')
+                self.calls += 1
         token = self.transport.token(ARM)
         data = json.dumps(body).encode() if body is not None else None
         req = Request(url, data=data, headers={'Authorization':'Bearer '+token,'Accept':'application/json',
@@ -166,9 +168,12 @@ class NetworkQueries:
             status = response.status
             headers = {k:response.headers[k] for k in ('Location','Retry-After','ETag','x-ms-request-id') if k in response.headers}
             raw = response.read(8*1024*1024+1)
-        with self._budget_lock:
-            self.bytes += len(raw)
-            total = self.bytes
+        # A parallel effective-route read charges bytes in inventory order.
+        total = ledger.spent(self, len(raw)) if ledger is not None else None
+        if total is None:
+            with self._budget_lock:
+                self.bytes += len(raw)
+                total = self.bytes
         if len(raw)>8*1024*1024 or total>32*1024*1024:unavailable('network_query_body_budget')
         if status not in (200,202):unavailable('network_query_status_unavailable')
         result = json.loads(raw) if raw else None

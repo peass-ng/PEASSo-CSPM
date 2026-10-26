@@ -57,6 +57,20 @@ RUNTIME_ADMISSION_INPUTS = {
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
+    'tests/test_azure_transport_isolation_20261026.py',
+    'tests/test_checkpoint_superseded_pass.py',
+    'tests/test_collectors_scan_cache_20261026.py',
+    'tests/test_compile_cache.py',
+    'tests/test_incremental_settle_memo.py',
+    'tests/test_k8s_auth_failure_envelopes_20261026.py',
+    'tests/test_peaso_registry_layer_overlap_20261026.py',
+    'tests/test_privesc_inventory_passthrough.py',
+    'tests/test_publication_shared_snapshot_work.py',
+    'tests/test_registry_transient_retry_20261026.py',
+    'tests/test_source_attestation_prove_once.py',
+    'tests/test_source_attestation_trusted.py',
+    'tests/test_worker_credential_overlap.py',
+    'tests/test_worker_prewarm_analyzer.py',
     'tests/test_checkpoint_redaction_reuse.py',
     'tests/test_registry_auth_public_identity_20261025.py',
     'tests/test_azure_refresh_capture_closure_20261025.py',

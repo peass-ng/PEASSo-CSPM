@@ -88,7 +88,7 @@ def catalog(catalog_dir=None):
 
 
 def analyze(snapshot, catalog_dir=None, *, entries=None, include_unknown=False, include_admin_sources=False,
-            related_snapshots=None):
+            related_snapshots=None, inventory=None):
     """Evaluate every catalog technique of the snapshot's provider (see _analyze).
 
     The analysis allocates millions of short-lived, acyclic objects next to a large live snapshot; the cyclic
@@ -99,14 +99,15 @@ def analyze(snapshot, catalog_dir=None, *, entries=None, include_unknown=False, 
     gc.disable()
     try:
         return _analyze(snapshot, catalog_dir, entries=entries, include_unknown=include_unknown,
-                        include_admin_sources=include_admin_sources, related_snapshots=related_snapshots)
+                        include_admin_sources=include_admin_sources, related_snapshots=related_snapshots,
+                        inventory=inventory)
     finally:
         if was_enabled:
             gc.enable()
 
 
 def _analyze(snapshot, catalog_dir=None, *, entries=None, include_unknown=False, include_admin_sources=False,
-             related_snapshots=None):
+             related_snapshots=None, inventory=None):
     """Evaluate every catalog technique of the snapshot's provider.
 
     include_unknown: opt in to diagnostic, memberless unknown-confidence reaches for missing facts/inventories.
@@ -158,7 +159,7 @@ def _analyze(snapshot, catalog_dir=None, *, entries=None, include_unknown=False,
         builder.add_cross(model)
     graph = builder.result()
     from peaso.principal_exposure import annotate_privesc
-    annotate_privesc(snapshot, graph, builder.findings, model)
+    annotate_privesc(snapshot, graph, builder.findings, model, inventory=inventory)
     t_graph = time.perf_counter() - t0
     coverage.extend(_dedupe(model.coverage))
     by_conf = {"derived": 0, "conditional": 0, "unknown": 0}

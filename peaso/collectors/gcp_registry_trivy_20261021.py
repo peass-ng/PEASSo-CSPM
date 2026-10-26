@@ -231,8 +231,10 @@ def _read_index(reference, scope, before, captured, *, runner, db_cache, cli, ti
                             and decoded.get('architecture') == platform['architecture']
                             and ('variant' not in platform or decoded.get('variant') == platform['variant']),
                             'child_config_platform_mismatch')
-            for part in layers:
-                captured.get(uri, 'blobs', part['digest'], MAX_LAYER, part['size'])
+            from .gcp_layer_overlap_20261026 import read_layers
+            prebuilt = read_layers(captured, uri, layers, MAX_LAYER, scope, child['digest'],
+                                   config_desc['digest'])
+            vars(captured).pop('prebuilt', None)
             payloads = [captured._blobs[('blobs', part['digest'])] for part in layers]
             child_ref = reference.rsplit('@', 1)[0] + '@' + child['digest']
             identity = archive.identity({'provider': 'gcp', 'scope': scope,
@@ -244,13 +246,14 @@ def _read_index(reference, scope, before, captured, *, runner, db_cache, cli, ti
             archive.require(len(ids) == len(keys) and [key for _, key in captured._reads[start:]] == keys,
                             'child_read_sequence_required')
             def verify_child(identity=identity, child_raw=child['raw'], config=config,
-                             payloads=payloads, keys=keys, ids=ids):
+                             payloads=payloads, keys=keys, ids=ids, prebuilt=[prebuilt]):
                 captured.check()
                 archive.require([key for rid, key in captured._reads if rid in ids] == keys,
                                 'child_read_sequence_changed')
                 archive.require(all(sha256(captured._blobs[key], captured.check).hexdigest() == key[1][7:]
                                     for key in keys), 'child_retained_bytes_changed')
-                archive.validate(identity, child_raw, config, payloads, captured.check, stage=True)
+                archive.validate(identity, child_raw, config, payloads, captured.check, stage=True,
+                                 prebuilt=prebuilt.pop() if prebuilt else None)
                 return identity
             verify_child()
             outcome = runner(identity, child['raw'], config, payloads,
@@ -322,7 +325,8 @@ def scan_captured(reference, scope, before, after, captured, metadata_reader, *,
     archive.require(len(set(ids)) == len(ids) and not set(ids) & seen, 'duplicate_native_receipts')
     identity = archive.identity({'provider': 'gcp', 'scope': scope,
         'immutable_reference': reference, 'manifest_digest': digest, 'config_digest': config_desc['digest']})
-    archive.validate(identity, manifest, config, payloads, captured.check, stage=True)
+    archive.validate(identity, manifest, config, payloads, captured.check, stage=True,
+                     prebuilt=vars(captured).pop('prebuilt', None))
     image_ledger = {r.get('id'): r for r in captured.transport.evidence}
     image_records = {rid:deepcopy(image_ledger[rid]) for rid in ids}
     archive.require(all(r.get('scope') == scope and r.get('http_status') == 200

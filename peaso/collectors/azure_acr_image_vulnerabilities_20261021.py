@@ -156,12 +156,9 @@ def _scan_index(reader, token, parent_raw, marker, target, scope, *, db_cache,
             'mediaType':child['mediaType'],'platform':platform,'config_digest':config_desc['digest'],
             'descriptors':deepcopy([config_desc]+layers),'rootfs_diff_ids':list(diffs)})
         with tempfile.TemporaryDirectory(prefix='peaso-azure-acr-index-',dir=scratch_parent) as directory:
-            root=Path(directory);root.chmod(0o700);paths=[]
-            for number,desc in enumerate(layers):
-                reader.check();path=root/('layer-'+str(number)+'.blob')
-                reader.blob('blobs',desc['digest'],archive.MAX_LAYER,token,desc['size'],destination=path)
-                paths.append(path)
-            archive.validate(image,manifest,raw,paths,reader.check,stage=True)
+            root=Path(directory);root.chmod(0o700)
+            from .azure_acr_layer_overlap_20261026 import download_and_validate
+            paths=download_and_validate(reader,token,layers,root,image,manifest,raw)
             fingerprints=tuple(_file_hash(path,desc,reader.check) for path,desc in zip(paths,layers))
             def verify():
                 fresh=reader.authenticate()
@@ -255,13 +252,8 @@ def _scan_target(outer, transport, receipts, scope, target, state, *, db_cache,
         marker.update(image=image,descriptors=deepcopy([config_desc]+layers),rootfs_diff_ids=list(diffs))
         scratch=tempfile.TemporaryDirectory(prefix='peaso-azure-acr-vuln-',dir=scratch_parent)
         root=Path(scratch.name);root.chmod(0o700)
-        paths=[]
-        for number,desc in enumerate(layers):
-            reader.check()
-            path=root/('layer-'+str(number)+'.blob')
-            reader.blob('blobs',desc['digest'],archive.MAX_LAYER,token,desc['size'],destination=path)
-            paths.append(path)
-        archive.validate(image,manifest,config,paths,reader.check,stage=True)
+        from .azure_acr_layer_overlap_20261026 import download_and_validate
+        paths=download_and_validate(reader,token,layers,root,image,manifest,config)
         fingerprints=tuple(_file_hash(path,desc,reader.check) for path,desc in zip(paths,layers))
         def verify():
             # Every call obtains a fresh native ARM registry identity and an exact

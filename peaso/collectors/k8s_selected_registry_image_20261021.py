@@ -560,9 +560,10 @@ def inspect(target, pod_get, *, allowed_hosts=(), credentials=None, registry_fac
                 'mediaType': child['mediaType'], 'platform': child['platform'],
                 'config_digest': conf['digest']})
             with tempfile.TemporaryDirectory(prefix='peaso-k8s-registry-') as directory:
-                layers = [reader.get('blobs', desc['digest'], archive.MAX_LAYER,
-                                     size=desc['size'], destination=Path(directory) / ('layer-' + str(i)))
-                          for i, desc in enumerate(descriptors)]
+                from .registry_layer_overlap_20261026 import fetch_layers
+                layers, prebuilt = fetch_layers(reader, descriptors, Path(directory),
+                                                lambda i: 'layer-' + str(i), image_identity,
+                                                manifest, config, reader.check)
                 def visit(name, stream, length, layer):
                     if length > MAX_FILE_SCAN or scanned[0] + length > MAX_SCAN:
                         raise Incomplete('file_scan_bound')
@@ -618,7 +619,7 @@ def inspect(target, pod_get, *, allowed_hosts=(), credentials=None, registry_fac
                     try:
                         archive.visit_files(image_identity, manifest, config, layers,
                                             lambda *_: None, reader.check, partial_callback=visit,
-                                            stage=trivy_enabled)
+                                            stage=trivy_enabled, prebuilt=prebuilt)
                     except Exception as exc:
                         if isinstance(exc, TimeoutError) or getattr(exc, 'code', None) in (
                                 'collection_cancelled', 'intentional_scan_deadline', 'deadline_exceeded') or (
@@ -628,7 +629,8 @@ def inspect(target, pod_get, *, allowed_hosts=(), credentials=None, registry_fac
                         raise
                     flush()
                 else:
-                    archive.validate(image_identity, manifest, config, layers, reader.check, stage=trivy_enabled)
+                    archive.validate(image_identity, manifest, config, layers, reader.check, stage=trivy_enabled,
+                                     prebuilt=prebuilt)
                 if trivy_enabled:
                     if trivy_runner is None:
                         from peaso import trivy_container_runner_20261020 as trivy

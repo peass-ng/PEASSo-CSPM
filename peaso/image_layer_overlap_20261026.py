@@ -87,3 +87,41 @@ def download_then_validate(download, validate, count, check, *, validating=lambd
     elif failure is not None:
         raise failure
     return layers
+
+
+def download_then_prebuild(download, build, count, check):
+    """Run `download(put)` in the background and `build(get)` here.
+
+    Returns (layers, prebuilt or None). Download errors are raised exactly as
+    the serial download raised them. A build that fails or that saw other
+    values than the download returned yields None, and the caller then
+    validates serially, so its errors and visits keep their serial order.
+    """
+    feed = LayerFeed(count, check)
+    outcome, built = {}, []
+
+    def run():
+        try:
+            outcome['layers'] = download(feed.put)
+        except BaseException as exc:  # re-raised by the joining thread
+            outcome['error'] = exc
+        finally:
+            feed.finish()
+
+    worker = threading.Thread(target=contextvars.copy_context().run, args=(run,),
+                              name='peaso-layer-download', daemon=True)
+    worker.start()
+    try:
+        built.append(build(feed.get))
+    except Exception:  # noqa: BLE001 - the serial validation reproduces it
+        pass
+    finally:
+        worker.join()
+    prebuilt = built[0] if built else None
+    if 'error' in outcome or feed.values() != list(outcome['layers']):
+        if prebuilt is not None:
+            prebuilt.discard()
+        if 'error' in outcome:
+            raise outcome['error']
+        prebuilt = None
+    return outcome['layers'], prebuilt

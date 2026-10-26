@@ -1740,7 +1740,7 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     privesc_filter = None if graph_only_checkpoint else _privesc_selected(provider, selected_categories, checks, frameworks)
     if privesc_filter is not None:
         with _runtime_span('engine.privesc'):
-            privesc_findings, privesc_coverage, graphs["privesc"], privesc_stats, privesc_timing = _run_privesc(snapshot, privesc_filter, related)
+            privesc_findings, privesc_coverage, graphs["privesc"], privesc_stats, privesc_timing = _run_privesc(snapshot, privesc_filter, related, inventory)
         if timings is not None:
             timings["privesc"] = privesc_timing
         findings.extend(collapse(privesc_findings))
@@ -2145,7 +2145,7 @@ def compact_report(report):
     return out
 
 
-def _run_privesc(snapshot, technique_filter, related=()):
+def _run_privesc(snapshot, technique_filter, related=(), inventory=None):
     """Run the read-only privesc evaluator; an evaluator failure becomes coverage, never a crashed scan."""
     import time
     started = time.perf_counter()
@@ -2156,6 +2156,10 @@ def _run_privesc(snapshot, technique_filter, related=()):
         # not an identified principal that can be reached by an escalation path.
         # Keep those diagnostics in coverage without emitting memberless graph nodes.
         extra = {"include_unknown": False}
+        if inventory is not None:
+            # The engine's resources(snapshot) for this same snapshot; entry-point
+            # annotation would otherwise rebuild the identical inventory.
+            extra["inventory"] = inventory
         if related:
             extra["related_snapshots"] = list(related)
         if technique_filter:
