@@ -222,6 +222,22 @@ def _project_activity_response(response):
     return projected
 
 
+def _project_activity_scan_response(response):
+    """Unfiltered window page: keep only declared activity names, projected
+    exactly as a per-name query, plus the page's oldest event time."""
+    if not isinstance(response, dict) or not isinstance(response.get("Events"), list):
+        raise ReadFailure("malformed", "malformed_activity_response")
+    names = {name for values in ACTIVITY_ACTIONS.values() for name in values}
+    times = [event.get("EventTime") for event in response["Events"] if isinstance(event, dict)]
+    if len(times) != len(response["Events"]) or any(not isinstance(when, datetime) for when in times):
+        raise ReadFailure("malformed", "malformed_activity_metadata")
+    declared = {**response, "Events": [event for event in response["Events"] if event.get("EventName") in names]}
+    projected = _project_activity_response(declared)
+    if times:
+        projected["OldestEventTime"] = min(times).isoformat()
+    return projected
+
+
 def _project_user_data_indicators(response, instance_id, *, dual_scanner=False):
     """Ephemeral source-pattern review, never retain script/value bytes."""
     from .aws_user_data_secret_indicators import project as project_secret_indicators, scan_selected_content
@@ -503,7 +519,10 @@ class Requests:
             from .aws_ssm_inventory_events_native import is_inventory_query
             activity_query = (isinstance(attributes, list) and len(attributes) == 1 and isinstance(attributes[0], dict)
                 and attributes[0].get("AttributeKey") == "EventName" and attributes[0].get("AttributeValue") in names)
-            if not activity_query and not is_enclave_query(attributes) and not is_inventory_query(attributes):
+            # One unfiltered pass over the same window (no other filters),
+            # projected to the declared activity names only.
+            activity_scan = "LookupAttributes" not in arguments and set(arguments) <= {"StartTime", "EndTime", "NextToken"}
+            if not activity_query and not activity_scan and not is_enclave_query(attributes) and not is_inventory_query(attributes):
                 raise ReadFailure("not_collected", "undeclared_activity_event_query")
             if not isinstance(arguments.get("StartTime"), datetime) or not isinstance(arguments.get("EndTime"), datetime) or arguments["StartTime"].tzinfo is None or arguments["EndTime"].tzinfo is None or arguments["StartTime"] > arguments["EndTime"]:
                 raise ReadFailure("not_collected", "invalid_activity_window")
@@ -656,7 +675,9 @@ class Requests:
                         # snapshot sees request/response/token/content fields.
                         from .aws_kms_enclave_native import is_enclave_query, project
                         from .aws_ssm_inventory_events_native import is_inventory_query, project as project_inventory
-                        if is_inventory_query(arguments.get("LookupAttributes")):
+                        if "LookupAttributes" not in arguments:
+                            response = _project_activity_scan_response(response)
+                        elif is_inventory_query(arguments.get("LookupAttributes")):
                             response = project_inventory(response, arguments["LookupAttributes"][0]["AttributeValue"])
                         else:
                             response = project(response, arguments["LookupAttributes"][0]["AttributeValue"]) if is_enclave_query(arguments.get("LookupAttributes")) else _project_activity_response(response)
@@ -1908,16 +1929,71 @@ def activity_event_names(region):
     return names
 
 
+ACTIVITY_SCAN_MIN_PAGES = 2
+
+
+def _activity_scan(requests, session, region, start, end, names):
+    """Per-name event lists from ONE unfiltered LookupEvents pass, or None.
+
+    After each page the pass extrapolates, from the share of the window
+    already covered (pages are newest first), its own total page count and
+    the per-name cost (one call per name plus one per 50 events seen for it),
+    and gives up once the pass would be the dearer one. Any failure, repeated
+    cursor, page without progress information or per-read cap also gives up;
+    the caller then runs the unchanged per-name queries over the full window.
+    A completed pass covers the same window, so bucketing its events by
+    EventName gives each name exactly the events a per-name query returns.
+    """
+    if (requests.max_pages is not None or requests.max_items is not None or requests.max_calls is not None
+            or len(names) <= ACTIVITY_SCAN_MIN_PAGES):
+        return None
+    buckets = {name: [] for name in names}
+    arguments, seen, pages, oldest = {"StartTime": start, "EndTime": end}, set(), 0, None
+    window = (end - start).total_seconds()
+    while True:
+        try:
+            response = requests.call(session, "cloudtrail", region, "lookup_events", **arguments)
+        except Exception:
+            return None
+        pages += 1
+        for event in response["Events"]:
+            if event.get("EventName") in buckets:
+                buckets[event["EventName"]].append(event)
+        token = response.get("NextToken")
+        if not token:
+            return buckets
+        if token in seen:
+            return None
+        seen.add(token)
+        arguments["NextToken"] = token
+        oldest = response.get("OldestEventTime", oldest)
+        if pages >= ACTIVITY_SCAN_MIN_PAGES:
+            if not isinstance(oldest, str):
+                return None
+            covered = (end - datetime.fromisoformat(oldest)).total_seconds()
+            if covered <= 0:
+                return None
+            # Extrapolate both costs from the share of the window covered.
+            scale = window / covered
+            per_name = sum(max(1, math.ceil(len(rows) * scale / 50)) for rows in buckets.values())
+            if pages * scale > per_name:
+                return None
+
+
 def _cloudtrail_activity(requests, session, region):
     end = requests.observed_at
     start = end - timedelta(minutes=requests.activity_minutes)
     names = activity_event_names(region)
     items, failures = {}, []
-    from .aws_request_pool import ordered_reads
-    # Event names are read concurrently under the same 2 TPS Region limiter;
-    # results are merged in the original name order.
-    reads = ordered_reads(requests, names, lambda name: requests.pages(session, "cloudtrail", region, "lookup_events", "Events",
-        LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": name}], StartTime=start, EndTime=end))
+    buckets = _activity_scan(requests, session, region, start, end, names)
+    if buckets is not None:
+        reads = [ReadResult(buckets[name], "collected" if buckets[name] else "empty") for name in names]
+    else:
+        from .aws_request_pool import ordered_reads
+        # Event names are read concurrently under the same 2 TPS Region limiter;
+        # results are merged in the original name order.
+        reads = ordered_reads(requests, names, lambda name: requests.pages(session, "cloudtrail", region, "lookup_events", "Events",
+            LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": name}], StartTime=start, EndTime=end))
     for name, read in zip(names, reads):
         for event in read.items:
             if event.get("EventName") != name:
