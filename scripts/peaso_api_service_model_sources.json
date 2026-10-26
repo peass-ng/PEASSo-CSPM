@@ -1388,6 +1388,7 @@
     "peaso/k8s_image_source_association_current_20261023.py": "4e1a01e25f89c4243ec5eb48f368d148a3ba249390866806189190cfe0b0d783",
     "peaso/least_privilege.py": "75056a22a267881fb7be27250f3fb300ca347ae0c683d59d9048495c042ff43f",
     "peaso/least_privilege_permissions.py": "d623a5831b5ecfee759527635fa5486b9294d83b036fbd234ec8e4ec6f01eace",
+    "peaso/oci_descriptor_data_20261026.py": "b8839dfc8ea5bc05a157ee48b4405737d4d1d8d35498e69c61713c9ef18e9951",
     "peaso/oci_index_20261021.py": "f138d4d7e00383b45013bac742b2ae323d45dc1f7fe8906e74c713fd8ab9db56",
     "peaso/presentation_metadata_20261020.py": "dc36749e4be08665f5920a5ceba30f65f7a442961359a76ddde63fe20554b9fb",
     "peaso/principal_exposure.py": "ff3b5ee34db65007b2195ceb0eb63f7068af5d2a3b242c118a00bfc761d8fc16",
@@ -1692,8 +1693,7 @@
     "peaso/worker.py": "857543fa8a871cfd44e280031ba57014d9796de0c2fa4956026c3a97fb8fd63c",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
-    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814",
-    "peaso/oci_descriptor_data_20261026.py": "b8839dfc8ea5bc05a157ee48b4405737d4d1d8d35498e69c61713c9ef18e9951"
+    "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814"
   },
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
