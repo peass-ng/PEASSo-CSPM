@@ -145,7 +145,7 @@
       "sha256": "62e77a9244adc9c80014d1ac95d60ca07b61ab0c54e443d6839cb3df318ecb2a"
     },
     "prior_distinct_passing_nodes": 89,
-    "sha256": "09c60363c1342fa3e0a23de12d0d3f3da9d8771013f80396a8fcc47033328c42"
+    "sha256": "9ab5d69189402553ead34e175b0f78b618da87f2dc4c29b3b6cb053accb8bb55"
   },
   "privacy": "both real readers contribute match context before old finalizers clear it; collections, metadata, errors, input/internal options, response caches and tuple keys, pending reader surfaces and transport token caches scrubbed/cleared; overflow and key collision withhold export",
   "public_dedup": "existing one-leak fingerprint DTO unchanged; attach only actual matching source part evidence and provenance, with every retained part.leaks filtered to the DTO fingerprint and original engine receipts/path/bytes preserved",
@@ -278,8 +278,8 @@
       "peaso/checks/aws_codebuild_buildspec_shared_successor_20261020.json": "3f850167f2dfc92c78222f38ae48b7bedb0b102e13578a9bb9508df0000cdcce",
       "peaso/checks/aws_codebuild_buildspec_shared_successor_20261020.py": "3e8ad3d0c087e042a19aa68bfeb4772d2f03f339f48a5836e4b74254a977dd5b",
       "peaso/checks/azure_function_package_runtime_consumer_20261020.py": "7e2101142c442ec899d30ec6d4a6690819dca196a3446ac53267dcc1ed9450b4",
-      "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.json": "3f22b3668920e0b6b76eeb12a8a9223d08270b26a8f9a2e94887a36c4e5fe1db",
-      "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.py": "956285dbde640082ea6f2b464376065db3469881bf45a5b2da271c53ec83b323",
+      "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.json": "4a9cd11f612c25b16c9668b29c86e2e87900a0d373e06872a12f762f09e019d5",
+      "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.py": "2995933270e76fed2df1ea00a6cec65ec7663cc5354bc7845a87b1548d6037be",
       "peaso/collectors/aws_package_content_indicators.py": "ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6",
       "peaso/collectors/azure_app_settings_secret_indicators.py": "f7fed346ff359f463e72cff63f4de9e1971e2aeef2223ed8b338c91c7520248b",
       "peaso/collectors/azure_function_package_portable_20261020.py": "54a7bb3e2a69465b3b5537cad597d8b8c537e35d16416d1f0ff81e551ece0569",

@@ -3,7 +3,7 @@
   "updated_at": "2026-10-20T05:25:29.471055+00:00",
   "source_review": "docs/gcp-review/recheck-20261020/prior-bounded-predicate-successors.json",
   "native_fixture": "tests/fixtures/gcp-prior-bounded-native-successor-20261020.json",
-  "native_fixture_sha256": "2339b243a3c57ed3a7be79352f2266eef9ec52625fa5c500db39ceb50489bb88",
+  "native_fixture_sha256": "0ca12fc2736547034ccf66a275c865c7793517f8c1a416edb9b75a3f5dcd15d4",
   "ids": [
     "gcp.claude.bigquery_dataset.no_gmail_access",
     "gcp.claude.bigquery_dataset.no_googlegroups_access"

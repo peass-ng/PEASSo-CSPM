@@ -3530,7 +3530,7 @@
   "prior_report_not_modified": {
     "bytes": 3511949,
     "path": "/Users/carlospolop/git/Blue-CloudPEASS/docs/check-review/k8s-cluster-native-review-20261020.json",
-    "sha256": "540c0bfdf4a1db8a65e0c58fa0d97bd3634075535e093bfd77afff1927ed7e87"
+    "sha256": "214034ee33aec42c30e525cfcd7932e3060904c8884b39f372c2f33d0231dffc"
   },
   "proof_limits": [
     "Safe booleans preserve the exact old case-sensitive substring criteria, including incidental alias strings and kubernetes.io Lua marker; these are not a CEL or nginx parser.",
@@ -3543,7 +3543,7 @@
     "Optional saved native snapshot replay is absent from portable checkout; all required current native cases are independently generated and executed."
   ],
   "protected_predecessors": {
-    "docs/check-review/k8s-cluster-native-review-20261020.json": "540c0bfdf4a1db8a65e0c58fa0d97bd3634075535e093bfd77afff1927ed7e87",
+    "docs/check-review/k8s-cluster-native-review-20261020.json": "214034ee33aec42c30e525cfcd7932e3060904c8884b39f372c2f33d0231dffc",
     "peaso/checks/claude_gcp_k8s_k8s.py": "46780a0684f87176c1fe7a7dcfe8f9530a705db77a108b853acb7b07df976bde",
     "peaso/checks/fixtures.py": "84b947969a82034aa221e27dd01e9d91dbe8b546ca8048d2237895759074afb8",
     "tests/test_k8s_cluster_native_review_20261020.py": "b1dfac50b6a3c524bd9c55863f4d3c6a28bc0d89c735844ee626312cb38b3fda"

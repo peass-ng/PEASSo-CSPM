@@ -510,7 +510,7 @@
   ],
   "native_receipts": {
     "docs/gcp-review/recheck-20261020/identity_data-batch-review.json": {
-      "sha256": "715cb58a8ec97a83799c998a0b5ce8130e679e05b3446d25220730af2346eb62",
+      "sha256": "b0395dd5059df02e2f09bf2da528ba5fc841a634958293f4cae16a265f81531c",
       "bytes": 247151
     },
     "docs/gcp-review/recheck-20261020/identity-api-backup-fixes.json": {
@@ -554,7 +554,7 @@
       "bytes": 6081
     },
     "docs/gcp-review/recheck-20261020/native57-iam-kms-review.json": {
-      "sha256": "b4f51569d75517e40ff1c8f746e021f0c90fc6109d965ea99548fc336f8556c2",
+      "sha256": "119b0b830e0541bce71666312e2b3b3f57a117127db1995582df9e4a7e56d98a",
       "bytes": 1753605
     },
     "docs/gcp-review/recheck-20261020/native57-integration-acceptance.json": {
@@ -622,7 +622,7 @@
       "bytes": 1800547
     },
     "docs/gcp-review/recheck-20261020/secret-surface-audit.json": {
-      "sha256": "60a0df74435da1405a62b3d7efe98c250bfc6b4a891c9df07136e1382101a76a",
+      "sha256": "58211107c241b97edbb1ae14257d1738ce1b3cd10d938a64c55d584d8864dc23",
       "bytes": 902507
     },
     "docs/gcp-review/recheck-20261020/task-routine-secret-implementation.json": {
@@ -634,7 +634,7 @@
       "bytes": 100354
     },
     "docs/check-review/dataproc-tde-current-acceptance-20261020.json": {
-      "sha256": "f78a924ca55dac79f8ece12e6154d229ac171f9cc60845476433581140b8bb8c",
+      "sha256": "d1514c76d5d1ad08ae5828930ef81fe6badd39b6e26dc0ca3ea6add202ef2202",
       "bytes": 2919
     },
     "docs/gcp-review/recheck-20261020/crm-native-response-body-compatibility-20261020.json": {
@@ -646,7 +646,7 @@
       "bytes": 118226
     },
     "docs/gcp-review/recheck-20261020/bigquery-historical-native-closure.json": {
-      "sha256": "aa4f777196baec8e451cce94d2d6f8baa958185ef6702a4a6b9fa298b576ad2c",
+      "sha256": "aca01b9797f5540c55c5ab16fffc48b0b5b7c30a5084ec0275646e989006ee95",
       "bytes": 1075
     }
   },

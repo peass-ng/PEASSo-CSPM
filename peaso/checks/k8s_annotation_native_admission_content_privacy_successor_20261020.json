@@ -364,7 +364,7 @@
       "predecessor_receipt": {
         "bytes": 36996,
         "path": "/Users/carlospolop/git/Blue-CloudPEASS/peaso/checks/k8s_annotation_native_admission_scoped_20261020.json",
-        "sha256": "f8dc3b5ca12836f3aa77234b613331be7c724a18e32581439bb4fc2e1f4491e9"
+        "sha256": "20db2a27e82c4bf2ef7ab2c0827064c4310fc91187046f32ed51288624a87496"
       },
       "reason": "Dedicated normal metadata declaration kind: metadata LIST then exact prefix-matching native GET; no engine/other collection semantics change."
     },
@@ -378,7 +378,7 @@
         "source_sha256": "4a81c9bab5c28835b0e5db7f788aa793dc440e26e407e7b8f926a2307f4b638e"
       },
       "predecessor_receipt": "peaso/checks/k8s_annotation_native_admission_log_successor_20261020.json",
-      "predecessor_receipt_sha256": "89d086171ba21f4eda246239862ad8f01792149201b3b08b631309d644260f5b",
+      "predecessor_receipt_sha256": "0994baa57d72b2c993fdc51bee649cf678ee76de485d16e6b23b57469e700fbb",
       "reason": "Coordinator-directed same conditional SDK record filtering for named+opted-in literal OR log mode. Actual native urllib3 URL-privacy witnesses preserved red; no authflow/global logger/other collector changes."
     },
     "log_sample_collect_successor": {
@@ -391,11 +391,11 @@
         "source_sha256": "7f3005ddccd8d73230a417fb3b2501b856ced02efb2566f31bcdc1503980ff53"
       },
       "predecessor_receipt": "peaso/checks/k8s_annotation_native_admission_configmap_successor_20261020.json",
-      "predecessor_receipt_sha256": "ce9f5e6f2b7f2911f4eda89703d6ac639db1fde1798472080450c24d6b5f99d1",
+      "predecessor_receipt_sha256": "0bf47ef67cc7370f60f938d636537fdaaec63f063c070db398dd67f6dde2bb35",
       "reason": "One exact-selected default-off current-container log sample reader, native path/query grants, prior literal union redaction and current namespace/count-only progress; all existing jobs and annotation/native helpers preserved.",
       "worker_privacy": "Per-reader SDK fetch wrapper only when new log gate is enabled; no shared reader or logger-level changes."
     },
-    "predecessor_portable_receipt_sha256": "0f7ef564ac8c726b92ed996a7977dbc4f75d5bb48d5f7f995d86c95e5753eca1",
+    "predecessor_portable_receipt_sha256": "865e60a2c3cb5fd086197d6150e5b9a88206ddaf5c6009ec98d969b8873a47a2",
     "predecessor_receipt_sha256": "3f4ef3bfc7da3d8fca39a8d77e79e2c375ce4e40e03fff670fa042c44548af36",
     "retained_predecessors": [
       {
@@ -409,14 +409,14 @@
         "bytes": 27061,
         "gzip_sha256": "2714b562768e86e3dcb6dd44087d56ef909a2f2de33287b2d28e3ee928baf936",
         "retained_gzip": "docs/check-review/k8s-annotation-admission-lineage-20261020/k8s_annotation_native_admission_20261020.json.pre-portable.gz",
-        "sha256": "3f4ef3bfc7da3d8fca39a8d77e79e2c375ce4e40e03fff670fa042c44548af36",
+        "sha256": "6be12fa2e2d43a724a758d6efa3a77c561f362938d483dce8d9df7bd85661cca",
         "source": "peaso/checks/k8s_annotation_native_admission_20261020.json"
       },
       {
         "bytes": 261157,
         "gzip_sha256": "f53073f77f721e4804fe93b0c89de596a43804eca2deeb91a4babe87a67c3cf8",
         "retained_gzip": "docs/check-review/k8s-annotation-admission-lineage-20261020/k8s-annotation-native-admission-20261020.json.pre-portable.gz",
-        "sha256": "394b4a30345e2c7ae982a4d46e06468df8178bebd8eee38f37d0e4d140258d48",
+        "sha256": "46ab9ac5d0308bbf6a5a8683ffc9d0a77c5ee6b6bec98a98a91807e8472cccfc",
         "source": "docs/check-review/k8s-annotation-native-admission-20261020.json"
       },
       {
@@ -430,7 +430,7 @@
         "bytes": 29829,
         "gzip_sha256": "edc984c6ef8edf7410843752fef6e00359afce50d022c7587b57b79e700dc21f",
         "retained_gzip": "docs/check-review/k8s-annotation-admission-scoped-lineage-20261020/k8s_annotation_native_admission_portable_20261020.json.pre-scoped.gz",
-        "sha256": "0f7ef564ac8c726b92ed996a7977dbc4f75d5bb48d5f7f995d86c95e5753eca1",
+        "sha256": "865e60a2c3cb5fd086197d6150e5b9a88206ddaf5c6009ec98d969b8873a47a2",
         "source": "peaso/checks/k8s_annotation_native_admission_portable_20261020.json"
       },
       {
@@ -444,7 +444,7 @@
         "bytes": 79543,
         "gzip_sha256": "a04696c7681bc0491de102c0efdba8d534f1f80de0e7037705ba29a6027b15e4",
         "retained_gzip": "docs/check-review/k8s-annotation-admission-scoped-lineage-20261020/k8s-annotation-native-admission-portability-20261020.json.pre-scoped.gz",
-        "sha256": "8cfff12c6ceffd65617d3ddfbffdf6e9b481b04df5fa31edf6f7a5a230e85f3f",
+        "sha256": "77a1f09d006e763343e22d8dcc0c61dd4acb00420596aea23e5439eb3440c3e5",
         "source": "docs/check-review/k8s-annotation-native-admission-portability-20261020.json"
       },
       {
@@ -465,7 +465,7 @@
         "bytes": 36996,
         "gzip_sha256": "4c69905e4f432eba29613d635d3ff790bbf08e4c01f18419ec83cd9791b1083c",
         "retained_gzip": "docs/check-review/k8s-kubelet-configmap-integration-lineage-20261020/k8s_annotation_native_admission_scoped_20261020.json.pre-configmap.gz",
-        "sha256": "f8dc3b5ca12836f3aa77234b613331be7c724a18e32581439bb4fc2e1f4491e9",
+        "sha256": "20db2a27e82c4bf2ef7ab2c0827064c4310fc91187046f32ed51288624a87496",
         "source": "peaso/checks/k8s_annotation_native_admission_scoped_20261020.json"
       },
       {
@@ -481,7 +481,7 @@
         "retained_gzip": "docs/check-review/k8s-selected-log-production-lineage-20261020/k8s_annotation_native_admission_20261020.py.pre-log-production.gz"
       },
       {
-        "before_sha256": "ce9f5e6f2b7f2911f4eda89703d6ac639db1fde1798472080450c24d6b5f99d1",
+        "before_sha256": "0bf47ef67cc7370f60f938d636537fdaaec63f063c070db398dd67f6dde2bb35",
         "gzip_sha256": "d97c4c6cd276368161bfe5092d4ccceeebc96e1da405d1cd32c85665fb5d2629",
         "path": "peaso/checks/k8s_annotation_native_admission_configmap_successor_20261020.json",
         "retained_gzip": "docs/check-review/k8s-selected-log-production-lineage-20261020/k8s_annotation_native_admission_configmap_successor_20261020.json.pre-log-production.gz"
@@ -517,7 +517,7 @@
         "retained_gzip": "docs/check-review/k8s-selected-log-production-lineage-20261020/k8s_annotation_native_admission_20261020.py.pre-literal-sdk.gz"
       },
       {
-        "before_sha256": "89d086171ba21f4eda246239862ad8f01792149201b3b08b631309d644260f5b",
+        "before_sha256": "0994baa57d72b2c993fdc51bee649cf678ee76de485d16e6b23b57469e700fbb",
         "gzip_sha256": "ab7a8186607abc5cc2875d00b4bd45c1e97d1907204aa1cc02dba66d83c4ee10",
         "path": "peaso/checks/k8s_annotation_native_admission_log_successor_20261020.json",
         "retained_gzip": "docs/check-review/k8s-selected-log-production-lineage-20261020/k8s_annotation_native_admission_log_successor_20261020.json.pre-literal-sdk.gz"

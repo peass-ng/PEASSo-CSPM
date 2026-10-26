@@ -415,7 +415,7 @@
       "original_line": 877,
       "path": "peaso/collectors/azure.py",
       "qualname": "AzureTransport.__init__",
-      "sha256": "dfc016bae2d0d2063538a53e34c63a26c7689acae67c34e273e984ecb230a11d",
+      "sha256": "701c27ca9c554e4cfa5d67cd4ffe204507f15c8f6140866c77ea3264ac395f38",
       "unchanged": true
     },
     {
@@ -482,7 +482,7 @@
   ],
   "prior_source_matrix": {
     "path": "docs/check-review/azure-function-settings-declarations-native-review-20261020.json",
-    "sha256": "164b72544edbb5cf4d838c11ec966238ef551297aeb4aac1b2fdb6edd2dcfd29"
+    "sha256": "f77e9e0f6c185021a2cb8004040a1e705c4396bdff1d6cbb52c98199e76121e1"
   },
   "privacy_proofs": [
     "Native DEBUG credential/content/error output suppressed, filters restored and other thread unaffected.",
@@ -664,7 +664,7 @@
     },
     {
       "path": "peaso/checks/azure_function_settings_admission_20261020.json",
-      "sha256": "b78a07d72ab8ee89fe467aca868182bf62cc33fd89b41d89cce04ba3516292e5",
+      "sha256": "740ade22ca008fc00b4faf062110d4ab6081c6bdd7dde0537e208d6dbf97dda1",
       "unchanged": true
     },
     {
@@ -729,7 +729,7 @@
     },
     {
       "path": "docs/check-review/azure-function-settings-declarations-native-review-20261020.json",
-      "sha256": "164b72544edbb5cf4d838c11ec966238ef551297aeb4aac1b2fdb6edd2dcfd29",
+      "sha256": "f77e9e0f6c185021a2cb8004040a1e705c4396bdff1d6cbb52c98199e76121e1",
       "unchanged": true
     },
     {

@@ -28,14 +28,7 @@ TOKEN='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'
 REPO='selected/application'
 
 
-def require_pinned_scanners():
-    """Real-engine tests need the exact scanner releases that CI provisions."""
-    try:
-        scanning._trufflehog()
-        scanning._kingfisher()
-    except Exception as error:
-        pytest.skip(f'pinned secret scanners unavailable (trufflehog {scanning.TRUFFLEHOG_VERSION} on PATH, '
-                    f'kingfisher-secret-scanner {scanning.KINGFISHER_VERSION}): {type(error).__name__}: {error}')
+from tests.pinned_secret_scanners import require_pinned_scanners
 
 
 def jwt(audience,**extra):

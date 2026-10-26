@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "base_commit": "e7510bc898183fd9f478d0cb511c37aed8db4286",
-  "historical_ledger_sha256": "1ed69c52a0f8436b2604f27d4eda35ad364a0fa7da9a7bb7964956825d3c9d4c",
+  "historical_ledger_sha256": "6dd7dc6a3eec10b001081b930d8c5966cf7ac41182c384767cdaaf3040e05f7b",
   "current_checks": {
     "aws.iam.group_inline_policies_have_members": {
       "source": "peaso/unused_iam_aws_inline.py",

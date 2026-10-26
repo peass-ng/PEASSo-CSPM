@@ -1,6 +1,6 @@
 {
   "purpose": "Native current KMS configuration contract; predecessor central fixtures retained unchanged.",
-  "predicate_successor_sha256": "421ae4ed4a33631496dc8b0d43b6cf942cdb9ad6d09e750c80526074bf5de179",
+  "predicate_successor_sha256": "8dd28debeb3d7d8ef4161448fb02497b6156f353fdd68a8ce09f1a18daf1f8c0",
   "cases": [
     {
       "id": "gcp_kms_key_destroy_alert:complete",

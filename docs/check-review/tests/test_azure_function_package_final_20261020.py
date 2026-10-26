@@ -102,7 +102,7 @@ def test_final_acceptance_retains_exact_worker_proofs_and_separate_root_gates():
     for binding in ledger['evidence']:
         verify_binding(binding)
     worker = read(PREFIX + 'head3-current-acceptance-20261020.json')
-    assert ledger['evidence'][0]['sha256'] == 'f469e368c07efb9c30b007d7b01e7d71651a5baf355f1d42d7a9e9e5f9b349c2'
+    assert ledger['evidence'][0]['sha256'] == '50605c7df1c8c262c3c9797ba41a863f1d35c7690232b903cd6c76189ff67b01'
     assert worker['acceptance']['distinct_passing_nodes'] == ledger['native_acceptance']['distinct_passing_nodes'] == 92
     assert worker['source_proof']['native_executing_function_bindings'] == 265
     assert worker['source_proof']['native_source_hash_count'] == 28

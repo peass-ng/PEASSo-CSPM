@@ -16,7 +16,7 @@
   },
   "integration_receipt": {
     "path": "docs/check-review/gcp-function-paired-native-integration-20261020.json",
-    "sha256": "b1c843e68b8ca83767972063bce81ed320f0f43a821023ededc9918b8e5b7457"
+    "sha256": "7d9b5db1dec487524ca2655c1deea85716f7ec29d9aaaf193549f8d6d68bc47a"
   },
   "current_public_dtos": {
     "path": "docs/check-review/gcp-function-paired-native-current-dtos-20261020.json",

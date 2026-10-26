@@ -33,6 +33,7 @@ import contextlib
 import contextvars
 import json
 import threading
+import time
 from collections import OrderedDict
 from datetime import date, datetime
 
@@ -57,6 +58,19 @@ TRANSIENT_CODES = frozenset({"Throttling", "ThrottlingException", "TooManyReques
                              "ProvisionedThroughputExceededException", "PriorRequestNotComplete",
                              "BandwidthLimitExceeded", "LimitExceededException", "EC2ThrottledException",
                              "RequestTimeout", "RequestTimeoutException"})
+
+
+# Waits before the 2nd and 3rd attempt of a read whose TLS session failed.
+TLS_RETRY_DELAYS = (0.2, 0.5)
+
+
+def tls_failure(exc):
+    """A botocore TLS transport failure (handshake/verify/EOF), no API answer."""
+    try:
+        from botocore.exceptions import SSLError
+    except Exception:
+        return False
+    return isinstance(exc, SSLError)
 
 
 # Callers whose native response is read through the plain pooled client and
@@ -147,7 +161,12 @@ class RawReadCache:
         self._inflight = {}
         self._bytes = 0
         self.hits = self.waits = self.stored = self.evicted = self.oversized = self.seeded = 0
+        self.tls_retries = 0
         self.limiter = AdaptiveLimiter()
+        # Load each client's CA bundle once instead of on every new TLS
+        # connection (a shared-store race under concurrent handshakes).
+        from .aws_tls_context import install as install_tls_context
+        install_tls_context()
 
     def install(self, client, root):
         """Share eligible reads of ``client`` (an SDK client) for ``root``."""
@@ -161,8 +180,20 @@ class RawReadCache:
         limiter = self.limiter
 
         def limited(operation_name, api_params):
-            with limiter.slot((root_id, getattr(meta, "endpoint_url", None))):
-                return original(operation_name, api_params)
+            # A TLS failure is a transport fault of this one connection. Read
+            # operations get a short bounded retry outside the endpoint slot;
+            # ``Requests.call`` keeps its own attempt budget for API errors.
+            retries = TLS_RETRY_DELAYS if operation_name.startswith(READ_PREFIXES) else ()
+            for attempt in range(len(retries) + 1):
+                try:
+                    with limiter.slot((root_id, getattr(meta, "endpoint_url", None))):
+                        return original(operation_name, api_params)
+                except Exception as exc:
+                    if attempt == len(retries) or not tls_failure(exc):
+                        raise
+                with self._lock:
+                    self.tls_retries += 1
+                time.sleep(retries[attempt])
 
         def make_api_call(operation_name, api_params):
             if not _SHARED.get():
@@ -274,7 +305,7 @@ class RawReadCache:
         with self._lock:
             return {"entries": len(self._entries), "bytes": self._bytes, "hits": self.hits,
                     "waits": self.waits, "stored": self.stored, "evicted": self.evicted,
-                    "oversized": self.oversized, "seeded": self.seeded,
+                    "oversized": self.oversized, "seeded": self.seeded, "tls_retries": self.tls_retries,
                     "throttles": self.limiter.throttles, "limit_waits": self.limiter.waits}
 
 

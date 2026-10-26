@@ -43,11 +43,11 @@
     },
     "gcp.review.dataflow.selected_package_referenced_source_secret_indicators": {
       "path": "docs/check-review/dataflow-current-acceptance-20261020.json",
-      "sha256": "5b3ca3ddb20e99e10ef62fe0530ccabf986a014f63e15a9ca81c354c953b0655"
+      "sha256": "a51aa6ebf70c2caf6d9955557185b7831b73158271557c9784c4043f45aa25f8"
     },
     "gcp.review.batch.selected_mounted_script_source_secret_indicators": {
       "path": "docs/check-review/batch-current-acceptance-20261020.json",
-      "sha256": "1eb1841e9e973fc12883e26d431e9f4372d2063a23ae88bb1ccb0af10bb502a5"
+      "sha256": "c9c1e5cbd26ef357d23ff37471cc98ae6ad9e6b28459a32ac970d8a2e4da1c6e"
     }
   },
   "head_admissions": {
@@ -82,7 +82,7 @@
   "current_predicate_errata": {
     "gcp.review.function.literal_environment_secret_indicators": {
       "path": "docs/check-review/gcp-function-current-ledger-erratum-20261020.json",
-      "sha256": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2"
+      "sha256": "af88bde5ae184d1ecfaeaf016292e7aa59306dc4a3f45da859143a1ef09665ee"
     }
   },
   "head_source_successors": [

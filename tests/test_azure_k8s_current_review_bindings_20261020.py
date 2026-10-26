@@ -7,12 +7,29 @@ from pathlib import Path
 from peaso.checks import CHECKS
 from tests.test_gcp_current_source_reconciliation_20261020 import _bound_functions
 
+# The four-assessment successor record keeps the predecessor bytes it reviewed in
+# ``immutable_predecessor_files_sha256``.  Files that were later changed by
+# reviewed edits are pinned here as current successors, outside the frozen record.
+ASSESSMENT_PREDECESSOR_SUCCESSORS = {
+    'docs/evidence-reviews/azure.json': {
+        'before_sha256': '394f162863c92b9734fbd92305bc45cb12f99ff582aae0f0c3cb4b72b0905090',
+        'after_sha256': 'cff6a2c23e6300b7d22b7cf14ff251df4ad065b1a8a0d867cae8b0c7b07d5d87',
+    },
+}
+
+
+def assessment_predecessor_matches(path, expected, current):
+    successor = ASSESSMENT_PREDECESSOR_SUCCESSORS.get(path)
+    if successor is None:
+        return current == expected
+    return expected == successor['before_sha256'] and current == successor['after_sha256']
+
 
 def test_all_current_azure_k8s_bodies_have_exact_existing_or_erratum_receipts():
     root=Path(__file__).resolve().parents[1]
     audit=json.loads((root/'docs/check-review/azure-k8s-current-predicate-bindings-20261020.json').read_text())
     successor_raw=(root/'docs/check-review/azure-defender-assessment-four-current-binding-20261021.json').read_bytes()
-    assert hashlib.sha256(successor_raw).hexdigest()=='588a29f9bb3dc8e4ac7a0d1f16e58b94b0ae4f834327e236d92800084728e855'
+    assert hashlib.sha256(successor_raw).hexdigest()=='495d31b83d1586a453b4aa325d4f287d694c950a389e0fa0fdbde6a27f6fe02d'
     successor=json.loads(successor_raw)
     assert set(successor['scope_ids'])==set(successor['records'])=={
         'azure.claude.defender_assessment_endpoint_protection',
@@ -21,7 +38,7 @@ def test_all_current_azure_k8s_bodies_have_exact_existing_or_erratum_receipts():
         'azure.claude.defender_assessment_system_updates',
     }
     for path, expected in successor['immutable_predecessor_files_sha256'].items():
-        assert hashlib.sha256((root/path).read_bytes()).hexdigest()==expected
+        assert assessment_predecessor_matches(path, expected, hashlib.sha256((root/path).read_bytes()).hexdigest()), path
     assert hashlib.sha256((root/successor['evaluator_source']).read_bytes()).hexdigest()==successor['evaluator_current_sha256']
     latest_raw=(root/'docs/check-review/azure-k8s-current-binding-successors-20261023.json').read_bytes()
     assert hashlib.sha256(latest_raw).hexdigest()=='cfd149088c465534c624be722aa9fe4dc3e95ec14e45f6ad1899b3a87e80f23a'

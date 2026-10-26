@@ -3338,7 +3338,7 @@
   },
   "helper_sha256": "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a",
   "historical_guard_sha256": "73cecf776d322c3f81293b342e09127465383a3b2cfcdcebaf276b62f3fa11f8",
-  "historical_receipt_sha256": "35ffe7d28a2f9bf0aa1432cbc467562d7098ede9dab3d2a4f0fee1c0b4ea0b1d",
+  "historical_receipt_sha256": "fc076b028db2a5ffd51fda5a11477f756fe1c6f9fbf270ada33f138eb74938bd",
   "ids": [
     "k8s.claude.ingress.no_nginx_snippets",
     "k8s.claude.ingress.no_nginx_snippet_alias",

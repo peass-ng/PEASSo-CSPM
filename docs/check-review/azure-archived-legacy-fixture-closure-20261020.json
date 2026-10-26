@@ -2187,12 +2187,12 @@
   "conserved_artifacts": [
     {
       "path": "docs/check-review/azure-metadata-transport-fix-review-20261020.json",
-      "sha256": "f77f5e2488bb1f8f7251a7fffe1074cbe2115d0465ebc611a14c59ec00c41db9",
+      "sha256": "25254b6a8ef8da393ba4fad63cf270aa2c235e5682ca5c57fa041349ee2dbf51",
       "bytes": 57464
     },
     {
       "path": "docs/check-review/azure-http-status-fixture-compatibility-review-20261020.json",
-      "sha256": "90e1bf883968e9acf45a7c3319abe876d1205c32548eec4fd6370ff89ae9bd2b",
+      "sha256": "7064da6b5f7b04ace4ce90c07b8d891df9c05985272c9e5e22d1fe801eaab5d1",
       "bytes": 151701
     },
     {

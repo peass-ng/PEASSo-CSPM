@@ -21,7 +21,7 @@
       "additional_sources": 7,
       "additional_functions": 12,
       "module_bindings": 8,
-      "predecessor_receipt_sha256": "2db48941c86ab55512285eb22f591eb17bf50be7b1a1cf099d7bd134d9393622"
+      "predecessor_receipt_sha256": "eb01e33477b352960ce74d99c82a9344fcc5ff3bbef80f86d8c6199c25dbaf6e"
     }
   ],
   "exact_gcp_deltas": {
@@ -107,7 +107,7 @@
   },
   "actual_before_page_successor_dtos": {
     "path": "docs/check-review/gcp-function-paired-native-dtos-20261020.json",
-    "sha256": "069a15624bd4664e1a2b34aee004f02dd322726e7985aac8f2488a6d63af58d6"
+    "sha256": "3757df95a6edf12e83eaf5220b7fcd744e66b0731d9b901bd262f279900544e9"
   },
   "shared_epoch_owner": "ctx_1b331c7801a9",
   "shared_epoch": {

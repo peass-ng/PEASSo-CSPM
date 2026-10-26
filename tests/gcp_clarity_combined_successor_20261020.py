@@ -185,16 +185,16 @@ def current_missing_observation(cid, catalog):
 
 PINNED_FILES = json.loads(r'''
 {
-  "docs/check-review/gcp-function-current-ledger-erratum-20261020.json": "35f86b8d2c9c190c947087d6272ce1d066d92ca1b2b5173b6a57d5419c00b3e2",
+  "docs/check-review/gcp-function-current-ledger-erratum-20261020.json": "af88bde5ae184d1ecfaeaf016292e7aa59306dc4a3f45da859143a1ef09665ee",
   "docs/compliance-ledgers/native-extensions/gcp-batch-referenced-source-20261020.json": "53808fbafe6709eccb594951e5151d5a132298600ff18ae060e9ba44927ed233",
   "docs/compliance-ledgers/native-extensions/gcp-dataflow-referenced-source-20261020.json": "3602c9ef9ef8ba2a1cdcfee853587a2f67f1a08ec0f1d56b33425754a553eb70",
   "docs/compliance-ledgers/native-extensions/gcp-dataproc-referenced-source-20261020.json": "084b861b7cad7ca872d96a87a0b70431a0ebed2033cfa9ff0f5fe71102df9bce",
   "docs/compliance-ledgers/native-extensions/gcp-workbench-head3-20261020.json": "f39bb9be12da90641f7c554cc03c91259d60b426184b417eeee5e3a3a4a26661",
   "docs/compliance-ledgers/native-extensions/gcp-workbench-referenced-source-20261020.json": "7ee9ab010077c71a27fadf08c231d715073eb8df1800739a09aa54042adb2845",
   "docs/compliance-ledgers/native-extensions/workload-content-20261020.json": "990f38aa7472ec959a524ed52b5652075bbba0d1a0f4c5894747b5a1a9abf9ff",
-  "docs/gcp-review/recheck-20261020/bigquery-historical-native-closure.json": "aa4f777196baec8e451cce94d2d6f8baa958185ef6702a4a6b9fa298b576ad2c",
+  "docs/gcp-review/recheck-20261020/bigquery-historical-native-closure.json": "aca01b9797f5540c55c5ab16fffc48b0b5b7c30a5084ec0275646e989006ee95",
   "docs/gcp-review/recheck-20261020/compute-second-fixes.json": "cff94ec444905393e950ebfb2dee93a0a36fa503cd81881e917267b6923ebbd7",
-  "docs/gcp-review/recheck-20261020/final-services-predicate-successors.json": "2ec7f70a441788f5049543caa045b4e5748e3855393990b3cae8acbfa582e8dd",
+  "docs/gcp-review/recheck-20261020/final-services-predicate-successors.json": "4f061a66017d9b54c2d1110f997ed6de9bfa0e6b73e4e39c93ce3cd746405d3b",
   "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d",
   "peaso/checks/gcp_cloudrun_job_image_observed_20261020.py": "f6180e6efe4ff213f13f328470b4ec898be5ca3f589b11502c634d264897572d",
   "peaso/checks/gcp_cloudrun_job_image_secret_review_20261020.py": "6411b11c8d7926311ebd88da98890b42b56e0a63b936bf7568792c42c4cd3a22",

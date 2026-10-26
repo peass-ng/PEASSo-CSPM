@@ -638,7 +638,7 @@ AZURE_BINDINGS = json.loads(r'''
 
 PINNED = json.loads(r'''
 {
-  "docs/check-review/azure-function-settings-production-integration-20261020.json": "25e964b0a060f5a4e9eccde9d3e3beb1bb89d874eb0b4717164349d28e38df9e",
+  "docs/check-review/azure-function-settings-production-integration-20261020.json": "e17a9cc2dd49606c69bb92f485947e8a6593418c4319639a58a9397ccc4b44bf",
   "docs/check-review/azure-k8s-current-predicate-bindings-20261020.json": "23ab6679ae1f7a4a35a86da7477c7427126bc668b3067ddc678d442d58bb8799",
   "docs/check-review/azure-rejected-source-recheck-20261020.json": "f8acfb410ac0f060bae1c77829e840cc4fb05e67faba0d93a4aec61cfabeb21a",
   "peaso/checks/azure_aks_legacy_projection_review_20261020.py": "d2aac095ecf0da4019853fb86c4be7129e5f2f75578c1484414bb8b17cfac633",
@@ -673,12 +673,12 @@ PINNED = json.loads(r'''
   "tests/fixtures/azure_services1_native_evaluator_inputs_20261020.json.gz": "dd8f5099b70b5042af97e0dcd5c8b79217ca3bd8ed9c45791e0f1ae2f62d73ef",
   "tests/fixtures/azure_services2_native_evaluator_inputs_20261020.json.gz": "b014bfcae225cb6921963107cd1d534d455037887c3715c343915560ea1cac1c",
   "tests/fixtures/azure_services3_native_evaluator_inputs_20261020.json.gz": "a972e55d611340f8e343e64828628b05e011fc56f43bbc6aac75e924ed7d19a8",
-  "tests/fixtures/gcp-alert-native-successor-20261020.json": "e571f5e50f01116c6386b48c0097c5154b74640be2e452deacb3c34ea1f864bd",
-  "tests/fixtures/gcp-compute-native-successor-20261020.json": "c1f7df6a58906b5039710c93739ebccdcb969dc8dd7ed464c081d23dcec870fa",
-  "tests/fixtures/gcp-final-services-native-successor-20261020.json": "f3b840b0bdec0f7875b04afe8aa6507ea29c0cd0d300caa0985b4b7fd639b473",
+  "tests/fixtures/gcp-alert-native-successor-20261020.json": "d96b5cc131dad48afbf37fb71cf5f3e51d6d3ec650539269f6d782b8f37f7aad",
+  "tests/fixtures/gcp-compute-native-successor-20261020.json": "5d4a2038ed11af3a4ef4a9a1dff0fa38c74d5dde657f37308869528c6b359c5d",
+  "tests/fixtures/gcp-final-services-native-successor-20261020.json": "09a0560846d444fc217f7f2b30f96b8cac709e72d1abb1fd19a5e21bfd22dbdb",
   "tests/fixtures/gcp-native-review-behavior.json": "491de9e6bd9587721d67732baf22425f6b920af1ab01366a9863fcd3a1170e4f",
-  "tests/fixtures/gcp-native57-native-successor-20261020.json": "65dc1e6e283271222de3902af298d5c0836059e5f3eb6939bcb3634da0e582f0",
-  "tests/fixtures/gcp-prior-bounded-native-successor-20261020.json": "2339b243a3c57ed3a7be79352f2266eef9ec52625fa5c500db39ceb50489bb88",
+  "tests/fixtures/gcp-native57-native-successor-20261020.json": "561872fb0ad465c851a53cff31cbc0e3b2ccaf72ac9da50bea84c66e0e8face9",
+  "tests/fixtures/gcp-prior-bounded-native-successor-20261020.json": "0ca12fc2736547034ccf66a275c865c7793517f8c1a416edb9b75a3f5dcd15d4",
   "tests/gcp_clarity_combined_successor_20261020.py": "687ccd0db9e987a0eab581d514435d4df519b7f8c6d10bfb7e7241aedefca535"
 }
 ''')

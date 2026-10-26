@@ -1890,13 +1890,29 @@ CURRENT_INDEXED_IAM_SHA256 = "8db82f1355308602a2c6f6216e8aba42ebd23ba889e7af3ea7
 INDEXED_IAM_QUERY_ADDITION = b'    { Effect = "Allow", Action = ["dynamodb:Query"], Resource = ["${aws_dynamodb_table.metadata.arn}/index/work-state", "${aws_dynamodb_table.metadata.arn}/index/schedule-time"] },\n'
 PREVIOUS_WORKFLOW_RUNTIME_SHA256 = "caed9a12c8d11c12e14d87cb74d1fdef83567648287c1d654f926114cd227d64"
 CURRENT_WORKFLOW_RUNTIME_SHA256 = "ecfaa71f9c9668d02e59571efa7a7b9e5daf6af1da9a22501a23611cf9e565a3"
-CURRENT_INDEXED_WORKFLOW_SHA256 = "361fef2318aef55d01ba351501cc79a4fa06884d368d380b714f2f42814e57ad"
+CURRENT_INDEXED_WORKFLOW_SHA256 = "cefec592f88499be2e26b00bf2ec18e30bbae59e423e4ec91500b16236ed105f"
 INDEXED_WORKFLOW_ADDITION = b'    PEASO_WORK_STATE_INDEX         = "work-state"\n    PEASO_SCHEDULE_TIME_INDEX      = "schedule-time"\n'
-CURRENT_AI_RUNTIME_SHA256 = "0948bda88c41ea79fd25dc9c2faa656b7d71c9d29012024156017921122834a6"
+CURRENT_AI_RUNTIME_SHA256 = "da84f8d397059c0e707f6a1b9bb68535343bc6aae35cdc19fbbd66a9c8b5c086"
+# Reviewed production source-attestation successor: every Lambda and ECS task
+# imports peaso with PEASO_SOURCE_ATTESTATION=trusted, so production runs no
+# runtime source proofs; package_api and the worker image prove the exact bytes
+# in always mode at build time, fail closed, and CI proves the commit. Each entry
+# is (current digest, exact addition, reviewed predecessor digest).
+SOURCE_ATTESTATION_SUCCESSOR = {
+    "api.tf": ("c6bfe80b885b1544e1a25847507e6321d4d1b7323ae5224c4c0d59ae77fcc7f1",
+               b'    # No runtime source proofs in production: package_api proves these exact\n    # Lambda bytes in always mode at build time, fail closed, and CI proves the commit.\n    PEASO_SOURCE_ATTESTATION = "trusted"\n',
+               "c6bfe80b885b1544e1a25847507e6321d4d1b7323ae5224c4c0d59ae77fcc7f1"),
+    "workflow.tf": ("cefec592f88499be2e26b00bf2ec18e30bbae59e423e4ec91500b16236ed105f",
+               b'    # The worker image also sets this after its always-mode build proof;\n    # restated here so no task definition can fall back to runtime proofs.\n    PEASO_SOURCE_ATTESTATION = "trusted"\n',
+               "cefec592f88499be2e26b00bf2ec18e30bbae59e423e4ec91500b16236ed105f"),
+    "ai_runtime.tf": ("da84f8d397059c0e707f6a1b9bb68535343bc6aae35cdc19fbbd66a9c8b5c086",
+               b'    environment            = [{ name = "PEASO_SOURCE_ATTESTATION", value = "trusted" }] # no runtime source proofs in production\n',
+               "da84f8d397059c0e707f6a1b9bb68535343bc6aae35cdc19fbbd66a9c8b5c086"),
+}
 API_DELIVERY_SOURCE = {
     "api.tf": ("0ad8ba2e7e2a7868c7366c84a6693e8e5c3420382cfb2946e641dab878b35efe",
                "cc8046cd30d96ead3cf0b1c9d3713a83f8a01fc81114bd31ad667852dbab1229",
-               "ab8336af2ce98102c92abe6dfb6df9f4346cc8cee404e469c180c2aa4eb02787"),
+               "c6bfe80b885b1544e1a25847507e6321d4d1b7323ae5224c4c0d59ae77fcc7f1"),
     "storage.tf": ("44dd9865f0e59364e1f4d0f65e384de44efbab1ec94acb8ca393a06e78b037cc",
                    "79101ef40b01f86ddf6d6d2653f57176366b32bd5b336c0d8f40381444754774",
                    "82643965a855769dec22e34c065fc1fba2f1486b9576032e23dd6f5396c8c0b2"),
@@ -2521,6 +2537,26 @@ def omit_empty_api_installation_markers(target):
     return sorted(removed)
 
 
+# The hosted API runs with PEASO_SOURCE_ATTESTATION=trusted (infra/aws/api.tf),
+# so it executes no source proof at runtime. These exact package bytes are
+# proven here instead, as the worker image build does: every pinned proof runs
+# in always mode in the Lambda's Linux CPython 3.12, and a drifted source fails
+# packaging, fail closed, instead of a cold start.
+API_SOURCE_PROOF = (
+    "import peaso.server.lambda_handler, peaso.server.scheduler_handler, peaso.checks, peaso.engine\n"
+    "from peaso import source_attestation_mode as mode\n"
+    "assert mode.MODE == 'always', mode.MODE\n"
+    "print('API package source proof: always mode passed')\n")
+
+
+def prove_api_package():
+    run(["docker", "run", "--rm", "--platform", "linux/amd64", "--network", "none", "--read-only",
+         "--tmpfs", "/tmp", "-v", f"{BUILD / 'api-package'}:/opt:ro", "-e", "PYTHONPATH=/opt",
+         "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", "PEASO_SOURCE_ATTESTATION=always",
+         "-e", "PEASO_STATE_DIR=/tmp/state", "-e", "PEASO_IDENTITY_DIR=/tmp/identity",
+         "python:3.12-slim", "python", "-c", API_SOURCE_PROOF])
+
+
 def package_api():
     import shutil
     source = source_root()
@@ -2688,6 +2724,27 @@ def verify_worker_resources(resources):
             raise RuntimeError(f"Invalid {stage} sizing: use supported Fargate CPU/memory with at least {minimum} MiB")
 
 
+def source_attestation_predecessors(tf_files):
+    """Digests with the reviewed trusted-attestation lines removed; other files pass through."""
+    restored = dict(tf_files)
+    for name, (digest, addition, predecessor) in SOURCE_ATTESTATION_SUCCESSOR.items():
+        if tf_files.get(name) != digest:
+            continue
+        raw = (INFRA / name).read_bytes()
+        if (raw.count(addition) != 1 or hashlib.sha256(raw).hexdigest() != digest
+                or hashlib.sha256(raw.replace(addition, b"", 1)).hexdigest() != predecessor):
+            raise RuntimeError("Source attestation successor differs from its reviewed change")
+        restored[name] = predecessor
+    return restored
+
+
+def runtime_source(name, attested):
+    """Bytes of a runtime config file as reviewed before the trusted-attestation successor."""
+    raw = (INFRA / name).read_bytes()
+    entry = SOURCE_ATTESTATION_SUCCESSOR.get(name)
+    return raw.replace(entry[1], b"", 1) if entry and attested.get(name) == entry[0] else raw
+
+
 def deployment_expectations(data, plan):
     """Bind deferred runtime fields to reviewed configuration and built source."""
     import base64
@@ -2726,12 +2783,13 @@ def deployment_expectations(data, plan):
                     raise RuntimeError("Saved plan configuration differs from frozen source")
     except zipfile.BadZipFile:
         raise RuntimeError("Cannot verify configuration embedded in saved plan") from None
+    tf_files, attested = source_attestation_predecessors(tf_files), tf_files
     for name, historical_digest in RUNTIME_CONFIG_SHA256.items():
         current_digest = tf_files.get(name)
         if current_digest == historical_digest:
             continue
         if name in API_DELIVERY_SOURCE and current_digest in API_DELIVERY_SOURCE[name][1:]:
-            predecessor = (INFRA / name).read_bytes()
+            predecessor = runtime_source(name, attested)
             if current_digest == API_DELIVERY_SOURCE[name][2]:
                 for replacement, original in API_DELIVERY_CONTENT_REVERSE[name]:
                     if predecessor.count(replacement) != 1:
@@ -2747,7 +2805,7 @@ def deployment_expectations(data, plan):
                 raise RuntimeError("API S3 delivery successor does not reconstruct its predecessor")
             continue
         if name == "workflow.tf" and current_digest == CURRENT_INDEXED_WORKFLOW_SHA256:
-            restored = (INFRA / name).read_bytes()
+            restored = runtime_source(name, attested)
             if restored.count(INDEXED_WORKFLOW_ADDITION) != 1:
                 raise RuntimeError("Indexed workflow differs from reviewed index environment")
             restored = restored.replace(INDEXED_WORKFLOW_ADDITION, b'', 1)
@@ -2755,7 +2813,7 @@ def deployment_expectations(data, plan):
                 raise RuntimeError("Indexed workflow does not reconstruct reviewed source")
             continue
         if name == "iam.tf" and current_digest == CURRENT_INDEXED_IAM_SHA256:
-            restored = (INFRA / name).read_bytes()
+            restored = runtime_source(name, attested)
             batch_addition = b'"dynamodb:GetItem", "dynamodb:BatchGetItem", '
             if restored.count(batch_addition) != 3 or restored.count(INDEXED_IAM_QUERY_ADDITION) != 3:
                 raise RuntimeError("Indexed IAM successor differs from reviewed permissions")
@@ -2770,7 +2828,7 @@ def deployment_expectations(data, plan):
                     or name == "ai_runtime.tf" and current_digest == CURRENT_AI_RUNTIME_SHA256):
             continue
         if name == "variables.tf" and current_digest in {RUNTIME_LIMITS_CURRENT_SHA256, WORKER_SIZING_CURRENT_SHA256}:
-            restored = (INFRA / name).read_bytes()
+            restored = runtime_source(name, attested)
             if current_digest == WORKER_SIZING_CURRENT_SHA256:
                 for successor, predecessor in WORKER_SIZING_REVERSE:
                     if restored.count(successor) != 1:
@@ -2787,7 +2845,7 @@ def deployment_expectations(data, plan):
             continue
         if name != "iam.tf" or current_digest != IAM_RUNTIME_CURRENT_SHA256:
             raise RuntimeError("Runtime configuration requires a new explicit contract review")
-        current_bytes = (INFRA / name).read_bytes()
+        current_bytes = runtime_source(name, attested)
         if (current_bytes.count(IAM_RUNTIME_EXACT_ADDITION) != 2
                 or hashlib.sha256(current_bytes.replace(IAM_RUNTIME_EXACT_ADDITION, b"", 1)).hexdigest()
                 != historical_digest):
@@ -2829,6 +2887,7 @@ def deployment_expectations(data, plan):
     }
     if tf_files.get("workflow.tf") == CURRENT_INDEXED_WORKFLOW_SHA256:
         common.update(PEASO_WORK_STATE_INDEX="work-state", PEASO_SCHEDULE_TIME_INDEX="schedule-time")
+    attestation = {name for name, (digest, _, _) in SOURCE_ATTESTATION_SUCCESSOR.items() if attested.get(name) == digest}
     for stage, size in sizes.items():
         common[f"PEASO_{stage.upper()}_VCPU"] = str(size["cpu"] / 1024)
         common[f"PEASO_{stage.upper()}_MEMORY_GIB"] = str(size["memory"] / 1024)
@@ -2839,9 +2898,14 @@ def deployment_expectations(data, plan):
                PEASO_STRIPE_SECRET_ARN=variables["stripe_secret_arn"],
                PEASO_STRIPE_PRICE_ID=variables["stripe_price_id"], PEASO_ALLOWED_ORIGINS="https://cspm.hacktricks.wiki",
                PEASO_SOURCE_URL=f"https://cspm.hacktricks.wiki/source/peaso-source-{source}.zip")
+    if "api.tf" in attestation:
+        api["PEASO_SOURCE_ATTESTATION"] = "trusted"
     workers = {stage: dict(common, AWS_DEFAULT_REGION="us-east-1", PEASO_TASK_VCPU=str(size["cpu"] / 1024),
                            PEASO_TASK_MEMORY_GIB=str(size["memory"] / 1024)) for stage, size in sizes.items()}
     workers["collector"]["PEASO_CREDENTIAL_SECRET_ARN"] = secret
+    if "workflow.tf" in attestation:
+        for environment in workers.values():
+            environment["PEASO_SOURCE_ATTESTATION"] = "trusted"
     return {"worker_image": image, "worker_resources": sizes, "source_version": source, "api_zip": variables["api_zip"],
             "api_s3_delivery": tf_files.get("api.tf") == API_DELIVERY_SOURCE["api.tf"][2],
             "api_code_sha256": base64.b64encode(hashlib.sha256((BUILD / "api.zip").read_bytes()).digest()).decode(),
@@ -3890,7 +3954,12 @@ def main():
                                                getattr(args, "successor_update_contract", None))):
         parser.error("Artifact-update approval requires both exact flags and its own update mode")
     if args.command == "package-api":
-        package_api()
+        package = package_api()
+        try:
+            prove_api_package()
+        except BaseException:
+            package.unlink(missing_ok=True)  # fail closed: no unproven api.zip remains to deploy
+            raise
         return
     if args.command == "build-frontend":
         build_frontend()

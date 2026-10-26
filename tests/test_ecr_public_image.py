@@ -15,6 +15,7 @@ HERE=Path(__file__).resolve().parents[1]
 from peaso import container_image_archive_20261020 as archive
 from peaso import oci_index_20261021 as index
 from peaso import secret_scanning, trivy_container_runner_20261020 as trivy
+from tests.pinned_secret_scanners import require_pinned_scanners
 from peaso import aws_ecr_public_selection_20261021 as selection
 from peaso.collectors import k8s_selected_registry_image_20261021 as k8s
 from peaso.collectors import aws_ecr_public_image_native_20261021 as source
@@ -177,6 +178,7 @@ def test_native_secret_positive_clean(hit):
 
 @pytest.mark.parametrize('hit',[False,True])
 def test_real_pinned_offline_detectors(hit):
+    require_pinned_scanners()
     case=capture(hit=hit,real_detectors=True)
     assert case.secret[0]==('FAIL' if hit else 'PASS'),case.secret
 

@@ -358,7 +358,7 @@
         "symbol": "peaso.collectors.azure_nsp_query_cmk_metadata_proposal_20261020.metadata_get",
         "path": "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py",
         "line": 43,
-        "sha256": "7bdf3d854c46eb4e756face4201d11aef83920c164e711ff2a2cea22beb3c5bc"
+        "sha256": "b9d69fec93060c923eead74e42ad7b5656646c37a9ffb3568b3ebe3a8c797dcc"
       },
       {
         "symbol": "peaso.collectors.azure_nsp_query_cmk_metadata_proposal_20261020.nsp_items",
@@ -488,7 +488,7 @@
     },
     "fix_report": {
       "path": "docs/check-review/azure-metadata-transport-fix-review-20261020.json",
-      "sha256": "f77f5e2488bb1f8f7251a7fffe1074cbe2115d0465ebc611a14c59ec00c41db9",
+      "sha256": "54b8a0ec32cf7a9abd2705cd09990e1a6087ed34d050d04fc71ec54807fdf06b",
       "bytes": 57464
     },
     "current_transport_source": {
@@ -761,7 +761,7 @@
   "preserved_owned_predecessors": [
     {
       "path": "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py",
-      "sha256": "38015ca8b99f306b3499fcbf354805867ffa7e060c480c86c51c2a8b6217407d",
+      "sha256": "328684f4582cb8949598595a066f9b4408a47f23f0fd4c1d9f635d1b968d695c",
       "bytes": 17913
     },
     {
@@ -771,7 +771,7 @@
     },
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_proposal_20261020_proposal.json",
-      "sha256": "9cd87d6563500227016e073f77f9ab2f3423eec9885948b77ab9279d2744bcf6",
+      "sha256": "24178b9034947832ebc52ba2f014f87b245177280b20772c9cd4fad3899124c0",
       "bytes": 3276
     },
     {
@@ -781,12 +781,12 @@
     },
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.py",
-      "sha256": "67ab9d1656636ea7d1746bd837bb928f1981f4384255eac7c607c20a61339b35",
+      "sha256": "d2d5b17e3f300db217112727ec46168cdfb9cb04d9b471bfdedcd01f78c44ee3",
       "bytes": 15646
     },
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.json",
-      "sha256": "624865a9eafc8854b348d8377a66eb97261ac401b07565775808a84c80dda34e",
+      "sha256": "102786c5d0e9cae5c3685e4c107d6479f5468b2cbfd1008b287d7c408c777904",
       "bytes": 23168
     },
     {
@@ -796,7 +796,7 @@
     },
     {
       "path": "docs/check-review/azure-nsp-query-cmk-metadata-proposals-20261020.json",
-      "sha256": "7959adb8532556a3f3071668038b77fa50f80261af570ff1940e0d7a6b3a39a9",
+      "sha256": "73c4d0c3ce6edfa2b2ea3db8f8d0d3d62e3bb6a27cdd5117b0e7fefbe4ddb6f3",
       "bytes": 85575
     },
     {
@@ -806,7 +806,7 @@
     },
     {
       "path": "docs/check-review/azure-nsp-query-cmk-metadata-admission-20261020.json",
-      "sha256": "d06b8fadbc066fc26912ad142c1a9e4449d2acea8cac6e4bb445daba0a27f0b4",
+      "sha256": "b9037212304c35161a63903c18cba91a6c9bb87f9be7e583d8fcb6933be86575",
       "bytes": 50186
     },
     {
