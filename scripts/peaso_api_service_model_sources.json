@@ -1091,7 +1091,7 @@
     "peaso/server/aws_access_requirements.py": "5440560f68b7a31551a6ba634bd2897fb8a80ac87c7822039fe1e2731dddba79",
     "peaso/server/schedule_credentials.py": "f90a9ce4669674ddecaede805cfe322d88fc0d96bbc357e352e30f54939c4cf1",
     "peaso/server/k8s_access_transport.py": "54816f3e581e5d14ef190ab095317ba410af9c9a26fb98de0ef7fe99de71e5c0",
-    "peaso/server/privesc_display_catalog.py": "69c45337d768f736819524cfc2d634db82900c98137519c237712121db13ad25",
+    "peaso/server/privesc_display_catalog.py": "bfab4a13d3a2e64b894f796dcaff55e5b2b45592cfe9aff2d9261bce302371d7",
     "peaso/server/access_check.py": "c50bd537e42500316db7f59336a0a7f9492bcf2afc68693b3168550840bcfaa7",
     "peaso/server/config.py": "127529c32265a120d41ead5c8ce77623be152185ad7f26c9091d871bbc032c35",
     "peaso/server/azure_attack_logs.py": "a754eeb25080ca6bdb021b717a3b854d9431da92dc45959cc2220e661d09eb6f",
@@ -1809,7 +1809,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1701,
-  "python_source_sha256": "d73c510ee9a06ee71a7d3616bc233677730e97f6c48cd91343cc2eedb92190de",
+  "python_source_sha256": "8fa7d8a2d56ed17989d6036ec5fc46689f8f4fd09db428239f9078df9b59b473",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

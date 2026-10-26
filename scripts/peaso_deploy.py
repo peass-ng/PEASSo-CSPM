@@ -2561,6 +2561,8 @@ API_SOURCE_PROOF = (
     "import peaso.server.lambda_handler, peaso.server.scheduler_handler, peaso.checks, peaso.engine\n"
     "from peaso import source_attestation_mode as mode\n"
     "assert mode.MODE == 'always', mode.MODE\n"
+    "from peaso.server.materialized_catalog import summary as materialized_summary\n"
+    "assert materialized_summary()['checks'], 'API catalog/display generation mismatch'\n"
     "print('API package source proof: always mode passed')\n")
 
 
