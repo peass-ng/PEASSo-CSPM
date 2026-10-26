@@ -73,10 +73,8 @@ def build(root, platform, assigned, reviews, write_json):
         db.executescript('''
             CREATE TABLE records(domain TEXT, id TEXT, summary TEXT, detail TEXT,
                                  risk INTEGER, candidate INTEGER, PRIMARY KEY(domain,id));
-            CREATE INDEX record_order ON records(domain,candidate DESC,risk,id);
             CREATE TABLE links(a_domain TEXT,a_id TEXT,b_domain TEXT,b_id TEXT,
                                PRIMARY KEY(a_domain,a_id,b_domain,b_id));
-            CREATE INDEX reverse_links ON links(b_domain,b_id);
             CREATE TABLE members(group_id TEXT,finding_id TEXT,PRIMARY KEY(group_id,finding_id));
         ''')
         aliases = defaultdict(set)
@@ -234,6 +232,12 @@ def build(root, platform, assigned, reviews, write_json):
                 for targets in by_domain.values():
                     if len(targets) == 1 and targets[0] != (domain, ident):
                         db.execute('INSERT OR IGNORE INTO links VALUES(?,?,?,?)', (domain, ident, *targets[0]))
+        # Secondary indexes are built once after the bulk load (same schema and
+        # rows) instead of being maintained on every insert.
+        db.executescript('''
+            CREATE INDEX record_order ON records(domain,candidate DESC,risk,id);
+            CREATE INDEX reverse_links ON links(b_domain,b_id);
+        ''')
         db.commit()
         from .decision_brief import catalog
         sections = catalog(db)

@@ -199,6 +199,31 @@ def review_context(report, inventory_by_id, findings, *, _references=None, _cove
             'resources': [inventory_by_id[ident] for ident in sorted(references & inventory_by_id.keys())]}
 
 
+_STATIC_EVIDENCE = None
+
+
+def _evidence_summary():
+    """The reviewed evidence_summary, without importing the native check registry when it is not loaded.
+
+    Review-stage children import nothing from peaso.checks except through this
+    call; the hash-pinned static loader runs the same reviewed source bytes and
+    returns the same text. Any drift in its pinned closure falls back to native.
+    """
+    global _STATIC_EVIDENCE
+    if 'peaso.checks' not in sys.modules and _STATIC_EVIDENCE is not False:
+        if _STATIC_EVIDENCE is None:
+            try:
+                from peaso.server.evidence_static import evidence_summary, verify_closure
+                verify_closure()
+                _STATIC_EVIDENCE = evidence_summary
+            except ImportError:
+                _STATIC_EVIDENCE = False
+                return _evidence_summary()
+        return _STATIC_EVIDENCE
+    from peaso.finding_observation import evidence_summary
+    return evidence_summary
+
+
 def findings_document(scan, findings, resources=(), *, _references=None):
     """Keep each finding's evidence and exact native references in one record."""
     inventory_by_id = {row['id']: row for row in resources}
@@ -206,8 +231,7 @@ def findings_document(scan, findings, resources=(), *, _references=None):
     for position, finding in enumerate(findings):
         references = (set(referenced_strings(finding)) if _references is None
                       else _references[position]) & inventory_by_id.keys()
-        from peaso.finding_observation import evidence_summary
-        observation = evidence_summary(finding)
+        observation = _evidence_summary()(finding)
         item = dict(finding, supporting_resources=[inventory_by_id[ident] for ident in sorted(references)])
         if observation:
             item['evidence_summary'] = observation
@@ -541,11 +565,12 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         identity = {'ai_user': ai_user, 'auth_source': result['auth_source'],
                     'access_reference': reference}
         result['review_fingerprint_version'] = 2
+        # A stage's fingerprints only fence reuse of that same stage's output,
+        # so a single-stage invocation proves only the stage it reviews.
         result['review_fingerprints'] = {
-            'hardening': review_fingerprints(report, inventory_by_id, hardening, identity=identity,
-                                              entries=entries),
-            'exposure': review_fingerprints(report, inventory_by_id, exposure, identity=identity,
-                                             entries=entries),
+            stage: review_fingerprints(report, inventory_by_id, rows, identity=identity, entries=entries)
+            if stage in selected else {}
+            for stage, rows in (('hardening', hardening), ('exposure', exposure))
         }
         end = min(time.monotonic() + int(os.getenv('PEASO_AI_TIMEOUT_SECONDS', '600' if isolation.remote() else '300')),
                   time.monotonic() + max(0, deadline - time.time() - 10) if deadline else float('inf'))
@@ -554,7 +579,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         review_end = end - min(600 if isolation.remote() else 60,
                               max(0, end - time.monotonic()) * (.3 if isolation.remote() else .2))
         from .network import prepare, with_findings
-        network = prepare(report, inventory, snapshot)
+        # The projection feeds only the network reviewer (and its reuse check).
+        network = prepare(report, inventory, snapshot) if 'network' in selected else None
         # Completed outputs remain durable outside the advancing collector
         # manifest. The caller fences them to complete section revisions.
         pending = set(selected)
