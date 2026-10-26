@@ -59,6 +59,14 @@ TRANSIENT_CODES = frozenset({"Throttling", "ThrottlingException", "TooManyReques
                              "RequestTimeout", "RequestTimeoutException"})
 
 
+# Callers whose native response is read through the plain pooled client and
+# only projected afterwards (metadata-only operations). Content, credential
+# exchange and source profiles never share native reads.
+SHARED_PROFILES = frozenset({None, 'bedrock-agent-reasoning-metadata-v1', 'fms-managed-web-acl-metadata-v1',
+                             'securityhub-workflow-history-metadata-v1', 'securityhub-findings-metadata-v1',
+                             'bedrock-security-role-metadata-v1', 'aws-cloudtrail-s3-delivery-metadata-v1'})
+
+
 @contextlib.contextmanager
 def shared_reads(enabled=True):
     """Enable native read sharing for SDK calls made in this context."""

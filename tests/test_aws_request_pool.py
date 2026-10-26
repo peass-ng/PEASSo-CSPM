@@ -236,3 +236,36 @@ def test_metadata_wrappers_share_pooled_clients():
     assert first is second
     assert pool.wrapper_root(first) is session
     assert first.native.client("ec2", region_name=REGION) is requests.client(session, "ec2", REGION)
+
+
+def test_only_metadata_projection_profiles_share_native_reads():
+    assert None in pool.SHARED_PROFILES and "fms-managed-web-acl-metadata-v1" in pool.SHARED_PROFILES
+    for content in ("aws-code-log-content-indicators-v1", "aws-package-content-indicators-v1",
+                    "aws-lambda-environment-content-v1", "aws-selected-configuration-content-v1",
+                    "aws-selected-s3-source-content-v1", "aws-build-deployment-referenced-source-v1",
+                    "aws-workload-referenced-source-v1", "aws-ecs-selected-environment-file-v1"):
+        assert content not in pool.SHARED_PROFILES
+
+
+def test_fms_profiled_listing_reuses_the_plain_listing(native):
+    calls, handlers = native
+    handlers["ListWebACLs"] = lambda params: {"WebACLs": [], "ResponseMetadata": {"HTTPStatusCode": 200}}
+    session, requests = _session(), aws.Requests({})
+    plain = requests.call(session, "wafv2", REGION, "list_web_acls", Scope="REGIONAL", Limit=100)
+    profiled = requests.call(session, "wafv2", REGION, "list_web_acls", Scope="REGIONAL", Limit=100,
+                             _metadata_profile="fms-managed-web-acl-metadata-v1")
+    assert plain.get("WebACLs") == [] and isinstance(profiled, dict)
+    assert sum(1 for c in calls if c[1] == "ListWebACLs") == 1
+
+
+def test_app_runner_detail_enricher_reads_every_row_without_wrapper(native):
+    calls, handlers = native
+    arns = [f"arn:aws:apprunner:{REGION}:123456789012:service/s{n}/id" for n in range(3)]
+    handlers["DescribeService"] = lambda params: {"Service": {
+        "ServiceArn": params["ServiceArn"], "ServiceName": "s", "ServiceId": "id", "Status": "RUNNING",
+        "CreatedAt": "2026-01-01", "UpdatedAt": "2026-01-01", "InstanceConfiguration": {},
+        "SourceConfiguration": {"ImageRepository": {"ImageIdentifier": "img", "ImageRepositoryType": "ECR"}},
+        "NetworkConfiguration": {"IpAddressType": "IPV4"}}}
+    from peaso.collectors.aws_network_catalog import detail_enricher
+    rows = detail_enricher("app_runner_service")(aws.Requests({}), _session(), REGION, [{"ServiceArn": arn} for arn in arns])
+    assert [row["NetworkDetails"].get("ImageIdentifier") for row in rows] == ["img"] * 3

@@ -396,7 +396,7 @@ class Requests:
         return cached_client(create)
 
     def call(self, session, service, region, operation, *, _cache_refresh=False, _uncached_credential_exchange=False, _metadata_profile=None, _projection_context=None, _codecommit_routes=None, **arguments):
-        from .aws_request_pool import canonical_wrapper, shared_reads
+        from .aws_request_pool import SHARED_PROFILES, canonical_wrapper, shared_reads
         session = canonical_wrapper(self, session)
         if _metadata_profile == 'aws-build-deployment-referenced-source-v1':
             if _cache_refresh or _uncached_credential_exchange or _codecommit_routes is not None:
@@ -601,7 +601,7 @@ class Requests:
                         with private_sdk_logs():
                             response = getattr(client, operation)(**arguments)
                     else:
-                        with shared_reads(not _cache_refresh and _metadata_profile is None and _codecommit_routes is None):
+                        with shared_reads(not _cache_refresh and _metadata_profile in SHARED_PROFILES and _codecommit_routes is None):
                             response = getattr(client, operation)(**arguments)
                     if metadata_report:
                         with self._lock:
