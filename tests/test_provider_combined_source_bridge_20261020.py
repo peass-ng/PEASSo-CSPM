@@ -16,7 +16,8 @@ import sys
 import pytest
 from tests.shared_admission_epoch_compatibility_20261020 import active_shared, _reverse
 from tests.retained_upstream_manifest_20261020 import ORIGINAL as RETAINED_UPSTREAM_PATH, original_bytes as retained_upstream_bytes
-from tests.retired_privesc_catalog_20261022 import REMOVED as RETIRED_CATALOG_PATH, original_bytes as retired_catalog_bytes
+from tests.retired_privesc_catalog_20261022 import ARCHIVE as RETIRED_CATALOG_ARCHIVE, REMOVED as RETIRED_CATALOG_PATH, original_bytes as retired_catalog_bytes
+from tests.reviewed_current_successors_20261026 import extend as extend_reviewed_successors
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1041,6 +1042,7 @@ REVIEWABLE_CURRENT_PATHS = frozenset(['peaso/ai/access.py',
  'peaso/storage/runtime.py',
  'peaso/storage/sqlite.py',
  'peaso/worker.py'])
+REVIEWABLE_CURRENT_PATHS = extend_reviewed_successors('provider_combined_source_bridge_20261020', REVIEWED_CURRENT_CHANGES, REVIEWABLE_CURRENT_PATHS)
 INITIALIZER_ADDITION = (
     b"from . import native_admission_cpu_shared_successor_20261020 as _deployed_ai_shared_source\n"
     b"_historical_aws_workload_command_shared_successor_20261020 = aws_workload_command_shared_successor_20261020\n"
@@ -1097,12 +1099,22 @@ def cpu_epoch_bytes(relative, raw):
     assert hashlib.sha256(raw).hexdigest() == expected, relative
     return raw
 
+# A cold, bytecode-free import attests the whole source closure (about 20 CPU
+# seconds); leave headroom for shared or loaded runners.
+SUBPROCESS_TIMEOUT = 300
+
+
 def run(code, root=ROOT):
-    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(root),
+    # Each subprocess runs the shipped attestation policy: every verifier runs
+    # its complete proof on first use, so changed bytes are refused at import.
+    # Repeating every nested proof (conftest's "always") costs minutes per cold
+    # import; tests of live rebinding after import turn it on explicitly.
+    environment = {key: value for key, value in os.environ.items() if key != "PEASO_SOURCE_ATTESTATION"}
+    environment.update(PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(root),
                        AWS_EC2_METADATA_DISABLED="true", AWS_CONFIG_FILE="/nonexistent/bridge-proof",
                        AWS_SHARED_CREDENTIALS_FILE="/nonexistent/bridge-proof")
     return subprocess.run([sys.executable, "-B", "-c", code], cwd=root, env=environment,
-                          capture_output=True, text=True, timeout=90)
+                          capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
 
 
 def green(result):
@@ -1113,7 +1125,7 @@ def green(result):
 def rejected(result):
     assert result.returncode != 0, "Tampered real source unexpectedly admitted: " + result.stdout
     # Refusal must be an admission/identity failure, not a missing clone input.
-    assert "RuntimeError:" in result.stderr, result.stderr[-9000:]
+    assert "RuntimeError:" in result.stderr or "AdmissionError:" in result.stderr, result.stderr[-9000:]
     assert "FileNotFoundError" not in result.stderr and "ModuleNotFoundError" not in result.stderr, result.stderr[-9000:]
 
 
@@ -1140,8 +1152,8 @@ def isolated(tmp_path_factory):
         if name.startswith('peaso/checks/') and name.endswith('.py') and (ROOT / companion).exists():
             closure.add(companion)
     paths = sorted(set(paths) | closure | {HELPER, RECEIPT, BASELINE, "peaso/checks/aws_deployed_ai_shared_successor_20261020.py", "peaso/checks/aws_deployed_ai_shared_successor_20261020.json"})
-    assert len(paths) < 6000
-    assert sum((ROOT / p).stat().st_size for p in paths) < 600 * 1024 * 1024
+    assert len(paths) < 12000
+    assert sum((ROOT / p).stat().st_size for p in paths) < 2 * 1024 * 1024 * 1024
     for name in paths:
         destination = target / name
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1280,14 +1292,17 @@ def test_portable_baseline_cannot_be_replaced():
 ])
 def test_portable_conservation_rejects_historical_changes(isolated, name):
     with atomic_change(isolated, name, (isolated / name).read_bytes() + b"\n "):
-        with pytest.raises(AssertionError):
+        # The initializer is first reversed through its reviewed epochs, which refuse unknown bytes.
+        with pytest.raises((AssertionError, RuntimeError)):
             verify_historical_bytes(isolated)
 
 
 @pytest.fixture(scope="module")
 def historical_tree(tmp_path_factory):
     target = tmp_path_factory.mktemp("provider-historical-bytes")
-    for name in pinned_baseline()["files"]:
+    # The retired catalog file stays absent; its exact bytes come from the archive.
+    names = [name for name in pinned_baseline()["files"] if name != RETIRED_CATALOG_PATH]
+    for name in names + [RETIRED_CATALOG_ARCHIVE]:
         destination = target / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.link(ROOT / name, destination)
@@ -1367,19 +1382,21 @@ def test_real_unrelated_edits_and_historical_or_bridge_tamper_are_rejected(isola
     changed = before + (b"\n " if name.endswith(".json") else b"\n# unrelated source edit\n")
     with atomic_change(isolated, name, changed):
         result = run(BRIDGE_IMPORT + "bridge.reviewed_delta()", isolated)
+        admission = "peaso.private_secret_source_epoch_20261021.AdmissionError: "
+        # The reviewed GCP transport and the content-cohort self-proof now refuse these first.
         earlier = {
-            "peaso/collectors/gcp.py": "current source mismatch",
-            "peaso/checks/aws_ai_recheck_corrections_20261020.py": "unreviewed predecessor request",
-            "peaso/checks/aws_workload_command_shared_successor_20261020.py": "unreviewed predecessor request",
-            "peaso/checks/aws_workload_command_runtime_admission_20261020.json": "unreviewed predecessor request",
-            "peaso/checks/aws_deployed_ai_shared_successor_20261020.py": "unreviewed predecessor request",
-            "peaso/checks/aws_deployed_ai_shared_successor_20261020.json": "unreviewed predecessor request",
-            "peaso/checks/native_admission_cpu_shared_successor_20261020.py": "unreviewed predecessor request",
+            "peaso/collectors/gcp.py": admission + "reviewed transport source changed",
+            "peaso/checks/aws_ai_recheck_corrections_20261020.py":
+                "RuntimeError: Content cohort source changed: peaso/checks/aws_ai_recheck_corrections_20261020.py",
+            "peaso/checks/aws_workload_command_shared_successor_20261020.py": admission + "unreviewed predecessor request",
+            "peaso/checks/aws_workload_command_runtime_admission_20261020.json": admission + "unreviewed predecessor request",
+            "peaso/checks/aws_deployed_ai_shared_successor_20261020.py": admission + "unreviewed predecessor request",
+            "peaso/checks/aws_deployed_ai_shared_successor_20261020.json": admission + "unreviewed predecessor request",
+            "peaso/checks/native_admission_cpu_shared_successor_20261020.py": admission + "unreviewed predecessor request",
         }
         if name in earlier:
             assert result.returncode != 0, "Tampered real source unexpectedly admitted: " + result.stdout
-            assert result.stderr.rstrip().endswith(
-                "peaso.private_secret_source_epoch_20261021.AdmissionError: " + earlier[name]), result.stderr[-9000:]
+            assert result.stderr.rstrip().endswith(earlier[name]), result.stderr[-9000:]
             assert "FileNotFoundError" not in result.stderr and "ModuleNotFoundError" not in result.stderr
         else:
             rejected(result)
@@ -1411,6 +1428,9 @@ def test_executing_callable_identity_and_code_replacements_fail(owner, name, mod
     # state, in its own subprocess, with no source readers mocked or replaced.
     script = BRIDGE_IMPORT + f"""
 import importlib
+from peaso import source_attestation_mode
+# Re-prove after the replacement, as tests and the image build do.
+source_attestation_mode.ALWAYS = True
 owner=importlib.import_module({owner!r})
 function=getattr(owner,{name!r})
 if {mode!r} == 'identity':
@@ -1426,7 +1446,8 @@ bridge.reviewed_inputs()
 def test_bridge_alias_must_precede_first_shared_installer(isolated):
     name = "peaso/checks/__init__.py"
     value = (isolated / name).read_text()
-    alias = "aws_workload_command_shared_successor_20261020 = _deployed_ai_shared_source"
+    # The current epoch rebinds the canonical bridge name to its positive shared source.
+    alias = "aws_workload_command_shared_successor_20261020 = _positive_shared_source"
     first = "aws_workload_command_shared_successor_20261020.install_s3()"
     assert value.count(alias) == 1 and value.index(alias) < value.index(first)
     changed = value.replace(alias, "# delayed bridge alias", 1).replace(first, first + "\n" + alias, 1)

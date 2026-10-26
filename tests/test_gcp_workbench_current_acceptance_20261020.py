@@ -14,6 +14,7 @@ from peaso.checks.catalog import description_for, proposal_provenance_for
 from peaso.checks.gcp_evidence_explanations import CATALOG, evidence_summary
 from peaso.finding_types import type_for
 from peaso.check_services import service_for
+from tests.retained_evidence_ledgers_20261022 import ledger_bytes
 
 CID='gcp.review.workbench.selected_referenced_source_secret_indicators_20261020'
 RECEIPT=Path('docs/check-review/workbench-current-acceptance-20261020.json')
@@ -67,7 +68,7 @@ def thematic_predecessors():
 
 
 def checked_thematic_reference(reference):
-    raw = Path(reference['path']).read_bytes()
+    raw = ledger_bytes('.', reference['path'], reference['sha256'])
     assert hashlib.sha256(raw).hexdigest() == reference['sha256'], reference['path']
     return json.loads(raw)
 

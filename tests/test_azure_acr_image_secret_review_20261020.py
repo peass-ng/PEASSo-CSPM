@@ -28,6 +28,16 @@ TOKEN='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'
 REPO='selected/application'
 
 
+def require_pinned_scanners():
+    """Real-engine tests need the exact scanner releases that CI provisions."""
+    try:
+        scanning._trufflehog()
+        scanning._kingfisher()
+    except Exception as error:
+        pytest.skip(f'pinned secret scanners unavailable (trufflehog {scanning.TRUFFLEHOG_VERSION} on PATH, '
+                    f'kingfisher-secret-scanner {scanning.KINGFISHER_VERSION}): {type(error).__name__}: {error}')
+
+
 def jwt(audience,**extra):
     claims={'aud':audience,'exp':int(time.time())+3600,**extra}
     encode=lambda value:base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b'=').decode()
@@ -196,6 +206,7 @@ def test_native_end_to_end_hidden_dual_scan(monkeypatch,positive,redirect,compre
 
 @pytest.mark.parametrize('positive',[None,'manifest','config','layer'])
 def test_real_both_scanners(monkeypatch,positive):
+    require_pinned_scanners()
     snapshot,trace=capture(monkeypatch,img=image(positive=positive),redirect=True,real=True)
     result=findings(snapshot)
     assert len(result)==1 and result[0]['status']==('FAIL' if positive else 'PASS'),result
@@ -421,6 +432,7 @@ def test_secret_in_archive_path_never_retained_or_given_to_scan_cache(monkeypatc
 
 
 def test_both_real_runner_offline_contract(monkeypatch):
+    require_pinned_scanners()
     calls=[];original=scanning._run
     def run(argv,payload,timeout):calls.append(list(argv));return original(argv,payload,timeout)
     monkeypatch.setattr(scanning,'_run',run)
@@ -432,6 +444,7 @@ def test_both_real_runner_offline_contract(monkeypatch):
 
 
 def test_native_derived_fixture_receipt(monkeypatch,tmp_path):
+    require_pinned_scanners()
     cases={}
     for state in ('pass','fail','unknown'):
         with monkeypatch.context() as patch:
