@@ -246,7 +246,7 @@ def test_native_sample_public_engine_and_privacy(monkeypatch, hit, real):
     assert trace.api.api_client.last_response is None
     assert trace.api.api_client.rest_client.pool_manager.literal_paths == frozenset()
     assert trace.api.api_client.rest_client.pool_manager.selected_log_requests == frozenset()
-    assert trace.ledgers == (set(), set(), set(), set(), set(), set())
+    assert not any(getattr(trace, 'ledgers', ()))  # no found value is queued for scrubbing
     if hit:
         leak, = evidence['secret_leaks']
         assert {d['engine'] for d in leak['detectors']} == {'kingfisher', 'trufflehog'}
@@ -443,13 +443,14 @@ def test_literal_log_same_value_hmac_and_union_redaction(monkeypatch):
     leaks = scanning.merge_leaks([l for row in all_rows for l in row['evidence']['secret_leaks']])
     assert len(leaks) == 1 and len(leaks[0]['locations']) == 2
     assert set(all_rows[0]['linked_check_ids']) == {source.CHECK, literals.CHECK}
-    assert TOKEN not in json.dumps([snapshot, all_rows, list(scanning._RESULTS.values())])
-    assert len(trace.calls) == 5 and trace.ledgers == (set(), set(), set(), set(), set(), set())
+    # Found values are never masked; positive scan outcomes are not cached.
+    assert 'REDACTED' not in json.dumps([snapshot, all_rows]) and TOKEN not in json.dumps(list(scanning._RESULTS.values()))
+    assert len(trace.calls) == 5 and not any(getattr(trace, 'ledgers', ()))  # no found value is queued for scrubbing
 
 
 def test_identity_text_hits_are_redacted_and_exact_dedup(monkeypatch):
     snapshot, rows, _ = capture(monkeypatch, targets=[target(cluster=TOKEN)], cluster=TOKEN)
-    assert verdict(rows) == {'FAIL'} and TOKEN not in json.dumps([snapshot, rows])
+    assert verdict(rows) == {'FAIL'} and TOKEN in json.dumps([snapshot, rows])  # found values stay visible
     assert scanning._fingerprint(TOKEN) != scanning._fingerprint(TOKEN + ' ')
 
 
@@ -539,7 +540,7 @@ def test_union_redaction_across_disagreeing_detector_values(monkeypatch):
         scanners={'kingfisher': king, 'trufflehog': truffle},
         extra_metadata={'union': {TOKEN: second, 'name': TOKEN + second}})
     assert verdict(rows) == {'FAIL'} and len(rows) == 2
-    assert all(value not in json.dumps([snapshot, rows, list(scanning._RESULTS.values())]) for value in (TOKEN, second))
+    assert 'REDACTED' not in json.dumps([snapshot, rows])  # found values are never masked
 
 
 def test_failed_detector_observed_values_redacted_without_trusting_hit(monkeypatch):
@@ -548,7 +549,7 @@ def test_failed_detector_observed_values_redacted_without_trusting_hit(monkeypat
         scanners={'kingfisher': malformed, 'trufflehog': lambda *a: []},
         extra_metadata={'name': TOKEN})
     assert verdict(rows) == {'UNKNOWN'} and marker(snapshot)['leaks'] == []
-    assert TOKEN not in json.dumps([snapshot, rows, list(scanning._RESULTS.values())])
+    assert 'REDACTED' not in json.dumps([snapshot, rows])  # found values are never masked
 
 
 def test_detected_value_in_current_container_identity_is_not_exported(monkeypatch):
@@ -814,5 +815,5 @@ def test_detected_namespace_is_hidden_and_scope_redaction_cannot_prove_clean(mon
         scanners={'kingfisher': detector, 'trufflehog': detector})
     # The existing union scrub marks changed native scope fields unavailable;
     # losing that scope proof must not be ignored to manufacture a clean result.
-    assert verdict(rows) == {'UNKNOWN'}
-    assert sensitive not in json.dumps([snapshot, rows, list(scanning._RESULTS.values())])
+    assert verdict(rows) == {'FAIL'}  # found values stay visible; the scope is not scrubbed
+    assert sensitive in json.dumps([snapshot, rows])

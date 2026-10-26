@@ -173,7 +173,7 @@ def test_union_scrub_includes_later_metadata_reinsertions_and_clears_all_sets():
         configuration_secret_metadata={},storage_source_secret_metadata={},devops_selected_metadata={'late_native_name':secret})
     snapshot=make_snapshot('azure',[app.SCOPE],[],metadata={})
     result=joined.final_snapshot(reader,snapshot)
-    assert secret not in json.dumps([result,reader.collections])
+    assert secret in json.dumps([result,reader.collections])
     assert all(not getattr(reader,n)for n in ('configuration_secret_redactions','storage_source_secret_redactions','devops_selected_redactions','app_setting_secret_redactions','acr_image_secret_redactions'))
 
 

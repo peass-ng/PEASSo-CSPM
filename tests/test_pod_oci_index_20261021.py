@@ -140,7 +140,7 @@ def test_supported_index_clean_and_positive():
     assert clean['secret'][0]=='PASS',clean['secret']
     hit=capture(second_hit=True)
     assert hit['secret'][0]=='FAIL',hit['secret']
-    assert TOKEN in hit['redacted'] and TOKEN not in json.dumps(hit['marker'])
+    assert not hit['redacted'] and TOKEN not in json.dumps(hit['marker'])
     assert len(hit['marker']['graph']['children'])==2
     assert any(o.get('source')==hit['leaves'][1]['digest'] and o.get('layer')==archive.sha(hit['leaves'][1]['layer'])
                and o['image_digest']==hit['digest'] and o['resource_id']==source.identity(hit['target'])

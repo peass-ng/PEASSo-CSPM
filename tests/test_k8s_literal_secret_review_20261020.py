@@ -345,7 +345,9 @@ def test_union_redaction_identity_names_locations_and_progress(monkeypatch):
     snapshot,trace=capture(monkeypatch,targets=[t],req=req,scanner=detector,progress=True)
     assert {r['status'] for r in findings(snapshot)}=={'FAIL'}
     persisted=json.dumps([snapshot,findings(snapshot),trace.progress,scanning._RESULTS],default=str)
-    assert sensitive not in persisted and 'REDACTED' not in persisted  # opaque locations, not name-bearing paths
+    # Found values stay visible, including the resource identities that carry them.
+    assert sensitive in json.dumps(snapshot) and 'REDACTED' not in persisted
+    assert sensitive not in repr(scanning._RESULTS)
     assert all(not e.get('scope') for e in trace.progress)
 
 
@@ -353,7 +355,8 @@ def test_detected_namespace_never_leaks_or_proves_clean(monkeypatch):
     t=target(namespace='sensitive-canary')
     def detector(payload,path,timeout):return [('sensitive-canary','test-canary',1)]
     snapshot,trace=capture(monkeypatch,targets=[t],scanner=detector,progress=True)
-    assert 'sensitive-canary' not in json.dumps([snapshot,findings(snapshot),trace.progress])
+    # The namespace is a found value, so it stays visible in the snapshot.
+    assert 'sensitive-canary' in json.dumps(snapshot)
     assert all(r['status']!='PASS' for r in findings(snapshot))
 
 

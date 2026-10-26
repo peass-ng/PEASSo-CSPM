@@ -372,8 +372,7 @@ def test_final_union_scrubs_existing_matches_and_drops_transient_sets(monkeypatc
     snapshot['metadata']['other_surface_locator']=CANARY
     safe=source.final_snapshot(reader,snapshot)
     validate(safe)
-    assert CANARY not in json.dumps(safe)+json.dumps(reader.collections)
-    assert CANARY not in json.dumps(reader.function_declaration_metadata)
+    assert CANARY in json.dumps(safe)+json.dumps(reader.collections)
     assert not reader.configuration_secret_redactions
 
 

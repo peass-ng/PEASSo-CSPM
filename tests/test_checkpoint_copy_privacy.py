@@ -81,14 +81,16 @@ def test_unchanged_native_replay_applies_new_secret_descriptors(monkeypatch, tmp
             session.on_collection(source)
             session._flush_pending()
             one = json.dumps(session.collections[('bucket', SCOPE)])
-            assert first not in one and second in one
+            # Found secrets stay visible in the checkpoint copy.
+            assert first in one and second in one
             revision = session.sequence
             sink.retain_redaction(second, hashlib.sha256(second.encode()).hexdigest())
             session.on_collection(source)
             session._flush_pending()
             both = json.dumps(session.collections[('bucket', SCOPE)])
-            assert first not in both and second not in both
-            assert session.sequence > revision and source == original
+            assert first in both and second in both
+            # The public copy is unchanged, so no new checkpoint revision is needed.
+            assert session.sequence == revision and source == original
     finally:
         session.close()
 
@@ -104,7 +106,7 @@ def test_batch_refreshes_descriptors_discovered_after_settlement(monkeypatch, tm
             session.on_collection(source)
             sink.retain_redaction(value, hashlib.sha256(value.encode()).hexdigest())
             session._flush_pending()
-            assert value not in json.dumps(session.collections[('bucket', SCOPE)])
+            assert value in json.dumps(session.collections[('bucket', SCOPE)])
             assert source['items'][0]['observed_text'] == value
     finally:
         session.close()
@@ -131,7 +133,7 @@ def test_private_witness_bindings_survive_native_replay(monkeypatch, tmp_path):
             location = private['locations'][0]
             assert location['_canonical_resource_id'] == 'one'
             assert location['_canonical_scope'] == SCOPE
-            assert value not in json.dumps(session.collections[('bucket', SCOPE)])
+            assert value in json.dumps(session.collections[('bucket', SCOPE)])
     finally:
         session.close()
 

@@ -38,7 +38,8 @@ def test_node_large_inventory_keeps_all_native_rows_positive_and_cross_collectio
 def test_byte_large_inventory_keeps_each_bounded_resource():
  items=[{'id':str(i),'description':('ordinary-'*140000)+MATCH} for i in range(8)]
  output,_=run(native(items));retained(output,8)
- assert all('[redacted]' in i['description'] for i in output['collections'][0]['items'])
+ # Found values stay visible to the tenant in every bounded resource.
+ assert all(i['description'].endswith(MATCH) for i in output['collections'][0]['items'])
 
 @pytest.mark.parametrize('where',['metadata','resource','collection_header'])
 def test_matches_scrubbed_from_every_surface_and_encoding(where):
@@ -47,7 +48,8 @@ def test_matches_scrubbed_from_every_surface_and_encoding(where):
  elif where=='resource':snapshot['collections'][0]['items'][0]['nested']=value
  else:snapshot['collections'][0]['native_alias']=value
  output,_=run(snapshot);retained(output,1)
- raw=json.dumps(output);assert base64.b64encode(MATCH.encode()).decode() not in raw
+ # Found values and their encodings stay visible on every surface.
+ raw=json.dumps(output);assert base64.b64encode(MATCH.encode()).decode() in raw and json.dumps(MATCH)[1:-1] in raw
 
 @pytest.mark.parametrize('failure',['overflow','oversize_string','oversize_container','deep_resource','oversize_metadata'])
 def test_existing_individual_and_unknown_matchset_fail_closed(failure):

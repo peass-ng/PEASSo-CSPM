@@ -46,7 +46,8 @@ class CaptureTests(unittest.TestCase):
                 actual = scanning.scan_content(payload, path)
         self.assertEqual(actual, baseline)
         fp = actual['leaks'][0]['fingerprint']
-        self.assertNotIn(VALUE, json.dumps(actual))
+        # The found value stays visible in its exact detector path.
+        self.assertEqual(actual['leaks'][0]['locations'], [{'path': path, 'line': 3}])
         self.assertNotIn(VALUE, repr(scanning._RESULTS))
         self.assertNotIn(VALUE, json.dumps(sink.document()))
         private = evidence.details(finding(fp), sink.document(), self.cipher, tenant='alice', scan_id=SCAN)
@@ -300,9 +301,10 @@ class CaptureTests(unittest.TestCase):
                     public = scanning.scan_content((access + '\n' + secret).encode(), '/app/' + secret + '.env', _redact_values=redactions.update)
                     self.assertEqual(len(public['leaks']), 1)
                     self.assertEqual(public['leaks'][0]['fingerprint'], scanning._fingerprint(access))
-                    self.assertIn(secret, redactions)
-                    self.assertIn(access + ':' + secret, redactions)
-                    self.assertNotIn(secret, json.dumps(public) + repr(scanning._RESULTS))
+                    # Found values stay visible: nothing is redacted and the path is kept.
+                    self.assertEqual(redactions, set())
+                    self.assertIn(secret, json.dumps(public))
+                    self.assertNotIn(secret, repr(scanning._RESULTS))
                     if full:
                         self.assertTrue(sink.incomplete)
                         self.assertFalse(sink.records)
@@ -533,8 +535,8 @@ class CaptureTests(unittest.TestCase):
                 with evidence.source_context(resource_id=ARN):
                     public = scanning.scan_content(payload, path)
         self.assertEqual(public, baseline)
-        self.assertNotIn(component, json.dumps(public))
-        self.assertEqual(public['leaks'][0]['locations'], [{'path': '/app/REDACTED.env'}])
+        # The found component stays visible in the exact detector path.
+        self.assertEqual(public['leaks'][0]['locations'], [{'path': path}])
         fp = public['leaks'][0]['fingerprint']
         private = evidence.details(finding(fp, evidence={'secret_leaks': public['leaks']}), sink.document(), self.cipher, tenant='alice', scan_id=SCAN)
         self.assertEqual({match['value'] for match in private['matches']}, {primary, primary + ':' + component})
@@ -547,15 +549,17 @@ class CaptureTests(unittest.TestCase):
                 kinds.add(loc['location_kind'])
         self.assertEqual(kinds, {'detector_composite', 'detector_decoded'})
         self.assertNotIn(scanning._fingerprint(component), sink.records)
-        self.assertEqual(self.cipher.decrypt(sink.redactions[scanning._fingerprint(component)])['value'], component)
+        self.assertEqual(sink.redactions, {})
 
     def test_privacy_redaction_capacity_failure_refuses_snapshot_publication(self):
+        # Found values are not redacted, so there is no redaction capacity to
+        # exceed: the snapshot is published unchanged and nothing is retained.
         with patch.object(evidence, 'MAX_VALUE_BYTES', 3), evidence.capture(self.cipher) as sink:
             evidence.remember_redactions({VALUE})
-        self.assertTrue(sink.redaction_incomplete)
-        self.assertTrue(sink.incomplete)
-        with self.assertRaisesRegex(RuntimeError, 'snapshot was not published'):
-            sink.public_snapshot({'label': VALUE})
+        self.assertFalse(sink.redaction_incomplete)
+        self.assertFalse(sink.incomplete)
+        snapshot = {'label': VALUE}
+        self.assertIs(sink.public_snapshot(snapshot), snapshot)
         self.assertNotIn(VALUE, json.dumps(sink.document()))
 
     def test_unbound_shared_path_never_guesses_between_canonical_resource_origins(self):

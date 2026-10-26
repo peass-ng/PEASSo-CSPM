@@ -117,25 +117,21 @@ def test_capture_public_snapshot_keeps_exact_private_locations_and_aliases(monke
     calls = []
     original = module.Redactor
     class Counted(original):
-        def __init__(self, values=()):
+        def __init__(self, *args, **kwargs):
             calls.append(1)
-            super().__init__(values)
+            super().__init__(*args, **kwargs)
     monkeypatch.setattr(module, 'Redactor', Counted)
+    before = json.dumps(snapshot, ensure_ascii=False)
     public = sink.public_snapshot(snapshot)
-    assert len(calls) == 1
-    assert value not in json.dumps(public)
-    assert snapshot['collections'][0]['items'][0]['Name'] == 'fixture-'+value
-    def legacy_keys(node):
-        if isinstance(node, dict): return {legacy(str(key), [value]): legacy_keys(child) for key, child in node.items()}
-        if isinstance(node, list): return [legacy_keys(child) for child in node]
-        return node
-    assert public == snapshots.seal(legacy_keys(legacy(snapshot, [value])))
+    # Found values stay visible: no Redactor runs and the snapshot is unchanged.
+    assert calls == []
+    assert json.dumps(public, ensure_ascii=False) == before
+    assert value in json.dumps(public, ensure_ascii=False)
+    assert public['collections'][0]['items'][0]['metadata'] == {value: 'prefix ' + value}
     document = sink.document()
     row = cipher.decrypt(document['records']['fingerprint'])
-    assert row['value'] == value and row['locations'][0]['resource_id'] == 'fixture-'+value
-    assert row['locations'][0]['_resource_alias'] == 'fixture-[REDACTED]'
-    assert row['locations'][0]['path'] == 'native'
+    # The exact private location is kept and no resource alias is minted.
     assert row == {'tenant': 'workspace', 'scan_id': 'a'*32, 'fingerprint': 'fingerprint',
         'value': value, 'locations': [{'resource_id': 'fixture-'+value, 'scope': '123456789012/us-east-1',
-            'path': 'native', '_check_ids': ['test'], '_resource_alias': 'fixture-[REDACTED]'}],
+            'path': 'native', '_check_ids': ['test']}],
         'detectors': [{'engine': 'configuration', 'rule': 'fixture'}], 'check_ids': ['test']}

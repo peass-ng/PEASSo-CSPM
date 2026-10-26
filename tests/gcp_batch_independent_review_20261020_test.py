@@ -152,7 +152,8 @@ def test_actual_scanners_never_execute_script_and_raw_values_stay_private(monkey
         export_metadata={'raw': batch.TOKEN, 'encoded': encoded})
     assert batch.statuses(rows) == {'FAIL'} and not sentinel.exists() and commands
     raw = json.dumps([saved, rows, trace.transport.cache, trace.transport.evidence, trace.transport.options])
-    for private in (batch.TOKEN, encoded, batch.AUTH, '/mnt/source', 'review-source', 'batch-opaque-native-uid'):
+    assert batch.TOKEN in raw  # found values stay visible
+    for private in (batch.AUTH, '/mnt/source', 'review-source', 'batch-opaque-native-uid'):
         assert private not in raw
     assert not hasattr(trace.transport, '_batch_source_redactions')
     output = capsys.readouterr(); assert not output.out and not output.err

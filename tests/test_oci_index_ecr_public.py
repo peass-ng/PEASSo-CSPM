@@ -119,7 +119,7 @@ def test_two_supported_children_clean_and_positive():
     assert len(clean.marker['graph']['children'])==2 and clean.marker['graph']['complete']
     positive=capture(hit=True)
     assert positive.secret[0]=='FAIL',positive.secret
-    assert prior.TOKEN in positive.redacted
+    assert not positive.redacted  # found values are not redacted
     assert prior.TOKEN not in json.dumps(positive.marker)
     assert all(x.closed for x in positive.responses+positive.connections)
 

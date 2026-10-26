@@ -97,7 +97,7 @@ def test_union_scrub_includes_incoming_metadata_keys_locations_and_encoded_value
     import base64
     matches={TOKEN};encoded=base64.b64encode(TOKEN.encode()).decode()
     scopes,rows,metadata=source.redact_output([TOKEN],[{'id':TOKEN,'location':encoded}],{TOKEN:{'value':TOKEN}},matches)
-    assert not matches and TOKEN not in json.dumps([scopes,rows,metadata])and encoded not in json.dumps([scopes,rows,metadata])
+    assert not matches and TOKEN in json.dumps([scopes,rows,metadata])
 
 
 def test_detector_deadline_cannot_become_clean_or_retain_match(monkeypatch):

@@ -1,16 +1,16 @@
 """Scan-local reuse of exact per-collection snapshot redaction.
 
-A scan's checkpoint path redacts each envelope when it settles, again in its
-batch, and again in every cumulative partial report. The redaction is a
-deterministic, element-wise function of one collection and one exact secret
-set, so an unchanged collection needs it only once per secret set. Memos are
-owned by one capture or connector closure and never cross a tenant or scan.
+A scan's checkpoint path scrubs its own connector credentials from each
+envelope when it settles, again in its batch, and again in every cumulative
+partial report. The redaction is a deterministic, element-wise function of one
+collection and one exact secret set, so an unchanged collection needs it only
+once per secret set. Memos are owned by one connector closure and never cross
+a tenant or scan. Secrets found in customer resources are never scrubbed.
 """
 import hashlib
 import io
 import pickle
 import threading
-import weakref
 
 
 def exact_fingerprint(value):
@@ -86,41 +86,6 @@ class SnapshotRedactionMemo:
         return public
 
 
-_CAPTURES = weakref.WeakKeyDictionary()
-_CAPTURES_LOCK = threading.Lock()
-
-
-def capture_redaction(capture, values):
-    """Redactor and collection memo for a capture's exact current secret set.
-
-    Record/redaction values are immutable per fingerprint. A new fingerprint
-    or a replaced (restored) store builds both again from ``values()``, so a
-    newly found secret applies to every collection published afterwards. The
-    entry lives only as long as that capture object.
-    """
-    state = (capture.records, capture.redactions,
-             frozenset(capture.records), frozenset(capture.redactions))
-    with _CAPTURES_LOCK:
-        cached = _CAPTURES.get(capture)
-        if (cached is not None and cached[0][0] is state[0] and cached[0][1] is state[1]
-                and cached[0][2:] == state[2:]):
-            return cached[1], cached[2]
-    from peaso.auth.secrets import Redactor
-    redact = Redactor(values())
-
-    def public_keys(value):
-        if isinstance(value, dict):
-            return {redact(str(key)): public_keys(child) for key, child in value.items()}
-        if isinstance(value, list):
-            return [public_keys(child) for child in value]
-        return value
-
-    memo = SnapshotRedactionMemo(lambda value: public_keys(redact(value)))
-    with _CAPTURES_LOCK:
-        _CAPTURES[capture] = (state, redact, memo)
-    return redact, memo
-
-
 def credential_redaction(connector, credential_values):
     """redact(snapshot, connector credentials) for one scan's checkpoints.
 
@@ -134,7 +99,9 @@ def credential_redaction(connector, credential_values):
         if state.get("values") != values:
             from peaso.auth.secrets import Redactor
             state.clear()
-            state.update(values=values, memo=SnapshotRedactionMemo(Redactor(values)))
+            # Only the scanner's own connector credentials are scrubbed. Found
+            # secrets and secret-named native fields stay visible to the tenant.
+            state.update(values=values, memo=SnapshotRedactionMemo(Redactor(values, fields=False)))
         return state["memo"](snapshot)
 
     public.state = state

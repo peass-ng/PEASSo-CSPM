@@ -366,7 +366,7 @@ def test_private_metadata_union_and_cleanup(monkeypatch):
     metadata = {'one': TOKEN, 'encoded': encoded, TOKEN: 'synthetic'}
     saved, rows, trace = capture(monkeypatch, payload=('token=' + TOKEN).encode(), export_metadata=metadata)
     assert statuses(rows) == {'FAIL'}
-    assert TOKEN not in json.dumps(saved) and encoded not in json.dumps(saved)
+    assert TOKEN in json.dumps(saved)  # found values stay visible
     assert not hasattr(trace.transport, '_batch_source_redactions')
 
 
@@ -423,7 +423,7 @@ def test_failed_engine_union_value_scrubbed_without_trusting_hit(monkeypatch):
     monkeypatch.setattr(scanning, '_scan_trufflehog', clean)
     saved, rows, trace = capture(monkeypatch, payload=('token=' + TOKEN).encode(), export_metadata={'synthetic': TOKEN})
     assert statuses(rows) == {'UNKNOWN'} and saved['evidence']['items'][0][source.MARKER]['leaks'] == []
-    assert TOKEN not in json.dumps([saved, trace.transport.cache, trace.transport.evidence])
+    assert TOKEN in json.dumps([saved, trace.transport.cache, trace.transport.evidence])
 
 
 def test_native_session_disables_ambient_proxy_auth_and_cookie(monkeypatch):

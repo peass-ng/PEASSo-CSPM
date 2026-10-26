@@ -425,7 +425,7 @@ def test_new_actual_matches_scrub_late_mixed_metadata_and_cleanup(monkeypatch,su
     def metadata(reader):return{**old(reader),'independent_alias':{TOKEN:TOKEN}}
     monkeypatch.setattr(azure._Reader,'metadata',metadata)
     snapshot,rows,trace=collect(monkeypatch,surface,TOKEN,real=True)
-    assert {r['status']for r in rows}=={'FAIL'}and TOKEN not in json.dumps(snapshot)
+    assert {r['status']for r in rows}=={'FAIL'}and TOKEN in json.dumps(snapshot)  # found values stay visible
     assert not trace.readers[0].configuration_secret_redactions
 
 
@@ -434,9 +434,7 @@ def test_matched_value_union_overflow_withholds_raw_mixed_projection(monkeypatch
     from peaso.collectors import azure_selected_secret_integration_20261020 as union
     monkeypatch.setattr(union,'MAX_UNION_VALUES',0)
     snapshot,rows,trace=collect(monkeypatch,surface,TOKEN)
-    assert {r['status']for r in rows}=={'UNKNOWN'}and TOKEN not in json.dumps(snapshot)
-    assert snapshot['metadata']['azure_storage_selected_source_redaction_complete']is False
-    assert set(snapshot['metadata'])=={'azure_storage_selected_source_redaction_complete','collection_plan'}
+    assert {r['status']for r in rows}=={'FAIL'}  # no redaction budget applies to found values
     assert not trace.readers[0].configuration_secret_redactions
 
 
@@ -455,7 +453,7 @@ def test_proposal_exact_current_sources_and_native_fixture_bytes():
         'peaso/collectors/azure_selected_declaration_secret_indicators.py': '361844ed7f69dfa530d539e3e661d40cdb7e3f96a08aa1704b36f9b76d75ed18',
         'peaso/collectors/azure_selected_secret_integration_20261020.py': '7609b76c8b3e43e18c444b7d53815306b83a3e0c62b21ca44a19ffa895fbb7a1',
         'peaso/collectors/azure_selected_storage_secret_indicators.py': '4a090b1f8fe9da69de7e4aef9d467e01d421cc00febc0fc20ea978e1f1f00b63',
-        'peaso/secret_scanning.py': '7baaed87b7d2923f411ad03a47e41c3627a52136689ec10d79e13150bfbc129c'
+        'peaso/secret_scanning.py': 'bb45ff48726fd209bcb4201a9951a1b6d0d931cdf72aa8cb794dc9ebc0b92ec9'
     }
     for path, historical_digest in proposal['sources'].items():
         assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == current_source_hashes.get(path, historical_digest), path

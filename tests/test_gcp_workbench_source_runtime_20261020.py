@@ -284,7 +284,7 @@ def test_workbench_dataproc_union_exchanged_before_cleanup(monkeypatch):
     snap,rows,trace=capture(monkeypatch,payload=('token='+TOKEN).encode(),mutate_snapshot=seed)
     assert {r['status'] for r in rows}=={'FAIL'}
     persisted=json.dumps([snap,rows,trace.collector.transport.cache,trace.collector.transport.evidence])+repr(trace.collector.collections)+repr(trace.collector.options)
-    assert TOKEN not in persisted and other not in persisted
+    assert TOKEN in persisted and other in persisted  # found values stay visible
     assert not hasattr(trace.collector.transport,'_workbench_source_state')
     assert not hasattr(trace.collector.transport,'_dataproc_source_state')
 

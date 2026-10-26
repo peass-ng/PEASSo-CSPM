@@ -15,7 +15,7 @@
     "peaso/checks/gcp_batch_referenced_source_20261020_proposal.py": "3dca3cb6fa93ba0379478cc34ad52a27bad667d62344c4fc718e66122999d4f8",
     "peaso/collectors/gcp_batch_referenced_source_20261020.py": "c0bb32c6b0f8aaa0975ec3ed28875b2618ab8c2a674e16b41173e21ba4082921",
     "tests/gcp_batch_referenced_source_20261020_native.json": "39b83d6d0f61d7d6730ec77c1afeb34f57dc8deb0ef4f5534e441bdb05598c79",
-    "tests/gcp_batch_referenced_source_20261020_test.py": "cd60ed24c2fa2cd02eea9519a52a9007ba42d4c3347dd1b9b078c4037901d7ef"
+    "tests/gcp_batch_referenced_source_20261020_test.py": "a08f9ab892a4378b975e03025146cd05b3e5c082b30ec09d2f839fd1e4cceb5c"
   },
   "dependencies": {
     "peaso.collectors.gcp_dataproc_referenced_source_secret_indicators:_read": "5622c065bc97b6422724afeb3a6e88f63ddb761450df3d33c855b710b24113a1",

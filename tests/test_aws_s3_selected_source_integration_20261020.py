@@ -361,7 +361,7 @@ def test_finalizer_union_scrubs_existing_metadata_and_future_aliases():
     alias={TOKEN:{'locator':'prefix-'+TOKEN,'values':[TOKEN]}};future=Future();future.set_result(alias);reader._cache[('prior',)]=future
     reader.s3_source_redactions.add(TOKEN)
     collections,metadata=source.finalize(reader,[{'locator':TOKEN}],{'previous':TOKEN})
-    assert TOKEN not in json.dumps([alias,collections,metadata])
+    assert TOKEN in json.dumps([alias,collections,metadata])
     assert future.result()is alias and not reader.s3_source_redactions
 
 

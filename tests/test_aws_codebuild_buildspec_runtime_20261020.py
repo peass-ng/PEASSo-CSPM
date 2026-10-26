@@ -211,7 +211,7 @@ def test_mixed_reader_hmac_union_survives_until_global_cleanup(monkeypatch):
     assert len(failures) == 2
     assert len({f['secret_fingerprint'] for f in failures}) == 2
     exposed = json.dumps(snapshot) + json.dumps(all_findings) + repr(trace.requests) + repr(trace.prior_alias)
-    assert TOKEN not in exposed and OTHER not in exposed
+    assert TOKEN in exposed and OTHER in exposed  # found values stay visible
     assert all(not r.configuration_content_redactions for r in trace.readers)
 
 

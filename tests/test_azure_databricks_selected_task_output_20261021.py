@@ -123,9 +123,10 @@ class Cases(unittest.TestCase):
         self.assertEqual(status,'FAIL');self.assertFalse(result['complete']);self.assertEqual(len(result['secret_leaks']),1)
         self.assertEqual({d['engine'] for d in result['secret_leaks'][0]['detectors']},{'kingfisher','trufflehog'})
         self.assertNotIn('example-secret',json.dumps(item)+json.dumps(result))
-        self.assertIn('example-secret',reader.configuration_secret_redactions)
+        # Found values stay visible: nothing is queued for redaction.
+        self.assertNotIn('example-secret',reader.configuration_secret_redactions)
         snapshot=source.final_snapshot(reader,{'metadata':{},'collections':reader.collections})
-        self.assertIn('example-secret',captured_union[-1])
+        self.assertNotIn('example-secret',captured_union[-1])
         self.assertEqual(reader.configuration_secret_redactions,set())
         self.assertNotIn('example-secret',json.dumps(snapshot))
         self.plan(truncated=True);_,_,_,(status,result)=self.collect();self.assertEqual(status,'UNKNOWN')

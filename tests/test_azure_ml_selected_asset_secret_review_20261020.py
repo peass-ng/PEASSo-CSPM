@@ -388,7 +388,7 @@ def test_actual_http_framing_debug_error_privacy_and_cross_reader_union(monkeypa
     snapshot,rows,trace=collect(monkeypatch,profile,TOKEN,real=True,fault=fault,late=late if hit else None,concrete_http=True)
     assert {r['status']for r in rows}=={'FAIL'if hit else'UNKNOWN'},rows
     logs=capsys.readouterr();retained=json.dumps([snapshot,rows])+logs.out+logs.err+caplog.text
-    assert TOKEN not in retained and AUTH not in retained and 'Bearer ey'not in retained
+    assert (TOKEN in retained)==hit and AUTH not in retained and 'Bearer ey'not in retained
     assert all(r.closed for r in trace.responses)and not trace.readers[0].configuration_secret_redactions
 
 
@@ -513,7 +513,7 @@ def test_source_bound_proposal_actual_native_evaluator_fixture(profile,branch):
         'peaso/collectors/azure_selected_log_sample_secret_indicators.py': '9734c02af422eabb3f1308cdc046713b05a3071d3d29eae3cdc1944d647d695e',
         'peaso/collectors/azure_selected_secret_integration_20261020.py': '7609b76c8b3e43e18c444b7d53815306b83a3e0c62b21ca44a19ffa895fbb7a1',
         'peaso/collectors/azure_selected_storage_secret_indicators.py': '4a090b1f8fe9da69de7e4aef9d467e01d421cc00febc0fc20ea978e1f1f00b63',
-        'peaso/secret_scanning.py': '7baaed87b7d2923f411ad03a47e41c3627a52136689ec10d79e13150bfbc129c'
+        'peaso/secret_scanning.py': 'bb45ff48726fd209bcb4201a9951a1b6d0d931cdf72aa8cb794dc9ebc0b92ec9'
     }
     for path, historical_digest in proposal['sources'].items():
         assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == current_source_hashes.get(path, historical_digest), path
