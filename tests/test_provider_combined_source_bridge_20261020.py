@@ -1385,7 +1385,9 @@ def test_real_unrelated_edits_and_historical_or_bridge_tamper_are_rejected(isola
         admission = "peaso.private_secret_source_epoch_20261021.AdmissionError: "
         # The reviewed GCP transport and the content-cohort self-proof now refuse these first.
         earlier = {
-            "peaso/collectors/gcp.py": admission + "reviewed transport source changed",
+            # Whichever reviewed GCP proof runs first refuses the edited collector.
+            "peaso/collectors/gcp.py": (admission + "reviewed transport source changed",
+                                        admission + "reviewed GCP current source changed"),
             "peaso/checks/aws_ai_recheck_corrections_20261020.py":
                 "RuntimeError: Content cohort source changed: peaso/checks/aws_ai_recheck_corrections_20261020.py",
             "peaso/checks/aws_workload_command_shared_successor_20261020.py": admission + "unreviewed predecessor request",
@@ -1396,7 +1398,8 @@ def test_real_unrelated_edits_and_historical_or_bridge_tamper_are_rejected(isola
         }
         if name in earlier:
             assert result.returncode != 0, "Tampered real source unexpectedly admitted: " + result.stdout
-            assert result.stderr.rstrip().endswith(earlier[name]), result.stderr[-9000:]
+            expected = earlier[name] if isinstance(earlier[name], tuple) else (earlier[name],)
+            assert result.stderr.rstrip().endswith(expected), result.stderr[-9000:]
             assert "FileNotFoundError" not in result.stderr and "ModuleNotFoundError" not in result.stderr
         else:
             rejected(result)
