@@ -293,13 +293,25 @@ def review_fingerprints(report, inventory_by_id, findings, *, identity, entries)
     from .collection_coverage import index
     coverage = index(report.get('coverage'))
     fingerprints = {}
+    document_coverage = {}
     for row in findings:
         # Reuse only this row's fresh references, then release them before
         # credential preparation and serialization. Nothing is cached across calls.
         references = set(referenced_strings(row))
         context = review_context(report, inventory_by_id, [row], _references=references,
                                  _coverage=coverage)
-        document = findings_document(context['scan'], [row], context['resources'], _references=(references,))
+        # Coverage normalization depends only on this call's fixed receipts and
+        # the finding scope. Prove its canonical form through the ordinary
+        # document path once per scope; retain no finding/resource document.
+        scope = row.get('scope') if isinstance(row.get('scope'), str) else None
+        scan = context['scan']
+        if scope in document_coverage:
+            scan = {key: value for key, value in scan.items() if key != 'collection_coverage'}
+        document = findings_document(scan, [row], context['resources'], _references=(references,))
+        if scope not in document_coverage:
+            document_coverage[scope] = document['scan'].get('collection_coverage')
+        elif document_coverage[scope] is not None:
+            document['scan']['collection_coverage'] = document_coverage[scope]
         del references
         # Checkpoint/final snapshot IDs and created_at values name separately
         # serialized views. The caller's complete-section data revision fence

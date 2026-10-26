@@ -421,3 +421,27 @@ def test_failed_agent_result_is_never_accepted_during_deprovisioning(configured,
     with pytest.raises(RuntimeError, match='agent_failed'):
         fargate.invoke('network', tmp_path, 'private', 3, ecs=tasks, s3=storage)
     assert tasks.stops and len(storage.deleted) == 3
+
+
+@pytest.mark.parametrize('names', [(), ('agent',), ('relay',), ('agent', 'relay')])
+def test_only_exact_trusted_build_constant_is_allowed(names):
+    item = definition()
+    for container in item['containerDefinitions']:
+        if container['name'] in names:
+            container['environment'] = [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}]
+    fargate.validate_task(item)
+
+
+@pytest.mark.parametrize('environment', [
+    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'once'}],
+    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted', 'extra': 'inert'}],
+    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}] * 2,
+    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}, {'name': 'AWS_PROFILE', 'value': 'inert'}],
+    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}, {'name': 'PATH', 'value': '/tmp'}],
+    {'PEASO_SOURCE_ATTESTATION': 'trusted'},
+])
+def test_trusted_build_constant_does_not_admit_other_environment(environment):
+    item = definition()
+    item['containerDefinitions'][0]['environment'] = environment
+    with pytest.raises(RuntimeError, match='unsafe_ai_task_definition'):
+        fargate.validate_task(item)

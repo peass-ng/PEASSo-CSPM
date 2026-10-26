@@ -456,7 +456,34 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
     @lru_cache(maxsize=4)
     def finding_index(tenant, report_reference, references):
         # Cache only immutable, credential-free summaries, never download URLs.
-        return tuple(item for reference in references for item in artifacts.get(tenant, reference)["items"])
+        from peaso.storage.artifacts import S3Artifacts
+        if type(artifacts) is not S3Artifacts or len(references) < 2:
+            return tuple(item for reference in references for item in artifacts.get(tenant, reference)["items"])
+
+        def ordered_items():
+            from collections import deque
+            from concurrent.futures import ThreadPoolExecutor
+            from itertools import islice
+            source = iter(references)
+            with ThreadPoolExecutor(max_workers=8, thread_name_prefix="peaso-finding-index") as pool:
+                pending = deque()
+                try:
+                    for reference in islice(source, 8):
+                        pending.append(pool.submit(artifacts.get, tenant, reference))
+                    while pending:
+                        # Resolve in reference order, including errors. Retain
+                        # at most eight chunks while building the usual tuple.
+                        yield from pending.popleft().result()["items"]
+                        try:
+                            reference = next(source)
+                        except StopIteration:
+                            continue
+                        pending.append(pool.submit(artifacts.get, tenant, reference))
+                finally:
+                    for future in pending:
+                        future.cancel()
+
+        return tuple(ordered_items())
 
     @app.get("/api/health")
     def health():

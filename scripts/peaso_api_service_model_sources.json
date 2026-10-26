@@ -1114,7 +1114,7 @@
     "peaso/server/evidence_static.py": "7637c04fd618d8a181f14d53653168c2261abb6e890eccbf8bd331037f727c55",
     "peaso/server/scan_names.py": "bc807595f0006516ba2996df566ab0705d2bafb64afed85e39b1366414114a74",
     "peaso/server/aws_selector_logs.py": "a1c811ecc964a2fd39ebf7f35251ce82a4d09d0febbdfee3b3b122b49afd9bed",
-    "peaso/server/app.py": "fb736a3e3cdd98fce03c40d6f9e601e246b6cf0b4c838cfe93e710994f50b2d0",
+    "peaso/server/app.py": "8255dfe01b349cd18ff69ce7c1761ec1230db5385cecb1f65feeacb40bbf5a24",
     "peaso/server/cloudrun_image_grammar_static_20261021.py": "8b621843998bd72df8dd44910b2201077f6be2506c93e99ebc598891f24c8b75",
     "peaso/server/least_privilege_details.py": "019f75c6b86920432e956dcca71b1c1e34f433f4aaef259813561ed4b8bf94f9",
     "peaso/server/scan_resume.py": "274f99ace89d914f125b154822f88c6dce17e40125a853338e106c77aebf2207",
@@ -1485,8 +1485,8 @@
     "peaso/ai/collection_coverage.py": "505f335d059d51cebc86cbbc9fbd75ee3d05e0610658385df561b0032a69b773",
     "peaso/ai/providers.py": "a33915979e16954365cd49a894dccba49a765ef1de060db5c15292a846e3f068",
     "peaso/ai/crypto.py": "7ab214e8e44bb32ba92d5a33abf71d4a98be55b6fcbd8fc70be3f9eb0d4362d6",
-    "peaso/ai/fargate.py": "f33d85d2a4b9ec97a3bf55780ede5f92cc2d33ffb29bf4f873d2f9c3a078299b",
-    "peaso/ai/pipeline.py": "0d0d4ae831195f05e15428217eecd7aff2aead920db548e0d703e6673c33f335",
+    "peaso/ai/fargate.py": "aa6d1bc4d7f495cf1ccd05963388191f44138602c306fe816d6f8569707a95f0",
+    "peaso/ai/pipeline.py": "beb1c659865cf674f6588a75bafe14765b92bfc2439570bd622ed1b7b08727e5",
     "peaso/ai/network.py": "f8da3a90c6fbc0e2c2bb8fa40f2007bf45abdfa149b37c92d8b7b693f5ebd6fd",
     "peaso/ai/contracts.py": "55a80c29defdf7b706e590087a2becc86b68f53395d37067d893c6fcb5a4cfda",
     "peaso/ai/context_reader.py": "bd1a54bde21dc021b37c4bec688083fe5475baa4eee390ec678d47060e5b7010",
@@ -1808,7 +1808,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1700,
-  "python_source_sha256": "d1200113e0f2d24d1d59559fc5420e551760e70b1323ccca760cb8bad290619c",
+  "python_source_sha256": "f770755bae31c872cd6f854bf14407d30be3495343b8971aa07d6a171c0c683a",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
