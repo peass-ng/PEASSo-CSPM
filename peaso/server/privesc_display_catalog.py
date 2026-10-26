@@ -15,7 +15,7 @@ BINDING_SCHEMA = 'privesc-catalog-binding-v1'
 FROZEN_SOURCES = frozenset({'peaso/privesc/schema.py', 'peaso/privesc/versioned_catalog.py',
                             'risk_rules/hacktricks-privesc-source.json'})
 # Rewritten by the offline display builder after it verifies engine catalogs.
-PINNED_GZIP_SHA256 = '86acbdcd5ec07971b32e4efee2fc8fa42c5577d29bf01c7f9e89cde3f4dd3492'
+PINNED_GZIP_SHA256 = '498f8b43810fbac9bc57c8997a07bab206f053f1f29e462e88babe37a3a718ed'
 
 
 def _pairs(items):
