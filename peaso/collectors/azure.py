@@ -1220,6 +1220,9 @@ class AzureTransport:
         self.vault_hosts = set()
         self.storage_hosts = set()
         self.verified_tenant = None
+        from .scan_cache import RawResponseCache
+        # Per-scan, per-credential single-flight cache of complete read bodies.
+        self.response_cache = RawResponseCache()
 
     def allow_vault(self, uri):
         parsed = urlsplit(uri)
@@ -1328,35 +1331,53 @@ class AzureTransport:
         if payload is not None:
             headers["Content-Type"] = "application/json"
         request = Request(url, data=payload, headers=headers, method="POST" if body is not None else "GET")
-        with _native_open(request, 20, build_opener) as response:
-            # These GET/read-only query endpoints document200 representations;
-            # partial, asynchronous and empty responses are not native evidence.
-            if type(getattr(response, 'status', None)) is not int or response.status != 200:
-                raise AzureReadError('incomplete_native_response')
-            if max_response_bytes is None:
-                raw = response.read()
-            else:
-                if type(max_response_bytes) is not int or not 0 < max_response_bytes <= 20_000_000:
-                    raise ValueError("invalid response byte limit")
+        def valid_limit():
+            if type(max_response_bytes) is not int or not 0 < max_response_bytes <= 20_000_000:
+                raise ValueError("invalid response byte limit")
+        def load():
+            with _native_open(request, 20, build_opener) as response:
+                # These GET/read-only query endpoints document200 representations;
+                # partial, asynchronous and empty responses are not native evidence.
+                if type(getattr(response, 'status', None)) is not int or response.status != 200:
+                    raise AzureReadError('incomplete_native_response')
+                if max_response_bytes is None:
+                    return response.read()
+                valid_limit()
                 raw = response.read(max_response_bytes + 1)
                 if len(raw) > max_response_bytes:
                     raise AzureReadError("response_too_large")
-            value = _strict_native_json(raw)
-            from peaso.secret_evidence import native_environment_resources
-            native_environment_resources(value, provider='azure', method='GET' if body is None else 'POST', url=url, body=body)
-            if is_network_audience(audience):
-                value = project_response(value, audience)
-            if capture_subject:
-                from .azure_disclosure_native import accepted_subject
-                if not hasattr(self, "disclosure_accepted_subjects"):
-                    self.disclosure_accepted_subjects = {}
-                self.disclosure_accepted_subjects[audience] = accepted_subject(token, audience)
-            return value
+                return raw
+        cache = getattr(self, "response_cache", None)
+        if cache is None or capture_subject:
+            raw = load()
+        else:
+            # Only validated reads reach here (GET or allow-listed query POST).
+            # Same audience, URL and body within this scan reads the wire once;
+            # failures are never retained. Parsing and projection rerun per call.
+            raw = cache.fetch((audience, url, payload), load)
+            if max_response_bytes is not None:
+                valid_limit()
+            if max_response_bytes is not None and len(raw) > max_response_bytes:
+                raise AzureReadError("response_too_large")
+        value = _strict_native_json(raw)
+        from peaso.secret_evidence import native_environment_resources
+        native_environment_resources(value, provider='azure', method='GET' if body is None else 'POST', url=url, body=body)
+        if is_network_audience(audience):
+            value = project_response(value, audience)
+        if capture_subject:
+            from .azure_disclosure_native import accepted_subject
+            if not hasattr(self, "disclosure_accepted_subjects"):
+                self.disclosure_accepted_subjects = {}
+            self.disclosure_accepted_subjects[audience] = accepted_subject(token, audience)
+        return value
 
     def request_databricks(self, url):
         return azure_databricks_native.request_metadata(url, self.auth)
 
     def close(self):
+        cache = getattr(self, "response_cache", None)
+        if cache is not None:
+            cache.clear()
         if self.owned and self.credential is not None:
             self.credential.close()
 

@@ -638,7 +638,7 @@ AZURE_BINDINGS = json.loads(r'''
 
 PINNED = json.loads(r'''
 {
-  "docs/check-review/azure-function-settings-production-integration-20261020.json": "449654fcb9c9c657720491942aa0edc685cf61fbda09d3f37e868fd1ee98cedc",
+  "docs/check-review/azure-function-settings-production-integration-20261020.json": "25e964b0a060f5a4e9eccde9d3e3beb1bb89d874eb0b4717164349d28e38df9e",
   "docs/check-review/azure-k8s-current-predicate-bindings-20261020.json": "23ab6679ae1f7a4a35a86da7477c7427126bc668b3067ddc678d442d58bb8799",
   "docs/check-review/azure-rejected-source-recheck-20261020.json": "f8acfb410ac0f060bae1c77829e840cc4fb05e67faba0d93a4aec61cfabeb21a",
   "peaso/checks/azure_aks_legacy_projection_review_20261020.py": "d2aac095ecf0da4019853fb86c4be7129e5f2f75578c1484414bb8b17cfac633",
@@ -647,8 +647,8 @@ PINNED = json.loads(r'''
   "peaso/checks/azure_final_native_admission_20261020.json": "208520e936e2f692d2bb03ac93d49915134ed84e0fd2e3ae2c9dc409675a6431",
   "peaso/checks/azure_final_native_admission_20261020.py": "30dfd6f2bee166ece1cce8d322693d72e42f7351650cc71d1b22c10fae050518",
   "peaso/checks/azure_function_monitoring_declaration_proposal_20261020.py": "69a85e993fca6a514afdfa4b43df692cd37eb241daa41df5e025298ca75578c1",
-  "peaso/checks/azure_function_settings_runtime_admission_20261020.json": "39c99db8cab98e9814e58fe4d4fa634b5f16974eaa80f4ffa101e78781efc589",
-  "peaso/checks/azure_function_settings_runtime_admission_20261020.py": "788020c5ecd8e35e610ad2cd141c2f75e54f722b6894afd334fd2cb07d172ea8",
+  "peaso/checks/azure_function_settings_runtime_admission_20261020.json": "178950d8db8913f2fd070240139c0c467fbd8fc105cd1d2d973fcda98f6afab3",
+  "peaso/checks/azure_function_settings_runtime_admission_20261020.py": "025e27685babc296e2a3aca56af2789a5ed26f386d50a3b2a5d3c54164c01ebf",
   "peaso/checks/azure_function_settings_runtime_consumer_20261020.py": "411689c7e89c3f70baa29eb3a235b1ee0ecffbdb6d8fbc6b2543be269c23451c",
   "peaso/checks/azure_gateway_logging_review_20261020.py": "c6898ab3ad1145494615329dcc2d12d938a2a75f7d0332ce9ce413ac248c0c4b",
   "peaso/checks/azure_native_review_copy_20261020.py": "89a6fc92ac9861a088960e7736dfe05aa69ee778289b5b8c3e005a6f4b218393",

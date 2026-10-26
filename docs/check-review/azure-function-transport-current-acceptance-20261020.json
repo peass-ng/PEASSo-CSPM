@@ -10,11 +10,11 @@
   "worker_receipts": [
     {
       "path": "docs/check-review/azure-function-settings-production-integration-20261020.json",
-      "sha256": "449654fcb9c9c657720491942aa0edc685cf61fbda09d3f37e868fd1ee98cedc"
+      "sha256": "25e964b0a060f5a4e9eccde9d3e3beb1bb89d874eb0b4717164349d28e38df9e"
     },
     {
       "path": "docs/check-review/azure-metadata-transport-fix-review-20261020.json",
-      "sha256": "25254b6a8ef8da393ba4fad63cf270aa2c235e5682ca5c57fa041349ee2dbf51"
+      "sha256": "c33739066b4bed15135f9f0fc8c404be8a43dc3cd69c7914b1499a46f9543e76"
     }
   ],
   "gates": {
@@ -64,7 +64,7 @@
       {
         "path": "docs/check-review/azure-metadata-transport-fix-review-20261020.json",
         "previous_recorded_sha256": "e1492278b59a720ef486141ce61a0bb6e2a005b33660c6f1baedee30f25f835b",
-        "final_worker_done_sha256": "25254b6a8ef8da393ba4fad63cf270aa2c235e5682ca5c57fa041349ee2dbf51",
+        "final_worker_done_sha256": "c33739066b4bed15135f9f0fc8c404be8a43dc3cd69c7914b1499a46f9543e76",
         "reason": "Worker finalized source/proof metadata and static fixture compatibility candidates after green gate; native gate assertions/source successor unchanged."
       }
     ]

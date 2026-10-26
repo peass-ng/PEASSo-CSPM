@@ -6,7 +6,7 @@
     "roster_count": 15,
     "source_report": {
       "path": "docs/check-review/azure-metadata-transport-fix-review-20261020.json",
-      "sha256": "25254b6a8ef8da393ba4fad63cf270aa2c235e5682ca5c57fa041349ee2dbf51"
+      "sha256": "c33739066b4bed15135f9f0fc8c404be8a43dc3cd69c7914b1499a46f9543e76"
     },
     "changed_test_files": 12,
     "unchanged_test_files": 3,

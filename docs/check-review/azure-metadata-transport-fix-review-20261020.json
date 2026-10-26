@@ -129,7 +129,7 @@
   "source_dependency_impact": [
     {
       "path": "peaso/checks/azure_function_settings_admission_20261020.json",
-      "sha256": "740ade22ca008fc00b4faf062110d4ab6081c6bdd7dde0537e208d6dbf97dda1",
+      "sha256": "b78a07d72ab8ee89fe467aca868182bf62cc33fd89b41d89cce04ba3516292e5",
       "current_validation": "PASS fresh import/call, no repin",
       "request_is_pinned": false,
       "unchanged_azure_symbols": [
@@ -156,7 +156,7 @@
     },
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.json",
-      "sha256": "102786c5d0e9cae5c3685e4c107d6479f5468b2cbfd1008b287d7c408c777904",
+      "sha256": "427a28d7c75dff75964a956ba1ccb66b280eac3167c6e3bab5112642811297ee",
       "current_validation": "PASS fresh import/call, no repin",
       "request_is_pinned": false,
       "unchanged_azure_symbols": [

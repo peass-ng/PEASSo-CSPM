@@ -24,7 +24,7 @@ CHECK_BY_ID = {check.id: check for check in CHECKS if check.provider == 'azure'}
 LEDGER = json.loads((ROOT / 'docs/evidence-reviews/azure.json').read_text())
 CASES = json.loads(gzip.decompress((ROOT / 'tests/fixtures/azure_evidence_review.json.gz').read_bytes()))
 ASSESSMENT_SUCCESSOR_RAW = (ROOT / 'docs/check-review/azure-defender-assessment-four-current-binding-20261021.json').read_bytes()
-assert hashlib.sha256(ASSESSMENT_SUCCESSOR_RAW).hexdigest() == '495d31b83d1586a453b4aa325d4f287d694c950a389e0fa0fdbde6a27f6fe02d'
+assert hashlib.sha256(ASSESSMENT_SUCCESSOR_RAW).hexdigest() == '5fd8cf7122257785aa4c06aebaaf471b5e10e8f8f6148f2207e6b538010ec1e5'
 ASSESSMENT_SUCCESSOR = json.loads(ASSESSMENT_SUCCESSOR_RAW)
 CURRENT_RELEASE_BINDINGS = json.loads((ROOT / 'docs/evidence-reviews/azure-current-22-binding-20261022.json').read_text())
 CURRENT_SOURCE_BINDINGS = CURRENT_RELEASE_BINDINGS['source_bindings']
@@ -1819,7 +1819,7 @@ PINNED_SUCCESSOR_INPUTS = json.loads(r'''
   "docs/check-review/azure-network-audit-admission-20261020.json": "62d6943b509cd5bee15de3383541f58a9120c049146f6bbffb237a279fa5478f",
   "docs/check-review/azure-provider-integration-acceptance-20261020.json": "38e933aacafdc11eb01980cb22e0cb632ff06a21b683c358d8e566c6d2ad733f",
   "docs/check-review/azure-storage-compute-integration-20261020.json": "aa1527f425d7875ea2ab3f9d29207010c7207b2d436e1d0c4584b6b5997ebfbc",
-  "docs/evidence-reviews/azure.json": "394f162863c92b9734fbd92305bc45cb12f99ff582aae0f0c3cb4b72b0905090",
+  "docs/evidence-reviews/azure.json": "f925b5f4f0f4d8f352eacad80647c64fb54e291441efa16b8892b486f36f8e34",
   "peaso/checks/azure.py": "616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e",
   "peaso/checks/azure_acr_image_secret_review_20261020.py": "11821a6a2d2366602d993d79c58844d6f0c14b1a766ffd19c43894bef8f2dd39",
   "peaso/checks/azure_acr_image_secret_review_20261020_fixtures.json": "6920da6da7d3ef871ecccfd06bf3db9326891d6bcfdc0c37799dbcf9e6580af7",

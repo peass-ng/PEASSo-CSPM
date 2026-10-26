@@ -91,7 +91,7 @@
   "artifacts": {
     "docs/check-review/gcp-workbench-head3-runtime-20261020-admission.json": "adf908944e949ce80f98872c3315dde61fe7a2e5f6df30b4c964d938f90286a3",
     "docs/check-review/gcp-function-paired-native-integration-20261020.json": "a382b9bd7849f05d674da15743e2e8535ca3014b6f216f8458361d96b6d61222",
-    "docs/check-review/azure-function-package-head3-current-acceptance-20261020.json": "89266f0e8baf9e0ab42d285555ed45c2761ff4134f3ba8d072bf6828e1581d02",
+    "docs/check-review/azure-function-package-head3-current-acceptance-20261020.json": "ed99961d5aa09a57929cae6f1e71295e2ad612feefaaf0a7669e226addcc2062",
     "docs/check-review/azure-function-package-final-acceptance-20261020.json": "aada95fc88f1b0f046098d117a1e123a83dbf3c86a4339dead90c2fdf510d962",
     "docs/check-review/gcp-current-ledger-source-validation-20261020.json": "5f120e8aea85b0c0d4612b1879b183ae7f70448168619ca679724db1e94c4495",
     "docs/check-review/gcp-function-current-ledger-erratum-20261020.json": "a0e89befb7eb83f29b37c23f5409e52c0e1e6a10e786314fa50364bae660967a",

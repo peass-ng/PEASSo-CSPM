@@ -10,10 +10,10 @@
     "_verify_runtime",
     "reviewed_inputs"
   ],
-  "gcp_receipt_sha256": "7c9c697d7ebb446e3770ea60a3870db6528feba90d57f1e3da9b91c1198dcd35",
-  "gcp_source_sha256": "9f93f88952d7b47cc5117ca992b34ab39312bc54083853071f1c64deb32cce82",
+  "gcp_receipt_sha256": "c9cb4aaaec5608a1ced4689f18032e8bdfc97540df06a1d045f578fd1d6fb74c",
+  "gcp_source_sha256": "332da4dda0c85621a7194581cfb95a5c392c31990df8b76d500d2c4a05a2cfde",
   "normalized_source_sha256": "52ba40dedf3755306ecce96369489c75e97df5059785673c89ed813301f10885",
-  "raw_receipt_sha256": "ea5d4a9057330e9f09e93322ebd8d27e9512946493d5a487d8590e998be7a332",
+  "raw_receipt_sha256": "08e123a8ded44ef4b00004a10a27e3823d48a44c875a2cf44542735229a4bd33",
   "raw_source_sha256": "adb16873adf517a30c11a280c94c748b90ba405f46b5219630eef877a4aabf67",
   "schema": "gcp-private-workbench-head3-source-successor-v1",
   "workbench_receipt_sha256": "2aa8483b6ba2583ab80a261c34e15cacdcf31e79e995210f180e4debd6a65179"

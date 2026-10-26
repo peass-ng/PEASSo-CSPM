@@ -42,19 +42,19 @@
   },
   "receipt": {
     "path": "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.json",
-    "sha256": "102786c5d0e9cae5c3685e4c107d6479f5468b2cbfd1008b287d7c408c777904",
+    "sha256": "427a28d7c75dff75964a956ba1ccb66b280eac3167c6e3bab5112642811297ee",
     "bytes": 23168
   },
-  "receipt_sha256_literal": "102786c5d0e9cae5c3685e4c107d6479f5468b2cbfd1008b287d7c408c777904",
+  "receipt_sha256_literal": "427a28d7c75dff75964a956ba1ccb66b280eac3167c6e3bab5112642811297ee",
   "new_files": [
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.py",
-      "sha256": "d2d5b17e3f300db217112727ec46168cdfb9cb04d9b471bfdedcd01f78c44ee3",
+      "sha256": "4e40afb16f012e7f85c367f903e1ef1ea78c743f7ece165573f5c2a38c9121f2",
       "bytes": 15646
     },
     {
       "path": "peaso/checks/azure_nsp_query_cmk_metadata_admission_20261020.json",
-      "sha256": "102786c5d0e9cae5c3685e4c107d6479f5468b2cbfd1008b287d7c408c777904",
+      "sha256": "427a28d7c75dff75964a956ba1ccb66b280eac3167c6e3bab5112642811297ee",
       "bytes": 23168
     },
     {
@@ -380,7 +380,7 @@
         "path": "peaso/collectors/azure.py",
         "qualname": "AzureTransport.__init__",
         "line": 877,
-        "source_sha256": "701c27ca9c554e4cfa5d67cd4ffe204507f15c8f6140866c77ea3264ac395f38",
+        "source_sha256": "dfc016bae2d0d2063538a53e34c63a26c7689acae67c34e273e984ecb230a11d",
         "defaults": [
           null
         ],
@@ -754,7 +754,7 @@
   "preservation": {
     "original_review_report": {
       "path": "docs/check-review/azure-nsp-query-cmk-metadata-proposals-20261020.json",
-      "sha256": "73c4d0c3ce6edfa2b2ea3db8f8d0d3d62e3bb6a27cdd5117b0e7fefbe4ddb6f3",
+      "sha256": "f6236f88aaaf81753448657256761af5d8f8bfc031f3dd8b3d445142adaace77",
       "bytes": 85575
     },
     "original_red_receipt_pack": {

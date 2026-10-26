@@ -508,6 +508,30 @@ def _unique_data_identity_pairs(pairs):
     return value
 
 
+def _response_size(response):
+    content = getattr(response, "content", None)
+    return len(content) if isinstance(content, (bytes, bytearray, str)) else 0
+
+
+def _settle_cache_entry(cache, key, entry, response_bytes):
+    """Keep a settled read for this scan unless its outcome is transient."""
+    from .scan_cache import gcp_error_is_transient, ERROR_ENTRY_BYTES, PARSED_OBJECT_FACTOR
+    if "error" in entry:
+        if gcp_error_is_transient(entry["error"]):
+            # Waiters on this flight share the error; later callers read again.
+            if hasattr(cache, "discard"):
+                cache.discard(key, entry)
+            elif cache.get(key) is entry:
+                del cache[key]
+            return
+        size = ERROR_ENTRY_BYTES
+    else:
+        # Parsed JSON costs several times its wire size in Python objects.
+        size = max(response_bytes * PARSED_OBJECT_FACTOR, ERROR_ENTRY_BYTES)
+    if hasattr(cache, "admit"):
+        cache.admit(key, entry, size)
+
+
 class Transport:
     def __init__(self, credentials, options, *, sleep=time.sleep):
         self.credentials, self.options, self.sleep = credentials, options, sleep
@@ -521,7 +545,10 @@ class Transport:
         self.local = threading.local()
         self.sessions = []
         self.evidence = []
-        self.cache = {}
+        from .scan_cache import BoundedEntries, budget, DEFAULT_MAX_BYTES, DEFAULT_MAX_ENTRY_BYTES
+        # Per-scan single-flight response cache, bounded by settled bytes.
+        self.cache = BoundedEntries(budget(options, "response_cache_max_bytes", DEFAULT_MAX_BYTES),
+                                    budget(options, "response_cache_max_entry_bytes", DEFAULT_MAX_ENTRY_BYTES), owner=self)
         self.run_sbom_metadata_reads = {}
         self.datafusion_cdap_reads = {}
         self.notebook_airflow_secret_budget = None
@@ -643,10 +670,15 @@ class Transport:
             params == {"view": "FULL_VIEW", "fields": "name,serviceAccount,runtime,env,servingStatus"})
         if re.search(r"/versions/[^/]+(?::access|$)|/oauthClients/|/keys/[^/]+$", parsed.path) and not app_version_get:
             raise ReadError("unsupported", "sensitive_value_read_prohibited")
-        cache_key = json.dumps([method, url, params, body], sort_keys=True)
+        # requests sends the same URL for absent and empty params.
+        cache_key = json.dumps([method, url, params or {}, body], sort_keys=True)
+        from . import gcp_prefetch
+        gcp_prefetch.before_read(self, cache_key, method, url, params, body, scope, operation)
         # Coalesce identical requests, including simultaneous hydration calls.
         with self.lock:
             cached = self.cache.get(cache_key)
+            if cached is not None and hasattr(self.cache, "touch"):
+                self.cache.touch(cache_key)
             if cached is None:
                 cached = {"event": threading.Event()}
                 self.cache[cache_key] = cached
@@ -680,6 +712,7 @@ class Transport:
             "http_attempts": 0, "started_at": datetime.now(timezone.utc).isoformat()}
         if body:
             evidence["request"] = sanitize({k: v for k, v in body.items() if k != "pageToken"})
+        response_bytes = 0
         try:
             for attempt in range(self.retries + 1):
                 self.check_cancelled()
@@ -708,6 +741,7 @@ class Transport:
                         continue
                     raise error from None
                 evidence["http_status"] = response.status_code
+                response_bytes = _response_size(response)
                 try:
                     if (method == "GET" and parsed.hostname == "cloudresourcemanager.googleapis.com"
                             and re.fullmatch(r"/v3/projects/[A-Za-z0-9_-]+", parsed.path)):
@@ -831,11 +865,13 @@ class Transport:
             with self.lock:
                 evidence["id"] = f"request-{len(self.evidence) + 1}"
                 self.evidence.append(evidence)
-            cached["id"] = evidence["id"]
+                cached["id"] = evidence["id"]
+                _settle_cache_entry(self.cache, cache_key, cached, response_bytes)
             cached["event"].set()
         if "error" in cached:
             cached["error"].request_id = cached["id"]
             raise cached["error"]
+        gcp_prefetch.after_read(self, method, url, params, body, scope, operation, cached["data"])
         return copy.deepcopy(cached["data"]), cached["id"]
 
     @staticmethod
@@ -864,6 +900,8 @@ class Transport:
         return jittered
 
     def close(self):
+        from . import gcp_prefetch
+        gcp_prefetch.close(self)
         from .gcp_function_source_secret_indicators import clear_pending
         clear_pending(self)
         for session in self.sessions:
