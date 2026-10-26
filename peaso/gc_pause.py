@@ -12,7 +12,6 @@ Nested and concurrent pauses are counted, so a thread leaving its pause never
 re-enables collection while another thread's pause is still active, and a
 collector that was disabled before the first pause stays disabled.
 """
-from contextlib import contextmanager
 import gc
 import threading
 
@@ -21,18 +20,34 @@ _depth = 0
 _restore = False
 
 
-@contextmanager
-def gc_paused():
-    global _depth, _restore
-    with _lock:
-        if _depth == 0:
-            _restore = gc.isenabled()
-            gc.disable()
-        _depth += 1
-    try:
-        yield
-    finally:
+class _Pause:
+    """Shared reentrant pause; a plain class avoids a generator per use.
+
+    Called millions of times on small values (digests, freezes), the
+    generator-based context manager cost more than the work it wrapped.
+    """
+    __slots__ = ()
+
+    def __enter__(self):
+        global _depth, _restore
+        with _lock:
+            if _depth == 0:
+                _restore = gc.isenabled()
+                gc.disable()
+            _depth += 1
+        return None
+
+    def __exit__(self, kind, value, traceback):
+        global _depth
         with _lock:
             _depth -= 1
             if _depth == 0 and _restore:
                 gc.enable()
+        return False
+
+
+_PAUSE = _Pause()
+
+
+def gc_paused():
+    return _PAUSE

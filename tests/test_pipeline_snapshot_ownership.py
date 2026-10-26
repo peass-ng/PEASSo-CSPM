@@ -143,3 +143,38 @@ def test_live_collect_tail_adopts_its_own_copy_with_the_same_snapshot(monkeypatc
     assert result["collections"][0]["items"] is not source["collections"][0]["items"]
     assert result["collections"][0]["items"][0] is not source["collections"][0]["items"][0]
     assert "collection_plan" in result["metadata"]
+
+
+def test_frozen_view_shares_items_with_later_validation_and_inventories():
+    from peaso.snapshot import FrozenDict, frozen_view, resources
+
+    plain = json.loads(json.dumps(_snapshot()))
+    view = frozen_view(plain)
+    assert view["snapshot_id"] == plain["snapshot_id"]
+    item = view["collections"][0]["items"][0]
+    assert type(item) is FrozenDict and item == plain["collections"][0]["items"][0]
+    with pytest.raises(TypeError):
+        item["x"] = 1
+    other = frozen_view(plain)
+    other["metadata"]["added"] = "envelope stays mutable"
+    assert "added" not in plain["metadata"] and "added" not in view["metadata"]
+    checked = validate(view, read_only=True)
+    assert checked["collections"][0]["items"][0] is item
+    assert any(row["data"] is item for row in resources(view))
+    assert resources(view) == resources(plain)
+    tampered = frozen_view(dict(plain, snapshot_id="sha256:" + "0" * 64))
+    with pytest.raises(ValueError):
+        validate(tampered, read_only=True)
+    with pytest.raises(ValueError):
+        frozen_view([])
+
+
+def test_resources_restores_gc_and_matches_per_item_digest():
+    from peaso.snapshot import digest, resources
+
+    snapshot = _snapshot()
+    gc.enable()
+    rows = resources(snapshot)
+    assert gc.isenabled()
+    for row in rows:
+        assert row["id"] == digest([row["provider"], row["scope"], row["type"], row["native_id"]])

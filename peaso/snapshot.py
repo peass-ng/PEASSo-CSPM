@@ -97,6 +97,19 @@ def _sealed_structure(snapshot, read_only=False, owned=False):
         return _structure(snapshot, read_only, owned)
 
 
+def frozen_view(snapshot):
+    """Mutable envelope over read-only native items, frozen exactly once.
+
+    The stored snapshot_id is kept as is: this is not a validation, and the
+    engine's validate(read_only=True) still verifies structure and digest. It
+    shares these frozen items instead of copying them again, and so does every
+    later inventory (publication, AI review) of the same analyzer snapshot.
+    """
+    if not isinstance(snapshot, dict):
+        raise ValueError("snapshot must be an object")
+    return _sealed_structure(snapshot, read_only=True)
+
+
 def _structure(snapshot, read_only, owned):
     thaw = _thaw
     items_of = ((lambda value: FrozenList([_freeze(item) for item in value])) if read_only
@@ -246,16 +259,23 @@ def resource_id(provider, kind, scope, item):
 
 
 def resources(snapshot):
+    # One collector pause for the whole inventory instead of two per item.
+    with gc_paused():
+        return _resources(snapshot)
+
+
+def _resources(snapshot):
     from .check_services import service_for
     output = {}
+    sha256 = hashlib.sha256
     for collection in snapshot["collections"]:
         for item in collection["items"]:
             if not isinstance(item, dict):
                 continue
             rid = resource_id(snapshot["provider"], collection["type"], collection["scope"], item)
             key = (collection["scope"], collection["type"], rid)
-            output[key] = {"id": digest([snapshot["provider"], collection["scope"], collection["type"], rid]), "native_id": rid, "type": collection["type"], "service": service_for(snapshot["provider"], collection["type"], collection.get("service")),
-                "scope": collection["scope"], "provider": snapshot["provider"], "data": freeze(item)}
+            output[key] = {"id": "sha256:" + sha256(canonical([snapshot["provider"], collection["scope"], collection["type"], rid]).encode()).hexdigest(), "native_id": rid, "type": collection["type"], "service": service_for(snapshot["provider"], collection["type"], collection.get("service")),
+                "scope": collection["scope"], "provider": snapshot["provider"], "data": _freeze(item)}
     return [output[key] for key in sorted(output)]
 
 

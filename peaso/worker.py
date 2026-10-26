@@ -696,7 +696,10 @@ def _process(role, request, connection):
             with _runtime_span('worker.startup'):
                 from peaso.engine import evaluate_snapshot
             selectors = request["selectors"]
-            snapshot = artifacts.get(tenant, request["snapshot_ref"])
+            from peaso.snapshot import frozen_view
+            # Freeze the native items once; evaluation, publication and AI
+            # review share them instead of each making a read-only copy.
+            snapshot = frozen_view(artifacts.get(tenant, request["snapshot_ref"]))
             related, sources = [], {}
             for entry in request.get("related", []):
                 try:
