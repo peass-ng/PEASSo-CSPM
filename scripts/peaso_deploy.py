@@ -62,6 +62,7 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_aws_ecs_content_cohort_20261026.py',
     'tests/test_ecs_cohort_source_admission_20261026.py',
     'tests/test_found_secret_visibility_20261026.py',
+    'tests/test_gcp_bigquery_location_page_size_20261026.py',
     'tests/test_collect_snapshot_single_digest.py',
     'tests/reviewed_current_successors_20261026.py',
     'tests/fixtures/reviewed_current_successors_20261026.json.gz',

@@ -92,7 +92,10 @@ def locations(collector, scope, kind):
         return
     result = []
     locations_version = 'v1' if service == 'run' else version
-    for page, receipt in collector.pages(api_root(service, locations_version) + f'/{scope}/locations', scope, key='locations'):
+    # BigQuery Connection's native locations endpoint rejects pageSize; its
+    # connection list endpoint keeps pageSize. Keep tokens/errors.
+    for page, receipt in collector.pages(api_root(service, locations_version) + f'/{scope}/locations', scope,
+            key='locations', page_size_key=None if service == 'bigqueryconnection' else 'pageSize'):
         for row in page:
             location = row.get('locationId') or row.get('name', '').rsplit('/', 1)[-1]
             if plan.get('location_kind') != 'zone' or re.fullmatch(r'.+-[a-z]', str(location)):

@@ -1290,7 +1290,7 @@
     "peaso/collectors/gcp_log_secret_indicators.py": "fba1727c9f1d95d9e3814be5258548ffd22deaede3851efee27406a0b151eb54",
     "peaso/collectors/gcp_logging_views.py": "515b5aa5e3c6653aaaa9838b85ae2ffa9f7a55860f5637f0c87c9309dc518877",
     "peaso/collectors/gcp_native_evidence.py": "5df2cf1408fa86f259ab8ad4c6684afe8a18592564a928a326b3a3581b90e110",
-    "peaso/collectors/gcp_network_catalog.py": "9001df3cd1f8aefd280bc2b6397b08aee69d8b0c20120eef738f8a55a3319edc",
+    "peaso/collectors/gcp_network_catalog.py": "1591940fccec98697e44400171b498174901a75aa20975b23381c37e69b6b6cc",
     "peaso/collectors/gcp_network_forwarding_completion_20261021.py": "57c7eedb1520b53184ed43f5290e7e093f3b3e69e53b317fb37d268fe2aae93f",
     "peaso/collectors/gcp_notebook_airflow_secret_indicators.py": "8317f2883f819d07d88b05a5714e119a241c3f0a2200a9d54e47ba24d8f28684",
     "peaso/collectors/gcp_os_patch_native.py": "e8d86dbc207104d2dbc59d2c0dd0a558f7d00e7edde5960d2750fa7803a85f58",
@@ -1809,7 +1809,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1701,
-  "python_source_sha256": "3afc7e78bc765c5cf8612df8fc24b5e67322c70f95c3b125d873ec6470066d9e",
+  "python_source_sha256": "2c78f0952963bc135d1cd0330b1d5e69e895748273a888ca8353d639d63f3ec4",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
