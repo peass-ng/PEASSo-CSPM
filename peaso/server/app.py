@@ -1015,6 +1015,13 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         source = artifacts.get(tenant, original["report_json"]) if original.get("bundle_version") == 1 else original
         presented = group_report(source)
         if report_format == "markdown":
+            stream_writer = getattr(artifacts, "put_text_file", None)
+            if callable(stream_writer):
+                import tempfile
+                from peaso.reports import write_markdown
+                with tempfile.TemporaryFile(mode="w+b") as stream:
+                    write_markdown(presented, stream)
+                    return stream_writer(tenant, scan_id, "markdown", stream)
             from peaso.reports import render_markdown
             return artifacts.put_text(tenant, scan_id, "markdown", render_markdown(presented))
         return artifacts.put(tenant, scan_id, "report", presented)

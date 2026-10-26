@@ -10,7 +10,8 @@ import hashlib
 import json
 import threading
 
-from .artifacts import FileArtifacts, S3Artifacts, check_reference, job_prefix
+from .artifacts import (FileArtifacts, S3Artifacts, check_reference, job_prefix,
+                        _file_chunks, _rewound_file, _legacy_text_file)
 
 
 PUBLIC_KINDS = frozenset({'report', 'markdown', 'manifest', 'findings', 'finding-index',
@@ -22,6 +23,14 @@ def _text_digest(value):
     digest = hashlib.sha256()
     for offset in range(0, len(value), 256 * 1024):
         digest.update(value[offset:offset + 256 * 1024].encode())
+    return digest.digest()
+
+
+def _file_digest(source):
+    digest = hashlib.sha256()
+    with _rewound_file(source):
+        for chunk in _file_chunks(source):
+            digest.update(chunk)
     return digest.digest()
 
 
@@ -145,6 +154,52 @@ class ReusableReportArtifacts:
             return self._uncached_writer().put_text(tenant, ident, kind, value)
         return self._publish(tenant, ident, kind, body, 'text/markdown')
 
+    def put_text_file(self, tenant, ident, kind, source):
+        """Reuse exact whole-file bytes under this adapter's tenant/scan fence.
+
+        Only the digest and durable reference survive. The caller owns the file
+        and must keep its contents unchanged until this synchronous call ends.
+        Custom adapters retain their own file or legacy string publication path.
+        """
+        self._scope(tenant, ident)
+        backend = self.artifacts
+        native_file = (isinstance(backend, FileArtifacts)
+            and type(backend).put_text is FileArtifacts.put_text
+            and type(backend).put_text_file is FileArtifacts.put_text_file
+            and type(backend)._write is FileArtifacts._write)
+        native_s3 = (isinstance(backend, S3Artifacts)
+            and type(backend).put_text is S3Artifacts.put_text
+            and type(backend).put_text_file is S3Artifacts.put_text_file
+            and type(backend)._put is S3Artifacts._put
+            and type(backend)._put_reserved is S3Artifacts._put_reserved)
+        with self.lock:
+            self._check_idle()
+            writer = self._uncached_writer()
+
+            def commit():
+                method = getattr(writer, 'put_text_file', None)
+                if callable(method):
+                    return method(tenant, ident, kind, source)
+                return writer.put_text(tenant, ident, kind, _legacy_text_file(source))
+
+            if kind not in PUBLIC_KINDS or not (native_file or native_s3):
+                return commit()
+            key = kind, 'text/markdown', _file_digest(source)
+            reference = self.entries.get(key)
+            if reference is not None:
+                check_reference(tenant, reference)
+                if not native_file or (backend.root/reference).is_file():
+                    self.entries.move_to_end(key)
+                    return reference
+                del self.entries[key]
+            reference = commit()
+            if self.max_entries:
+                self.entries[key] = reference
+                self.entries.move_to_end(key)
+                while len(self.entries) > self.max_entries:
+                    self.entries.popitem(last=False)
+            return reference
+
     def delete_job(self, tenant, ident):
         self._scope(tenant, ident)
         with self.lock:
@@ -181,6 +236,17 @@ class _ReusableS3Batch(ReusableReportArtifacts):
 
     def _uncached_writer(self):
         return self.writer
+
+    def put_text_file(self, tenant, ident, kind, source):
+        self.writer._check_open()
+        try:
+            self._scope(tenant, ident)
+            # Even an exact cache hit must observe failed pending dependencies.
+            self.writer.flush()
+            return super().put_text_file(tenant, ident, kind, source)
+        except BaseException as exc:
+            self.writer.error = exc
+            raise
 
     def flush(self):
         self.writer.flush()

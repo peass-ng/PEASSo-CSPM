@@ -2,8 +2,9 @@
 import copy
 import hashlib
 import json
+import tempfile
 from collections import Counter
-from peaso.reports import render_markdown
+from peaso.reports import render_markdown, write_markdown
 from peaso.runtime_metrics import span as _runtime_span
 
 CHUNK_BYTES = 2 * 1024 * 1024
@@ -244,11 +245,21 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
     # The Markdown download keeps native configuration facts inline (schema 1.0 view).
     with _runtime_span("publication.expand_native"):
         markdown_view = expand_report(presented, snapshot, _inventory=inventory) if embeddable else presented
-    with _runtime_span("publication.markdown"):
-        markdown = render_markdown(markdown_view)
-    del markdown_view
-    markdown_reference = artifacts.put_text(tenant, ident, "markdown", markdown)
-    del markdown
+    stream_writer = getattr(artifacts, "put_text_file", None)
+    if callable(stream_writer):
+        # Keep the full native download without document-sized string/UTF-8/
+        # compression copies. The owned disk file survives until durable upload.
+        with tempfile.TemporaryFile(mode="w+b") as markdown:
+            with _runtime_span("publication.markdown"):
+                write_markdown(markdown_view, markdown)
+            del markdown_view
+            markdown_reference = stream_writer(tenant, ident, "markdown", markdown)
+    else:
+        with _runtime_span("publication.markdown"):
+            markdown = render_markdown(markdown_view)
+        del markdown_view
+        markdown_reference = artifacts.put_text(tenant, ident, "markdown", markdown)
+        del markdown
     manifest = {"bundle_version": 1, "report_grouping": "check-v1", "report_json": json_reference, "report_markdown": markdown_reference,
                 "summary": {k: v for k, v in report.items() if k not in {"resources", "findings", "coverage", "graphs", "snapshot", "check_frameworks", "check_meta", "check_meta_encoding", "remediation_templates"}},
                 "finding_chunks": [], "coverage_chunks": [], "coverage_chunk_counts": [],

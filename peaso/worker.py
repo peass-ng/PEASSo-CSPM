@@ -23,6 +23,98 @@ from peaso.runtime_metrics import span as _runtime_span
 LOGGER = logging.getLogger(__name__)
 
 
+def _worker_cgroup_memory():
+    """Read only bounded numeric memory facts for this process's cgroup v2."""
+    def read(path):
+        with Path(path).open(encoding='ascii') as stream:
+            value = stream.read(65537)
+        if len(value) > 65536:
+            raise ValueError('memory metadata bound')
+        return value.strip()
+
+    def number(value):
+        if not re.fullmatch(r'[0-9]{1,20}', value) or int(value) > 2**64 - 1:
+            raise ValueError('memory counter malformed')
+        return int(value)
+
+    try:
+        memberships = [line.split(':', 2)[2] for line in read('/proc/self/cgroup').splitlines()
+                       if line.startswith('0::')]
+        if len(memberships) != 1:
+            return None
+        member = memberships[0]
+        if not member.startswith('/') or '..' in member.split('/'):
+            return None
+        groups = []
+        for line in read('/proc/self/mountinfo').splitlines():
+            left, separator, right = line.partition(' - ')
+            parts = right.split()
+            if not separator or not parts or parts[0] != 'cgroup2':
+                continue
+            fields = left.split()
+            if len(parts) < 3 or len(fields) < 6:
+                return None
+            unescape = lambda value: re.sub(r'\\([0-7]{3})', lambda match: chr(int(match[1], 8)), value)
+            root, mount = map(unescape, (fields[3], fields[4]))
+            if not all(value.startswith('/') and '..' not in value.split('/') for value in (root, mount)):
+                return None
+            if root == '/':
+                relative = member.lstrip('/')
+            elif member == '/' or member == root:
+                relative = ''
+            elif member.startswith(root.rstrip('/') + '/'):
+                relative = member[len(root):].lstrip('/')
+            else:
+                continue
+            groups.append(Path(mount) / relative)
+        if len(groups) != 1:
+            return None
+        group = groups[0]
+        try:
+            events, source = read(group / 'memory.events.local'), 'local'
+        except OSError:
+            events, source = read(group / 'memory.events'), 'hierarchical'
+        counters = {}
+        for line in events.splitlines():
+            key, value = line.split()
+            if key in {'low', 'high', 'max', 'oom', 'oom_kill', 'oom_group_kill'}:
+                if key in counters:
+                    return None
+                counters[key] = number(value)
+        if 'oom_kill' not in counters:
+            return None
+        maximum = read(group / 'memory.max')
+        return {'_group': str(group), 'source': source, 'events': counters,
+                'current': number(read(group / 'memory.current')),
+                'peak': number(read(group / 'memory.peak')),
+                'max': None if maximum == 'max' else number(maximum)}
+    except (OSError, ValueError, IndexError, UnicodeError):
+        return None
+
+
+def _log_worker_interruption(process, memory_before):
+    """Capture natural exit before cleanup; cgroup OOM facts never name a victim."""
+    exitcode = getattr(process, 'exitcode', None)
+    exitcode = exitcode if type(exitcode) is int else None
+    memory_after = _worker_cgroup_memory() if exitcode is not None else None
+    delta = None
+    if (memory_before is not None and memory_after is not None
+            and memory_before['_group'] == memory_after['_group']
+            and memory_before['source'] == memory_after['source']):
+        difference = memory_after['events']['oom_kill'] - memory_before['events']['oom_kill']
+        if difference >= 0:
+            delta = difference
+    public_memory = lambda value: None if value is None else {key: value[key] for key in
+        ('source', 'events', 'current', 'peak', 'max')}
+    LOGGER.warning('Scan worker interrupted: child_exitcode=%s child_signal=%s '
+                   'natural_exit_observed=%s cleanup_started=false group_oom_kill_delta=%s '
+                   'group_memory_before=%s group_memory_after=%s',
+                   exitcode, -exitcode if exitcode is not None and exitcode < 0 else None,
+                   exitcode is not None, delta,
+                   json.dumps(public_memory(memory_before), sort_keys=True),
+                   json.dumps(public_memory(memory_after), sort_keys=True))
+
+
 _EXPIRED_CODES = frozenset({"ExpiredToken", "ExpiredTokenException", "RequestExpired",
                             "TokenExpired", "token_expired", "invalid_grant"})
 
@@ -996,6 +1088,7 @@ class Worker:
             request.update(tenant_id=job["tenant"], scan_id=job["id"], deadline=job["deadline"], artifact_config={"mode": "file", "root": str(self.artifacts.root)} if isinstance(self.artifacts, FileArtifacts) else {"mode": "s3", "bucket": self.artifacts.bucket, "kms_key": self.artifacts.kms_key})
             request["ai_context"] = {"state_dir": str(self.settings.state_dir), "identity_dir": str(self.settings.identity_dir)}
             request["timeline"] = self.store.public_job(job)["timeline"]
+            memory_before = _worker_cgroup_memory()
             warm = self._take_prewarmed(request) if self.role == "analyzer" else None
             if warm is not None:
                 process, parent = warm
@@ -1083,6 +1176,8 @@ class Worker:
                 kind = "snapshot" if self.role == "collector" else "report"
                 self.store.finish(job["id"], job["owner"], "collected" if kind == "snapshot" else "completed", result[1])
             else:
+                if result is None:
+                    _log_worker_interruption(process, memory_before)
                 if result and len(result) > 2:
                     LOGGER.warning("Scan worker failed: code=%s type=%s source=%s", result[1],
                                    result[2]["exception_type"], result[2]["source"])
@@ -1099,12 +1194,19 @@ class Worker:
             return True
         finally:
             if process is not None:
+                terminate_requested, kill_requested = False, False
                 if process.is_alive():
+                    terminate_requested = True
                     process.terminate()
                 process.join(timeout=2)
                 if process.is_alive():
+                    kill_requested = True
                     process.kill()
                     process.join(timeout=2)
+                if terminate_requested or kill_requested:
+                    LOGGER.info('Scan worker cleanup: terminate_requested=%s kill_requested=%s '
+                                'exitcode_after_cleanup=%s', terminate_requested, kill_requested,
+                                getattr(process, 'exitcode', None))
             if parent is not None:
                 parent.close()
             if child is not None:

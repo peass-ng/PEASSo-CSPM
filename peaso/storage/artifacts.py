@@ -1,16 +1,56 @@
 """Private artifact storage interfaces. References are generated, never paths from HTTP."""
 import hashlib
 import gzip
+import codecs
+import io
 import json
 import os
 import shutil
 from pathlib import Path
 import re
 import uuid
+import tempfile
+from contextlib import contextmanager
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Protocol
 from peaso.runtime_metrics import span as _runtime_span, add_bytes as _runtime_bytes
 from peaso.gc_pause import gc_paused
+
+
+_FILE_COPY_BYTES = 64 * 1024
+
+
+@contextmanager
+def _rewound_file(source):
+    """Borrow a seekable binary file without changing its owner's position."""
+    position = source.tell()
+    try:
+        source.seek(0)
+        if type(source.read(0)) is not bytes:
+            raise TypeError("artifact source must be a seekable binary file")
+        yield source
+    finally:
+        source.seek(position)
+
+
+def _file_chunks(source):
+    while True:
+        chunk = source.read(_FILE_COPY_BYTES)
+        if type(chunk) is not bytes:
+            raise TypeError("artifact source must be a seekable binary file")
+        if not chunk:
+            return
+        yield chunk
+
+
+def _legacy_text_file(source):
+    """Compatibility for custom adapters that still own string serialization."""
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    with _rewound_file(source), io.StringIO() as text:
+        for chunk in _file_chunks(source):
+            text.write(decoder.decode(chunk))
+        text.write(decoder.decode(b"", final=True))
+        return text.getvalue()
 
 
 def _loads(body):
@@ -79,6 +119,38 @@ class FileArtifacts:
 
     def put_text(self, tenant, job_id, kind, value):
         return self._write(tenant, job_id, kind, value)
+
+    def put_text_file(self, tenant, job_id, kind, source):
+        """Commit all source bytes atomically; borrow, never close, its handle.
+
+        The caller must keep the source unchanged for this synchronous call.
+        Custom string writers retain their existing publication policy.
+        """
+        if (type(self).put_text is not FileArtifacts.put_text
+                or type(self)._write is not FileArtifacts._write):
+            return self.put_text(tenant, job_id, kind, _legacy_text_file(source))
+        reference = reference_for(tenant, job_id, kind)
+        path = self.root / reference
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+        with _runtime_span("artifact.file.write"), _rewound_file(source):
+            try:
+                fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as stream:
+                    for chunk in _file_chunks(source):
+                        stream.write(chunk)
+                    stream.flush()
+                    _runtime_bytes("artifact.file.write", stream.tell())
+                    os.fsync(stream.fileno())
+                os.replace(temp, path)
+                directory = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            finally:
+                temp.unlink(missing_ok=True)
+        return reference
 
     def _write(self, tenant, job_id, kind, value, *, reference=None):
         reference = reference or reference_for(tenant, job_id, kind)
@@ -206,6 +278,43 @@ class S3Artifacts:
             _runtime_bytes("artifact.serialize", len(body))
         return self._put(tenant, job_id, kind, body, "text/markdown")
 
+    def put_text_file(self, tenant, job_id, kind, source):
+        """Synchronously upload a borrowed seekable file with bounded gzip I/O."""
+        if (type(self).put_text is not S3Artifacts.put_text
+                or type(self)._put is not S3Artifacts._put
+                or type(self)._put_reserved is not S3Artifacts._put_reserved):
+            return self.put_text(tenant, job_id, kind, _legacy_text_file(source))
+        reference = reference_for(tenant, job_id, kind)
+        encryption = ({"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": self.kms_key}
+                      if self.kms_key else {"ServerSideEncryption": "AES256"})
+        with _rewound_file(source):
+            source.seek(0, os.SEEK_END)
+            size = source.tell()
+            source.seek(0)
+            # The compressed candidate stays on disk even when incompressible.
+            with tempfile.TemporaryFile(mode="w+b") as compressed:
+                body, length, encoding = source, size, {}
+                if size >= _FILE_COPY_BYTES:
+                    with _runtime_span("artifact.compress"):
+                        with gzip.GzipFile(filename="", fileobj=compressed, mode="wb",
+                                           compresslevel=1, mtime=0) as writer:
+                            for chunk in _file_chunks(source):
+                                writer.write(chunk)
+                        _runtime_bytes("artifact.compress", size)
+                    candidate_size = compressed.tell()
+                    source.seek(0)
+                    if candidate_size < size:
+                        compressed.seek(0)
+                        body, length = compressed, candidate_size
+                        encoding = {"ContentEncoding": "gzip",
+                                    "Metadata": {"peaso-uncompressed-bytes": str(size)}}
+                with _runtime_span("artifact.s3.put"):
+                    self.client.put_object(Bucket=self.bucket, Key="artifacts/" + reference,
+                        Body=body, ContentLength=length, ContentType="text/markdown",
+                        **encoding, **encryption)
+                    _runtime_bytes("artifact.s3.put", length)
+        return reference
+
     def get_text(self, tenant, reference):
         return self._get_bytes(tenant, reference).decode()
 
@@ -318,6 +427,16 @@ class _S3WriteBatch:
             body = value.encode()
             _runtime_bytes("artifact.serialize", len(body))
         return self._submit(tenant, job_id, kind, body, "text/markdown")
+
+    def put_text_file(self, tenant, job_id, kind, source):
+        self._check_open()
+        try:
+            # Never retain a caller-owned file in the asynchronous byte pool.
+            self.flush()
+            return self.artifacts.put_text_file(tenant, job_id, kind, source)
+        except BaseException as exc:
+            self.error = exc
+            raise
 
     def __exit__(self, exc_type, exc, traceback):
         try:

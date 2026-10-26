@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import tempfile
 from urllib.parse import urlsplit
 
 
@@ -109,6 +110,139 @@ def _json_block(value):
     return [fence + "json", text, fence, ""]
 
 
+_MARKDOWN_CHARS = 64 * 1024
+_SMALL_JSON_BYTES = 64 * 1024
+
+
+def _small_json(value):
+    """Conservatively bound native encoding before allocating a pretty tree.
+
+    The budget covers escaped text, indentation and punctuation. Exact JSON
+    containers only: unusual values and subclasses retain stdlib semantics.
+    """
+    remaining = [_SMALL_JSON_BYTES, 1024]
+    active = set()
+
+    def visit(item, depth):
+        remaining[0] -= 16 + 4 * depth
+        remaining[1] -= 1
+        if remaining[0] < 0 or remaining[1] < 0 or depth > 32:
+            return False
+        kind = type(item)
+        if kind is str:
+            remaining[0] -= 6 * len(item)
+            return remaining[0] >= 0
+        if item is None or kind is bool:
+            return True
+        if kind is int:
+            remaining[0] -= 20
+            return remaining[0] >= 0 and -(1 << 63) <= item < (1 << 64)
+        if kind not in (dict, list, _JSONFrozenDict, _JSONFrozenList):
+            return False
+        if len(item) > remaining[1] or id(item) in active:
+            return False
+        active.add(id(item))
+        try:
+            if kind in (dict, _JSONFrozenDict):
+                return all(type(key) is str and visit(key, depth + 1)
+                           and visit(child, depth + 1) for key, child in item.items())
+            return all(visit(child, depth + 1) for child in item)
+        finally:
+            active.remove(id(item))
+
+    return visit(value, 0)
+
+
+class _MarkdownLines(list):
+    def json(self, value):
+        self.extend(_json_block(value))
+
+    def finish(self):
+        return "\n".join(self).rstrip() + "\n"
+
+
+class _MarkdownStream:
+    """UTF-8 line sink; its caller owns the seekable binary output file.
+
+    Large JSON blocks use one disk spool to choose their exact backtick fence.
+    Working memory is bounded by chunks, encoder depth/dictionary keys and the
+    largest JSON scalar token, rather than the complete rendered document.
+    """
+    def __init__(self, stream):
+        self.stream = stream
+        self.start = self.position = self.last_nonwhite = stream.tell()
+        self.started = False
+
+    def _write(self, body):
+        view = memoryview(body)
+        while view:
+            written = self.stream.write(view)
+            if not isinstance(written, int) or written <= 0 or written > len(view):
+                raise OSError("Markdown output did not accept its bytes")
+            view = view[written:]
+
+    def _raw(self, text):
+        for offset in range(0, len(text), _MARKDOWN_CHARS):
+            part = text[offset:offset + _MARKDOWN_CHARS]
+            body = part.encode("utf-8")
+            self._write(body)
+            stripped = part.rstrip()
+            if stripped:
+                self.last_nonwhite = self.position + len(stripped.encode("utf-8"))
+            self.position += len(body)
+
+    def _begin_line(self):
+        if self.started:
+            self._raw("\n")
+        self.started = True
+
+    def append(self, value):
+        self._begin_line()
+        self._raw(value)
+
+    def extend(self, values):
+        for value in values:
+            self.append(value)
+
+    def json(self, value):
+        if _small_json(value):
+            self.extend(_json_block(value))
+            return
+        # iterencode preserves stdlib key ordering, escaping, floats, exception
+        # behavior and immutable snapshot-container handling. A disk file,
+        # rather than SpooledTemporaryFile, prevents an extra memory threshold.
+        with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", newline="") as block:
+            longest = carry = 0
+            encoder = json.JSONEncoder(indent=2, sort_keys=True, ensure_ascii=False)
+            for token in encoder.iterencode(value):
+                block.write(token)
+                for offset in range(0, len(token), _MARKDOWN_CHARS):
+                    part = token[offset:offset + _MARKDOWN_CHARS]
+                    if "`" not in part:
+                        carry = 0
+                        continue
+                    prefix = len(part) - len(part.lstrip("`"))
+                    longest = max(longest, carry + prefix)
+                    longest = max(longest, max((len(m.group()) for m in re.finditer(r"`+", part)), default=0))
+                    carry = carry + len(part) if prefix == len(part) else len(part) - len(part.rstrip("`"))
+            fence = "`" * max(3, longest + 1)
+            self.append(fence + "json")
+            self._begin_line()
+            block.seek(0)
+            while True:
+                part = block.read(_MARKDOWN_CHARS)
+                if not part:
+                    break
+                self._raw(part)
+            self.extend([fence, ""])
+
+    def finish(self):
+        self.stream.seek(self.last_nonwhite)
+        self.stream.truncate()
+        self._write(b"\n")
+        return self.last_nonwhite + 1 - self.start
+
+
 def _remediation_lines(finding, templates, *, shared=True, bound=True, _escape=None):
     """Readable guidance from a reviewed template, with legacy string fallback."""
     from peaso.remediation import bind_command, exposure_details
@@ -184,31 +318,48 @@ def _description_lines(finding):
 
 
 def render_markdown(report):
+    """Return the complete Markdown export as a string (legacy public API)."""
+    return _render_markdown(report, _MarkdownLines())
+
+
+def write_markdown(report, stream):
+    """Write identical UTF-8 Markdown to a caller-owned seekable binary file.
+
+    Output starts at the current file position and replaces the remainder of the
+    file. Return the number of bytes written. The caller closes/removes the file
+    and must not publish it if rendering raises; partial output is possible.
+    """
+    return _render_markdown(report, _MarkdownStream(stream))
+
+
+def _render_markdown(report, lines):
     if not isinstance(report, dict):
         raise ValueError("report must be an object")
     if "added" in report and "changed" in report:
-        return _render_diff(report)
+        return _render_diff(report, _lines=lines)
     from peaso.engine import hydrate_frameworks
     report = hydrate_frameworks(report)
     if "checks" in report and "findings" not in report:
-        return "\n".join(["# Peaso native check catalog", "", *_json_block(report)]).rstrip() + "\n"
-    lines = ["# Peaso security snapshot report", "",
+        lines.extend(["# Peaso native check catalog", ""])
+        lines.json(report)
+        return lines.finish()
+    lines.extend(["# Peaso security snapshot report", "",
         f"Provider: **{_text(report.get('provider', 'unknown'))}**  ",
         "Scopes: " + ", ".join(_text(s) for s in report.get("scopes", [])) + "  ",
         "Snapshot: " + _text(report.get("snapshot_id", "unknown")) + "  ",
-        "Collected: " + _text(report.get("created_at", "unknown")), "", "## Summary", ""]
-    lines.extend(_json_block(report.get("stats", {})))
+        "Collected: " + _text(report.get("created_at", "unknown")), "", "## Summary", ""])
+    lines.json(report.get("stats", {}))
     lines.extend(["## Coverage", "", "| Level | Check / inventory | Scope | Status | Reason |", "| --- | --- | --- | --- | --- |"])
     for row in report.get("coverage", []):
         lines.append("| " + " | ".join(_text(row.get(k, "")) for k in ("level", "check_id" if row.get("check_id") else "framework_id" if row.get("framework_id") else "type", "scope", "status", "reason")) + " |")
     lines.extend(["", "Detailed coverage:", ""])
-    lines.extend(_json_block(report.get("coverage", [])))
+    lines.json(report.get("coverage", []))
     if report.get("framework_versions"):
         lines.extend(["## Framework checklist versions", ""])
-        lines.extend(_json_block([{k: v for k, v in row.items() if k != "native_check_ids"} if isinstance(row, dict) else row for row in report["framework_versions"]]))
+        lines.json([{k: v for k, v in row.items() if k != "native_check_ids"} if isinstance(row, dict) else row for row in report["framework_versions"]])
     if report.get("snapshot_metadata"):
         lines.extend(["## Snapshot provenance and collection plan", ""])
-        lines.extend(_json_block(report["snapshot_metadata"]))
+        lines.json(report["snapshot_metadata"])
     if "privesc" in report.get("stats", {}) or (report.get("graphs", {}).get("privesc") or {}).get("nodes"):
         lines.extend(_privesc_section(report))
     templates = report.get("remediation_templates")
@@ -256,11 +407,11 @@ def render_markdown(report):
                 asset = member.get("resource_name") or member.get("native_resource_id") or member.get("resource_id", "")
                 lines.append("| " + " | ".join(_text(value) for value in (asset, account, region or "Global / not regional", member.get("status"), observation)) + " |")
             lines.extend(["", "<details><summary>Technical evidence for all observations</summary>", ""])
-            lines.extend(_json_block(finding.get("observations", [])))
+            lines.json(finding.get("observations", []))
             lines.extend(["", "</details>", ""])
         else:
             lines.extend(["Evidence:", ""])
-            lines.extend(_json_block(finding.get("evidence", {})))
+            lines.json(finding.get("evidence", {}))
         lines.extend(_remediation_lines(finding, templates, shared=shared, _escape=remediation_text))
     aggregates = report.get("finding_aggregates") or []
     if aggregates:
@@ -274,22 +425,23 @@ def render_markdown(report):
     lines.extend(["## Resource inventory", "", "Native configuration facts are retained below. No data-plane secrets or object contents are collected.", ""])
     for resource in report.get("resources", []):
         lines.extend(["### " + _text(resource.get("type")) + ": " + _text(resource.get("id")), "", "Scope: " + _text(resource.get("scope")), ""])
-        lines.extend(_json_block(resource))
+        lines.json(resource)
     lines.extend(["## Defensive relationship graphs", "", "Edges record observed configuration references and declared IAM grants. They do not establish effective access or network reachability.", ""])
     for name, graph in report.get("graphs", {}).items():
         lines.extend(["### " + _text(name), ""])
-        lines.extend(_json_block(graph))
-    return "\n".join(lines).rstrip() + "\n"
+        lines.json(graph)
+    return lines.finish()
 
 
-def _render_diff(report):
-    lines = ["# Peaso snapshot difference", "", "Provider: " + _text(report.get("provider")), "",
-        "Before: " + _text(report.get("before_snapshot_id")), "After: " + _text(report.get("after_snapshot_id")), ""]
-    lines.extend(_json_block(report.get("stats", {})))
+def _render_diff(report, *, _lines=None):
+    lines = _MarkdownLines() if _lines is None else _lines
+    lines.extend(["# Peaso snapshot difference", "", "Provider: " + _text(report.get("provider")), "",
+        "Before: " + _text(report.get("before_snapshot_id")), "After: " + _text(report.get("after_snapshot_id")), ""])
+    lines.json(report.get("stats", {}))
     for name in ("added", "removed", "changed", "coverage_before", "coverage_after"):
         lines.extend(["## " + name.replace("_", " ").title(), ""])
-        lines.extend(_json_block(report.get(name, [])))
-    return "\n".join(lines).rstrip() + "\n"
+        lines.json(report.get(name, []))
+    return lines.finish()
 
 
 PRIVESC_ADMIN_LIMIT = 25

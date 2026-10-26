@@ -167,8 +167,13 @@ def _verify_private_helper(root, receipt):
                 or cls.__module__ != module.__name__ or cls.__qualname__ != name
                 or set(members) - optional != expected):
             raise RuntimeError('Private helper live class changed: ' + name)
+        # The finite predecessor proof above admits the exact current helper.
+        # Keep the historical receipt line while checking current class layout.
+        class_code = compiled.get(name)
         if ('__firstlineno__' in members and
-                (type(members['__firstlineno__']) is not int or members['__firstlineno__'] != row['lineno'])):
+                (type(members['__firstlineno__']) is not int
+                 or not isinstance(class_code, types.CodeType)
+                 or members['__firstlineno__'] != class_code.co_firstlineno)):
             raise RuntimeError('Private helper class line changed: ' + name)
         if ('__static_attributes__' in members and
                 (type(members['__static_attributes__']) is not tuple
