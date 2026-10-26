@@ -177,7 +177,9 @@ def _scan_index(reader, token, parent_raw, marker, target, scope, *, db_cache,
             verify()
             report=(runner or trivy.scan_image)(image,manifest,raw,paths,
                 native_verifier=verify,enabled=True,db_cache=db_cache,cli=cli,
-                archive_format='oci' if archive.decode(manifest)['mediaType']==archive.OCI else 'docker',
+                # Pinned Trivy reads an --input tar only in docker-save layout;
+                # an OCI layout tar fails ("index.json: not a directory").
+                archive_format='docker',
                 timeout=min(trivy.MAX_SECONDS,max(1,int(reader.state['deadline']-time.monotonic()))),
                 cancel=reader.check,scratch_parent=scratch_parent)
             verify()

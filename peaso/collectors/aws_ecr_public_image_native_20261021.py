@@ -247,9 +247,11 @@ def inspect(target, native, *, registry_factory=None, scanner=None, cancel=lambd
                         if native.bind(target) != before:
                             raise Incomplete('native_image_changed')
                         return image
+                    # Pinned Trivy reads an --input tar only in docker-save layout; an
+                    # OCI layout tar fails ("index.json: not a directory") and stays UNKNOWN.
                     report = trivy_runner(image,manifest,config,layers,
                         native_verifier=verify,enabled=True,db_cache=trivy_db,cli=trivy_cli or default_cli,
-                        cancel=check,archive_format='oci' if decoded['mediaType']==archive.OCI else 'docker')
+                        cancel=check,archive_format='docker')
                     if type(report) is not dict or type(report.get('findings')) is not list:
                         raise Incomplete('vulnerability_result_unavailable')
                     vulnerability_results.append(report)

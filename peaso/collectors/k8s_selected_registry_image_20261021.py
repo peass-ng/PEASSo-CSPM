@@ -595,7 +595,9 @@ def inspect(target, pod_get, *, allowed_hosts=(), credentials=None, registry_fac
                     result = runner(image_identity, manifest, config, layers,
                         native_verifier=verify, enabled=True, db_cache=trivy_db,
                         cli=trivy_cli or default_cli, cancel=reader.check,
-                        archive_format='oci' if decoded['mediaType'] == archive.OCI else 'docker')
+                        # Pinned Trivy reads an --input tar only in docker-save layout;
+                        # an OCI layout tar fails ("index.json: not a directory").
+                        archive_format='docker')
                     if type(result) is not dict or type(result.get('findings')) is not list:
                         raise Incomplete('vulnerability_result_unavailable')
                     vulnerability_results.append(result)

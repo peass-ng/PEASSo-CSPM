@@ -298,3 +298,27 @@ def test_parallel_targets_keep_order_and_private_receipts():
     serial = list(parallel.scan_targets(jobs, scan, workers=1))
     overlapped = list(parallel.scan_targets(jobs, scan))
     assert serial == overlapped == [({'target': i}, [i]) for i in range(5)]
+
+
+def test_oci_manifest_builds_docker_save_layout_for_trivy_input(tmp_path):
+    """Pinned Trivy --input reads docker-save tars; OCI images are archived that way."""
+    identity, manifest, config, layers = build(tmp_path)
+    assert json.loads(manifest)['mediaType'] == archive.OCI
+    out = tmp_path / 'image.tar'
+    proof = archive.write_archive(out, identity, manifest, config, layers, archive_format='docker')
+    assert proof['format'] == 'docker'
+    with tarfile.open(out) as tar:
+        names = tar.getnames()
+        listing = json.loads(tar.extractfile('manifest.json').read())
+        assert 'index.json' not in names
+        assert listing[0]['Config'] == identity['config_digest'][7:] + '.json'
+        diffs = [archive.sha(tar.extractfile(name).read()) for name in listing[0]['Layers']]
+    assert diffs == json.loads(config)['rootfs']['diff_ids']
+
+
+def test_selected_oci_collectors_request_docker_archives():
+    root = Path(__file__).resolve().parents[1] / 'peaso/collectors'
+    for name in ('aws_ecr_public_image_native_20261021.py', 'k8s_selected_registry_image_20261021.py',
+                 'azure_acr_image_vulnerabilities_20261021.py'):
+        source = (root / name).read_text()
+        assert "archive_format='oci'" not in source and "else 'docker'" not in source, name
