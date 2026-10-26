@@ -300,6 +300,9 @@ class Requests:
         self.calls = 0
         self.cache_hits = 0
         self._cache, self._clients, self._sessions = {}, {}, {}
+        from .aws_request_pool import RawReadCache
+        # Native reads shared below projections for this scan only.
+        self.raw_reads = RawReadCache()
         # One later recovery read per key after a transient failure.
         self._transient_refreshes = set()
         self._lock = threading.RLock()
@@ -332,6 +335,8 @@ class Requests:
 
     def client(self, session, service, region, *, _metadata_profile=None):
         from botocore.config import Config
+        from .aws_request_pool import canonical_wrapper
+        session = canonical_wrapper(self, session)
         key = (id(session), service, region)
 
         def cached_client(create):
@@ -374,16 +379,25 @@ class Requests:
             raise ReadFailure('not_collected', 'undeclared_client_profile')
         if lambda_environment_profile:
             key += (_metadata_profile,)
-        return cached_client(
-            lambda: session.client(service, region_name=region, config=Config(
+        def create():
+            client = session.client(service, region_name=region, config=Config(
                     connect_timeout=min(3, self.connect_timeout) if lambda_environment_profile else self.connect_timeout,
                     read_timeout=min(5, self.timeout) if lambda_environment_profile else self.timeout,
                     retries={"total_max_attempts": 1, "mode": "standard"},
                     max_pool_connections=self.workers,
                     **({'ignore_configured_endpoint_urls': True, 'use_fips_endpoint': False, 'use_dualstack_endpoint': False}
-                       if _metadata_profile == 'aws-selected-configuration-content-v1' else {}))))
+                       if _metadata_profile == 'aws-selected-configuration-content-v1' else {})))
+            raw_reads = getattr(self, 'raw_reads', None)
+            if _metadata_profile is None and raw_reads is not None:
+                from botocore.client import BaseClient
+                if isinstance(client, BaseClient):
+                    raw_reads.install(client, session)
+            return client
+        return cached_client(create)
 
     def call(self, session, service, region, operation, *, _cache_refresh=False, _uncached_credential_exchange=False, _metadata_profile=None, _projection_context=None, _codecommit_routes=None, **arguments):
+        from .aws_request_pool import canonical_wrapper, shared_reads
+        session = canonical_wrapper(self, session)
         if _metadata_profile == 'aws-build-deployment-referenced-source-v1':
             if _cache_refresh or _uncached_credential_exchange or _codecommit_routes is not None:
                 raise ReadFailure('not_collected', 'invalid_build_deployment_source_controls')
@@ -587,7 +601,8 @@ class Requests:
                         with private_sdk_logs():
                             response = getattr(client, operation)(**arguments)
                     else:
-                        response = getattr(client, operation)(**arguments)
+                        with shared_reads(not _cache_refresh and _metadata_profile is None and _codecommit_routes is None):
+                            response = getattr(client, operation)(**arguments)
                     if metadata_report:
                         with self._lock:
                             if operation == 'generate_credential_report':
@@ -783,6 +798,8 @@ class Requests:
         operation that botocore declares without a paginator; an unpaginated
         response carrying a continuation token is never reported complete."""
         import jmespath
+        from .aws_request_pool import canonical_wrapper
+        session = canonical_wrapper(self, session)
         items, seen = [], set()
         try:
             with self._lock:
@@ -1131,8 +1148,7 @@ def _enrich(requests, session, region, kind, items, *, account=None, partition=N
     def detail(service, operation, **arguments):
         return requests.detail(session, service, region, operation, **arguments)
 
-    output = []
-    for original in items:
+    def enrich_one(original):
         if isinstance(original, str):
             names = {"eks_cluster": "name", "guardduty_detector": "DetectorId", "sqs_queue": "QueueUrl", "dynamodb_table": "TableName"}
             item = {names.get(kind, _NATIVE_IDS.get(kind, "Name")): original}
@@ -1349,8 +1365,11 @@ def _enrich(requests, session, region, kind, items, *, account=None, partition=N
             item["Table"] = detail("dynamodb", "describe_table", TableName=item["TableName"])
         if isinstance(item.get("Policy"), str):
             item["Policy"] = _policy(item["Policy"])
-        output.append(item)
-    return output
+        return item
+    # Per-resource reads are independent: run them concurrently and keep the
+    # input order (the first failing resource raises, as the serial loop did).
+    from .aws_request_pool import ordered_map
+    return ordered_map(requests, items, enrich_one)
 
 
 def _access_keys(requests, session, region):
@@ -1871,9 +1890,12 @@ def _cloudtrail_activity(requests, session, region):
     start = end - timedelta(minutes=requests.activity_minutes)
     names = activity_event_names(region)
     items, failures = {}, []
-    for name in names:
-        read = requests.pages(session, "cloudtrail", region, "lookup_events", "Events",
-            LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": name}], StartTime=start, EndTime=end)
+    from .aws_request_pool import ordered_reads
+    # Event names are read concurrently under the same 2 TPS Region limiter;
+    # results are merged in the original name order.
+    reads = ordered_reads(requests, names, lambda name: requests.pages(session, "cloudtrail", region, "lookup_events", "Events",
+        LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": name}], StartTime=start, EndTime=end))
+    for name, read in zip(names, reads):
         for event in read.items:
             if event.get("EventName") != name:
                 failures.append(ReadFailure("malformed", "activity_query_name_mismatch"))
@@ -3137,6 +3159,8 @@ def _load_metadata_extension(name="peaso.collectors.aws_b_services"):
     for kind, enricher in getattr(extension, "ENRICHERS", {}).items():
         if name in {'peaso.collectors.aws_code_log_content_indicators', 'peaso.collectors.aws_package_content_indicators'}:
             enricher = _explicit_content_enricher(kind, enricher)
+        from .aws_request_pool import item_wise
+        enricher = item_wise(name, enricher)
         ENRICHERS[kind] = _chain(ENRICHERS[kind], enricher) if kind in ENRICHERS else enricher
     AWS_TYPES[:] = sorted(set(SPECS) | GLOBAL_TYPES)
 

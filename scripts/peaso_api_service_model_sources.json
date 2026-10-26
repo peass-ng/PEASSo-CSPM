@@ -970,7 +970,7 @@
     "peaso/checks/post_dfaf_aws.py": "d7b41a3a3d86242c60f22dd412688f0b2ae1ec4fff8b78c930f2678668b6fb48",
     "peaso/checks/post_dfaf_aws_specs.py": "4f2410348d731c2c76c3db79b0b2b0aebedebf874ce9044f9dccb612622d2476",
     "peaso/checks/post_dfaf_azure.py": "c00e5f758009f1929eb97f83a096706874b97fc6e2269dea8ccdab06c8e5640e",
-    "peaso/checks/private_secret_shared_source_successor_20261021.py": "2257e8af93d86f090e8ed05fe5ae65fe83a552f2c6484da0f0a95c8b718fdd1a",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "75afcd573db4ab947846aefd7ee3b2afa06ce1b8924155c40c8a1a1932e6cb35",
     "peaso/checks/provider_content_native_cases_20261021.py": "3383f96e2670cf34f00d2224205ceba6cb97a6cba5a54c404d52759555ae6377",
     "peaso/checks/provider_group_install_20261021.py": "da090f9cabd55967fdcf7b6606421410de0c0c72f3abb9dadbd4d810051caad0",
     "peaso/checks/provider_group_witnesses_20261021/test_gcp_job_image_vulnerability_product_20261021.py": "addfca8b8b2a53c44cd1ece9909bc1c5894e5a1485eb175b4f99799d82d9f835",
@@ -991,7 +991,7 @@
     "peaso/cli.py": "6f4fb6ed7a610c53b010705aeeda2d54cfc756354fba5cec149f408c09239715",
     "peaso/collection_events.py": "0e0b9d25423077e666d956f61f6d682026112c4550880f7b2f7454d6af45377e",
     "peaso/collectors/__init__.py": "ea1086b54a6136d932bc522a2e59d3deaee52152828898bb4dccaa71595954a4",
-    "peaso/collectors/aws.py": "c9dbb8fa0e2e420a7e4320614e014e9b6b13d649ed21f378a490effd199546c8",
+    "peaso/collectors/aws.py": "14ef4a440a023b43a0c3af493760f047d25ac35705f15257a127ecd28107b065",
     "peaso/collectors/aws_access_analyzer_lifecycle.py": "97f7637126435d9f5a1f26d3e6a472c5435836aa9d96d14833b23dc5a33cf3d4",
     "peaso/collectors/aws_additional_secret_indicators.py": "c48782094d4e06282f4780a87d5b39c10bae7a90a52202a3dc6f7ba49359b374",
     "peaso/collectors/aws_ai_recheck_facts_20261020.py": "49a6d5cb87e978cd2757bcc225acac09a24fcb1ead27a30c786006ea9ed4525c",
@@ -1032,7 +1032,7 @@
     "peaso/collectors/aws_environment_boundaries_native.py": "284c7f394112055793a72bace877e0fdc1fdda7f7b86225270e4aae1cf8271d6",
     "peaso/collectors/aws_facts_cb_ca.py": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe",
     "peaso/collectors/aws_facts_compute_edge.py": "33132a9fd900a55e6e7a259abcbb9af7b9a978a3ceb1cc589d78c4e754de2671",
-    "peaso/collectors/aws_facts_data_identity.py": "0d3cc246be4f7fac6eba70e723aa0ededef1ea5c28e424ecdd0e34629b003642",
+    "peaso/collectors/aws_facts_data_identity.py": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0",
     "peaso/collectors/aws_facts_ext.py": "8fe7915d70b98bcc71a13ca6321c102d91c5fdae0aacd9d3f562f71e0c6dc86a",
     "peaso/collectors/aws_facts_gap.py": "edc56fe1a1dc77e9cec2321f41b1fd665b003807125c8f37b88d6f35296e6fbf",
     "peaso/collectors/aws_facts_swc.py": "02976f331c75a7e2ead54148129901fbec1ffed7f3001f1bf170401842b0e26b",
@@ -1059,7 +1059,7 @@
     "peaso/collectors/aws_macie_coverage_native.py": "5650b5a3e15a654cda7d2e5dcd2974124c6a0a711e1798202bf11e4ca5e65a7b",
     "peaso/collectors/aws_macie_findings_native.py": "adabf276b593708f504f6e7bc6e9f5536ff746ab5ca6fa1626e5c9f781d13d42",
     "peaso/collectors/aws_network_catalog.py": "1810439802f6e63020cfa5a4ed7ebfc2c53cc432a1b95ed556348a63f74b2fe6",
-    "peaso/collectors/aws_network_inventory.py": "f166cf5732dfcbaa0de7a6577c8741c7d4d8db595ae5da5634521a7818201a74",
+    "peaso/collectors/aws_network_inventory.py": "7bb1b2471c8bb9bd5b417a236bf7ba0e075cc023cf93e8ebca4ff4ec3440523a",
     "peaso/collectors/aws_network_service_metadata.py": "387f86bd51462610c486b6441c6f5f086f01c4de5f20f70409c4335a16d69a78",
     "peaso/collectors/aws_operational_groups_native.py": "06108480e7c2f75ca30343ea5ca4fe3dc0a3fa92d8dee9cf2ccf8f47150f2456",
     "peaso/collectors/aws_organization_ou_native.py": "d1348b2668a72388cae45349c52558e1cc9f600595acfe7840a690a9d0ae762c",
@@ -1678,7 +1678,8 @@
     "peaso/worker.py": "b322a30eed7c92ac7de3a1d5e142148526a35cd2f08fc0eb6c11158d6ea5e712",
     "peaso/worker_progress.py": "7e6b614877b9581a1d1a9305b32f81f4cec08a859287560605c78c21e8b5f308",
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
-    "scripts/cloud_permission_risks.py": "81da211c3f374714634956f8b33d1dd3b525078a59fd6496635a7bae33b6b0bb"
+    "scripts/cloud_permission_risks.py": "81da211c3f374714634956f8b33d1dd3b525078a59fd6496635a7bae33b6b0bb",
+    "peaso/collectors/aws_request_pool.py": "97b8ac0f8b7c91611ad5e47557a007c5a4f475ccf6efcaa85f36869135c84f18"
   },
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
@@ -1783,8 +1784,8 @@
     "source_review": "Qualified factory/SW46/source-proof locality and network joins; current main offline event normalizers and historical ECS lineage; bounded S3 uploads retain tenant checks, encryption and manifest-last semantics. Added modules have no SDK calls. Exact API client closure unchanged.",
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
-  "python_source_count": 1676,
-  "python_source_sha256": "1dc640b7953d41abf2b744be5f718bb0448cf26d22cf1f2502431468e0f84fa7",
+  "python_source_count": 1677,
+  "python_source_sha256": "b99115f4dc916fe58b1761c86f6ea071246c0170503b3141f9d98eb5f75c6187",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

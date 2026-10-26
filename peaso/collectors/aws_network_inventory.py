@@ -255,7 +255,11 @@ def collect(kind):
                     discovered.append((context | exported, lineage + list(exported.values())))
             parents = discovered
         for context, lineage in parents:
-            for item in pages(plan, context):
+            listed = pages(plan, context)
+            if plan.get('detail'):
+                from .aws_request_pool import prefetch_details
+                prefetch_details(requests, session, service, region, plan, context, listed, _arguments, _details)
+            for item in listed:
                 if isinstance(item, str) and item:
                     item = {'Item': item}
                 if not isinstance(item, dict):

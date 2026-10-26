@@ -1,0 +1,238 @@
+"""Scan-local AWS read sharing, bounded item concurrency and batch seeding."""
+
+import threading
+import time
+
+import boto3
+import botocore.client
+import pytest
+from botocore.exceptions import ClientError
+from botocore.stub import Stubber
+
+from peaso.collectors import aws
+from peaso.collectors import aws_request_pool as pool
+
+REGION = "us-east-1"
+
+
+def _session():
+    return boto3.Session(aws_access_key_id="AKIDEXAMPLE", aws_secret_access_key="example",
+                         region_name=REGION)
+
+
+@pytest.fixture
+def native(monkeypatch):
+    """Replace the botocore wire call; record every native request."""
+    calls, handlers = [], {}
+    lock = threading.Lock()
+
+    def make_api_call(self, operation_name, api_params):
+        with lock:
+            calls.append((self.meta.service_model.service_name, operation_name, dict(api_params)))
+        handler = handlers.get(operation_name)
+        if handler is None:
+            return {"ResponseMetadata": {"HTTPStatusCode": 200}}
+        return handler(api_params)
+    monkeypatch.setattr(botocore.client.BaseClient, "_make_api_call", make_api_call)
+    return calls, handlers
+
+
+def _error(code, status):
+    return ClientError({"Error": {"Code": code, "Message": "m"},
+                        "ResponseMetadata": {"HTTPStatusCode": status}}, "GetRole")
+
+
+def test_identical_reads_share_one_native_call_within_a_scan(native):
+    calls, handlers = native
+    handlers["GetRole"] = lambda params: {"Role": {"RoleName": params["RoleName"]}}
+    session = _session()
+    requests = aws.Requests({})
+    first = requests.client(session, "iam", REGION).get_role(RoleName="a")
+    with pool.shared_reads():
+        a = requests.client(session, "iam", REGION).get_role(RoleName="a")
+        b = requests.client(session, "iam", "eu-west-1").get_role(RoleName="a")  # global endpoint
+        requests.client(session, "iam", REGION).get_role(RoleName="b")
+    assert a == b == first
+    # Outside Requests.call (no shared_reads) every call reaches AWS.
+    assert [c[2]["RoleName"] for c in calls] == ["a", "a", "b"]
+    a["Role"]["RoleName"] = "mutated"
+    with pool.shared_reads():
+        again = requests.client(session, "iam", REGION).get_role(RoleName="a")
+    assert again["Role"]["RoleName"] == "a"
+    # A new scan never sees the previous scan's answers.
+    with pool.shared_reads():
+        aws.Requests({}).client(session, "iam", REGION).get_role(RoleName="a")
+    assert len(calls) == 4
+
+
+def test_mutating_secret_and_streaming_operations_are_never_shared():
+    model = boto3.Session(region_name=REGION).client("s3", aws_access_key_id="a", aws_secret_access_key="b").meta.service_model
+    assert pool.eligible("s3", "GetBucketPolicy", model.operation_model("GetBucketPolicy"))
+    assert not pool.eligible("s3", "GetObject", model.operation_model("GetObject"))
+    assert not pool.eligible("s3", "PutBucketPolicy", model.operation_model("PutBucketPolicy"))
+    lam = boto3.Session(region_name=REGION).client("lambda", aws_access_key_id="a", aws_secret_access_key="b").meta.service_model
+    assert not pool.eligible("lambda", "GetFunction", lam.operation_model("GetFunction"))
+    assert not pool.eligible("lambda", "GetFunctionUrlConfig", lam.operation_model("GetFunctionUrlConfig"))
+    assert not pool.eligible("sts", "GetCallerIdentity", None)
+    assert not pool.eligible("secretsmanager", "GetSecretValue", None)
+
+
+def test_single_flight_and_transient_errors_are_not_cached(native):
+    calls, handlers = native
+    gate, started = threading.Event(), threading.Event()
+    outcomes = iter([_error("Throttling", 400), _error("InternalError", 500), _error("X", 429), None, _error("AccessDenied", 403)])
+
+    def get_role(params):
+        if params["RoleName"] == "slow":
+            started.set()
+            gate.wait(5)
+            return {"Role": {"RoleName": "slow"}}
+        failure = next(outcomes)
+        if failure is not None:
+            raise failure
+        return {"Role": {"RoleName": params["RoleName"]}}
+    handlers["GetRole"] = get_role
+    session, requests = _session(), aws.Requests({})
+    client = requests.client(session, "iam", REGION)
+    results = []
+
+    def read():
+        with pool.shared_reads():
+            results.append(client.get_role(RoleName="slow"))
+    threads = [threading.Thread(target=read) for _ in range(4)]
+    threads[0].start()
+    assert started.wait(5)
+    for thread in threads[1:]:
+        thread.start()
+    time.sleep(0.05)
+    gate.set()
+    for thread in threads:
+        thread.join(5)
+    assert len(results) == 4 and sum(1 for c in calls if c[2]["RoleName"] == "slow") == 1
+    with pool.shared_reads():
+        for code in ("Throttling", "InternalError", "X"):
+            with pytest.raises(ClientError) as raised:
+                client.get_role(RoleName="t")
+            assert raised.value.response["Error"]["Code"] == code
+        assert client.get_role(RoleName="t") == {"Role": {"RoleName": "t"}}
+        assert client.get_role(RoleName="t") == {"Role": {"RoleName": "t"}}
+        for _ in range(2):  # a definitive denial is shared
+            with pytest.raises(ClientError) as raised:
+                client.get_role(RoleName="d")
+            assert raised.value.response["Error"]["Code"] == "AccessDenied"
+    assert sum(1 for c in calls if c[2]["RoleName"] == "t") == 4
+    assert sum(1 for c in calls if c[2]["RoleName"] == "d") == 1
+
+
+def test_cache_is_memory_bounded():
+    cache = pool.RawReadCache(max_bytes=4000, max_entry_bytes=1500)
+    for index in range(10):
+        cache._store(("k", index), ("ok", {"v": "x" * 500}))
+    cache._store(("big",), ("ok", {"v": "x" * 5000}))
+    stats = cache.stats()
+    assert stats["bytes"] <= 4000 and stats["evicted"] > 0 and stats["oversized"] == 1
+    assert ("big",) not in cache._entries and ("k", 9) in cache._entries and ("k", 0) not in cache._entries
+
+
+def test_stubbed_clients_bypass_sharing():
+    session, requests = _session(), aws.Requests({})
+    client = requests.client(session, "iam", REGION)
+    with Stubber(client) as stub:
+        stub.add_response("get_role", {"Role": {"RoleName": "a", "Path": "/", "RoleId": "AROAEXAMPLEEXAMPLE1", "Arn": "arn:aws:iam::123456789012:role/a", "CreateDate": "2026-01-01"}}, {"RoleName": "a"})
+        stub.add_response("get_role", {"Role": {"RoleName": "b", "Path": "/", "RoleId": "AROAEXAMPLEEXAMPLE1", "Arn": "arn:aws:iam::123456789012:role/b", "CreateDate": "2026-01-01"}}, {"RoleName": "a"})
+        with pool.shared_reads():
+            assert client.get_role(RoleName="a")["Role"]["RoleName"] == "a"
+            assert client.get_role(RoleName="a")["Role"]["RoleName"] == "b"
+
+
+def test_adaptive_limiter_halves_on_throttle_and_grows_back():
+    limiter = pool.AdaptiveLimiter(initial=8, maximum=10)
+    with pytest.raises(ClientError):
+        with limiter.slot("k"):
+            raise _error("Throttling", 400)
+    assert limiter._state["k"][0] == 4.0 and limiter.throttles == 1
+    for _ in range(40):
+        with limiter.slot("k"):
+            pass
+    assert 4.0 < limiter._state["k"][0] <= 10.0
+    with pytest.raises(ClientError):
+        with limiter.slot("k"):
+            raise _error("AccessDenied", 403)
+    assert limiter.throttles == 1
+
+
+def test_ordered_map_keeps_order_and_first_error():
+    requests = aws.Requests({})
+    assert pool.ordered_map(requests, list(range(30)), lambda n: (time.sleep(0.001 * (n % 3)), n * 2)[1]) == [n * 2 for n in range(30)]
+
+    def fail(n):
+        if n in (3, 7):
+            raise ValueError(n)
+        return n
+    with pytest.raises(ValueError) as raised:
+        pool.ordered_map(requests, list(range(10)), fail)
+    assert raised.value.args == (3,)
+    seen = []
+    capped = aws.Requests({"max_calls": 100})
+    with pytest.raises(ValueError):
+        pool.ordered_map(capped, list(range(10)), lambda n: (seen.append(n), fail(n))[1])
+    assert seen == [0, 1, 2, 3]  # serial mode stops exactly where the loop did
+
+
+def test_item_wise_wrapper_equals_serial_rows_and_only_wraps_reviewed_enrichers():
+    def enrich(requests, session, region, items):
+        return [dict(item, seen=item["n"] * 3) for item in items]
+    enrich.__module__, enrich.__qualname__ = "peaso.collectors.aws_facts_ext", "_lambda_function"
+    wrapped = pool.item_wise("peaso.collectors.aws_facts_ext", enrich)
+    items = [{"n": n} for n in range(25)]
+    for requests in (aws.Requests({}), aws.Requests({"max_calls": 5})):
+        assert wrapped(requests, None, REGION, items) == enrich(requests, None, REGION, items)
+    other = lambda requests, session, region, items: items  # noqa: E731
+    assert pool.item_wise("peaso.collectors.aws_facts_ext", other) is other
+
+
+def test_app_runner_detail_rows_each_read_their_own_service(native):
+    calls, handlers = native
+    arns = [f"arn:aws:apprunner:{REGION}:123456789012:service/s{n}/id" for n in range(3)]
+    handlers["DescribeService"] = lambda params: {"Service": {
+        "ServiceArn": params["ServiceArn"], "ServiceName": params["ServiceArn"].split("/")[1],
+        "ServiceId": "id", "Status": "RUNNING", "CreatedAt": "2026-01-01", "UpdatedAt": "2026-01-01",
+        "SourceConfiguration": {"AutoDeploymentsEnabled": False, "ImageRepository": {"ImageIdentifier": "img", "ImageRepositoryType": "ECR"}},
+        "InstanceConfiguration": {}, "NetworkConfiguration": {"IpAddressType": "IPV4"}}}
+    from peaso.collectors.aws_network_catalog import detail_enricher
+    enricher = pool.item_wise("peaso.collectors.aws_network_catalog", detail_enricher("app_runner_service"))
+    for options in ({}, {"max_calls": 50}):
+        rows = enricher(aws.Requests(options), _session(), REGION, [{"ServiceArn": arn} for arn in arns])
+        assert [row["NetworkDetails"].get("ImageIdentifier") for row in rows] == ["img"] * 3
+        assert all("_coverage" not in row["NetworkDetails"] for row in rows)
+    assert sorted(c[2]["ServiceArn"] for c in calls if c[1] == "DescribeService") == sorted(arns * 2)
+
+
+def test_batch_seeding_answers_single_identifier_reads_exactly(native):
+    calls, handlers = native
+
+    def batch_get_builds(params):
+        ids = params["ids"]
+        return {"builds": [{"id": value, "arn": "arn:" + value} for value in ids if value != "gone"],
+                "buildsNotFound": [value for value in ids if value == "gone"],
+                "ResponseMetadata": {"HTTPStatusCode": 200}}
+    handlers["BatchGetBuilds"] = batch_get_builds
+    session, requests = _session(), aws.Requests({})
+    ids = [f"p:{n}" for n in range(150)] + ["gone"]
+    assert pool.seed_batch_details(requests, session, "codebuild", REGION, "batch_get_builds", ids) == len(ids)
+    assert [len(c[2]["ids"]) for c in calls] == [100, 51]
+    single = [requests.call(session, "codebuild", REGION, "batch_get_builds", ids=[value]) for value in ids]
+    assert len(calls) == 2
+    fresh = aws.Requests({})
+    expected = [fresh.call(session, "codebuild", REGION, "batch_get_builds", ids=[value]) for value in ids]
+    assert single == expected and len(calls) == 2 + len(ids)
+
+
+def test_metadata_wrappers_share_pooled_clients():
+    from peaso.collectors.aws_network_catalog import MetadataSession
+    session, requests = _session(), aws.Requests({})
+    first = pool.canonical_wrapper(requests, MetadataSession(session))
+    second = pool.canonical_wrapper(requests, MetadataSession(session))
+    assert first is second
+    assert pool.wrapper_root(first) is session
+    assert first.native.client("ec2", region_name=REGION) is requests.client(session, "ec2", REGION)
