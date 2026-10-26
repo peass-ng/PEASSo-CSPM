@@ -34,7 +34,9 @@ def test_grouping_source_and_projection_asts_match_native():
 
 def test_complete_regionless_roster_and_grouping_match_normal_native_registry():
     program = r'''
-import copy
+import copy, os
+# This parity check models hosted startup; mutation guards run in strict mode separately.
+os.environ['PEASO_SOURCE_ATTESTATION'] = 'once'
 from peaso import checks
 from peaso import finding_groups as native
 from peaso.server import finding_groups_static_20261021 as static
