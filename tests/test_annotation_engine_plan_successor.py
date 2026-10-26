@@ -1,16 +1,27 @@
 """Exact planner successor preserves annotation ancestry and rejects live drift."""
-import json,sys,types
+import json,os,subprocess,sys,types
 from pathlib import Path
 import pytest
 import peaso.checks
 from peaso import engine
 from peaso.checks import k8s_annotation_native_source_successor_20261021 as subject
 
+TRUSTED = os.environ.get('PEASO_SOURCE_ATTESTATION') == 'trusted'
+
+
+@pytest.mark.skipif(not TRUSTED, reason='the parent already runs source proofs')
+def test_trusted_mode_runs_planner_source_proofs_in_a_strict_child():
+    env = dict(os.environ, PEASO_SOURCE_ATTESTATION='once')
+    result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', __file__],
+                            env=env, capture_output=True, text=True, timeout=300, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+
 
 def attestor():
     return sys.modules[subject._PRIVATE_NAME]._trusted_definition
 
 
+@pytest.mark.skipif(TRUSTED, reason='source proofs run in the strict child')
 def test_current_planner_maps_to_unchanged_historical_definition():
     row,current,previous=subject._engine_plan_source()
     expected=subject.historical._source_receipt()['compiled_sources']['peaso/engine.py']['functions']['plan_collection']
@@ -22,6 +33,7 @@ def test_current_planner_maps_to_unchanged_historical_definition():
     assert current!=previous
 
 
+@pytest.mark.skipif(TRUSTED, reason='source proofs run in the strict child')
 def test_equivalent_unbound_planner_clone_is_rejected():
     fn=engine.plan_collection
     clone=types.FunctionType(fn.__code__,fn.__globals__,fn.__name__,fn.__defaults__,fn.__closure__)
@@ -30,12 +42,14 @@ def test_equivalent_unbound_planner_clone_is_rejected():
         attestor()(clone)
 
 
+@pytest.mark.skipif(TRUSTED, reason='source proofs run in the strict child')
 def test_live_keyword_default_drift_is_rejected(monkeypatch):
     monkeypatch.setattr(engine.plan_collection,'__kwdefaults__',{'_runtime_connector':True})
     with pytest.raises(RuntimeError,match='live binding changed'):
         attestor()(engine.plan_collection)
 
 
+@pytest.mark.skipif(TRUSTED, reason='source proofs run in the strict child')
 @pytest.mark.parametrize('field',['current_fragment_sha256','predecessor_fragment_sha256'])
 def test_receipt_transition_hash_drift_is_rejected(monkeypatch,tmp_path,field):
     row=json.loads(subject.RECEIPT.read_text());row['engine_plan_admission'][field]='0'*64
