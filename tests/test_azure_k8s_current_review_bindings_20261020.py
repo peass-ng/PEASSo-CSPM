@@ -13,7 +13,7 @@ from tests.test_gcp_current_source_reconciliation_20261020 import _bound_functio
 ASSESSMENT_PREDECESSOR_SUCCESSORS = {
     'docs/evidence-reviews/azure.json': {
         'before_sha256': '394f162863c92b9734fbd92305bc45cb12f99ff582aae0f0c3cb4b72b0905090',
-        'after_sha256': 'cff6a2c23e6300b7d22b7cf14ff251df4ad065b1a8a0d867cae8b0c7b07d5d87',
+        'after_sha256': '7df9f94e2f34738d498bbe2a3cdcbf19275e5e089936750fdbd949340873645f',
     },
 }
 

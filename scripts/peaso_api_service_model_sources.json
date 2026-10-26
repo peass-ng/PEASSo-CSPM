@@ -914,7 +914,7 @@
     "peaso/checks/gcp_workload_image_source_association_20261020.py": "563a29ef77c6b7f5f447a4490728b8c9003e5005191cd5592fd4277b9ce51578",
     "peaso/checks/hacktricks_bp_aws.py": "2b1752f0d615a63966fccc4173dbbb04d5e0178c9252e0f4790ac22ccd563d45",
     "peaso/checks/hacktricks_bp_aws_ext.py": "6397edbb1df131a028c1a0e4e7acaffc7034a590b2b693504d79ea5de6181bd0",
-    "peaso/checks/hacktricks_bp_azure.py": "26f8c45fb6b19f8035a3875a9e7ea69c840955354ebb364c680d835d643333a3",
+    "peaso/checks/hacktricks_bp_azure.py": "376c7f229c13a6a9a5d279bf2c47c40708340d7ac19e74c22d29087c1701ac70",
     "peaso/checks/hacktricks_bp_common.py": "a7f127c0ecd1a2876c4ea1124304709cf68feff80c5a9d8564b62193d0226b5e",
     "peaso/checks/hacktricks_bp_gcp.py": "82c87cd9815ae4064acf84174667ba418fc5f464d8fdaf7f4495a6ce303c6434",
     "peaso/checks/hacktricks_bp_k8s.py": "398ea07a43f85cd1f2c457e4a4b5e8abf4fac82ec4ad4fd33f319fc36d8bbc00",
@@ -1811,7 +1811,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1703,
-  "python_source_sha256": "f008bcbc44788df81eb24e24faa1417fc480fe2329db4c2bee0605719f18bb91",
+  "python_source_sha256": "29b8a87000216c498dc2769b2661c29efa7a511921cad5e7c87f9bc2f9805822",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

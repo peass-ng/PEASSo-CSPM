@@ -26684,7 +26684,7 @@
     "source_function": "ht_register.<locals>.apply.<locals>.evaluate",
     "source_sha256": "66de431b10d4f724f8ff7391116df58fc088fc66226ca0c7ee5cf4a3ba44fad5",
     "predicate_function": "sql_entra_only",
-    "predicate_sha256": "80977a6c39e8f8d880f5a996b2ff8332147777f5126d29036506dae7d99629ed",
+    "predicate_sha256": "02eaf2b9f9e495ea176889c6c71f61712b5088f139fd48357949a2fef581bd1b",
     "description_contract_sha256": "ea2d55338e7a694006436d4f977a67d932871a283b360b25736238a72a8012d2",
     "interpretation": "Controlled authentication reduces shared-credential risks.",
     "evidence_limit": "Settings do not prove successful sign-in.",
