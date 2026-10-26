@@ -9,8 +9,11 @@ import tempfile
 import time
 
 
-MAX_BATCH_ITEMS = 512
+MAX_BATCH_ITEMS = 2048
 MAX_BATCH_BYTES = 64 * 1024 * 1024
+_DENSE_SAMPLE_ITEMS = 512
+_DENSE_SAMPLE_OUTPUT = 1024 * 1024
+_MAX_PREPARED_OUTPUT = 16 * 1024 * 1024
 _PREPARED_BATCH = ContextVar('prepared_content_batch', default=None)
 _PREPARED_COHORT = ContextVar('prepared_content_cohort', default=None)
 _BATCH_METRICS = ContextVar('content_batch_metrics', default=None)
@@ -125,13 +128,54 @@ def _volatile_shm_available(total):
     return space.f_bavail * space.f_frsize >= total + 1024 * 1024
 
 
-def _prepare_trufflehog_batch(items, timeout):
+def _prepare_trufflehog_batch(items, timeout, *, _direct=False):
     # Import lazily: secret_scanning exports this module's context manager.
     from . import secret_scanning as scanning
 
     items = list(dict.fromkeys(items))
     payloads = list(dict.fromkeys(payload for payload, _ in items))
     total = sum(map(len, payloads))
+    if not _direct and len(items) > _DENSE_SAMPLE_ITEMS:
+        # The process output ceiling is 4 MiB. Probe one ordinary batch so
+        # dense positives keep the original 512-source process groups. Sparse
+        # inputs can share one further process without changing source paths.
+        deadline = time.monotonic() + timeout
+        prepared, output_bytes = {}, 0
+
+        def add(group):
+            nonlocal output_bytes
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('content batch deadline')
+            try:
+                result = _prepare_trufflehog_batch(group, remaining, _direct=True)
+            except ValueError as error:
+                if str(error) != 'scanner output bound' or len(group) <= 1:
+                    raise
+                # A later group may be denser than the sample. Retry only
+                # that group in bounded halves; never lose a source result.
+                middle = len(group) // 2
+                add(group[:middle])
+                add(group[middle:])
+                return
+            if result is None:
+                raise RuntimeError('batch preparation unavailable')
+            seen = set()
+            for value in result.values():
+                if id(value) not in seen:
+                    seen.add(id(value))
+                    output_bytes += len(value)
+            if output_bytes > _MAX_PREPARED_OUTPUT:
+                raise ValueError('scanner output bound')
+            prepared.update(result)
+
+        first = items[:_DENSE_SAMPLE_ITEMS]
+        add(first)
+        sample_bytes = output_bytes
+        stride = _DENSE_SAMPLE_ITEMS if sample_bytes > _DENSE_SAMPLE_OUTPUT else len(items) - len(first)
+        for offset in range(len(first), len(items), stride):
+            add(items[offset:offset + stride])
+        return prepared
     if not _volatile_shm_available(total):
         # A full 64 MiB content batch cannot fit a default 64 MiB /dev/shm
         # with the required safety margin. Keep the original per-source scan
@@ -153,7 +197,7 @@ def _prepare_trufflehog_batch(items, timeout):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError('content batch deadline')
-                group = _prepare_trufflehog_batch(pending, remaining)
+                group = _prepare_trufflehog_batch(pending, remaining, _direct=True)
                 if group is None:
                     return None
                 for value in group.values():
@@ -169,7 +213,7 @@ def _prepare_trufflehog_batch(items, timeout):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError('content batch deadline')
-            group = _prepare_trufflehog_batch(pending, remaining)
+            group = _prepare_trufflehog_batch(pending, remaining, _direct=True)
             if group is None:
                 return None
             for value in group.values():
