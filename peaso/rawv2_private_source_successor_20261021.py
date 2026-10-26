@@ -23,9 +23,9 @@ PRIVATE_HELPER_SHA256 = '15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd
 SCANNER_BEFORE = '72aaf391e3b168d9b8f7a10603a5763c04137b5e7807fef320b4fc22fa1a9d19'
 SCANNER_MIDDLE = '3897b64c134f88e7ad17c3c1f31df2b5497d34df6c1340d04e536313652f94f6'
 SCANNER_PERFORMANCE_PREDECESSOR = 'a1c7163c021ac85b945f3b4289a5fa45f4e641bc22e302c51c9014ec7531c322'
-SCANNER_AFTER = 'bb45ff48726fd209bcb4201a9951a1b6d0d931cdf72aa8cb794dc9ebc0b92ec9'
+SCANNER_AFTER = 'ca58353421e0994bb82c28372a16197f0c0ba0edd7da2638357fc45996adacbd'
 RECEIPT = 'peaso/checks/rawv2_private_source_successor_20261021.json'
-RECEIPT_SHA256 = '2d0cef07f1ad290ec3a5f0b3deade46574717a61a9491069be7342ce8efabdbb'
+RECEIPT_SHA256 = '4b67c5299d2854d58de7cb3bfd45bd44035700b8e866427a3927f3eafa603d3f'
 BRIDGE_RECEIPT_SHA256 = 'da2c2b52467ea97ff0d54a146556fa6b64239f8d70b847641b85cf65969d251c'
 
 
@@ -264,12 +264,29 @@ def _verify_scanner(root, receipt):
     current = path.read_bytes()
     if _digest(current) != SCANNER_AFTER:
         raise RuntimeError('RawV2 scanner current source changed')
+    # One exact current successor precedes the unchanged retained private edits.
+    transition = receipt['current_scanner_transition']
+    if (transition['current_sha256'] != SCANNER_AFTER
+            or transition['predecessor_sha256'] != 'bb45ff48726fd209bcb4201a9951a1b6d0d931cdf72aa8cb794dc9ebc0b92ec9'):
+        raise RuntimeError('RawV2 adaptive scanner relation changed')
     old = current
+    for before, after in transition['exact_replacements']:
+        before, after = before.encode(), after.encode()
+        if old.count(after) != 1:
+            raise RuntimeError('RawV2 adaptive scanner exact inverse changed')
+        old = old.replace(after, before, 1)
+    for addition in transition['exact_additions']:
+        addition = addition.encode()
+        if old.count(addition) != 1:
+            raise RuntimeError('RawV2 adaptive scanner addition changed')
+        old = old.replace(addition, b'', 1)
+    if _digest(old) != transition['predecessor_sha256']:
+        raise RuntimeError('RawV2 adaptive scanner predecessor changed')
     if (receipt['performance_predecessor_sha256'] != SCANNER_PERFORMANCE_PREDECESSOR
             or receipt['performance_private_edit_count'] != 1):
         raise RuntimeError('RawV2 performance predecessor relation changed')
     performance = receipt['private_edits'][-1]
-    if (performance['after'].encode() != current
+    if (performance['after'].encode() != old
             or _digest(performance['before'].encode()) != SCANNER_PERFORMANCE_PREDECESSOR):
         raise RuntimeError('RawV2 performance exact predecessor changed')
     for edit in reversed(receipt['private_edits']):

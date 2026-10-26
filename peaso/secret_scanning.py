@@ -115,7 +115,8 @@ def _run(argv, payload, timeout):
                         else:
                             output.extend(chunk)
                             if len(output) > MAX_OUTPUT:
-                                raise ValueError('scanner output bound')
+                                from .secret_scanning_errors import ScannerStdoutBound
+                                raise ScannerStdoutBound('scanner output bound')
             if process.wait(timeout=max(.001, deadline-time.monotonic())) != 0:
                 raise RuntimeError('scanner failed')
         return bytes(output)

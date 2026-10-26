@@ -48,6 +48,14 @@ class ContentCohort:
                 raise RuntimeError('scanner cohort unavailable')
             if sum(len(item[0]) for item in self.pending.values()) + len(payload) > self.max_bytes:
                 raise ValueError('content cohort bound')
+            # Exact clean-byte facts never bypass identity, state, capacity or
+            # the original absolute lease; source parsing stays on this caller.
+            self.remaining()
+            from .secret_scan_clean import known_clean
+            if known_clean(payload):
+                from .runtime_metrics import span
+                with span('secret.trufflehog.cohort_clean'):
+                    return b''
             self.pending[member] = (payload, path)
             if self.first is None:
                 self.first = time.monotonic()
@@ -72,7 +80,9 @@ class ContentCohort:
             if jobs is not None:
                 outputs = None
                 try:
-                    outputs = _prepare_trufflehog_batch(list(jobs.values()), min(self.prepare_seconds, self.remaining()))
+                    from .runtime_metrics import span
+                    with span('secret.trufflehog.cohort_prepare'):
+                        outputs = _prepare_trufflehog_batch(list(jobs.values()), min(self.prepare_seconds, self.remaining()))
                 except Exception:
                     # Share only a fixed failure state, never exception/tracebacks.
                     pass

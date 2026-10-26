@@ -562,6 +562,9 @@ def _process(role, request, connection):
         raise SystemExit()
     signal.signal(signal.SIGTERM, stop_child)
     try:
+        if role == "collector" and "deadline" in request:
+            from peaso.collection_lease import configure as configure_collection_lease
+            configure_collection_lease(request["deadline"])
         if role == "collector":
             # Optional diagnostics must never prevent a scan from starting.
             try:

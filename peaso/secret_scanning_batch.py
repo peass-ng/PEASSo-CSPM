@@ -10,6 +10,7 @@ import time
 
 
 MAX_BATCH_ITEMS = 512
+MAX_METRIC_BATCH_ITEMS = 2048
 MAX_BATCH_BYTES = 64 * 1024 * 1024
 _PREPARED_BATCH = ContextVar('prepared_content_batch', default=None)
 _PREPARED_COHORT = ContextVar('prepared_content_cohort', default=None)
@@ -43,7 +44,7 @@ def safe_metrics(event):
             continue
         if type(value) is not int or not 0 <= value <= 2**63 - 1:
             return None
-    if (not 0 <= event['items'] <= MAX_BATCH_ITEMS
+    if (not 0 <= event['items'] <= MAX_METRIC_BATCH_ITEMS
             or event['input_bytes'] > MAX_BATCH_BYTES
             or event['unique_payloads'] > event['items']
             or event['unique_bytes'] > event['input_bytes']

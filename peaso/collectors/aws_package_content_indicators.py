@@ -180,7 +180,8 @@ def _path(value):
 
 def _scan(raw, name, requests):
     from peaso.secret_scanning import scan_content
-    requests.check_deadline()
+    from peaso.collection_lease import check as check_lease
+    check_lease(requests)
     with source_context(path=name):
         outcome = scan_content(bytes(raw), name)
         categories = inspect_text(raw.decode('latin-1'), 'unused')['MatchedCategories']
@@ -188,13 +189,23 @@ def _scan(raw, name, requests):
         categories = sorted(set(categories) | {'secret'})
     safe_name = outcome['leaks'][0]['locations'][0]['path'] if outcome['leaks'] else name
     refs = [{'File': safe_name, 'Categories': categories, 'Leaks': outcome['leaks']}] if categories else []
-    requests.check_deadline()
+    check_lease(requests)
     if not outcome['complete']:
         raise PartialArchive(refs, 0, 0)
     return refs
 
 
 _DEFAULT_SCAN = _scan
+
+
+def _archive_batch_items(requests):
+    from peaso.secret_scanning_adaptive import archive_batch_items
+    return archive_batch_items(requests)
+
+
+def _archive_prepared_groups(items,requests):
+    from peaso.secret_scanning_adaptive import prepared_archive_batches
+    return prepared_archive_batches(items,requests)
 
 
 def _prepared_batch(items):
@@ -293,11 +304,12 @@ def scan_zip(raw, requests):
             if not pending: return
             items, pending, pending_bytes = pending, [], 0
             requests.check_deadline()
-            with _prepared_batch(items):
-                for payload, name in items:
-                    refs.extend(_scan(payload, name, requests))
-                    if len(refs) > MEMBER_LIMIT: raise ValueError('too many observations')
-                    scanned_files += 1
+            with _archive_prepared_groups(items,requests) as groups:
+                for group in groups:
+                    for payload, name in group:
+                        refs.extend(_scan(payload, name, requests))
+                        if len(refs) > MEMBER_LIMIT: raise ValueError('too many observations')
+                        scanned_files += 1
             _scan_progress(requests, scanned_files, 'package')
         try:
             for member in members:
@@ -314,7 +326,7 @@ def scan_zip(raw, requests):
                     if len(payload) != member.file_size: raise ValueError('truncated ZIP member')
                     if _scan is _DEFAULT_SCAN:
                         payload = bytes(payload)
-                        if pending and (len(pending) == BATCH_ITEMS or pending_bytes + len(payload) > BATCH_BYTES):
+                        if pending and (len(pending) >= _archive_batch_items(requests) or pending_bytes + len(payload) > BATCH_BYTES):
                             flush()
                         pending.append((payload, _path(member.filename)))
                         pending_bytes += len(payload)
@@ -352,11 +364,12 @@ def scan_tar(raw, media_type, requests, budget=None):
         if not pending: return
         items, pending, pending_bytes = pending, [], 0
         requests.check_deadline()
-        with _prepared_batch(items):
-            for payload, name in items:
-                refs.extend(_scan(payload, name, requests))
-                if len(refs) > MEMBER_LIMIT: raise ValueError('too many observations')
-                scanned_files += 1
+        with _archive_prepared_groups(items,requests) as groups:
+            for group in groups:
+                for payload, name in group:
+                    refs.extend(_scan(payload, name, requests))
+                    if len(refs) > MEMBER_LIMIT: raise ValueError('too many observations')
+                    scanned_files += 1
         _scan_progress(requests, scanned_files, 'image')
     try:
         while offset + 512 <= len(raw):
@@ -380,11 +393,11 @@ def scan_tar(raw, media_type, requests, budget=None):
             if member.isfile():
                 payload = raw[offset:end]
                 if _scan is _DEFAULT_SCAN:
-                    if pending and (len(pending) == BATCH_ITEMS or pending_bytes + len(payload) > BATCH_BYTES):
+                    if pending and (len(pending) >= _archive_batch_items(requests) or pending_bytes + len(payload) > BATCH_BYTES):
                         flush()
                     pending.append((payload, name))
                     pending_bytes += len(payload)
-                    if len(pending) == BATCH_ITEMS: flush()
+                    if len(pending) >= _archive_batch_items(requests): flush()
                 else:
                     refs.extend(_scan(payload, name, requests))
             offset = next_offset
@@ -636,38 +649,39 @@ def _image(response, arguments, requests, session, region):
         if not pending: return
         windows, pending, pending_bytes = pending, [], 0
         requests.check_deadline()
-        with _prepared_batch([(payload, name) for payload, name, _, _ in windows]):
-            for payload, name, ld, file_key in windows:
-                if file_key in failed_files: continue
-                requests.check_deadline()
-                with source_context(resource_id=identity, scope=account + '/' + region,
-                                    image_digest=digest, layer=ld,
-                                    check_ids={'aws.review.ecr_repository.package_content_secret_indicators'}):
-                    try:
-                        found = _scan(payload, name, requests)
-                    except PartialArchive as partial:
-                        add_refs(partial.refs, ld)
+        with _archive_prepared_groups(windows,requests) as groups:
+            for group in groups:
+                for payload, name, ld, file_key in group:
+                    if file_key in failed_files: continue
+                    requests.check_deadline()
+                    with source_context(resource_id=identity, scope=account + '/' + region,
+                                        image_digest=digest, layer=ld,
+                                        check_ids={'aws.review.ecr_repository.package_content_secret_indicators'}):
+                        try:
+                            found = _scan(payload, name, requests)
+                        except PartialArchive as partial:
+                            add_refs(partial.refs, ld)
+                            failed_files.add(file_key)
+                            complete = False
+                            continue
+                    count = file_counts.get(file_key, 0) + len(found)
+                    if count > REFERENCE_LIMIT:
                         failed_files.add(file_key)
                         complete = False
                         continue
-                count = file_counts.get(file_key, 0) + len(found)
-                if count > REFERENCE_LIMIT:
-                    failed_files.add(file_key)
-                    complete = False
-                    continue
-                file_counts[file_key] = count
-                add_refs(found, ld)
-                scanned_windows += 1
+                    file_counts[file_key] = count
+                    add_refs(found, ld)
+                    scanned_windows += 1
         _scan_progress(requests, scanned_windows, 'image')
     def enqueue_window(payload, name, ld, file_key):
         nonlocal pending_bytes
         if file_key in failed_files: return False
-        if pending and (len(pending) == BATCH_ITEMS or pending_bytes + len(payload) > BATCH_BYTES):
+        if pending and (len(pending) >= _archive_batch_items(requests) or pending_bytes + len(payload) > BATCH_BYTES):
             flush_pending()
             if file_key in failed_files: return False
         pending.append((payload, name, ld, file_key))
         pending_bytes += len(payload)
-        if len(pending) == BATCH_ITEMS: flush_pending()
+        if len(pending) >= _archive_batch_items(requests): flush_pending()
         return file_key not in failed_files
     with tempfile.TemporaryDirectory(prefix='peaso-ecr-secret-') as directory:
         root = Path(directory)
