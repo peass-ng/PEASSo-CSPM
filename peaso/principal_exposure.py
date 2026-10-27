@@ -10,7 +10,7 @@ from fnmatch import fnmatchcase
 
 from peaso.analysis.common import as_list, externality, native_id, with_analysis_context
 from peaso.analysis.iam import assume_role_document, grants
-from peaso.analysis.internet_exposure import assess, describe, ports_of, Assessment, pset, union, _internet, _public_ip
+from peaso.analysis.internet_exposure import assess, describe, ports_of, Assessment, pset, union, _public_source, _public_ip
 from peaso.analysis.trust import restrictive_conditions, aws_federated_trust, _k8s_self_info_binding
 
 LIMITATIONS = [
@@ -452,7 +452,7 @@ def _workloads(snapshot, resources, by_type, signal):
                         source_ranges = [value for condition in conditions if condition.get("Field") == "source-ip"
                             for value in condition.get("Values") or []]
                         if any(condition.get("Field") == "source-ip" for condition in conditions) and not any(
-                            _internet(value) for value in source_ranges):
+                            _public_source(value) for value in source_ranges):
                             continue
                         actions.extend((action, rule.get("RuleArn"), source_ranges)
                             for action in rule.get("Actions") or [])

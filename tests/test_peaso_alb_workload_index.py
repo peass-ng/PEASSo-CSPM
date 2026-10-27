@@ -50,7 +50,7 @@ def test_candidates_retain_original_membership_errors_and_order(relation, field,
 
 @pytest.mark.parametrize('scenario', ['healthy', 'unhealthy', 'wrong_ip', 'wrong_port', 'health_missing',
     'other_service', 'stopped', 'missing_eni', 'no_forward', 'zero_weight', 'private_source',
-    'public_source', 'capacity', 'duplicates', 'shared_definition', 'substring'])
+    'public_source', 'narrow_public_source', 'capacity', 'duplicates', 'shared_definition', 'substring'])
 def test_complete_projection_keeps_exact_health_and_routing_evidence(scenario):
     snapshot = synthetic_snapshot(6)
     facts = {c['type']: c['items'] for c in snapshot['collections']}
@@ -76,10 +76,11 @@ def test_complete_projection_keeps_exact_health_and_routing_evidence(scenario):
     elif scenario == 'zero_weight':
         listener['DefaultActions'] = [{'Type': 'forward', 'ForwardConfig': {
             'TargetGroups': [{'TargetGroupArn': tg['TargetGroupArn'], 'Weight': 0}]}}]
-    elif scenario in ('private_source', 'public_source'):
+    elif scenario in ('private_source', 'public_source', 'narrow_public_source'):
         listener['DefaultActions'] = []
         listener['Rules'] = {'collection_status': 'collected', 'items': [{'RuleArn': 'rule-first',
-            'Conditions': [{'Field': 'source-ip', 'Values': ['10.0.0.0/8' if scenario == 'private_source' else '0.0.0.0/0']}],
+            'Conditions': [{'Field': 'source-ip', 'Values': ['10.0.0.0/8' if scenario == 'private_source' else
+                                                            '8.8.8.8/32' if scenario == 'narrow_public_source' else '0.0.0.0/0']}],
             'Actions': [{'Type': 'forward', 'TargetGroupArn': tg['TargetGroupArn']}]}]}
     elif scenario == 'duplicates':
         for kind in ('target_group', 'ecs_service', 'ecs_task', 'network_interface'):
@@ -105,7 +106,7 @@ def test_complete_projection_keeps_exact_health_and_routing_evidence(scenario):
                          and r['data']['taskArn'].endswith('/task-0'))
         signal = next(s for s in actual[key]['exposures'] if s['workload_resource'] == target_id
                       and s['public_addresses'] == ['web-0.example.elb.amazonaws.com'])
-        confirmed = scenario in ('healthy', 'public_source', 'capacity', 'duplicates', 'shared_definition', 'substring')
+        confirmed = scenario in ('healthy', 'public_source', 'narrow_public_source', 'capacity', 'duplicates', 'shared_definition', 'substring')
         assert signal['state'] == ('declared' if confirmed else 'unknown')
         assert ('backend_evidence' in signal) == confirmed
         if confirmed:
