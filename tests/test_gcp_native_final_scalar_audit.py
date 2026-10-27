@@ -24,7 +24,8 @@ def test_saved_replay_detects_review_and_published_drift(tmp_path):
     finding = {'id': 'f1', 'provider': 'gcp', 'category': 'hardening',
                'check_id': 'gcp.compute.secure_boot', 'status': 'FAIL',
                'scanner_status': 'FAIL', 'severity': 'medium',
-               'base_severity': 'medium', 'evidence': {'configured': False},
+               'base_severity': 'medium', 'evidence': {
+                   'field': 'shieldedInstanceConfig.enableSecureBoot', 'configured': False},
                'evidence_summary': 'Secure Boot disabled'}
     before = {'provider': 'gcp', 'snapshot_id': 'snapshot-1',
               'findings': [{'observations': [finding]}]}
@@ -43,3 +44,13 @@ def test_saved_replay_detects_review_and_published_drift(tmp_path):
     after['findings'][0]['observations'][0] = dict(finding, severity='low')
     _write_gzip(post, after)
     assert saved_replay(pre, post)['exact_saved_parity'] is False
+    before['findings'][0]['observations'][0] = dict(
+        finding, evidence={'field': 'shieldedInstanceConfig.enableSecureBoot',
+                           'configured': True})
+    after['findings'][0]['observations'][0] = before['findings'][0]['observations'][0]
+    _write_gzip(pre, before)
+    _write_gzip(post, after)
+    replay = saved_replay(pre, post)
+    assert replay['exact_saved_parity'] is False
+    assert next(row for row in replay['per_check']
+                if row['check_id'] == 'gcp.compute.secure_boot')['evidence_mismatches'] == 1

@@ -71,10 +71,17 @@ def saved_replay(before_path, after_path):
                 and row.get('check_id') in SPECS]
     counts = Counter()
     differences = Counter()
+    evidence_mismatches = Counter()
     for row in selected:
         ident = row['id']
         cid = row['check_id']
         counts[cid] += 1
+        path, _, bad = SPECS[cid]
+        evidence = row.get('evidence')
+        if (not isinstance(evidence, dict) or evidence.get('field') != path
+                or type(evidence.get('configured')) is not type(bad)
+                or evidence.get('configured') != bad):
+            evidence_mismatches[cid] += 1
         if by_review.get(ident) != {'finding_id': ident, 'verdict': 'FAIL', 'reason': ''}:
             differences[cid] += 1
         published = final.get(ident)
@@ -86,9 +93,10 @@ def saved_replay(before_path, after_path):
         'snapshot_id_sha256': hashlib.sha256(before['snapshot_id'].encode()).hexdigest(),
         'selected_failures': len(selected),
         'per_check': [{'check_id': cid, 'native_failures': counts[cid],
-                       'parity_differences': differences[cid]}
+                       'parity_differences': differences[cid],
+                       'evidence_mismatches': evidence_mismatches[cid]}
                       for cid in sorted(SPECS)],
-        'exact_saved_parity': not differences and bool(selected),
+        'exact_saved_parity': not differences and not evidence_mismatches and bool(selected),
     }
 
 
