@@ -1066,7 +1066,7 @@
     "version": "v1"
   },
   "tpu_node": {
-    "fields": "nodes(networkConfig(enableExternalIps,subnetwork,canIpForward,network),id,name,upcomingMaintenance(maintenanceStatus),cidrBlock,networkConfigs(enableExternalIps,subnetwork,canIpForward,network),state,networkEndpoints(ipAddress,accessConfig(externalIp),port)),nextPageToken,unreachable",
+    "fields": "nodes(networkConfig(enableExternalIps,subnetwork,canIpForward,network),id,name,upcomingMaintenance(maintenanceStatus),cidrBlock,networkConfigs(enableExternalIps,subnetwork,canIpForward,network),state,tags,serviceAccount(email),networkEndpoints(ipAddress,accessConfig(externalIp),port)),nextPageToken,unreachable",
     "key": "nodes",
     "location_kind": "zone",
     "reference": "https://tpu.googleapis.com/$discovery/rest?version=v2",

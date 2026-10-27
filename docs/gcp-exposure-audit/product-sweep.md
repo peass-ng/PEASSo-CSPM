@@ -19,7 +19,7 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | Cross-product tools | [Service Catalog](https://docs.cloud.google.com/service-catalog/docs) | — | REVIEW REQUIRED |
 | Cross-product tools | [Service Usage](https://docs.cloud.google.com/service-usage/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Agent Platform Vision](https://docs.cloud.google.com/vision-ai/docs) | — | REVIEW REQUIRED |
-| AI and ML | [Cloud TPU](https://docs.cloud.google.com/tpu/docs) | tpu_node | REVIEW REQUIRED |
+| AI and ML | [Cloud TPU](https://docs.cloud.google.com/tpu/docs) | tpu_node external IP, endpoint port, target tags/service account and VPC firewall join | REVIEW REQUIRED |
 | AI and ML | [Colab Enterprise](https://docs.cloud.google.com/colab/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Deep Learning Containers](https://docs.cloud.google.com/deep-learning-containers/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Deep Learning VM](https://docs.cloud.google.com/deep-learning-vm/docs) | — | REVIEW REQUIRED |

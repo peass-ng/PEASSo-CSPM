@@ -871,6 +871,29 @@ def test_gcp_tpu_external_address_keeps_unresolved_firewall_identity():
     assert result["evidence"]["unresolved"]
 
 
+def test_gcp_tpu_external_port_joins_collected_target_tags_and_firewall():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_tpu_node
+    from peaso.snapshot import resources
+    node = {"name": "projects/p1/locations/us-central1-a/nodes/t", "state": "READY",
+            "networkConfig": {"network": NET}, "tags": ["web"],
+            "serviceAccount": {"email": "sa@p1.iam.gserviceaccount.com"},
+            "networkEndpoints": [{"ipAddress": "10.0.0.3", "port": 22,
+                "accessConfig": {"externalIp": "34.3.3.3"}}]}
+    rule = fw("allow-ssh", 1000, "allowed", ["22"], targets=["web"])
+    def assessment(policy=None):
+        snap = gcp(gcoll("tpu_node", [node], service="tpu"),
+                   gcoll("firewall", [rule]), gcoll("firewall_policy", [policy] if policy else [],
+                       status="collected" if policy else "empty"))
+        items = resources(snap)
+        return _gcp_tpu_node(snap, Inventory(snap, items), next(row for row in items if row["type"] == "tpu_node"))
+    allowed = assessment()
+    assert allowed.verdict() == "FAIL" and allowed.ports == pset("tcp", 22, 22)
+    node.pop("tags")
+    assert assessment().verdict() == "UNKNOWN"
+    node["tags"] = ["web"]
+    assert assessment({"name": "p", "rules": []}).verdict() == "UNKNOWN"
+
+
 def test_gcp_vmware_external_ip_and_ordered_access_rules():
     cloud = "projects/p1/locations/us-central1-a/privateClouds/c"
     address = cloud + "/externalAddresses/a"

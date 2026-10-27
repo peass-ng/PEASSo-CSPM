@@ -26,6 +26,12 @@ def test_gcp_exposure_catalog_types_are_supported_and_scheduled():
     assert len(jobs) == len(native_catalog)
 
 
+def test_gcp_tpu_metadata_plan_includes_firewall_targets_and_endpoint_port():
+    from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
+    fields = PRIVATE_SERVICES["tpu_node"]["fields"]
+    assert "tags" in fields and "serviceAccount(email)" in fields and "networkEndpoints(ipAddress,accessConfig(externalIp),port)" in fields
+
+
 @pytest.mark.parametrize("kind,service,segment", [
     ("redis_cluster", "redis", "clusters"), ("netapp_storage_pool", "netapp", "storagePools"),
     ("netapp_volume", "netapp", "volumes"), ("service_connection_policy", "networkconnectivity", "serviceConnectionPolicies"),

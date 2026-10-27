@@ -2425,26 +2425,52 @@ def _gcp_tpu_node(snapshot, inventory, resource):
     a = Assessment(resource, "public_ip")
     a.addresses = addresses
     a.step("external_ip", "allow", addresses=addresses)
-    config = data.get("networkConfig")
-    network = config.get("network") if isinstance(config, dict) else None
+    configs = as_list(data.get("networkConfigs")) or ([data["networkConfig"]] if isinstance(data.get("networkConfig"), dict) else [])
+    if len(configs) != 1 or not isinstance(configs[0], dict):
+        a.explicit = "UNKNOWN"
+        a.gap("firewall", "TPU external IP cannot be bound to exactly one VPC network configuration")
+        return a
+    network = configs[0].get("network") or "default"
     if not isinstance(network, str) or not network:
         a.explicit = "UNKNOWN"
-        a.gap("firewall", "TPU external IP exists but its VPC network is unavailable")
+        a.gap("firewall", "TPU network identity is unavailable")
         return a
-    # TPU network endpoints expose the public address but not a Compute VM
-    # identity. Apply only VPC-wide rules; targeted policy membership is unknown.
-    matching = [row for row in _gcp_network_internet_rules(inventory, network)
-                if not row["data"].get("targetTags") and not row["data"].get("targetServiceAccounts")]
-    if inventory.state("firewall").startswith("missing") or inventory.state("firewall_policy").startswith("missing"):
+    if "/networks/" not in network:
+        matches = [row for row in inventory.items("network") if row["scope"] == resource["scope"] and
+                   row["data"].get("name") == network and isinstance(row["data"].get("selfLink"), str)]
+        if len(matches) != 1:
+            a.explicit = "UNKNOWN"
+            a.gap("firewall", "TPU network name cannot be bound to one collected VPC")
+            return a
+        network = matches[0]["data"]["selfLink"]
+    tags = data.get("tags")
+    account = data.get("serviceAccount")
+    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags) or not isinstance(account, dict):
         a.explicit = "UNKNOWN"
-        a.gap("firewall", "TPU VPC or hierarchical firewall inventory is incomplete")
+        a.gap("firewall", "TPU firewall target tags or service account metadata is incomplete")
         return a
-    if matching:
+    email = account.get("email")
+    if email is not None and not isinstance(email, str):
         a.explicit = "UNKNOWN"
-        a.gap("firewall", "TPU public IP has VPC-wide rules; effective policy and target evaluation is unresolved")
-    else:
+        a.gap("firewall", "TPU service account identity is malformed")
+        return a
+    if inventory.state("firewall") not in ("collected", "empty") or inventory.state("firewall_policy") not in ("collected", "empty"):
         a.explicit = "UNKNOWN"
-        a.gap("firewall", "TPU public IP exists; firewall target identity is unavailable")
+        a.gap("firewall", "TPU VPC firewall or hierarchy inventory is incomplete")
+        return a
+    target = {**resource, "data": {"tags": {"items": tags},
+                                   "serviceAccounts": [{"email": email}] if email else []}}
+    allowed = _gcp_firewall(inventory, target, {"network": network}, a)
+    if allowed is None or empty(allowed):
+        a.explicit = "UNKNOWN"
+        a.gap("firewall", "TPU public address has no proven allowed port under the collected VPC policy")
+        return a
+    a.ports = allowed
+    a.step("tpu_endpoint", "allow", declared_ports=[row.get("port") for row in endpoints
+           if isinstance(row.get("accessConfig"), dict) and row["accessConfig"].get("externalIp") in addresses],
+           firewall_allowed=describe(allowed))
+    if data.get("state") != "READY":
+        a.dormant = True
     return a
 
 
