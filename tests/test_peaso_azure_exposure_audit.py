@@ -104,6 +104,47 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
     assert lb_decision({"loadBalancerBackendAddresses": [{"properties": {"ipAddress": "10.0.0.4"}}]}).verdict() == "UNKNOWN"
 
 
+@pytest.mark.parametrize("kind,field", [
+    ("container_registry", "networkRuleSet"), ("cognitive_account", "networkAcls")])
+def test_managed_endpoint_parent_public_ip_rules(kind, field):
+    base = {"publicNetworkAccess": "Enabled", "endpoint": "https://endpoint.example.com"}
+    def verdict(rules):
+        return decision(kind, {**base, field: rules}).verdict()
+    assert verdict({"defaultAction": "Deny", "ipRules": [{"value": "8.8.8.8/32", "action": "Allow"}]}) == "FAIL"
+    assert verdict({"defaultAction": "Deny", "ipRules": [{"value": "10.0.0.0/8", "action": "Allow"}]}) == "PASS"
+    assert verdict({"defaultAction": "Deny", "ipRules": [{"value": "invalid", "action": "Allow"}]}) == "UNKNOWN"
+
+
+def test_search_ip_restrictions_and_app_configuration_public_gate():
+    search = {"publicNetworkAccess": "Enabled", "endpoint": "https://s.search.windows.net"}
+    assert decision("search_service", {**search, "networkRuleSet": {"ipRules": []}}).verdict() == "FAIL"
+    assert decision("search_service", {**search, "networkRuleSet": {"ipRules": [{"value": "8.8.8.8"}]}}).verdict() == "FAIL"
+    assert decision("search_service", {**search, "networkRuleSet": {"ipRules": [{"value": "10.0.0.0/8"}]}}).verdict() == "PASS"
+    assert decision("search_service", {**search, "networkRuleSet": {"ipRules": [{"value": "invalid"}]}}).verdict() == "UNKNOWN"
+    assert decision("app_configuration", {"publicNetworkAccess": "Enabled", "endpoint": "https://c.azconfig.io"}).verdict() == "FAIL"
+    assert decision("app_configuration", {"publicNetworkAccess": "Disabled", "endpoint": "https://c.azconfig.io"}).verdict() == "PASS"
+
+
+@pytest.mark.parametrize("kind", ["servicebus_namespace", "eventhub_namespace"])
+def test_broker_namespace_cached_network_rule_child(kind):
+    rid = f"{SCOPE}/resourceGroups/rg/providers/test/{kind}/asset"
+    def child_decision(ip, status="collected", trusted=False):
+        item = {"id": rid, "properties": {}, "_coverage": {"networkRuleSet": {"status": status}}}
+        if status == "collected":
+            item["networkRuleSet"] = {"id": rid + "/networkRuleSets/default", "properties": {
+                "publicNetworkAccess": "Enabled", "defaultAction": "Deny",
+                "trustedServiceAccessEnabled": trusted,
+                "ipRules": [{"action": "Allow", "ipMask": ip}] if ip else []}}
+        snap = make_snapshot("azure", [SCOPE], [{"type": kind, "scope": SCOPE, "service": "test",
+            "status": "collected", "items": [item]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == kind)
+    assert child_decision("8.8.8.8/32").verdict() == "FAIL"
+    assert child_decision("10.0.0.0/8").verdict() == "PASS"
+    assert child_decision(None, trusted=True).verdict() == "UNKNOWN"
+    assert child_decision("invalid").verdict() == "UNKNOWN"
+    assert child_decision(None, status="denied").verdict() == "UNKNOWN"
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})

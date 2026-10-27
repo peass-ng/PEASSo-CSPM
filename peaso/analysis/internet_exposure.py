@@ -3716,6 +3716,14 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     flexible = kind in ("mysql_flexible_server", "postgresql_flexible_server")
     network = props.get("network") if isinstance(props.get("network"), dict) else {}
     public = network.get("publicNetworkAccess") if flexible else props.get("publicNetworkAccess")
+    namespace_rules = None
+    if kind in ("servicebus_namespace", "eventhub_namespace"):
+        coverage = (resource["data"].get("_coverage") or {}).get("networkRuleSet") or {}
+        child = resource["data"].get("networkRuleSet")
+        if coverage.get("status") == "collected" and isinstance(child, dict) and isinstance(child.get("properties"), dict):
+            namespace_rules = child["properties"]
+            if public is None:
+                public = namespace_rules.get("publicNetworkAccess")
     if isinstance(public, str) and public.lower() == "disabled":
         a.step("public_network_access", "block", public_network_access=public)
         a.ports = {}
@@ -3796,8 +3804,38 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         if not endpoint:
             a.gap("inventory", "Cosmos public endpoint address is not collected")
         return a
+    if kind == "app_configuration":
+        a.step("listener", "allow", reason="App Configuration public endpoint has no ARM IP firewall")
+        a.ports = pset("tcp", 443, 443)
+        if not endpoint:
+            a.gap("inventory", "App Configuration public endpoint address is not collected")
+        return a
+    if kind == "search_service":
+        rules = props.get("networkRuleSet")
+        ip_rules = rules.get("ipRules") if isinstance(rules, dict) else None
+        if not isinstance(ip_rules, list):
+            a.gap("firewall", "Search IP restriction list is not collected")
+            return a
+        public_ips, malformed = [], False
+        for rule in ip_rules:
+            value = rule.get("value") if isinstance(rule, dict) else None
+            network = _cidr(value) if isinstance(value, str) else None
+            if network is None:
+                malformed = True
+            elif _azure_public_remainder([network], []):
+                public_ips.append(value)
+        if public_ips or not ip_rules:
+            a.step("firewall", "allow", public_ip_rules=public_ips,
+                   reason="no IP restriction rules" if not ip_rules else "public source allowed")
+            a.ports = pset("tcp", 443, 443)
+        elif malformed or rules.get("bypass") not in (None, "None"):
+            a.gap("firewall", "Search IP rule or bypass needs effective source evaluation")
+        else:
+            a.step("firewall", "block", reason="no public-source IP rule")
+            a.ports = {}
+        return a
     # A private endpoint does not close an explicitly enabled public endpoint.
-    rules = props.get(rules_name)
+    rules = namespace_rules if kind in ("servicebus_namespace", "eventhub_namespace") else props.get(rules_name)
     if isinstance(rules, dict) and rules_name != "firewallRules":
         action = rules.get("defaultAction")
         if action == "Deny":
@@ -3813,6 +3851,37 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                     a.gap("firewall", "vault IP rules or trusted-service bypass need effective authorization")
                     a.ports = pset("tcp", port, port)
                     return a
+            if kind in ("container_registry", "cognitive_account",
+                        "servicebus_namespace", "eventhub_namespace"):
+                ip_field = "ipMask" if kind in ("servicebus_namespace", "eventhub_namespace") else "value"
+                public_ips, malformed = [], False
+                ip_rules = rules.get("ipRules", [])
+                if not isinstance(ip_rules, list):
+                    malformed = True
+                else:
+                    for rule in ip_rules:
+                        value = rule.get(ip_field) if isinstance(rule, dict) else None
+                        network = _cidr(value) if isinstance(value, str) else None
+                        if network is None or rule.get("action", "Allow") != "Allow":
+                            malformed = True
+                        elif _azure_public_remainder([network], []):
+                            public_ips.append(value)
+                if public_ips:
+                    a.step("firewall", "allow", default_action=action, public_ip_rules=public_ips)
+                    a.ports = pset("tcp", port, port)
+                    if malformed:
+                        a.notes.append("Additional IP rules remain unresolved")
+                    return a
+                bypass = (rules.get("trustedServiceAccessEnabled") is True or
+                          rules.get("bypass") not in (None, "None") or
+                          kind == "container_registry" and props.get("networkRuleBypassOptions") not in (None, "None"))
+                if malformed or bypass:
+                    a.gap("firewall", "managed endpoint IP rule or trusted-service bypass unresolved")
+                    a.ports = pset("tcp", port, port)
+                    return a
+                a.step("firewall", "block", reason="no public-source IP rule", default_action=action)
+                a.ports = {}
+                return a
             if as_list(rules.get("ipRules")) or as_list(rules.get("virtualNetworkRules")):
                 a.gap("firewall", f"{rules_name} allow rules require effective source evaluation")
                 a.ports = pset("tcp", port, port)
