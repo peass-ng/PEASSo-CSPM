@@ -47,6 +47,27 @@ def test_kusto_public_endpoint_ip_allow_list():
     assert decision("kusto_cluster", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
 
 
+def test_batch_account_independent_public_endpoint_profiles():
+    base = {"publicNetworkAccess": "Enabled", "accountEndpoint": "https://b.region.batch.azure.com",
+            "nodeManagementEndpoint": "https://node.region.batch.azure.com"}
+    deny = {"defaultAction": "Deny", "ipRules": []}
+    assert decision("batch_account", base).verdict() == "FAIL"
+    assert decision("batch_account", {**base, "networkProfile": {
+        "accountAccess": deny, "nodeManagementAccess": deny}}).verdict() == "PASS"
+    mixed = decision("batch_account", {**base, "networkProfile": {
+        "accountAccess": deny, "nodeManagementAccess": {"defaultAction": "Deny", "ipRules": [
+            {"action": "Allow", "value": "8.8.8.8/32"}]}}})
+    assert mixed.verdict() == "FAIL" and mixed.ports == {"tcp": ((443, 443),)}
+    assert decision("batch_account", {**base, "networkProfile": {
+        "accountAccess": deny, "nodeManagementAccess": {"defaultAction": "Deny", "ipRules": [
+            {"action": "Allow", "value": "10.0.0.0/8"}]}}}).verdict() == "PASS"
+    assert decision("batch_account", {**base, "networkProfile": {
+        "accountAccess": deny, "nodeManagementAccess": {"defaultAction": "Deny", "ipRules": [
+            {"action": "Allow", "value": "invalid"}]}}}).verdict() == "UNKNOWN"
+    assert decision("batch_account", {**base, "publicNetworkAccess": "SecuredByPerimeter"}).verdict() == "UNKNOWN"
+    assert decision("batch_account", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})
