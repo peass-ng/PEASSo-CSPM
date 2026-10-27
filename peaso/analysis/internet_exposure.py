@@ -2450,6 +2450,66 @@ def _azure_api_management(snapshot, inventory, resource):
     return a
 
 
+def _azure_redis(snapshot, inventory, resource):
+    props = resource["data"].get("properties") or {}
+    a = Assessment(resource, "database")
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "Redis public network access state is not explicit")
+        return a
+    if props.get("subnetId"):
+        a.gap("nsg", "VNet-injected Redis subnet path is not resolved")
+    hostname = props.get("hostName")
+    if isinstance(hostname, str) and hostname:
+        a.addresses.append(hostname)
+    else:
+        a.gap("inventory", "Redis public hostname is not observed")
+    ports = {}
+    ssl_port = props.get("sslPort")
+    if type(ssl_port) is int and 1 <= ssl_port <= 65535:
+        ports = pset("tcp", ssl_port, ssl_port)
+    else:
+        a.gap("listener", "Redis TLS listener port is not observed")
+    if props.get("enableNonSslPort") is True:
+        clear_port = props.get("port")
+        if type(clear_port) is int and 1 <= clear_port <= 65535:
+            ports = union(ports, pset("tcp", clear_port, clear_port))
+        else:
+            a.gap("listener", "enabled Redis non-TLS port is not observed")
+    elif props.get("enableNonSslPort") is not False:
+        a.gap("listener", "Redis non-TLS listener state is not observed")
+    a.step("public_network_access", "allow", value=access)
+    coverage = (resource["data"].get("_coverage") or {}).get("firewallRules") or {}
+    rules = resource["data"].get("firewallRules")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(rules, list):
+        a.gap("firewall", "Redis firewall IP rules are not fully collected")
+    elif not rules:
+        a.step("firewall", "allow", reason="no configured IP rules")
+    else:
+        public = False
+        for rule in rules:
+            fields = rule.get("properties") if isinstance(rule, dict) else None
+            try:
+                start = ipaddress.IPv4Address(fields["startIP"])
+                end = ipaddress.IPv4Address(fields["endIP"])
+                if start > end:
+                    raise ValueError("reversed range")
+                public |= _azure_public_remainder(ipaddress.summarize_address_range(start, end), [])
+            except (TypeError, KeyError, ValueError):
+                a.gap("firewall", "Redis firewall rule has an unresolved IP range")
+        if public:
+            a.step("firewall", "allow", reason="rule admits a public IPv4 source")
+        elif not any(gap["layer"] == "firewall" for gap in a.unresolved):
+            a.step("firewall", "block", reason="no rule admits a public IPv4 source")
+            ports = {}
+    a.ports = ports
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -2944,7 +3004,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket", "project", "workload_identity_provider"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -2955,7 +3015,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -3000,6 +3060,7 @@ def assess(snapshot, resources):
                   "azure_firewall": _azure_firewall,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
+                  "redis_cache": _azure_redis,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,

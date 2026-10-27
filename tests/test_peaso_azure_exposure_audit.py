@@ -251,6 +251,36 @@ def test_api_management_public_gateway_and_network_gates():
     assert decision("api_management", {**base, "gatewayUrl": None}).verdict() == "UNKNOWN"
 
 
+def test_redis_public_listeners_preserve_firewall_uncertainty():
+    base = {"publicNetworkAccess": "Enabled", "hostName": "cache.redis.cache.windows.net",
+            "sslPort": 6380, "enableNonSslPort": False}
+    candidate = decision("redis_cache", base)
+    assert candidate.verdict() == "UNKNOWN" and candidate.ports == {"tcp": ((6380, 6380),)}
+    assert any(gap["layer"] == "firewall" for gap in candidate.unresolved)
+    non_tls = decision("redis_cache", {**base, "enableNonSslPort": True, "port": 6379})
+    assert non_tls.ports == {"tcp": ((6379, 6380),)}
+    assert decision("redis_cache", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+    assert decision("redis_cache", {**base, "publicNetworkAccess": None}).verdict() == "UNKNOWN"
+    injected = decision("redis_cache", {**base, "subnetId": "/subscriptions/test/subnets/cache"})
+    assert any(gap["layer"] == "nsg" for gap in injected.unresolved)
+
+    def with_rules(rules, status="collected"):
+        item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redis/cache",
+                "properties": base, "firewallRules": rules,
+                "_coverage": {"firewallRules": {"status": status}}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "redis_cache", "scope": SCOPE, "service": "cache", "status": "collected",
+             "items": [item]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "redis_cache")
+
+    assert with_rules([]).verdict() == "FAIL"
+    private = {"properties": {"startIP": "10.0.0.1", "endIP": "10.0.0.10"}}
+    public = {"properties": {"startIP": "8.8.8.8", "endIP": "8.8.8.8"}}
+    assert with_rules([private]).verdict() == "PASS"
+    assert with_rules([private, public]).verdict() == "FAIL"
+    assert with_rules([public], status="partial").verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind", ["vault", "container_registry", "search_service", "servicebus_namespace"])
 def test_managed_endpoint_explicit_network_gate(kind):
     rule = {"vault": "networkAcls", "container_registry": "networkRuleSet",
