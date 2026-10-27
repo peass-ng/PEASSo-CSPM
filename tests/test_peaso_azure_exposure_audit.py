@@ -119,6 +119,34 @@ def test_nsg_specific_public_source_respects_per_source_priority():
     assert _nsg_allowed(nsg)[0] == {"tcp": ((22, 22),)}
 
 
+def test_nsg_unresolved_public_source_tag_cannot_prove_closed_path():
+    nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
+    subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
+    nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/nsg"
+    pip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/pip"
+    rule = {"name": "azure-cloud", "properties": {"priority": 100, "direction": "Inbound",
+            "access": "Allow", "protocol": "Tcp", "sourceAddressPrefix": "AzureCloud",
+            "destinationAddressPrefix": "*", "destinationPortRange": "443"}}
+    nsg = {"id": nsg_id, "properties": {"securityRules": [rule]}}
+    original = repr(nsg)
+    allowed, matched = _nsg_allowed({"data": nsg})
+    assert allowed == {} and any(row.get("unresolved_public_source") for row in matched)
+    assert repr(nsg) == original
+    snap = make_snapshot("azure", [SCOPE], [
+        {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": pip_id, "sku": {"name": "Standard"}, "properties": {"ipAddress": "8.8.8.8"}}]},
+        {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected", "items": [nsg]},
+        {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": subnet_id, "properties": {}}]},
+        {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": nic_id, "properties": {"networkSecurityGroup": {"id": nsg_id},
+             "ipConfigurations": [{"name": "primary", "properties": {"subnet": {"id": subnet_id},
+                 "publicIPAddress": {"id": pip_id}, "privateIPAddress": "10.0.0.4"}}]}}]}])
+    row = next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "nic")
+    assert row.verdict() == "UNKNOWN"
+    assert any(gap["layer"] == "nsg" and "service tag" in gap["reason"] for gap in row.unresolved)
+
+
 def test_container_app_requires_public_environment_and_effective_ingress():
     env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"

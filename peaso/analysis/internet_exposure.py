@@ -2440,12 +2440,17 @@ def _nsg_allowed(nsg, address=None, groups=()):
                       "protocol": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*", "destinationPortRange": "*"}})
     ordered = sorted(rules, key=lambda r: int((r.get("properties") or {}).get("priority", 4096)))
     candidates = {ipaddress.ip_address(value) for value in ("8.8.8.8", "1.1.1.1", "2606:4700:4700::1111")}
-    source_nets = {}
+    source_nets, unresolved_sources = {}, set()
     for rule in ordered:
         p = rule.get("properties") or {}
         sources = as_list(p.get("sourceAddressPrefixes")) + as_list(p.get("sourceAddressPrefix"))
         networks = [net for value in sources for net in _azure_restriction_sources(value)]
         source_nets[id(rule)] = networks
+        if (p.get("direction", "Inbound") == "Inbound" and p.get("access") == "Allow"
+                and not p.get("sourceApplicationSecurityGroups")
+                and (not sources or any(not _azure_restriction_sources(value) and value != "VirtualNetwork"
+                                        for value in sources))):
+            unresolved_sources.add(id(rule))
         for net in networks:
             maximum = (1 << net.max_prefixlen) - 1
             low, high = int(net.network_address), int(net.broadcast_address)
@@ -2455,6 +2460,10 @@ def _nsg_allowed(nsg, address=None, groups=()):
                     if candidate.is_global:
                         candidates.add(candidate)
     allowed, matched, seen = {}, [], set()
+    for rule in ordered:
+        if id(rule) in unresolved_sources:
+            matched.append({"rule": rule.get("name"), "priority": (rule.get("properties") or {}).get("priority"),
+                            "unresolved_public_source": True})
     for candidate in sorted(candidates, key=lambda ip: (ip.version, int(ip))):
         decided = {}
         for rule in ordered:
@@ -2515,6 +2524,7 @@ def _azure_nsg_path(inventory, a, nic_nsg_id, subnet_id, ports, address=None, gr
     else:
         subnet_nsg = ((subnet["data"].get("properties") or {}).get("networkSecurityGroup") or {}).get("id")
     result = ports
+    unresolved_source = known_block = False
     for level, nsg_id in (("subnet", subnet_nsg if subnet is not None else False), ("nic", nic_nsg_id)):
         if nsg_id is False:
             continue
@@ -2527,12 +2537,19 @@ def _azure_nsg_path(inventory, a, nic_nsg_id, subnet_id, ports, address=None, gr
             continue
         present += 1
         allowed, matched = _nsg_allowed(nsg, address, groups)
+        unknown_here = any(row.get("unresolved_public_source") for row in matched)
+        if unknown_here:
+            a.gap("nsg", f"{level} NSG has an allow rule with an unresolved source service tag or prefix")
+            unresolved_source = True
         result = intersect(result, allowed)
+        if empty(result) and not unknown_here:
+            known_block = True
         levels.append({"level": level, "nsg": native_id(nsg), "matched_rules": matched, "allowed": describe(allowed)})
     if present == 0 and not any(g["layer"] == "nsg" for g in a.unresolved) and str(sku or "").lower() == "standard":
         a.step("nsg", "block", reason="Standard SKU public IP without NSG is closed to inbound by default", levels=levels, at=where)
         return {}
-    a.step("nsg", "allow" if not empty(result) else "block", levels=levels, allowed=describe(result), at=where)
+    a.step("nsg", "allow" if not empty(result) else "unknown" if unresolved_source and not known_block else "block",
+           levels=levels, allowed=describe(result), at=where)
     return result
 
 
