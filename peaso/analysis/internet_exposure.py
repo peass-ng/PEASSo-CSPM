@@ -969,6 +969,10 @@ def _aws_api_stage(snapshot_data, assessment, service):
 def _aws_rest_api(snapshot, inventory, resource):
     data = resource["data"]
     a = Assessment(resource, "api")
+    stage_read = data.get("Stages")
+    active_stage_names = ({s.get("stageName") for s in as_list(stage_read.get("items")) if isinstance(s, dict)
+                           and isinstance(s.get("deploymentId"), str) and s.get("deploymentId")}
+                          if isinstance(stage_read, dict) and stage_read.get("collection_status") in ("collected", "empty") else None)
     types = as_list((data.get("endpointConfiguration") or {}).get("types"))
     if "PRIVATE" in types:
         a.step("route", "block", endpoint_types=types, disable_execute_api_endpoint=data.get("disableExecuteApiEndpoint"))
@@ -990,28 +994,29 @@ def _aws_rest_api(snapshot, inventory, resource):
             if not isinstance(rules, dict) or rules.get("collection_status") not in ("collected", "empty") or not isinstance(rules.get("items"), list):
                 routing_domains.append(domain["data"].get("domainName") or native_id(domain))
             else:
-                stages = data.get("Stages") if isinstance(data.get("Stages"), dict) else {}
-                active_stages = {s.get("stageName") for s in as_list(stages.get("items")) if isinstance(s, dict)
-                                 and isinstance(s.get("deploymentId"), str) and s.get("deploymentId")}
                 for rule in rules["items"]:
                     if not isinstance(rule, dict):
                         continue
                     for action in as_list(rule.get("Actions")):
                         invoke = action.get("InvokeApi") if isinstance(action, dict) else None
                         if isinstance(invoke, dict) and invoke.get("ApiId") == native_id(resource):
-                            if invoke.get("Stage") in active_stages:
+                            if active_stage_names is not None and invoke.get("Stage") in active_stage_names:
                                 domains.append(str(domain["data"].get("domainName") or native_id(domain)))
-                            else:
+                            elif active_stage_names is None or not isinstance(invoke.get("Stage"), str):
                                 routing_domains.append(domain["data"].get("domainName") or native_id(domain))
             if "ONLY" in routing_mode:
                 continue
         mappings = domain["data"].get("BasePathMappings") or {}
-        if mappings.get("collection_status") != "collected":
+        if mappings.get("collection_status") not in ("collected", "empty"):
             unresolved_domains.append(domain["data"].get("domainName") or native_id(domain))
             continue
-        if any(isinstance(mapping, dict) and mapping.get("restApiId") == native_id(resource)
-               for mapping in as_list(mappings.get("items"))):
-            domains.append(str(domain["data"].get("domainName") or native_id(domain)))
+        for mapping in as_list(mappings.get("items")):
+            if not isinstance(mapping, dict) or mapping.get("restApiId") != native_id(resource):
+                continue
+            if active_stage_names is not None and mapping.get("stage") in active_stage_names:
+                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
+            elif active_stage_names is None or not isinstance(mapping.get("stage"), str):
+                unresolved_domains.append(domain["data"].get("domainName") or native_id(domain))
     if data.get("disableExecuteApiEndpoint") is True and not domains:
         a.step("route", "block", endpoint_types=types, disable_execute_api_endpoint=True)
         if unresolved_domains or routing_domains or inventory.state("apigateway_domain_name", resource["scope"]) not in {"collected", "empty"}:
@@ -1087,6 +1092,10 @@ def _aws_rest_api(snapshot, inventory, resource):
 def _aws_http_api(snapshot, inventory, resource):
     data = resource["data"]
     a = Assessment(resource, "api")
+    stage_read = data.get("Stages")
+    active_stage_names = ({s.get("StageName") for s in as_list(stage_read.get("items")) if isinstance(s, dict)
+                           and (s.get("AutoDeploy") is True or isinstance(s.get("DeploymentId"), str) and s.get("DeploymentId"))}
+                          if isinstance(stage_read, dict) and stage_read.get("collection_status") in ("collected", "empty") else None)
     domains, unresolved_domains = [], []
     for domain in inventory.items("apigatewayv2_domain_name"):
         if domain["scope"] != resource["scope"]:
@@ -1103,16 +1112,17 @@ def _aws_http_api(snapshot, inventory, resource):
             unresolved_domains.append(domain_data.get("DomainName"))
             continue
         mappings = domain_data.get("ApiMappings") or {}
-        if mappings.get("collection_status") != "collected":
+        if mappings.get("collection_status") not in ("collected", "empty"):
             unresolved_domains.append(domain_data.get("DomainName"))
             continue
-        if any(isinstance(mapping, dict) and mapping.get("ApiId") == data.get("ApiId")
-               for mapping in as_list(mappings.get("items"))):
+        for mapping in as_list(mappings.get("items")):
+            if not isinstance(mapping, dict) or mapping.get("ApiId") != data.get("ApiId"):
+                continue
             name = domain_data.get("DomainName")
-            if isinstance(name, str) and name:
+            if active_stage_names is not None and mapping.get("Stage") in active_stage_names and isinstance(name, str) and name:
                 domains.append(name)
-            else:
-                unresolved_domains.append(native_id(domain))
+            elif active_stage_names is None or not isinstance(mapping.get("Stage"), str) or not isinstance(name, str):
+                unresolved_domains.append(name or native_id(domain))
     if data.get("DisableExecuteApiEndpoint") is True and not domains:
         a.step("route", "block", disable_execute_api_endpoint=True)
         if unresolved_domains or inventory.state("apigatewayv2_domain_name", resource["scope"]) not in {"collected", "empty"}:

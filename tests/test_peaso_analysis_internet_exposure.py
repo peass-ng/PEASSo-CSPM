@@ -388,6 +388,37 @@ def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
     assert row()["status"] == "UNKNOWN"
 
 
+def test_api_gateway_custom_mapping_requires_its_own_active_stage():
+    rest = {"id": "rest1", "disableExecuteApiEndpoint": True, "endpointConfiguration": {"types": ["REGIONAL"]},
+            "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
+            "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"},
+                                                                {"stageName": "dev"}]}}
+    rest_domain = {"domainName": "rest.example.com", "endpointConfiguration": {"types": ["REGIONAL"]},
+                   "BasePathMappings": {"collection_status": "collected", "items": [{"restApiId": "rest1", "stage": "dev"}]}}
+    def rest_row():
+        return one(aws(coll("rest_api", [rest], service="apigateway"),
+                       coll("apigateway_domain_name", [rest_domain], service="apigateway")), "rest_api")
+    assert rest_row()["status"] == "PASS"
+    rest_domain["BasePathMappings"]["items"][0]["stage"] = "prod"
+    assert rest_row()["status"] == "FAIL"
+    rest_domain["BasePathMappings"] = {"collection_status": "empty", "items": []}
+    assert rest_row()["status"] == "PASS"
+    http = {"ApiId": "http1", "DisableExecuteApiEndpoint": True, "ProtocolType": "HTTP",
+            "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}],
+            "Stages": {"collection_status": "collected", "items": [{"StageName": "prod", "AutoDeploy": True},
+                                                                {"StageName": "dev", "AutoDeploy": False}]}}
+    http_domain = {"DomainName": "http.example.com", "DomainNameConfigurations": [{"EndpointType": "REGIONAL"}],
+                   "ApiMappings": {"collection_status": "collected", "items": [{"ApiId": "http1", "Stage": "dev"}]}}
+    def http_row():
+        return one(aws(coll("http_api", [http], service="apigatewayv2"),
+                       coll("apigatewayv2_domain_name", [http_domain], service="apigatewayv2")), "http_api")
+    assert http_row()["status"] == "PASS"
+    http_domain["ApiMappings"]["items"][0]["Stage"] = "prod"
+    assert http_row()["status"] == "FAIL"
+    http_domain["ApiMappings"] = {"collection_status": "empty", "items": []}
+    assert http_row()["status"] == "PASS"
+
+
 def test_public_and_external_rds_snapshots():
     def snap(values):
         return {"DBSnapshotArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:snapshot:s", "SnapshotType": "manual",
