@@ -379,6 +379,10 @@ def test_eks_public_endpoint_honours_cidrs():
     def cluster(cidrs):
         return {"name": "c", "Cluster": {"cluster": {"endpoint": "https://x.eks.amazonaws.com", "resourcesVpcConfig": {"endpointPublicAccess": True, "publicAccessCidrs": cidrs}}}}
     assert one(aws(coll("eks_cluster", [cluster(["0.0.0.0/0"])], service="eks")), "eks_cluster")["status"] == "FAIL"
+    narrowed = one(aws(coll("eks_cluster", [cluster(["8.8.8.8/32"])], service="eks")), "eks_cluster")
+    assert narrowed["status"] == "FAIL" and narrowed["evidence"]["authenticated_endpoint"] is True
+    assert one(aws(coll("eks_cluster", [cluster(["2600::/32"])], service="eks")), "eks_cluster")["status"] == "FAIL"
+    assert one(aws(coll("eks_cluster", [cluster(["10.0.0.0/8"])], service="eks")), "eks_cluster")["status"] == "PASS"
     assert one(aws(coll("eks_cluster", [cluster(["203.0.113.0/24"])], service="eks")), "eks_cluster")["status"] == "PASS"
 
 

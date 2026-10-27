@@ -792,8 +792,10 @@ def _aws_eks(snapshot, inventory, resource):
         return None
     a.addresses = [cluster["cluster"].get("endpoint")] if cluster["cluster"].get("endpoint") else []
     cidrs = as_list(config.get("publicAccessCidrs")) or ["0.0.0.0/0"]
-    if any(_internet(c) for c in cidrs):
-        a.step("source_ranges", "allow", public_access_cidrs=cidrs)
+    public = [c for c in cidrs if _public_source(c)]
+    if public:
+        a.step("source_ranges", "allow", public_access_cidrs=public,
+               semantics="Declared public client CIDR; EKS authentication still applies")
         a.ports = pset("tcp", 443, 443)
     else:
         a.step("source_ranges", "block", public_access_cidrs=cidrs)
