@@ -26,7 +26,7 @@ from types import CodeType, FunctionType, MethodType, ModuleType
 import zipfile
 from peaso import source_attestation_mode as _attestation_mode
 
-_RECEIPT_SHA256 = "055fd79477100a2e603610ac31068065bd242f4d660085fdb87b3f07811c8aaa"
+_RECEIPT_SHA256 = "de1fb7902d2425c4eb1050ebe8319bf5be86ea34b9fea91384ba81e78eb86fd7"
 _SELF_SHA256 = "1a6ab13e77cb05cfddde554ad942f5a8c2b5149733882a096801ad2423d9be54"
 _ARCHIVE_SHA256 = "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0"
 _HELPER_SHA256 = "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a"

@@ -3002,9 +3002,114 @@ def collect(connector, requirements=None):
     # A global call cap assigns budget by admission order. Keep the original
     # analyzer-first admission in that explicitly limited mode.
     defer_analyzer_preparation = requests.max_calls is None
+    automatic_sources = {
+        aws_lambda_environment_secret_indicators.KIND: frozenset({'lambda_function'}),
+        aws_selected_configuration_secret_indicators.KIND: frozenset({
+            'ecs_task_definition', 'codebuild_project', 'batch_job_definition',
+            'amplify_app', 'glue_job'}),
+    }
+    from . import workload_environment_discovery as environment_discovery
+    automatic_specs = (
+        (auto_lambda_environment, aws_lambda_environment_secret_indicators,
+         environment_discovery.aws_lambda, aws_lambda_environment_secret_indicators.OPTION,
+         aws_lambda_environment_secret_indicators.KIND, 'lambda'),
+        (auto_ecs_environment, aws_selected_configuration_secret_indicators,
+         environment_discovery.aws_configuration, aws_selected_configuration_secret_indicators.OPTION,
+         aws_selected_configuration_secret_indicators.KIND, 'ecs'),
+    )
+    streaming_content = requests.max_calls is None and requests.max_items is None
+    automatic_futures = {}
+    content_tail_callback = options.get('_content_tail_callback')
+    content_tail_started = False
+
+    def automatic_scope(scope, session, identity, region, plan, spec):
+        _, producer, _, option, kind, _ = spec
+        with requests._lock:
+            if getattr(requests, '_canonical_wrappers', None) is None:
+                requests._canonical_wrappers = {}
+        records = []
+        counts = {'calls': 0, 'cache_hits': 0, 'throttle_retries': 0}
+        last_metadata = None
+        windows = (environment_discovery.batches(plan.targets, 2048) if kind ==
+            aws_selected_configuration_secret_indicators.KIND else (plan.targets,))
+        for window in windows:
+            staged = []
+            deferred = None
+            try:
+                for batch in environment_discovery.batches(window, producer.MAX_TARGETS):
+                    # Shared cache, clients and limiter; isolated content state,
+                    # denial issues, capture metadata and redaction descriptors.
+                    local = copy.copy(requests)
+                    local.calls = local.cache_hits = local.throttle_retries = 0
+                    planned = {**options, option: list(batch)}
+                    producer.initialize(local, planned, [scope])
+                    if (deferred is None and kind == aws_selected_configuration_secret_indicators.KIND
+                            and len(window) > producer.MAX_TARGETS and local.workers > 1):
+                        try:
+                            from peaso.secret_scanning_batch import _volatile_shm_available
+                            from peaso.secret_scanning import _trufflehog
+                            if _volatile_shm_available(16 * 1024 * 1024):
+                                _trufflehog()
+                                deferred = producer._DeferredEcsContent(local, window, session)
+                        except Exception:
+                            deferred = None
+                    local.automatic_workload_environment_active = True
+                    local.automatic_workload_environment_issues = {}
+                    try:
+                        if deferred is not None:
+                            read = producer.collect_selected(local, session, region, identity,
+                                planned, [scope], deferred_window=deferred)
+                        else:
+                            read = producer.collect_selected(local, session, region, identity,
+                                planned, [scope])
+                        issues = dict(local.automatic_workload_environment_issues)
+                    finally:
+                        local.automatic_workload_environment_active = False
+                        local.automatic_workload_environment_issues = {}
+                    field = ('lambda_environment_metadata' if kind ==
+                        aws_lambda_environment_secret_indicators.KIND else 'configuration_content_metadata')
+                    last_metadata = dict(getattr(local, field))
+                    staged.append((read, last_metadata, issues, local))
+                if deferred is not None:
+                    deferred.close()
+                    deferred.apply([item for read, _, _, _ in staged for item in read.items])
+            finally:
+                if deferred is not None:
+                    deferred.close()
+            for read, batch_metadata, issues, local in staged:
+                records.append((read, batch_metadata, issues,
+                    {length: set(values) for length, values in
+                        getattr(local, 'configuration_content_redactions', {}).items()},
+                    getattr(local, 'configuration_content_redaction_overflow', False)))
+                for key in counts:
+                    counts[key] += getattr(local, key)
+        return plan, records, (counts, last_metadata)
+
+    def start_automatic(scope, session, identity, region, content_executor):
+        nonlocal content_tail_started
+        if not streaming_content:
+            return
+        native = [row for row in collections if row['scope'] == scope]
+        present = {row['type'] for row in native}
+        for spec in automatic_specs:
+            active, _, _, _, kind, _ = spec
+            key = (kind, scope)
+            if active and key not in automatic_futures and automatic_sources[kind] <= present:
+                plan = spec[2](native, expected_scopes=[scope])
+                if not plan.targets:
+                    completed = Future()
+                    completed.set_result((plan, [], None))
+                    automatic_futures[key] = completed
+                    continue
+                if content_tail_callback is not None and not content_tail_started:
+                    content_tail_callback(True)
+                    content_tail_started = True
+                automatic_futures[key] = content_executor.submit(
+                    automatic_scope, scope, session, identity, region, plan, spec)
     with capture_scope(requests), analyzer_lifecycle, ThreadPoolExecutor(max_workers=ordinary_workers, thread_name_prefix="aws-read") as pool, \
             ThreadPoolExecutor(max_workers=max(1, content_workers), thread_name_prefix="aws-content") as content_pool, \
-            ThreadPoolExecutor(max_workers=activity_workers, thread_name_prefix="aws-activity") as activity_pool:
+            ThreadPoolExecutor(max_workers=activity_workers, thread_name_prefix="aws-activity") as activity_pool, \
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="aws-automatic-content") as automatic_pool:
         for offset in range(0, len(contexts), scope_workers):
             scope_batch = contexts[offset:offset + scope_workers]
             jobs, activity_jobs = [], {}
@@ -3101,6 +3206,9 @@ def collect(connector, requirements=None):
                     append(kind, f"{identity['Account']}/{GLOBAL_SCOPE}", SPECS[kind][0] if kind in SPECS else "sts" if kind == "aws_account" else "s3" if kind == "bucket" else "organizations" if kind in {"organization_account", "organization_parent", "scp_policy"} else "s3control" if kind == "s3_account_public_access_block" else "iam", read, identity["Account"])
                 else:
                     append(kind, f"{identity['Account']}/{region}", SPECS[kind][0], read, identity["Account"], region)
+                    if auto_lambda_environment or auto_ecs_environment:
+                        start_automatic(f"{identity['Account']}/{region}", job_session,
+                            identity, region, automatic_pool)
             for session, identity in scope_batch:
                 if derive_config_account:
                     from .aws_config_account_native import derive as derive_config_account_proof
@@ -3121,11 +3229,14 @@ def collect(connector, requirements=None):
                                 or (auto_ecs_environment and kind == aws_selected_configuration_secret_indicators.KIND)):
                             continue
                         append(kind, f"{identity['Account']}/{region}", SPECS.get(kind, ("aws",))[0], ReadResult([], "not_collected", {"code": "unsupported_inventory" if kind in unsupported else "inventory_not_requested"}))
+                    if auto_lambda_environment or auto_ecs_environment:
+                        start_automatic(f"{identity['Account']}/{region}", session,
+                            identity, region, automatic_pool)
         if auto_lambda_environment or auto_ecs_environment:
             from . import workload_environment_discovery as environment_discovery
-            content_tail_callback = options.get('_content_tail_callback')
-            if content_tail_callback is not None:
+            if content_tail_callback is not None and not content_tail_started:
                 content_tail_callback(True)
+                content_tail_started = True
             automatic = {}
             automatic_batches = {}
             automatic_configuration_redactions = {}
@@ -3155,21 +3266,42 @@ def collect(connector, requirements=None):
                     account = identity.get('Account')
                     for region in regions_for(account):
                         scope = account + '/' + region
-                        for batch in environment_discovery.batches(by_scope.get(scope, ()), producer.MAX_TARGETS):
-                            planned_options = {**options, option: list(batch)}
-                            producer.initialize(requests, planned_options, [scope])
-                            requests.automatic_workload_environment_active = True
-                            requests.automatic_workload_environment_issues = {}
-                            try:
-                                read = producer.collect_selected(requests, session, region, identity,
-                                    planned_options, [scope])
-                                batch_issues = dict(requests.automatic_workload_environment_issues)
-                            finally:
-                                requests.automatic_workload_environment_active = False
+                        batches = environment_discovery.batches(by_scope.get(scope, ()), producer.MAX_TARGETS)
+                        pending = automatic_futures.get((kind, scope))
+                        prepared = None
+                        if pending is not None:
+                            scope_plan, prepared, account_state = pending.result()
+                            if (scope_plan.targets != tuple(by_scope.get(scope, ()))
+                                    or len(prepared) != len(batches)):
+                                raise ValueError('automatic_content_plan_changed')
+                            if account_state is not None:
+                                counts, last_metadata = account_state
+                                requests.calls += counts['calls']
+                                requests.cache_hits += counts['cache_hits']
+                                requests.throttle_retries += counts['throttle_retries']
+                                field = ('lambda_environment_metadata' if kind ==
+                                    aws_lambda_environment_secret_indicators.KIND else 'configuration_content_metadata')
+                                setattr(requests, field, last_metadata)
+                        for index, batch in enumerate(batches):
+                            if prepared is None:
+                                planned_options = {**options, option: list(batch)}
+                                producer.initialize(requests, planned_options, [scope])
+                                requests.automatic_workload_environment_active = True
                                 requests.automatic_workload_environment_issues = {}
-                            batch_metadata = dict(getattr(requests,
-                                'lambda_environment_metadata' if isinstance(batch[0], str)
-                                else 'configuration_content_metadata'))
+                                try:
+                                    read = producer.collect_selected(requests, session, region, identity,
+                                        planned_options, [scope])
+                                    batch_issues = dict(requests.automatic_workload_environment_issues)
+                                finally:
+                                    requests.automatic_workload_environment_active = False
+                                    requests.automatic_workload_environment_issues = {}
+                                batch_metadata = dict(getattr(requests,
+                                    'lambda_environment_metadata' if isinstance(batch[0], str)
+                                    else 'configuration_content_metadata'))
+                                redactions = getattr(requests, 'configuration_content_redactions', {})
+                                overflow = getattr(requests, 'configuration_content_redaction_overflow', False)
+                            else:
+                                read, batch_metadata, batch_issues, redactions, overflow = prepared[index]
                             if not read.items or read.status not in ('collected', 'empty') or any(
                                     not row.get(producer.MARKER, {}).get('complete') for row in read.items):
                                 content_complete = False
@@ -3183,9 +3315,9 @@ def collect(connector, requirements=None):
                                     or len(collection['items']) != len(read.items)):
                                 content_complete = False
                             if not isinstance(batch[0], str):
-                                for length, fingerprints in requests.configuration_content_redactions.items():
+                                for length, fingerprints in redactions.items():
                                     automatic_configuration_redactions.setdefault(length, set()).update(fingerprints)
-                                automatic_configuration_overflow |= requests.configuration_content_redaction_overflow
+                                automatic_configuration_overflow |= overflow
                 for scope in source_scopes:
                     if scope in by_scope:
                         continue

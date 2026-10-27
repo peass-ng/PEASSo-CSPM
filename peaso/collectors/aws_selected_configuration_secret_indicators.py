@@ -635,7 +635,7 @@ class _DeferredEcsContent:
     def __init__(self,requests,targets,session):
         from threading import Condition,Thread
         from collections import namedtuple
-        if not 1<len(targets)<=MAX_TARGETS:raise ValueError('ecs_phase_bound')
+        if not 1<len(targets)<=2048:raise ValueError('ecs_phase_bound')
         self.requests=requests
         from .aws_request_pool import canonical_wrapper
         session_id=id(canonical_wrapper(requests,session))
@@ -644,19 +644,20 @@ class _DeferredEcsContent:
             service,operation,args=route(target)
             self.cache_keys[identity(target)]=(session_id,service,parse(target)[2],operation,
                 json.dumps(opaque_arguments(args),sort_keys=True),PROFILE)
-        self.bindings={identity(t):(t['scope'],tuple(sorted(target_source(t,path='ecs_environment',location_kind='configuration').items())))for t in targets}
-        if len(self.bindings)!=len(targets) or any(parse(t)[0]!='ecs_environment'for t in targets):
+        self.bindings={identity(t):(t['scope'],tuple(sorted(target_source(t,
+            path=parse(t)[0],location_kind='configuration').items())))for t in targets}
+        if len(self.bindings)!=len(targets):
             raise ValueError('ecs_phase_identity')
-        self.Job=namedtuple('_EcsContentJob','member payload native info marker source')
+        self.Job=namedtuple('_EcsContentJob','member payload native info marker source requests response_bytes')
         self.condition=Condition();self.jobs={};self.groups=[];self.completed={}
         self.response_bytes=self.payload_bytes=0
-        self.done=False;self.stopped=False;self.gather_until=None
+        self.done=False;self.stopped=False;self.running=False;self.gather_until=None
         self.thread=Thread(target=self._consume,name='ecs-content-preparation',daemon=False)
         self.thread.start()
 
     def enqueue(self,requests,info,marker,payload,native,response_bytes):
         ident=info['id'];binding=self.bindings.get(ident)
-        if (requests is not self.requests or binding is None or info['surface']!='ecs_environment'
+        if (getattr(requests,'_cache',None) is not self.requests._cache or binding is None
                 or info['scope']!=binding[0] or type(payload)is not bytes
                 or not 0<len(payload)<=MAX_CONTENT or type(response_bytes)is not int
                 or not 0<response_bytes<=MAX_RESPONSE):raise ValueError('ecs_phase_identity')
@@ -666,10 +667,17 @@ class _DeferredEcsContent:
         with self.condition:
             if self.stopped or self.done or ident in self.jobs or ident in self.completed:
                 raise ValueError('ecs_phase_closed')
-            if (self.response_bytes+response_bytes>MAX_TOTAL
-                    or self.payload_bytes+len(payload)>MAX_TOTAL):raise ValueError('ecs_phase_bound')
+            while (self.response_bytes+response_bytes>16*1024*1024
+                    or self.payload_bytes+len(payload)>16*1024*1024):
+                # Only earlier committed native groups can fill the window:
+                # one current read batch is bounded independently at 8 MiB.
+                self.gather_until=time.monotonic()
+                self.condition.notify_all()
+                if (not self.groups and not self.running) or self.stopped:
+                    raise ValueError('ecs_phase_bound')
+                self.condition.wait(min(.1,_ecs_phase_remaining(requests)))
             self.response_bytes+=response_bytes;self.payload_bytes+=len(payload)
-            self.jobs[ident]=self.Job(ident,payload,owned,tuple(sorted(info.items())),marker,binding[1])
+            self.jobs[ident]=self.Job(ident,payload,owned,tuple(sorted(info.items())),marker,binding[1],requests,response_bytes)
 
     def _matches(self,item,ident,expected):
         from .aws import _safe
@@ -701,6 +709,7 @@ class _DeferredEcsContent:
                     # A failed safe projection or a changed binding never gains
                     # a successful result from the earlier native payload.
                     job.marker['complete']=False;job.native.clear();self.jobs.pop(ident,None)
+                    self.response_bytes-=job.response_bytes;self.payload_bytes-=len(job.payload)
             if group:
                 self.groups.append(tuple(group))
                 if self.gather_until is None:self.gather_until=time.monotonic()+1.0
@@ -709,7 +718,8 @@ class _DeferredEcsContent:
     def _finish(self,job):
         try:
             with source_context(**dict(job.source)):
-                _complete_content(self.requests,dict(job.info),job.marker,job.payload,job.native,timeout=_ecs_phase_remaining(self.requests))
+                _complete_content(job.requests,dict(job.info),job.marker,job.payload,job.native,
+                    timeout=_ecs_phase_remaining(job.requests))
         except Exception:
             job.marker['complete']=False
         finally:
@@ -717,33 +727,56 @@ class _DeferredEcsContent:
             with self.condition:
                 self.completed[job.member]=deepcopy(job.marker)
                 self.jobs.pop(job.member,None)
+                self.response_bytes-=job.response_bytes;self.payload_bytes-=len(job.payload)
+                self.condition.notify_all()
             job.native.clear()
 
     def _small(self,group):
         from peaso.secret_scanning_batch import prepared_content_batch
-        with prepared_content_batch([(j.payload,j.member+'.content')for j in group],
-                timeout=min(30,_ecs_phase_remaining(self.requests))):
-            for job in group:self._finish(job)
+        try:
+            timeout=min(30,*(_ecs_phase_remaining(j.requests) for j in group))
+            with prepared_content_batch([(j.payload,j.member+'.content')for j in group],
+                    timeout=timeout):
+                for job in group:self._finish(job)
+        except Exception:
+            # An expired earlier native batch cannot poison later batches in
+            # the same window. _finish checks each job's own lease again.
+            for job in group:
+                if job.member in self.jobs:self._finish(job)
 
     def _prepare(self,groups):
         from peaso import secret_scanning_batch as batch
-        from peaso.secret_scan_clean import known_clean
         if len(groups)==1:
             self._small(groups[0]);return
-        jobs=[j for g in groups for j in g]
-        pending=sum(not known_clean(j.payload)for j in jobs)
-        fallback=False
-        with batch.prepared_content_batch([(j.payload,j.member+'.content')for j in jobs],
-                timeout=min(10,_ecs_phase_remaining(self.requests))):
-            # A failed large preparation consumes no source. Release that map
-            # before replaying the ORIGINAL native group boundaries, never a
-            # merged map or a flat sixteen-source serial fallback.
-            if pending>1 and batch._PREPARED_BATCH.get()is None:
-                fallback=True
-            else:
-                for job in jobs:self._finish(job)
-        if fallback:
-            for group in groups:self._small(group)
+        jobs=[]
+        for group in groups:
+            for job in group:
+                try:_ecs_phase_remaining(job.requests)
+                except Exception:self._finish(job)
+                else:jobs.append(job)
+        if not jobs:return
+        if len(jobs)>2048 or sum(len(j.payload)for j in jobs)>16*1024*1024:
+            raise ValueError('content_window_bound')
+        prepared=None
+        try:
+            prepared=batch._prepare_trufflehog_batch(
+                [(j.payload,j.member+'.content')for j in jobs],
+                min(60,*(_ecs_phase_remaining(j.requests) for j in jobs)))
+        except Exception:
+            pass
+        if prepared is None:
+            # Dense output, unavailable preparation or scanner failure keeps
+            # the original native batch boundaries and per-source fallback.
+            for group in groups:
+                live=[job for job in group if job.member in self.jobs]
+                if live:self._small(live)
+            return
+        token=batch._PREPARED_BATCH.set(prepared)
+        try:
+            for job in jobs:self._finish(job)
+        finally:
+            batch._PREPARED_BATCH.reset(token)
+            prepared.clear()
 
     def _consume(self):
         from peaso.runtime_metrics import span
@@ -752,18 +785,24 @@ class _DeferredEcsContent:
                 with self.condition:
                     while not self.groups and not self.done:
                         with span('secret.trufflehog.ecs_queue_wait'):
-                            self.condition.wait(min(.1,_ecs_phase_remaining(self.requests)))
+                            self.requests.check_deadline()
+                            self.condition.wait(.1)
                     if not self.groups:
                         if self.done:return
                         continue
-                    left=_ecs_phase_remaining(self.requests)
+                    self.requests.check_deadline()
+                    left=max(.1,(self.requests.deadline-time.monotonic()) if self.requests.deadline else MAX_SECONDS)
                     gather_left=min(max(0,(self.gather_until or 0)-time.monotonic()),max(0,left-60))
                     if not self.done and gather_left>0:
                         with span('secret.trufflehog.ecs_queue_wait'):
                             self.condition.wait(min(left,gather_left))
                         continue
-                    groups=self.groups;self.groups=[]
-                self._prepare(groups)
+                    groups=self.groups;self.groups=[];self.gather_until=None;self.running=True
+                try:self._prepare(groups)
+                finally:
+                    with self.condition:
+                        self.running=False
+                        self.condition.notify_all()
         except Exception:
             # Fixed incomplete markers only; no exception or raw traceback is
             # stored in a Future, cache, collection or diagnostic frame.
@@ -899,7 +938,7 @@ def _record_read_failure(requests,failure):
     return code if code in expired else None
 
 
-def collect_selected(requests,session,region,caller,options,scopes):
+def collect_selected(requests,session,region,caller,options,scopes,*,deferred_window=None):
     from .aws import ReadResult
     targets=selected_targets(options,scopes)
     if not enabled(options):return ReadResult([],'not_collected',{'code':'selected_configuration_disabled'})
@@ -997,7 +1036,7 @@ def collect_selected(requests,session,region,caller,options,scopes):
         finally:
             if cohort is not None:cohort.close()
     try:
-        deferred=_defer_ecs_content(requests,selected,workers,session)
+        deferred=deferred_window if deferred_window is not None else _defer_ecs_content(requests,selected,workers,session)
         # Keep other invocations from observing a cached safe-but-incomplete
         # marker until its source-bound consumer has joined.
         with admission if deferred is not None else nullcontext():
@@ -1021,11 +1060,11 @@ def collect_selected(requests,session,region,caller,options,scopes):
                     first=len(items)
                     collect_group(group)
                     if deferred is not None:deferred.commit(group,items[first:])
-            if deferred is not None:
+            if deferred is not None and deferred_window is None:
                 deferred.close()
                 deferred.apply(items)
     finally:
-        if deferred is not None:deferred.close()
+        if deferred is not None and deferred_window is None:deferred.close()
     if not items:return ReadResult([],'not_collected',{'code':'selected_configuration_scope_omitted'})
     if read_failures:
         error={'code':'selected_configuration_read_incomplete'}
