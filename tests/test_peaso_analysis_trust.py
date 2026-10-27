@@ -137,9 +137,27 @@ def test_gcp_workload_identity_provider_condition():
         if condition:
             item["attributeCondition"] = condition
         return make_snapshot("gcp", ["projects/p1"], [coll("workload_identity_provider", [item], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")
-    assert findings(provider(), "analysis.federated_trust")[0]["status"] == "FAIL"
+    assert findings(provider(), "analysis.federated_trust")[0]["status"] == "MANUAL"
     assert findings(provider("assertion.repository_owner == 'acme'"), "analysis.federated_trust")[0]["status"] == "PASS"
     assert findings(provider(issuer="https://idp.example.com"), "analysis.federated_trust")[0]["status"] == "MANUAL"
+
+
+def test_gcp_wif_joins_exact_pool_service_account_impersonation_binding():
+    from peaso.analysis.trust import gcp_wif_provider
+    name = "projects/1/locations/global/workloadIdentityPools/p/providers/gh"
+    provider = {"type": "workload_identity_provider", "data": {"name": name,
+                "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
+    member = "principalSet://iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/*"
+    account = {"name": "projects/p1/serviceAccounts/sa@p1.iam.gserviceaccount.com",
+               "iamPolicy": {"collection_status": "collected", "bindings": [{
+                   "role": "roles/iam.workloadIdentityUser", "members": [member]}]}}
+    snapshot = {"collections": [{"type": "service_account", "status": "collected", "items": [account]}]}
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "FAIL" and evidence["service_account_bindings"][0]["members"] == [member]
+    account["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    account["iamPolicy"]["bindings"][0]["members"] = [member.replace("/p/*", "/another/*")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
 
 def test_gcp_public_binding_fails_and_project_sa_is_trusted():

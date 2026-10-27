@@ -506,10 +506,33 @@ def gcp_wif_provider(snapshot, resource):
     host = re.sub(r"^https?://", "", issuer).lower()
     evidence = {"issuer": issuer or None, "aws_account": data.get("aws", {}).get("accountId") if isinstance(data.get("aws"), dict) else None,
                 "attribute_condition": condition, "attribute_mapping": copy.deepcopy(data.get("attributeMapping"))}
+    name = data.get("name")
+    pool = name.rsplit("/providers/", 1)[0] if isinstance(name, str) and "/providers/" in name else None
+    bindings = []
+    if pool:
+        prefixes = (f"principal://iam.googleapis.com/{pool}/", f"principalSet://iam.googleapis.com/{pool}/")
+        for account in _items(snapshot, "service_account"):
+            policy = account.get("iamPolicy")
+            if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
+                continue
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or binding.get("role") not in (
+                        "roles/iam.workloadIdentityUser", "roles/iam.serviceAccountTokenCreator"):
+                    continue
+                members = [member for member in as_list(binding.get("members"))
+                           if isinstance(member, str) and member.startswith(prefixes)]
+                if members:
+                    bindings.append({"service_account": account.get("name") or account.get("email"),
+                                     "role": binding["role"], "members": members,
+                                     "condition": copy.deepcopy(binding.get("condition"))})
+    evidence["service_account_bindings"] = bindings
     if condition:
-        return "PASS", "info", {**evidence, "semantics": "Attribute condition present; its CEL logic is retained for review."}
+        return ("MANUAL" if bindings else "PASS"), ("medium" if bindings else "info"), {
+            **evidence, "semantics": "Provider attribute condition and any service-account binding conditions need CEL evaluation."}
     if host.startswith(MULTI_TENANT_ISSUERS):
-        return "FAIL", "critical", {**evidence, "problem": "Multi-tenant OIDC issuer without attributeCondition admits every tenant's tokens"}
+        if any(not binding["condition"] for binding in bindings):
+            return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has a declared service-account impersonation binding"}
+        return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
     return "MANUAL", "medium", {**evidence, "problem": "No attributeCondition; every identity of the issuer can exchange tokens"}
 
 
