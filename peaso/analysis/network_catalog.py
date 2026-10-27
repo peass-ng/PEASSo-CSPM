@@ -38,7 +38,7 @@ NETWORK_SERVICE_GROUPS = {
     },
     "gcp": {
         "application_compute": {"app_engine_application", "app_engine_service", "app_engine_network_version",
-            "dataflow_network_job", "batch_network_job", "instance_group_manager", "instance_template", "autoscaler", "cloudrun_worker_pool", "vertex_endpoint"},
+            "dataflow_network_job", "batch_network_job", "instance_group_manager", "instance_template", "autoscaler", "cloudrun_worker_pool", "vertex_endpoint", "target_pool", "target_instance"},
         "private_services": {"redis_cluster", "service_networking_connection", "service_connection_policy",
             "network_connectivity_hub", "network_connectivity_spoke", "netapp_storage_pool", "netapp_volume", "interconnect", "interconnect_attachment",
             "managed_kafka_cluster", "memorystore_instance", "datastream_private_connection", "migration_private_connection"},
@@ -121,7 +121,7 @@ NETWORK_SERVICE_LABELS = {
     },
     "gcp": {"vpc_flow_logs_config": "networkmanagement", "domains_registration": "domains", "app_engine_application": "appengine", "app_engine_service": "appengine", "app_engine_network_version": "appengine",
         "dataflow_network_job": "dataflow", "batch_network_job": "batch", "instance_group_manager": "compute", "instance_template": "compute",
-        "autoscaler": "compute",
+        "autoscaler": "compute", "target_pool": "compute", "target_instance": "compute",
         "cloudrun_worker_pool": "run", "vertex_endpoint": "aiplatform", "managed_kafka_cluster": "managedkafka", "memorystore_instance": "memorystore",
         "datastream_private_connection": "datastream", "migration_private_connection": "datamigration",
         "redis_cluster": "redis", "service_networking_connection": "servicenetworking", "service_connection_policy": "networkconnectivity",

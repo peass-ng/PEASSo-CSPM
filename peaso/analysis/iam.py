@@ -436,6 +436,41 @@ def _principals(resource):
             for member in as_list(binding.get("members")):
                 if isinstance(member, str):
                     yield member, f"bindings[{i}].members", binding, "member"
+    if resource["provider"] == "gcp" and resource["type"] == "bigquery_dataset":
+        # Dataset ACLs predate IAM and are returned by datasets.get as access[].
+        # They can grant public or third-party read without an IAM binding.
+        fields = {"userByEmail": "user", "groupByEmail": "group", "domain": "domain",
+                  "iamMember": None, "specialGroup": None}
+        for i, access in enumerate(as_list(data.get("access"))):
+            if not isinstance(access, dict):
+                continue
+            for field, prefix in fields.items():
+                value = access.get(field)
+                if field == "specialGroup" and value not in {"allUsers", "allAuthenticatedUsers"}:
+                    continue
+                if isinstance(value, str) and value:
+                    identity = f"{prefix}:{value}" if prefix else value
+                    yield identity, f"access[{i}].{field}", access, "member"
+    if resource["provider"] == "gcp" and resource["type"] == "bucket" and (
+            (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess") or {}).get("enabled") is False:
+        for field in ("bucketAccessControls", "objectAccessControls"):
+            envelope = data.get(field)
+            if not isinstance(envelope, dict) or envelope.get("status") != "collected" or envelope.get("all_pages") is not True:
+                continue
+            if field == "objectAccessControls" and (envelope.get("all_objects") is not True or envelope.get("all_versions") is not True):
+                continue
+            for i, acl in enumerate(as_list(envelope.get("items"))):
+                if not isinstance(acl, dict) or acl.get("role") not in {"READER", "OWNER", "WRITER"}:
+                    continue
+                entity = acl.get("entity")
+                if not isinstance(entity, str):
+                    continue
+                identity = entity
+                for tag in ("user", "group", "domain"):
+                    if entity.startswith(tag + "-"):
+                        identity = tag + ":" + entity[len(tag) + 1:]
+                        break
+                yield identity, f"{field}.items[{i}].entity", acl, "member"
     for i, subject in enumerate(as_list(data.get("subjects"))):
         if isinstance(subject, dict):
             name = subject.get("name", "")

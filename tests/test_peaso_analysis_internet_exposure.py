@@ -389,6 +389,78 @@ def test_gcp_firewall_priority_deny_and_target_tags():
     result = one(gcp(gcoll("firewall", rules), gcoll("firewall_policy", [], status="empty"), gcp_instance()), "instance")
     assert result["status"] == "PASS"
     assert one(gcp(gcoll("firewall", [], status="denied"), gcp_instance()), "instance")["status"] == "UNKNOWN"
+    public_subset = [fw("allow-public-subset", 1000, "allowed", ["443"], sources=("8.8.8.0/24",))]
+    assert one(gcp(gcoll("firewall", public_subset), gcoll("firewall_policy", [], status="empty"),
+                   gcp_instance()), "instance")["status"] == "FAIL"
+
+
+def test_gcp_firewall_policy_requires_effective_attachment_decision():
+    policy = {"name": "policy-1", "rules": [{"priority": 100, "direction": "INGRESS", "action": "allow",
+        "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}]}
+    result = one(gcp(gcoll("firewall", [fw("allow-ssh", 1000, "allowed", ["22"])]),
+                     gcoll("firewall_policy", [policy]), gcp_instance()), "instance")
+    assert result["status"] == "UNKNOWN"
+    assert any("per-instance rule decision" in gap["reason"] for gap in result["evidence"]["unresolved"])
+
+
+def test_gcp_bigquery_legacy_acl_and_authorized_resource():
+    public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
+              "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}
+    result = one(gcp(gcoll("bigquery_dataset", [public], service="bigquery")), "bigquery_dataset")
+    assert result["status"] == "FAIL" and result["evidence"]["data_exposure"]
+    assert result["evidence"]["authenticated_endpoint"]
+    delegated = {"name": "projects/p1/datasets/source", "datasetReference": {"projectId": "p1", "datasetId": "source"},
+                 "access": [{"view": {"projectId": "foreign", "datasetId": "views", "tableId": "v"}}]}
+    result = one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["path"][0]["delegated"][0]["reference"]["projectId"] == "foreign"
+
+
+@pytest.mark.parametrize("kind,target_segment,detail", [
+    ("target_instance", "targetInstances", {"instance": "vm-ref"}),
+    ("target_pool", "targetPools", {"instances": ["vm-ref"]}),
+])
+def test_gcp_external_forwarding_to_legacy_compute_target_joins_vm_firewall(kind, target_segment, detail):
+    target = f"https://compute.googleapis.com/compute/v1/projects/p1/regions/us-central1/{target_segment}/t"
+    vm = {"name": "vm", "selfLink": "vm-ref", "status": "RUNNING",
+          "networkInterfaces": [{"network": NET}]}
+    forwarding = {"name": "fr", "IPAddress": "34.4.4.4", "IPProtocol": "TCP", "ports": ["443"],
+                  "loadBalancingScheme": "EXTERNAL", "target": target}
+    result = one(gcp(gcoll("forwarding_rule", [forwarding]), gcoll(kind, [{"name": "t", "selfLink": target, **detail}]),
+                     gcoll("instance", [vm]), gcoll("firewall", [fw("allow-443", 1000, "allowed", ["443"])]),
+                     gcoll("firewall_policy", [], status="empty")), "forwarding_rule")
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+
+
+def test_gcp_beyondcorp_gateway_and_contact_center_private_ingress():
+    connection = {"name": "projects/p1/locations/r/appConnections/c", "state": "CREATED",
+                  "gateway": {"uri": "https://gate.example.test", "ingressPort": 19443}}
+    result = one(gcp(gcoll("beyondcorp_connection", [connection], service="beyondcorp")), "beyondcorp_connection")
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/19443"]
+    center = {"name": "projects/p1/locations/r/contactCenters/c", "privateAccess": {}}
+    assert one(gcp(gcoll("contact_center", [center], service="contactcenteraiplatform")), "contact_center")["status"] == "FAIL"
+    center["privateAccess"] = {"ingressSettings": [{"name": "AGENT"}]}
+    assert one(gcp(gcoll("contact_center", [center], service="contactcenteraiplatform")), "contact_center")["status"] == "PASS"
+
+
+def test_gcp_oracle_goldengate_public_deployment_keeps_foreign_firewall_unknown():
+    deployment = {"name": "projects/p1/locations/r/goldengateDeployments/g",
+                  "properties": {"isPublic": True, "publicIpAddress": "34.7.7.7", "nsgIds": ["nsg-1"]}}
+    result = one(gcp(gcoll("oracle_goldengate_deployment", [deployment], service="oracledatabase")),
+                 "oracle_goldengate_deployment")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["public_addresses"] == ["34.7.7.7"]
+    deployment["properties"]["isPublic"] = False
+    assert not exposure(gcp(gcoll("oracle_goldengate_deployment", [deployment], service="oracledatabase")),
+                        "oracle_goldengate_deployment")
+
+
+def test_gcp_vertex_sandbox_public_load_balancer_is_reported_unknown():
+    sandbox = {"name": "projects/p1/locations/r/reasoningEngines/e/sandboxEnvironments/s",
+               "state": "STATE_RUNNING", "connectionInfo": {"loadBalancerIp": "34.1.2.3",
+               "loadBalancerHostname": "s.example.test"}}
+    result = one(gcp(gcoll("vertex_agent_sandbox", [sandbox], service="aiplatform")), "vertex_agent_sandbox")
+    assert result["status"] == "UNKNOWN" and "34.1.2.3" in result["evidence"]["public_addresses"]
 
 
 def test_gcp_cloud_run_invoker_and_ingress():
@@ -416,18 +488,90 @@ def test_gcp_proxy_lb_cloud_armor():
         return gcp(gcoll("forwarding_rule", [fr]), gcoll("target_proxy", [proxy]), gcoll("url_map", [url_map]), gcoll("backend_service", [service]))
     assert one(snap(backend), "forwarding_rule")["status"] == "FAIL"
     assert one(snap(backend | {"securityPolicy": "https://x/securityPolicies/armor"}), "forwarding_rule")["status"] == "UNKNOWN"
+    policy = {"name": "armor", "selfLink": "https://x/securityPolicies/armor", "rules": [
+        {"priority": 2147483647, "action": "deny(403)", "match": {"config": {"srcIpRanges": ["*"]}}}]}
+    guarded = gcp(gcoll("forwarding_rule", [fr]), gcoll("target_proxy", [proxy]), gcoll("url_map", [url_map]),
+                  gcoll("backend_service", [backend | {"securityPolicy": policy["selfLink"]}]),
+                  gcoll("security_policy", [policy]))
+    assert one(guarded, "forwarding_rule")["status"] == "PASS"
+    policy["rules"][0]["action"] = "allow"
+    guarded = gcp(gcoll("forwarding_rule", [fr]), gcoll("target_proxy", [proxy]), gcoll("url_map", [url_map]),
+                  gcoll("backend_service", [backend | {"securityPolicy": policy["selfLink"]}]),
+                  gcoll("security_policy", [policy]))
+    assert one(guarded, "forwarding_rule")["status"] == "FAIL"
+    policy["rules"].insert(0, {"priority": 100, "action": "deny(403)",
+                               "match": {"config": {"srcIpRanges": ["10.0.0.0/8"]}}})
+    guarded = gcp(gcoll("forwarding_rule", [fr]), gcoll("target_proxy", [proxy]), gcoll("url_map", [url_map]),
+                  gcoll("backend_service", [backend | {"securityPolicy": policy["selfLink"]}]),
+                  gcoll("security_policy", [policy]))
+    assert one(guarded, "forwarding_rule")["status"] == "FAIL"
+    policy["rules"].pop(0)
+    policy["rules"].insert(0, {"priority": 100, "action": "allow", "match": {"expr": {"expression": "request.path.startsWith('/admin')"}}})
+    guarded = gcp(gcoll("forwarding_rule", [fr]), gcoll("target_proxy", [proxy]), gcoll("url_map", [url_map]),
+                  gcoll("backend_service", [backend | {"securityPolicy": policy["selfLink"]}]),
+                  gcoll("security_policy", [policy]))
+    assert one(guarded, "forwarding_rule")["status"] == "UNKNOWN"
     no_address = copy.deepcopy(fr)
     no_address.pop("IPAddress")
     assert one(gcp(gcoll("forwarding_rule", [no_address])), "forwarding_rule")["status"] == "UNKNOWN"
 
 
+def test_gcp_passthrough_lb_joins_healthy_vm_firewall_without_vm_public_ip():
+    base = "https://compute.googleapis.com/compute/v1/projects/p1"
+    vm_ref = base + "/zones/us-central1-a/instances/vm"
+    service_ref = base + "/regions/us-central1/backendServices/nlb"
+    fr = {"name": "nlb", "loadBalancingScheme": "EXTERNAL", "IPAddress": "34.2.2.2",
+          "IPProtocol": "TCP", "portRange": "443-443", "backendService": service_ref}
+    vm = {"name": "vm", "selfLink": vm_ref, "status": "RUNNING",
+          "networkInterfaces": [{"network": NET, "networkIP": "10.0.0.2"}]}
+    health = {"name": service_ref, "backendService": service_ref, "collection_status": "collected",
+              "groups": [{"collection_status": "collected", "healthStatus": [
+                  {"instance": vm_ref, "healthState": "HEALTHY"}]}]}
+    def snap(rules):
+        return gcp(gcoll("forwarding_rule", [fr]), gcoll("backend_service", [{"name": "nlb", "selfLink": service_ref,
+                                                                             "BackendHealth": {"collection_status": "collected", "groups": health["groups"]}}]),
+                   gcoll("instance", [vm]),
+                   gcoll("firewall", rules), gcoll("firewall_policy", [], status="empty"))
+    assert one(snap([fw("allow-web", 1000, "allowed", ["443"])]), "forwarding_rule")["status"] == "FAIL"
+    assert one(snap([]), "forwarding_rule")["status"] == "PASS"
+
+
+def test_gcp_ha_and_classic_vpn_public_ike_and_esp_endpoints():
+    gateway = {"name": "ha", "vpnInterfaces": [{"id": 0, "ipAddress": "34.2.2.2"},
+                                                 {"id": 1, "ipAddress": "10.0.0.2", "interconnectAttachment": "vlan"}]}
+    result = one(gcp(gcoll("vpn_gateway", [gateway])), "vpn_gateway")
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["udp/500", "udp/4500", "esp"]
+    gateway["vpnInterfaces"][0]["interconnectAttachment"] = "vlan"
+    assert not exposure(gcp(gcoll("vpn_gateway", [gateway])))
+    classic = {"name": "classic-esp", "IPAddress": "34.2.2.3", "IPProtocol": "ESP",
+               "target": "https://compute.googleapis.com/compute/v1/projects/p1/regions/us/targetVpnGateways/vpn"}
+    result = one(gcp(gcoll("forwarding_rule", [classic])), "forwarding_rule")
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["esp"]
+
+
 def test_gcp_gke_and_sql():
     gke = {"name": "c", "endpoint": "35.1.1.1", "masterAuthorizedNetworksConfig": {"enabled": True, "cidrBlocks": [{"cidrBlock": "203.0.113.0/24"}]}}
     assert one(gcp(gcoll("gke_cluster", [gke], service="container")), "gke_cluster")["status"] == "PASS"
+    gke["masterAuthorizedNetworksConfig"]["cidrBlocks"] = [{"cidrBlock": "8.8.8.0/24"}]
+    assert one(gcp(gcoll("gke_cluster", [gke], service="container")), "gke_cluster")["status"] == "FAIL"
     assert one(gcp(gcoll("gke_cluster", [{"name": "c", "endpoint": "35.1.1.1"}], service="container")), "gke_cluster")["status"] == "FAIL"
     sql = {"name": "db", "databaseVersion": "MYSQL_8_0", "settings": {"ipConfiguration": {"ipv4Enabled": True, "authorizedNetworks": [{"value": "0.0.0.0/0"}]}}}
     result = one(gcp(gcoll("sql_instance", [sql], service="sqladmin")), "sql_instance")
-    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/3306"]
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/3306-3307"]
+    sql["settings"]["ipConfiguration"]["authorizedNetworks"] = []
+    proxy_only = one(gcp(gcoll("sql_instance", [sql], service="sqladmin")), "sql_instance")
+    assert proxy_only["status"] == "FAIL" and proxy_only["evidence"]["authenticated_endpoint"] is True
+    assert proxy_only["evidence"]["exposed_ports"] == ["tcp/3307"]
+
+
+def test_gcp_alloydb_public_ip_including_proxy_only_access():
+    instance = {"name": "projects/p1/locations/us/clusters/c/instances/i", "state": "READY",
+                "networkConfig": {"enablePublicIp": True, "authorizedExternalNetworks": []}}
+    result = one(gcp(gcoll("alloydb_instance", [instance], service="alloydb")), "alloydb_instance")
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/5433"]
+    assert result["evidence"]["authenticated_endpoint"] is True
+    instance["networkConfig"]["enablePublicIp"] = False
+    assert not exposure(gcp(gcoll("alloydb_instance", [instance], service="alloydb")))
 
 
 def test_gcp_public_resource_iam_is_reported_with_conditions_and_read_status():
@@ -450,6 +594,14 @@ def test_gcp_public_resource_iam_is_reported_with_conditions_and_read_status():
     assert any(row["check_id"] == "analysis.gcp_public_iam" and row["status"] == "FAIL" for row in rows)
 
 
+def test_gcp_bigquery_legacy_acl_enters_principal_exposure_review():
+    dataset = {"id": "p1:dataset", "datasetReference": {"projectId": "p1", "datasetId": "dataset"},
+               "access": [{"iamMember": "allUsers", "role": "READER"}]}
+    rows = analyze(gcp(gcoll("bigquery_dataset", [dataset], service="bigquery")))["findings"]
+    assert any(row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL"
+               and row["evidence"]["principals"][0]["principal"] == "allUsers" for row in rows)
+
+
 def test_gcp_collected_bucket_acl_public_read_and_pap():
     bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False}},
               "iamPolicy": {"bindings": []},
@@ -465,6 +617,109 @@ def test_gcp_collected_bucket_acl_public_read_and_pap():
     incomplete = copy.deepcopy(bucket)
     incomplete["objectAccessControls"]["all_objects"] = False
     assert not exposure(gcp(gcoll("bucket", [incomplete], service="storage")))
+    rows = analyze(gcp(gcoll("bucket", [bucket], service="storage")))["findings"]
+    assert any(row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL"
+               for row in rows)
+    rows = analyze(gcp(gcoll("bucket", [incomplete], service="storage")))["findings"]
+    assert not any(row["check_id"] == "analysis.principal_exposure" for row in rows)
+
+
+@pytest.mark.parametrize("kind,record,expected", [
+    ("cloud_ftp_server", {"name": "projects/p1/locations/us/servers/s", "externalConfig":
+                          {"ipAddress": "34.2.3.4", "allowedCidrBlocks": ["0.0.0.0/0"]}}, "FAIL"),
+    ("cloud_ftp_server", {"name": "projects/p1/locations/us/servers/s", "externalConfig":
+                          {"ipAddress": "34.2.3.4", "allowedCidrBlocks": ["192.0.2.0/24"]}}, "PASS"),
+    ("looker_instance", {"name": "projects/p1/locations/us/instances/i", "publicIpEnabled": True,
+                          "ingressPublicIp": "34.2.3.4", "ingressIpAllowlistConfig": {"enabled": False}}, "FAIL"),
+    ("looker_instance", {"name": "projects/p1/locations/us/instances/i", "publicIpEnabled": True,
+                          "ingressPublicIp": "34.2.3.4", "ingressIpAllowlistConfig":
+                          {"enabled": True, "allowlistRules": [{"ipRange": "192.0.2.0/24"}]}}, "PASS"),
+    ("blockchain_node", {"name": "projects/p1/locations/us/blockchainNodes/n", "privateServiceConnectEnabled": False,
+                         "connectionInfo": {"endpointInfo": {"jsonRpcApiEndpoint": "https://node.example.com"}}}, "FAIL"),
+    ("data_fusion_instance", {"name": "projects/p1/locations/us/instances/i", "privateInstance": False,
+                              "apiEndpoint": "https://df.example.com/api"}, "FAIL"),
+    ("vertex_index_endpoint", {"name": "projects/p1/locations/us/indexEndpoints/i", "publicEndpointEnabled": True,
+                               "publicEndpointDomainName": "index.example.com"}, "FAIL"),
+    ("vertex_feature_online_store", {"name": "projects/p1/locations/us/featureOnlineStores/f",
+                                     "dedicatedServingEndpoint": {"publicEndpointDomainName": "feature.example.com"}}, "FAIL"),
+    ("app_engine_application", {"name": "apps/p1", "defaultHostname": "p1.uc.r.appspot.com", "servingStatus": "SERVING"}, "FAIL"),
+    ("app_engine_application", {"name": "apps/p1", "defaultHostname": "p1.uc.r.appspot.com", "servingStatus": "USER_DISABLED"}, "PASS"),
+    ("api_gateway", {"name": "projects/p1/locations/us/gateways/g", "defaultHostname": "g.gateway.dev",
+                     "state": "ACTIVE", "apiConfig": "projects/p1/locations/global/apis/a/configs/c"}, "FAIL"),
+    ("firebase_apphosting_endpoint", {"name": "projects/p1/locations/us/backends/b",
+                                       "uri": "https://b.hosted.app"}, "FAIL"),
+])
+def test_gcp_managed_service_public_endpoints(kind, record, expected):
+    assert one(gcp(gcoll(kind, [record], service="managed")), kind)["status"] == expected
+
+
+def test_gcp_workstation_public_gateway_and_private_cluster():
+    cluster_name = "projects/p1/locations/us/workstationClusters/c"
+    workstation = {"name": cluster_name + "/workstationConfigs/config/workstations/w",
+                   "state": "STATE_RUNNING", "host": "80-w.c.cloudworkstations.dev"}
+    cluster = {"name": cluster_name, "privateClusterConfig": {"enablePrivateEndpoint": False}}
+    def scan(config):
+        return gcp(gcoll("workstation", [workstation], service="workstations"),
+                   gcoll("workstation_cluster", [config], service="workstations"))
+    assert one(scan(cluster), "workstation")["status"] == "FAIL"
+    cluster["privateClusterConfig"]["enablePrivateEndpoint"] = True
+    assert one(scan(cluster), "workstation")["status"] == "PASS"
+    assert one(gcp(gcoll("workstation", [workstation], service="workstations")), "workstation")["status"] == "UNKNOWN"
+
+
+def test_gcp_tpu_external_address_keeps_unresolved_firewall_identity():
+    node = {"name": "projects/p1/locations/us-central1-a/nodes/t",
+            "networkConfig": {"enableExternalIps": True, "network": NET},
+            "networkEndpoints": [{"ipAddress": "10.0.0.3", "accessConfig": {"externalIp": "34.3.3.3"}}]}
+    result = one(gcp(gcoll("tpu_node", [node], service="tpu"),
+                     gcoll("firewall", [], status="empty"), gcoll("firewall_policy", [], status="empty")), "tpu_node")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["public_addresses"] == ["34.3.3.3"]
+    assert result["evidence"]["unresolved"]
+
+
+def test_gcp_vmware_external_ip_and_ordered_access_rules():
+    cloud = "projects/p1/locations/us-central1-a/privateClouds/c"
+    address = cloud + "/externalAddresses/a"
+    policy = "projects/p1/locations/us-central1/networkPolicies/p"
+    network = "projects/123/locations/global/vmwareEngineNetworks/n"
+    base = [gcoll("vmware_external_address", [{"name": address, "state": "ACTIVE", "externalIp": "34.4.4.4"}], service="vmwareengine"),
+            gcoll("vmware_private_cloud", [{"name": cloud, "networkConfig": {"vmwareEngineNetworkCanonical": network}}], service="vmwareengine"),
+            gcoll("vmware_network_policy", [{"name": policy, "vmwareEngineNetworkCanonical": network,
+                                               "externalIp": {"enabled": True, "state": "ACTIVE"}}], service="vmwareengine")]
+    allow = {"name": policy + "/externalAccessRules/allow", "state": "ACTIVE", "priority": 200,
+             "action": "ALLOW", "ipProtocol": "tcp", "sourceIpRanges": [{"ipAddressRange": "0.0.0.0/0"}],
+             "destinationIpRanges": [{"externalAddress": address}], "destinationPorts": ["443"]}
+    rule_collection = gcoll("vmware_external_access_rule", [allow], service="vmwareengine")
+    assert one(gcp(*base, rule_collection), "vmware_external_address")["status"] == "FAIL"
+    allow["sourceIpRanges"] = [{"ipAddressRange": "8.8.8.0/24"}]
+    allow["destinationIpRanges"] = [{"ipAddressRange": "34.4.4.4/32"}]
+    assert one(gcp(*base, rule_collection), "vmware_external_address")["status"] == "FAIL"
+    deny = {**allow, "name": policy + "/externalAccessRules/deny", "priority": 100, "action": "DENY"}
+    result = one(gcp(*base, gcoll("vmware_external_access_rule", [allow, deny], service="vmwareengine")),
+                 "vmware_external_address")
+    assert result["status"] == "PASS"
+    deny["priority"] = 200
+    assert one(gcp(*base, gcoll("vmware_external_access_rule", [allow, deny], service="vmwareengine")),
+               "vmware_external_address")["status"] == "UNKNOWN"
+    assert one(gcp(*base), "vmware_external_address")["status"] == "UNKNOWN"
+
+
+def test_gcp_media_cdn_public_addresses_and_edge_armor():
+    edge = {"name": "projects/p1/locations/global/edgeCacheServices/media",
+            "ipv4Addresses": ["34.8.8.8"], "requireTls": True,
+            "routing": {"hostRules": [{"hosts": ["media.example.com"]}]}}
+    result = one(gcp(gcoll("media_cdn_service", [edge], service="networkservices")), "media_cdn_service")
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+    edge["edgeSecurityPolicy"] = "https://x/securityPolicies/armor"
+    assert one(gcp(gcoll("media_cdn_service", [edge], service="networkservices")), "media_cdn_service")["status"] == "UNKNOWN"
+    policy = {"name": "armor", "selfLink": edge["edgeSecurityPolicy"], "rules": [
+        {"priority": 2147483647, "action": "deny(403)", "match": {"config": {"srcIpRanges": ["*"]}}}]}
+    result = one(gcp(gcoll("media_cdn_service", [edge], service="networkservices"),
+                     gcoll("security_policy", [policy])), "media_cdn_service")
+    assert result["status"] == "PASS"
+
+
 
 
 # ------------------------------------------------------------------ Azure

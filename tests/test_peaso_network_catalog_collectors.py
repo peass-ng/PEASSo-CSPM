@@ -30,6 +30,88 @@ def test_gcp_network_service_native_lists_are_paginated_and_metadata_only(kind, 
     assert len(collection(snap, kind)["items"]) == 2 and len(transport.requests) == 2
 
 
+def test_gcp_api_gateway_native_list_feeds_public_endpoint_analysis():
+    from peaso.analysis import analyze
+    def resolver(request):
+        assert request["method"] == "GET"
+        assert request["url"] == "https://apigateway.googleapis.com/v1/projects/p-one/locations/us-central1/gateways"
+        return {"gateways": [{"name": "projects/p-one/locations/us-central1/gateways/g",
+                              "defaultHostname": "g.gateway.dev", "state": "ACTIVE"}]}
+    snap, transport = snapshot(["api_gateway"], resolver, regions=["us-central1"])
+    assert collection(snap, "api_gateway")["status"] == "collected"
+    assert len(transport.requests) == 1
+    assert any(f["check_id"] == "analysis.internet_exposure" and f["status"] == "FAIL"
+               for f in analyze(snap)["findings"])
+
+
+def test_gcp_firebase_apphosting_uses_identical_backend_request_for_scan_cache():
+    from peaso.analysis import analyze
+    def resolver(request):
+        assert request["method"] == "GET"
+        if request["url"].endswith("/locations"):
+            return {"locations": [{"locationId": "us-central1"}]}
+        assert request["url"] == "https://firebaseapphosting.googleapis.com/v1/projects/p-one/locations/us-central1/backends"
+        return {"backends": [{"name": "projects/p-one/locations/us-central1/backends/b",
+                              "uri": "https://b.hosted.app"}]}
+    snap, transport = snapshot(["firebase_apphosting_backend", "firebase_apphosting_endpoint"], resolver,
+                               regions=["us-central1"])
+    assert collection(snap, "firebase_apphosting_endpoint")["status"] == "collected"
+    backend_requests = [r for r in transport.requests if r["url"].endswith("/backends")]
+    # FixtureTransport records both invocations; the production Transport
+    # coalesces identical requests under its per-scan response cache.
+    assert len(backend_requests) == 2
+    assert backend_requests[0] == backend_requests[1]
+    assert any(f["check_id"] == "analysis.internet_exposure" and f["status"] == "FAIL"
+               for f in analyze(snap)["findings"])
+
+
+def test_gcp_media_cdn_global_service_collection_feeds_exposure():
+    from peaso.analysis import analyze
+    def resolver(request):
+        assert request["method"] == "GET"
+        assert request["url"] == "https://networkservices.googleapis.com/v1/projects/p-one/locations/global/edgeCacheServices"
+        assert "ipv4Addresses" in request["params"]["fields"]
+        return {"edgeCacheServices": [{"name": "projects/p-one/locations/global/edgeCacheServices/s",
+                                        "ipv4Addresses": ["34.8.8.8"], "requireTls": True}]}
+    snap, transport = snapshot(["media_cdn_service"], resolver)
+    assert collection(snap, "media_cdn_service")["status"] == "collected"
+    assert len(transport.requests) == 1
+    assert any(f["check_id"] == "analysis.internet_exposure" and f["status"] == "FAIL"
+               for f in analyze(snap)["findings"])
+
+
+@pytest.mark.parametrize("kind,segment", [("target_pool", "targetPools"), ("target_instance", "targetInstances")])
+def test_gcp_compute_forward_targets_use_aggregated_inventory(kind, segment):
+    def resolver(request):
+        assert request["method"] == "GET"
+        assert request["url"] == f"https://compute.googleapis.com/compute/v1/projects/p-one/aggregated/{segment}"
+        assert request["params"]["returnPartialSuccess"] == "true"
+        return {"items": {"zones/us-central1-a": {segment: [{"name": "t", "selfLink":
+            f"https://compute.googleapis.com/compute/v1/projects/p-one/zones/us-central1-a/{segment}/t"}]}}}
+    snap, transport = snapshot([kind], resolver)
+    assert collection(snap, kind)["status"] == "collected"
+    assert len(collection(snap, kind)["items"]) == len(transport.requests) == 1
+
+
+@pytest.mark.parametrize("kind,location,parent_segment,child_segment", [
+    ("vmware_external_address", "us-central1-a", "privateClouds", "externalAddresses"),
+    ("vmware_external_access_rule", "us-central1", "networkPolicies", "externalAccessRules"),
+])
+def test_gcp_vmware_external_access_collection_uses_parent_scoped_metadata(kind, location, parent_segment, child_segment):
+    parent = f"projects/p-one/locations/{location}/{parent_segment}/p"
+    def resolver(request):
+        assert request["method"] == "GET"
+        assert "fields" in request["params"]
+        if request["url"].endswith("/" + parent_segment):
+            return {parent_segment: [{"name": parent}]}
+        assert request["url"].endswith("/" + parent + "/" + child_segment)
+        return {child_segment: [{"name": parent + "/" + child_segment + "/c"}]}
+    snap, transport = snapshot([kind], resolver, regions=[location])
+    assert collection(snap, kind)["status"] == "collected"
+    assert len(collection(snap, kind)["items"]) == 1
+    assert len(transport.requests) == 2
+
+
 def test_dataflow_lists_active_jobs_then_fetches_only_network_environment():
     def resolver(request):
         assert request["method"] == "GET"

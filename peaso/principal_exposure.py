@@ -133,6 +133,31 @@ def project(snapshot, resources):
                             caller=member, classification=classification, conditions=condition,
                             restrictions=restrictive_conditions(condition), grant=statement)
     elif provider == "gcp":
+        for row in by_type["identityplatform_tenant"]:
+            data = row["data"]
+            if data.get("enableAnonymousUser") is True and data.get("disableAuth") is not True:
+                identity = data.get("name")
+                disabled_signup = ((data.get("client") or {}).get("permissions") or {}).get("disabledUserSignup") is True
+                signal(identity, row, "anonymous_identity_signup", "conditional" if disabled_signup else "declared",
+                    client_signup_disabled=disabled_signup,
+                    note="An anonymous ID token does not by itself grant access to application data or Google Cloud IAM resources")
+        for row in by_type["managed_ad_domain"]:
+            domain = row["data"].get("fqdn") or row["data"].get("name")
+            for trust in as_list(row["data"].get("trusts")):
+                if not isinstance(trust, dict) or not isinstance(trust.get("targetDomainName"), str):
+                    continue
+                target = trust["targetDomainName"]
+                classification = externality(snapshot, "domain:" + target)
+                if classification == "allowlisted":
+                    continue
+                direction = trust.get("trustDirection")
+                state = "unknown" if classification == "unknown" else "declared"
+                if trust.get("state") != "CONNECTED" or direction not in ("INBOUND", "BIDIRECTIONAL") or trust.get("selectiveAuthentication") is True:
+                    state = "conditional"
+                signal(domain, row, "external_domain_trust", state, target_domain=target,
+                    classification=classification, trust_state=trust.get("state"), direction=direction,
+                    selective_authentication=trust.get("selectiveAuthentication"),
+                    target_dns_ips=trust.get("targetDnsIpAddresses"))
         # Impersonation can be inherited from project/folder/org policies as well as SA policies.
         impersonation = {"roles/iam.serviceAccountTokenCreator", "roles/iam.workloadIdentityUser", "roles/iam.serviceAccountUser", "roles/owner", "roles/editor"}
         role_definitions = {r["data"].get("name"): r for r in by_type["iam_role"] if r["data"].get("name")}

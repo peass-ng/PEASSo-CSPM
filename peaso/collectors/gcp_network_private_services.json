@@ -96,14 +96,14 @@
     "version": "v2"
   },
   "beyondcorp_connection": {
-    "fields": "appConnections(gateway(uri,type,appGateway,ingressPort),applicationEndpoint(host,port),name,connectors,state),nextPageToken,unreachable",
-    "get_fields": "gateway(uri,type,appGateway,ingressPort),applicationEndpoint(host,port),name,connectors,state",
+    "fields": "appConnections(gateway(uri,type,appGateway,ingressPort,l7psc),applicationEndpoint(host,port),name,connectors,state),nextPageToken,unreachable",
+    "get_fields": "gateway(uri,type,appGateway,ingressPort,l7psc),applicationEndpoint(host,port),name,connectors,state",
     "get_parameters": {},
     "hydrate": true,
     "key": "appConnections",
     "location_kind": "region",
     "reference": "https://beyondcorp.googleapis.com/$discovery/rest?version=v1",
-    "resource_fields": "gateway(uri,type,appGateway,ingressPort),applicationEndpoint(host,port),name,connectors,state",
+    "resource_fields": "gateway(uri,type,appGateway,ingressPort,l7psc),applicationEndpoint(host,port),name,connectors,state",
     "scope_kind": "projects",
     "segment": "appConnections",
     "service": "beyondcorp",
@@ -188,6 +188,15 @@
     "reference": "https://ids.googleapis.com/$discovery/rest?version=v1",
     "segment": "endpoints",
     "service": "ids",
+    "version": "v1"
+  },
+  "media_cdn_service": {
+    "fields": "edgeCacheServices(name,ipv4Addresses,ipv6Addresses,requireTls,routing(hostRules(hosts)),edgeSecurityPolicy),nextPageToken",
+    "key": "edgeCacheServices",
+    "location_kind": "global",
+    "reference": "https://docs.cloud.google.com/media-cdn/docs/reference/rest/v1/projects.locations.edgeCacheServices",
+    "segment": "edgeCacheServices",
+    "service": "networkservices",
     "version": "v1"
   },
   "clouddeploy_network_target": {
@@ -517,14 +526,14 @@
     "version": "v1"
   },
   "managed_ad_domain": {
-    "fields": "domains(authorizedNetworks,state,fqdn,trusts(targetDomainName,targetDnsIpAddresses,state),name,reservedIpRange),nextPageToken,unreachable",
-    "get_fields": "authorizedNetworks,state,fqdn,trusts(targetDomainName,targetDnsIpAddresses,state),name,reservedIpRange",
+    "fields": "domains(authorizedNetworks,state,fqdn,trusts(targetDomainName,targetDnsIpAddresses,state,trustDirection,selectiveAuthentication),name,reservedIpRange),nextPageToken,unreachable",
+    "get_fields": "authorizedNetworks,state,fqdn,trusts(targetDomainName,targetDnsIpAddresses,state,trustDirection,selectiveAuthentication),name,reservedIpRange",
     "get_parameters": {},
     "hydrate": true,
     "key": "domains",
     "location_kind": "global",
     "reference": "https://managedidentities.googleapis.com/$discovery/rest?version=v1",
-    "resource_fields": "authorizedNetworks,state,fqdn,trusts(targetDomainName,targetDnsIpAddresses,state),name,reservedIpRange",
+    "resource_fields": "authorizedNetworks,state,fqdn,trusts(targetDomainName,targetDnsIpAddresses,state,trustDirection,selectiveAuthentication),name,reservedIpRange",
     "scope_kind": "projects",
     "segment": "domains",
     "service": "managedidentities",
@@ -867,14 +876,14 @@
     "version": "v1"
   },
   "oracle_goldengate_deployment": {
-    "fields": "goldengateDeployments(properties(privateIpAddress,ingressIps(ingressIpAddress),oggData(groupRolesMapping(securityGroupId)),deploymentDiagnosticData(diagnosticState),lifecycleState,fqdn,loadBalancerSubnetId,lifecycleSubState,publicIpAddress),odbNetwork,name,odbSubnet),nextPageToken,unreachable",
-    "get_fields": "properties(privateIpAddress,ingressIps(ingressIpAddress),oggData(groupRolesMapping(securityGroupId)),deploymentDiagnosticData(diagnosticState),lifecycleState,fqdn,loadBalancerSubnetId,lifecycleSubState,publicIpAddress),odbNetwork,name,odbSubnet",
+    "fields": "goldengateDeployments(properties(privateIpAddress,ingressIps(ingressIpAddress),oggData(groupRolesMapping(securityGroupId)),deploymentDiagnosticData(diagnosticState),lifecycleState,fqdn,loadBalancerSubnetId,lifecycleSubState,publicIpAddress,isPublic,deploymentUrl,nsgIds),odbNetwork,name,odbSubnet),nextPageToken,unreachable",
+    "get_fields": "properties(privateIpAddress,ingressIps(ingressIpAddress),oggData(groupRolesMapping(securityGroupId)),deploymentDiagnosticData(diagnosticState),lifecycleState,fqdn,loadBalancerSubnetId,lifecycleSubState,publicIpAddress,isPublic,deploymentUrl,nsgIds),odbNetwork,name,odbSubnet",
     "get_parameters": {},
     "hydrate": true,
     "key": "goldengateDeployments",
     "location_kind": "region",
     "reference": "https://oracledatabase.googleapis.com/$discovery/rest?version=v1",
-    "resource_fields": "properties(privateIpAddress,ingressIps(ingressIpAddress),oggData(groupRolesMapping(securityGroupId)),deploymentDiagnosticData(diagnosticState),lifecycleState,fqdn,loadBalancerSubnetId,lifecycleSubState,publicIpAddress),odbNetwork,name,odbSubnet",
+    "resource_fields": "properties(privateIpAddress,ingressIps(ingressIpAddress),oggData(groupRolesMapping(securityGroupId)),deploymentDiagnosticData(diagnosticState),lifecycleState,fqdn,loadBalancerSubnetId,lifecycleSubState,publicIpAddress,isPublic,deploymentUrl,nsgIds),odbNetwork,name,odbSubnet",
     "scope_kind": "projects",
     "segment": "goldengateDeployments",
     "service": "oracledatabase",
@@ -1335,8 +1344,27 @@
     "service": "vmwareengine",
     "version": "v1"
   },
+  "vmware_external_access_rule": {
+    "fields": "externalAccessRules(name,priority,action,ipProtocol,sourceIpRanges(ipAddress,ipAddressRange,externalAddress),destinationIpRanges(ipAddress,ipAddressRange,externalAddress),destinationPorts,state),nextPageToken,unreachable",
+    "key": "externalAccessRules",
+    "parents": [{"key": "networkPolicies", "segment": "networkPolicies"}],
+    "reference": "https://docs.cloud.google.com/vmware-engine/docs/public/reference/rest/v1/projects.locations.networkPolicies.externalAccessRules",
+    "segment": "externalAccessRules",
+    "service": "vmwareengine",
+    "version": "v1"
+  },
+  "vmware_external_address": {
+    "fields": "externalAddresses(name,internalIp,externalIp,state),nextPageToken,unreachable",
+    "key": "externalAddresses",
+    "location_kind": "zone",
+    "parents": [{"key": "privateClouds", "segment": "privateClouds"}],
+    "reference": "https://docs.cloud.google.com/vmware-engine/docs/public/reference/rest/v1/projects.locations.privateClouds.externalAddresses",
+    "segment": "externalAddresses",
+    "service": "vmwareengine",
+    "version": "v1"
+  },
   "vmware_network_policy": {
-    "fields": "networkPolicies(name,internetAccess(state),vmwareEngineNetworkCanonical,edgeServicesCidr,vmwareEngineNetwork,externalIp(state)),nextPageToken,unreachable",
+    "fields": "networkPolicies(name,internetAccess(enabled,state),vmwareEngineNetworkCanonical,edgeServicesCidr,vmwareEngineNetwork,externalIp(enabled,state)),nextPageToken,unreachable",
     "key": "networkPolicies",
     "reference": "https://vmwareengine.googleapis.com/$discovery/rest?version=v1",
     "segment": "networkPolicies",
