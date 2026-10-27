@@ -16,6 +16,8 @@ SOURCE = Path(__file__).resolve().parents[1] / "checks/k8s_extended.py"
 SOURCE_SCAN = "05a1919efd1849d99c2ae8e6b8637b6f"
 SNAPSHOT_ID = "sha256:936d10ad96a726229ef233bc370bf425a9a7724415b9790a61591c9e510aef59"
 ELIGIBLE = frozenset({"k8s.deployment.non_root", "k8s.replicaset.non_root"})
+# Root pins the reviewed hosted quality/cost receipt after the paired replay.
+HOSTED_RECEIPT_SHA256 = None
 
 
 def _digest(value):
@@ -48,8 +50,9 @@ def admitted_check_ids(path=MANIFEST):
         qualification = value["qualification"]
         if (type(qualification) is not dict or set(qualification) != {
                 "status", "hosted_cost_gate"}
-                or qualification["status"] != "offline_qualified"
-                or qualification["hosted_cost_gate"] != "pending"):
+                or qualification["status"] != "qualified"
+                or not _digest(HOSTED_RECEIPT_SHA256)
+                or qualification["hosted_cost_gate"] != HOSTED_RECEIPT_SHA256):
             return frozenset()
         checks = value["checks"]
         if type(checks) is not list or len(checks) != len(ELIGIBLE):
