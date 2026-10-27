@@ -1,0 +1,104 @@
+{
+  "caveats": [
+    "Lambda evaluator permits missing package type as a future-path FAIL; require an explicit Zip guard before global admission.",
+    "This audit verifies exact 992 rows and staged payloads; it does not measure hosted model behavior after prompt repair."
+  ],
+  "checks": [
+    {
+      "assessment": "snapshot supports native FAIL; staged AI input omits applicability fields",
+      "check_id": "aws.a.iam.active_key_age_90",
+      "downgrade_unknown_count": 20,
+      "evaluator_file_sha256": "264681c9227ffcfa81302d1138a29948d33583aa77736b6642552277d14f73d1",
+      "evaluator_path": "peaso/checks/aws_a_iam_lifecycle.py:25-35",
+      "native_snapshot_re_evaluation_fail_count": 20,
+      "resource_kind": "iam_access_key",
+      "snapshot_applicability_fields": [
+        "Status",
+        "CreateDate"
+      ],
+      "staged_evidence_omits_applicability_count": 20
+    },
+    {
+      "assessment": "snapshot supports native FAIL; staged AI input omits applicability fields",
+      "check_id": "aws_g6_ecs_all_containers_logging",
+      "downgrade_unknown_count": 2,
+      "evaluator_file_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+      "evaluator_path": "peaso/checks/batch_remaining_aws.py:226-239",
+      "native_snapshot_re_evaluation_fail_count": 2,
+      "resource_kind": "ecs_task_definition",
+      "snapshot_applicability_fields": [
+        "Definition.collection_status",
+        "Definition.taskDefinition.status",
+        "Definition.taskDefinition.containerDefinitions"
+      ],
+      "staged_evidence_omits_applicability_count": 2
+    },
+    {
+      "assessment": "snapshot supports native FAIL; staged AI input omits applicability fields",
+      "check_id": "aws_lambda_code_signing_configured",
+      "downgrade_unknown_count": 2,
+      "evaluator_file_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+      "evaluator_path": "peaso/checks/batch_remaining_aws.py:559-603",
+      "native_snapshot_re_evaluation_fail_count": 2,
+      "resource_kind": "lambda_function",
+      "snapshot_applicability_fields": [
+        "Configuration.State",
+        "PackageType",
+        "Configuration.PackageType",
+        "CodeSigning.collection_status"
+      ],
+      "staged_evidence_omits_applicability_count": 2
+    },
+    {
+      "assessment": "snapshot supports native FAIL; staged AI input omits applicability fields",
+      "check_id": "aws_nist_cloudtrail_trail_logs_encrypted_with_kms_cmk",
+      "downgrade_unknown_count": 2,
+      "evaluator_file_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+      "evaluator_path": "peaso/checks/batch_remaining_aws.py:1072-1134",
+      "native_snapshot_re_evaluation_fail_count": 2,
+      "resource_kind": "cloudtrail",
+      "snapshot_applicability_fields": [
+        "Status.collection_status",
+        "Status.IsLogging"
+      ],
+      "staged_evidence_omits_applicability_count": 2
+    },
+    {
+      "assessment": "snapshot supports native FAIL; staged AI input omits applicability fields",
+      "check_id": "aws_route53_hosted_zone_dnssec_enabled",
+      "downgrade_unknown_count": 2,
+      "evaluator_file_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+      "evaluator_path": "peaso/checks/batch_remaining_aws.py:543-557",
+      "native_snapshot_re_evaluation_fail_count": 2,
+      "resource_kind": "route53_zone",
+      "snapshot_applicability_fields": [
+        "Config.PrivateZone",
+        "DNSSEC.collection_status"
+      ],
+      "staged_evidence_omits_applicability_count": 2
+    },
+    {
+      "assessment": "snapshot supports native FAIL; staged AI input omits applicability fields",
+      "check_id": "aws_sns_delivery_failure_alarm_present",
+      "downgrade_unknown_count": 1,
+      "evaluator_file_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+      "evaluator_path": "peaso/checks/batch_remaining_aws.py:1055-1070",
+      "native_snapshot_re_evaluation_fail_count": 1,
+      "resource_kind": "sns_topic",
+      "snapshot_applicability_fields": [
+        "Attributes.collection_status",
+        "Attributes.Attributes.SubscriptionsConfirmed"
+      ],
+      "staged_evidence_omits_applicability_count": 1
+    }
+  ],
+  "inputs_sha256": {
+    "arm": "8ea496909f3f62c6101b423207eef4315c354741144497b701ff5b1d7acfb94c",
+    "common": "00f7ea1881e72cd22cb7e57c6764a1e6cddb43fe6ce62ce667b84e0746468030",
+    "pre_ai": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+    "snapshot": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+  },
+  "schema_version": 1,
+  "status": "inactive_source_audit",
+  "total_unknown_downgrades": 29
+}
