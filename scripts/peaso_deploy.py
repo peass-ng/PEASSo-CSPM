@@ -58,6 +58,13 @@ RUNTIME_ADMISSION_INPUTS = {
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
     'tests/gcp_current_compute_iam_successor_20261027.py',
+    'tests/gcp_current_dataflow_detector_successor_20261027.py',
+    'tests/test_ecr_byte_target_source_transition_20261027.py',
+    'tests/test_gcp_address_group_collection.py',
+    'tests/test_gcp_authz_policy_collection.py',
+    'tests/test_gcp_client_tls_policy_collection.py',
+    'tests/test_gcp_server_tls_policy_collection.py',
+    'tests/test_gcp_config_delivery_location.py',
     'tests/test_aws_log_group_fanout_20261027.py',
     'tests/test_azure_graph_batch_20261026.py',
     'tests/test_k8s_literal_cohort_20261027.py',

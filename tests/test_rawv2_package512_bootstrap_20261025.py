@@ -36,6 +36,16 @@ def test_current_package_producer_projection_retains_source_and_module_binding()
     with pytest.raises(epoch.AdmissionError):
         shared.rawv2_current_content_projection(package._image, dict(old, sha256='0' * 64), ROOT)
 
+def test_current_image_transition_rejects_tampered_live_callable(monkeypatch):
+    row = epoch.source_rows()[PACKAGE]
+    definition = next(item for item in row['definitions'] if item['name'] == '_image')
+    old = {'path': PACKAGE, 'qualname': '_image', 'sha256': definition['before'],
+           'module_sha256': row['before_sha256']}
+    monkeypatch.setattr(package._image, '__code__', package._image.__code__.replace(
+        co_consts=package._image.__code__.co_consts + ('unreviewed',)))
+    with pytest.raises((RuntimeError, epoch.AdmissionError)):
+        shared.rawv2_current_content_projection(package._image, old, ROOT)
+
 @pytest.mark.parametrize('relative', [PACKAGE, GUARD, shared._PRIVATE_RECEIPT, 'peaso/private_secret_source_epoch_20261021.zip'])
 def test_transient_fresh_source_or_receipt_mutation_rejected(monkeypatch, relative):
     source = (ROOT / PACKAGE).read_bytes()
