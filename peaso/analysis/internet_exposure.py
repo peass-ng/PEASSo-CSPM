@@ -4310,6 +4310,34 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
     return a
 
 
+def _azure_compute_gallery(snapshot, inventory, resource):
+    """Assess the collected gallery-wide community/direct-sharing policy."""
+    props = _props(resource)
+    a = Assessment(resource, "gallery_share")
+    profile = props.get("sharingProfile")
+    if not isinstance(profile, dict):
+        a.gap("policy", "Compute Gallery sharingProfile is not collected")
+        return a
+    permission = profile.get("permissions")
+    if permission == "Private":
+        a.step("sharing_policy", "block", permission=permission)
+        a.ports = {}
+    elif permission == "Community":
+        status = props.get("sharingStatus") if isinstance(props.get("sharingStatus"), dict) else {}
+        a.step("sharing_policy", "allow", permission=permission,
+               sharing_state=status.get("aggregatedState"))
+        a.explicit = "FAIL"
+        a.notes.append("Gallery policy permits community sharing; published image versions are not inventoried here.")
+    elif permission == "Groups":
+        groups = profile.get("groups")
+        a.gap("authorization", "gallery direct-sharing recipient ownership and published image versions are unresolved")
+        if isinstance(groups, list):
+            a.external_ids = [str(group.get("ids")) for group in groups if isinstance(group, dict) and group.get("ids")]
+    else:
+        a.gap("policy", "Compute Gallery sharing permission is absent or unrecognized")
+    return a
+
+
 def _azure_public_edge(snapshot, inventory, resource):
     """Assess the public listener from the collector's bounded route projection."""
     data = resource["data"]
@@ -4969,7 +4997,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -4985,7 +5013,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -5053,6 +5081,7 @@ def assess(snapshot, resources):
                   "batch_account": _azure_batch_account,
                   "ml_workspace": _azure_ml_workspace,
                   "databricks_workspace": _azure_databricks_workspace,
+                  "compute_gallery": _azure_compute_gallery,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
@@ -5077,6 +5106,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.kind == "gallery_share":
+        return ("Compute Gallery community sharing permitted" if status == "FAIL" else
+                "Compute Gallery community sharing blocked" if status == "PASS" else
+                "Compute Gallery sharing recipients unresolved")
     if assessment.kind == "disk_export":
         return ("Public disk or snapshot SAS export permitted" if status == "FAIL" else
                 "Public disk or snapshot SAS export blocked" if status == "PASS" else
@@ -5099,6 +5132,27 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.kind == "gallery_share":
+        profile = _props(assessment.resource).get("sharingProfile")
+        permission = profile.get("permissions") if isinstance(profile, dict) else None
+        if status == "FAIL":
+            return ("The gallery has sharingProfile.permissions Community.\n"
+                    "This setting permits community sharing of its images.\n"
+                    "Published image versions may become available outside the tenant.\n"
+                    "That could expose files or data stored in those images.")
+        if status == "PASS":
+            return ("The gallery has sharingProfile.permissions Private.\n"
+                    "This setting blocks community sharing of its images.\n"
+                    "Image contents are protected from this public sharing path.")
+        if permission == "Groups":
+            return ("The gallery has sharingProfile.permissions Groups.\n"
+                    "The recipients' ownership and published image versions are not recorded.\n"
+                    "A recipient outside the tenant could access shared image contents.")
+        first = ("The gallery has no recorded sharingProfile.permissions value." if permission is None
+                 else f"The gallery has sharingProfile.permissions {permission}.")
+        return (first + "\n"
+                "Its community sharing setting is unclear from that value.\n"
+                "Published images could be available outside the tenant if sharing is enabled.")
     if assessment.kind == "disk_export":
         props = _props(assessment.resource)
         policy = props.get("networkAccessPolicy")

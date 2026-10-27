@@ -133,6 +133,7 @@ ENDPOINTS = {
     'vm_scale_set': ('Microsoft.Compute/virtualMachineScaleSets', '2024-07-01'),
     'container_group': ('Microsoft.ContainerInstance/containerGroups', '2023-05-01'),
     'disk_access': ('Microsoft.Compute/diskAccesses', '2023-10-02'),
+    'compute_gallery': ('Microsoft.Compute/galleries', '2026-04-01'),
     'databox_edge_device': ('Microsoft.DataBoxEdge/dataBoxEdgeDevices', '2023-07-01'),
     'jit_network_access_policy': ('Microsoft.Security/jitNetworkAccessPolicies', '2020-01-01'),
     'resource_link': ('Microsoft.Resources/links', '2016-09-01'),
@@ -788,7 +789,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
 FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm", "vm_scale_set", "nic", "vnet", "nsg", "route_table", "storage_account", "security_pricing", "web_application_firewall_policy",
     "frontdoor", "cdn_profile", "frontdoor_waf_policy",
                             "hdinsight_cluster", "firewall_policy", "log_analytics_cluster",
-                            "image_template",
+                            "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
                             "integration_service_environment"})

@@ -192,6 +192,18 @@ def test_databricks_arm_public_gate_keeps_external_ingress_policy_unknown():
     assert decision("databricks_workspace", {"workspaceUrl": host}).verdict() == "UNKNOWN"
 
 
+def test_compute_gallery_community_and_direct_sharing_policy():
+    community = decision("compute_gallery", {"sharingProfile": {"permissions": "Community"},
+        "sharingStatus": {"aggregatedState": "Succeeded"}})
+    assert community.verdict() == "FAIL" and community.kind == "gallery_share"
+    assert "published image versions" in community.notes[0]
+    assert decision("compute_gallery", {"sharingProfile": {"permissions": "Private"}}).verdict() == "PASS"
+    direct = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
+        "groups": [{"type": "AADTenants", "ids": ["outside-tenant"]}]}})
+    assert direct.verdict() == "UNKNOWN"
+    assert decision("compute_gallery", {}).verdict() == "UNKNOWN"
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})
