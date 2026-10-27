@@ -1054,6 +1054,32 @@ def test_gcp_bucket_custom_role_permissions_gate_public_object_exposure():
     assert assessment(with_role=False).verdict() == "UNKNOWN"
 
 
+def test_gcp_public_managed_folder_joins_cached_folder_policy():
+    from peaso.analysis.internet_exposure import GCP_TYPES, Inventory, _gcp_bucket
+    from peaso.snapshot import resources
+    assert "managed_folder" in GCP_TYPES
+    bucket = {"name": "sample-bucket", "iamPolicy": {"bindings": []},
+              "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True},
+                                   "publicAccessPrevention": "not_enforced"}}
+    folder = {"name": "public/", "bucket": "sample-bucket", "iamPolicy": {"bindings": [
+        {"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}}
+    def assessment():
+        snap = gcp(gcoll("bucket", [bucket], service="storage"),
+                   gcoll("managed_folder", [folder], service="storage"))
+        items = resources(snap)
+        return _gcp_bucket(snap, Inventory(snap, items), next(row for row in items if row["type"] == "bucket"))
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert result.path[-1]["managed_folder_grants"][0]["folder"] == "public/"
+    folder["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+    folder["iamPolicy"]["bindings"][0].pop("condition")
+    folder["iamPolicy"]["bindings"][0]["role"] = "projects/p1/roles/unknown"
+    assert assessment().verdict() == "UNKNOWN"
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "enforced"
+    assert assessment().verdict() == "PASS"
+
+
 @pytest.mark.parametrize("kind,record,expected", [
     ("cloud_ftp_server", {"name": "projects/p1/locations/us/servers/s", "externalConfig":
                           {"ipAddress": "34.2.3.4", "allowedCidrBlocks": ["0.0.0.0/0"]}}, "FAIL"),

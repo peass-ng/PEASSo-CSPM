@@ -2113,7 +2113,38 @@ def _gcp_bucket(snapshot, inventory, resource):
                       if row.get("scope") == resource.get("scope") and row["data"].get("name") == data.get("name")]
     effective_public = (len(effective_rows) == 1 and effective_rows[0]["data"].get("resolutionComplete") is True
                         and effective_rows[0]["data"].get("publicAccess") is True)
-    if not public and not acl and not conditional and not effective_public and not unresolved_roles:
+    folder_public = []
+    folder_unresolved = []
+    if (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess", {}).get("enabled") is True:
+        for folder in inventory.items("managed_folder"):
+            detail = folder["data"]
+            if folder.get("scope") != resource.get("scope") or detail.get("bucket") != data.get("name"):
+                continue
+            name = detail.get("name")
+            folder_policy = detail.get("iamPolicy")
+            if not isinstance(name, str) or not isinstance(folder_policy, dict) or folder_policy.get("collection_status") not in (None, "collected"):
+                folder_unresolved.append({"folder": name, "reason": "managed folder IAM unavailable"})
+                continue
+            for binding in as_list(folder_policy.get("bindings")):
+                if not isinstance(binding, dict):
+                    continue
+                members = [m for m in as_list(binding.get("members")) if m in ("allUsers", "allAuthenticatedUsers")]
+                if not members:
+                    continue
+                role = binding.get("role")
+                role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+                permissions = role_row["data"].get("includedPermissions") if role_row else None
+                grant = {"folder": name, "role": role, "members": members}
+                if binding.get("condition"):
+                    folder_unresolved.append({**grant, "reason": "conditional managed folder IAM"})
+                elif isinstance(permissions, list) and any(p in object_permissions for p in permissions):
+                    folder_public.append(grant)
+                elif permissions is None and role in (known_storage_roles -
+                        {"roles/storage.legacyBucketReader", "roles/storage.legacyBucketWriter"}):
+                    folder_public.append(grant)
+                elif permissions is None:
+                    folder_unresolved.append({**grant, "reason": "managed folder role permissions unavailable"})
+    if not public and not acl and not conditional and not effective_public and not unresolved_roles and not folder_public and not folder_unresolved:
         return None
     a = Assessment(resource, "data_share")
     prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention")
@@ -2151,10 +2182,11 @@ def _gcp_bucket(snapshot, inventory, resource):
     elif ip_filter is not None and (not isinstance(ip_filter, dict) or ip_filter.get("mode") != "Disabled"):
         a.gap("policy", "bucket IP filter mode is not recognized")
         a.explicit = "UNKNOWN"
-    a.step("policy", "allow" if public or acl or effective_public else "unknown", bindings=public, acl=acl,
+    a.step("policy", "allow" if public or acl or effective_public or folder_public else "unknown", bindings=public, acl=acl,
            conditional=conditional, unresolved_roles=unresolved_roles,
-           effective_public=effective_public, public_access_prevention=prevention)
-    if (not public and not acl and not effective_public) or prevention == "inherited":
+           effective_public=effective_public, managed_folder_grants=folder_public,
+           managed_folder_unresolved=folder_unresolved, public_access_prevention=prevention)
+    if (not public and not acl and not effective_public and not folder_public) or prevention == "inherited":
         a.explicit = "UNKNOWN"
         a.gap("policy", "conditional or unresolved public IAM role, or inherited public access prevention, requires effective-policy evaluation")
     a.data_exposure = True
@@ -4682,7 +4714,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
