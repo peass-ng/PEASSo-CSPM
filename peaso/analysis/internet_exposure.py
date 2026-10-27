@@ -1622,8 +1622,23 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                 a.gap("backend", f"url map {url_map} not collected", "compute urlMaps")
                 return a
             m = mapping["data"]
-            services = [m.get("defaultService")] + [p.get("defaultService") for p in as_list(m.get("pathMatchers")) if isinstance(p, dict)] + \
-                [s for p in as_list(m.get("pathMatchers")) if isinstance(p, dict) for r in as_list(p.get("pathRules")) if isinstance(r, dict) for s in [r.get("service")]]
+            def route_backends(route, action_key):
+                if not isinstance(route, dict):
+                    return []
+                found = [route.get("defaultService") or route.get("service")]
+                action = route.get(action_key)
+                if isinstance(action, dict):
+                    for weighted in as_list(action.get("weightedBackendServices")):
+                        if isinstance(weighted, dict) and isinstance(weighted.get("weight"), int) and weighted["weight"] > 0:
+                            found.append(weighted.get("backendService"))
+                return [ref for ref in found if isinstance(ref, str) and ref]
+            services = route_backends(m, "defaultRouteAction")
+            for matcher in as_list(m.get("pathMatchers")):
+                services.extend(route_backends(matcher, "defaultRouteAction"))
+                if not isinstance(matcher, dict):
+                    continue
+                for rule in as_list(matcher.get("pathRules")) + as_list(matcher.get("routeRules")):
+                    services.extend(route_backends(rule, "routeAction"))
         elif proxy["data"].get("service"):
             services = [proxy["data"]["service"]]
         services = [s for s in dict.fromkeys(services) if s]

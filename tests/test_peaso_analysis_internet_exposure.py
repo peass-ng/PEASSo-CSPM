@@ -969,6 +969,32 @@ def test_gcp_backend_bucket_edge_policy_is_not_an_unprotected_route():
     assert assessment(None).verdict() == "UNKNOWN"
 
 
+def test_gcp_url_map_weighted_and_route_rule_backends_join_armor():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
+    from peaso.snapshot import resources
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map, backend, policy_ref = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendServices", "b"), ("securityPolicies", "deny")))
+    forwarding = {"name": "fr", "IPAddress": "34.4.4.4", "IPProtocol": "TCP", "ports": ["443"],
+                  "loadBalancingScheme": "EXTERNAL_MANAGED", "target": target}
+    policy = {"name": "deny", "selfLink": policy_ref, "rules": [
+        {"priority": 2147483647, "action": "deny(403)", "match": {"config": {"srcIpRanges": ["*"]}}}]}
+    action = {"weightedBackendServices": [{"backendService": backend, "weight": 100}]}
+    for mapping in ({"defaultRouteAction": action},
+                    {"pathMatchers": [{"defaultRouteAction": action}]},
+                    {"pathMatchers": [{"pathRules": [{"routeAction": action}]}]},
+                    {"pathMatchers": [{"routeRules": [{"routeAction": action}]}]}):
+        snap = gcp(gcoll("forwarding_rule", [forwarding]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                   gcoll("url_map", [{"name": "m", "selfLink": url_map, **mapping}]),
+                   gcoll("backend_service", [{"name": "b", "selfLink": backend, "securityPolicy": policy_ref}]),
+                   gcoll("security_policy", [policy]))
+        items = resources(snap)
+        result = _gcp_forwarding_rule(snap, Inventory(snap, items),
+                                      next(row for row in items if row["type"] == "forwarding_rule"))
+        assert result.verdict() == "PASS"
+
+
 def test_gcp_vmware_declared_public_path_preserves_nsx_api_boundary():
     from peaso.analysis.internet_exposure import Inventory, _gcp_vmware_address
     from peaso.snapshot import resources
