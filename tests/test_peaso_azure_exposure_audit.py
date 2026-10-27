@@ -281,9 +281,9 @@ def test_redis_public_listeners_preserve_firewall_uncertainty():
     assert with_rules([public], status="partial").verdict() == "UNKNOWN"
 
 
-@pytest.mark.parametrize("kind", ["vault", "container_registry", "search_service", "servicebus_namespace"])
+@pytest.mark.parametrize("kind", ["vault", "managed_hsm", "container_registry", "search_service", "servicebus_namespace"])
 def test_managed_endpoint_explicit_network_gate(kind):
-    rule = {"vault": "networkAcls", "container_registry": "networkRuleSet",
+    rule = {"vault": "networkAcls", "managed_hsm": "networkAcls", "container_registry": "networkRuleSet",
             "search_service": "networkRuleSet", "servicebus_namespace": "networkRuleSet"}[kind]
     assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
                            rule: {"defaultAction": "Allow"}}).verdict() == "FAIL"

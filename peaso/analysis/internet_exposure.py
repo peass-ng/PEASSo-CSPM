@@ -2369,6 +2369,7 @@ def _azure_firewall(snapshot, inventory, resource):
 
 _AZURE_MANAGED_ENDPOINTS = {
     "vault": (443, "networkAcls"),
+    "managed_hsm": (443, "networkAcls"),
     "cosmos_account": (443, "ipRules"),
     "container_registry": (443, "networkRuleSet"),
     "cognitive_account": (443, "networkAcls"),
@@ -2388,7 +2389,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
-    endpoint = next((props.get(field) for field in ("vaultUri", "loginServer", "endpoint", "documentEndpoint", "fullyQualifiedDomainName")
+    endpoint = next((props.get(field) for field in ("vaultUri", "hsmUri", "loginServer", "endpoint", "documentEndpoint", "fullyQualifiedDomainName")
                      if isinstance(props.get(field), str) and props.get(field)), None)
     if endpoint:
         a.addresses.append(endpoint)
