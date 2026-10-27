@@ -1,7 +1,7 @@
 """Fail-closed admission for audited native Hardening failures.
 
-The committed manifest is intentionally empty. A replay-qualified revision must
-be reviewed and pinned by its exact SHA-256 before any row can bypass AI.
+The committed manifest lists source-audited checks. Admission still requires
+an explicit runtime switch and the exact manifest SHA-256 pin.
 """
 import hashlib
 import ast
