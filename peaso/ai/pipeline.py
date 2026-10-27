@@ -176,6 +176,12 @@ def inputs(report):
     return hardening, exposure, duplicates
 
 
+def native_exposure_reviews(exposure, duplicates):
+    """Stable native FAIL verdicts for K8s Exposure when its AI stage is off."""
+    return [{'finding_id': ident, 'verdict': 'FAIL', 'reason': ''}
+            for ident in sorted({row['id'] for row in exposure} | set(duplicates))]
+
+
 def referenced_strings(value):
     """Exact resource references in this batch, never a whole-account inventory join."""
     if isinstance(value, str):
@@ -577,6 +583,18 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     if not selectors.get('ai_enabled', True):
         result['reason'] = 'disabled_for_scan'
         return result
+    k8s_native_exposure = (report.get('provider') == 'k8s' and 'exposure' in selected
+                           and selectors.get('ai_k8s_exposure_enabled') is not True)
+    if k8s_native_exposure and selected == {'exposure'}:
+        hardening, exposure, duplicates = inputs(report)
+        native_reviews = native_exposure_reviews(exposure, duplicates)
+        result.update(status='completed', reason='k8s_exposure_native_only', duplicates=duplicates,
+                      stage_inputs={'hardening': sorted(row['id'] for row in hardening),
+                                    'exposure': sorted(row['finding_id'] for row in native_reviews)},
+                      coverage={'hardening': len(hardening), 'exposure': len(native_reviews),
+                                'reviewed': len(native_reviews), 'total': len(native_reviews)})
+        result['reviews']['exposure'] = native_reviews
+        return result
     if not selected:
         result['reason'] = 'no_ai_sections_selected'
         return result
@@ -608,6 +626,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result['reviews']['hardening'] = native_reviews(native_hardening)
         result['native_final'] = {'hardening': [row['id'] for row in native_hardening]}
         result['duplicates'] = duplicates
+        if k8s_native_exposure:
+            result['reviews']['exposure'] = native_exposure_reviews(exposure, duplicates)
         result['stage_inputs'] = {
             'hardening': sorted(row['id'] for row in ai_hardening),
             'exposure': sorted(row['id'] for row in exposure),
@@ -632,7 +652,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         # so a single-stage invocation proves only the stage it reviews.
         result['review_fingerprints'] = {
             stage: review_fingerprints(report, inventory_by_id, rows, identity=identity, entries=entries)
-            if stage in selected else {}
+            if stage in selected and not (k8s_native_exposure and stage == 'exposure') else {}
             for stage, rows in (('hardening', ai_hardening), ('exposure', exposure))
         }
         # The final report publication follows this stage inside the same
@@ -652,8 +672,12 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         # Completed outputs remain durable outside the advancing collector
         # manifest. The caller fences them to complete section revisions.
         pending = set(selected)
+        if k8s_native_exposure:
+            pending.discard('exposure')
         reusable_reviews = {'hardening': {}, 'exposure': {}}
         for stage in ('hardening', 'exposure', 'network'):
+            if k8s_native_exposure and stage == 'exposure':
+                continue
             prior = reused_stages.get(stage)
             if stage not in pending or not isinstance(prior, dict) or prior.get('status') not in ('completed', 'partial'):
                 continue
@@ -713,7 +737,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         # Independent reviewers can start as each section becomes complete.
         # Priorities below wait for the selected reviewer calls to settle.
         missing_hardening = [row for row in ai_hardening if row['id'] not in reusable_reviews['hardening']]
-        missing_exposure = [row for row in exposure if row['id'] not in reusable_reviews['exposure']]
+        missing_exposure = [] if k8s_native_exposure else [row for row in exposure if row['id'] not in reusable_reviews['exposure']]
         if not pending & {'hardening', 'exposure', 'network'}:
             fresh, failed_stage = {}, False
         elif pending == {'hardening', 'exposure', 'network', 'priorities'}:
@@ -740,7 +764,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         priorities_report = with_findings(report, result['network']['findings'])
         reviewed = result['reviews']['hardening'] + result['reviews']['exposure']
         by_id = {row['finding_id']: row for row in reviewed}
-        if {'hardening', 'exposure'} <= selected:
+        if {'hardening', 'exposure'} <= selected and not k8s_native_exposure:
             for duplicate, original in duplicates.items():
                 if original not in by_id:
                     continue

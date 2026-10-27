@@ -19,11 +19,12 @@ def test_fixture_has_uncertain_controller_and_firewall_fail_candidates():
     assert native[('apps/nodeport', 'analysis.internet_exposure')] == 'UNKNOWN'
     assert native[('apps/nodeport', 'k8s.service.review_public_type')] == 'FAIL'
     assert native[('apps/public-ingress', 'analysis.internet_exposure')] == 'FAIL'
+    assert native[('apps/external-ip', 'analysis.internet_exposure')] == 'UNKNOWN'
     assert native[('_cluster/anonymous-secrets', 'analysis.principal_exposure')] == 'FAIL'
     assert native[('apps/edge', 'analysis.internet_exposure')] == 'UNKNOWN'
     hardening, exposure, duplicates = inputs(report)
     assert not hardening and not duplicates
-    assert len(exposure) == 9
+    assert len(exposure) == 8
     assert {row['id'] for row in exposure} == {row['id'] for row in report['findings']
                                                if row['status'] == 'FAIL'}
 

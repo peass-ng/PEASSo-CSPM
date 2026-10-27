@@ -391,6 +391,18 @@ def _internet_summary(finding):
     if not isinstance(kind,str) or kind not in _EXPOSURE_KINDS:return None
     label=_EXPOSURE_KINDS[kind]
     if status=='UNKNOWN':
+        if finding.get('provider')=='k8s' and kind=='service' and isinstance(e.get('path'),list):
+            declarations=[step.get('declared_public_addresses') for step in e['path']
+                          if isinstance(step,dict) and step.get('layer')=='external_ip'
+                          and step.get('decision')=='unknown']
+            addresses=[address for group in declarations if isinstance(group,list)
+                       for address in group if _text(address,200)]
+            ports=e.get('exposed_ports')
+            if addresses and _strings(ports) and ports:
+                return ('The Service declares externalIPs '+_items(addresses)+'.\n'
+                        'It declares '+_items(ports)+' for that address.\n'
+                        'Address ownership and routing to a cluster node are not observed.\n'
+                        'Cloud firewall admission and live reachability remain unknown.')
         unresolved=e.get('unresolved')
         if not isinstance(unresolved,list) or not unresolved:return None
         layers=[v.get('layer') for v in unresolved if isinstance(v,dict) and _text(v.get('layer'),60)]

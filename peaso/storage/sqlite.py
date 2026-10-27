@@ -821,7 +821,7 @@ class SQLiteStore:
             if not current:
                 return None
             data = json.loads(current["data"])
-            request = {k: data[k] for k in ("connector_id", "categories", "checks", "content_checks", "leaks_enabled", "images_enabled", "frameworks", "ai_enabled", "ai_priorities_enabled", "ai_network_enabled", "ai_user_id") if k in data}
+            request = {k: data[k] for k in ("connector_id", "categories", "checks", "content_checks", "leaks_enabled", "images_enabled", "frameworks", "ai_enabled", "ai_priorities_enabled", "ai_network_enabled", "ai_k8s_exposure_enabled", "ai_user_id") if k in data}
             error, result = None, None
             # Savepoint ensures a rejected enqueue never partially reserves quota.
             db.execute("SAVEPOINT scheduled_enqueue")

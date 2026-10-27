@@ -532,17 +532,33 @@ def test_k8s_nodeport_depends_on_node_addresses():
 def test_k8s_external_ip_on_clusterip_service_is_assessed():
     spec = {"type": "ClusterIP", "externalIPs": ["34.9.9.9"], "ports": [{"port": 8080}]}
     result = one(k8s(svc(spec, status={})), "service")
-    assert result["status"] == "FAIL"
+    assert result["status"] == "UNKNOWN"
     assert result["evidence"]["public_addresses"] == ["34.9.9.9"]
     assert result["evidence"]["exposed_ports"] == ["tcp/8080"]
+    assert result["evidence"]["path"][-1] == {"layer": "external_ip", "decision": "unknown",
+                                                "declared_public_addresses": ["34.9.9.9"]}
+    assert {gap["layer"] for gap in result["evidence"]["unresolved"]} == {"inventory", "firewall"}
+    assert result["evidence_summary"].splitlines() == [
+        "The Service declares externalIPs 34.9.9.9.",
+        "It declares tcp/8080 for that address.",
+        "Address ownership and routing to a cluster node are not observed.",
+        "Cloud firewall admission and live reachability remain unknown."]
 
 
 def test_k8s_external_ip_survives_internal_load_balancer_block():
     spec = {"type": "LoadBalancer", "externalIPs": ["34.9.9.9"], "ports": [{"port": 8080}]}
     annotations = {"service.beta.kubernetes.io/aws-load-balancer-scheme": "internal"}
     result = one(k8s(svc(spec, annotations)), "service")
-    assert result["status"] == "FAIL"
+    assert result["status"] == "UNKNOWN"
     assert result["evidence"]["public_addresses"] == ["34.9.9.9"]
+
+
+def test_k8s_observed_public_load_balancer_path_is_not_downgraded_by_external_ip():
+    spec = {"type": "LoadBalancer", "externalIPs": ["34.9.9.9"], "ports": [{"port": 443}]}
+    result = one(k8s(svc(spec)), "service")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["a.elb.amazonaws.com"]
+    assert result["evidence"]["path"][-1]["decision"] == "unknown"
 
 
 def test_k8s_nodeport_does_not_use_foreign_cluster_node():

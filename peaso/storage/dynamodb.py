@@ -1309,7 +1309,7 @@ class DynamoStore:
             return None
         from peaso.scheduling import next_run as following_run
         upcoming = following_run(data, now)
-        request = {k: data[k] for k in ("connector_id", "categories", "checks", "content_checks", "leaks_enabled", "images_enabled", "frameworks", "ai_enabled", "ai_priorities_enabled", "ai_network_enabled", "ai_user_id") if k in data}
+        request = {k: data[k] for k in ("connector_id", "categories", "checks", "content_checks", "leaks_enabled", "images_enabled", "frameworks", "ai_enabled", "ai_priorities_enabled", "ai_network_enabled", "ai_k8s_exposure_enabled", "ai_user_id") if k in data}
         update = {"TableName": self.table, "Key": attrs(self.key(current["tenant"], "schedule", current["id"])),
                   "UpdateExpression": "SET next_run=:next, last_error=:null ADD #rev :one", "ConditionExpression": "#enabled=:true AND next_run=:old AND #rev=:rev",
                   "ExpressionAttributeNames": {"#enabled": "enabled", "#rev": "rev"},

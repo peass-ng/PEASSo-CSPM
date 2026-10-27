@@ -2607,11 +2607,20 @@ def _k8s_service(snapshot, inventory, resource):
                 a.step("health_check_node_port", "allow", port=health_port, public_nodes=[native_id(n) for n in nodes])
                 a.gap(gap_layer, "cloud firewall for public Node health-check port is not observed")
         if external:
-            a.addresses = list(dict.fromkeys([*([] if a.blocked_by else a.addresses), *external]))
+            # externalIPs is a requested address, not an observed address
+            # assignment or route. A separately observed public LB path can
+            # still decide this resource's verdict on its own evidence.
+            observed_lb_path = kind == "LoadBalancer" and a.verdict() == "FAIL"
+            if not observed_lb_path:
+                a.addresses = list(dict.fromkeys([*([] if a.blocked_by else a.addresses), *external]))
             a.ports = union(a.ports or {}, _k8s_ports(spec))
             a.blocked_by = None
             a.unresolved = [gap for gap in a.unresolved if gap["layer"] != "inventory"]
-            a.step("external_ip", "allow", public_addresses=external)
+            a.step("external_ip", "unknown", declared_public_addresses=external)
+            a.gap("inventory", "externalIPs address ownership and routing to a cluster node are not observed")
+            a.unresolved[-1]["decisive"] = not observed_lb_path
+            a.gap("firewall", "cloud firewall admission for the declared externalIPs address is not observed")
+            a.unresolved[-1]["decisive"] = not observed_lb_path
         return a
     if kind == "LoadBalancer":
         internal = k8s_internal(meta)

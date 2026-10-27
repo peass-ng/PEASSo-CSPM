@@ -51,6 +51,7 @@ class ScanCreate(StrictModel):
     ai_enabled: StrictBool = True
     ai_priorities_enabled: StrictBool = True
     ai_network_enabled: StrictBool = True
+    ai_k8s_exposure_enabled: StrictBool = False
     connector_id: str = Field(min_length=1, max_length=100)
     categories: list[str] = Field(default_factory=list, max_length=100)
     checks: list[str] = Field(default_factory=list, max_length=10000)
@@ -127,6 +128,7 @@ class SchedulePatch(StrictModel):
     ai_enabled: StrictBool | None = None
     ai_priorities_enabled: StrictBool | None = None
     ai_network_enabled: StrictBool | None = None
+    ai_k8s_exposure_enabled: StrictBool | None = None
     connector_id: str | None = Field(default=None, min_length=1, max_length=100)
     categories: list[str] | None = Field(default=None, max_length=100)
     checks: list[str] | None = Field(default=None, max_length=10000)

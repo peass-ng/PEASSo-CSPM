@@ -10,9 +10,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 REPLAY = Path('/Users/carlospolop/peaso-work/replay/k8s-exposure-79e4cf0b')
 IMAGE_SOURCE = Path('/Users/carlospolop/peaso-work/replay/image-baseline-ai')
 IMAGE = 'sha256:ad277f7ec3677d5e78bf723d42256ea41f69528309483a07304b64914111e312'
@@ -151,8 +153,16 @@ def summarize():
     manifest = read_json(REPLAY / 'manifest.json')
     run_dir = REPLAY / 'model-run-000'
     from peaso.ai.contracts import validate_reviews
+    from peaso.ai.review_groups import expand
+    representatives = [{'id': ident} for ident in manifest['representative_ids']]
+    initial = validate_reviews(read_json(run_dir / 'result.json'), representatives)['items']
+    members = {leader: [{'id': ident} for ident in ids]
+               for leader, ids in manifest['group_members'].items()}
+    expanded, recheck = expand(initial, members)
+    if recheck:
+        raise ValueError('non-FAIL representative requires a separate member model review')
     expected = [{'id': ident} for ident in manifest['review_finding_ids']]
-    ai = validate_reviews(read_json(run_dir / 'result.json'), expected)['items']
+    ai = validate_reviews({'items': expanded}, expected)['items']
     metrics = read_json(run_dir / 'runtime-metrics.json')
     if metrics['findings_sha256'] != manifest['ai_batches'][0]['sha256']:
         raise ValueError('reviewed input was not pinned batch')
