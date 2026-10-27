@@ -1944,17 +1944,34 @@ def _gcp_bucket(snapshot, inventory, resource):
                 if isinstance(row, dict) and row.get("entity") in ("allUsers", "allAuthenticatedUsers") and row.get("role") in roles:
                     acl.append({"source": field, "entity": row["entity"], "role": row["role"],
                                 **({"object_ref": row["objectRef"]} if field == "objectAccessControls" and row.get("objectRef") else {})})
-    if not public and not acl and not conditional:
+    effective_rows = [row for row in inventory.items("bucket_effective_iam")
+                      if row.get("scope") == resource.get("scope") and row["data"].get("name") == data.get("name")]
+    effective_public = (len(effective_rows) == 1 and effective_rows[0]["data"].get("resolutionComplete") is True
+                        and effective_rows[0]["data"].get("publicAccess") is True)
+    if not public and not acl and not conditional and not effective_public:
         return None
     a = Assessment(resource, "data_share")
     prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention")
+    if prevention == "inherited":
+        scope = resource["scope"]
+        matches = [row["data"] for row in inventory.items("org_policy_effective")
+                   if row.get("scope") == scope and row["data"].get("name") ==
+                   scope + "/policies/storage.publicAccessPrevention" and
+                   row["data"].get("constraint") == "storage.publicAccessPrevention"]
+        if inventory.state("org_policy_effective", scope) == "collected" and len(matches) == 1:
+            rules = (matches[0].get("spec") or {}).get("rules", [])
+            if (isinstance(rules, list) and all(isinstance(rule, dict) and
+                    set(rule) == {"enforce"} and type(rule.get("enforce")) is bool for rule in rules)
+                    and len({rule["enforce"] for rule in rules}) <= 1):
+                prevention = "enforced" if rules and rules[0]["enforce"] else "not_enforced"
     if prevention == "enforced":
-        a.step("public_access_prevention", "block", bindings=public, acl=acl, conditional=conditional)
+        a.step("public_access_prevention", "block", bindings=public, acl=acl, conditional=conditional,
+               effective_public=effective_public)
         a.ports = {}
         return a
-    a.step("policy", "allow" if public or acl else "unknown", bindings=public, acl=acl,
-           conditional=conditional, public_access_prevention=prevention)
-    if (not public and not acl) or prevention == "inherited":
+    a.step("policy", "allow" if public or acl or effective_public else "unknown", bindings=public, acl=acl,
+           conditional=conditional, effective_public=effective_public, public_access_prevention=prevention)
+    if (not public and not acl and not effective_public) or prevention == "inherited":
         a.explicit = "UNKNOWN"
         a.gap("policy", "conditional public grant or inherited public access prevention requires effective-policy evaluation")
     a.data_exposure = True
@@ -3944,7 +3961,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",

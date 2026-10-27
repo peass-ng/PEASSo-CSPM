@@ -179,6 +179,6 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | Security | [Unified Maintenance](https://docs.cloud.google.com/unified-maintenance/docs) | — | REVIEW REQUIRED |
 | Security | [Web Risk](https://docs.cloud.google.com/web-risk/docs) | — | REVIEW REQUIRED |
 | Storage | [Backup and DR Service](https://docs.cloud.google.com/backup-disaster-recovery/docs) | — | REVIEW REQUIRED |
-| Storage | [Cloud Storage](https://docs.cloud.google.com/storage/docs) | bucket / ACL / Firebase Storage rules releases | REVIEW REQUIRED |
+| Storage | [Cloud Storage](https://docs.cloud.google.com/storage/docs) | bucket / ACL / complete effective ancestor IAM / effective PAP / Firebase Storage rules releases | REVIEW REQUIRED |
 | Storage | [Filestore](https://docs.cloud.google.com/filestore/docs) | — | REVIEW REQUIRED |
 | Storage | [NetApp Volumes](https://docs.cloud.google.com/netapp/volumes/docs) | — | REVIEW REQUIRED |

@@ -771,6 +771,28 @@ def test_gcp_collected_bucket_acl_public_read_and_pap():
     assert not any(row["check_id"] == "analysis.principal_exposure" for row in rows)
 
 
+def test_gcp_bucket_inherited_public_grant_and_effective_pap():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bucket
+    from peaso.snapshot import resources
+    bucket = {"name": "sample-bucket", "iamPolicy": {"bindings": []},
+              "iamConfiguration": {"publicAccessPrevention": "inherited"}}
+    inherited = {"name": "sample-bucket", "resolutionComplete": True, "publicAccess": True,
+                 "publicWrite": False, "policyScopes": [GSCOPE, "organizations/123"]}
+    policy = {"name": GSCOPE + "/policies/storage.publicAccessPrevention",
+              "constraint": "storage.publicAccessPrevention", "spec": {"rules": [{"enforce": False}]}}
+    def assessment(*extra):
+        snap = gcp(gcoll("bucket", [bucket], service="storage"),
+                   gcoll("bucket_effective_iam", [inherited], service="storage"), *extra)
+        items = resources(snap)
+        return _gcp_bucket(snap, Inventory(snap, items), next(row for row in items if row["type"] == "bucket"))
+    assert assessment(gcoll("org_policy_effective", [policy], service="orgpolicy")).verdict() == "FAIL"
+    policy["spec"]["rules"][0]["enforce"] = True
+    assert assessment(gcoll("org_policy_effective", [policy], service="orgpolicy")).verdict() == "PASS"
+    policy["spec"]["rules"].append({"enforce": False})
+    assert assessment(gcoll("org_policy_effective", [policy], service="orgpolicy")).verdict() == "UNKNOWN"
+    assert assessment().verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,record,expected", [
     ("cloud_ftp_server", {"name": "projects/p1/locations/us/servers/s", "externalConfig":
                           {"ipAddress": "34.2.3.4", "allowedCidrBlocks": ["0.0.0.0/0"]}}, "FAIL"),
