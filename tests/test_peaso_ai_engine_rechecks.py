@@ -136,6 +136,15 @@ def test_firehose_requires_an_enforced_external_id_for_its_own_account(cid):
     assert run(cid, native)[0] == expected
 
 
+def test_unconditioned_mixed_service_and_aws_trust_is_outside_conditioned_control():
+    cid = 'aws.claude_a.iam.prowler_role_service_trust_bound_to_account'
+    native = deepcopy(CASES[cid]['fail'])
+    native['AssumeRolePolicyDocument'] = {'Statement': [{'Effect': 'Allow',
+        'Principal': {'Service': 'lambda.amazonaws.com', 'AWS': 'arn:aws:iam::111111111111:root'},
+        'Action': 'sts:AssumeRole'}]}
+    assert run(cid, native)[0] == 'NOT_APPLICABLE'
+
+
 def test_cognito_user_pool_audience_is_recognized_case_insensitively_but_requires_review():
     from peaso.analysis.trust import aws_federated_trust
     issuer = 'cognito-idp.us-east-1.amazonaws.com/us-east-1_Example'

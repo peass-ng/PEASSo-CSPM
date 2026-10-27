@@ -439,8 +439,10 @@ def service_trust(item, index):
                and trust._grants_assume_role(s) and trust._trusts_service_principal(s)]
     if not service:
         return "NOT_APPLICABLE", {"reason": "no service-principal trust statement"}
-    plain = trust._is_plain_service_trust_policy(statements)
-    in_scope = [s for s in service if trust._has_enforced_condition(s) or not plain]
+    # The subject is a conditioned service trust. An unconditional service
+    # principal remains outside this check even when the same statement also
+    # names an AWS principal; the separate confused-deputy check handles it.
+    in_scope = [s for s in service if trust._has_enforced_condition(s)]
     if not in_scope:
         return "NOT_APPLICABLE", {"reason": "plain unconditioned service trust (covered by the confused-deputy check)"}
     unscoped = [s for s in in_scope if not trust._prevents_confused_deputy(s)]

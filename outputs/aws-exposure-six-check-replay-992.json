@@ -1,0 +1,125 @@
+{
+  "ai_changed": 36,
+  "changed_ai_mismatch": 25,
+  "changed_ai_parity": 11,
+  "checks": {
+    "analysis.principal_exposure": {
+      "ai_changed": 7,
+      "changed_ai_mismatch": 0,
+      "changed_ai_parity": 7,
+      "changed_replay_transitions": {
+        "FAIL->MANUAL": 7
+      },
+      "current_statuses": {
+        "FAIL": 20,
+        "MANUAL": 394,
+        "UNKNOWN": 5
+      },
+      "pre_observations": 419,
+      "saved_reviews": 27,
+      "unchanged_reviewed_native_changes": 0,
+      "unreviewed_native_changes": 0
+    },
+    "aws.cb.ssm.block_public_document_sharing": {
+      "ai_changed": 2,
+      "changed_ai_mismatch": 2,
+      "changed_ai_parity": 0,
+      "changed_replay_transitions": {
+        "FAIL->FAIL": 2
+      },
+      "current_statuses": {
+        "FAIL": 2
+      },
+      "pre_observations": 2,
+      "saved_reviews": 2,
+      "unchanged_reviewed_native_changes": 0,
+      "unreviewed_native_changes": 0
+    },
+    "aws.claude_a.iam.prowler_role_service_trust_bound_to_account": {
+      "ai_changed": 4,
+      "changed_ai_mismatch": 0,
+      "changed_ai_parity": 4,
+      "changed_replay_transitions": {
+        "FAIL->NOT_APPLICABLE": 4
+      },
+      "current_statuses": {
+        "FAIL": 2,
+        "NOT_APPLICABLE": 4,
+        "PASS": 240
+      },
+      "pre_observations": 246,
+      "saved_reviews": 6,
+      "unchanged_reviewed_native_changes": 0,
+      "unreviewed_native_changes": 0
+    },
+    "aws.claude_a.vpc.in_use_subnet_no_auto_public_ip": {
+      "ai_changed": 17,
+      "changed_ai_mismatch": 17,
+      "changed_ai_parity": 0,
+      "changed_replay_transitions": {
+        "FAIL->FAIL": 17
+      },
+      "current_statuses": {
+        "FAIL": 17,
+        "PASS": 9
+      },
+      "pre_observations": 26,
+      "saved_reviews": 17,
+      "unchanged_reviewed_native_changes": 0,
+      "unreviewed_native_changes": 0
+    },
+    "aws.claude_a.vpc.sg_no_public_ip_any_port": {
+      "ai_changed": 2,
+      "changed_ai_mismatch": 2,
+      "changed_ai_parity": 0,
+      "changed_replay_transitions": {
+        "FAIL->FAIL": 2
+      },
+      "current_statuses": {
+        "FAIL": 2,
+        "PASS": 41
+      },
+      "pre_observations": 43,
+      "saved_reviews": 2,
+      "unchanged_reviewed_native_changes": 0,
+      "unreviewed_native_changes": 0
+    },
+    "aws.claude_a.vpc.sg_no_world_any_port_on_customer_enis": {
+      "ai_changed": 4,
+      "changed_ai_mismatch": 4,
+      "changed_ai_parity": 0,
+      "changed_replay_transitions": {
+        "FAIL->FAIL": 4
+      },
+      "current_statuses": {
+        "FAIL": 8,
+        "PASS": 35
+      },
+      "pre_observations": 43,
+      "saved_reviews": 8,
+      "unchanged_reviewed_native_changes": 0,
+      "unreviewed_native_changes": 0
+    }
+  },
+  "mismatch_recorded_context": {
+    "customer_sgs_with_native_customer_eni": 4,
+    "in_use_subnet_eni_max": 11,
+    "in_use_subnet_eni_min": 1,
+    "in_use_subnets_with_native_eni": 17,
+    "ssm_scopes_with_exact_enable_setting": 2
+  },
+  "pre_observations": 779,
+  "replay_check_ids": [
+    "analysis.principal_exposure",
+    "aws.cb.ssm.block_public_document_sharing",
+    "aws.claude_a.iam.prowler_role_service_trust_bound_to_account",
+    "aws.claude_a.vpc.in_use_subnet_no_auto_public_ip",
+    "aws.claude_a.vpc.sg_no_public_ip_any_port",
+    "aws.claude_a.vpc.sg_no_world_any_port_on_customer_enis"
+  ],
+  "saved_reviews": 62,
+  "schema": "aws-exposure-six-check-replay-v1",
+  "source_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
+  "unchanged_reviewed_native_changes": 0,
+  "unreviewed_native_changes": 0
+}

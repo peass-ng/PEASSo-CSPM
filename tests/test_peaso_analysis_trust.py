@@ -200,3 +200,11 @@ def test_vpc_endpoint_default_policy_is_review_not_fail():
     endpoint = {"VpcEndpointId": "vpce-1", "PolicyDocument": {"Version": "2008-10-17", "Statement": [{"Effect": "Allow", "Principal": "*", "Action": "*", "Resource": "*"}]}}
     result = principal(aws(coll("vpc_endpoint", [endpoint], service="ec2")))
     assert result["status"] == "MANUAL"
+
+
+def test_generic_resource_policy_endpoint_arn_is_network_bound():
+    document = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": "*", "Action": "*", "Resource": "*"}]}
+    for suffix in ("vpc-endpoint/vpce-1", "vpc-endpoint-service/vpce-svc-1"):
+        endpoint = {"ResourceArn": f"arn:aws:ec2:us-east-1:{ACCOUNT}:{suffix}", "Policy": document}
+        found = principal(aws(coll("aws_resource_policy", [endpoint], service="ec2")))
+        assert found is not None and found["status"] == "MANUAL"

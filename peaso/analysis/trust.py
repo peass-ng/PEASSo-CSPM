@@ -30,6 +30,16 @@ POSITIVE = re.compile(r"^(forallvalues:|foranyvalue:)?(stringequals|stringequals
 # Resource policies only reachable from inside a VPC: a public principal is a
 # review item (default endpoint policies are Allow * * *), not internet exposure.
 NETWORK_BOUND_TYPES = {"vpc_endpoint", "efs_file_system", "efs_access_point"}
+
+
+def _aws_network_bound_policy(resource):
+    """Generic policy rows retain their EC2 endpoint kind in ResourceArn."""
+    if resource.get("type") in NETWORK_BOUND_TYPES:
+        return True
+    if resource.get("type") != "aws_resource_policy":
+        return False
+    arn = resource.get("data", {}).get("ResourceArn")
+    return isinstance(arn, str) and re.match(r"^arn:[^:]+:ec2:[^:]+:[0-9]{12}:vpc-endpoint(?:-service)?/[^/]+$", arn) is not None
 MULTI_TENANT_ISSUERS = ("token.actions.githubusercontent.com", "gitlab.com", "app.terraform.io", "api.bitbucket.org",
                         "oidc.circleci.com", "accounts.google.com", "cognito-identity.amazonaws.com", "vstoken.dev.azure.com",
                         "token.buildkite.com", "oidc.codefresh.io")
@@ -361,7 +371,7 @@ def principal_exposure(snapshot, resource, declared):
                  "source": source(snapshot, resource, path), "native_grant": fact,
                  "condition": fact.get("Condition", fact.get("condition")), "principal_kind": kind}
         verdict, reason = principal_verdict(snapshot, entry, fact, path)
-        if verdict == "FAIL" and reason == "public" and resource["type"] in NETWORK_BOUND_TYPES:
+        if verdict == "FAIL" and reason == "public" and _aws_network_bound_policy(resource):
             verdict, reason = "MANUAL", "public_network_bound"
         if verdict is None:
             continue
