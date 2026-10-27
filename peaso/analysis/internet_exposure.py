@@ -5099,8 +5099,29 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
-    if assessment.kind == "disk_export" and status == "FAIL":
-        return "The collected policy permits a publicly accessible SAS export; issued SAS URLs and recipients are not in Compute GET/LIST."
+    if assessment.kind == "disk_export":
+        props = _props(assessment.resource)
+        policy = props.get("networkAccessPolicy")
+        public = props.get("publicNetworkAccess")
+        noun = "snapshot" if assessment.resource["type"] == "snapshot" else "disk"
+        if status == "FAIL":
+            return (f"The {noun} has networkAccessPolicy AllowAll and publicNetworkAccess Enabled.\n"
+                    "An authorized user may create a SAS URL for public export.\n"
+                    "A person with a valid URL could read the exported data.\n"
+                    "That could expose files or personal data stored in the disk image.")
+        if status == "PASS":
+            setting = (f"networkAccessPolicy {policy}" if policy in ("DenyAll", "AllowPrivate")
+                       else f"publicNetworkAccess {public}")
+            return (f"The {noun} has {setting}.\n"
+                    "This setting blocks the public SAS export path.\n"
+                    "A SAS URL could not use that public path to reach the stored data.")
+        missing = [name for name, value in (("networkAccessPolicy", policy),
+                                           ("publicNetworkAccess", public)) if value is None]
+        first = (f"The {noun} has no recorded {' or '.join(missing)} value." if missing else
+                 f"The {noun} has networkAccessPolicy {policy} and publicNetworkAccess {public}.")
+        return (first + "\n"
+                "The public SAS export path is unclear from these settings.\n"
+                "If public export is allowed, a valid SAS URL could expose stored data.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":

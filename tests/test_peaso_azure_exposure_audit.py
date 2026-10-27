@@ -24,6 +24,10 @@ def test_compute_public_sas_export_policy(kind):
     assert allowed.verdict() == "FAIL"
     assert allowed.kind == "disk_export" and allowed.ports == {"tcp": ((443, 443),)}
     assert "issued SAS URI" in allowed.notes[0]
+    from peaso.analysis.internet_exposure import _observed
+    assert _observed(allowed, "FAIL").splitlines()[0].startswith(
+        f"The {kind} has networkAccessPolicy AllowAll")
+    assert len(_observed(allowed, "FAIL").splitlines()) == 4
     for props in (
         {"publicNetworkAccess": "Enabled", "networkAccessPolicy": "DenyAll"},
         {"publicNetworkAccess": "Enabled", "networkAccessPolicy": "AllowPrivate", "diskAccessId": "private"},
@@ -32,6 +36,8 @@ def test_compute_public_sas_export_policy(kind):
         assert decision(kind, props).verdict() == "PASS"
     assert decision(kind, {"publicNetworkAccess": "Enabled"}).verdict() == "UNKNOWN"
     assert decision(kind, {"networkAccessPolicy": "AllowAll"}).verdict() == "UNKNOWN"
+    assert len(_observed(decision(kind, {"networkAccessPolicy": "DenyAll"}), "PASS").splitlines()) == 3
+    assert len(_observed(decision(kind, {"publicNetworkAccess": "Enabled"}), "UNKNOWN").splitlines()) == 3
 
 
 def test_kusto_public_endpoint_ip_allow_list():
