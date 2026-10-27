@@ -603,6 +603,29 @@ def test_gcp_authorized_view_with_public_reader_exposes_source_dataset():
     assert assessment(None).verdict() == "UNKNOWN"
 
 
+def test_gcp_authorized_dataset_public_view_joins_scheduled_table_inventory():
+    from peaso.analysis.internet_exposure import GCP_TYPES, Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    assert "bigquery_table" in GCP_TYPES
+    source = {"name": "projects/p1/datasets/source", "access": [{"dataset": {
+        "dataset": {"project_id": "p1", "dataset_id": "views"}, "target_types": ["VIEWS"]}}]}
+    target = {"name": "projects/p1/datasets/views", "access": [
+        {"role": "READER", "iamMember": "allUsers"}]}
+    view = {"name": "projects/p1/datasets/views/tables/v", "type": "MATERIALIZED_VIEW",
+            "iamPolicy": {"bindings": []}}
+    def assessment(table=view):
+        snap = gcp(gcoll("bigquery_dataset", [source, target], service="bigquery"),
+                   gcoll("bigquery_table", [table] if table else [], service="bigquery"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert any(step["layer"] == "authorized_view" and step["public_views"][0]["authorization"] == "authorized_dataset"
+               for step in result.path)
+    assert assessment(None).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,target_segment,detail", [
     ("target_instance", "targetInstances", {"instance": "vm-ref"}),
     ("target_pool", "targetPools", {"instances": ["vm-ref"]}),

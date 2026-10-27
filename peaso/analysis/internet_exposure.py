@@ -2128,18 +2128,34 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                                 if isinstance(project := destination_project(row), str)
                                 and project and project != source_project})
     public_views = []
+    view_refs = []
     for row in delegated:
-        if row["kind"] != "view":
-            continue
         ref = row["reference"]
-        if destination_project(row) != source_project or not all(isinstance(ref.get(key), str) and ref[key]
-                for key in ("datasetId", "tableId")):
-            continue
-        view_name = f"{resource['scope']}/datasets/{ref['datasetId']}/tables/{ref['tableId']}"
+        if row["kind"] == "view" and destination_project(row) == source_project and all(
+                isinstance(ref.get(key), str) and ref[key] for key in ("datasetId", "tableId")):
+            view_refs.append((f"{resource['scope']}/datasets/{ref['datasetId']}/tables/{ref['tableId']}", "view"))
+        elif row["kind"] == "dataset" and destination_project(row) == source_project:
+            target_types = ref.get("targetTypes", ref.get("target_types"))
+            dataset_ref = ref.get("dataset")
+            dataset_id = (dataset_ref.get("datasetId") or dataset_ref.get("dataset_id")) if isinstance(dataset_ref, dict) else None
+            if target_types not in ("VIEWS", ["VIEWS"]) or not isinstance(dataset_id, str) or not dataset_id:
+                continue
+            if "gcp_bigquery_views_by_dataset" not in inventory.network_cache:
+                grouped = {}
+                for table in inventory.items("bigquery_table"):
+                    name = table["data"].get("name")
+                    if isinstance(name, str) and "/tables/" in name:
+                        grouped.setdefault(name.rsplit("/tables/", 1)[0], []).append(table)
+                inventory.network_cache["gcp_bigquery_views_by_dataset"] = grouped
+            dataset_name = f"{resource['scope']}/datasets/{dataset_id}"
+            view_refs.extend((table["data"]["name"], "authorized_dataset")
+                             for table in inventory.network_cache["gcp_bigquery_views_by_dataset"].get(dataset_name, ())
+                             if table["data"].get("type") in ("VIEW", "MATERIALIZED_VIEW"))
+    for view_name, authorization in dict.fromkeys(view_refs):
         view = inventory.get("bigquery_table", view_name)
-        if view is None or view["data"].get("type") != "VIEW":
+        if view is None or view["data"].get("type") not in ("VIEW", "MATERIALIZED_VIEW"):
             continue
-        dataset_name = f"{resource['scope']}/datasets/{ref['datasetId']}"
+        dataset_name = view_name.rsplit("/tables/", 1)[0]
         target = inventory.get("bigquery_dataset", dataset_name)
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
             any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
@@ -2152,7 +2168,8 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                 any(member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members")))
                 for binding in as_list(policy.get("bindings"))))
         if dataset_public or table_public:
-            public_views.append({"view": view_name, "dataset_public": bool(dataset_public),
+            public_views.append({"view": view_name, "authorization": authorization,
+                                 "dataset_public": bool(dataset_public),
                                  "table_public": bool(table_public)})
     a.external_ids = external_projects
     if public:
@@ -4268,7 +4285,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",

@@ -78,7 +78,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **150 have no native pa
 | Compute | [VM Manager](https://docs.cloud.google.com/compute/vm-manager/docs) | — | REVIEW REQUIRED |
 | Compute | [VMware Engine](https://docs.cloud.google.com/vmware-engine/docs) | vmware_external_address / network policy / ordered external access rules; NSX controls outside Google API | REVIEW REQUIRED |
 | Compute | [Workload Manager](https://docs.cloud.google.com/workload-manager/docs) | — | REVIEW REQUIRED |
-| Data analytics and pipelines | [BigQuery](https://docs.cloud.google.com/bigquery/docs) | bigquery_dataset legacy ACL / IAM / cross-project grants / same-project public authorized VIEW join | REVIEW REQUIRED |
+| Data analytics and pipelines | [BigQuery](https://docs.cloud.google.com/bigquery/docs) | bigquery_dataset legacy ACL / IAM / cross-project grants / scheduled VIEW and authorized-dataset contained-view join | REVIEW REQUIRED |
 | Data analytics and pipelines | [Blockchain Analytics](https://docs.cloud.google.com/blockchain-analytics/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Cloud Data Fusion](https://docs.cloud.google.com/data-fusion/docs) | data_fusion_instance | REVIEW REQUIRED |
 | Data analytics and pipelines | [Cortex Framework](https://docs.cloud.google.com/cortex/docs) | — | REVIEW REQUIRED |
