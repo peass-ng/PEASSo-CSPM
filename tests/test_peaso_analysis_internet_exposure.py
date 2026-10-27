@@ -626,6 +626,31 @@ def test_gcp_authorized_dataset_public_view_joins_scheduled_table_inventory():
     assert assessment(None).verdict() == "UNKNOWN"
 
 
+def test_gcp_authorized_routine_public_invocation_joins_cached_iam():
+    from peaso.analysis.internet_exposure import GCP_TYPES, Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    assert "bigquery_routine_metadata" in GCP_TYPES
+    source = {"name": "projects/p1/datasets/source", "access": [{"routine": {
+        "projectId": "p1", "datasetId": "api", "routineId": "run"}}]}
+    target = {"name": "projects/p1/datasets/api", "access": []}
+    routine = {"name": "projects/p1/datasets/api/routines/run", "routineType": "PROCEDURE",
+               "iamPolicy": {"bindings": [{"role": "roles/bigquery.routineDataViewer", "members": ["allUsers"]}]}}
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [source, target], service="bigquery"),
+                   gcoll("bigquery_routine_metadata", [routine], service="bigquery"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert any(step["layer"] == "authorized_routine" and step["public_routines"][0]["routine_type"] == "PROCEDURE"
+               for step in result.path)
+    routine["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+    target["access"] = [{"role": "READER", "iamMember": "allUsers"}]
+    assert assessment().verdict() == "FAIL"
+
+
 @pytest.mark.parametrize("kind,target_segment,detail", [
     ("target_instance", "targetInstances", {"instance": "vm-ref"}),
     ("target_pool", "targetPools", {"instances": ["vm-ref"]}),

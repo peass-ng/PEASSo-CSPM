@@ -2171,6 +2171,32 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
             public_views.append({"view": view_name, "authorization": authorization,
                                  "dataset_public": bool(dataset_public),
                                  "table_public": bool(table_public)})
+    public_routines = []
+    for row in delegated:
+        if row["kind"] != "routine" or destination_project(row) != source_project:
+            continue
+        ref = row["reference"]
+        if not all(isinstance(ref.get(key), str) and ref[key] for key in ("datasetId", "routineId")):
+            continue
+        routine_name = f"{resource['scope']}/datasets/{ref['datasetId']}/routines/{ref['routineId']}"
+        routine = inventory.get("bigquery_routine_metadata", routine_name)
+        if routine is None:
+            continue
+        target = inventory.get("bigquery_dataset", f"{resource['scope']}/datasets/{ref['datasetId']}")
+        dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
+            any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
+                ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
+                for entry in target["data"]["access"]))
+        policy = routine["data"].get("iamPolicy")
+        routine_public = (isinstance(policy, dict) and policy.get("collection_status") in (None, "collected") and
+            any(isinstance(binding, dict) and not binding.get("condition") and
+                binding.get("role") in ("roles/bigquery.dataViewer", "roles/bigquery.dataOwner",
+                                        "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor") and
+                any(member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members")))
+                for binding in as_list(policy.get("bindings"))))
+        if dataset_public or routine_public:
+            public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
+                                    "dataset_public": bool(dataset_public), "routine_public": bool(routine_public)})
     a.external_ids = external_projects
     if public:
         a.data_exposure = True
@@ -2182,10 +2208,11 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         a.data_exposure = True
         a.step("dataset_acl", "allow", delegated=delegated, external_projects=external_projects)
         a.notes.append("Destination readers and project ownership are not established by this grant")
-    elif public_views:
+    elif public_views or public_routines:
         a.data_exposure = True
-        a.step("authorized_view", "allow", public_views=public_views,
-               semantics="Public query access to an authorized view; returned columns depend on view SQL")
+        layer = "authorized_view" if public_views and not public_routines else "authorized_routine" if public_routines and not public_views else "authorized_resource"
+        a.step(layer, "allow", public_views=public_views, public_routines=public_routines,
+               semantics="Public invocation of an authorized view or routine; returned data and writes depend on SQL")
     else:
         # An authorized view/routine/dataset receives source-data privileges,
         # but the destination's readers and project ownership need a join.
@@ -4366,7 +4393,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",

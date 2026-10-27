@@ -4287,6 +4287,11 @@ class GCPCollector:
                                              "routineType": item.get("routineType"),
                                              "language": item.get("language"),
                                              "datasetLocation": dataset.get("location")})
+                            if self.options.get("resource_iam", True):
+                                rows = self.parallel(lambda item: self.hydrate(item, "iamPolicy",
+                                    "https://bigquery.googleapis.com/bigquery/v2/" + item["name"] + ":getIamPolicy",
+                                    scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                    identity_validator=_validate_iam_policy), rows)
                             yield rows, request_id
                     yield from fanout_pages(self, datasets["items"], dataset_pages)
                 routine_jobs.append(("bigquery_routine_metadata", scope, "bigquery", routine_metadata))

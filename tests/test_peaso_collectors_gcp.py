@@ -1522,6 +1522,28 @@ def test_restricted_dataproc_region_and_anonymous_bigquery_datasets_are_not_deni
     assert not any(anonymous in r["url"] and "/tables" in r["url"] for r in transport.requests)
 
 
+def test_bigquery_routine_metadata_uses_cached_read_only_iam_policy():
+    reference = {"projectId": "p-one", "datasetId": "d", "routineId": "run"}
+    policy_url = "https://bigquery.googleapis.com/bigquery/v2/projects/p-one/datasets/d/routines/run:getIamPolicy"
+    def resolve(request):
+        url = request["url"]
+        if url.endswith("/datasets"):
+            return {"datasets": [{"datasetReference": {"projectId": "p-one", "datasetId": "d"}}]}
+        if url.endswith("/datasets/d"):
+            return {"datasetReference": {"projectId": "p-one", "datasetId": "d"}, "access": []}
+        if url.endswith("/datasets/d/routines"):
+            return {"routines": [{"routineReference": reference, "routineType": "PROCEDURE", "language": "SQL"}]}
+        if url == policy_url:
+            assert request["method"] == "POST"
+            return {"bindings": [{"role": "roles/bigquery.routineDataViewer", "members": ["allUsers"]}]}
+        raise AssertionError(url)
+    result, transport = snapshot(["bigquery_routine_metadata"], resolve)
+    row = collection(result, "bigquery_routine_metadata")["items"][0]
+    assert row["_coverage"]["iamPolicy"]["status"] == "collected"
+    assert row["iamPolicy"]["bindings"][0]["members"] == ["allUsers"]
+    assert sum(request["url"] == policy_url for request in transport.requests) == 1
+
+
 def test_discovery_search_results_are_metadata_and_kinds_are_evaluated_only_at_native_scope_types():
     def resolve(request):
         url = request["url"]
