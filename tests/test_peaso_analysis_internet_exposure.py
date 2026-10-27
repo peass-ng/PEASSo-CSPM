@@ -156,6 +156,16 @@ def test_aws_ipv6_instance_requires_matching_sg_acl_and_igw_route():
     assert result["evidence"]["exposed_ports"] == ["tcp/22"]
 
 
+def test_aws_attached_eip_fills_missing_instance_public_association():
+    eip = coll("elastic_ip", [{"AllocationId": "eipalloc-1", "AssociationId": "eipassoc-1",
+                               "NetworkInterfaceId": "eni-1", "PublicIp": "54.1.2.3"}])
+    result = one(aws(*aws_network(), instance(public=False), eip), "instance")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["54.1.2.3"]
+    unattached = coll("elastic_ip", [{"AllocationId": "eipalloc-1", "PublicIp": "54.1.2.3"}])
+    assert not exposure(aws(*aws_network(), instance(public=False), unattached))
+
+
 def test_aws_internet_facing_alb_listener_and_sg():
     lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/web/1", "Scheme": "internet-facing", "Type": "application",
           "DNSName": "web-1.us-east-1.elb.amazonaws.com", "VpcId": "vpc-1", "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
