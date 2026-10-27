@@ -2112,12 +2112,13 @@ def _gcp_firebase_rules(snapshot, inventory, resource):
         a.gap("inventory", "active Firebase ruleset source was not completely inspected")
         return a
     public = data.get("public_read") is True or data.get("public_write") is True
-    authenticated = data.get("authenticated_read") is True
+    authenticated = data.get("authenticated_read") is True or data.get("authenticated_write") is True
     conditional = data.get("conditional_read") is True or data.get("conditional_write") is True
     a.step("firebase_rules", "allow" if public or authenticated else "unknown" if conditional else "block",
            services=data.get("services"), ruleset=data.get("rulesetName"),
            public_read=data.get("public_read"), public_write=data.get("public_write"),
-             authenticated_read=authenticated, conditional_read=data.get("conditional_read"),
+             authenticated_read=data.get("authenticated_read"), authenticated_write=data.get("authenticated_write"),
+             conditional_read=data.get("conditional_read"),
              conditional_write=data.get("conditional_write"))
     if public:
         a.data_exposure = True

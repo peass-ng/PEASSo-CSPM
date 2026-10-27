@@ -63,7 +63,8 @@ def summarize(files):
     if not isinstance(files, list) or not files:
         raise ReadError("malformed", "firebase_rules_source_missing")
     flags = {"public_read": False, "public_write": False,
-             "authenticated_read": False, "conditional_read": False}
+             "authenticated_read": False, "authenticated_write": False,
+             "conditional_read": False, "conditional_write": False}
     for file in files:
         if not isinstance(file, dict) or not isinstance(file.get("content"), str):
             raise ReadError("malformed", "firebase_rules_source_missing")
@@ -83,8 +84,10 @@ def summarize(files):
                 flags["public_write"] |= write
             elif re.fullmatch(r"\(?\s*request\.auth\s*!=\s*null\s*\)?", condition):
                 flags["authenticated_read"] |= read
+                flags["authenticated_write"] |= write
             else:
                 flags["conditional_read"] |= read
+                flags["conditional_write"] |= write
     return flags
 
 

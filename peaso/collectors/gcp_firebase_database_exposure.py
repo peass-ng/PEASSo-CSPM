@@ -16,7 +16,7 @@ def summarize_rules(payload):
     if not isinstance(payload, dict) or not isinstance(payload.get("rules"), dict):
         raise ReadError("malformed", "firebase_database_rules_malformed")
     flags = {"public_read": False, "public_write": False,
-             "authenticated_read": False, "conditional_read": False,
+             "authenticated_read": False, "authenticated_write": False, "conditional_read": False,
              "conditional_write": False}
 
     def visit(node):
@@ -36,8 +36,8 @@ def summarize_rules(payload):
                 flags[public_key] = True
             elif expression in {"false"}:
                 pass
-            elif operation == ".read" and expression in {"auth != null", "auth !== null"}:
-                flags["authenticated_read"] = True
+            elif expression in {"auth != null", "auth !== null"}:
+                flags["authenticated_read" if operation == ".read" else "authenticated_write"] = True
             else:
                 flags[conditional_key] = True
         for key, child in node.items():

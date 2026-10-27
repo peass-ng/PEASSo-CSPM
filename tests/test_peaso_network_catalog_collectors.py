@@ -157,9 +157,14 @@ def test_gcp_firebase_rules_summary_ignores_comments_and_unknown_conditions():
         allow list: if request.time < timestamp('2030-01-01'); }
     } }"""
     assert summarize([{"content": source}]) == {"public_read": False, "public_write": False,
-        "authenticated_read": True, "conditional_read": True}
+        "authenticated_read": True, "authenticated_write": False,
+        "conditional_read": True, "conditional_write": False}
     assert summarize([{"content": "allow get: if request.auth == null; allow write: if false;"}]) == {
-        "public_read": True, "public_write": False, "authenticated_read": False, "conditional_read": False}
+        "public_read": True, "public_write": False, "authenticated_read": False,
+        "authenticated_write": False, "conditional_read": False, "conditional_write": False}
+    assert summarize([{"content": "allow write: if request.auth != null; allow create: if request.time < timestamp('2030-01-01');"}]) == {
+        "public_read": False, "public_write": False, "authenticated_read": False,
+        "authenticated_write": True, "conditional_read": False, "conditional_write": True}
 
 
 def test_gcp_firebase_database_rules_are_projected_before_snapshot():
@@ -194,10 +199,22 @@ def test_gcp_firebase_database_rules_parser_preserves_unknown_conditions():
     flags = summarize_rules({"rules": {"private": {".read": False},
         "users": {"$uid": {".read": "auth.uid == $uid", ".write": "auth != null"}}}})
     assert flags == {"public_read": False, "public_write": False, "authenticated_read": False,
-                     "conditional_read": True, "conditional_write": True}
+                     "authenticated_write": True, "conditional_read": True, "conditional_write": False}
     assert _rules_url("https://db.firebaseio.com") == "https://db.firebaseio.com/.settings/rules.json"
     with pytest.raises(Exception):
         _rules_url("https://attacker.example/.settings/rules.json")
+
+
+def test_gcp_firebase_write_only_rules_stay_visible_as_unresolved():
+    from peaso.analysis.internet_exposure import _gcp_firebase_rules
+    from peaso.collectors.gcp_firebase_database_exposure import summarize_rules
+    flags = summarize_rules({"rules": {".write": "auth != null"}})
+    resource = {"type": "firebase_database_rules", "data": {**flags, "source_inspected": True}}
+    assessed = _gcp_firebase_rules(None, None, resource)
+    assert assessed.verdict() == "UNKNOWN" and assessed.authenticated is True
+    flags = summarize_rules({"rules": {".write": "auth.uid == $uid"}})
+    resource["data"] = {**flags, "source_inspected": True}
+    assert _gcp_firebase_rules(None, None, resource).verdict() == "UNKNOWN"
 
 
 def test_gcp_firebase_database_rules_transport_cache_keeps_only_flags():
