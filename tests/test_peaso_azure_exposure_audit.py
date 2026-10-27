@@ -2,7 +2,7 @@
 
 import pytest
 
-from peaso.analysis.internet_exposure import assess
+from peaso.analysis.internet_exposure import _nsg_allowed, assess
 from peaso.snapshot import make_snapshot, resources
 
 SCOPE = "/subscriptions/test"
@@ -39,6 +39,27 @@ def test_app_service_unset_public_access_with_private_endpoint_is_uncertain():
     assert row.verdict() == "UNKNOWN"
 
 
+def test_app_service_specific_public_source_and_priority_shadowing():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+
+    def site_decision(rules):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected", "items": [
+                {"id": site_id, "properties": {"defaultHostName": "app.azurewebsites.net",
+                 "publicNetworkAccess": "Enabled"}}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected", "items": [
+                {"id": site_id + "/config/web", "parent_id": site_id,
+                 "properties": {"ipSecurityRestrictions": rules, "ipSecurityRestrictionsDefaultAction": "Deny"}}]}])
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+
+    allow = {"name": "public-ip", "ipAddress": "8.8.8.8/32", "action": "Allow", "priority": 200}
+    deny = {"name": "deny-public-ip", "ipAddress": "8.8.8.8/32", "action": "Deny", "priority": 100}
+    first = site_decision([allow])
+    assert first.verdict() == "FAIL", first.path
+    assert site_decision([deny, allow]).verdict() == "PASS"
+    assert site_decision([{**deny, "ipAddress": "10.0.0.0/8"}, allow]).verdict() == "FAIL"
+
+
 def test_anonymous_blob_requires_container_and_account_gates():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
     container = {"id": account_id + "/blobServices/default/containers/public",
@@ -59,6 +80,43 @@ def test_anonymous_blob_requires_container_and_account_gates():
     assert assess_container({**open_account, "allowBlobPublicAccess": False}).verdict() == "PASS"
     assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny"}}).verdict() == "PASS"
     assert assess_container({**open_account, "networkAcls": {}}).verdict() == "UNKNOWN"
+
+
+def test_sql_firewall_public_ip_range_is_exposure_but_private_range_is_not():
+    server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
+
+    def sql_decision(start, end):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "sql_server", "scope": SCOPE, "service": "sql", "status": "collected", "items": [
+                {"id": server_id, "properties": {"publicNetworkAccess": "Enabled",
+                 "fullyQualifiedDomainName": "sql.database.windows.net"}}]},
+            {"type": "sql_firewall_rule", "scope": SCOPE, "service": "sql", "status": "collected", "items": [
+                {"id": server_id + "/firewallRules/rule", "name": "rule",
+                 "properties": {"startIpAddress": start, "endIpAddress": end}}]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "sql_server")
+
+    assert sql_decision("8.8.8.8", "8.8.8.8").verdict() == "FAIL"
+    assert sql_decision("10.0.0.1", "10.0.0.9").verdict() == "PASS"
+    assert sql_decision("0.0.0.0", "0.0.0.0").verdict() == "PASS"
+
+
+def test_nsg_specific_public_source_respects_per_source_priority():
+    def rule(name, source, access, priority):
+        return {"name": name, "properties": {"priority": priority, "direction": "Inbound",
+            "access": access, "protocol": "Tcp", "sourceAddressPrefix": source,
+            "destinationAddressPrefix": "*", "destinationPortRange": "22"}}
+
+    nsg = {"data": {"properties": {"securityRules": [
+        rule("deny-one", "8.8.8.8/32", "Deny", 100),
+        rule("allow-rest", "0.0.0.0/0", "Allow", 200)]}}}
+    allowed, _ = _nsg_allowed(nsg)
+    assert allowed == {"tcp": ((22, 22),)}
+    nsg["data"]["properties"]["securityRules"] = [
+        rule("deny-one", "8.8.8.8/32", "Deny", 100),
+        rule("allow-one", "8.8.8.8/32", "Allow", 200)]
+    assert _nsg_allowed(nsg)[0] == {}
+    nsg["data"]["properties"]["securityRules"] = [rule("allow-one", "8.8.8.8/32", "Allow", 200)]
+    assert _nsg_allowed(nsg)[0] == {"tcp": ((22, 22),)}
 
 
 @pytest.mark.parametrize("kind", ["vault", "container_registry", "search_service", "servicebus_namespace"])

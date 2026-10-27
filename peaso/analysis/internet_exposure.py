@@ -1434,33 +1434,55 @@ def _nsg_allowed(nsg, address=None, groups=()):
     if not any((r.get("properties") or {}).get("priority", 0) >= 65000 for r in rules):
         rules.append({"name": "DenyAllInBound(default)", "properties": {"priority": 65500, "direction": "Inbound", "access": "Deny",
                       "protocol": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*", "destinationPortRange": "*"}})
-    allowed, decided, matched = {}, {}, []
-    for rule in sorted(rules, key=lambda r: int((r.get("properties") or {}).get("priority", 4096))):
+    ordered = sorted(rules, key=lambda r: int((r.get("properties") or {}).get("priority", 4096)))
+    candidates = {ipaddress.ip_address(value) for value in ("8.8.8.8", "1.1.1.1", "2606:4700:4700::1111")}
+    source_nets = {}
+    for rule in ordered:
         p = rule.get("properties") or {}
-        if p.get("direction", "Inbound") != "Inbound":
-            continue
         sources = as_list(p.get("sourceAddressPrefixes")) + as_list(p.get("sourceAddressPrefix"))
-        if p.get("sourceApplicationSecurityGroups") or not any(_internet(s) for s in sources):
-            continue
-        destinations = as_list(p.get("destinationAddressPrefixes")) + as_list(p.get("destinationAddressPrefix"))
-        asgs = {str(x.get("id", "")).lower() for x in as_list(p.get("destinationApplicationSecurityGroups")) if isinstance(x, dict)}
-        if asgs:
-            if not asgs & {str(g).lower() for g in groups}:
+        networks = [net for value in sources for net in _azure_restriction_sources(value)]
+        source_nets[id(rule)] = networks
+        for net in networks:
+            maximum = (1 << net.max_prefixlen) - 1
+            low, high = int(net.network_address), int(net.broadcast_address)
+            for number in (low - 1, low, low + 1, high - 1, high, high + 1):
+                if 0 <= number <= maximum:
+                    candidate = ipaddress.ip_address(number) if net.version == 4 else ipaddress.IPv6Address(number)
+                    if candidate.is_global:
+                        candidates.add(candidate)
+    allowed, matched, seen = {}, [], set()
+    for candidate in sorted(candidates, key=lambda ip: (ip.version, int(ip))):
+        decided = {}
+        for rule in ordered:
+            p = rule.get("properties") or {}
+            if p.get("direction", "Inbound") != "Inbound":
                 continue
-        elif destinations and not any(d in ("*", "Any", "VirtualNetwork", "Internet") or _internet(d) or
-                                      (address and _cidr(d) is not None and _cidr(address) is not None and _cidr(address).subnet_of(_cidr(d)) if _cidr(d) and _cidr(address) and _cidr(d).version == _cidr(address).version else False)
-                                      for d in destinations):
-            continue
-        ports = {}
-        for spec in as_list(p.get("destinationPortRanges")) + as_list(p.get("destinationPortRange")) or ["*"]:
-            ports = union(ports, _port_spec(p.get("protocol", "*"), spec) or {})
-        fresh = subtract(ports, decided)
-        if empty(fresh):
-            continue
-        if p.get("access") == "Allow":
-            allowed = union(allowed, fresh)
-        matched.append({"rule": rule.get("name"), "priority": p.get("priority"), "access": p.get("access"), "ports": describe(fresh)})
-        decided = union(decided, ports)
+            if p.get("sourceApplicationSecurityGroups") or not any(candidate in net for net in source_nets[id(rule)]):
+                continue
+            destinations = as_list(p.get("destinationAddressPrefixes")) + as_list(p.get("destinationAddressPrefix"))
+            asgs = {str(x.get("id", "")).lower() for x in as_list(p.get("destinationApplicationSecurityGroups")) if isinstance(x, dict)}
+            if asgs:
+                if not asgs & {str(g).lower() for g in groups}:
+                    continue
+            elif destinations and not any(d in ("*", "Any", "VirtualNetwork", "Internet") or _internet(d) or
+                                          (address and _cidr(d) is not None and _cidr(address) is not None and
+                                           _cidr(address).subnet_of(_cidr(d)) if _cidr(d) and _cidr(address) and
+                                           _cidr(d).version == _cidr(address).version else False)
+                                          for d in destinations):
+                continue
+            ports = {}
+            for spec in as_list(p.get("destinationPortRanges")) + as_list(p.get("destinationPortRange")) or ["*"]:
+                ports = union(ports, _port_spec(p.get("protocol", "*"), spec) or {})
+            fresh = subtract(ports, decided)
+            if empty(fresh):
+                continue
+            if p.get("access") == "Allow":
+                allowed = union(allowed, fresh)
+            key = (rule.get("name"), p.get("priority"), p.get("access"), tuple(describe(fresh)))
+            if key not in seen:
+                seen.add(key)
+                matched.append({"rule": rule.get("name"), "priority": p.get("priority"), "access": p.get("access"), "ports": describe(fresh)})
+            decided = union(decided, ports)
     return allowed, matched
 
 
@@ -1695,6 +1717,35 @@ def _azure_appgw(snapshot, inventory, resource):
     return a
 
 
+def _azure_restriction_sources(value):
+    if value in ("Any", "*", "Internet"):
+        return [ipaddress.ip_network("0.0.0.0/0"), ipaddress.ip_network("::/0")]
+    network = _cidr(value)
+    return [network] if network is not None else []
+
+
+def _azure_public_remainder(sources, prior):
+    """Whether a first-match App Service rule still reaches any global IP."""
+    for source_net in sources:
+        remaining = [source_net]
+        for earlier in prior:
+            next_remaining = []
+            for current in remaining:
+                if earlier.version != current.version or not current.overlaps(earlier):
+                    next_remaining.append(current)
+                elif current.subnet_of(earlier):
+                    continue
+                elif earlier.subnet_of(current):
+                    next_remaining.extend(current.address_exclude(earlier))
+            remaining = next_remaining
+            if not remaining:
+                break
+        if any(net.prefixlen == 0 or _public_ip(net.network_address) or
+               _public_ip(net.broadcast_address) for net in remaining):
+            return True
+    return False
+
+
 def _azure_app_service(snapshot, inventory, resource, configs):
     props = _props(resource)
     a = Assessment(resource, "web_app")
@@ -1715,11 +1766,21 @@ def _azure_app_service(snapshot, inventory, resource, configs):
     cp = _props(config)
     restrictions = [r for r in as_list(cp.get("ipSecurityRestrictions")) if isinstance(r, dict)]
     default = cp.get("ipSecurityRestrictionsDefaultAction") or ("Deny" if restrictions and not any(r.get("ipAddress") == "Any" for r in restrictions) else "Allow")
-    open_rules = [r.get("name") for r in sorted(restrictions, key=lambda r: int(r.get("priority", 65000)))
-                  if r.get("action", "Allow") == "Allow" and (_internet(r.get("ipAddress")) or r.get("ipAddress") == "Any")]
-    first_open = next((r for r in sorted(restrictions, key=lambda r: int(r.get("priority", 65000))) if _internet(r.get("ipAddress")) or r.get("ipAddress") == "Any"), None)
-    reachable = (first_open is not None and first_open.get("action", "Allow") == "Allow") or (first_open is None and default == "Allow")
-    a.step("access_restrictions", "allow" if reachable else "block", restriction_count=len(restrictions), default_action=default, open_rules=open_rules)
+    prior, open_rules, unsupported = [], [], []
+    for restriction in sorted(restrictions, key=lambda r: int(r.get("priority", 65000))):
+        sources = _azure_restriction_sources(restriction.get("ipAddress"))
+        if not sources:
+            unsupported.append(restriction.get("name"))
+            continue
+        if restriction.get("action", "Allow") == "Allow" and _azure_public_remainder(sources, prior):
+            open_rules.append(restriction.get("name"))
+        prior.extend(sources)
+    reachable = bool(open_rules) or (default == "Allow" and _azure_public_remainder(
+        _azure_restriction_sources("Any"), prior))
+    if unsupported:
+        a.gap("access_restrictions", "App Service source rule uses an unresolved service tag or VNet source")
+    a.step("access_restrictions", "allow" if reachable else "unknown" if unsupported else "block",
+           restriction_count=len(restrictions), default_action=default, open_rules=open_rules)
     a.ports = ports if reachable else {}
     a.notes.append("App Service authentication (Easy Auth) settings are not collected")
     return a
@@ -1830,12 +1891,25 @@ def _azure_sql(snapshot, inventory, resource, rules):
         start, end = rp.get("startIpAddress"), rp.get("endIpAddress")
         if start == "0.0.0.0" and end == "0.0.0.0":
             azure = True
-        elif start == "0.0.0.0" and end == "255.255.255.255":
-            open_rules.append(rule["data"].get("name"))
+        else:
+            try:
+                first, last = ipaddress.IPv4Address(start), ipaddress.IPv4Address(end)
+            except (ipaddress.AddressValueError, TypeError):
+                a.gap("firewall", "SQL firewall rule has an invalid IP range")
+                continue
+            if first > last:
+                a.gap("firewall", "SQL firewall rule start exceeds end")
+                continue
+            ranges = list(ipaddress.summarize_address_range(first, last))
+            if any(network.prefixlen == 0 or _public_ip(network.network_address) or
+                   _public_ip(network.broadcast_address) for network in ranges):
+                open_rules.append({"rule": rule["data"].get("name"), "start_ip": start, "end_ip": end})
     if azure:
         a.notes.append("'Allow Azure services' rule (0.0.0.0-0.0.0.0) admits any Azure tenant's resources")
     a.step("firewall", "allow" if open_rules else "block", open_rules=open_rules)
     a.ports = pset("tcp", 1433, 1433) if open_rules else {}
+    if open_rules and not a.addresses:
+        a.gap("inventory", "SQL public endpoint FQDN is not collected")
     return a
 
 
