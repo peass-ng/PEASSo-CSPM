@@ -162,6 +162,10 @@ def test_aws_attached_eip_fills_missing_instance_public_association():
     result = one(aws(*aws_network(), instance(public=False), eip), "instance")
     assert result["status"] == "FAIL"
     assert result["evidence"]["public_addresses"] == ["54.1.2.3"]
+    eip["items"].append({"AllocationId": "eipalloc-2", "AssociationId": "eipassoc-2",
+                         "NetworkInterfaceId": "eni-1", "PublicIp": "54.1.2.4"})
+    result = one(aws(*aws_network(), instance(public=False), eip), "instance")
+    assert result["evidence"]["public_addresses"] == ["54.1.2.3", "54.1.2.4"]
     unattached = coll("elastic_ip", [{"AllocationId": "eipalloc-1", "PublicIp": "54.1.2.3"}])
     assert not exposure(aws(*aws_network(), instance(public=False), unattached))
 

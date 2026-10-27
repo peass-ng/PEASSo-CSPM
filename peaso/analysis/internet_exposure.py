@@ -547,10 +547,10 @@ def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, ro
     return reachable
 
 
-def _aws_eip_address(inventory, scope, eni_id):
-    """Use the already collected EIP association for an exact interface match."""
+def _aws_eip_addresses(inventory, scope, eni_id):
+    """Use all already collected EIP associations for an exact interface match."""
     if not isinstance(eni_id, str) or not eni_id:
-        return None
+        return []
     key = ("aws_eip_by_eni",)
     if key not in inventory.network_cache:
         addresses = {}
@@ -561,8 +561,7 @@ def _aws_eip_address(inventory, scope, eni_id):
             if data.get("AssociationId") and isinstance(interface, str) and _public_ip(public):
                 addresses.setdefault((eip["scope"], interface), set()).add(public)
         inventory.network_cache[key] = addresses
-    matches = inventory.network_cache[key].get((scope, eni_id), set())
-    return next(iter(matches)) if len(matches) == 1 else None
+    return sorted(inventory.network_cache[key].get((scope, eni_id), set()))
 
 
 def _aws_instance(snapshot, inventory, resource):
@@ -571,10 +570,11 @@ def _aws_instance(snapshot, inventory, resource):
     interfaces = [n for n in as_list(data.get("NetworkInterfaces")) if isinstance(n, dict)]
     addresses = []
     for interface in interfaces:
-        public = (interface.get("Association") or {}).get("PublicIp") or _aws_eip_address(inventory, resource["scope"], interface.get("NetworkInterfaceId"))
+        declared = (interface.get("Association") or {}).get("PublicIp")
+        public = sorted(set(([declared] if declared else []) + _aws_eip_addresses(inventory, resource["scope"], interface.get("NetworkInterfaceId"))))
         v6 = [x.get("Ipv6Address") for x in as_list(interface.get("Ipv6Addresses")) if isinstance(x, dict) and x.get("Ipv6Address")]
         if public or v6:
-            addresses.append((interface, [public] if public else [], v6))
+            addresses.append((interface, public, v6))
     if not interfaces and data.get("PublicIpAddress"):
         addresses.append(({"SubnetId": data.get("SubnetId"), "Groups": data.get("SecurityGroups", [])}, [data["PublicIpAddress"]], []))
     if not addresses:
@@ -604,15 +604,16 @@ def _aws_eni(snapshot, inventory, resource):
     if attachment.get("InstanceId") or str(data.get("Description", "")).startswith("ELB ") or data.get("InterfaceType") in (
             "nat_gateway", "network_load_balancer", "gateway_load_balancer", "gateway_load_balancer_endpoint", "vpc_endpoint", "load_balancer"):
         return None
-    public = (data.get("Association") or {}).get("PublicIp") or _aws_eip_address(inventory, resource["scope"], data.get("NetworkInterfaceId"))
+    declared = (data.get("Association") or {}).get("PublicIp")
+    public = sorted(set(([declared] if declared else []) + _aws_eip_addresses(inventory, resource["scope"], data.get("NetworkInterfaceId"))))
     v6 = [x.get("Ipv6Address") for x in as_list(data.get("Ipv6Addresses")) if isinstance(x, dict) and x.get("Ipv6Address")]
     if not public and not v6:
         return None
     a = Assessment(resource, "public_ip")
-    a.addresses = ([public] if public else []) + v6
+    a.addresses = public + v6
     groups = [g.get("GroupId") for g in as_list(data.get("Groups")) if isinstance(g, dict)]
     a.ports = {}
-    for family, addresses in ((4, [public] if public else []), (6, v6)):
+    for family, addresses in ((4, public), (6, v6)):
         if addresses:
             a.ports = union(a.ports, _aws_vpc_path(inventory, a, [data.get("SubnetId")], groups,
                                                   dict(FULL), native_id(resource), vpc_id=data.get("VpcId"), family=family))
