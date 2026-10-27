@@ -2541,7 +2541,7 @@ def _gcp_vmware_address(snapshot, inventory, resource):
     a.ports = allowed
     a.step("external_access_rule", "allow" if not empty(allowed) else "block",
            policy=policy.get("name"), allowed=describe(allowed))
-    a.notes.append("VMware NSX firewall rules are outside the Google Cloud API")
+    a.notes.append("Google Cloud VMware Engine API reports external access rules; NSX gateway and distributed firewall rules are not visible through that API")
     return a
 
 

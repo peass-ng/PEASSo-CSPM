@@ -898,6 +898,28 @@ def test_gcp_vmware_external_ip_and_ordered_access_rules():
     assert one(gcp(*base), "vmware_external_address")["status"] == "UNKNOWN"
 
 
+def test_gcp_vmware_declared_public_path_preserves_nsx_api_boundary():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_vmware_address
+    from peaso.snapshot import resources
+    cloud = "projects/p1/locations/us-central1-a/privateClouds/c"
+    address = cloud + "/externalAddresses/a"
+    policy = "projects/p1/locations/us-central1/networkPolicies/p"
+    network = "projects/123/locations/global/vmwareEngineNetworks/n"
+    snap = gcp(
+        gcoll("vmware_external_address", [{"name": address, "state": "ACTIVE", "externalIp": "34.4.4.4"}], service="vmwareengine"),
+        gcoll("vmware_private_cloud", [{"name": cloud, "networkConfig": {"vmwareEngineNetworkCanonical": network}}], service="vmwareengine"),
+        gcoll("vmware_network_policy", [{"name": policy, "vmwareEngineNetworkCanonical": network,
+                                         "externalIp": {"enabled": True, "state": "ACTIVE"}}], service="vmwareengine"),
+        gcoll("vmware_external_access_rule", [{"name": policy + "/externalAccessRules/allow", "state": "ACTIVE",
+            "priority": 100, "action": "ALLOW", "ipProtocol": "tcp", "sourceIpRanges": [{"ipAddressRange": "0.0.0.0/0"}],
+            "destinationIpRanges": [{"externalAddress": address}], "destinationPorts": ["443"]}], service="vmwareengine"))
+    items = resources(snap)
+    resource = next(row for row in items if row["type"] == "vmware_external_address")
+    assessment = _gcp_vmware_address(snap, Inventory(snap, items), resource)
+    assert assessment.verdict() == "FAIL" and assessment.ports == pset("tcp", 443, 443)
+    assert any("NSX gateway and distributed firewall rules are not visible" in note for note in assessment.notes)
+
+
 def test_gcp_media_cdn_public_addresses_and_edge_armor():
     edge = {"name": "projects/p1/locations/global/edgeCacheServices/media",
             "ipv4Addresses": ["34.8.8.8"], "requireTls": True,

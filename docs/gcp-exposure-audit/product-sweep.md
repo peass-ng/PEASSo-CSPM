@@ -74,7 +74,7 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | Compute | [Oracle on Google Cloud Compute](https://docs.cloud.google.com/oracle/compute) | — | REVIEW REQUIRED |
 | Compute | [Shielded VMs](https://docs.cloud.google.com/compute/shielded-vm/docs) | — | REVIEW REQUIRED |
 | Compute | [VM Manager](https://docs.cloud.google.com/compute/vm-manager/docs) | — | REVIEW REQUIRED |
-| Compute | [VMware Engine](https://docs.cloud.google.com/vmware-engine/docs) | vmware_external_address / external access rule | REVIEW REQUIRED |
+| Compute | [VMware Engine](https://docs.cloud.google.com/vmware-engine/docs) | vmware_external_address / network policy / ordered external access rules; NSX controls outside Google API | REVIEW REQUIRED |
 | Compute | [Workload Manager](https://docs.cloud.google.com/workload-manager/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [BigQuery](https://docs.cloud.google.com/bigquery/docs) | bigquery_dataset legacy ACL / IAM / cross-project grants / same-project public authorized VIEW join | REVIEW REQUIRED |
 | Data analytics and pipelines | [Blockchain Analytics](https://docs.cloud.google.com/blockchain-analytics/docs) | — | REVIEW REQUIRED |
