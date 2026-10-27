@@ -672,6 +672,44 @@ def test_gcp_authorized_routine_public_invocation_joins_cached_iam():
     assert assessment().verdict() == "FAIL"
 
 
+def test_gcp_authorized_resources_join_project_inherited_public_permissions():
+    from peaso.analysis.internet_exposure import GCP_TYPES, Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    assert {"iam_policy", "iam_role", "bigquery_table", "bigquery_routine_metadata"} <= set(GCP_TYPES)
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"view": {"projectId": "p1", "datasetId": "api", "tableId": "v"}},
+        {"routine": {"projectId": "p1", "datasetId": "api", "routineId": "r"}}]}
+    target = {"name": "projects/p1/datasets/api", "access": []}
+    view = {"name": "projects/p1/datasets/api/tables/v", "type": "VIEW", "iamPolicy": {"bindings": []}}
+    routine = {"name": "projects/p1/datasets/api/routines/r", "routineType": "PROCEDURE",
+               "iamPolicy": {"bindings": []}}
+    policy = {"name": "projects/p1", "bindings": [
+        {"role": "projects/p1/roles/viewer", "members": ["allUsers"]},
+        {"role": "projects/p1/roles/unrelated", "members": ["allAuthenticatedUsers"]}]}
+    role = {"name": "projects/p1/roles/viewer", "includedPermissions": ["bigquery.tables.getData"]}
+    unrelated = {"name": "projects/p1/roles/unrelated", "includedPermissions": ["bigquery.datasets.get"]}
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [source, target], service="bigquery"),
+                   gcoll("bigquery_table", [view], service="bigquery"),
+                   gcoll("bigquery_routine_metadata", [routine], service="bigquery"),
+                   gcoll("iam_policy", [policy], service="cloudasset"),
+                   gcoll("iam_role", [role, unrelated], service="iam"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert len(result.path[-1]["public_views"]) == 1
+    assert not result.path[-1]["public_routines"]
+    role["includedPermissions"] = ["bigquery.routines.get"]
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert not result.path[-1]["public_views"]
+    assert len(result.path[-1]["public_routines"]) == 1
+    policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,target_segment,detail", [
     ("target_instance", "targetInstances", {"instance": "vm-ref"}),
     ("target_pool", "targetPools", {"instances": ["vm-ref"]}),

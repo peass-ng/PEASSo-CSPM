@@ -2192,6 +2192,26 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     external_projects = sorted({project for row in delegated
                                 if isinstance(project := destination_project(row), str)
                                 and project and project != source_project})
+    project_policy_row = inventory.get("iam_policy", resource["scope"])
+    project_policy = project_policy_row["data"] if project_policy_row else None
+    def inherited_public(permission):
+        if not isinstance(project_policy, dict) or project_policy.get("collection_status") not in (None, "collected"):
+            return []
+        grants = []
+        for binding in as_list(project_policy.get("bindings")):
+            if not isinstance(binding, dict) or binding.get("condition"):
+                continue
+            members = [member for member in as_list(binding.get("members"))
+                       if member in ("allUsers", "allAuthenticatedUsers")]
+            role = binding.get("role")
+            role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+            permissions = role_row["data"].get("includedPermissions") if role_row else None
+            if members and isinstance(permissions, list) and permission in permissions:
+                grants.append({"role": role, "members": members, "scope": resource["scope"],
+                               "permission": permission})
+        return grants
+    inherited_view_readers = inherited_public("bigquery.tables.getData")
+    inherited_routine_readers = inherited_public("bigquery.routines.get")
     public_views = []
     view_refs = []
     for row in delegated:
@@ -2232,10 +2252,11 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                 binding.get("role") in ("roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.admin") and
                 any(member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members")))
                 for binding in as_list(policy.get("bindings"))))
-        if dataset_public or table_public:
+        if dataset_public or table_public or inherited_view_readers:
             public_views.append({"view": view_name, "authorization": authorization,
                                  "dataset_public": bool(dataset_public),
-                                 "table_public": bool(table_public)})
+                                 "table_public": bool(table_public),
+                                 "inherited_public": inherited_view_readers})
     public_routines = []
     for row in delegated:
         if row["kind"] != "routine" or destination_project(row) != source_project:
@@ -2259,9 +2280,10 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                                         "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor") and
                 any(member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members")))
                 for binding in as_list(policy.get("bindings"))))
-        if dataset_public or routine_public:
+        if dataset_public or routine_public or inherited_routine_readers:
             public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
-                                    "dataset_public": bool(dataset_public), "routine_public": bool(routine_public)})
+                                    "dataset_public": bool(dataset_public), "routine_public": bool(routine_public),
+                                    "inherited_public": inherited_routine_readers})
     a.external_ids = external_projects
     if public:
         a.data_exposure = True
@@ -4591,7 +4613,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
-             "project", "iam_role", "workload_identity_provider",
+             "project", "iam_policy", "iam_role", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
              "media_cdn_service", "target_pool", "target_instance",
