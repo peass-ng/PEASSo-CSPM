@@ -179,8 +179,9 @@ def test_new_resource_check_cannot_inherit_absence(monkeypatch):
     from dataclasses import replace
     original = engine._selection
     candidate = "k8s.ports.podsecuritypolicy.future_resource_check"
-    def added(provider, categories, checks, frameworks):
-        selected_categories, selected = original(provider, categories, sorted(IDS), frameworks)
+    def added(provider, categories, checks, frameworks, *, content_checks=None):
+        selected_categories, selected = original(
+            provider, categories, sorted(IDS), frameworks, content_checks=content_checks)
         return selected_categories, selected + [replace(selected[0], id=candidate)]
     monkeypatch.setattr(engine, "_selection", added)
     _, findings = result(fixture_snapshot(), IDS | {candidate})

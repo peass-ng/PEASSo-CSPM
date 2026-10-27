@@ -79,3 +79,21 @@ def test_requests_catch_actual_code_and_defaults_still_bound(monkeypatch,change)
     if change=='code':monkeypatch.setattr(fn,'__code__',fn.__code__.replace(co_consts=fn.__code__.co_consts+('foreign',)))
     else:monkeypatch.setattr(fn,'__defaults__',('foreign',))
     with fresh_shared(),pytest.raises(RuntimeError):shared._check_function(fn,expected,ROOT,{})
+
+
+@pytest.mark.parametrize('change', ['unchanged', 'code', 'defaults'])
+def test_current_content_tail_collect_transition_binds_executing_callable(monkeypatch, change):
+    fn = aws.collect
+    transition = shared._private_receipt()['provider_group_callables']['peaso/collectors/aws.py:collect']
+    row = {'path': 'peaso/collectors/aws.py', 'qualname': 'collect',
+           'sha256': transition['predecessor_sha256'], 'defaults': [None], 'kwdefaults': None}
+    if change == 'code':
+        monkeypatch.setattr(fn, '__code__', fn.__code__.replace(co_consts=fn.__code__.co_consts + ('foreign',)))
+    elif change == 'defaults':
+        monkeypatch.setattr(fn, '__defaults__', ('foreign',))
+    with fresh_shared():
+        if change == 'unchanged':
+            shared._check_function(fn, row, ROOT, {})
+        else:
+            with pytest.raises(RuntimeError):
+                shared._check_function(fn, row, ROOT, {})

@@ -85,6 +85,7 @@ class CheckpointSession:
             self.privesc_requirements if self.privesc is not None else None, plan_collection(request))
         self.collection_revisions = {}
         self.collection_finished = False
+        self.content_tail_active = False
         self.final_metadata = None
         self.image_targets = []
         self.global_types = set()
@@ -320,6 +321,24 @@ class CheckpointSession:
 
     settled = on_collection
 
+    def on_content_tail(self, active):
+        """Defer routine cumulative reports during AWS automatic content reads.
+
+        Native deltas retain their normal durability and explicit flushes still
+        publish. The terminal edge publishes the latest cumulative public view.
+        """
+        if self.provider != 'aws' or type(active) is not bool:
+            raise ValueError('Invalid AWS content tail state')
+        with self.lock:
+            if self.error is not None:
+                raise RuntimeError('checkpoint publication failed') from self.error
+            previous = self.content_tail_active
+            self.content_tail_active = active
+            self.wake.set()
+        if previous and not active:
+            return self._maybe_publish(force=True)
+        return None
+
     def on_scope_plan(self, scopes):
         """Accept one immutable native AWS discovery plan, never observed scopes.
 
@@ -524,6 +543,10 @@ class CheckpointSession:
                 categories.update(check["category"] for check in self.analysis_checks if check["id"] in ready_ids)
                 if "privesc" in ready_ids:
                     categories.add("privesc")
+                if (not force and self.content_tail_active
+                        and categories <= self.published_categories
+                        and completed_sections <= self.published_sections):
+                    return None
                 now = self.clock()
                 if self.report_started is None:
                     self.report_started = now

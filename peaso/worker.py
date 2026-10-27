@@ -710,6 +710,7 @@ def _process(role, request, connection):
                         connector.setdefault("options", {}).pop("collect_all", None)
                         connector["options"]["inventories"] = remaining
                 request["_collection_callback"] = checkpoint_session.on_collection
+                connector.setdefault("options", {})["_content_tail_callback"] = checkpoint_session.on_content_tail
                 request["_scope_plan_callback"] = checkpoint_session.on_scope_plan
                 try:
                     from peaso.worker_progress import stream_progress
@@ -741,9 +742,14 @@ def _process(role, request, connection):
                         checkpoint_session.finish_collection(final_metadata=snapshot.get("metadata", {}))
                     snapshot.setdefault("metadata", {})["sections"] = checkpoint_session.sections()
                 finally:
-                    with _runtime_span("worker.checkpoint.close"):
-                        checkpoint_session.close()
+                    try:
+                        if checkpoint_session.content_tail_active:
+                            checkpoint_session.on_content_tail(False)
+                    finally:
+                        with _runtime_span("worker.checkpoint.close"):
+                            checkpoint_session.close()
                     request.pop("_collection_callback", None)
+                    connector.get("options", {}).pop("_content_tail_callback", None)
                     request.pop("_scope_plan_callback", None)
                     ai_credentials = ai_access.finish()
                     # The checkpoint thread has stopped and its public copies

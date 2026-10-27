@@ -14,7 +14,8 @@ class Collector:
     def __init__(self):
         self.urls = []
 
-    def pages(self, url, scope, *, key=None, single=False, params=None):
+    def pages(self, url, scope, *, key=None, single=False, params=None, page_size_key="pageSize"):
+        assert page_size_key == "pageSize"
         self.urls.append(url)
         assert scope == PROJECT
         if url == ROOT + "/" + PROJECT + "/locations":
