@@ -2,6 +2,8 @@
 
 Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs/product-list), retrieved 2026-10-27, supplemented with Firebase Realtime Database because its rules are an independent exposure surface. The table is a tracking inventory, not a closure claim. `REVIEW REQUIRED` means an independent exposure primitive has not yet been ruled out or implemented.
 
+Open review ledger: **178 rows** remain REVIEW REQUIRED; **152 have no native path identified** in this sweep and **26 have a partial native path**. The rows below name every open product. By category, the counts are Cross-product tools 14, AI and ML 18, App development 23, App hosting 5, Compute 12, Data analytics and pipelines 17, Databases 11, Distributed/hybrid/multicloud 6, Industry solutions 7, Migration 6, Networking 23, Observability 5, Security 27, and Storage 4. A dash in the native-path column is the concrete blocker: no product-specific exposure inventory and verdict has yet been audited. A populated native path is still REVIEW REQUIRED until that product's public endpoints, IAM/policy/ACL, sharing, and federation primitives have been exhaustively checked.
+
 | Category | Product | Native path found so far | Audit state |
 | --- | --- | --- | --- |
 | Cross-product tools | [Access Approval](https://docs.cloud.google.com/assured-workloads/access-approval/docs) | — | REVIEW REQUIRED |
