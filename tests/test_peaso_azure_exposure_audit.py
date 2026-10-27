@@ -145,6 +145,36 @@ def test_broker_namespace_cached_network_rule_child(kind):
     assert child_decision(None, status="denied").verdict() == "UNKNOWN"
 
 
+def test_ml_workspace_online_endpoint_and_selected_ip_acl():
+    rid = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.MachineLearningServices/workspaces/ml"
+    endpoint = {"id": rid + "/onlineEndpoints/score", "properties": {
+        "publicNetworkAccess": "Enabled", "scoringUri": "https://score.example.test"}}
+
+    def ml_decision(public="Enabled", acls=None, status="collected", endpoint_public="Enabled"):
+        item = {"id": rid, "properties": {"publicNetworkAccess": public},
+                "_coverage": {"onlineEndpoints": {"status": status}}}
+        if acls is not None:
+            item["properties"]["networkAcls"] = acls
+        if status == "collected":
+            item["onlineEndpoints"] = [{**endpoint, "properties": {**endpoint["properties"],
+                "publicNetworkAccess": endpoint_public}}]
+        snap = make_snapshot("azure", [SCOPE], [{"type": "ml_workspace", "scope": SCOPE,
+            "service": "ml", "status": "collected", "items": [item]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "ml_workspace")
+
+    assert ml_decision(public="Disabled").verdict() == "UNKNOWN"
+    assert ml_decision(public="Disabled", endpoint_public="Disabled").verdict() == "PASS"
+    unknown = ml_decision()
+    assert unknown.verdict() == "UNKNOWN" and "https://score.example.test" in unknown.addresses
+    assert any("networkAcls" in gap["reason"] for gap in unknown.unresolved)
+    assert ml_decision(acls={"defaultAction": "Allow"}).verdict() == "FAIL"
+    assert ml_decision(acls={"defaultAction": "Deny", "ipRules": [
+        {"value": "8.8.8.8/32"}]}).verdict() == "FAIL"
+    assert ml_decision(acls={"defaultAction": "Deny", "ipRules": [
+        {"value": "10.0.0.0/8"}]}).verdict() == "PASS"
+    assert ml_decision(acls={"defaultAction": "Allow"}, status="denied").verdict() == "FAIL"
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})

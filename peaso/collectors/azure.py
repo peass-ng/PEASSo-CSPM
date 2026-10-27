@@ -223,7 +223,8 @@ EMBEDDED_LISTS = {
     "redis_cache": (("firewallRules", "firewallRules", "2024-11-01"),),
     "mysql_single_server": (("configurations", "configurations", "2017-12-01"),),
     "web_pubsub": (("privateEndpointConnections", "privateEndpointConnections", "2024-03-01"),),
-    "ml_workspace": (("privateEndpointConnections", "privateEndpointConnections", "2024-04-01"),),
+    "ml_workspace": (("privateEndpointConnections", "privateEndpointConnections", "2024-04-01"),
+                     ("onlineEndpoints", "onlineEndpoints", "2024-04-01")),
     "recovery_vault": (("backupPolicies", "backupPolicies", "2024-04-01"), ("backupProtectedItems", "backupProtectedItems", "2024-04-01"),
                        ("backupJobs", "backupJobs", "2024-04-01")),
     "mssql_managed_instance": (("instanceAdministrators", "administrators", "2023-08-01"),
@@ -366,7 +367,7 @@ def _child_rows(rows, parent_id, field):
                or str(row.get("type", "")).casefold() != "microsoft.web/sites/slots"
                or not isinstance(row.get("properties"), dict) for row in rows):
             raise ValueError("foreign or malformed native App Service slot")
-    if field in ("configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors"):
+    if field in ("configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors", "onlineEndpoints"):
         segment = ("providers/Microsoft.Insights/diagnosticSettings" if field == "diagnosticSettings" else
                    "administrators" if field in ("serverAdministrators", "instanceAdministrators") else
                    "encryptionProtector" if field == "encryptionProtectors" else
@@ -639,7 +640,7 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                                               "properties": {name: data for name, data in row["properties"].items() if name == "recurringScans"}})
                         yield projected
                         continue
-                    if field in ("backupJobs", "backupProtectedItems", "configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "slots", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors"):
+                    if field in ("backupJobs", "backupProtectedItems", "configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "slots", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors", "onlineEndpoints"):
                         distinct = []
                         for row in page:
                             identity = row.get("id") if isinstance(row, dict) else None

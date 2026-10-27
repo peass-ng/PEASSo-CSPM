@@ -4222,6 +4222,71 @@ def _azure_batch_account(snapshot, inventory, resource):
     return a
 
 
+def _azure_ml_workspace(snapshot, inventory, resource):
+    """Join the workspace gate, optional ACL and cached online scoring endpoints."""
+    props = _props(resource)
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", public_network_access=access)
+        a.ports = {}
+        coverage = (resource["data"].get("_coverage") or {}).get("onlineEndpoints") or {}
+        endpoints = resource["data"].get("onlineEndpoints")
+        if coverage.get("status") not in ("collected", "empty") or not isinstance(endpoints, list):
+            a.gap("online_endpoint", "ML endpoint list incomplete despite disabled workspace gate")
+            a.explicit = "UNKNOWN"
+        elif any(not isinstance(row, dict) or not isinstance(row.get("properties"), dict)
+                 or row["properties"].get("publicNetworkAccess") != "Disabled" for row in endpoints):
+            a.gap("online_endpoint", "ML endpoint public gate could differ from disabled workspace gate")
+            a.explicit = "UNKNOWN"
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "ML workspace publicNetworkAccess is absent or unrecognized")
+        return a
+    a.step("public_network_access", "allow", public_network_access=access)
+    coverage = (resource["data"].get("_coverage") or {}).get("onlineEndpoints") or {}
+    endpoints = resource["data"].get("onlineEndpoints")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(endpoints, list):
+        a.gap("online_endpoint", "ML online endpoint child list is incomplete")
+    else:
+        for endpoint in endpoints:
+            fields = endpoint.get("properties") if isinstance(endpoint, dict) else None
+            if not isinstance(fields, dict):
+                a.gap("online_endpoint", "ML online endpoint properties are malformed")
+                continue
+            if fields.get("publicNetworkAccess") == "Enabled":
+                uri = fields.get("scoringUri")
+                if isinstance(uri, str) and uri:
+                    a.addresses.append(uri)
+                else:
+                    a.gap("online_endpoint", "public ML online endpoint scoring URI is unavailable")
+                a.step("listener", "allow", online_endpoint=endpoint.get("id"), scoring_uri=uri)
+            elif fields.get("publicNetworkAccess") != "Disabled":
+                a.gap("online_endpoint", "ML online endpoint public access gate is unresolved")
+    acls = props.get("networkAcls")
+    if not isinstance(acls, dict):
+        a.gap("firewall", "ML workspace selected-IP networkAcls are unavailable in the collected 2024-04-01 response")
+        return a
+    action = acls.get("defaultAction")
+    if action == "Allow":
+        a.step("firewall", "allow", default_action=action)
+        a.ports = pset("tcp", 443, 443)
+    elif action == "Deny":
+        public_ips, malformed = _azure_storage_public_ip_rules(acls)
+        if public_ips:
+            a.step("firewall", "allow", public_ip_rules=public_ips)
+            a.ports = pset("tcp", 443, 443)
+        elif malformed:
+            a.gap("firewall", "ML workspace selected-IP rule is malformed")
+        else:
+            a.step("firewall", "block", reason="no public-source IP rule")
+            a.ports = {}
+    else:
+        a.gap("firewall", "ML workspace selected-IP default action is unresolved")
+    return a
+
+
 def _azure_public_edge(snapshot, inventory, resource):
     """Assess the public listener from the collector's bounded route projection."""
     data = resource["data"]
@@ -4881,7 +4946,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -4897,7 +4962,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -4963,6 +5028,7 @@ def assess(snapshot, resources):
                   "snapshot": _azure_disk_public_export,
                   "kusto_cluster": _azure_kusto_cluster,
                   "batch_account": _azure_batch_account,
+                  "ml_workspace": _azure_ml_workspace,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
