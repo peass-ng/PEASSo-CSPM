@@ -253,6 +253,9 @@ def test_gcp_cloud_run_invoker_and_ingress():
         return {"name": "projects/p1/locations/r/services/s", "uri": "https://s.run.app", "ingress": ingress,
                 "iamPolicy": {"bindings": [{"role": "roles/run.invoker", "members": list(members)}]}}
     assert one(gcp(gcoll("cloudrun_service", [service()], service="run")), "cloudrun_service")["status"] == "FAIL"
+    service_invoker = service()
+    service_invoker["iamPolicy"]["bindings"][0]["role"] = "roles/run.servicesInvoker"
+    assert one(gcp(gcoll("cloudrun_service", [service_invoker], service="run")), "cloudrun_service")["status"] == "FAIL"
     assert one(gcp(gcoll("cloudrun_service", [service(members=["user:a@x.com"])], service="run")), "cloudrun_service")["status"] == "PASS"
     assert one(gcp(gcoll("cloudrun_service", [service(ingress="INGRESS_TRAFFIC_INTERNAL_ONLY")], service="run")), "cloudrun_service")["status"] == "PASS"
     no_policy = service()
@@ -270,6 +273,9 @@ def test_gcp_proxy_lb_cloud_armor():
         return gcp(gcoll("forwarding_rule", [fr]), gcoll("target_proxy", [proxy]), gcoll("url_map", [url_map]), gcoll("backend_service", [service]))
     assert one(snap(backend), "forwarding_rule")["status"] == "FAIL"
     assert one(snap(backend | {"securityPolicy": "https://x/securityPolicies/armor"}), "forwarding_rule")["status"] == "UNKNOWN"
+    no_address = copy.deepcopy(fr)
+    no_address.pop("IPAddress")
+    assert one(gcp(gcoll("forwarding_rule", [no_address])), "forwarding_rule")["status"] == "UNKNOWN"
 
 
 def test_gcp_gke_and_sql():
@@ -279,6 +285,43 @@ def test_gcp_gke_and_sql():
     sql = {"name": "db", "databaseVersion": "MYSQL_8_0", "settings": {"ipConfiguration": {"ipv4Enabled": True, "authorizedNetworks": [{"value": "0.0.0.0/0"}]}}}
     result = one(gcp(gcoll("sql_instance", [sql], service="sqladmin")), "sql_instance")
     assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/3306"]
+
+
+def test_gcp_public_resource_iam_is_reported_with_conditions_and_read_status():
+    secret = {"name": "projects/p1/secrets/s", "iamPolicy": {"bindings": [
+        {"role": "roles/secretmanager.secretAccessor", "members": ["allUsers"]}]},
+        "_coverage": {"iamPolicy": {"status": "collected"}}}
+    rows = analyze(gcp(gcoll("secret", [secret], service="secretmanager")))["findings"]
+    public = [row for row in rows if row["check_id"] == "analysis.gcp_public_iam"]
+    assert len(public) == 1 and public[0]["status"] == "FAIL"
+    conditional = copy.deepcopy(secret)
+    conditional["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    rows = analyze(gcp(gcoll("secret", [conditional], service="secretmanager")))["findings"]
+    assert next(row for row in rows if row["check_id"] == "analysis.gcp_public_iam")["status"] == "UNKNOWN"
+    denied = copy.deepcopy(secret)
+    denied["_coverage"]["iamPolicy"]["status"] = "denied"
+    rows = analyze(gcp(gcoll("secret", [denied], service="secretmanager")))["findings"]
+    assert not any(row["check_id"] == "analysis.gcp_public_iam" for row in rows)
+    project_policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": ["allAuthenticatedUsers"]}]}
+    rows = analyze(gcp(gcoll("iam_policy", [project_policy], service="cloudasset")))["findings"]
+    assert any(row["check_id"] == "analysis.gcp_public_iam" and row["status"] == "FAIL" for row in rows)
+
+
+def test_gcp_collected_bucket_acl_public_read_and_pap():
+    bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False}},
+              "iamPolicy": {"bindings": []},
+              "objectAccessControls": {"status": "collected", "all_pages": True, "all_objects": True, "all_versions": True,
+                                       "items": [{"entity": "allUsers", "role": "READER", "objectRef": "opaque-ref"}]}}
+    assert one(gcp(gcoll("bucket", [bucket], service="storage")), "bucket")["status"] == "FAIL"
+    protected = copy.deepcopy(bucket)
+    protected["iamConfiguration"]["publicAccessPrevention"] = "enforced"
+    assert one(gcp(gcoll("bucket", [protected], service="storage")), "bucket")["status"] == "PASS"
+    inherited = copy.deepcopy(bucket)
+    inherited["iamConfiguration"]["publicAccessPrevention"] = "inherited"
+    assert one(gcp(gcoll("bucket", [inherited], service="storage")), "bucket")["status"] == "UNKNOWN"
+    incomplete = copy.deepcopy(bucket)
+    incomplete["objectAccessControls"]["all_objects"] = False
+    assert not exposure(gcp(gcoll("bucket", [incomplete], service="storage")))
 
 
 # ------------------------------------------------------------------ Azure

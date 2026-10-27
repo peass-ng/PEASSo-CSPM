@@ -1160,6 +1160,9 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
         return None
     a = Assessment(resource, "load_balancer")
     a.addresses = [data.get("IPAddress")] if data.get("IPAddress") else []
+    if not a.addresses or not _public_ip(a.addresses[0]):
+        a.explicit = "UNKNOWN"
+        a.gap("public_ip", "external forwarding rule has no observed public IP address")
     protocol = data.get("IPProtocol", "TCP")
     if data.get("allPorts"):
         ports = pset(protocol)
@@ -1231,14 +1234,14 @@ def _gcp_serverless(snapshot, inventory, resource):
         ingress = data.get("ingress", "INGRESS_TRAFFIC_ALL")
         open_ingress = ingress == "INGRESS_TRAFFIC_ALL"
         a.addresses = as_list(data.get("urls")) or ([data.get("uri")] if data.get("uri") else [])
-        roles = {"roles/run.invoker"}
+        roles = {"roles/run.invoker", "roles/run.servicesInvoker"}
         disabled = data.get("invokerIamDisabled") is True
     else:
         config = data.get("serviceConfig") if isinstance(data.get("serviceConfig"), dict) else data
         ingress = config.get("ingressSettings", "ALLOW_ALL")
         open_ingress = ingress == "ALLOW_ALL"
         a.addresses = [config.get("uri") or (data.get("httpsTrigger") or {}).get("url")] if (config.get("uri") or (data.get("httpsTrigger") or {}).get("url")) else []
-        roles = {"roles/cloudfunctions.invoker", "roles/run.invoker"}
+        roles = {"roles/cloudfunctions.invoker", "roles/run.invoker", "roles/run.servicesInvoker"}
         disabled = False
     a.step("ingress", "allow" if open_ingress else "block", ingress=ingress)
     a.ports = pset("tcp", 443, 443) if open_ingress else {}
@@ -1328,24 +1331,94 @@ def _gcp_gke(snapshot, inventory, resource):
 def _gcp_bucket(snapshot, inventory, resource):
     data = resource["data"]
     policy = data.get("iamPolicy")
-    if not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected"):
-        return None
     public = []
-    for binding in as_list(policy.get("bindings")):
-        if isinstance(binding, dict):
-            public += [(binding.get("role"), m) for m in as_list(binding.get("members")) if m in ("allUsers", "allAuthenticatedUsers")]
-    if not public:
+    conditional = []
+    coverage = (data.get("_coverage") or {}).get("iamPolicy", {})
+    policy_ok = (isinstance(policy, dict) and policy.get("collection_status") in (None, "collected")
+                 and isinstance(coverage, dict) and coverage.get("status") in (None, "collected"))
+    if policy_ok:
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict):
+                continue
+            grants = [(binding.get("role"), m) for m in as_list(binding.get("members"))
+                      if m in ("allUsers", "allAuthenticatedUsers")]
+            (conditional if binding.get("condition") else public).extend(grants)
+    # The collector attaches these only after complete native ACL reads and
+    # verifies that uniform bucket-level access is disabled.
+    acl = []
+    if (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess", {}).get("enabled") is False:
+        for field in ("bucketAccessControls", "objectAccessControls"):
+            envelope = data.get(field)
+            if not isinstance(envelope, dict) or envelope.get("status") != "collected" or envelope.get("all_pages") is not True:
+                continue
+            if field == "objectAccessControls" and (envelope.get("all_objects") is not True or envelope.get("all_versions") is not True):
+                continue
+            for row in as_list(envelope.get("items")):
+                roles = ("READER", "OWNER", "WRITER") if field == "bucketAccessControls" else ("READER", "OWNER")
+                if isinstance(row, dict) and row.get("entity") in ("allUsers", "allAuthenticatedUsers") and row.get("role") in roles:
+                    acl.append({"source": field, "entity": row["entity"], "role": row["role"],
+                                **({"object_ref": row["objectRef"]} if field == "objectAccessControls" and row.get("objectRef") else {})})
+    if not public and not acl and not conditional:
         return None
     a = Assessment(resource, "data_share")
     prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention")
     if prevention == "enforced":
-        a.step("public_access_prevention", "block", bindings=public)
+        a.step("public_access_prevention", "block", bindings=public, acl=acl, conditional=conditional)
         a.ports = {}
         return a
-    a.step("policy", "allow", bindings=public, public_access_prevention=prevention)
+    a.step("policy", "allow" if public or acl else "unknown", bindings=public, acl=acl,
+           conditional=conditional, public_access_prevention=prevention)
+    if (not public and not acl) or prevention == "inherited":
+        a.explicit = "UNKNOWN"
+        a.gap("policy", "conditional public grant or inherited public access prevention requires effective-policy evaluation")
     a.data_exposure = True
     a.addresses = [f"https://storage.googleapis.com/{data.get('name', native_id(resource))}"]
     return a
+
+
+def gcp_public_policy_findings(snapshot, resources):
+    """Report public resource IAM declarations already present in the snapshot.
+
+    These are permission grants, not proof that an unauthenticated request can
+    read data. Conditional grants remain unresolved. A denied IAM read cannot
+    justify a negative finding.
+    """
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        # Buckets and invokable endpoints have path-specific evaluations above.
+        if resource["type"] in {"bucket", "cloudrun_service", "function"} or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        coverage = data.get("_coverage", {}).get("iamPolicy") if isinstance(data.get("_coverage"), dict) else None
+        policy = data if resource["type"] == "iam_policy" else data.get("iamPolicy")
+        if (isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")
+                or not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")):
+            continue
+        declarations = []
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict):
+                continue
+            role = binding.get("role")
+            for member in as_list(binding.get("members")):
+                if member in ("allUsers", "allAuthenticatedUsers") and isinstance(role, str):
+                    declarations.append({"role": role, "member": member,
+                                         "condition": binding.get("condition")})
+        if not declarations:
+            continue
+        unconditional = [row for row in declarations if not row["condition"]]
+        status = "FAIL" if unconditional else "UNKNOWN"
+        evidence = {
+            "observed": ("The collected resource IAM policy grants a role to a public principal."
+                         if unconditional else "The collected resource IAM policy has conditional public grants; effective access is unresolved."),
+            "public_bindings": declarations, "risk_state": "observed" if unconditional else "unknown",
+            "source": source(snapshot, resource, "bindings" if resource["type"] == "iam_policy" else "iamPolicy.bindings"),
+            "semantics": "Declared resource IAM grants; conditions, denies and provider guardrails are not evaluated.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_public_iam",
+                              "Public resource IAM grant", "high" if status == "FAIL" else "info", evidence, status=status))
+    return output
 
 
 # -------------------------------------------------------------------- Azure
@@ -1979,6 +2052,7 @@ def internet_findings(snapshot, resources):
         current["id"] = stable_id("exposure", CHECK, node_id(assessment.resource), node_id(assessment.origin), assessment.kind)
         output.append(current)
     output.extend(coverage_findings(snapshot, resources))
+    output.extend(gcp_public_policy_findings(snapshot, resources))
     return output
 
 
