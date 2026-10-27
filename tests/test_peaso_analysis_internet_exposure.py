@@ -626,6 +626,42 @@ def test_gcp_instance_effective_firewall_clears_unattached_policy_uncertainty():
     assert assessment()["status"] == "PASS"
 
 
+def test_gcp_terminal_hierarchical_firewall_rule_preempts_vpc_rules():
+    from copy import deepcopy
+    vm = deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    rule = {"priority": 0, "ruleName": "public-all", "direction": "INGRESS", "action": "deny",
+            "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-ssh", 1000, "allowed", ["22"])],
+                 "firewallPolicys": [{"name": "org-policy", "type": "HIERARCHY", "rules": [rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+
+    def assessment():
+        return one(gcp(vm, gcoll("firewall", [], status="denied"),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+
+    result = assessment()
+    assert result["status"] == "PASS"
+    rule["action"] = "allow"
+    assert assessment()["status"] == "FAIL"
+    rule["match"]["srcAddressGroups"] = ["projects/p/locations/global/addressGroups/g"]
+    assert assessment()["status"] == "UNKNOWN"
+    del rule["match"]["srcAddressGroups"]
+    rule["action"] = "goto_next"
+    assert assessment()["status"] == "UNKNOWN"
+    rule["action"] = "deny"
+    vm["items"][0]["networkInterfaces"][0]["ipv6AccessConfigs"] = [{"externalIpv6": "2600:1900::1"}]
+    assert assessment()["status"] == "UNKNOWN"
+    rule["match"]["srcIpRanges"].append("::/0")
+    assert assessment()["status"] == "PASS"
+    second = deepcopy(vm["items"][0]["networkInterfaces"][0])
+    second["name"] = "nic1"
+    vm["items"][0]["networkInterfaces"].append(second)
+    assert assessment()["status"] == "UNKNOWN"
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

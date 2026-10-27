@@ -1545,6 +1545,43 @@ def _gcp_network_internet_rules(inventory, network):
     return resolved[network]
 
 
+def _gcp_terminal_hierarchy_rule(policies, interface):
+    """Resolve only a first hierarchical rule that covers every public source/port.
+
+    getEffectiveFirewalls has already selected rules for this VM interface. Other
+    policy matches and inter-policy precedence still require full evaluation.
+    """
+    if not policies or not isinstance(policies[0], dict) or policies[0].get("type") != "HIERARCHY":
+        return None
+    rules = policies[0].get("rules")
+    if not isinstance(rules, list):
+        return None
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("priority") not in (0, "0"):
+            continue
+        if rule.get("disabled") or rule.get("direction") != "INGRESS" or rule.get("targetType", "INSTANCES") != "INSTANCES":
+            return None
+        if rule.get("action") not in ("allow", "deny"):
+            return None
+        match = rule.get("match")
+        if not isinstance(match, dict) or set(match) - {"srcIpRanges", "layer4Configs"}:
+            return None
+        if match.get("layer4Configs") not in (None, []):
+            return None
+        sources = match.get("srcIpRanges")
+        if not isinstance(sources, list):
+            return None
+        families = set()
+        if any(isinstance(row, dict) and row.get("natIP") for row in as_list(interface.get("accessConfigs"))):
+            families.add("0.0.0.0/0")
+        if any(isinstance(row, dict) and row.get("externalIpv6") for row in as_list(interface.get("ipv6AccessConfigs"))):
+            families.add("::/0")
+        if families and families.issubset(set(sources)):
+            return rule
+        return None
+    return None
+
+
 def _gcp_firewall(inventory, instance, interface, assessment):
     data = instance["data"]
     network = interface.get("network")
@@ -1565,9 +1602,19 @@ def _gcp_firewall(inventory, instance, interface, assessment):
                 or not isinstance(effective[0]["data"].get("firewalls"), list)):
             assessment.gap("firewall", "per-interface effective firewall response is ambiguous or malformed")
             return None
-        if effective[0]["data"]["firewallPolicys"]:
-            assessment.gap("firewall", "per-interface hierarchical/network firewall policy rules need ordered evaluation")
-            return None
+        attached = effective[0]["data"]["firewallPolicys"]
+        if attached:
+            terminal = _gcp_terminal_hierarchy_rule(attached, interface)
+            if terminal is None:
+                assessment.gap("firewall", "per-interface hierarchical/network firewall policy rules need ordered evaluation")
+                return None
+            action = terminal["action"]
+            assessment.step("effective_firewall", "allow" if action == "allow" else "block", instance=instance_id,
+                            network_interface=interface.get("name"), policy=attached[0].get("name"),
+                            rule=terminal.get("ruleName"), priority=0, action=action,
+                            source_ranges=terminal["match"]["srcIpRanges"],
+                            basis="terminal hierarchical ingress rule")
+            return dict(FULL) if action == "allow" else {}
         effective_rules = effective[0]["data"]["firewalls"]
         assessment.step("effective_firewall", "allow", instance=instance_id,
                         network_interface=interface.get("name"), policy_count=0,
@@ -1641,6 +1688,9 @@ def _gcp_instance(snapshot, inventory, resource):
             total = union(total, allowed)
     a.ports = None if unknown and empty(total) else total
     if not empty(total):
+        a.blocked_by = None
+    elif unknown:
+        # A block on one public interface cannot clear an unresolved second path.
         a.blocked_by = None
     if data.get("status") not in (None, "RUNNING"):
         a.dormant = True
