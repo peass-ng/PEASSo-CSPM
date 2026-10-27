@@ -54,6 +54,7 @@ READ_ACTIONS.update({
     ("apigateway", "get_base_path_mappings"),
     ("apigatewayv2", "get_routes"), ("apigatewayv2", "get_authorizers"),
     ("apigatewayv2", "get_api_mappings"), ("apigatewayv2", "get_integrations"),
+    ("apigatewayv2", "list_routing_rules"),
     ("appsync", "get_api_cache"), ("eks", "describe_addon"), ("lambda", "get_function_configuration"),
     ("elbv2", "describe_rules"), ("logs", "describe_delivery_sources"), ("logs", "describe_deliveries"),
     ("ec2", "get_managed_prefix_list_entries"), ("ec2", "describe_image_attribute"),
@@ -425,6 +426,15 @@ def _api_domain_mappings(requests, session, region, items):
             "get_base_path_mappings", "items", domainName=name),
             lambda row: _pick(row, ("basePath", "restApiId", "stage")))
             if isinstance(name, str) and name else {"collection_status": "malformed"})
+        if "ROUTING_RULE" in str(current.get("routingMode", "")):
+            current["RoutingRules"] = (_child(requests.pages(session, "apigatewayv2", region,
+                "list_routing_rules", "RoutingRules", DomainName=name),
+                lambda row: {"RoutingRuleId": row.get("RoutingRuleId"),
+                             "ConditionCount": len(row.get("Conditions", [])) if isinstance(row.get("Conditions"), list) else None,
+                             "Actions": [{"InvokeApi": _pick(action["InvokeApi"], ("ApiId", "Stage"))}
+                                         for action in row.get("Actions", []) if isinstance(action, dict)
+                                         and isinstance(action.get("InvokeApi"), dict)]})
+                if isinstance(name, str) and name else {"collection_status": "malformed"})
         output.append(current)
     return output
 

@@ -368,6 +368,26 @@ def test_api_gateway_requires_collected_deployed_stage():
     assert http_row()["status"] == "FAIL"
 
 
+def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
+    api = {"id": "rest1", "disableExecuteApiEndpoint": True, "endpointConfiguration": {"types": ["REGIONAL"]},
+           "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
+           "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
+    domain = {"domainName": "api.example.com", "endpointConfiguration": {"types": ["REGIONAL"]},
+              "routingMode": "ROUTING_RULE_ONLY", "RoutingRules": {"collection_status": "collected", "items": [
+                  {"RoutingRuleId": "rule-1", "ConditionCount": 1,
+                   "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]}]}}
+    def row():
+        return one(aws(coll("rest_api", [api], service="apigateway"),
+                       coll("apigateway_domain_name", [domain], service="apigateway")), "rest_api")
+    result = row()
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["https://api.example.com"]
+    domain["RoutingRules"]["items"] = []
+    assert row()["status"] == "PASS"
+    domain["RoutingRules"] = {"collection_status": "denied"}
+    assert row()["status"] == "UNKNOWN"
+
+
 def test_public_and_external_rds_snapshots():
     def snap(values):
         return {"DBSnapshotArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:snapshot:s", "SnapshotType": "manual",

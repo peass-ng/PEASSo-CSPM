@@ -984,9 +984,27 @@ def _aws_rest_api(snapshot, inventory, resource):
             continue
         if "PRIVATE" in domain_types:
             continue
-        if "ROUTING_RULE" in str(domain["data"].get("routingMode", "")):
-            routing_domains.append(domain["data"].get("domainName") or native_id(domain))
-            continue
+        routing_mode = str(domain["data"].get("routingMode", ""))
+        if "ROUTING_RULE" in routing_mode:
+            rules = domain["data"].get("RoutingRules")
+            if not isinstance(rules, dict) or rules.get("collection_status") not in ("collected", "empty") or not isinstance(rules.get("items"), list):
+                routing_domains.append(domain["data"].get("domainName") or native_id(domain))
+            else:
+                stages = data.get("Stages") if isinstance(data.get("Stages"), dict) else {}
+                active_stages = {s.get("stageName") for s in as_list(stages.get("items")) if isinstance(s, dict)
+                                 and isinstance(s.get("deploymentId"), str) and s.get("deploymentId")}
+                for rule in rules["items"]:
+                    if not isinstance(rule, dict):
+                        continue
+                    for action in as_list(rule.get("Actions")):
+                        invoke = action.get("InvokeApi") if isinstance(action, dict) else None
+                        if isinstance(invoke, dict) and invoke.get("ApiId") == native_id(resource):
+                            if invoke.get("Stage") in active_stages:
+                                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
+                            else:
+                                routing_domains.append(domain["data"].get("domainName") or native_id(domain))
+            if "ONLY" in routing_mode:
+                continue
         mappings = domain["data"].get("BasePathMappings") or {}
         if mappings.get("collection_status") != "collected":
             unresolved_domains.append(domain["data"].get("domainName") or native_id(domain))

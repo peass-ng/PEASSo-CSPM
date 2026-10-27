@@ -51,6 +51,18 @@ def test_extension_loaded_without_replacing_existing_kinds():
     assert all(op.startswith(("get_", "list_", "describe_")) for _, op in edge.READ_ACTIONS)
 
 
+def test_rest_custom_domain_routing_rules_are_cached_and_projected(sdk):
+    session, add = sdk
+    add("apigateway").add_response("get_base_path_mappings", {"items": []}, {"domainName": "api.example.com"})
+    add("apigatewayv2").add_response("list_routing_rules", {"RoutingRules": [{
+        "RoutingRuleId": "rule-1", "Priority": 1, "Conditions": [],
+        "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]}]}, {"DomainName": "api.example.com"})
+    row = {"domainName": "api.example.com", "routingMode": "ROUTING_RULE_ONLY"}
+    projected = edge.ENRICHERS["apigateway_domain_name"](aws.Requests({}), session, REGION, [row])[0]
+    assert projected["RoutingRules"]["collection_status"] == "collected"
+    assert projected["RoutingRules"]["items"][0]["Actions"] == [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]
+
+
 def test_launch_configuration_pagination_strips_user_data(sdk):
     session, add = sdk
     stub = add("autoscaling")
