@@ -71,7 +71,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **150 have no native pa
 | Compute | [Capacity Planner](https://docs.cloud.google.com/capacity-planner/docs) | — | REVIEW REQUIRED |
 | Compute | [Cluster Director](https://docs.cloud.google.com/cluster-director/docs) | — | REVIEW REQUIRED |
 | Compute | [Cluster Toolkit](https://docs.cloud.google.com/cluster-toolkit/docs) | — | REVIEW REQUIRED |
-| Compute | [Compute Engine](https://docs.cloud.google.com/compute/docs) | instance / forwarding_rule | REVIEW REQUIRED |
+| Compute | [Compute Engine](https://docs.cloud.google.com/compute/docs) | instance / per-interface effective firewall / forwarding_rule | REVIEW REQUIRED |
 | Compute | [Container-Optimized OS](https://docs.cloud.google.com/container-optimized-os/docs) | — | REVIEW REQUIRED |
 | Compute | [Oracle on Google Cloud Compute](https://docs.cloud.google.com/oracle/compute) | — | REVIEW REQUIRED |
 | Compute | [Shielded VMs](https://docs.cloud.google.com/compute/shielded-vm/docs) | — | REVIEW REQUIRED |

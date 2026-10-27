@@ -581,6 +581,29 @@ def test_gcp_firewall_policy_requires_effective_attachment_decision():
     assert any("per-instance rule decision" in gap["reason"] for gap in result["evidence"]["unresolved"])
 
 
+def test_gcp_instance_effective_firewall_clears_unattached_policy_uncertainty():
+    from copy import deepcopy
+    vm = deepcopy(gcp_instance())
+    link = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    vm["items"][0]["selfLink"] = link
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-ssh", 1000, "allowed", ["22"], ["web"])],
+                 "firewallPolicys": [], "effective_source_operation": "instances.getEffectiveFirewalls"}
+    policy = {"name": "unattached-policy", "rules": [{"priority": 100, "action": "deny"}]}
+    def assessment():
+        return one(gcp(vm, gcoll("firewall", [], status="denied"),
+                       gcoll("firewall_policy", [policy]),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = assessment()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    effective["firewallPolicys"] = [{"id": "attached"}]
+    assert assessment()["status"] == "UNKNOWN"
+    effective["firewallPolicys"] = []
+    effective["firewalls"] = []
+    assert assessment()["status"] == "PASS"
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

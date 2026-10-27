@@ -1542,27 +1542,56 @@ def _gcp_firewall(inventory, instance, interface, assessment):
     accounts = {s.get("email") for s in as_list(data.get("serviceAccounts")) if isinstance(s, dict)}
     allowed, decided = {}, {}
     policies = inventory.items("firewall_policy")
+    instance_link = data.get("selfLink")
+    instance_id = ("projects/" + instance_link.split("/projects/", 1)[1]
+                   if isinstance(instance_link, str) and "/projects/" in instance_link else instance_link)
+    effective = [row for row in inventory.items("instance_effective_firewall")
+                 if row.get("scope") == instance.get("scope") and row["data"].get("instance") == instance_id
+                 and row["data"].get("networkInterface") == interface.get("name")]
+    effective_rules = None
+    if effective:
+        if (len(effective) != 1 or effective[0]["data"].get("effective_source_operation") != "instances.getEffectiveFirewalls"
+                or not isinstance(effective[0]["data"].get("firewallPolicys"), list)
+                or not isinstance(effective[0]["data"].get("firewalls"), list)):
+            assessment.gap("firewall", "per-interface effective firewall response is ambiguous or malformed")
+            return None
+        if effective[0]["data"]["firewallPolicys"]:
+            assessment.gap("firewall", "per-interface hierarchical/network firewall policy rules need ordered evaluation")
+            return None
+        effective_rules = effective[0]["data"]["firewalls"]
+        assessment.step("effective_firewall", "allow", instance=instance_id,
+                        network_interface=interface.get("name"), policy_count=0,
+                        vpc_rule_count=len(effective_rules))
     hierarchy = (((inventory.snapshot.get("metadata") or {}).get("network_context") or {}).get("gcp") or {}).get("firewall_hierarchy") or {}
     unaffected = (hierarchy.get("complete") is True and instance.get("scope") in as_list(hierarchy.get("unaffected_projects")))
     network_resource = inventory.get("network", network)
-    if ((policies and not unaffected) or
+    if (effective_rules is None and ((policies and not unaffected) or
         (network_resource is not None and network_resource["data"].get("firewallPolicy")) or
         any(as_list(row["data"].get("firewallPolicys")) for row in inventory.items("effective_firewall")
-            if row.get("scope") == instance.get("scope") and row["data"].get("network") == network)):
+            if row.get("scope") == instance.get("scope") and row["data"].get("network") == network))):
         assessment.gap("firewall", "attached hierarchical, network, or regional policy precedence needs an effective per-instance rule decision")
         return None
     if inventory.state("firewall_policy").startswith("missing"):
         assessment.gap("firewall_policy", "hierarchical/network firewall policies not collected", "compute firewallPolicies")
         assessment.unresolved[-1]["decisive"] = False
     candidates = []
-    for rule in _gcp_network_internet_rules(inventory, network):
+    source_rules = ([{"data": row} for row in effective_rules]
+                    if effective_rules is not None else _gcp_network_internet_rules(inventory, network))
+    for rule in source_rules:
         r = rule["data"]
+        if effective_rules is not None:
+            if r.get("direction", "INGRESS") != "INGRESS" or r.get("disabled"):
+                continue
+            sources = as_list(r.get("sourceRanges"))
+            if (not sources and (r.get("sourceTags") or r.get("sourceServiceAccounts"))) or (
+                    sources and not any(_public_source(value) for value in sources)):
+                continue
         if r.get("targetTags") and not tags & set(r["targetTags"]):
             continue
         if r.get("targetServiceAccounts") and not accounts & set(r["targetServiceAccounts"]):
             continue
         candidates.append(rule)
-    if inventory.state("firewall").startswith("missing"):
+    if effective_rules is None and inventory.state("firewall").startswith("missing"):
         assessment.gap("firewall", f"VPC firewall rules {inventory.state('firewall')}", "compute firewalls.list")
         return None
     matched = []
@@ -4842,7 +4871,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
-GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
+GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",

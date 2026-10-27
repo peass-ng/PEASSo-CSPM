@@ -248,6 +248,26 @@ def test_empty_aggregated_response_is_empty_and_partial_warning_is_visible():
     assert collection(result, "instance")["error"]["code"] == "partial_api_warning"
 
 
+def test_instance_effective_firewalls_reads_only_public_interface_once():
+    link = "https://compute.googleapis.com/compute/v1/projects/p-one/zones/us-central1-a/instances/vm"
+    url = "https://compute.googleapis.com/compute/v1/projects/p-one/zones/us-central1-a/instances/vm/getEffectiveFirewalls"
+    def resolve(request):
+        if request["url"].endswith("/aggregated/instances"):
+            return {"items": {"zones/us-central1-a": {"instances": [{"name": "vm", "selfLink": link,
+                "networkInterfaces": [{"name": "nic0", "accessConfigs": [{"natIP": "34.1.1.1"}]},
+                                      {"name": "nic1", "accessConfigs": []}]}]}}}
+        if request["url"] == url:
+            assert request["method"] == "GET"
+            assert request["params"]["networkInterface"] == "nic0"
+            return {"firewalls": [], "firewallPolicys": []}
+        raise AssertionError(request["url"])
+    result, transport = snapshot(["instance_effective_firewall"], resolve)
+    rows = collection(result, "instance_effective_firewall")["items"]
+    assert len(rows) == 1 and rows[0]["effective_source_operation"] == "instances.getEffectiveFirewalls"
+    assert rows[0]["firewallPolicys"] == []
+    assert sum(request["url"] == url for request in transport.requests) == 1
+
+
 def test_malformed_list_shape_preserves_the_exact_request_evidence():
     result, _ = snapshot(["network"], lambda r: {"items": "invalid"})
     found = collection(result, "network")

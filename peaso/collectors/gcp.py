@@ -967,7 +967,7 @@ SUPPORTED_TYPES = frozenset({x[0] for x in COMPUTE} | {
     "worker_pool", "sql_backup_run", "source_repository", "alert_policy",
     "access_transparency_entry", "audit_log", "os_inventory", "security_policy", "gcp_v4_workload_facts",
     "dns_record", "cloudbuild_build", "clouddeploy_delivery_pipeline", "clouddeploy_target", "clouddeploy_custom_target_type", "sql_operation"})
-SUPPORTED_TYPES = SUPPORTED_TYPES | {'vpc_access_connector', 'filestore_instance', 'redis_instance', 'instance_settings', 'recoverable_snapshot'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'vpc_access_connector', 'filestore_instance', 'redis_instance', 'instance_settings', 'recoverable_snapshot', 'instance_effective_firewall'}
 from .gcp_network_catalog import TYPES as NETWORK_CATALOG_TYPES
 from .gcp_network_catalog import PRIVATE_SERVICES as NETWORK_PRIVATE_SERVICES, SERVICE_ENDPOINTS as NETWORK_SERVICE_ENDPOINTS, REGIONAL as NETWORK_REGIONAL_SERVICES
 _NETWORK_API_SERVICES = {plan['service'] for plan in NETWORK_PRIVATE_SERVICES.values()} | {plan[0] for plan in NETWORK_REGIONAL_SERVICES.values()}
@@ -1089,6 +1089,7 @@ DEPENDENCIES['artifact_selected_file'] = {'project', 'artifact_repository'}
 for _literal_job_kind in ('dataflow_job', 'batch_job', 'dataproc_job'):
     DEPENDENCIES[_literal_job_kind] = {'project'}
 DEPENDENCIES["effective_firewall"] = {"network", "subnetwork"}
+DEPENDENCIES["instance_effective_firewall"] = {"instance"}
 DEPENDENCIES["alloydb_instance"] = {"alloydb_cluster"}
 DEPENDENCIES["bucket_notification"] = {"bucket"}
 DEPENDENCIES["iam_role"] = {"iam_policy", "project"}
@@ -3812,6 +3813,46 @@ class GCPCollector:
         return jobs
 
     def dependent_jobs(self):
+        if "instance_effective_firewall" in self.needed:
+            def instance_effective_firewalls(scope):
+                parent = self.collections.get(("instance", scope))
+                if not parent or parent.get("status") not in ("collected", "empty"):
+                    raise ReadError("unavailable", "instance_inventory_incomplete")
+                for instance in parent.get("items", []):
+                    link = instance.get("selfLink")
+                    if not isinstance(link, str):
+                        raise ReadError("malformed", "instance_effective_firewall_identity_missing")
+                    short = "projects/" + link.split("/projects/", 1)[1] if "/projects/" in link else link
+                    if not re.fullmatch(re.escape(scope) + r"/zones/[^/]+/instances/[^/]+", short):
+                        raise ReadError("malformed", "instance_effective_firewall_identity_invalid")
+                    for interface in instance.get("networkInterfaces", []):
+                        if not isinstance(interface, dict):
+                            raise ReadError("malformed", "instance_effective_firewall_interface_invalid")
+                        name = interface.get("name")
+                        if not isinstance(name, str) or not name:
+                            raise ReadError("malformed", "instance_effective_firewall_interface_missing")
+                        external = any(isinstance(row, dict) and row.get("natIP") for row in interface.get("accessConfigs", [])) or any(
+                            isinstance(row, dict) and row.get("externalIpv6") for row in interface.get("ipv6AccessConfigs", []))
+                        if not external:
+                            continue
+                        url = f"https://compute.googleapis.com/compute/v1/{short}/getEffectiveFirewalls"
+                        def validate(response):
+                            if (not isinstance(response.get("firewalls", []), list) or
+                                not isinstance(response.get("firewallPolicys", []), list) or
+                                any(not isinstance(row, dict) for row in response.get("firewalls", [])) or
+                                any(not isinstance(row, dict) for row in response.get("firewallPolicys", []))):
+                                raise ReadError("malformed", "instance_effective_firewall_response_invalid")
+                        for page, request_id in self.pages(url, scope, single=True,
+                                params={"networkInterface": name}, response_validator=validate):
+                            response = page[0]
+                            yield [{"name": f"{short}/interfaces/{name}/effectiveFirewalls",
+                                    "instance": short, "networkInterface": name,
+                                    "firewalls": response.get("firewalls", []),
+                                    "firewallPolicys": response.get("firewallPolicys", []),
+                                    "effective_source_operation": "instances.getEffectiveFirewalls"}], request_id
+            self.run_jobs([("instance_effective_firewall", scope, "compute",
+                lambda scope=scope: instance_effective_firewalls(scope))
+                for scope in self.scopes if scope.startswith("projects/")])
         if self.needed & {"analyticshub_data_exchange", "analyticshub_listing"}:
             def analytics_resources(scope, *, kind, asset_type, suffix):
                 discovered = self.collections.get(("cloud_asset", scope))
