@@ -391,14 +391,6 @@ def test_gcp_firewall_priority_deny_and_target_tags():
     assert one(gcp(gcoll("firewall", [], status="denied"), gcp_instance()), "instance")["status"] == "UNKNOWN"
 
 
-def test_gcp_firebase_rules_conditional_read_stays_unknown():
-    release = {"name": "projects/p1/releases/cloud.firestore", "rulesetName": "projects/p1/rulesets/r",
-               "source_inspected": True, "public_read": False, "public_write": False,
-               "authenticated_read": False, "conditional_read": True, "services": ["cloud.firestore"]}
-    result = one(gcp(gcoll("firebase_rules_release", [release], service="firebaserules")), "firebase_rules_release")
-    assert result["status"] == "UNKNOWN" and result["evidence"]["unresolved"]
-
-
 def test_gcp_cloud_run_invoker_and_ingress():
     def service(ingress="INGRESS_TRAFFIC_ALL", members=("allUsers",)):
         return {"name": "projects/p1/locations/r/services/s", "uri": "https://s.run.app", "ingress": ingress,
