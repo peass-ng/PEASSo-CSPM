@@ -1738,11 +1738,25 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                               if isinstance(binding, dict) and binding.get("role") == "roles/storage.objectViewer"
                               and not binding.get("condition") and
                               f"serviceAccount:{service_agent}" in as_list(binding.get("members"))]
-                origin["cdn_service_agent_read_grant"] = bool(grants)
+                inherited_grants = []
+                root = inventory.get("iam_policy", storage["scope"]) if storage else None
+                root_policy = root["data"] if root else None
+                if service_agent and isinstance(root_policy, dict) and root_policy.get("collection_status") in (None, "collected"):
+                    for binding in as_list(root_policy.get("bindings")):
+                        if not isinstance(binding, dict) or binding.get("condition") or f"serviceAccount:{service_agent}" not in as_list(binding.get("members")):
+                            continue
+                        role = binding.get("role")
+                        role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+                        permissions = role_row["data"].get("includedPermissions") if role_row else None
+                        if isinstance(permissions, list) and "storage.objects.get" in permissions:
+                            inherited_grants.append({"scope": storage["scope"], "role": role,
+                                                     "permission": "storage.objects.get"})
+                origin["cdn_service_agent_read_grant"] = bool(grants or inherited_grants)
+                origin["cdn_service_agent_inherited_grants"] = inherited_grants
                 origin["origin_bucket_collected"] = storage is not None
-                a.step("cdn_origin", "allow" if grants else "unknown", **origin,
+                a.step("cdn_origin", "allow" if grants or inherited_grants else "unknown", **origin,
                        service_agent=service_agent, object_content_observed=False)
-                if not grants:
+                if not grants and not inherited_grants:
                     a.gap("origin", "origin object-read authorization or cached object state is not established by the backend bucket")
                 buckets.append(origin)
                 routes.append({**origin, "edge_security_policy": detail.get("edgeSecurityPolicy"),
