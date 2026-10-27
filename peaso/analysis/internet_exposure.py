@@ -668,6 +668,17 @@ def _aws_elbv2(snapshot, inventory, resource):
     a = Assessment(resource, "load_balancer")
     a.endpoint = data.get("DNSName")
     a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
+    if data.get("Type") == "network":
+        static = []
+        for zone in as_list(data.get("AvailabilityZones")):
+            if not isinstance(zone, dict):
+                continue
+            for address in as_list(zone.get("LoadBalancerAddresses")):
+                if isinstance(address, dict) and _public_ip(address.get("IpAddress")):
+                    static.append({"ip": address["IpAddress"], "allocation_id": address.get("AllocationId")})
+        if static:
+            a.addresses.extend(x["ip"] for x in static)
+            a.step("public_address", "allow", static_ipv4=static)
     listeners = data.get("Listeners") if isinstance(data.get("Listeners"), dict) else {}
     ports = {}
     if listeners.get("collection_status") in ("collected", "empty"):

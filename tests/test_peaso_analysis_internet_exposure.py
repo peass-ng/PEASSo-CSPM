@@ -202,6 +202,19 @@ def test_aws_load_balancer_narrow_public_sg_and_world_nacl():
     assert one(aws(*aws_network(sg_rules=private), coll("load_balancer", [lb], service="elbv2")), "load_balancer")["status"] == "PASS"
 
 
+def test_aws_nlb_static_public_ipv4_is_in_listener_evidence():
+    lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/net/web/1",
+          "Scheme": "internet-facing", "Type": "network", "DNSName": "nlb.example.com", "VpcId": "vpc-1",
+          "AvailabilityZones": [{"SubnetId": "subnet-1", "LoadBalancerAddresses": [
+              {"IpAddress": "54.1.2.3", "AllocationId": "eipalloc-1"}, {"IpAddress": "10.0.1.3"}]}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "TCP"}]}}
+    result = one(aws(*aws_network(), coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["54.1.2.3", "nlb.example.com"]
+    assert next(s for s in result["evidence"]["path"] if s["layer"] == "public_address")["static_ipv4"] == [
+        {"ip": "54.1.2.3", "allocation_id": "eipalloc-1"}]
+
+
 def test_aws_public_rds_instance():
     db = {"DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:prod", "PubliclyAccessible": True, "Engine": "postgres", "Endpoint": {"Address": "prod.x.rds.amazonaws.com", "Port": 5432},
           "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}], "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}}
