@@ -98,6 +98,51 @@ def test_zip_batch_respects_byte_cap(monkeypatch):
     assert all(sum(len(payload) for payload, _ in group) <= 10 for group in groups)
 
 
+def test_byte_aware_cap_keeps_legacy_groups_near_64mib_input():
+    assert package.BATCH_ITEMS == 2048
+    assert package.BATCH_BYTES == 64 * 1024 * 1024
+    assert package.BATCH_TARGET_BYTES == 16 * 1024 * 1024
+    assert not package._batch_flush_before(511, 511 * 32768, 32768)
+    assert package._batch_flush_before(512, 512 * 32768, 32768)
+    assert not package._batch_flush_before(2047, 2047 * 8192, 8192)
+    assert package._batch_flush_before(2048, 2048 * 8192, 8192)
+
+
+@pytest.mark.parametrize('failure', ['deadline', 'partial'])
+def test_2048_boundary_retains_exact_earlier_evidence_on_late_failure(monkeypatch, failure):
+    files = [(f'source-{i}', b'positive' if i == 0 else b'ordinary') for i in range(2048)]
+    files.append(('terminal', b'failed'))
+    archive = _zip(files)
+    outcomes = []
+
+    for cap in (512, 2048):
+        groups = []
+
+        @contextmanager
+        def prepared(items):
+            groups.append(len(items))
+            yield
+
+        def scan(payload, name, requests):
+            if name == 'terminal':
+                if failure == 'deadline':
+                    raise TimeoutError('synthetic deadline')
+                raise package.PartialArchive([{'File': 'terminal', 'Categories': ['secret'], 'Leaks': []}], 0, 0)
+            return [{'File': name, 'Categories': ['secret'], 'Leaks': []}] if name == 'source-0' else []
+
+        monkeypatch.setattr(package, 'BATCH_ITEMS', cap)
+        monkeypatch.setattr(package, '_prepared_batch', prepared)
+        monkeypatch.setattr(package, '_scan', scan)
+        monkeypatch.setattr(package, '_DEFAULT_SCAN', scan)
+        with pytest.raises(package.PartialArchive) as caught:
+            package.scan_zip(archive, SimpleNamespace(check_deadline=lambda: None))
+        outcomes.append(caught.value.refs)
+        assert groups == ([512] * 4 + [1] if cap == 512 else [2048, 1])
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == {'File': 'source-0', 'Categories': ['secret'], 'Leaks': []}
+    assert len(outcomes[0]) == (1 if failure == 'deadline' else 2)
+
+
 def test_reader_enqueues_original_overlap_windows_and_preserves_budget(monkeypatch):
     monkeypatch.setattr(package, 'SCAN_WINDOW', 8)
     monkeypatch.setattr(package, 'SCAN_OVERLAP', 3)

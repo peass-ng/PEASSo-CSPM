@@ -48,6 +48,7 @@ OUTPUT_LIMIT = 4 * 1024 * 1024
 MEMBER_LIMIT = 5000
 BATCH_ITEMS = 2048
 BATCH_BYTES = 64 * 1024 * 1024
+BATCH_TARGET_BYTES = 16 * 1024 * 1024
 MANIFEST_LIMIT = 1024 * 1024
 OCI = 'application/vnd.oci.image.manifest.v1+json'
 DOCKER = 'application/vnd.docker.distribution.manifest.v2+json'
@@ -197,6 +198,11 @@ def _scan(raw, name, requests):
 _DEFAULT_SCAN = _scan
 
 
+def _batch_flush_before(count, size, next_size):
+    return (count >= BATCH_ITEMS or size + next_size > BATCH_BYTES or
+            (count >= 512 and size + next_size > BATCH_TARGET_BYTES))
+
+
 def _prepared_batch(items):
     """Keep the old per-content path when the batch adapter is unavailable."""
     from peaso import secret_scanning
@@ -314,7 +320,7 @@ def scan_zip(raw, requests):
                     if len(payload) != member.file_size: raise ValueError('truncated ZIP member')
                     if _scan is _DEFAULT_SCAN:
                         payload = bytes(payload)
-                        if pending and (len(pending) == BATCH_ITEMS or pending_bytes + len(payload) > BATCH_BYTES):
+                        if pending and _batch_flush_before(len(pending), pending_bytes, len(payload)):
                             flush()
                         pending.append((payload, _path(member.filename)))
                         pending_bytes += len(payload)
@@ -380,7 +386,7 @@ def scan_tar(raw, media_type, requests, budget=None):
             if member.isfile():
                 payload = raw[offset:end]
                 if _scan is _DEFAULT_SCAN:
-                    if pending and (len(pending) == BATCH_ITEMS or pending_bytes + len(payload) > BATCH_BYTES):
+                    if pending and _batch_flush_before(len(pending), pending_bytes, len(payload)):
                         flush()
                     pending.append((payload, name))
                     pending_bytes += len(payload)
@@ -662,7 +668,7 @@ def _image(response, arguments, requests, session, region):
     def enqueue_window(payload, name, ld, file_key):
         nonlocal pending_bytes
         if file_key in failed_files: return False
-        if pending and (len(pending) == BATCH_ITEMS or pending_bytes + len(payload) > BATCH_BYTES):
+        if pending and _batch_flush_before(len(pending), pending_bytes, len(payload)):
             flush_pending()
             if file_key in failed_files: return False
         pending.append((payload, name, ld, file_key))

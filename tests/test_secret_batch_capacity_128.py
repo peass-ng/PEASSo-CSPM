@@ -43,3 +43,13 @@ def test_2049_sources_remain_outside_finite_bound(monkeypatch):
     with pytest.raises(ValueError, match='content batch bound'):
         with batch.prepared_content_batch([(b'x', 'path')] * 2049):
             pass
+
+def test_exact_64mib_input_bound_keeps_source_bytes(monkeypatch):
+    from peaso import secret_scan_clean
+    monkeypatch.setattr(secret_scan_clean, 'known_clean', lambda payload: True)
+    left, right = b'a' * (32 * 1024 * 1024), b'b' * (32 * 1024 * 1024)
+    with batch.prepared_content_batch([(left, 'left'), (right, 'right')]):
+        assert batch._PREPARED_BATCH.get() is None
+    with pytest.raises(ValueError, match='content batch bound'):
+        with batch.prepared_content_batch([(left, 'left'), (right + b'x', 'right')]):
+            pass
