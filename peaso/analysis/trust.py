@@ -321,8 +321,8 @@ def principal_verdict(snapshot, entry, statement, path):
     classification, kind = entry["classification"], entry.get("principal_kind")
     condition = statement.get("Condition", statement.get("condition")) if isinstance(statement, dict) else None
     if classification == "public":
-        if snapshot["provider"] == "gcp":
-            return ("MANUAL", "public_conditional") if condition else ("FAIL", "public")
+        if snapshot["provider"] in {"gcp", "k8s"} and condition:
+            return "MANUAL", "public_conditional"
         restrictive = restrictive_conditions(condition) if snapshot["provider"] == "aws" else []
         entry["restrictive_conditions"] = restrictive
         return ("MANUAL", "public_conditional") if restrictive else ("FAIL", "public")

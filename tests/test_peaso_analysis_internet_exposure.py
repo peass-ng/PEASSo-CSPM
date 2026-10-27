@@ -398,6 +398,8 @@ def svc(spec, annotations=None, status=None):
 @pytest.mark.parametrize("spec,annotations,expected", [
     ({"type": "LoadBalancer", "ports": [{"port": 443, "protocol": "TCP"}]}, None, "FAIL"),
     ({"type": "LoadBalancer", "ports": [{"port": 443}], "loadBalancerSourceRanges": ["203.0.113.0/24"]}, None, "PASS"),
+    ({"type": "LoadBalancer", "ports": [{"port": 443}], "loadBalancerSourceRanges": ["8.8.8.8/32"]}, None, "FAIL"),
+    ({"type": "LoadBalancer", "ports": [{"port": 443}], "loadBalancerSourceRanges": ["0.0.0.0/1"]}, None, "FAIL"),
     ({"type": "LoadBalancer", "ports": [{"port": 443}]}, {"service.beta.kubernetes.io/aws-load-balancer-scheme": "internal"}, "PASS"),
     ({"type": "LoadBalancer", "ports": [{"port": 443}]}, {"service.beta.kubernetes.io/load-balancer-source-ranges": "10.0.0.0/8"}, "PASS"),
 ])
@@ -412,6 +414,59 @@ def test_k8s_nodeport_depends_on_node_addresses():
     assert one(k8s(svc(spec), private), "service")["status"] == "PASS"
 
 
+def test_k8s_external_ip_on_clusterip_service_is_assessed():
+    spec = {"type": "ClusterIP", "externalIPs": ["34.9.9.9"], "ports": [{"port": 8080}]}
+    result = one(k8s(svc(spec, status={})), "service")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["34.9.9.9"]
+    assert result["evidence"]["exposed_ports"] == ["tcp/8080"]
+
+
+def test_k8s_external_ip_survives_internal_load_balancer_block():
+    spec = {"type": "LoadBalancer", "externalIPs": ["34.9.9.9"], "ports": [{"port": 8080}]}
+    annotations = {"service.beta.kubernetes.io/aws-load-balancer-scheme": "internal"}
+    result = one(k8s(svc(spec, annotations)), "service")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["34.9.9.9"]
+
+
+def test_k8s_nodeport_does_not_use_foreign_cluster_node():
+    spec = {"type": "NodePort", "ports": [{"port": 80, "nodePort": 30080}]}
+    service = svc(spec)["items"][0]
+    service["provenance"] = {"cluster_id": "a"}
+    node = {"metadata": {"name": "worker"}, "provenance": {"cluster_id": "b"},
+            "status": {"addresses": [{"type": "ExternalIP", "address": "34.9.9.9"}]}}
+    result = one(k8s(coll("service", [service], scope="cluster"), coll("node", [node], scope="cluster")), "service")
+    assert result["status"] == "PASS"
+    assert result["evidence"]["public_addresses"] == []
+
+
+def test_k8s_external_dns_node_leaves_nodeport_and_kubelet_unresolved():
+    spec = {"type": "NodePort", "ports": [{"port": 80, "nodePort": 30080}]}
+    node = {"metadata": {"name": "worker"}, "status": {"addresses": [
+        {"type": "ExternalDNS", "address": "worker.example.com"}],
+        "daemonEndpoints": {"kubeletEndpoint": {"Port": 10250}}}}
+    snapshot = k8s(svc(spec), coll("node", [node], scope="cluster"))
+    assert one(snapshot, "service")["status"] == "UNKNOWN"
+    assert one(snapshot, "node")["status"] == "UNKNOWN"
+
+
+def test_k8s_internal_load_balancer_health_port_on_public_node_is_candidate():
+    spec = {"type": "LoadBalancer", "healthCheckNodePort": 32000, "ports": [{"port": 443}]}
+    annotations = {"service.beta.kubernetes.io/aws-load-balancer-scheme": "internal"}
+    node = {"metadata": {"name": "worker"}, "status": {"addresses": [{"type": "ExternalIP", "address": "34.9.9.9"}]}}
+    result = one(k8s(svc(spec, annotations), coll("node", [node], scope="cluster")), "service")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["exposed_ports"] == ["tcp/32000"]
+
+
+def test_k8s_pending_load_balancer_address_is_unknown():
+    service = svc({"type": "LoadBalancer", "ports": [{"port": 443}]})["items"][0]
+    service["status"] = {"loadBalancer": {"ingress": []}}
+    result = one(k8s(coll("service", [service], scope="cluster")), "service")
+    assert result["status"] == "UNKNOWN"
+
+
 def test_k8s_ingress_allowlist():
     ingress = {"metadata": {"name": "i", "namespace": "apps", "annotations": {}}, "spec": {"rules": [{"host": "x.example.com"}], "tls": [{}]},
                "status": {"loadBalancer": {"ingress": [{"ip": "34.9.9.9"}]}}}
@@ -419,6 +474,131 @@ def test_k8s_ingress_allowlist():
     assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/80", "tcp/443"]
     ingress["metadata"]["annotations"] = {"nginx.ingress.kubernetes.io/whitelist-source-range": "10.0.0.0/8"}
     assert one(k8s(coll("ingress", [ingress], scope="cluster")), "ingress")["status"] == "PASS"
+    ingress["metadata"]["annotations"] = {"nginx.ingress.kubernetes.io/whitelist-source-range": "8.8.8.8/32"}
+    assert one(k8s(coll("ingress", [ingress], scope="cluster")), "ingress")["status"] == "FAIL"
+
+
+def test_k8s_host_port_public_node_is_reported_with_firewall_gap():
+    pod = {"metadata": {"name": "web", "namespace": "apps"}, "spec": {"nodeName": "worker",
+           "containers": [{"name": "web", "ports": [{"containerPort": 8080, "hostPort": 8080}]}]},
+           "status": {"phase": "Running"}}
+    node = {"metadata": {"name": "worker"}, "status": {"addresses": [{"type": "ExternalIP", "address": "34.9.9.9"}]}}
+    result = one(k8s(coll("pod", [pod], scope="cluster"), coll("node", [node], scope="cluster")), "pod")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["exposed_ports"] == ["tcp/8080"]
+    assert result["evidence"]["public_addresses"] == ["34.9.9.9"]
+    assert any(g["layer"] == "security_group" for g in result["evidence"]["unresolved"])
+
+
+def test_k8s_host_network_private_node_and_completed_pod():
+    pod = {"metadata": {"name": "web", "namespace": "apps"}, "spec": {"nodeName": "worker", "hostNetwork": True,
+           "containers": [{"name": "web", "ports": [{"containerPort": 9090}]}]}, "status": {"phase": "Running"}}
+    node = {"metadata": {"name": "worker"}, "status": {"addresses": [{"type": "InternalIP", "address": "10.0.0.2"}]}}
+    snapshot = k8s(coll("pod", [pod], scope="cluster"), coll("node", [node], scope="cluster"))
+    assert one(snapshot, "pod")["status"] == "PASS"
+    pod["status"]["phase"] = "Succeeded"
+    assert exposure(k8s(coll("pod", [pod], scope="cluster"), coll("node", [node], scope="cluster"))) == []
+
+
+def test_k8s_host_port_does_not_join_foreign_cluster_node():
+    pod = {"metadata": {"name": "web", "namespace": "apps"}, "provenance": {"cluster_id": "a"},
+           "spec": {"nodeName": "worker", "containers": [{"name": "web", "ports": [{"hostPort": 8080}]}]}}
+    node = {"metadata": {"name": "worker"}, "provenance": {"cluster_id": "b"},
+            "status": {"addresses": [{"type": "ExternalIP", "address": "34.9.9.9"}]}}
+    result = one(k8s(coll("pod", [pod], scope="cluster"), coll("node", [node], scope="cluster")), "pod")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["public_addresses"] == []
+
+
+def test_k8s_public_host_ip_is_not_blocked_by_missing_node_external_ip():
+    pod = {"metadata": {"name": "web", "namespace": "apps"},
+           "spec": {"nodeName": "worker", "containers": [{"name": "web", "ports": [
+               {"containerPort": 8443, "hostPort": 8443, "hostIP": "34.9.9.9"}]}]},
+           "status": {"phase": "Running"}}
+    node = {"metadata": {"name": "worker"}, "status": {"addresses": [{"type": "InternalIP", "address": "10.0.0.5"}]}}
+    result = one(k8s(coll("pod", [pod], scope="cluster"), coll("node", [node], scope="cluster")), "pod")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["public_addresses"] == ["34.9.9.9"]
+
+
+def test_k8s_gateway_public_listener_remains_unresolved():
+    gateway = {"metadata": {"name": "edge", "namespace": "apps"},
+               "spec": {"listeners": [{"name": "web", "port": 443, "protocol": "HTTPS"}]},
+               "status": {"addresses": [{"type": "IPAddress", "value": "34.9.9.9"}]}}
+    result = one(k8s(coll("gateway", [gateway], scope="cluster")), "gateway")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["public_addresses"] == ["34.9.9.9"]
+    assert result["evidence"]["exposed_ports"] == ["tcp/443"]
+
+
+def test_k8s_public_pod_ip_and_kubelet_endpoint_are_candidates():
+    pod = {"metadata": {"name": "direct", "namespace": "apps"}, "spec": {
+        "containers": [{"name": "web", "ports": [{"containerPort": 8080}]}]},
+        "status": {"phase": "Running", "podIPs": [{"ip": "34.9.9.9"}]}}
+    node = {"metadata": {"name": "worker"}, "status": {"addresses": [{"type": "ExternalIP", "address": "8.8.8.8"}],
+            "daemonEndpoints": {"kubeletEndpoint": {"Port": 10250}}}}
+    snapshot = k8s(coll("pod", [pod], scope="cluster"), coll("node", [node], scope="cluster"))
+    pod_result, node_result = one(snapshot, "pod"), one(snapshot, "node")
+    assert pod_result["status"] == "UNKNOWN" and pod_result["evidence"]["exposed_ports"] == ["tcp/8080"]
+    assert node_result["status"] == "UNKNOWN" and node_result["evidence"]["exposed_ports"] == ["tcp/10250"]
+
+
+def test_k8s_gateway_route_joins_public_parent_and_controller_routes_are_reported():
+    gateway = {"metadata": {"name": "edge", "namespace": "apps"},
+               "spec": {"listeners": [{"name": "web", "port": 443, "protocol": "HTTPS"}]},
+               "status": {"addresses": [{"type": "IPAddress", "value": "34.9.9.9"}]}}
+    route = {"metadata": {"name": "web", "namespace": "apps"},
+             "spec": {"parentRefs": [{"name": "edge", "sectionName": "web"}], "rules": [{"backendRefs": [{"name": "web"}]}]}}
+    snapshot = k8s(coll("gateway", [gateway], scope="cluster"), coll("httproute", [route], scope="cluster"))
+    result = one(snapshot, "httproute")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["public_addresses"] == ["34.9.9.9"]
+    assert result["evidence"]["exposed_ports"] == ["tcp/443"]
+    openshift = {"metadata": {"name": "web", "namespace": "apps"},
+                 "spec": {"host": "web.example.com", "to": {"kind": "Service", "name": "web"}}}
+    assert one(k8s(coll("openshift_route", [openshift], scope="cluster")), "openshift_route")["status"] == "UNKNOWN"
+
+
+def test_k8s_mesh_only_virtual_service_is_not_public_candidate():
+    mesh = {"metadata": {"name": "mesh", "namespace": "apps"},
+            "spec": {"gateways": ["mesh"], "hosts": ["internal.local"], "http": [{"route": []}]}}
+    assert exposure(k8s(coll("istio_virtual_service", [mesh], scope="cluster"))) == []
+
+
+def test_k8s_externalname_and_public_backend_destinations_are_reported():
+    alias = {"metadata": {"name": "vendor", "namespace": "apps"},
+             "spec": {"type": "ExternalName", "externalName": "api.vendor.example"}}
+    slice_data = {"metadata": {"name": "vendor-1", "namespace": "apps"},
+                  "endpoints": [{"addresses": ["8.8.8.8"]}], "ports": [{"port": 443, "protocol": "TCP"}]}
+    entry = {"metadata": {"name": "vendor", "namespace": "apps"},
+             "spec": {"location": "MESH_EXTERNAL", "hosts": ["api.vendor.example"],
+                      "endpoints": [{"address": "8.8.4.4"}], "ports": [{"number": 443, "protocol": "HTTPS"}]}}
+    snapshot = k8s(coll("service", [alias], scope="cluster"), coll("endpointslice", [slice_data], scope="cluster"),
+                   coll("istio_service_entry", [entry], scope="cluster"))
+    for kind in ("service", "endpointslice", "istio_service_entry"):
+        result = one(snapshot, kind)
+        assert result["status"] == "UNKNOWN"
+    assert one(snapshot, "endpointslice")["evidence"]["public_addresses"] == ["8.8.8.8"]
+    assert one(snapshot, "istio_service_entry")["evidence"]["exposed_ports"] == ["tcp/443"]
+    dns_entry = {"metadata": {"name": "vendor-dns", "namespace": "apps"},
+                 "spec": {"location": "MESH_EXTERNAL", "hosts": ["api.vendor.example"],
+                          "ports": [{"number": 443, "protocol": "HTTPS"}]}}
+    assert one(k8s(coll("istio_service_entry", [dns_entry], scope="cluster")), "istio_service_entry")["status"] == "UNKNOWN"
+
+
+def test_k8s_webhook_source_and_public_storage_receivers_are_reported():
+    webhook = {"metadata": {"name": "external"}, "webhooks": [{
+        "name": "audit.example", "clientConfig": {"url": "https://hooks.example.com/check"}}]}
+    sync = {"metadata": {"name": "config", "namespace": "apps"},
+            "spec": {"sourceType": "git", "git": {"repo": "https://git.example.com/org/config"}}}
+    volume = {"metadata": {"name": "external"}, "spec": {"nfs": {"server": "8.8.8.8", "path": "/data"}}}
+    snapshot = k8s(coll("admission_configuration", [webhook], scope="cluster"),
+                   coll("configsync_rootsync", [sync], scope="cluster"),
+                   coll("persistentvolume", [volume], scope="cluster"))
+    for kind in ("admission_configuration", "configsync_rootsync", "persistentvolume"):
+        result = one(snapshot, kind)
+        assert result["status"] == "UNKNOWN"
+    assert one(snapshot, "admission_configuration")["evidence"]["path"][0]["hosts"] == ["hooks.example.com"]
 
 
 # ------------------------------------------------------------ end to end

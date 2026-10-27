@@ -20,6 +20,7 @@ import ipaddress
 from functools import lru_cache
 import json
 import re
+from urllib.parse import urlsplit
 from peaso.snapshot import freeze
 
 from .common import RANK, _CONTEXT, as_list, finding, native_id, node, node_id, relationship, source, stable_id
@@ -52,7 +53,7 @@ STATIC_GAPS = {
         {"fact": "Microsoft.Network/applicationSecurityGroups membership", "for": "NSG ASG rules"},
         {"fact": "Microsoft.Web/sites/config/authsettingsV2", "for": "App Service authentication"},
     ],
-    "k8s": [{"fact": "cloud LB/node security groups or firewall for node addresses", "for": "NodePort services"}],
+    "k8s": [{"fact": "cloud LB/node security groups or firewall for node addresses", "for": "NodePort services and host-bound Pods"}],
 }
 
 
@@ -2102,6 +2103,13 @@ def k8s_source_ranges(spec, meta):
     return ranges
 
 
+def _k8s_public_source(value):
+    if _internet(value):
+        return True
+    network = _cidr(value)
+    return network is not None and network.is_global
+
+
 def _k8s_ports(spec, field="port"):
     ports = {}
     for port in as_list(spec.get("ports")):
@@ -2110,15 +2118,65 @@ def _k8s_ports(spec, field="port"):
     return ports
 
 
+def _k8s_nodes(inventory, resource):
+    data = resource["data"]
+    cluster = (data.get("provenance") or {}).get("cluster_id") or (data.get("metadata") or {}).get("cluster_id") or resource["scope"].split("/", 1)[0]
+    return [n for n in inventory.items("node") if n["scope"] == resource["scope"] and
+            ((n["data"].get("provenance") or {}).get("cluster_id") or
+             (n["data"].get("metadata") or {}).get("cluster_id") or n["scope"].split("/", 1)[0]) == cluster]
+
+
+def _k8s_public_nodes(inventory, resource):
+    return [n for n in _k8s_nodes(inventory, resource) if
+            any(isinstance(x, dict) and x.get("type") == "ExternalIP" and _public_ip(x.get("address"))
+                for x in as_list((n["data"].get("status") or {}).get("addresses")))]
+
+
+def _k8s_external_dns(inventory, resource):
+    return [x.get("address") for n in _k8s_nodes(inventory, resource)
+            for x in as_list((n["data"].get("status") or {}).get("addresses"))
+            if isinstance(x, dict) and x.get("type") == "ExternalDNS" and isinstance(x.get("address"), str) and x["address"]]
+
+
 def _k8s_service(snapshot, inventory, resource):
     data = resource["data"]
     spec, meta = data.get("spec") or {}, data.get("metadata") or {}
     kind = spec.get("type", "ClusterIP")
     external = [ip for ip in as_list(spec.get("externalIPs")) if _public_ip(ip)]
+    if kind == "ExternalName":
+        name = str(spec.get("externalName") or "").strip().rstrip(".")
+        if not name or name.endswith((".svc", ".svc.cluster.local", ".cluster.local")):
+            return None
+        a = Assessment(resource, "external_destination")
+        a.step("service_alias", "allow", external_name=name)
+        a.gap("inventory", "ExternalName target DNS, ownership and actual client traffic are not observed")
+        return a
     if kind not in ("LoadBalancer", "NodePort") and not external:
         return None
     a = Assessment(resource, "service")
     a.step("service_type", "allow", type=kind, external_ips=external)
+    def external_path():
+        health_port = spec.get("healthCheckNodePort") if kind == "LoadBalancer" else None
+        if isinstance(health_port, int) and not isinstance(health_port, bool) and 0 < health_port <= 65535:
+            nodes = _k8s_public_nodes(inventory, resource)
+            if nodes:
+                gap_layer = "security_group" if a.blocked_by or not a.ports else "node_firewall"
+                if a.blocked_by:
+                    a.addresses = []
+                a.addresses = list(dict.fromkeys([*a.addresses, *(x.get("address") for n in nodes for x in
+                    as_list((n["data"].get("status") or {}).get("addresses")) if isinstance(x, dict) and
+                    x.get("type") == "ExternalIP" and _public_ip(x.get("address")))]))
+                a.ports = union(a.ports or {}, pset("tcp", health_port, health_port))
+                a.blocked_by = None
+                a.step("health_check_node_port", "allow", port=health_port, public_nodes=[native_id(n) for n in nodes])
+                a.gap(gap_layer, "cloud firewall for public Node health-check port is not observed")
+        if external:
+            a.addresses = list(dict.fromkeys([*([] if a.blocked_by else a.addresses), *external]))
+            a.ports = union(a.ports or {}, _k8s_ports(spec))
+            a.blocked_by = None
+            a.unresolved = [gap for gap in a.unresolved if gap["layer"] != "inventory"]
+            a.step("external_ip", "allow", public_addresses=external)
+        return a
     if kind == "LoadBalancer":
         internal = k8s_internal(meta)
         ingress = [x.get("ip") or x.get("hostname") for x in as_list(((data.get("status") or {}).get("loadBalancer") or {}).get("ingress")) if isinstance(x, dict)]
@@ -2126,40 +2184,40 @@ def _k8s_service(snapshot, inventory, resource):
         if internal:
             a.step("scheme", "block", internal_annotations=internal)
             a.ports = {}
-            return a
+            return external_path()
         if a.addresses and all(not _public_ip(x) for x in a.addresses if re.match(r"^[0-9a-fA-F:.]+$", str(x))) and \
                 all(re.match(r"^[0-9a-fA-F:.]+$", str(x)) for x in a.addresses):
             a.step("scheme", "block", reason="load balancer address is private", addresses=a.addresses)
             a.ports = {}
-            return a
+            return external_path()
         ranges = k8s_source_ranges(spec, meta)
-        if ranges and not any(_internet(r) for r in ranges):
+        if ranges and not any(_k8s_public_source(r) for r in ranges):
             a.step("source_ranges", "block", load_balancer_source_ranges=ranges)
             a.ports = {}
-            return a
+            return external_path()
         a.step("source_ranges", "allow", load_balancer_source_ranges=ranges or ["0.0.0.0/0 (default)"])
         a.ports = _k8s_ports(spec)
         if not a.addresses:
             a.notes.append("no load balancer address observed in status; provisioning not confirmed")
-        return a
+            a.gap("inventory", "no load balancer address observed in status")
+        return external_path()
     if kind == "NodePort":
-        nodes = inventory.items("node")
-        public_nodes = [native_id(n) for n in nodes if any(isinstance(x, dict) and x.get("type") == "ExternalIP" and _public_ip(x.get("address"))
-                        for x in as_list((n["data"].get("status") or {}).get("addresses")))]
+        public_nodes = [native_id(n) for n in _k8s_public_nodes(inventory, resource)]
         a.ports = _k8s_ports(spec, "nodePort")
         if inventory.state("node").startswith("missing"):
             a.gap("inventory", "nodes not collected", "k8s nodes list")
         elif not public_nodes:
-            a.step("node_address", "block", reason="no node has a public ExternalIP")
-            a.ports = {} if not external else _k8s_ports(spec)
+            external_dns = _k8s_external_dns(inventory, resource)
+            if external_dns:
+                a.addresses = external_dns
+                a.gap("inventory", "Node ExternalDNS resolution and public routing are not observed")
+            else:
+                a.step("node_address", "block", reason="no node has a public ExternalIP or ExternalDNS")
+                a.ports = {} if not external else _k8s_ports(spec)
         else:
             a.step("node_address", "allow", public_nodes=public_nodes)
             a.gap("security_group", "node cloud firewall/security groups are outside the cluster inventory", STATIC_GAPS["k8s"][0]["fact"])
-    if external:
-        a.addresses += external
-        a.ports = union(a.ports or {}, _k8s_ports(spec))
-        a.blocked_by = None
-    return a
+    return external_path()
 
 
 def _k8s_ingress(snapshot, inventory, resource):
@@ -2178,7 +2236,7 @@ def _k8s_ingress(snapshot, inventory, resource):
     ports = pset("tcp", 80, 80)
     if spec.get("tls"):
         ports = union(ports, pset("tcp", 443, 443))
-    if ranges and not any(_internet(r) for r in ranges):
+    if ranges and not any(_k8s_public_source(r) for r in ranges):
         a.step("source_ranges", "block", source_ranges=ranges)
         a.ports = {}
         return a
@@ -2196,6 +2254,310 @@ def _k8s_ingress(snapshot, inventory, resource):
     return a
 
 
+def _k8s_pod(snapshot, inventory, resource):
+    """Assess host-bound Pod ports against collected node addresses conservatively."""
+    data = resource["data"]
+    spec, meta = data.get("spec") or {}, data.get("metadata") or {}
+    if meta.get("deletionTimestamp") or (data.get("status") or {}).get("phase") in {"Succeeded", "Failed"}:
+        return None
+    host_network = spec.get("hostNetwork") is True
+    status = data.get("status") or {}
+    host_addresses = [ip for ip in [status.get("hostIP"), *(x.get("ip") for x in as_list(status.get("hostIPs")) if isinstance(x, dict))]
+                      if _public_ip(ip)]
+    pod_addresses = [ip for ip in [status.get("podIP"), *(x.get("ip") for x in as_list(status.get("podIPs")) if isinstance(x, dict))]
+                     if _public_ip(ip)]
+    annotations = meta.get("annotations") or {}
+    multus = annotations.get("k8s.v1.cni.cncf.io/network-status") if isinstance(annotations, dict) else None
+    if isinstance(multus, str):
+        try:
+            for attachment in as_list(json.loads(multus)):
+                if isinstance(attachment, dict):
+                    pod_addresses.extend(ip for ip in as_list(attachment.get("ips")) if _public_ip(ip))
+        except (ValueError, TypeError):
+            pass
+    ports = {}
+    bindings = []
+    for container in as_list(spec.get("containers")) + as_list(spec.get("initContainers")) + as_list(spec.get("ephemeralContainers")):
+        if not isinstance(container, dict):
+            continue
+        for port in as_list(container.get("ports")):
+            if not isinstance(port, dict):
+                continue
+            value = port.get("hostPort") or (port.get("containerPort") if host_network or pod_addresses else None)
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 < value <= 65535:
+                continue
+            host_ip = port.get("hostIP")
+            if host_ip:
+                try:
+                    address = ipaddress.ip_address(host_ip)
+                except ValueError:
+                    address = None
+                if address is not None and (address.is_loopback or address.is_private):
+                    continue
+                if _public_ip(host_ip):
+                    host_addresses.append(host_ip)
+            ports = union(ports, pset(port.get("protocol", "TCP"), value, value) or {})
+            bindings.append({"port": value, "protocol": port.get("protocol", "TCP"), "host_ip": host_ip})
+    if not host_network and not bindings and not pod_addresses:
+        return None
+    a = Assessment(resource, "host_port")
+    a.step("host_binding", "allow", host_network=host_network, bindings=bindings)
+    a.ports = ports if ports else None
+    if not bindings:
+        a.gap("inventory", "Pod has a public address or host network but no collected listener port declaration")
+    if pod_addresses:
+        a.addresses = list(dict.fromkeys(pod_addresses))
+        a.step("pod_address", "allow", public_addresses=a.addresses)
+        a.gap("firewall", "public Pod IP routing and network policy enforcement are not established by Pod status")
+        return a
+    if host_addresses:
+        a.addresses = list(dict.fromkeys(host_addresses))
+        a.step("host_address", "allow", public_addresses=a.addresses)
+        a.gap("security_group", "host-bound public address firewall and routing are not established")
+        return a
+    node_name = spec.get("nodeName")
+    if not node_name:
+        a.gap("inventory", "Pod is not scheduled to an observed node")
+        return a
+    def cluster(row):
+        data = row["data"]
+        return str((data.get("provenance") or {}).get("cluster_id") or
+                   (data.get("metadata") or {}).get("cluster_id") or row["scope"].split("/", 1)[0])
+
+    node_index = inventory.network_cache.get("k8s_nodes_by_scope_name")
+    if node_index is None:
+        node_index = {(n["scope"], cluster(n), (n["data"].get("metadata") or {}).get("name")): n
+                      for n in inventory.items("node") if isinstance(n.get("data"), dict)}
+        inventory.network_cache["k8s_nodes_by_scope_name"] = node_index
+    node = node_index.get((resource["scope"], cluster(resource), node_name))
+    if node is None:
+        a.gap("inventory", "scheduled node is not in the collected inventory")
+        return a
+    addresses = [item.get("address") for item in as_list((node["data"].get("status") or {}).get("addresses"))
+                 if isinstance(item, dict) and item.get("type") == "ExternalIP" and _public_ip(item.get("address"))]
+    if not addresses:
+        external_dns = [item.get("address") for item in as_list((node["data"].get("status") or {}).get("addresses"))
+                        if isinstance(item, dict) and item.get("type") == "ExternalDNS" and isinstance(item.get("address"), str)]
+        if external_dns:
+            a.addresses = external_dns
+            a.gap("inventory", "scheduled Node ExternalDNS resolution and public routing are not observed")
+            return a
+        a.step("node_address", "block", reason="scheduled node has no public ExternalIP or ExternalDNS")
+        a.ports = {}
+        return a
+    a.addresses = addresses
+    a.step("node_address", "allow", node=node_name, public_addresses=addresses)
+    a.gap("security_group", "node cloud firewall is not available in Kubernetes inventory",
+          STATIC_GAPS["k8s"][0]["fact"])
+    return a
+
+
+def _k8s_node(snapshot, inventory, resource):
+    status = resource["data"].get("status") or {}
+    addresses = [x.get("address") for x in as_list(status.get("addresses")) if isinstance(x, dict)
+                 and x.get("type") == "ExternalIP" and _public_ip(x.get("address"))]
+    endpoint = (status.get("daemonEndpoints") or {}).get("kubeletEndpoint") or {}
+    port = endpoint.get("Port", endpoint.get("port")) if isinstance(endpoint, dict) else None
+    external_dns = [x.get("address") for x in as_list(status.get("addresses")) if isinstance(x, dict)
+                    and x.get("type") == "ExternalDNS" and isinstance(x.get("address"), str) and x["address"]]
+    if not (addresses or external_dns) or not isinstance(port, int) or isinstance(port, bool) or not 0 < port <= 65535:
+        return None
+    a = Assessment(resource, "kubelet")
+    a.addresses, a.ports = addresses or external_dns, pset("tcp", port, port)
+    a.step("kubelet_endpoint", "allow", port=port, public_addresses=addresses, external_dns=external_dns)
+    if not addresses:
+        a.gap("inventory", "Node ExternalDNS resolution and public routing are not observed")
+    a.gap("security_group", "node cloud firewall is not available in Kubernetes inventory")
+    return a
+
+
+def _k8s_external_backend(snapshot, inventory, resource):
+    """Identify declared public backends that may receive workload data."""
+    kind, data = resource["type"], resource["data"]
+    addresses, destinations, ports = [], [], {}
+    if kind == "endpointslice":
+        for endpoint in as_list(data.get("endpoints")):
+            if isinstance(endpoint, dict):
+                addresses.extend(x for x in as_list(endpoint.get("addresses")) if _public_ip(x))
+        entries = data.get("ports")
+    elif kind in {"endpoint", "endpoints"}:
+        entries = []
+        for subset in as_list(data.get("subsets")):
+            if isinstance(subset, dict):
+                addresses.extend(x.get("ip") for key in ("addresses", "notReadyAddresses")
+                                 for x in as_list(subset.get(key)) if isinstance(x, dict) and _public_ip(x.get("ip")))
+                entries += as_list(subset.get("ports"))
+    else:
+        spec = data.get("spec") or {}
+        if kind == "istio_service_entry" and spec.get("location") == "MESH_EXTERNAL":
+            destinations.extend(x for x in as_list(spec.get("hosts")) if isinstance(x, str) and x)
+        addresses.extend(x for x in as_list(spec.get("addresses")) if _public_ip(x))
+        if kind == "istio_workload_entry" and _public_ip(spec.get("address")):
+            addresses.append(spec["address"])
+        elif kind == "istio_workload_entry" and isinstance(spec.get("address"), str) and "." in spec["address"]:
+            destinations.append(spec["address"])
+        for endpoint in as_list(spec.get("endpoints")):
+            if isinstance(endpoint, dict) and _public_ip(endpoint.get("address")):
+                addresses.append(endpoint["address"])
+        entries = spec.get("ports")
+    if not addresses and not destinations:
+        return None
+    for entry in as_list(entries):
+        if isinstance(entry, dict):
+            number = entry.get("port", entry.get("number"))
+            if isinstance(number, int) and not isinstance(number, bool):
+                ports = union(ports, pset(entry.get("protocol", "TCP"), number, number) or {})
+    a = Assessment(resource, "external_backend")
+    a.addresses, a.ports = list(dict.fromkeys(addresses)), ports or None
+    a.step("external_backend", "allow", public_addresses=a.addresses, destinations=list(dict.fromkeys(destinations)))
+    if not a.addresses:
+        a.gap("inventory", "external destination hostname has no observed public DNS address")
+    a.gap("backend", "reference by a workload and actual data transfer to this public address are not established")
+    return a
+
+
+def _k8s_third_party_data(snapshot, inventory, resource):
+    """Find API-declared external receivers or configuration sources, without reading content."""
+    kind, data = resource["type"], resource["data"]
+    targets = []
+    if kind == "admission_configuration":
+        for webhook in as_list(data.get("webhooks")):
+            if not isinstance(webhook, dict):
+                continue
+            url = (webhook.get("clientConfig") or {}).get("url")
+            if isinstance(url, str):
+                host = urlsplit(url).hostname
+                if host and not host.endswith((".svc", ".svc.cluster.local", ".cluster.local")):
+                    targets.append(host)
+    elif kind == "configsync_rootsync":
+        spec = data.get("spec") or {}
+        for source_type in ("git", "oci", "helm"):
+            source_data = spec.get(source_type) or {}
+            if not isinstance(source_data, dict):
+                continue
+            for key in ("repo", "image"):
+                url = source_data.get(key)
+                if isinstance(url, str):
+                    host = urlsplit(url).hostname or url.split("/", 1)[0].rsplit("@", 1)[-1].split(":", 1)[0]
+                    if host and "." in host and not host.endswith((".svc", ".svc.cluster.local", ".cluster.local")):
+                        targets.append(host)
+    elif kind == "persistentvolume":
+        spec = data.get("spec") or {}
+        for storage, key in (("nfs", "server"), ("iscsi", "targetPortal")):
+            host = (spec.get(storage) or {}).get(key)
+            if isinstance(host, str):
+                address = host.split("]", 1)[0].removeprefix("[") if host.startswith("[") else \
+                    host if _public_ip(host) else host.split(":", 1)[0]
+                if _public_ip(address):
+                    targets.append(address)
+    if not targets:
+        return None
+    a = Assessment(resource, "third_party_data")
+    a.addresses = list(dict.fromkeys(x for x in targets if _public_ip(x)))
+    a.step("external_receiver", "allow", hosts=list(dict.fromkeys(targets)))
+    a.gap("backend", "third-party ownership, successful delivery and data contents are not observed")
+    return a
+
+
+def _k8s_gateway(snapshot, inventory, resource):
+    """Surface public Gateway API listeners without claiming backend reachability."""
+    data = resource["data"]
+    spec = data.get("spec") or {}
+    listeners = [x for x in as_list(spec.get("listeners")) if isinstance(x, dict)
+                 and isinstance(x.get("port"), int) and not isinstance(x.get("port"), bool)]
+    if not listeners:
+        return None
+    a = Assessment(resource, "gateway")
+    a.addresses = [x.get("value") for x in as_list((data.get("status") or {}).get("addresses"))
+                   if isinstance(x, dict) and _public_ip(x.get("value"))]
+    for listener in listeners:
+        a.ports = union(a.ports or {}, pset(listener.get("protocol", "TCP"), listener["port"], listener["port"]) or {})
+    a.step("gateway_listeners", "allow", listeners=[{"name": x.get("name"), "port": x["port"], "protocol": x.get("protocol")} for x in listeners])
+    if not a.addresses:
+        a.gap("inventory", "no public Gateway address observed in status")
+        return a
+    a.gap("backend", "Gateway route acceptance, backend health and controller routing are not established")
+    return a
+
+
+K8S_ROUTE_TYPES = frozenset({
+    "httproute", "grpcroute", "tlsroute", "tcproute", "udproute", "linkerd_http_route",
+    "contour_http_proxy", "istio_gateway", "istio_virtual_service", "nginx_virtual_server",
+    "nginx_virtual_server_route", "nginx_transport_server", "openshift_route",
+    "traefik_ingress_route", "traefik_ingress_route_tcp", "traefik_ingress_route_udp",
+})
+
+
+def _k8s_custom_route(snapshot, inventory, resource):
+    """Report collected controller route declarations, retaining data-plane uncertainty."""
+    kind, data = resource["type"], resource["data"]
+    spec = data.get("spec") or {}
+    if kind == "istio_virtual_service" and not any(g != "mesh" for g in as_list(spec.get("gateways"))):
+        return None
+    if kind in {"httproute", "grpcroute", "tlsroute", "tcproute", "udproute", "linkerd_http_route"}:
+        parents = [p for p in as_list(spec.get("parentRefs")) if isinstance(p, dict) and p.get("kind", "Gateway") == "Gateway"]
+        if not parents:
+            return None
+    elif kind == "istio_gateway":
+        if not as_list(spec.get("servers")):
+            return None
+    elif not any(spec.get(key) for key in ("routes", "rules", "virtualhost", "host", "hosts", "listener", "to", "upstreams", "subroutes")):
+        return None
+    a = Assessment(resource, "controller_route")
+    a.step("route_declaration", "allow", route_kind=kind)
+    status = data.get("status") or {}
+    for item in as_list((status.get("loadBalancer") or {}).get("ingress")) + as_list(status.get("ingress")):
+        if isinstance(item, dict):
+            candidate = item.get("ip") or item.get("address")
+            if _public_ip(candidate):
+                a.addresses.append(candidate)
+    for key in ("ip", "address"):
+        if _public_ip(status.get(key)):
+            a.addresses.append(status[key])
+    if kind in {"httproute", "grpcroute", "tlsroute", "tcproute", "udproute", "linkerd_http_route"}:
+        meta = data.get("metadata") or {}
+        namespace = meta.get("namespace", "default")
+        cluster = (data.get("provenance") or {}).get("cluster_id") or meta.get("cluster_id") or resource["scope"].split("/", 1)[0]
+        if "k8s_public_gateways" not in inventory.network_cache:
+            inventory.network_cache["k8s_public_gateways"] = {
+                ((g["data"].get("provenance") or {}).get("cluster_id") or
+                 (g["data"].get("metadata") or {}).get("cluster_id") or g["scope"].split("/", 1)[0],
+                 (g["data"].get("metadata") or {}).get("namespace", "default"),
+                 (g["data"].get("metadata") or {}).get("name")): g
+                for g in inventory.items("gateway") if isinstance(g.get("data"), dict)}
+        for parent in parents:
+            gateway = inventory.network_cache["k8s_public_gateways"].get((cluster, parent.get("namespace") or namespace, parent.get("name")))
+            if gateway is None:
+                continue
+            gateway_status = gateway["data"].get("status") or {}
+            a.addresses.extend(x.get("value") for x in as_list(gateway_status.get("addresses"))
+                               if isinstance(x, dict) and _public_ip(x.get("value")))
+            for listener in as_list((gateway["data"].get("spec") or {}).get("listeners")):
+                if not isinstance(listener, dict) or parent.get("sectionName") and listener.get("name") != parent["sectionName"]:
+                    continue
+                port = listener.get("port")
+                if isinstance(port, int) and not isinstance(port, bool):
+                    a.ports = union(a.ports or {}, pset(listener.get("protocol", "TCP"), port, port) or {})
+    elif kind == "istio_gateway":
+        for server in as_list(spec.get("servers")):
+            port = (server.get("port") or {}) if isinstance(server, dict) else {}
+            if isinstance(port, dict) and isinstance(port.get("number"), int):
+                a.ports = union(a.ports or {}, pset(port.get("protocol", "TCP"), port["number"], port["number"]) or {})
+    elif kind == "nginx_transport_server":
+        a.gap("listener", "named NGINX listener port is configured outside this route object")
+    else:
+        default_ports = pset("tcp", 80, 80)
+        if spec.get("tls"):
+            default_ports = union(default_ports, pset("tcp", 443, 443))
+        if kind not in {"traefik_ingress_route_tcp", "traefik_ingress_route_udp"}:
+            a.ports = default_ports
+    a.addresses = list(dict.fromkeys(a.addresses))
+    if not a.addresses:
+        a.gap("inventory", "public controller address or attached public Gateway is not observed")
+    a.gap("backend", "controller route acceptance, listener mapping and backend reachability are not established")
+    return a
+
+
 # --------------------------------------------------------------- dispatcher
 
 AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway",
@@ -2207,14 +2569,19 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
                "container_group", "container_app", "container_app_environment", *_AZURE_MANAGED_ENDPOINTS]
-K8S_TYPES = ["service", "ingress", "node"]
+K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
+             "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
+             "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
+             "component_configuration", *sorted(K8S_ROUTE_TYPES)]
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
                        "container_group", "container_app", *_AZURE_MANAGED_ENDPOINTS},
-             "k8s": {"service", "ingress"}}
+             "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
+                     "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
+                     "persistentvolume", *K8S_ROUTE_TYPES}}
 
 
 def assess(snapshot, resources):
@@ -2251,7 +2618,11 @@ def assess(snapshot, resources):
                   "container_group": _azure_container_group,
                   "container_app": _azure_container_app,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
-        "k8s": {"service": _k8s_service, "ingress": _k8s_ingress},
+        "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
+                "gateway": _k8s_gateway,
+                **dict.fromkeys(("endpoint", "endpoints", "endpointslice", "istio_service_entry", "istio_workload_entry"), _k8s_external_backend),
+                **dict.fromkeys(("admission_configuration", "configsync_rootsync", "persistentvolume"), _k8s_third_party_data),
+                **dict.fromkeys(K8S_ROUTE_TYPES, _k8s_custom_route)},
     }.get(provider, {})
     for resource in resources:
         handler = handlers.get(resource["type"])

@@ -341,7 +341,8 @@ def _workloads(snapshot, resources, by_type, signal):
                     and any(name == s["data"].get("metadata", {}).get("name")
                         and matching_service_port(s, number, port_name)
                         for name, number, port_name in service_ports)]
-            targets = [pod for service in services for pod in k8s_workloads.pods(service)]
+            targets = ([row] if row["type"] == "pod" else
+                       [pod for service in services for pod in k8s_workloads.pods(service)])
         elif provider == "azure" and row["type"] == "nic":
             vm_id = ((row["data"].get("properties") or {}).get("virtualMachine") or {}).get("id")
             targets = [vm for vm in cloud_workloads.candidates("vm", "id", [vm_id], lower=True) if vm_id and str(vm["data"].get("id", "")).lower() == vm_id.lower()]

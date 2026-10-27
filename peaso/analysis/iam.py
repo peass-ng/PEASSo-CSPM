@@ -396,6 +396,27 @@ def principals(resource):
 
 def _principals(resource):
     data = resource["data"]
+    if resource["provider"] == "k8s":
+        if resource["type"] in {"kcc_iampolicy", "kcc_iampartialpolicy"}:
+            spec, status = data.get("spec") or {}, data.get("status") or {}
+            meta = data.get("metadata") or {}
+            generation = meta.get("generation")
+            observed = isinstance(generation, int) and not isinstance(generation, bool) and \
+                status.get("observedGeneration") == generation and isinstance(status.get("allBindings"), list)
+            bindings = status["allBindings"] if observed else spec.get("bindings") or []
+            base = "status.allBindings" if observed else "spec.bindings"
+            for i, binding in enumerate(as_list(bindings)):
+                if not isinstance(binding, dict):
+                    continue
+                for j, member in enumerate(as_list(binding.get("members"))):
+                    identity = member.get("member") if isinstance(member, dict) else member
+                    if isinstance(identity, str):
+                        yield identity, f"{base}[{i}].members[{j}]", binding, "member"
+        if resource["type"] == "securitycontextconstraint":
+            for field in ("users", "groups"):
+                for i, identity in enumerate(as_list(data.get(field))):
+                    if isinstance(identity, str):
+                        yield identity, f"{field}[{i}]", data, "subject"
     for path, doc in _resource_policy_documents(resource):
         for i, statement in enumerate(as_list(doc.get("Statement"))):
             if not isinstance(statement, dict) or statement.get("Effect") != "Allow":

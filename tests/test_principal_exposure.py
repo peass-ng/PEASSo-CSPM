@@ -5,6 +5,20 @@ from peaso.snapshot import make_snapshot, resources
 from peaso.principal_exposure import project, canonical
 from peaso.least_privilege import project as least
 
+
+def test_k8s_host_port_path_is_correlated_to_pod_service_account():
+    pod = {"metadata": {"name": "web", "namespace": "app"}, "spec": {"nodeName": "worker",
+           "serviceAccountName": "app", "containers": [{"name": "web", "ports": [{"containerPort": 8080, "hostPort": 8080}]}]},
+           "status": {"phase": "Running"}}
+    node = {"metadata": {"name": "worker"}, "status": {"addresses": [{"type": "ExternalIP", "address": "34.9.9.9"}]}}
+    snap = snapshot("k8s", {"pod": [pod], "node": [node], "serviceaccount": [
+        {"metadata": {"name": "app", "namespace": "app"}}], "networkpolicy": []})
+    card = project(snap, resources(snap))["cluster|system:serviceaccount:app:app"]
+    signal = next(x for x in card["exposures"] if x["kind"] == "internet_workload")
+    assert signal["state"] == "unknown"
+    assert signal["ports"] == ["tcp/8080"]
+    assert signal["public_addresses"] == ["34.9.9.9"]
+
 ACCOUNT = "111111111111"
 ARN = f"arn:aws:iam::{ACCOUNT}:role/app"
 
