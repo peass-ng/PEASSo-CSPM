@@ -1,0 +1,250 @@
+{
+  "approved_inactive_count": 1,
+  "checks": [
+    {
+      "check_id": "aws.b.ecr.effective_scan_configuration",
+      "decision": "retain_ai",
+      "initial_representatives": 2,
+      "native_fail_count": 15,
+      "prod992_ai_disagreements": 0,
+      "reason": "Enhanced scanning branch interprets wildcard registry filters; the complete policy matching grammar is outside the direct setting proof.",
+      "source_file_sha256": {
+        "peaso/checks/aws_b_ecr.py": "552b98f0e65964ceff93530c4b08f017874bdce2c219055afc9c98e489cb678a"
+      },
+      "source_refs": [
+        "peaso/checks/aws_b_ecr.py:33-62"
+      ]
+    },
+    {
+      "check_id": "aws.c2b.ecr.latest_image_no_medium_plus_findings",
+      "decision": "retain_ai",
+      "initial_representatives": 14,
+      "native_fail_count": 14,
+      "prod992_ai_disagreements": 0,
+      "reason": "Image-tag suffix parsing and vulnerability severity/content selection are free-text/content judgment.",
+      "source_file_sha256": {
+        "peaso/checks/claude2_aws_b_devtools.py": "6434e604a4f39fe952b97826c9b4d4e81b969e5ad6aab6196108d4d2b6918caf"
+      },
+      "source_refs": [
+        "peaso/checks/claude2_aws_b_devtools.py:623-677"
+      ]
+    },
+    {
+      "check_id": "aws.claude_a.ec2.stopped_instance_30_days",
+      "decision": "retain_ai",
+      "initial_representatives": 7,
+      "native_fail_count": 7,
+      "prod992_ai_disagreements": 0,
+      "reason": "Timestamp is regex-parsed from StateTransitionReason free text.",
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_ec2.py": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa"
+      },
+      "source_refs": [
+        "peaso/checks/claude_aws_a_ec2.py:656-702"
+      ]
+    },
+    {
+      "check_id": "aws.claude_a.ec2.stopped_instance_90_days",
+      "decision": "retain_ai",
+      "initial_representatives": 7,
+      "native_fail_count": 7,
+      "prod992_ai_disagreements": 0,
+      "reason": "Timestamp is regex-parsed from StateTransitionReason free text.",
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_ec2.py": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa"
+      },
+      "source_refs": [
+        "peaso/checks/claude_aws_a_ec2.py:656-702"
+      ]
+    },
+    {
+      "check_id": "aws.claude_a.ec2.stopped_instance_more_than_30_days",
+      "decision": "retain_ai",
+      "initial_representatives": 6,
+      "native_fail_count": 7,
+      "prod992_ai_disagreements": 0,
+      "reason": "Timestamp is regex-parsed from StateTransitionReason free text.",
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_ec2.py": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa"
+      },
+      "source_refs": [
+        "peaso/checks/claude_aws_a_ec2.py:656-702"
+      ]
+    },
+    {
+      "check_id": "aws.claude_a.iam.prowler_user_hardware_mfa",
+      "decision": "retain_ai",
+      "initial_representatives": 4,
+      "native_fail_count": 15,
+      "prod992_ai_disagreements": 0,
+      "reason": "Hardware classification parses MFA SerialNumber text; missing MFA collection status can also reach a decision.",
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_iam.py": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687"
+      },
+      "source_refs": [
+        "peaso/checks/claude_aws_a_iam.py:1006-1026"
+      ]
+    },
+    {
+      "check_id": "aws.claude_a.iam.role_bedrock_access_not_stale",
+      "decision": "retain_ai",
+      "initial_representatives": 2,
+      "native_fail_count": 55,
+      "prod992_ai_disagreements": 0,
+      "reason": "ServicesLastAccessedStatus completeness is not guarded by evaluator; future partial service list can FAIL.",
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_iam.py": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687"
+      },
+      "source_refs": [
+        "peaso/checks/claude_aws_a_iam.py:1041-1095"
+      ]
+    },
+    {
+      "check_id": "aws.gap.cloudtrail.trail_security_best_practices",
+      "decision": "retain_ai",
+      "initial_representatives": 2,
+      "native_fail_count": 2,
+      "prod992_ai_disagreements": 0,
+      "reason": "CloudTrail event selector management coverage interprets policy intent.",
+      "source_file_sha256": {
+        "peaso/checks/aws_gap_core.py": "406b1fd3041683c2ab2797f7d9702cc515cfcc3f00edd4682655cb7a000793e8"
+      },
+      "source_refs": [
+        "peaso/checks/aws_gap_core.py:105-137",
+        "peaso/checks/aws_gap_core.py:284-307"
+      ]
+    },
+    {
+      "check_id": "aws.gap.s3.bucket_policy_denies_insecure_transport",
+      "decision": "retain_ai",
+      "initial_representatives": 7,
+      "native_fail_count": 140,
+      "prod992_ai_disagreements": 0,
+      "reason": "Bucket policy Deny parsing interprets policy intent.",
+      "source_file_sha256": {
+        "peaso/checks/aws_gap_core.py": "406b1fd3041683c2ab2797f7d9702cc515cfcc3f00edd4682655cb7a000793e8"
+      },
+      "source_refs": [
+        "peaso/checks/aws_gap_core.py:470-477"
+      ]
+    },
+    {
+      "check_id": "aws.nist.all_iam_policies_no_star_star",
+      "decision": "retain_ai",
+      "initial_representatives": 1,
+      "native_fail_count": 1,
+      "prod992_ai_disagreements": 0,
+      "reason": "IAM policy Action and Resource wildcard parsing interprets policy content.",
+      "source_file_sha256": {
+        "peaso/checks/aws_all_policies.py": "21119ae5f1edc3103c690c0abb77fbaefadfc2cbcd32b2fac44e0dc9569b55a5"
+      },
+      "source_refs": [
+        "peaso/checks/aws_all_policies.py:1-115"
+      ]
+    },
+    {
+      "check_id": "aws.nist.all_managed_policies_no_service_wildcard",
+      "decision": "retain_ai",
+      "initial_representatives": 2,
+      "native_fail_count": 2,
+      "prod992_ai_disagreements": 0,
+      "reason": "IAM policy Action wildcard parsing interprets policy content.",
+      "source_file_sha256": {
+        "peaso/checks/aws_all_policies.py": "21119ae5f1edc3103c690c0abb77fbaefadfc2cbcd32b2fac44e0dc9569b55a5"
+      },
+      "source_refs": [
+        "peaso/checks/aws_all_policies.py:1-115"
+      ]
+    },
+    {
+      "check_id": "aws.review.cloudwatch.sampled_log_secret_indicators",
+      "decision": "retain_ai",
+      "initial_representatives": 4,
+      "native_fail_count": 4,
+      "prod992_ai_disagreements": 0,
+      "reason": "Sampled log secret indicators require content judgment.",
+      "source_file_sha256": {
+        "peaso/checks/aws_code_log_content_review_20261019.py": "a733a0945ced7404370d51895dd5ef80cac9f3670430c1e16c6b80086b9e2916"
+      },
+      "source_refs": [
+        "peaso/checks/aws_code_log_content_review_20261019.py:103-190"
+      ]
+    },
+    {
+      "check_id": "aws.review.ecr_repository.package_content_secret_indicators",
+      "decision": "retain_ai",
+      "initial_representatives": 22,
+      "native_fail_count": 22,
+      "prod992_ai_disagreements": 0,
+      "reason": "Package secret indicators require content judgment.",
+      "source_file_sha256": {
+        "peaso/checks/aws_package_content_review_20261019.py": "9e96307a4a905534018680534bbc151c147ff4f0d1a2c1a959219be69beeb824"
+      },
+      "source_refs": [
+        "peaso/checks/aws_package_content_review_20261019.py:87-175"
+      ]
+    },
+    {
+      "check_id": "aws.review.secretsmanager.explicit_principal_deny",
+      "decision": "retain_ai",
+      "initial_representatives": 2,
+      "native_fail_count": 469,
+      "prod992_ai_disagreements": 0,
+      "reason": "Resource policy explicit-principal Deny requires policy intent interpretation.",
+      "source_file_sha256": {
+        "peaso/checks/aws_policy_constraints_review_20261019.py": "75c8c1357fd4d5d6f5319438792b11e2926bf246e72a5c1b461dc33a534c459a"
+      },
+      "source_refs": [
+        "peaso/checks/aws_policy_constraints_review_20261019.py:311-380"
+      ]
+    },
+    {
+      "check_id": "aws_api_customer_log_delivery",
+      "decision": "retain_ai",
+      "initial_representatives": 2,
+      "native_fail_count": 2,
+      "prod992_ai_disagreements": 0,
+      "reason": "Stage-format free-text tokens and delivery inference exceed a direct recorded setting.",
+      "source_file_sha256": {
+        "peaso/checks/compliance_new_sw49.py": "c339c4f8e06f656a0507cb8f77b857a52b659da725d276c2eb0e80bffac8e954"
+      },
+      "source_refs": [
+        "peaso/checks/compliance_new_sw49.py:198-260"
+      ]
+    },
+    {
+      "check_id": "aws_config_all_resources_recorded",
+      "decision": "approve_inactive",
+      "initial_representatives": 2,
+      "native_fail_count": 2,
+      "prod992_ai_disagreements": 0,
+      "reason": "Both FAIL scopes have a complete, empty regional DescribeConfigurationRecorders inventory; complete_items guards collection status/scope. Cardinality zero is pure.",
+      "source_file_sha256": {
+        "peaso/checks/aws_a_facts.py": "6499b70ab725fe55edafa8adf436ffd50aab99cd5c105e67dcfdb15e615d339d",
+        "peaso/checks/aws_config_recording.py": "50800c1a5c30aa407d0791d4416cc473ea19c3d03f584a2a4a2cfa694d2eabec"
+      },
+      "source_refs": [
+        "peaso/checks/aws_config_recording.py:126-169",
+        "peaso/checks/aws_a_facts.py:1-100"
+      ]
+    }
+  ],
+  "config_exact_scope_proof": {
+    "complete_empty_collection_count": 2,
+    "native_re_evaluation_fail_count": 2,
+    "scope_count": 2
+  },
+  "disjoint_count": 16,
+  "initial_representatives": 86,
+  "input_sha256": {
+    "high3": "7cf6b52fd86fd38676043e7ed0ee9d5aeb84d986b8fba6077c5c7a541a049def",
+    "high84": "b4f6ae81fd961d81c084c51219b41fd54b6c21b90b6b51517531550b6aa59d13",
+    "low190": "20258dba75be06012e520407a1f2947229de089c5e664e2855200fbfb9e3602f",
+    "numeric": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+    "snapshot": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+  },
+  "native_fail_count": 764,
+  "retained_ai_count": 15,
+  "schema_version": 1,
+  "status": "inactive_source_proof"
+}

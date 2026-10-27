@@ -1,0 +1,41 @@
+{
+  "base_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
+  "checks": [
+    {
+      "audit_receipt_sha256": "af1424d169fdad98722dc7cb76acb210d35f20cdafccba31295119794d0ecba2",
+      "check_id": "aws_config_all_resources_recorded",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-remaining16-source-proof-v1.json#aws_config_all_resources_recorded",
+          "path": "peaso/checks/aws_config_recording.py",
+          "source_sha256": "50800c1a5c30aa407d0791d4416cc473ea19c3d03f584a2a4a2cfa694d2eabec",
+          "symbol": "config_all_supported"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "config:DescribeConfigurationRecorders",
+            "field_path": "collections[type=config_recorder].items",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=config_recorder].items",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    }
+  ],
+  "replay_qualification": {
+    "receipt_sha256": null,
+    "status": "pending"
+  },
+  "source_scan_id": "992d7b8cbd4340a79e41139ba1a44c1e",
+  "version": 2
+}
