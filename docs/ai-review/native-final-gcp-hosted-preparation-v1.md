@@ -28,6 +28,19 @@ removed initial representatives and seven selected rows may change prompt
 context for the remaining AI findings; paired current-model output must be
 measured.
 
+The completed no-model preflight built six staged documents per arm. Their
+total JSON bytes were 785,039 baseline and 775,021 candidate, a 10,018-byte
+reduction before tokenization. The pinned Docker image and credential mounts
+passed with container networking disabled; the model catalog returned 200 and
+offered `gpt-5.6-sol`. Private mode 0600 common, plan, preparation, and
+runtime receipts are under `~/peaso-work/native-final-gcp-private/`.
+No model token, wall, CPU, or RSS figure exists for this GCP pair yet.
+
+The exact blocker is the absent root release line
+`ROOT_RELEASE_GCP_NATIVE_FINAL_0864235E`. Root is holding the exclusive
+model slot for the AWS production scan. The harness refuses `--launch`
+without that line; this audit did not invoke it.
+
 After an explicitly released run, `scripts/summarize_gcp_native_final_hosted.py`
 validates complete review IDs, identical model and credential, exact review
 and projected finding differences, Priorities input hashes, saved action
