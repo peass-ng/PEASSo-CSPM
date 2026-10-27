@@ -497,6 +497,7 @@ def test_gcp_oracle_goldengate_public_deployment_keeps_foreign_firewall_unknown(
                  "oracle_goldengate_deployment")
     assert result["status"] == "UNKNOWN"
     assert result["evidence"]["public_addresses"] == ["34.7.7.7"]
+    assert "no read endpoint for OCI NSG ingress" in result["evidence"]["unresolved"][0]["reason"]
     deployment["properties"]["isPublic"] = False
     assert not exposure(gcp(gcoll("oracle_goldengate_deployment", [deployment], service="oracledatabase")),
                         "oracle_goldengate_deployment")

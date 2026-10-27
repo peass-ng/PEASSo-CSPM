@@ -2207,7 +2207,7 @@ def _gcp_oracle_goldengate(snapshot, inventory, resource):
     a.ports = pset("tcp", 443, 443)
     a.step("public_deployment", "allow", is_public=True, addresses=a.addresses,
            network_security_groups=as_list(properties.get("nsgIds")))
-    a.gap("firewall", "Oracle network security group and subnet security-list ingress rules are not in the GCP snapshot")
+    a.gap("firewall", "Google Cloud Oracle Database API exposes OCI NSG IDs but has no read endpoint for OCI NSG ingress or subnet security-list rules; effective ingress requires OCI-side data")
     if properties.get("lifecycleState") not in (None, "ACTIVE"):
         a.dormant = True
     return a
