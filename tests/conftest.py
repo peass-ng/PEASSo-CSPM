@@ -11,6 +11,7 @@ import pytest
 pytest_plugins = (
     'tests.azure_current_native_route_successor_20261027',
     'tests.gcp_current_compute_iam_successor_20261027',
+    'tests.gcp_current_dataflow_detector_successor_20261027',
 )
 
 # Synthetic deployment identities for isolated tests; production has no defaults.
