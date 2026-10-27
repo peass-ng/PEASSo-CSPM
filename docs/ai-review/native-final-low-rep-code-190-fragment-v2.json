@@ -2,7 +2,7 @@
   "base_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
   "checks": [
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.account.security_contact_present",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -60,7 +60,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.cloudtrail.home_kms_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -104,7 +104,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.cloudtrail.home_logging_with_insights",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -176,7 +176,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.cloudtrail.insights_logging_trail",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -234,7 +234,7 @@
       "prod992_reviewed_failures": 3
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.cloudwatch.alarm_state_actions",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -264,7 +264,7 @@
       "prod992_reviewed_failures": 43
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.cloudwatch.any_state_actions",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -308,7 +308,7 @@
       "prod992_reviewed_failures": 43
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.cloudwatch.log_kms_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -352,7 +352,7 @@
       "prod992_reviewed_failures": 101
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_expiry_at_most_90",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -382,7 +382,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_lowercase",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -412,7 +412,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_minimum_length_14",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -442,7 +442,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_numbers",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -472,7 +472,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_reuse_at_least_24",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -502,7 +502,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_strong_min_length_14_reuse_24_age_90",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -574,7 +574,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_strong_min_length_8",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -632,7 +632,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_symbols",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -662,7 +662,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.password_policy_uppercase",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -692,7 +692,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.iam.report_all_mfa",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -729,7 +729,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.a.s3.mfa_delete_enabled",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -766,7 +766,7 @@
       "prod992_reviewed_failures": 148
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.acm.no_failed_validation",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -803,7 +803,7 @@
       "prod992_reviewed_failures": 6
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.alb.access_logs",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -847,7 +847,7 @@
       "prod992_reviewed_failures": 9
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.alb.deletion_protection",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -891,7 +891,7 @@
       "prod992_reviewed_failures": 9
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.alb.invalid_header_dropping",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -935,7 +935,7 @@
       "prod992_reviewed_failures": 9
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.apigateway.client_certificate",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -972,7 +972,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.apigateway.http_execution_logging",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1016,7 +1016,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.apigateway.rest_execution_logging",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1053,7 +1053,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.apigateway.rest_xray",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1090,7 +1090,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.apigateway.waf_reference",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1120,7 +1120,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.apigateway.wildcard_cache_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1164,7 +1164,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.access_logging",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1194,7 +1194,7 @@
       "prod992_reviewed_failures": 9
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.custom_acm_certificate",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1231,7 +1231,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.custom_origin_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1275,7 +1275,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.default_root_object",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1305,7 +1305,7 @@
       "prod992_reviewed_failures": 6
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.field_level_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1335,7 +1335,7 @@
       "prod992_reviewed_failures": 10
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.geo_restrictions",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1365,7 +1365,7 @@
       "prod992_reviewed_failures": 9
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.origin_group_metadata",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1395,7 +1395,7 @@
       "prod992_reviewed_failures": 10
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.sni",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1425,7 +1425,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.viewer_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1462,7 +1462,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cloudfront.waf_reference",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1492,7 +1492,7 @@
       "prod992_reviewed_failures": 10
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.codebuild.artifact_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1536,7 +1536,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.codebuild.nonprivileged",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1566,7 +1566,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cognito.admin_only_signup",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1596,7 +1596,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cognito.block_all_takeover_risks",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1640,7 +1640,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cognito.block_compromised_signin",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1691,7 +1691,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cognito.deletion_protection",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1721,7 +1721,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cognito.enforced_threat_protection",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1751,7 +1751,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cognito.no_guest_identities",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1781,7 +1781,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cognito.password_minimum_fourteen",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1811,7 +1811,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.cognito.required_mfa",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1841,7 +1841,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.dynamodb.deletion_protection",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1871,7 +1871,58 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
+      "check_id": "aws.b.dynamodb.kms_description",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-low-rep-code-190-v3.json#check_id=aws.b.dynamodb.kms_description;peaso/checks/aws_b_regional.py:83-90",
+          "path": "peaso/checks/aws_b_regional.py",
+          "source_sha256": "e1facce323da71cbe0596bbe151b38419e6062aeec5bb093a93fb71ea051cad5",
+          "symbol": "dynamo_kms"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "dynamodb:DescribeTable/DescribeContinuousBackups",
+            "field_path": "Table.Table",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=dynamodb_table].items[].Table.Table",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "dynamodb:DescribeTable/DescribeContinuousBackups",
+            "field_path": "TableName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=dynamodb_table].items[].TableName",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "dynamodb:DescribeTable/DescribeContinuousBackups",
+            "field_path": "Table.Table.TableName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=dynamodb_table].items[].Table.Table.TableName",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "dynamodb:DescribeTable/DescribeContinuousBackups",
+            "field_path": "Table.Table.SSEDescription",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=dynamodb_table].items[].Table.Table.SSEDescription",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.dynamodb.point_in_time_recovery",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1901,7 +1952,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.ecr.all_tags_immutable",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1931,7 +1982,7 @@
       "prod992_reviewed_failures": 24
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.ecr.source_some_immutability",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1961,7 +2012,7 @@
       "prod992_reviewed_failures": 24
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.ecs.no_host_pid",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -1991,7 +2042,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.ecs.no_privileged_containers",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2021,7 +2072,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.ecs.some_logging_configuration",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2058,7 +2109,7 @@
       "prod992_reviewed_failures": 12
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.lambda.active_tracing",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2088,7 +2139,7 @@
       "prod992_reviewed_failures": 11
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.lambda.insights_layer",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2139,7 +2190,51 @@
       "prod992_reviewed_failures": 11
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
+      "check_id": "aws.b.lambda.reserved_concurrency",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-low-rep-code-190-v3.json#check_id=aws.b.lambda.reserved_concurrency;peaso/checks/aws_b_core.py:136-144",
+          "path": "peaso/checks/aws_b_core.py",
+          "source_sha256": "4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b",
+          "symbol": "concurrency"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "lambda:GetFunctionConfiguration",
+            "field_path": "Concurrency",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].Concurrency",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "lambda:GetFunctionConfiguration",
+            "field_path": "Concurrency.collection_status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].Concurrency.collection_status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "lambda:GetFunctionConfiguration",
+            "field_path": "Concurrency.ReservedConcurrentExecutions",
+            "field_type": "number",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].Concurrency.ReservedConcurrentExecutions",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.rds.engine_log_exports",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2176,7 +2271,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.rds_instance.iam_authentication",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2206,7 +2301,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.rds_instance.multiple_az",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2243,7 +2338,7 @@
       "prod992_reviewed_failures": 3
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.rds_instance.nondefault_port_policy",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2280,7 +2375,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.rds_instance.snapshot_tags",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2310,7 +2405,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.b.ssm.parameter_secure_type",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2340,7 +2435,7 @@
       "prod992_reviewed_failures": 6
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.cloudformation.notifications",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2377,7 +2472,7 @@
       "prod992_reviewed_failures": 22
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.cloudformation.termination_protection_all_stacks",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2414,7 +2509,7 @@
       "prod992_reviewed_failures": 22
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.cloudformation.termination_protection_root_stacks",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2451,7 +2546,7 @@
       "prod992_reviewed_failures": 22
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.cloudfront.custom_ssl_certificate",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2488,7 +2583,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.cloudfront.default_behavior_https",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2518,7 +2613,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.cloudfront.logging_any",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2569,7 +2664,7 @@
       "prod992_reviewed_failures": 9
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.cloudfront.origin_traffic_encrypted",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2634,7 +2729,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.cloudfront.recommended_tls_policy",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2664,7 +2759,7 @@
       "prod992_reviewed_failures": 3
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.c2b.ecs.all_containers_logging",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2701,7 +2796,7 @@
       "prod992_reviewed_failures": 13
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.apigatewayv2.stage_access_logging",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2731,7 +2826,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.glue.catalog_metadata_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2761,7 +2856,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.glue.catalog_password_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2791,7 +2886,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.lambda.kms_key_configured",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2821,7 +2916,7 @@
       "prod992_reviewed_failures": 11
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.rds.instance_copy_tags_all_engines",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2851,7 +2946,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.rds.instance_enhanced_monitoring_except_m1_small",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2888,7 +2983,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.rds.instance_extended_support",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2925,7 +3020,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.rds.instance_iam_auth_supported_engines",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -2969,7 +3064,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.rds.instance_multi_az_non_aurora",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3006,7 +3101,44 @@
       "prod992_reviewed_failures": 3
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
+      "check_id": "aws.cb.route53.domain_auto_renew",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-low-rep-code-190-v3.json#check_id=aws.cb.route53.domain_auto_renew;peaso/checks/claude_aws_b_common.py:609-623",
+          "path": "peaso/checks/claude_aws_b_common.py",
+          "source_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "route53domains:GetDomainDetail",
+            "field_path": "Detail.DomainName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=route53_domain].items[].Detail.DomainName",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "route53domains:GetDomainDetail",
+            "field_path": "Detail.AutoRenew",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=route53_domain].items[].Detail.AutoRenew",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.route53.domain_transfer_lock",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3050,7 +3182,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.route53.public_zone_query_logging",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3094,7 +3226,44 @@
       "prod992_reviewed_failures": 8
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
+      "check_id": "aws.cb.sagemaker.training_intercontainer_encryption",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-low-rep-code-190-v3.json#check_id=aws.cb.sagemaker.training_intercontainer_encryption;peaso/checks/claude_aws_b_common.py:609-623",
+          "path": "peaso/checks/claude_aws_b_common.py",
+          "source_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "sagemaker:DescribeTrainingJob",
+            "field_path": "TrainingJobArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sagemaker_training_job].items[].TrainingJobArn",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sagemaker:DescribeTrainingJob",
+            "field_path": "EnableInterContainerTrafficEncryption",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sagemaker_training_job].items[].EnableInterContainerTrafficEncryption",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.sagemaker.training_output_kms",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3138,7 +3307,7 @@
       "prod992_reviewed_failures": 5
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.sagemaker.training_volume_kms",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3182,7 +3351,7 @@
       "prod992_reviewed_failures": 5
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.sns.failure_feedback_role",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3219,7 +3388,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.sqs.cmk_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3263,7 +3432,7 @@
       "prod992_reviewed_failures": 32
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.sqs.dead_letter_queue",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3307,7 +3476,7 @@
       "prod992_reviewed_failures": 13
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cb.ssmincidents.active_with_response_plans",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3344,7 +3513,37 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
+      "check_id": "aws.cb.trustedadvisor.premium_support",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-low-rep-code-190-v3.json#check_id=aws.cb.trustedadvisor.premium_support;peaso/checks/claude_aws_b_common.py:609-623",
+          "path": "peaso/checks/claude_aws_b_common.py",
+          "source_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "literal_comparison",
+          "threshold": false,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "support:DescribeTrustedAdvisorChecks",
+            "field_path": "PremiumSupport",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=trustedadvisor_support].items[].PremiumSupport",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ebs.attached_delete_on_termination",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3388,7 +3587,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.ami_ebs_encrypted",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3425,7 +3624,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.ebs_encryption_by_default",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3455,7 +3654,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.eni_in_use",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3499,7 +3698,7 @@
       "prod992_reviewed_failures": 13
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.instance_detailed_monitoring",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3529,7 +3728,7 @@
       "prod992_reviewed_failures": 34
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.instance_ebs_delete_on_termination",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3566,7 +3765,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.instance_ebs_optimized",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3596,7 +3795,7 @@
       "prod992_reviewed_failures": 5
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.instance_imdsv2_applied",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3633,7 +3832,7 @@
       "prod992_reviewed_failures": 10
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.instance_termination_protection",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3663,7 +3862,7 @@
       "prod992_reviewed_failures": 34
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.launch_template_default_ebs_encrypted",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3700,7 +3899,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.ec2.launch_template_default_imdsv2",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3737,7 +3936,7 @@
       "prod992_reviewed_failures": 2
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.guardduty.finding_archived",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3767,7 +3966,7 @@
       "prod992_reviewed_failures": 580
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.iam.admin_user_has_mfa",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3811,7 +4010,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.iam.not_two_active_keys",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3855,7 +4054,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.iam.user_in_group",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3885,7 +4084,7 @@
       "prod992_reviewed_failures": 12
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.iam.user_one_active_key",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3915,7 +4114,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.kms.customer_key_not_pending_deletion",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3952,7 +4151,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.s3.default_encryption_kms_key",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -3982,7 +4181,7 @@
       "prod992_reviewed_failures": 148
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.s3.lifecycle_rule_enabled",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4012,7 +4211,7 @@
       "prod992_reviewed_failures": 123
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.s3.object_lock_configured",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4042,7 +4241,7 @@
       "prod992_reviewed_failures": 133
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.s3.prowler_acl_disabled",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4079,7 +4278,7 @@
       "prod992_reviewed_failures": 3
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.s3.prowler_kms_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4109,7 +4308,7 @@
       "prod992_reviewed_failures": 147
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.s3.replication_rule_enabled",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4139,7 +4338,7 @@
       "prod992_reviewed_failures": 133
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.claude_a.s3.versioning_and_lifecycle",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4176,7 +4375,7 @@
       "prod992_reviewed_failures": 39
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cloudtrail.kms_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4206,7 +4405,7 @@
       "prod992_reviewed_failures": 3
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cloudtrail.log_validation",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4236,7 +4435,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.cloudtrail.multi_region",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4266,7 +4465,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.ecr.immutable_tags",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4296,7 +4495,7 @@
       "prod992_reviewed_failures": 24
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.ecr.lifecycle_policy",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4347,7 +4546,7 @@
       "prod992_reviewed_failures": 9
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.ecr.scan_on_push",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4377,7 +4576,7 @@
       "prod992_reviewed_failures": 15
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.elbv2.access_logging",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4421,7 +4620,7 @@
       "prod992_reviewed_failures": 10
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.elbv2.deletion_protection",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4465,7 +4664,7 @@
       "prod992_reviewed_failures": 10
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.elbv2.drop_invalid_headers",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4509,7 +4708,7 @@
       "prod992_reviewed_failures": 9
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.guardduty.runtime_monitoring",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4560,7 +4759,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.htbp.ecs.no_sensitive_host_mounts",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4618,7 +4817,7 @@
       "prod992_reviewed_failures": 3600
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.iam.access_key_count",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4655,7 +4854,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.kms.no_pending_key_deletion",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4692,7 +4891,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.kms.rotation",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4750,7 +4949,7 @@
       "prod992_reviewed_failures": 3
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.lambda.dead_letter_queue",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4780,7 +4979,7 @@
       "prod992_reviewed_failures": 10
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.lambda.vpc_configuration",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4810,7 +5009,7 @@
       "prod992_reviewed_failures": 11
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.rds.copy_snapshot_tags",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4847,7 +5046,7 @@
       "prod992_reviewed_failures": 4
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.rds.deletion_protection",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4877,7 +5076,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.s3.access_logging",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4914,7 +5113,7 @@
       "prod992_reviewed_failures": 148
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.s3.versioning",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4951,7 +5150,7 @@
       "prod992_reviewed_failures": 94
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.secretsmanager.rotation",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -4981,7 +5180,7 @@
       "prod992_reviewed_failures": 469
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws.sns.kms_encryption",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -5011,7 +5210,7 @@
       "prod992_reviewed_failures": 1
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws_cloudfront_origin_failover_configured",
       "deterministic_evidence": {
         "code_path_audit_ref": {
@@ -5083,7 +5282,7 @@
       "prod992_reviewed_failures": 10
     },
     {
-      "audit_receipt_sha256": "1fa0fb8f37ac79d398e5dda645c34a131146af4e1ebdc1973ae15e520c504137",
+      "audit_receipt_sha256": "714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f",
       "check_id": "aws_nist_cloudwatch_alarm_action_enabled",
       "deterministic_evidence": {
         "code_path_audit_ref": {

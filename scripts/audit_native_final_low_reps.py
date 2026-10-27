@@ -69,14 +69,6 @@ MANUAL_RETAIN = {
     'aws.b.ecr.lifecycle_rules':
         'peaso/checks/aws_b_ecr.py:23 parses lifecyclePolicyText with json.loads; '
         'this is serialized policy content, so rule-presence inference remains AI-reviewed.',
-    'aws.b.dynamodb.kms_description':
-        'SSEDescription omission at peaso/checks/aws_b_regional.py:87 uses dict.get; '
-        'the independent review has not proved that the recorded Table response '
-        'is complete for this optional field.',
-    'aws.b.lambda.reserved_concurrency':
-        'Missing ReservedConcurrentExecutions at peaso/checks/aws_b_core.py:139 '
-        'is a failing branch; the independent review has not pinned the '
-        'GetFunctionConcurrency omission receipt for this response.',
 }
 SPECIAL_SOURCE_PINS = {
     'peaso/checks/aws_a_iam.py': '87eb85344dfae79d426809f9b711ff06ff5accbecbeb27d879fc2f46a8373168',
@@ -299,6 +291,15 @@ FINAL_FIELDS = {
         ('Metadata.KeyMetadata.KeyManager', 'Metadata.KeyMetadata.Origin',
          'Metadata.KeyMetadata.KeySpec', 'Rotation.KeyRotationEnabled'),
 }
+FOLLOWUP_FIELDS = {
+    'aws.b.dynamodb.kms_description': ('Table.Table.TableName', 'Table.Table.SSEDescription'),
+    'aws.b.lambda.reserved_concurrency':
+        ('Concurrency.collection_status', 'Concurrency.ReservedConcurrentExecutions'),
+    'aws.cb.route53.domain_auto_renew': ('Detail.DomainName', 'Detail.AutoRenew'),
+    'aws.cb.sagemaker.training_intercontainer_encryption':
+        ('TrainingJobArn', 'EnableInterContainerTrafficEncryption'),
+    'aws.cb.trustedadvisor.premium_support': ('PremiumSupport',),
+}
 FINAL_COLLECTOR_REFS = {
     'acm_certificate': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
     'http_api_stage': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
@@ -350,6 +351,7 @@ def snapshot_completeness(path):
     fourth_counts = collections.Counter()
     fifth_counts = collections.Counter()
     final_counts = collections.Counter()
+    followup_counts = collections.Counter()
     second_counts = collections.Counter()
     third_counts = collections.Counter()
     with gzip.open(source, 'rb') as stream:
@@ -422,6 +424,30 @@ def snapshot_completeness(path):
                             and isinstance(mfa.get('items'), list)):
                         iam_user_complete += 1
             kind = collection.get('type')
+            if kind in {'dynamodb_table', 'lambda_function', 'route53_domain',
+                        'sagemaker_training_job', 'trustedadvisor_support'}:
+                if collection.get('items') and collection.get('status') != 'collected':
+                    raise ValueError('incomplete follow-up collection: ' + kind)
+                for item in collection.get('items', []):
+                    followup_counts[(kind, 'rows')] += 1
+                    complete = {
+                        'dynamodb_table': lambda: (
+                            _has_path(item, 'Table.Table.TableName') and
+                            item['Table'].get('collection_status') == 'collected'),
+                        'lambda_function': lambda: (
+                            _has_path(item, 'Concurrency') and
+                            item['Concurrency'].get('collection_status') == 'collected'),
+                        'route53_domain': lambda: (
+                            _has_path(item, 'Detail.DomainName') and
+                            _has_path(item, 'Detail.AutoRenew') and
+                            item['Detail'].get('collection_status') == 'collected'),
+                        'sagemaker_training_job': lambda: (
+                            _has_path(item, 'TrainingJobArn') and
+                            type(item.get('EnableInterContainerTrafficEncryption')) is bool),
+                        'trustedadvisor_support': lambda: type(item.get('PremiumSupport')) is bool,
+                    }[kind]()
+                    if complete:
+                        followup_counts[(kind, 'complete')] += 1
             final_requirements = {
                 'iam_credential_report': ('user', 'mfa_active', 'access_key_1_active', 'access_key_2_active'),
                 'acm_certificate': ('Certificate.Certificate.Status',),
@@ -630,6 +656,12 @@ def snapshot_completeness(path):
     if any(final_counts[(kind, suffix)] != number
            for kind, number in final_expected.items() for suffix in ('rows', 'complete')):
         raise ValueError('992 final-pass API completeness changed')
+    followup_expected = {'dynamodb_table': 4, 'lambda_function': 11,
+                         'route53_domain': 9, 'sagemaker_training_job': 5,
+                         'trustedadvisor_support': 2}
+    if any(followup_counts[(kind, suffix)] != number
+           for kind, number in followup_expected.items() for suffix in ('rows', 'complete')):
+        raise ValueError('992 follow-up API completeness changed')
     return {'snapshot_sha256': SNAPSHOT_SHA256, 'bucket_rows': bucket_rows,
             'detail_status_counts': actual,
             'ecr_repository_rows': ecr_rows, 'ecr_lifecycle_status_counts': dict(ecr_status),
@@ -650,7 +682,8 @@ def snapshot_completeness(path):
             'third_pass_complete_rows': third_expected,
             'fourth_pass_complete_rows': fourth_expected,
             'fifth_pass_complete_rows': fifth_expected,
-            'final_pass_complete_rows': final_expected}
+            'final_pass_complete_rows': final_expected,
+            'followup_complete_rows': followup_expected}
 
 
 def _has_path(item, path):
@@ -662,10 +695,11 @@ def _has_path(item, path):
 
 
 def bind_fail_scopes(snapshot_path, pre_ai_path, rows, inventory_by_id):
-    """Prove every admitted exact FAIL belongs to a collected native scope."""
+    """Bind each admitted FAIL to its collected scope and exact native resource."""
     if hashlib.sha256(Path(pre_ai_path).read_bytes()).hexdigest() != PRE_AI_SHA256:
         raise ValueError('exact 992 pre-AI report SHA changed')
-    collected, unavailable = set(), set()
+    collected, unavailable, complete_empty = set(), set(), set()
+    resources = collections.defaultdict(lambda: collections.defaultdict(list))
     excluded_empty_noncollected = 0
     with gzip.open(snapshot_path, 'rb') as stream:
         for collection in ijson.items(stream, 'collections.item'):
@@ -673,6 +707,15 @@ def bind_fail_scopes(snapshot_path, pre_ai_path, rows, inventory_by_id):
             status = collection.get('status')
             if status == 'collected' and collection.get('items'):
                 collected.add(key)
+                for item in collection['items']:
+                    if not isinstance(item, dict):
+                        continue
+                    for field in ('id', 'arn') if key[0] == 'log_group' else ('id',):
+                        identity = item.get(field)
+                        if isinstance(identity, str) and identity:
+                            resources[key][identity].append(item)
+            elif status == 'empty' and not collection.get('items'):
+                complete_empty.add(key)
             elif status not in ('collected', 'empty'):
                 unavailable.add(key)
                 if not collection.get('items'):
@@ -681,6 +724,8 @@ def bind_fail_scopes(snapshot_path, pre_ai_path, rows, inventory_by_id):
                 if row['decision'] == 'native_final_source_proven'}
     seen = collections.defaultdict(dict)
     scopes = collections.defaultdict(set)
+    resource_bound = 0
+    complete_scope_dependencies = 0
     with gzip.open(pre_ai_path, 'rb') as stream:
         for group in ijson.items(stream, 'findings.item'):
             for native in group.get('observations') or [group]:
@@ -694,23 +739,52 @@ def bind_fail_scopes(snapshot_path, pre_ai_path, rows, inventory_by_id):
                 key = (inventory_by_id[ident]['kind'], scope)
                 if key not in collected or key in unavailable:
                     raise ValueError('native FAIL scope lacks complete collection: ' + ident)
-                seen[ident][finding_id] = scope
+                if inventory_by_id[ident]['target'] == 'scope':
+                    for dependency in inventory_by_id[ident]['dependencies']:
+                        dep_key = (dependency, scope)
+                        if ((dep_key not in collected and dep_key not in complete_empty)
+                                or dep_key in unavailable):
+                            raise ValueError('native FAIL scope dependency incomplete: ' + ident)
+                    complete_scope_dependencies += 1
+                    resource_identity = ''
+                else:
+                    resource_identity = native.get('native_resource_id')
+                    matches = resources[key].get(resource_identity, ())
+                    if len(matches) != 1:
+                        raise ValueError('native FAIL resource identity unresolved: ' + ident)
+                    item = matches[0]
+                    sections = (approved[ident].get('snapshot_completeness_ref') or {}).get('response_sections') or []
+                    for section in sections:
+                        detail = item.get(section)
+                        if isinstance(detail, dict) and 'collection_status' in detail:
+                            if detail['collection_status'] not in ('collected', 'empty'):
+                                raise ValueError('native FAIL resource detail incomplete: ' + ident)
+                    if ident == 'aws.claude_a.s3.event_notifications' and (
+                            not isinstance(item.get('Notifications'), dict) or
+                            item['Notifications'].get('collection_status') != 'collected'):
+                        raise ValueError('notification absence lacks complete detail: ' + ident)
+                    resource_bound += 1
+                seen[ident][finding_id] = (scope, resource_identity)
                 scopes[ident].add(scope)
     for ident, row in approved.items():
         if len(seen[ident]) != row['native_fail_count']:
             raise ValueError('native FAIL scope coverage count changed: ' + ident)
         digest = hashlib.sha256('\n'.join(
-            f'{finding_id}\t{scope}' for finding_id, scope in sorted(seen[ident].items())
+            f'{finding_id}\t{scope}\t{resource}'
+            for finding_id, (scope, resource) in sorted(seen[ident].items())
         ).encode()).hexdigest()
         row['exact_fail_scope_binding'] = {
             'pre_ai_report_sha256': PRE_AI_SHA256,
             'matched_native_fail_ids': len(seen[ident]),
             'collected_scope_count': len(scopes[ident]),
-            'exact_finding_scope_pairs_sha256': digest,
+            'exact_finding_resource_scope_pairs_sha256': digest,
+            'resource_identity_bound': inventory_by_id[ident]['target'] != 'scope',
             'no_partial_or_denied_scope_overlap': True,
         }
     return {'source_sha256': PRE_AI_SHA256,
             'source_proven_fail_ids_bound_to_collected_scopes': sum(map(len, seen.values())),
+            'source_proven_fail_ids_bound_to_exact_resources': resource_bound,
+            'scope_target_fail_ids_with_complete_dependencies': complete_scope_dependencies,
             'zero_item_partial_or_denied_envelopes_excluded': excluded_empty_noncollected,
             'zero_item_noncollected_envelopes_never_count_as_complete': True}
 
@@ -898,6 +972,30 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                       and isinstance(s3_coverage, dict)
                       and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
                       and s3_coverage.get('final_pass_complete_rows') == final_expected)
+    followup_expected = {'dynamodb_table': 4, 'lambda_function': 11,
+                         'route53_domain': 9, 'sagemaker_training_job': 5,
+                         'trustedadvisor_support': 2}
+    reviewed_followup = (check['check_id'] in FOLLOWUP_FIELDS
+                         and isinstance(s3_coverage, dict)
+                         and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                         and s3_coverage.get('followup_complete_rows') == followup_expected)
+    if reviewed_followup:
+        source_paths = {
+            'aws.b.dynamodb.kms_description': ('peaso/checks/aws_b_regional.py', 'peaso/collectors/aws_b_services.py'),
+            'aws.b.lambda.reserved_concurrency': ('peaso/checks/aws_b_core.py', 'peaso/collectors/aws_b_services.py'),
+            'aws.cb.route53.domain_auto_renew': ('peaso/checks/claude_aws_b_common.py',
+                                                   'peaso/checks/claude_aws_b_security.py',
+                                                   'peaso/collectors/aws_facts_cb_ca.py'),
+            'aws.cb.sagemaker.training_intercontainer_encryption': ('peaso/checks/claude_aws_b_common.py',
+                                                                      'peaso/checks/claude_aws_b_compute.py',
+                                                                      'peaso/collectors/aws_facts_cb_ca.py'),
+            'aws.cb.trustedadvisor.premium_support': ('peaso/checks/claude_aws_b_common.py',
+                                                       'peaso/checks/claude_aws_b_security.py',
+                                                       'peaso/collectors/aws_facts_cb_ca.py'),
+        }[check['check_id']]
+        for path in source_paths:
+            if hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != SPECIAL_SOURCE_PINS[path]:
+                raise ValueError('follow-up evaluator/collector source changed: ' + path)
     if reviewed_final:
         collector_path, _ = FINAL_COLLECTOR_REFS[registered.kind]
         for path in {relative, 'peaso/checks/facts.py', collector_path} | {
@@ -961,7 +1059,7 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                           for node in nodes if isinstance(node, ast.Call)))
     special = (reviewed_scope or reviewed_s3 or reviewed_other_snapshot or reviewed_ecs or reviewed_lambda
                or reviewed_cloudfront or reviewed_iam_user or reviewed_second or reviewed_third
-               or reviewed_fourth or reviewed_fifth or reviewed_final or
+               or reviewed_fourth or reviewed_fifth or reviewed_final or reviewed_followup or
                check['check_id'] == 'aws.c2b.cloudfront.custom_ssl_certificate')
     if special:
         paths = (('peaso/checks/aws_a_iam.py', 'peaso/checks/aws_a_facts.py')
@@ -1051,6 +1149,7 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                  if reviewed_fifth else
                  (relative, 'peaso/checks/facts.py')
                  if reviewed_final else
+                 source_paths if reviewed_followup else
                  ('peaso/checks/claude2_aws_b_edge.py', 'peaso/collectors/aws_b_services.py'))
         for path in paths:
             if hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != SPECIAL_SOURCE_PINS[path]:
@@ -1137,6 +1236,14 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
             'nested API statuses for every resource of this kind; optional '
             'omissions occur only after that complete response. Every FAIL '
             'ID is bound to its collected resource scope.')
+    elif reviewed_followup:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} reads '
+            'source-pinned API configuration or a documented support-service '
+            'exception boolean. Exact 992 response sentinels and nested '
+            'collection statuses are complete in every resource row; each '
+            'native FAIL ID is bound to its collected scope. No free-text '
+            'content or policy intent is evaluated.')
     elif simple and (direct or special):
         decision, reason = ('native_final_source_proven',
             f'Evaluator {relative}:{start}-{start + len(raw) - 1} uses only '
@@ -1217,6 +1324,7 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                              + (list(FOURTH_FIELDS[check['check_id']]) if reviewed_fourth else [])
                              + (list(FIFTH_FIELDS[check['check_id']]) if reviewed_fifth else [])
                              + (list(FINAL_FIELDS[check['check_id']]) if reviewed_final else [])
+                             + (list(FOLLOWUP_FIELDS[check['check_id']]) if reviewed_followup else [])
                              + (['Definition.taskDefinition.containerDefinitions',
                                  'Definition.taskDefinition.volumes[].host.sourcePath',
                                  'Definition.taskDefinition.volumes[].name',
@@ -1248,6 +1356,7 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                                                          fourth_expected[registered.kind] if reviewed_fourth else
                                                          fifth_expected[registered.kind] if reviewed_fifth else
                                                          final_expected[registered.kind] if reviewed_final else
+                                                         followup_expected[registered.kind] if reviewed_followup else
                                                          s3_coverage['ecr_repository_rows']),
                                        'response_sections': sorted({path.split('.')[0]
                                                                     for path in (S3_FIELDS.get(check['check_id']) or
@@ -1260,10 +1369,11 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                                                                                  THIRD_FIELDS.get(check['check_id']) or
                                                                                  FOURTH_FIELDS.get(check['check_id']) or
                                                                                  FIFTH_FIELDS.get(check['check_id']) or
-                                                                                 FINAL_FIELDS.get(check['check_id'], ()))})}
+                                                                                 FINAL_FIELDS.get(check['check_id']) or
+                                                                                 FOLLOWUP_FIELDS.get(check['check_id'], ()))})}
                                       if reviewed_s3 or reviewed_other_snapshot or reviewed_ecs or reviewed_lambda
                                       or reviewed_cloudfront or reviewed_iam_user or reviewed_second or reviewed_third
-                                      or reviewed_fourth or reviewed_fifth or reviewed_final else None),
+                                      or reviewed_fourth or reviewed_fifth or reviewed_final or reviewed_followup else None),
         'helper_source_refs': ([{'path': 'peaso/checks/facts.py', 'lines': '12-53',
                                  'purpose': 'strict coverage-checked get/guard'}]
                                if any(call['name'] == 'get' for call in calls) else [])

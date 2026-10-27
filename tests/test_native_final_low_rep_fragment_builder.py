@@ -24,7 +24,7 @@ def test_explicit_thresholds_and_inactive_fragment_boundary():
                      if row['decision'] == 'native_final_source_proven'}
     provisional = {row['check_id'] for row in receipt['checks']
                    if row['decision'] == 'provisional_source_candidate'}
-    assert len(source_proven) == 137
+    assert len(source_proven) == 142
     assert len(provisional) == 24 and all(ident.startswith('aws.c2b.') for ident in provisional)
     assert {row['check_id'] for row in fragment['checks']} == source_proven
     assert fragment['replay_qualification'] == {'status': 'pending', 'receipt_sha256': None}

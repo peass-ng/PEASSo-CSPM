@@ -92,22 +92,24 @@ def test_exact_fail_scope_does_not_use_empty_denied_collection(tmp_path, monkeyp
     snapshot = tmp_path / 'snapshot.gz'
     report = tmp_path / 'pre-ai.gz'
     snapshot.write_bytes(gzip.compress(json.dumps({'collections': [
-        {'type': 'bucket', 'scope': 'scope-a', 'status': 'collected', 'items': [{}]},
+        {'type': 'bucket', 'scope': 'scope-a', 'status': 'collected', 'items': [{'id': 'bucket-a'}]},
         {'type': 'bucket', 'scope': 'scope-b', 'status': 'denied', 'items': []},
     ]}).encode()))
     def write_report(scope):
         report.write_bytes(gzip.compress(json.dumps({'findings': [{
             'observations': [{'id': 'native-1', 'check_id': 'aws.test',
-                              'status': 'FAIL', 'scope': scope}],
+                              'status': 'FAIL', 'scope': scope,
+                              'native_resource_id': 'bucket-a'}],
         }]}).encode()))
         monkeypatch.setattr(audit, 'PRE_AI_SHA256', hashlib.sha256(report.read_bytes()).hexdigest())
     rows = [{'check_id': 'aws.test', 'decision': 'native_final_source_proven',
              'native_fail_count': 1}]
-    inventory = {'aws.test': {'kind': 'bucket'}}
+    inventory = {'aws.test': {'kind': 'bucket', 'target': 'resource', 'dependencies': []}}
     write_report('scope-a')
     binding = audit.bind_fail_scopes(snapshot, report, rows, inventory)
     assert binding['zero_item_partial_or_denied_envelopes_excluded'] == 1
     assert rows[0]['exact_fail_scope_binding']['matched_native_fail_ids'] == 1
+    assert binding['source_proven_fail_ids_bound_to_exact_resources'] == 1
     write_report('scope-b')
     with pytest.raises(ValueError, match='lacks complete collection'):
         audit.bind_fail_scopes(snapshot, report, rows, inventory)
@@ -117,18 +119,52 @@ def test_partial_envelope_in_same_scope_blocks_absence_proof(tmp_path, monkeypat
     snapshot = tmp_path / 'snapshot.gz'
     report = tmp_path / 'pre-ai.gz'
     snapshot.write_bytes(gzip.compress(json.dumps({'collections': [
-        {'type': 'bucket', 'scope': 'same', 'status': 'collected', 'items': [{}]},
+        {'type': 'bucket', 'scope': 'same', 'status': 'collected', 'items': [{'id': 'bucket-a'}]},
         {'type': 'bucket', 'scope': 'same', 'status': 'partial', 'items': []},
     ]}).encode()))
     report.write_bytes(gzip.compress(json.dumps({'findings': [{
         'observations': [{'id': 'native-1', 'check_id': 'aws.test',
-                          'status': 'FAIL', 'scope': 'same'}],
+                          'status': 'FAIL', 'scope': 'same',
+                          'native_resource_id': 'bucket-a'}],
     }]}).encode()))
     monkeypatch.setattr(audit, 'PRE_AI_SHA256', hashlib.sha256(report.read_bytes()).hexdigest())
     rows = [{'check_id': 'aws.test', 'decision': 'native_final_source_proven',
              'native_fail_count': 1}]
     with pytest.raises(ValueError, match='lacks complete collection'):
-        audit.bind_fail_scopes(snapshot, report, rows, {'aws.test': {'kind': 'bucket'}})
+        audit.bind_fail_scopes(snapshot, report, rows, {'aws.test': {'kind': 'bucket', 'target': 'resource', 'dependencies': []}})
+
+
+def test_exact_resource_and_nested_detail_required(tmp_path, monkeypatch):
+    snapshot = tmp_path / 'snapshot.gz'
+    report = tmp_path / 'pre-ai.gz'
+    inventory = {'aws.test': {'kind': 'bucket', 'target': 'resource', 'dependencies': []}}
+    rows = [{'check_id': 'aws.test', 'decision': 'native_final_source_proven',
+             'native_fail_count': 1,
+             'snapshot_completeness_ref': {'response_sections': ['Notifications']}}]
+    def write_snapshot(status):
+        snapshot.write_bytes(gzip.compress(json.dumps({'collections': [
+            {'type': 'bucket', 'scope': 'same', 'status': 'collected', 'items': [
+                {'id': 'bucket-a', 'Notifications': {'collection_status': status}},
+                {'id': 'bucket-b', 'Notifications': {'collection_status': 'collected'}}]},
+        ]}).encode()))
+    def write_report(resource):
+        report.write_bytes(gzip.compress(json.dumps({'findings': [
+            {'observations': [{'id': 'native-1', 'check_id': 'aws.test',
+                               'status': 'FAIL', 'scope': 'same',
+                               'native_resource_id': resource}]},
+        ]}).encode()))
+        monkeypatch.setattr(audit, 'PRE_AI_SHA256', hashlib.sha256(report.read_bytes()).hexdigest())
+    write_snapshot('collected')
+    write_report('bucket-missing')
+    with pytest.raises(ValueError, match='resource identity unresolved'):
+        audit.bind_fail_scopes(snapshot, report, rows, inventory)
+    write_report('bucket-a')
+    write_snapshot('denied')
+    with pytest.raises(ValueError, match='resource detail incomplete'):
+        audit.bind_fail_scopes(snapshot, report, rows, inventory)
+    write_snapshot('collected')
+    assert audit.bind_fail_scopes(snapshot, report, rows, inventory)[
+        'source_proven_fail_ids_bound_to_exact_resources'] == 1
 
 
 def test_third_pass_optional_fields_require_complete_snapshot():

@@ -32,10 +32,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "6604d84f29fe5f1d1b916cd4f03c797a73dd63da32a295be8487df0e90d79554",
+        "exact_finding_resource_scope_pairs_sha256": "5b20775cf1c416398c475c2469c942a69c481607a8c44d38b2854396077e85ac",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -140,10 +141,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "227a8430cc324f80b3f317f860a90d58080569c1b6435e8eb8cc96967a9871d0",
+        "exact_finding_resource_scope_pairs_sha256": "be15405797c9e88249228a421d2f57ba8bdd836c9f1a0fb80bc761a3bd489808",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -243,10 +245,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "70da9702775d8871b3ccdad1f021de48bc95091e72b9e3747e354731283e380d",
+        "exact_finding_resource_scope_pairs_sha256": "b18d3889374f4679cf28eec9b01bfb9b2aef3fcc7e60b2f342403695916ad450",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -354,10 +357,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "bf10629cb374222163b4aa4da5503b76315289e84188e996c7b37ccd28e9fc6d",
+        "exact_finding_resource_scope_pairs_sha256": "de7e950e9f5b1b67bfe6514090351672b3cad1cf152ffd8e269c823ca3108c04",
         "matched_native_fail_ids": 3,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -457,10 +461,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "245c3fa922e574d5ddb505811541566724bf925464b3c0af9abe4504c0961c2c",
+        "exact_finding_resource_scope_pairs_sha256": "ef45fcfaf9c60b1792525c0b4d34f498fb3b8f008ff60a6efc2781c49be3df78",
         "matched_native_fail_ids": 43,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -525,10 +530,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "968db68d8b6454711497b74e7b48e8392b107efed9c71a29930c2d53317ab226",
+        "exact_finding_resource_scope_pairs_sha256": "b5025b0eab6a77183233272143456bd10a3ffa5858e0e97439ead5595eb24b04",
         "matched_native_fail_ids": 43,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -603,10 +609,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "6c1d3a1dff9f2620a45d0eac0ac9c90615aa89252d490fb35fa4fd8787a59d3c",
+        "exact_finding_resource_scope_pairs_sha256": "bfc8209b3f386b486742514b223ad8722921aae8b179d4cd0b219f0ba9ea51b9",
         "matched_native_fail_ids": 101,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -698,10 +705,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "a561d48b600000dcdccc6f790526900f0abab640dfa4d70630239aff78a297de",
+        "exact_finding_resource_scope_pairs_sha256": "ba74c2542e6fa192374bdaf013a868523b38eefefaf94a2b3317863448db74ee",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -792,10 +800,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "460793e791546ff80f4da1733306ad6e988eaf6043be1feab75accee5318484b",
+        "exact_finding_resource_scope_pairs_sha256": "d750e725099eafc2325b61d36d2cd89248d86e2314aeb115ff5b9bd71e833190",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -886,10 +895,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "c96da45ba22f74e96364ebe1568952b7e70bcdd3d7e700cc487aafa1c84bb562",
+        "exact_finding_resource_scope_pairs_sha256": "d7e5dbc3964e3d8b6c8e58316305f57518ddf10e881cb90e997b57bb3c7920de",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -980,10 +990,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "2f9a3b9a94d880af6962913e658fb5c163752a6c819e686ec203ba3e598df7cf",
+        "exact_finding_resource_scope_pairs_sha256": "a7e189a6d964f072f6fa7b6f3781070a4993d2b111682c638c91931a90306aa8",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -1074,10 +1085,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "259fdc10d1a3b602364a72529583791879f785b48372e5d21ad817c6fa6a550f",
+        "exact_finding_resource_scope_pairs_sha256": "3836657d53211ba53004d588f0200c9eff5cb15404feb8a45f301d9b080efc5b",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -1173,10 +1185,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "b26fa75319a35c2aaafc089d2111d00e673dddf990337e21b40a23f94df2c32b",
+        "exact_finding_resource_scope_pairs_sha256": "70c68cab6cfd89e44409d4629f19740ad01542c4bee995ea047f0264b8811455",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -1283,10 +1296,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "f6cac3408b9893af48e5960d634cc99fd167c18526a591dba1c882c9f5e30763",
+        "exact_finding_resource_scope_pairs_sha256": "c94c482565b3f5fd2a7707e0994f995d728b385956c4cbac5b53d03b1b2a8c8c",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -1390,10 +1404,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "25e9d1894ec7a43a5767297526a8bef2bea6f588ea09631817a52050627d01e4",
+        "exact_finding_resource_scope_pairs_sha256": "36cc27a1f9c03820ed66168b9aaef1eac355d10e66c1bab6ae3bf5a67c2453d3",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -1484,10 +1499,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "21e48d5aa8e2d5483d3823408e997784f1163118aef157fea1180337cc3af9df",
+        "exact_finding_resource_scope_pairs_sha256": "60f2336b6d6600194f716c900de7807acd5773ced016112a3b635ba5ac17f3c1",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": false
       },
       "fail_predicates": [
         {
@@ -1575,10 +1591,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "d42f58381f184775cad6887e0d3067c2caa21fc77547ba740c22cad063e2034d",
+        "exact_finding_resource_scope_pairs_sha256": "f1005d0a5e2295d2c0c4559ba3b306f1d0f71fbd0251b4e2bd36e9d511f9a4bb",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -1653,10 +1670,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "11dafdbdf42dfb2876dfb7d337bf29d1b3bda66a9bc2ece496fd465f3380940b",
+        "exact_finding_resource_scope_pairs_sha256": "81607e505edbe4bca929ce712b7a5c4b0e9d8bb22b8e8b5629b099ee00b700c2",
         "matched_native_fail_ids": 148,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -1750,10 +1768,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "d6201b98fadd1e27d4ade2f34a0ea8526746fd2b220355093e309273844bda7a",
+        "exact_finding_resource_scope_pairs_sha256": "4accb38e254c58690d6e6b4eea3f46dea42d85923c9574cb5a25236e9cb0988e",
         "matched_native_fail_ids": 6,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -1842,10 +1861,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "0032e9956d53e70ffba1648139b7bb4ff09edddaef763d900293c2b483914002",
+        "exact_finding_resource_scope_pairs_sha256": "a61e4fe1c3d1899c0a9a35bc3f58033d3a2c85a35821799eab1206e703ffd5d2",
         "matched_native_fail_ids": 9,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -1939,10 +1959,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "aa9734f72ab5a43cded799af2a104680b2d00f9e4a0f99ccdf1b700cc1d06f20",
+        "exact_finding_resource_scope_pairs_sha256": "5eff07a41c07fc6c649a6bff78749efd44b83b576b19728c52087670a36dea3e",
         "matched_native_fail_ids": 9,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2036,10 +2057,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "f463db2513183f52d6b3b6b75a8adb3fbd02b030b5eb3e72eeac311a0741b3db",
+        "exact_finding_resource_scope_pairs_sha256": "67a9b035ff2de1a9637fa7efba6f31557a6e8b84d8db7e531b0dc01c37fe5f0a",
         "matched_native_fail_ids": 9,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2135,10 +2157,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "c4cdbeb062ab23b3c694fe517610e8bccfe0d9cee01d67bb3e8e7e3fe5b14e1f",
+        "exact_finding_resource_scope_pairs_sha256": "3143943e544e5b32e3f777473ff66a35edf0237dccc0d7306352cf647e33992c",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2233,10 +2256,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "946b2d3632ea023fd63532577054eefc0499b4fa308998285ee4cef931a90b7b",
+        "exact_finding_resource_scope_pairs_sha256": "567c859458bac54c19f019cc52227f0f6c2b347918ccb42a9338f03f57b3c452",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2342,10 +2366,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "72d05e292c44ef02d1f39cbc9983637928088c1a525aeb699d9bd03b0882510d",
+        "exact_finding_resource_scope_pairs_sha256": "f5f0ce2f033c0b5a0d7757e83ebcffa6c2c8bfcd87a718d4010076c64ea21185",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2454,10 +2479,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "c6c2faa98d84cb569ccfceb89e7d1924961fdcf51cb1a32aa4beedf5533e05f2",
+        "exact_finding_resource_scope_pairs_sha256": "d94be0c9701ccf52e86acc4c032ef6c63f7316fcef44d0fc96eef7b83ca7432d",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2558,10 +2584,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "79be62c43617ddc7c99311fb7148a64e4521e16d0ced574975163bed35f4e581",
+        "exact_finding_resource_scope_pairs_sha256": "05dd048dbf9a2e9eeebafe867d70b305456d229ef06d90d01008358efe7505f1",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2654,10 +2681,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "4d39073b40147926951f7e28ba25dd3b5b2e2b457092ef184cdebb8b393a01bb",
+        "exact_finding_resource_scope_pairs_sha256": "ae4af64980a35a7cbe523ed78c057d710477d44a681997207011d612da0e3172",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2752,10 +2780,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "328e16491a9bba991196309c17d0a20520ec26130fa7c9a5db3c78a3b58a3caf",
+        "exact_finding_resource_scope_pairs_sha256": "4529fe37334b0530c0dbef6677fc92380bd42db75b19b6a01151eeaf6e2ca1e3",
         "matched_native_fail_ids": 9,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2839,10 +2868,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "0dd74851fbe76792cc9b0c567bcfacb55f7880fdbaaa3d98120abddf88a7c3ca",
+        "exact_finding_resource_scope_pairs_sha256": "850d2e92ef1cd3a8b11adbc71d860f0b148e58ef39944b0a7dc50b2f1324342e",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -2923,10 +2953,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "584a4bf6c3e813e20bb849e9857b10cc2d8f26fd8bea1e524565ac8c1ba51bca",
+        "exact_finding_resource_scope_pairs_sha256": "026956f2670e125bb78ddf31d0a2182c29c33f5b3185712da8798f636c0e636a",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3034,10 +3065,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "7b79410c96f204806a18ce5ad038170007a7485f9238318b4344b7b76a7a915a",
+        "exact_finding_resource_scope_pairs_sha256": "242571cebb762ec37ab9d4655c3317a041fc4c3f8737c8c005e53466e097637e",
         "matched_native_fail_ids": 6,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3119,10 +3151,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "c7ca56cf32612ad3bc7246f5967c7fb86de7c0cb0c0848df32f5525decad0e42",
+        "exact_finding_resource_scope_pairs_sha256": "d6e6f9978cd7755b053238a01d6705cb09fbb660ec687aa6d71023fb691aee70",
         "matched_native_fail_ids": 10,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3200,10 +3233,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "d60cdf5b8b3a1720e6f2ffd9e38a32238c836a5562aa7482d7bd86f352569303",
+        "exact_finding_resource_scope_pairs_sha256": "ea82aa788b7873845a11e97f46cbdfcf4e5f6e57e34ccd1195cb4e7640621eff",
         "matched_native_fail_ids": 9,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3281,10 +3315,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "4189f0c5943ac13bfcc9e86b20902f03afec8efd456d1dda02f565a610c42f1e",
+        "exact_finding_resource_scope_pairs_sha256": "397d8ca25344760556450bcc4df5021a4b0fcfc98d48973653ea2807b9d4a4c3",
         "matched_native_fail_ids": 10,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3373,10 +3408,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "40e4a85e864437ba7b8e8ef29ca6f8ab82fc5f415a135e0d1b10bfcb44f5e364",
+        "exact_finding_resource_scope_pairs_sha256": "5e99edcbe95bfe46ab1631f7b83f9dc6501dc6c39ac2024f8f5f2d5f29601dd7",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3460,10 +3496,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "9a4a7b34d36784fafedd0de478955c9c2df4fac7036e4f054bd76b208558872b",
+        "exact_finding_resource_scope_pairs_sha256": "ef0dc8ed99238297c111fb251669cb1500c016c033d1ad61a0c574a888a366c1",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3554,10 +3591,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "13a190f186737c92b068e95525d9ee3c204f24453c680ea383f6b6d6842d9bf3",
+        "exact_finding_resource_scope_pairs_sha256": "37920047a9c4f0682c7cb694c3ffd01abbaab63fbc9d4b88704bdeb32889ee91",
         "matched_native_fail_ids": 10,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3642,10 +3680,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "12dc191deea25ab9e0fbf7e4eabbe91291467a5e5de74e1d741fed27ba5eacf0",
+        "exact_finding_resource_scope_pairs_sha256": "bded81382663c0de059111ed00103c94530e2dfb76cc00ae560fd5f2710e3483",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3756,10 +3795,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "b773d4055049525b42c75e4177019402c7b05de584db91ec7a5cdf2bcdef0e2a",
+        "exact_finding_resource_scope_pairs_sha256": "ea886e730ae6ae1e6b37cac6004ba6830d59afce74ea8066ce74a290f35c0caf",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3845,10 +3885,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "b2dc5aa8dda27551996cd20b450b673902e0d6cbf9782ae35b4a4a40e5634a8b",
+        "exact_finding_resource_scope_pairs_sha256": "9019007d014af469d374ab19517efae69d08ede8cbefcf12b8d795b25b8d55a1",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -3926,10 +3967,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "535d5425fe787a9ab2018adebdaa99e9f4b7011120f9a03c15de30bbbb6ac6aa",
+        "exact_finding_resource_scope_pairs_sha256": "d6c4ee368848a52c83712d7c20acb219c4a4b24867e123b3ad21fa1c68704155",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4076,10 +4118,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "cc24e812d8f6dcabc3370516eec1eb9855f6ffc902743ab2b796456c4c62d429",
+        "exact_finding_resource_scope_pairs_sha256": "e64339284ec1826eff3029a4529bae3ddc864804f071ffa8725e4fdcb87a45d9",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4226,10 +4269,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "555ce7c7f41bf2376e7370e5eb12476d989c51ad25adcea894ebe949e1b225eb",
+        "exact_finding_resource_scope_pairs_sha256": "5707fb9f796de1bdc9f4d22598e806710e9b90ae4f69455e5bbb9dd622c24c2a",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4305,10 +4349,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "ee499015e36d3242d977e8c9a8e7d5ad9be1790eba182df7659645659cf6af89",
+        "exact_finding_resource_scope_pairs_sha256": "d697194234bb8a4f88dfe9b9d19cd69df1bbc22a471fb0e2573c41281d8a6981",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4388,10 +4433,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "fae970f09480351d67e8d7d69dd1f42e671f8fad8847ca93e8d8534fbcf18a06",
+        "exact_finding_resource_scope_pairs_sha256": "633065e8ca836ff07ce350189c037bd2cc41e588395b6ec66e59228de8d90ea1",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4464,10 +4510,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "df47c93629411c8bbd8cd4734487488458071af33744803386c6f59b52d3f181",
+        "exact_finding_resource_scope_pairs_sha256": "e4b5dbf502c7ecbe1ace87a91efec6afbb5c69f8b4983c65e8e80f2eaf2f4331",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4543,10 +4590,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "d0923f1c382262f8754f5788987a69409e81cdbf49a67c43a56e3cc322f952f3",
+        "exact_finding_resource_scope_pairs_sha256": "c57047050be20f9cfc66b79ee97d822052264f7ed8e5de53ce33508d67f8d4de",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4626,10 +4674,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "fcc8975bb8a0906b67288c20090b4e6b6da83f2c737f0666d68d2c9ef52f643a",
+        "exact_finding_resource_scope_pairs_sha256": "8b5125d8e8fecf758151c6032be4cbc3dbffa162957713ea82511a3d11685a80",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4677,10 +4726,12 @@
     {
       "bound_api_fields": [
         "Table.Table",
-        "TableName"
+        "TableName",
+        "Table.Table.TableName",
+        "Table.Table.SSEDescription"
       ],
       "check_id": "aws.b.dynamodb.kms_description",
-      "decision": "retain_ai",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 83,
         "function_sha256": "d3eec3b4304fe387033f6f92fcc36930742633f300501c700a695ff5cf2a1aa8",
@@ -4700,6 +4751,14 @@
         "sse_description": {
           "null": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_resource_scope_pairs_sha256": "b6a4ed62de75e7fe0210b4a730e7441a893db813aa8d74d5763ef38df821f21e",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4723,7 +4782,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 2,
-      "reason": "SSEDescription omission at peaso/checks/aws_b_regional.py:87 uses dict.get; the independent review has not proved that the recorded Table response is complete for this optional field.",
+      "reason": "Evaluator peaso/checks/aws_b_regional.py:83-90 reads source-pinned API configuration or a documented support-service exception boolean. Exact 992 response sentinels and nested collection statuses are complete in every resource row; each native FAIL ID is bound to its collected scope. No free-text content or policy intent is evaluated.",
       "recorded_field_reads": [
         {
           "line": 85,
@@ -4737,7 +4796,13 @@
       "result_lines": [
         90
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "Table"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -4774,10 +4839,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "ec8c266e850c442df5da357a1fc0c398f08366d757344cca05a8ad0434ae7f26",
+        "exact_finding_resource_scope_pairs_sha256": "5e56ed91d84d2ac1d39bbe8b2a30f5ae5186133c27669e028b1d969bc55ef5ef",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -4855,10 +4921,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "6fe939aa6c2a7b7f97aca391839093fad9a1282f36abd32a1ed0718d9331d4e2",
+        "exact_finding_resource_scope_pairs_sha256": "f2c1a107ac61f8088afb905100cb547cbe2bab1b429cec4892f5f9dfc31c7afa",
         "matched_native_fail_ids": 24,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5023,10 +5090,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "bcab121799851ad1d70bfc8ea20556db120807aace030c6f33d13f6852400395",
+        "exact_finding_resource_scope_pairs_sha256": "b06c0fe46fd5af538499a25dbf5b8b2b9cb80abb9bfda2f2bc3a6102d3dbca0b",
         "matched_native_fail_ids": 24,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5089,10 +5157,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "7a0e1ed79f563a24fbdbe118e761c51050865695446d00f2fa09cfd8d14b2013",
+        "exact_finding_resource_scope_pairs_sha256": "8c24e5c54196e6b910b6dd7d69ea6fec05ab4919f2329a8bf9a5b023ae48163d",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5175,10 +5244,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "5b39090bcc7e7e23e0a3c827a3d4d75a0b9a5238d182ce4720e288590ad9c7ae",
+        "exact_finding_resource_scope_pairs_sha256": "9f527bf087b3dd0df77d0ba92d40fc1713a183356aa040542484757f2d869f34",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5266,10 +5336,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "a1ba2ab47620bac62a46c43c5df5cc08709e3ee47c4ce8e0c87cfb3df823f6b4",
+        "exact_finding_resource_scope_pairs_sha256": "d90e44f2c8c5f08fd3feb2ae067fc032f874d56febeaf89534d94aaee075ebee",
         "matched_native_fail_ids": 12,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5360,10 +5431,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "0b074cf35b5ab344e8f1134a41c960030cdd79429b751a3d712dad581e814495",
+        "exact_finding_resource_scope_pairs_sha256": "1d4175c04a3fe55a8dcf95125bb450ac28a2d206c44f37c3d43d1c88a15cac2b",
         "matched_native_fail_ids": 11,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5452,10 +5524,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "4436462711d104ab1bd4dfee96792dae5bae1e15b47b1867654c384447c4b537",
+        "exact_finding_resource_scope_pairs_sha256": "7b35c22de2077d601c4cac24d0ca08a4adfdb1a4b8cc2049a6a6cfe2f422d098",
         "matched_native_fail_ids": 11,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5550,10 +5623,12 @@
     {
       "bound_api_fields": [
         "Concurrency",
-        "ReservedConcurrentExecutions"
+        "ReservedConcurrentExecutions",
+        "Concurrency.collection_status",
+        "Concurrency.ReservedConcurrentExecutions"
       ],
       "check_id": "aws.b.lambda.reserved_concurrency",
-      "decision": "retain_ai",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 136,
         "function_sha256": "00240b43919dd11bd48485142503372aaad204c7fe1baa13c54e0bc7a12dfbd0",
@@ -5573,6 +5648,14 @@
         "semantics": {
           "str": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_resource_scope_pairs_sha256": "60d442170e892e0256513776508de20dd6a45e8a127f656b85e196eb779d1d61",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5600,7 +5683,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "Missing ReservedConcurrentExecutions at peaso/checks/aws_b_core.py:139 is a failing branch; the independent review has not pinned the GetFunctionConcurrency omission receipt for this response.",
+      "reason": "Evaluator peaso/checks/aws_b_core.py:136-144 reads source-pinned API configuration or a documented support-service exception boolean. Exact 992 response sentinels and nested collection statuses are complete in every resource row; each native FAIL ID is bound to its collected scope. No free-text content or policy intent is evaluated.",
       "recorded_field_reads": [
         {
           "line": 138,
@@ -5615,7 +5698,13 @@
         140,
         144
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 11,
+        "response_sections": [
+          "Concurrency"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -5653,10 +5742,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "80ea51826147cbfd64f68c4a0b642e50a3b8a1d3fe3f1dd69991be6260f2e702",
+        "exact_finding_resource_scope_pairs_sha256": "62d29bc1187f7e0c9a54934a17f77b6e94040e035d405e9666cf9e710ba9c81e",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5736,10 +5826,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "9067998b51283b118eff72e02ca6db3fea9ae7c1b1c26c37b663790765e6a61a",
+        "exact_finding_resource_scope_pairs_sha256": "991cead409f8156d8b4027a11e613962fb51847f982c7111221ce91ed268a511",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5813,10 +5904,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "121092200ee8866715861ceedf73130f6ea181f28e3113ae6986d0c1c0033f70",
+        "exact_finding_resource_scope_pairs_sha256": "24dbf48375bd14b55c13e9e4cd2a320325b0512f67ca9f37c3aa3c21c3f5d119",
         "matched_native_fail_ids": 3,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5893,10 +5985,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "f477453645055884e590e634bf9c9e4c4f3a153053ee9fa5aecc92efd2a60df0",
+        "exact_finding_resource_scope_pairs_sha256": "bd25d410b41a74fffc0ed9aaa69a1817138a61dd8a50e477d5fd469a1b9f587d",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -5984,10 +6077,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "af729630de1fb1fd86eb2639a1dfb13c2ce5d746354c5577efdec862313e8199",
+        "exact_finding_resource_scope_pairs_sha256": "1413b80eb3a656c9eb5219a6a689dd022f9f7f5067e15f4248a733e3afaffc51",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -6064,10 +6158,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "9b14aa05c4b6c6bf920958adbc9d92cfe9db7701b214217cc740aabcc57cadc4",
+        "exact_finding_resource_scope_pairs_sha256": "7ce98f31814468bcca3d240c0e8e25076d6af97d35b44d7c101c6faa9a9186de",
         "matched_native_fail_ids": 6,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -6840,10 +6935,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "430db19bdbc9dfc925dc59b1a7edbfcf12c0249314026f4d14e25ad5774f73d2",
+        "exact_finding_resource_scope_pairs_sha256": "58d9cc946e9728c07807fecf5deb313e8fe616ca712466a3b8333bf36bf695be",
         "matched_native_fail_ids": 22,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -6921,10 +7017,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "0d2ea899fbaa192d72d469530c5c79a4a3c995f94a13c4479189e0102dabc359",
+        "exact_finding_resource_scope_pairs_sha256": "eeec99d14e5a47ece00c56d1031f7c226989329b339139453b2a59a01510dee9",
         "matched_native_fail_ids": 22,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -7004,10 +7101,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "addb0fb6d09d076cb029ad54ee7cd5568b0c085d512ef33441735225ecf39b97",
+        "exact_finding_resource_scope_pairs_sha256": "7f3ac924eec52b09ace35cea73b60f0150d70ccc9e2343150ebbde7c4a6c4def",
         "matched_native_fail_ids": 22,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -7096,10 +7194,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "90221072e2f5e81fedc0e929e910ebebf41f6c5fc745769c4d5052df479e28c9",
+        "exact_finding_resource_scope_pairs_sha256": "5be32d0469d6692e0bef2e6cc01270e7835284fa502f70bbfe375a8eeb7eda61",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -7174,10 +7273,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "725fd6ae60b5f15b88f1ef8205f22df41f03e80afecae7bc32571ce8fb2e9610",
+        "exact_finding_resource_scope_pairs_sha256": "ebc7cf1ac1ccacaa6d5857991158028b2e3d1988a3e811344b7224eada2f3810",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -7272,10 +7372,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "115435ffc49ef7e7d9da7d00a9f20c758581529f17dbd33b96a544a1a969bb56",
+        "exact_finding_resource_scope_pairs_sha256": "2ce02734c3aa0ca05d49eeeb7251f2f6b3ba64ec1a8033cbbc2668b12c9b5111",
         "matched_native_fail_ids": 9,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -7413,10 +7514,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "2ce56a8edf423a336b61ab2a6e30a4b5a6d20caa488f354c97456c8ebb71ad65",
+        "exact_finding_resource_scope_pairs_sha256": "e206b1ab52f7b113ca63e9f96d13424546a36b3bc53ba16c1747e6bbd2eb6436",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -7583,10 +7685,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "45861c942cdb3638b6bb2adf6ac7b0f9fb7a26a3ddd5adea3fdc36d609530287",
+        "exact_finding_resource_scope_pairs_sha256": "cb57f445a1c0ea026af99045e92446e261c2121bb0ed6c81ca11ddb3c2451fbe",
         "matched_native_fail_ids": 3,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -7903,10 +8006,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "2f1aac29d91a71981443ce9c505115065351f7b0c0468a7f915602d17f5c65e7",
+        "exact_finding_resource_scope_pairs_sha256": "b2757c05e285f66047559dcda142b400c5698db745c00af9e2125bd2a0b5420a",
         "matched_native_fail_ids": 13,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9097,10 +9201,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "bb7084f3e2db389b1237c6a7b31424da8388df2f8cd8573c03bb31b49801a68b",
+        "exact_finding_resource_scope_pairs_sha256": "b56b55e6c7bbfb02441953baeabe41d75df6437857a50bf5cd9b2ebbc1fbb617",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9190,10 +9295,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "4b7fc3e9b847126aa4b4bad3c17618f34835c2c1fa3b6e7655bd4330396cae51",
+        "exact_finding_resource_scope_pairs_sha256": "fffbe36bd1db920a7b2c35b936cda4297512c73fc9bb283b3035bcf00ac7bc8d",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9256,10 +9362,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "04e64405ba5109aaca0fb53202b8cf9d88d8b47c6d7098ff0dc288eedbaacc23",
+        "exact_finding_resource_scope_pairs_sha256": "c3b1ebe4d1d46bad42093d386630ffc1235c970fe4ad21f5862f657caa846d31",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9323,10 +9430,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "ddc6831e2025d84efb1f9059aefeff2cc2c722b840e0be233e6b18e5a1cb2685",
+        "exact_finding_resource_scope_pairs_sha256": "4946ff16b551518c07ca9671b30dbf552a3807fc2129b4b73308818edbe4f3a2",
         "matched_native_fail_ids": 11,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9403,10 +9511,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "b4d99c929f8cbfd724eca3eee0f452e5f7560161d4fa5d7d3505d032c80f7045",
+        "exact_finding_resource_scope_pairs_sha256": "1af573058a3b57c34a3001ba3f1b0b18248dc374118c96bfa4d015ebcd97301c",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9472,10 +9581,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "224fcd6f520b6606d25dbcd5fab6402f7e49786c5055334cb067a50b0741bed4",
+        "exact_finding_resource_scope_pairs_sha256": "1b2efd7c5c8c52376be14fc569bdb562bd2fc1af5aeeb5aac111f46a53411e21",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9560,10 +9670,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "2d26252aa3c6d54949c6d885a9b68fc4c40e71054201120d0492641045b5da78",
+        "exact_finding_resource_scope_pairs_sha256": "fbb1998de95238aaa4378e631341ea7b86644ebc7e21f8bcd884e2b4988063aa",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9639,10 +9750,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "55a29be0635b6ffc1ddb09148bb6e0ba6035db143f71915c04057a386d6fd3c4",
+        "exact_finding_resource_scope_pairs_sha256": "b851c6ef8d5d2f78276c9021f97abbe106e4e14c60a74de55273a37836f052d1",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9727,10 +9839,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "c02e77f8e044417edbb57ef109fd133459e2074f4d2d31feeab21c499140e1ae",
+        "exact_finding_resource_scope_pairs_sha256": "ef28f35570564b374a7b246189e010bb62c120c5967060fb9e9ac39975af9ea4",
         "matched_native_fail_ids": 3,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9774,9 +9887,12 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Detail.DomainName",
+        "Detail.AutoRenew"
+      ],
       "check_id": "aws.cb.route53.domain_auto_renew",
-      "decision": "retain_ai",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 609,
         "function_sha256": "8aa119c94f7f8673cae4e06af52ef8e43b3fcf6f9d3ecd7d4d20802f86004df4",
@@ -9800,6 +9916,14 @@
         "field": {
           "str": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_resource_scope_pairs_sha256": "236063ec69a1e419a089015f94be451b30f8bfd52937f44338ade57d4b8c3978",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9830,12 +9954,18 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 2,
-      "reason": "Helper applies at peaso/checks/claude_aws_b_common.py:614 is not traced to recorded fields in this slice.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_common.py:609-623 reads source-pinned API configuration or a documented support-service exception boolean. Exact 992 response sentinels and nested collection statuses are complete in every resource row; each native FAIL ID is bound to its collected scope. No free-text content or policy intent is evaluated.",
       "recorded_field_reads": [],
       "result_lines": [
         623
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 9,
+        "response_sections": [
+          "Detail"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": {
@@ -9869,10 +9999,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "259c86580dc577ccdf068f1b33b465b69470ecda599538bb5aaf1f0eb0f6372d",
+        "exact_finding_resource_scope_pairs_sha256": "504bb9747362a0ab6f4d87bd6b7f590cedb2278077b33b5bd434a58946e2ca0c",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -9968,10 +10099,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "286ee4a5df6357773036ecbc5a3e55ef46e4222249fe5002c87b9f8c28183079",
+        "exact_finding_resource_scope_pairs_sha256": "1510e9685ff8e568f75f2ff2a25e24921f8412f2b62ae3bf963e60242b78c514",
         "matched_native_fail_ids": 8,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10039,9 +10171,12 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "TrainingJobArn",
+        "EnableInterContainerTrafficEncryption"
+      ],
       "check_id": "aws.cb.sagemaker.training_intercontainer_encryption",
-      "decision": "retain_ai",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 609,
         "function_sha256": "8aa119c94f7f8673cae4e06af52ef8e43b3fcf6f9d3ecd7d4d20802f86004df4",
@@ -10065,6 +10200,14 @@
         "field": {
           "str": 5
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_resource_scope_pairs_sha256": "6079064f3cd047458ce3a5dd0ba810ba3a35b3e3177c52b881f41b052ac43a33",
+        "matched_native_fail_ids": 5,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10095,12 +10238,19 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 5,
-      "reason": "Helper applies at peaso/checks/claude_aws_b_common.py:614 is not traced to recorded fields in this slice.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_common.py:609-623 reads source-pinned API configuration or a documented support-service exception boolean. Exact 992 response sentinels and nested collection statuses are complete in every resource row; each native FAIL ID is bound to its collected scope. No free-text content or policy intent is evaluated.",
       "recorded_field_reads": [],
       "result_lines": [
         623
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 5,
+        "response_sections": [
+          "EnableInterContainerTrafficEncryption",
+          "TrainingJobArn"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": {
@@ -10134,10 +10284,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "327969b6ce145ed855bdd04d66cfcb41817ec1480fabb20d6a2f492d201b4b16",
+        "exact_finding_resource_scope_pairs_sha256": "81f601e51339156ee8cc10d0fd9646c8bd8cbb637afea714918423f6632c0107",
         "matched_native_fail_ids": 5,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10221,10 +10372,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "775c7df68a460c95fdefab63a5f108cb6888fcb17c566e44c314e4613c5f5a27",
+        "exact_finding_resource_scope_pairs_sha256": "44766160134ebe380473cb3d47713d6f0e89ad6ccf695ea3798d215c9f0814a6",
         "matched_native_fail_ids": 5,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10307,10 +10459,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "db9beff24fa9a1e53b26a34865ed3223f33f5bd195fa5e35214917d8b239f040",
+        "exact_finding_resource_scope_pairs_sha256": "2abeaa29b112fdd21d32dfd850cef9cc806758f25cd07e674c3b20687ee88362",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10393,10 +10546,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "a7603ae5fd6c5412c1e72562b3a6917f2da9c20f6d6e3c25cb331dc715eb789d",
+        "exact_finding_resource_scope_pairs_sha256": "1b6fa4d27659659f0dea7448c0782336a66bbf727a43584ba5d7a4a0c920639f",
         "matched_native_fail_ids": 32,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10484,10 +10638,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "dab984c9f66d38895df5f125524885efe4b2de092fa3dc7b3581a235b4ef06e5",
+        "exact_finding_resource_scope_pairs_sha256": "3c114bdf40499b63f6ab69f7971411df2f468ad3d330c6770e0a25b7e8deda56",
         "matched_native_fail_ids": 13,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10577,10 +10732,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "ba62c8c7a958d183885d1bb5fa39d685ff94be387e91e41f6a55a69f13adabeb",
+        "exact_finding_resource_scope_pairs_sha256": "9068cba3c5241072e596a0008cccca079be4cb4effd32d17b5b74af6fce74222",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10660,9 +10816,11 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "PremiumSupport"
+      ],
       "check_id": "aws.cb.trustedadvisor.premium_support",
-      "decision": "retain_ai",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 609,
         "function_sha256": "8aa119c94f7f8673cae4e06af52ef8e43b3fcf6f9d3ecd7d4d20802f86004df4",
@@ -10686,6 +10844,14 @@
         "field": {
           "str": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_resource_scope_pairs_sha256": "0ea85b63ae28326634f3a9e46dfd3f3a521d91d7e9e160e76a2e5698ea7b8798",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10716,12 +10882,18 @@
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "Helper applies at peaso/checks/claude_aws_b_common.py:614 is not traced to recorded fields in this slice.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_common.py:609-623 reads source-pinned API configuration or a documented support-service exception boolean. Exact 992 response sentinels and nested collection statuses are complete in every resource row; each native FAIL ID is bound to its collected scope. No free-text content or policy intent is evaluated.",
       "recorded_field_reads": [],
       "result_lines": [
         623
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 2,
+        "response_sections": [
+          "PremiumSupport"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": {
@@ -10859,10 +11031,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "6a021c2f3586c518d275bac8214649e0ce3c902fc59331ed9eade83f71a23e7d",
+        "exact_finding_resource_scope_pairs_sha256": "60cfda275cfeaada9bd7bdb46dbd7defc3ac09f400af4d769e19a8cdfea790c6",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10957,10 +11130,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "ca1f67e374f6e3c3762279040016356b7215795b70687aa7f0b34a1562b51ed6",
+        "exact_finding_resource_scope_pairs_sha256": "3409f8a8b3444db593845885cd55cd94d2dc4f88f8e838ce8469a19f67cf21b2",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11042,10 +11216,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "efeb432e496b098b79ba345184f28f0cf63192e0dec97e1de078d8c543936c59",
+        "exact_finding_resource_scope_pairs_sha256": "78351772cb4ac88f806bcd7b66fd352cdf1c07f70e851a0a0653af96bea66224",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11115,10 +11290,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "67444e58ac5e10b4bba980a1ae56794ecb3dfbbcd256d961aa225987247d11f0",
+        "exact_finding_resource_scope_pairs_sha256": "89b89a82352568219ec6ed8d6cc960e7ddc3904bee758904557d7647a8beeb43",
         "matched_native_fail_ids": 13,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11202,10 +11378,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "c3d8b2416b4f63d217f11341f56dd64f6f35dffff09569752856024a129dc620",
+        "exact_finding_resource_scope_pairs_sha256": "8cbe3515cca08c4f70c09f559285e3919c545f16fffdf041241d91d534b261d6",
         "matched_native_fail_ids": 34,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11270,10 +11447,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "fe2899e8c61e9d4bf400795582f086f40296af1b578b9129d4e54e480fb4ada2",
+        "exact_finding_resource_scope_pairs_sha256": "5435eb2832e0dc59cca7979d9855152f99b2ac36e05ec4bcaa922e545d4e2f9c",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11366,10 +11544,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "f8ef45528215076699dda71ef1b319c275a1919ad2be6d34aee220f42c76620f",
+        "exact_finding_resource_scope_pairs_sha256": "23cc89601a3c42635fbf10300d9928feb550e790d72dd51a494563adb1e39b19",
         "matched_native_fail_ids": 5,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11437,10 +11616,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "fe29be28b26eb575beba3279256cd7e4bf27bc3753efaf28385654ed652bfde7",
+        "exact_finding_resource_scope_pairs_sha256": "3a18bfb62fc5e99620fcff9739817296dcea7cdd3845fd1b84b30582c4c1cd22",
         "matched_native_fail_ids": 10,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11507,10 +11687,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "b5abedd47add0c0e7c18d57ad13c2f65488420f7ed6bbc64c39dcd83b1b578c6",
+        "exact_finding_resource_scope_pairs_sha256": "83e6d8b37c95a0de4315887d6e1d800c19ad8b4e5cd4a54e4a113f9e5fcfe610",
         "matched_native_fail_ids": 34,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11574,10 +11755,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "b4441cc106e8f8e114dfbd4f30c31261344db977ecc00c502baf91930351b651",
+        "exact_finding_resource_scope_pairs_sha256": "1610f43b80d68a32b3d00585c2c22580b565964b02bcebd2efcda01c21052fed",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -11669,10 +11851,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "c16325056fd980a745dd0d8bd232366e8df195e23c65275a7c93f47258ad501d",
+        "exact_finding_resource_scope_pairs_sha256": "77bfdef8d509761bfc6961845800b12ef0312fe76f8f9112d903a08bee195d33",
         "matched_native_fail_ids": 2,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -12057,10 +12240,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "b3dc181bc8bbb4a5a51572803c4277b372ecd4501ad6fa2d5e375d6311fecc6b",
+        "exact_finding_resource_scope_pairs_sha256": "9c933f0cd42cd2146e0b7c259034b7135b8d6da697f545a745d242a33254a22d",
         "matched_native_fail_ids": 580,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -12381,10 +12565,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "4a09365d32508578d9231ed76801568a770e313ea8eb9faed63120ef4d0eae67",
+        "exact_finding_resource_scope_pairs_sha256": "8d237c44319d2ea8b81e655b5b4bdee1674c52148b87bf18373ecaa578bb032f",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -12553,10 +12738,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "1de3cb8d89bd2ea3fd9b123195f04138373747f8f0aaac6adb6a148935f3d8a6",
+        "exact_finding_resource_scope_pairs_sha256": "963b8df57893c041af2382fa553365a48df1db93e84f8075b3091791db3af435",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -12697,10 +12883,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "981188fbad3111351c87afe0745c04f87b3ad63f59bc1636d5802559c679ae01",
+        "exact_finding_resource_scope_pairs_sha256": "875eb1ac8936ce09b32b4dcdd60396a657ec9694a1c5f483891853e8eab099fa",
         "matched_native_fail_ids": 12,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -12787,10 +12974,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "f9a332462d117336c2de809cbb06cad4c32a4ee4735e54144e66f55b0aa0e564",
+        "exact_finding_resource_scope_pairs_sha256": "630f55e2324f52b109640c1f58cc377e8c44131d6dfcd6cc4ce28db912447d0b",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -12877,10 +13065,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "16094ca845fefb4a8ad61446bce5e47b6aa6d3a7af6ae1db64cf6e1e6b347fd5",
+        "exact_finding_resource_scope_pairs_sha256": "ad7780e17e87a82ed5383264796e8a696f3d34870b183c147a6bd061f21361fa",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13009,10 +13198,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "a4c2b97979e80722e5d1fa7c5eb103bccc921de7e2720b2c0dec2c1deb763afa",
+        "exact_finding_resource_scope_pairs_sha256": "c0900cf1a23c00020dfca8093b931b8af682323d3702c5d85e27ad3ce90e8987",
         "matched_native_fail_ids": 148,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13188,10 +13378,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "e676f3b6368747b311aba5c5dffe00c0e770dafe073aac2057f73a8034ffbae2",
+        "exact_finding_resource_scope_pairs_sha256": "ea49e89b83e4f48d12975f81cd2ee105ccdf790b1920078defbef580c5454ee5",
         "matched_native_fail_ids": 123,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13273,10 +13464,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "9fcf812214cecb1432fcc3922f78a7be0c99f05cbd28721090b732b02f90ea1f",
+        "exact_finding_resource_scope_pairs_sha256": "20e338e224992a719e8a2b0fb513d3ed819c2866bfb5c722d76a89a64978bd37",
         "matched_native_fail_ids": 133,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13375,10 +13567,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "0ecd55d63e03d7ee2f3a43b5e548aab7fe9656302bc832e17f51435e04009117",
+        "exact_finding_resource_scope_pairs_sha256": "dfd36eef25e9b3ee4b7ab16a7e4b395e3b5ec63ac0b152b712b6cbdf05d9f116",
         "matched_native_fail_ids": 3,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13486,10 +13679,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "c9f987f4841ff5cfb6ab83eb51c2fed7b9c718122745bd7de43bf4ff74b9fd53",
+        "exact_finding_resource_scope_pairs_sha256": "db8fb48f2c71615b2a428d60591b4349de4dd2ce70d014fcefe490d458370619",
         "matched_native_fail_ids": 147,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13587,10 +13781,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "fd459f7608d266afa12f8b34fda373e828eed88330d2aed6fe5099c0fab57ae1",
+        "exact_finding_resource_scope_pairs_sha256": "282be776624fbd15c13080e5db3f7c31cf3169ad6a2c5ad8445d84132f8bc495",
         "matched_native_fail_ids": 133,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13709,10 +13904,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "369b05dff4928379684ff2f3d975f2038c68bb2e3f8ad99a12d41e2b15e29f6c",
+        "exact_finding_resource_scope_pairs_sha256": "56d0318abeb1f95e62ebb3fad55a555d120171d2021b8a40a72ea9ed1827e9d7",
         "matched_native_fail_ids": 39,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13809,10 +14005,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "f9055e46a00e537ae8138151e25a1837774dbfe8485c7924961b670efa6ca235",
+        "exact_finding_resource_scope_pairs_sha256": "2f52dd45b52b44067e11c51a4e27573f7f4b9a15b7d7a1701bff7ab03c99cdb0",
         "matched_native_fail_ids": 3,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13895,10 +14092,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "61172dded106938fa908516e697511975224151d8813540bf58528604b330517",
+        "exact_finding_resource_scope_pairs_sha256": "0c2fde6f1e0acfd65232605815cb331560c62b5f210339fc90db880d78194523",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -13971,10 +14169,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "e7f5689052e800d840b1cee08f6d23b5af626d4aa81dfa040ad32ae510e6493f",
+        "exact_finding_resource_scope_pairs_sha256": "233abc38d80efdbeb6f132d3192aaeeee9151cc5e76c9cc3b08288f0e0782826",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14047,10 +14246,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "2fda122cb892a275a0215433dbf0f416ad353929aabfde49681df7e7d04cd8ef",
+        "exact_finding_resource_scope_pairs_sha256": "7c7b04445de4c227e2c65e16bb205f9f13600bd0dd9e8a9d19d4164ecefd21f7",
         "matched_native_fail_ids": 24,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14123,10 +14323,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "71e48df71a73ce3fb365e32bd7d56ab2b5759c52220c4597f80610e4a92ddb4a",
+        "exact_finding_resource_scope_pairs_sha256": "28f4187fc77f146754ed56391a91c104684ae155cb7ff53d1f14ca0f9d265e51",
         "matched_native_fail_ids": 9,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14213,10 +14414,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "137649503fe650cd98cc8cf24134e0c1f7b4fc7b44608c992f2a8b3841b5b0b8",
+        "exact_finding_resource_scope_pairs_sha256": "4e403fced226f0683d8d9785055ff12765b125eac4832aa80dea8fdaccf74567",
         "matched_native_fail_ids": 15,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14292,10 +14494,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "8637d6073be1611577264b05ca469476b397fbe46e15d0806ffde746d1b70562",
+        "exact_finding_resource_scope_pairs_sha256": "3058ca36621e394910684754786a3beeca1a2cd374aba67d66d7a7cb2a33c23b",
         "matched_native_fail_ids": 10,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14389,10 +14592,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "9545bee3532b4cd39643f5d1d81aab796978a9a2f15f38cf90134dcb7aacbb61",
+        "exact_finding_resource_scope_pairs_sha256": "f64b89f4c7a47f1da7afce25fc24d350c453c6aa9ff9d214237b9af36e810a0b",
         "matched_native_fail_ids": 10,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14486,10 +14690,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "3a0312d14d43cf1c4ce2d5460255b345c9006d42df3ba4b21fb45bb17cef45bf",
+        "exact_finding_resource_scope_pairs_sha256": "f4a7de99f28c30e8e37cd66adb0a56e451a9936708010d6b87571231e57f9429",
         "matched_native_fail_ids": 9,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14662,10 +14867,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "947f59879d2acfa1863934cffd2897c6a8a3e00eea0c9257374c0c84ea13518d",
+        "exact_finding_resource_scope_pairs_sha256": "2348af3f7b4e85027e3b438bd74973200c68618d68bf496859a45a626b2c784c",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14772,10 +14978,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "52b1b00f9e3ebb67797769b59eefed97915237dbd1f3dceca581cbfa7893a67d",
+        "exact_finding_resource_scope_pairs_sha256": "97921dcd2b565de877384526d30a1f9873daf2147ef359175c1335d982a544e1",
         "matched_native_fail_ids": 3600,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -14850,10 +15057,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "e79b3f44144bd0ebeb2816cc0bb54aaf743d07f39d2d2951067f08883df132d0",
+        "exact_finding_resource_scope_pairs_sha256": "4bbcb5e7e151ca59940d398a401bfe4dd294457b5383ee1e0974136457b50404",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15059,10 +15267,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "d9bceb56e0f3aa67f7421eeff913affba9c4c2087b2fc26985c1130852118430",
+        "exact_finding_resource_scope_pairs_sha256": "b474f59e4caec42b449ee25be376d7514d8e494736cdb8e55f4892da2c779603",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15134,10 +15343,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "7e85d8116586e7696871a76fb670f8abced0c44f7b2383a635a0210c75138091",
+        "exact_finding_resource_scope_pairs_sha256": "c273c99e1ab05a66dd97334f1603cbeab6f1a0aabee20d21acd27644f28f304b",
         "matched_native_fail_ids": 3,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15218,10 +15428,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "d2d9442499d246e00340e0540ba7b011a83d30015bd45055dbeb74f325463942",
+        "exact_finding_resource_scope_pairs_sha256": "435f19d75d7e79c0bc21015019664a9b16cf1b4e5b43174dc0834ba791b74543",
         "matched_native_fail_ids": 10,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15301,10 +15512,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "497d76863f4c2e1dff356a6ec690bd4a7f1468cad68fd6f19b042b075fd1277f",
+        "exact_finding_resource_scope_pairs_sha256": "d2a2b419e7c1ec9722ff1a311daa53c9f45465bc865969d93129014ae4fcd9b3",
         "matched_native_fail_ids": 11,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15583,10 +15795,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "933be171cc4e12389bc07a32bc10a43f551940dbe61d1f139604e4592ba78285",
+        "exact_finding_resource_scope_pairs_sha256": "11812879defcc76368c2230999949db2ce8de036d59f21ba81e5507ac9b22bfd",
         "matched_native_fail_ids": 4,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15657,10 +15870,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "0c5d9769a48f102ee8dc2d9e32b409c041c954d30ffc6e1a86671986d513eddf",
+        "exact_finding_resource_scope_pairs_sha256": "c7acd099090583e042dbec014e7b7034611f180bff0882cd2359401b212153c6",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15735,10 +15949,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "42d6009ac0d6bc4f7628a1ce0f7d9615b738ec528fea343b07ad85f176d9cfb1",
+        "exact_finding_resource_scope_pairs_sha256": "a082d4f3839118b282fd1330c54d808b2df471d95ea051f5f93d7f0cd8442f7b",
         "matched_native_fail_ids": 148,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15834,10 +16049,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "12bad8c556692bbe674d655804f6c2ca1464d03b28b7e3280844e7f527e7ef0e",
+        "exact_finding_resource_scope_pairs_sha256": "ae5425c16d02649b6f4794f8809f65f4779a5b78b14d5459c7f4f9a99b22429e",
         "matched_native_fail_ids": 94,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -15932,10 +16148,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "c8dd2d31bea3a11b329145bff79a0f7efd5ad3f113c9925baadee3df44087552",
+        "exact_finding_resource_scope_pairs_sha256": "1e440103c09e139b56444f9499a8264a93ba0c33fddd177384181b9eb8c69ae2",
         "matched_native_fail_ids": 469,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -16012,10 +16229,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "a5c194797a8f7d11520e2831fb2042210b2f7e649c573b4bda04079cba82037e",
+        "exact_finding_resource_scope_pairs_sha256": "831d5809928d829b7ba9c4728fec226708b7dd26755c426431c61808deac4865",
         "matched_native_fail_ids": 1,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -16103,10 +16321,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 2,
-        "exact_finding_scope_pairs_sha256": "6081c80003524c57afcea1af13b025207fdc830aabfce4283da0c36242e6c075",
+        "exact_finding_resource_scope_pairs_sha256": "eebb21c381dc4bfadfa91f9eb817772b770146550b1f625d19eae06222acf0d8",
         "matched_native_fail_ids": 10,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -16326,10 +16545,11 @@
       },
       "exact_fail_scope_binding": {
         "collected_scope_count": 1,
-        "exact_finding_scope_pairs_sha256": "1c58dd3783613afb15e3be34602d013d2f2203d715ff3e5062f58fe4383af64e",
+        "exact_finding_resource_scope_pairs_sha256": "34796807702fd592bb665821023767a100c2b234e4b86e771d4b4331075fc0ba",
         "matched_native_fail_ids": 43,
         "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -16380,13 +16600,15 @@
   ],
   "disjoint_split_sha256": "507a637bec632b85fe6b14333a994debd77f05bc6eeed131bdae9b4a8ec2ab45",
   "exact_fail_scope_binding": {
-    "source_proven_fail_ids_bound_to_collected_scopes": 6698,
+    "scope_target_fail_ids_with_complete_dependencies": 9,
+    "source_proven_fail_ids_bound_to_collected_scopes": 6713,
+    "source_proven_fail_ids_bound_to_exact_resources": 6704,
     "source_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
     "zero_item_noncollected_envelopes_never_count_as_complete": true,
     "zero_item_partial_or_denied_envelopes_excluded": 193
   },
   "provisional_candidate_count": 24,
-  "retain_ai_count": 29,
+  "retain_ai_count": 24,
   "s3_snapshot_completeness": {
     "bucket_rows": 148,
     "cloudformation_root_notification_complete_count": 22,
@@ -16451,6 +16673,13 @@
       "sagemaker_training_job": 5,
       "ssmincidents_account": 2
     },
+    "followup_complete_rows": {
+      "dynamodb_table": 4,
+      "lambda_function": 11,
+      "route53_domain": 9,
+      "sagemaker_training_job": 5,
+      "trustedadvisor_support": 2
+    },
     "fourth_pass_complete_rows": {
       "cloudwatch_alarm": 196,
       "load_balancer": 10
@@ -16483,7 +16712,7 @@
   "scope": "code-worker 190-ID disjoint low-representative source slice; provisional aws.c2b IDs handed to audit worker",
   "source_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
   "source_inventory_sha256": "7eb72b3169e69ce40f1d2f33be3a1341c30de75a2c9dda68bf3675705fc1ffd9",
-  "source_proven_count": 137,
+  "source_proven_count": 142,
   "split_sha256": "e1713fd8d5ec5860c061aab4c37c89f3b7e2ba3ce35e77f9f475977ea6395660",
   "status": "independent_source_review"
 }

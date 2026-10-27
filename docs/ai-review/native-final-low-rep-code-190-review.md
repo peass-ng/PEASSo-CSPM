@@ -5,9 +5,9 @@ initial representatives. The audit worker owns the disjoint 72-ID indexed slice.
 The JSON receipt pins both split hashes and each evaluator's source hash. It
 contains the exact FAIL predicate line and bound API field paths for every ID.
 
-The completed non-c2b review classifies **137 source-proven** (6,698 exact native
-FAILs, 194 initial representatives), **24 provisional** (112 FAILs, all assigned
-`aws.c2b.*` IDs), and **29 retained for AI** (210 FAILs). The earlier 166 candidate
+The initial `4608bbf2` checkpoint classified 137 source-proven IDs. This follow-up
+classifies **142 source-proven** (6,713 exact native FAILs, 200 representatives), **24 provisional**
+(112 FAILs, all assigned `aws.c2b.*` IDs), and **24 retained for AI** (195 FAILs). The earlier 166 candidate
 count was provisional. A
 function named `get`, a helper name, or a check title never establishes proof.
 The receipt is not an activated allowlist; the versioned runtime manifest
@@ -31,17 +31,25 @@ Source-proven examples:
   response metadata before the corresponding optional-field predicates are
   source-proven. The receipt stores counts and status markers only.
 - The grouped pre-AI report SHA `4dcaa76a…de2ba` binds every one of the
-  6,698 source-proven native FAIL IDs to its exact resource scope. Its resource
-  kind and scope must have a collected envelope with items and no partial or
-  denied envelope for that same kind and scope. Empty non-collected envelopes
+  6,713 source-proven native FAIL IDs to its exact resource scope. For 6,704
+  resource targets, the native resource ID must uniquely match an item ID (or
+  the log group ARN) in the collected envelope. Nine scope targets require
+  complete scope-matched dependency collections. The resource kind and scope
+  must have a collected envelope with items and no partial or denied envelope
+  for that same kind and scope. Required nested response sections must also
+  have collected or known-empty status. Empty non-collected envelopes
   never establish absence, even when a different scope has collected data.
   The 193 empty partial or denied envelopes in unrelated scopes are excluded
-  from completeness. Each ID's scope-pair hash and matched count are in the
+  from completeness. Each ID's resource/scope-pair hash and matched count are in the
   JSON receipt. Global collection counts are supplementary and never override
   the per-FAIL scope check.
 - `aws.b.cloudfront.custom_acm_certificate` checks only the presence of
   certificate references at `peaso/checks/aws_b_cloudfront.py:69-75`; the
   snapshot confirms all 10 `GetDistributionConfig` responses were collected.
+- Five additional direct setting checks have pinned evaluator and collector
+  paths: DynamoDB SSE description, Lambda reserved concurrency, Route 53 domain
+  auto renew, SageMaker intercontainer encryption, and premium support. Their
+  exact 15 native FAIL resources are bound individually to collected 992 rows.
 
 Fail-closed examples:
 
@@ -67,11 +75,11 @@ but each final admission still needs per-check direct API evidence, source pins,
 and the root's hosted replay decision.
 
 The separate `native-final-low-rep-code-190-fragment-v2.json` contains only
-the 137 source-proven rows and is **inactive** (`replay_qualification: pending`).
+the 142 source-proven rows and is **inactive** (`replay_qualification: pending`).
 Its builder requires the exact source-receipt SHA, the exact 992 snapshot SHA,
 each approved FAIL scope binding, and each evaluator whole-file SHA. The
 `native-final-low-rep-code-190-fragment-validation.json` preflight resolved
-283 recorded source-field refs, admitted zero pending rows, admitted all 137
+295 recorded source-field refs, admitted zero pending rows, admitted all 142
 only in a temporary qualified test copy, and rejected a SHA-tampered copy.
 This is schema validation, not hosted replay qualification. The root must
 combine and independently review it before any manifest activation.
