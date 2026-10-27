@@ -341,8 +341,17 @@ def test_managed_endpoint_explicit_network_gate(kind):
             "search_service": "networkRuleSet", "servicebus_namespace": "networkRuleSet"}[kind]
     assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
                            rule: {"defaultAction": "Allow"}}).verdict() == "FAIL"
-    assert decision(kind, {"publicNetworkAccess": "Enabled", rule: {"defaultAction": "Deny"}}).verdict() == "PASS"
+    vault_like = kind in ("vault", "managed_hsm")
     assert decision(kind, {"publicNetworkAccess": "Enabled", rule: {"defaultAction": "Deny",
-                           "ipRules": [{"value": "0.0.0.0/0"}]}}).verdict() == "UNKNOWN"
+        **({"bypass": "None"} if vault_like else {})}}).verdict() == "PASS"
+    assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
+        rule: {"defaultAction": "Deny", "ipRules": [{"value": "0.0.0.0/0"}],
+               **({"bypass": "None"} if vault_like else {})}}).verdict() == ("FAIL" if vault_like else "UNKNOWN")
+    if vault_like:
+        assert decision(kind, {"publicNetworkAccess": "Enabled",
+            rule: {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
+        assert decision(kind, {"publicNetworkAccess": "Disabled",
+            rule: {"defaultAction": "Deny", "bypass": "AzureServices"}}).verdict() == "UNKNOWN"
     assert decision(kind, {"publicNetworkAccess": "Enabled"}).verdict() == "UNKNOWN"
-    assert decision(kind, {"publicNetworkAccess": "Disabled", rule: {"defaultAction": "Allow"}}).verdict() == "PASS"
+    assert decision(kind, {"publicNetworkAccess": "Disabled", rule: {"defaultAction": "Allow",
+        **({"bypass": "None"} if vault_like else {})}}).verdict() == "PASS"

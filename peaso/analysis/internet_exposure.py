@@ -3428,6 +3428,12 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     if isinstance(public, str) and public.lower() == "disabled":
         a.step("public_network_access", "block", public_network_access=public)
         a.ports = {}
+        if kind in ("vault", "managed_hsm"):
+            acls = props.get("networkAcls")
+            bypass = acls.get("bypass", "AzureServices") if isinstance(acls, dict) else None
+            if bypass != "None":
+                a.gap("authorization", "trusted-service firewall bypass may admit external service identities")
+                a.explicit = "UNKNOWN"
         return a
     if not isinstance(public, str) or public.lower() != "enabled":
         a.gap("inventory", "publicNetworkAccess is not explicitly collected as Enabled or Disabled")
@@ -3438,6 +3444,18 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     if isinstance(rules, dict) and rules_name != "firewallRules":
         action = rules.get("defaultAction")
         if action == "Deny":
+            if kind in ("vault", "managed_hsm"):
+                public_ips, malformed = _azure_storage_public_ip_rules(rules)
+                if public_ips:
+                    a.step("firewall", "allow", default_action=action, public_ip_rules=public_ips)
+                    a.ports = pset("tcp", port, port)
+                    if not endpoint:
+                        a.gap("inventory", "managed public endpoint address is not collected")
+                    return a
+                if malformed or rules.get("bypass", "AzureServices") != "None":
+                    a.gap("firewall", "vault IP rules or trusted-service bypass need effective authorization")
+                    a.ports = pset("tcp", port, port)
+                    return a
             if as_list(rules.get("ipRules")) or as_list(rules.get("virtualNetworkRules")):
                 a.gap("firewall", f"{rules_name} allow rules require effective source evaluation")
                 a.ports = pset("tcp", port, port)
