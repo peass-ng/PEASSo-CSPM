@@ -116,6 +116,7 @@ def _deterministic_evidence(value):
     comparisons = {
         'literal_comparison': {'eq', 'ne'},
         'count_comparison': {'eq', 'ne', 'lt', 'lte', 'gt', 'gte'},
+        'number_comparison': {'eq', 'ne', 'lt', 'lte', 'gt', 'gte'},
         'list_membership': {'contains', 'not_contains', 'all', 'any'},
         'boolean_combination': {'and', 'or'},
         'age_comparison': {'lt', 'lte', 'gt', 'gte'},
@@ -127,6 +128,11 @@ def _deterministic_evidence(value):
         if (type(threshold) is not int or threshold < 0
                 or unit != ('days' if kind == 'age_comparison' else 'items')):
             return False
+    elif kind == 'number_comparison':
+        if (type(threshold) is not int or threshold < 0
+                or unit not in {'days', 'characters', 'uses', 'port'}
+                or not any(field['field_type'] == 'number' for field in fields)):
+            return False
     elif kind == 'boolean_combination':
         if threshold is not None or unit is not None or len(fields) < 2:
             return False
@@ -136,7 +142,7 @@ def _deterministic_evidence(value):
                 or any(field['field_type'] != 'enum' for field in fields)):
             return False
     elif type(threshold) not in (bool, int, str) or (
-            type(threshold) is str and (not threshold or len(threshold) > 128)) or unit is not None:
+            type(threshold) is str and len(threshold) > 128) or unit is not None:
         return False
     scan_time = value['scan_time']
     if kind in {'age_comparison', 'versioned_lookup_date'}:

@@ -143,3 +143,59 @@ def test_third_pass_optional_fields_require_complete_snapshot():
     assert 'webAclArn' in proven['bound_api_fields']
     coverage['third_pass_complete_rows']['rest_api_stage'] = 1
     assert reviewed(check_id, s3_coverage=coverage)['decision'] == 'provisional_source_candidate'
+
+
+def test_action_lists_and_elb_attribute_helpers_require_exact_responses():
+    action = 'aws.a.cloudwatch.any_state_actions'
+    balancer = 'aws.b.alb.access_logs'
+    assert reviewed(action)['decision'] == 'provisional_source_candidate'
+    assert reviewed(balancer)['decision'] == 'provisional_source_candidate'
+    coverage = {'snapshot_sha256': SNAPSHOT_SHA256,
+                'fourth_pass_complete_rows': {'cloudwatch_alarm': 196,
+                                              'load_balancer': 10}}
+    for check_id in (action, balancer, 'aws.elbv2.drop_invalid_headers',
+                     'aws_nist_cloudwatch_alarm_action_enabled'):
+        row = reviewed(check_id, s3_coverage=coverage)
+        assert row['decision'] == 'native_final_source_proven'
+        assert row['snapshot_completeness_ref']['resource_rows'] > 0
+    coverage['fourth_pass_complete_rows']['load_balancer'] = 9
+    assert reviewed(balancer, s3_coverage=coverage)['decision'] == 'provisional_source_candidate'
+
+
+def test_registered_scalar_fields_require_exact_complete_response():
+    check_id = 'aws.b.dynamodb.point_in_time_recovery'
+    assert reviewed(check_id)['decision'] == 'provisional_source_candidate'
+    coverage = {'snapshot_sha256': SNAPSHOT_SHA256,
+                'fifth_pass_complete_rows': {'cognito_identity_pool': 3,
+                                             'dynamodb_table': 4,
+                                             'rds_instance': 4,
+                                             'sns_topic': 5}}
+    row = reviewed(check_id, s3_coverage=coverage)
+    assert row['decision'] == 'native_final_source_proven'
+    assert 'ContinuousBackups.ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus' in row['bound_api_fields']
+    coverage['fifth_pass_complete_rows']['dynamodb_table'] = 3
+    assert reviewed(check_id, s3_coverage=coverage)['decision'] == 'provisional_source_candidate'
+
+
+def test_final_helper_proof_and_incomplete_absence_stay_separate():
+    coverage = {'snapshot_sha256': SNAPSHOT_SHA256,
+                'final_pass_complete_rows': {
+                    'iam_credential_report': 13, 'acm_certificate': 45,
+                    'http_api_stage': 1, 'codebuild_project': 1,
+                    'cognito_user_pool': 1, 'rds_instance': 4,
+                    'sagemaker_training_job': 5, 'ssmincidents_account': 2,
+                    'ebs_volume': 34, 'ec2_image': 1,
+                    'network_interface': 104, 'instance': 34,
+                    'ec2_launch_template': 11, 'guardduty_detector': 1,
+                    'kms_key': 34}}
+    proven = reviewed('aws.cb.sagemaker.training_volume_kms', s3_coverage=coverage)
+    assert proven['decision'] == 'native_final_source_proven'
+    assert 'ResourceConfig.VolumeKmsKeyId' in proven['bound_api_fields']
+    coverage['final_pass_complete_rows']['sagemaker_training_job'] = 4
+    assert reviewed('aws.cb.sagemaker.training_volume_kms', s3_coverage=coverage)['decision'] == 'provisional_source_candidate'
+    for check_id in ('aws.logs.retention', 'aws.iam.console_mfa',
+                     'aws.claude_a.guardduty.detector_no_findings',
+                     'aws.claude_a.guardduty.prowler_ai_protection',
+                     'aws.claude_a.guardduty.prowler_no_high_severity_findings',
+                     'aws.claude_a.guardduty.prowler_runtime_monitoring'):
+        assert reviewed(check_id, s3_coverage=coverage)['decision'] == 'retain_ai'

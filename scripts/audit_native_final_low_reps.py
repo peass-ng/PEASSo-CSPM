@@ -54,6 +54,18 @@ BOUND_REGISTRATIONS = frozenset({
     'aws.lambda.vpc_configuration', 'aws.sns.kms_encryption',
 })
 MANUAL_RETAIN = {
+    'aws.claude_a.guardduty.detector_no_findings':
+        'peaso/checks/claude_aws_a_security.py:24-30 treats missing nested collection_status as collected; a partial HighSeverityFindingIds list could yield FAIL.',
+    'aws.claude_a.guardduty.prowler_no_high_severity_findings':
+        'peaso/checks/claude_aws_a_security.py:24-30 treats missing nested collection_status as collected; absence of an explicit complete finding-list marker is ambiguous.',
+    'aws.claude_a.guardduty.prowler_ai_protection':
+        'peaso/checks/claude_aws_a_security.py:182-199 defaults a malformed feature Status to DISABLED via dict.get, which can yield FAIL instead of UNKNOWN.',
+    'aws.claude_a.guardduty.prowler_runtime_monitoring':
+        'peaso/checks/claude_aws_a_security.py:182-199 defaults missing feature Name/Status via dict.get, so malformed feature rows can reach FAIL.',
+    'aws.iam.console_mfa':
+        'peaso/checks/__init__.py:358-379 permits MFADevices.collection_status outside collected/empty and can return FAIL for a denied empty list.',
+    'aws.logs.retention':
+        'peaso/checks/aws.py:26-34 defaults an omitted retentionInDays without requiring DescribeLogGroups native_response_complete; an incomplete row can FAIL.',
     'aws.b.ecr.lifecycle_rules':
         'peaso/checks/aws_b_ecr.py:23 parses lifecyclePolicyText with json.loads; '
         'this is serialized policy content, so rule-presence inference remains AI-reviewed.',
@@ -102,6 +114,14 @@ SPECIAL_SOURCE_PINS = {
     'peaso/checks/aws_a_account.py': 'e5756eba9a785fbd32ac7235f7a6c68b2db9be173420c1dc7860044a90baf4d8',
     'peaso/checks/aws_b_apigateway.py': '3bba75269b3358c4ac16ef70100b8c7aa68134600cd8829205fb4ea28de526d4',
     'peaso/checks/claude_aws_a_ec2.py': 'fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa',
+    'peaso/checks/aws_b_loadbalancing.py': '7893bd90cb37ab8ea8c489215d5d62f4178e9bf015a4310b889757f037dad6e5',
+    'peaso/checks/aws_b_databases.py': 'e8a0014b5f0e5efa018573e8245131e6d327abe8814725f85766c406c8e9f1e5',
+    'peaso/checks/aws_b_cognito.py': 'e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed',
+    'peaso/checks/claude_aws_b_db.py': '332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62',
+    'peaso/checks/claude_aws_b_storage.py': '26b0efe39f42a9742da1e821432d49c48a33bba3a1ef42b7eb3901b9bb422a94',
+    'peaso/checks/claude_aws_a_security.py': '8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8',
+    'peaso/checks/facts.py': '15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926',
+    'peaso/checks/__init__.py': '9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae',
 }
 SNAPSHOT_SHA256 = '3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f'
 PRE_AI_SHA256 = '4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba'
@@ -210,6 +230,92 @@ THIRD_FIELDS = {
     'aws.claude_a.ec2.launch_template_default_imdsv2':
         ('Versions[].DefaultVersion', 'Versions[].LaunchTemplateData.MetadataOptions.HttpTokens'),
 }
+FOURTH_FIELDS = {
+    'aws.a.cloudwatch.any_state_actions':
+        ('AlarmActions', 'OKActions', 'InsufficientDataActions'),
+    'aws_nist_cloudwatch_alarm_action_enabled':
+        ('ActionsEnabled', 'AlarmActions', 'OKActions', 'InsufficientDataActions'),
+    'aws.b.alb.access_logs': ('Type', 'Attributes.Attributes[].Key', 'Attributes.Attributes[].Value'),
+    'aws.b.alb.deletion_protection': ('Type', 'Attributes.Attributes[].Key', 'Attributes.Attributes[].Value'),
+    'aws.b.alb.invalid_header_dropping': ('Type', 'Attributes.Attributes[].Key', 'Attributes.Attributes[].Value'),
+    'aws.elbv2.access_logging': ('Type', 'Attributes.Attributes[].Key', 'Attributes.Attributes[].Value'),
+    'aws.elbv2.deletion_protection': ('Type', 'Attributes.Attributes[].Key', 'Attributes.Attributes[].Value'),
+    'aws.elbv2.drop_invalid_headers': ('Type', 'Attributes.Attributes[].Key', 'Attributes.Attributes[].Value'),
+}
+FIFTH_FIELDS = {
+    'aws.b.cognito.no_guest_identities': ('Configuration.AllowUnauthenticatedIdentities',),
+    'aws.b.dynamodb.deletion_protection': ('Table.Table.DeletionProtectionEnabled',),
+    'aws.b.dynamodb.point_in_time_recovery':
+        ('ContinuousBackups.ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus',),
+    'aws.b.rds_instance.iam_authentication': ('IAMDatabaseAuthenticationEnabled',),
+    'aws.b.rds_instance.snapshot_tags': ('CopyTagsToSnapshot',),
+    'aws.sns.kms_encryption': ('Attributes.Attributes.KmsMasterKeyId',),
+}
+FINAL_FIELDS = {
+    'aws.a.iam.report_all_mfa': ('user', 'mfa_active'),
+    'aws.b.acm.no_failed_validation': ('Certificate.Certificate.Status',),
+    'aws.b.apigateway.http_execution_logging': ('StageName', 'DefaultRouteSettings.LoggingLevel'),
+    'aws.b.codebuild.artifact_encryption':
+        ('Configuration.projects[].name', 'Configuration.projects[].artifacts.encryptionDisabled',
+         'Configuration.projects[].secondaryArtifacts[].encryptionDisabled'),
+    'aws.b.codebuild.nonprivileged': ('Configuration.projects[].environment.privilegedMode',),
+    'aws.b.cognito.admin_only_signup': ('Configuration.UserPool.AdminCreateUserConfig.AllowAdminCreateUserOnly',),
+    'aws.b.cognito.block_all_takeover_risks':
+        ('Configuration.UserPool.UserPoolAddOns.AdvancedSecurityMode',
+         'Risk.RiskConfiguration.AccountTakeoverRiskConfiguration.Actions'),
+    'aws.b.cognito.block_compromised_signin':
+        ('Configuration.UserPool.UserPoolAddOns.AdvancedSecurityMode',
+         'Risk.RiskConfiguration.CompromisedCredentialsRiskConfiguration.EventFilter',
+         'Risk.RiskConfiguration.CompromisedCredentialsRiskConfiguration.Actions.EventAction'),
+    'aws.b.cognito.deletion_protection': ('Configuration.UserPool.DeletionProtection',),
+    'aws.b.cognito.enforced_threat_protection': ('Configuration.UserPool.UserPoolAddOns.AdvancedSecurityMode',),
+    'aws.b.cognito.password_minimum_fourteen': ('Configuration.UserPool.Policies.PasswordPolicy.MinimumLength',),
+    'aws.b.cognito.required_mfa': ('Configuration.UserPool.MfaConfiguration',),
+    'aws.cb.apigatewayv2.stage_access_logging': ('StageName', 'AccessLogSettings'),
+    'aws.cb.rds.instance_enhanced_monitoring_except_m1_small':
+        ('DBInstanceClass', 'DBInstanceArn', 'EnhancedMonitoringResourceArn'),
+    'aws.cb.rds.instance_extended_support': ('DBInstanceArn', 'EngineLifecycleSupport'),
+    'aws.cb.rds.instance_iam_auth_supported_engines':
+        ('Engine', 'DBInstanceArn', 'IAMDatabaseAuthenticationEnabled'),
+    'aws.cb.sagemaker.training_output_kms': ('OutputDataConfig.S3OutputPath', 'OutputDataConfig.KmsKeyId'),
+    'aws.cb.sagemaker.training_volume_kms': ('ResourceConfig.InstanceType', 'ResourceConfig.VolumeKmsKeyId'),
+    'aws.cb.ssmincidents.active_with_response_plans':
+        ('ReplicationSets.items[].status', 'ResponsePlans.items'),
+    'aws.claude_a.ebs.attached_delete_on_termination':
+        ('State', 'Attachments[].DeleteOnTermination'),
+    'aws.claude_a.ec2.ami_ebs_encrypted': ('BlockDeviceMappings[].Ebs.Encrypted',),
+    'aws.claude_a.ec2.eni_in_use': ('Status', 'NetworkInterfaceId', 'Attachment.InstanceId'),
+    'aws.claude_a.ec2.instance_ebs_delete_on_termination':
+        ('BlockDeviceMappings[].Ebs.DeleteOnTermination',),
+    'aws.claude_a.ec2.launch_template_default_ebs_encrypted':
+        ('Versions[].DefaultVersion', 'Versions[].LaunchTemplateData.BlockDeviceMappings[].Ebs.Encrypted'),
+    'aws.claude_a.iam.not_two_active_keys':
+        ('user', 'access_key_1_active', 'access_key_2_active'),
+    'aws.claude_a.kms.customer_key_not_pending_deletion':
+        ('Metadata.KeyMetadata.KeyManager', 'Metadata.KeyMetadata.KeyState'),
+    'aws.guardduty.runtime_monitoring':
+        ('Configuration.Status', 'Configuration.Features[].Name', 'Configuration.Features[].Status'),
+    'aws.kms.rotation':
+        ('Metadata.KeyMetadata.KeyManager', 'Metadata.KeyMetadata.Origin',
+         'Metadata.KeyMetadata.KeySpec', 'Rotation.KeyRotationEnabled'),
+}
+FINAL_COLLECTOR_REFS = {
+    'acm_certificate': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
+    'http_api_stage': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
+    'codebuild_project': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
+    'cognito_user_pool': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
+    'rds_instance': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+    'sagemaker_training_job': ('peaso/collectors/aws_facts_cb_ca.py', '887-909,965-975,1092-1105,1316-1330'),
+    'ssmincidents_account': ('peaso/collectors/aws_facts_cb_ca.py', '887-909,965-975,1092-1105,1316-1330'),
+    'ebs_volume': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+    'ec2_image': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+    'network_interface': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+    'instance': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+    'ec2_launch_template': ('peaso/collectors/aws_facts_cb_ca.py', '887-909,965-975,1092-1105,1316-1330'),
+    'guardduty_detector': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+    'iam_credential_report': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+    'kms_key': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+}
 S3_EXPECTED = {
     'Encryption': {'collected': 148}, 'Versioning': {'collected': 148},
     'Logging': {'collected': 148}, 'Lifecycle': {'collected': 10, 'denied': 15, 'empty': 123},
@@ -241,6 +347,9 @@ def snapshot_completeness(path):
     cloudfront_complete = 0
     iam_user_rows = 0
     iam_user_complete = 0
+    fourth_counts = collections.Counter()
+    fifth_counts = collections.Counter()
+    final_counts = collections.Counter()
     second_counts = collections.Counter()
     third_counts = collections.Counter()
     with gzip.open(source, 'rb') as stream:
@@ -313,6 +422,82 @@ def snapshot_completeness(path):
                             and isinstance(mfa.get('items'), list)):
                         iam_user_complete += 1
             kind = collection.get('type')
+            final_requirements = {
+                'iam_credential_report': ('user', 'mfa_active', 'access_key_1_active', 'access_key_2_active'),
+                'acm_certificate': ('Certificate.Certificate.Status',),
+                'http_api_stage': ('StageName', 'DefaultRouteSettings'),
+                'codebuild_project': ('Configuration.projects',),
+                'cognito_user_pool': ('Configuration.UserPool.Id', 'Risk'),
+                'rds_instance': ('DBInstanceArn', 'Engine', 'DBInstanceClass'),
+                'sagemaker_training_job': ('TrainingJobArn', 'OutputDataConfig.S3OutputPath',
+                                            'ResourceConfig.InstanceType'),
+                'ssmincidents_account': ('ReplicationSets.items', 'ResponsePlans.items'),
+                'ebs_volume': ('State', 'Attachments'),
+                'ec2_image': ('BlockDeviceMappings',),
+                'network_interface': ('NetworkInterfaceId', 'Status'),
+                'instance': ('BlockDeviceMappings',),
+                'ec2_launch_template': ('Versions',),
+                'guardduty_detector': ('Configuration.Status', 'Configuration.Features'),
+                'kms_key': ('Metadata.KeyMetadata.KeyManager', 'Metadata.KeyMetadata.KeyState'),
+            }
+            if kind in final_requirements:
+                if collection.get('items') and collection.get('status') != 'collected':
+                    raise ValueError('incomplete final-pass collection: ' + kind)
+                for item in collection.get('items', []):
+                    final_counts[(kind, 'rows')] += 1
+                    if not all(_has_path(item, path) for path in final_requirements[kind]):
+                        continue
+                    details = {
+                        'acm_certificate': ('Certificate',),
+                        'codebuild_project': ('Configuration',),
+                        'cognito_user_pool': ('Configuration', 'Risk'),
+                        'guardduty_detector': ('Configuration',),
+                    }.get(kind, ())
+                    if any(item[name].get('collection_status') != 'collected' for name in details):
+                        continue
+                    if kind == 'ssmincidents_account' and any(
+                            item[name].get('collection_status') not in ('collected', 'empty')
+                            for name in ('ReplicationSets', 'ResponsePlans')):
+                        continue
+                    if kind == 'codebuild_project' and len(item['Configuration']['projects']) != 1:
+                        continue
+                    final_counts[(kind, 'complete')] += 1
+            if kind in {'cognito_identity_pool', 'dynamodb_table', 'rds_instance', 'sns_topic'}:
+                if collection.get('items') and collection.get('status') != 'collected':
+                    raise ValueError('incomplete fifth-pass collection: ' + kind)
+                required = {
+                    'cognito_identity_pool': ('Configuration.AllowUnauthenticatedIdentities',),
+                    'dynamodb_table': ('Table.Table.DeletionProtectionEnabled',
+                        'ContinuousBackups.ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus'),
+                    'rds_instance': ('IAMDatabaseAuthenticationEnabled', 'CopyTagsToSnapshot'),
+                    'sns_topic': ('Attributes.Attributes.KmsMasterKeyId',),
+                }[kind]
+                for item in collection.get('items', []):
+                    fifth_counts[(kind, 'rows')] += 1
+                    if all(_has_path(item, path) for path in required):
+                        fifth_counts[(kind, 'complete')] += 1
+            if kind in {'cloudwatch_alarm', 'load_balancer'}:
+                if collection.get('items') and collection.get('status') != 'collected':
+                    raise ValueError('incomplete fourth-pass collection: ' + kind)
+                for item in collection.get('items', []):
+                    fourth_counts[(kind, 'rows')] += 1
+                    if kind == 'cloudwatch_alarm':
+                        if (type(item.get('ActionsEnabled')) is bool
+                                and all(isinstance(item.get(key), list)
+                                        for key in ('AlarmActions', 'OKActions',
+                                                    'InsufficientDataActions'))):
+                            fourth_counts[(kind, 'complete')] += 1
+                    else:
+                        detail = item.get('Attributes')
+                        attrs = detail.get('Attributes') if isinstance(detail, dict) else None
+                        if (isinstance(detail, dict)
+                                and detail.get('collection_status') == 'collected'
+                                and isinstance(attrs, list)
+                                and all(isinstance(row, dict)
+                                        and isinstance(row.get('Key'), str)
+                                        and isinstance(row.get('Value'), str)
+                                        for row in attrs)):
+                            fourth_counts[(kind, 'complete')] += 1
             if kind in {'route53_domain', 'route53_zone', 'ssm_parameter_metadata',
                         'rds_instance', 'sns_topic', 'cloudtrail'}:
                 # Empty non-collected envelopes are ignored in these global
@@ -425,6 +610,26 @@ def snapshot_completeness(path):
     if any(third_counts[(kind, suffix)] != number
            for kind, number in third_expected.items() for suffix in ('rows', 'complete')):
         raise ValueError('992 third-pass API completeness changed')
+    fourth_expected = {'cloudwatch_alarm': 196, 'load_balancer': 10}
+    if any(fourth_counts[(kind, suffix)] != number
+           for kind, number in fourth_expected.items() for suffix in ('rows', 'complete')):
+        raise ValueError('992 fourth-pass API completeness changed')
+    fifth_expected = {'cognito_identity_pool': 3, 'dynamodb_table': 4,
+                      'rds_instance': 4, 'sns_topic': 5}
+    if any(fifth_counts[(kind, suffix)] != number
+           for kind, number in fifth_expected.items() for suffix in ('rows', 'complete')):
+        raise ValueError('992 fifth-pass API completeness changed')
+    final_expected = {'iam_credential_report': 13, 'acm_certificate': 45,
+                      'http_api_stage': 1, 'codebuild_project': 1,
+                      'cognito_user_pool': 1, 'rds_instance': 4,
+                      'sagemaker_training_job': 5, 'ssmincidents_account': 2,
+                      'ebs_volume': 34, 'ec2_image': 1,
+                      'network_interface': 104, 'instance': 34,
+                      'ec2_launch_template': 11, 'guardduty_detector': 1,
+                      'kms_key': 34}
+    if any(final_counts[(kind, suffix)] != number
+           for kind, number in final_expected.items() for suffix in ('rows', 'complete')):
+        raise ValueError('992 final-pass API completeness changed')
     return {'snapshot_sha256': SNAPSHOT_SHA256, 'bucket_rows': bucket_rows,
             'detail_status_counts': actual,
             'ecr_repository_rows': ecr_rows, 'ecr_lifecycle_status_counts': dict(ecr_status),
@@ -442,7 +647,18 @@ def snapshot_completeness(path):
             'iam_user_rows': iam_user_rows,
             'iam_user_configuration_complete_count': iam_user_complete,
             'second_pass_complete_rows': second_expected,
-            'third_pass_complete_rows': third_expected}
+            'third_pass_complete_rows': third_expected,
+            'fourth_pass_complete_rows': fourth_expected,
+            'fifth_pass_complete_rows': fifth_expected,
+            'final_pass_complete_rows': final_expected}
+
+
+def _has_path(item, path):
+    for part in path.split('.'):
+        if not isinstance(item, dict) or part not in item:
+            return False
+        item = item[part]
+    return True
 
 
 def bind_fail_scopes(snapshot_path, pre_ai_path, rows, inventory_by_id):
@@ -659,6 +875,36 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                       and isinstance(s3_coverage, dict)
                       and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
                       and s3_coverage.get('third_pass_complete_rows') == third_expected)
+    fourth_expected = {'cloudwatch_alarm': 196, 'load_balancer': 10}
+    reviewed_fourth = (check['check_id'] in FOURTH_FIELDS
+                       and isinstance(s3_coverage, dict)
+                       and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                       and s3_coverage.get('fourth_pass_complete_rows') == fourth_expected)
+    fifth_expected = {'cognito_identity_pool': 3, 'dynamodb_table': 4,
+                      'rds_instance': 4, 'sns_topic': 5}
+    reviewed_fifth = (check['check_id'] in FIFTH_FIELDS
+                      and isinstance(s3_coverage, dict)
+                      and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                      and s3_coverage.get('fifth_pass_complete_rows') == fifth_expected)
+    final_expected = {'iam_credential_report': 13, 'acm_certificate': 45,
+                      'http_api_stage': 1, 'codebuild_project': 1,
+                      'cognito_user_pool': 1, 'rds_instance': 4,
+                      'sagemaker_training_job': 5, 'ssmincidents_account': 2,
+                      'ebs_volume': 34, 'ec2_image': 1,
+                      'network_interface': 104, 'instance': 34,
+                      'ec2_launch_template': 11, 'guardduty_detector': 1,
+                      'kms_key': 34}
+    reviewed_final = (check['check_id'] in FINAL_FIELDS
+                      and isinstance(s3_coverage, dict)
+                      and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                      and s3_coverage.get('final_pass_complete_rows') == final_expected)
+    if reviewed_final:
+        collector_path, _ = FINAL_COLLECTOR_REFS[registered.kind]
+        for path in {relative, 'peaso/checks/facts.py', collector_path} | {
+                helper['path'] for helper in helper_refs}:
+            expected = SPECIAL_SOURCE_PINS.get(path)
+            if expected is None or hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != expected:
+                raise ValueError('reviewed final helper/evaluator source changed: ' + path)
     if reviewed_ecs:
         for helper in helper_refs:
             if helper['symbol'] in {'task', 'optional'}:
@@ -714,7 +960,8 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
               and not any(isinstance(node.func, ast.Attribute) and node.func.attr == 'get'
                           for node in nodes if isinstance(node, ast.Call)))
     special = (reviewed_scope or reviewed_s3 or reviewed_other_snapshot or reviewed_ecs or reviewed_lambda
-               or reviewed_cloudfront or reviewed_iam_user or reviewed_second or reviewed_third or
+               or reviewed_cloudfront or reviewed_iam_user or reviewed_second or reviewed_third
+               or reviewed_fourth or reviewed_fifth or reviewed_final or
                check['check_id'] == 'aws.c2b.cloudfront.custom_ssl_certificate')
     if special:
         paths = (('peaso/checks/aws_a_iam.py', 'peaso/checks/aws_a_facts.py')
@@ -787,6 +1034,23 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                   if check['check_id'].startswith('aws.b.apigateway.') else
                   ('peaso/checks/claude_aws_a_ec2.py', 'peaso/collectors/aws_facts_cb_ca.py'))
                  if reviewed_third else
+                 (('peaso/checks/aws_a_cloudwatch.py',) if check['check_id'] ==
+                  'aws.a.cloudwatch.any_state_actions' else
+                  ('peaso/checks/compliance_new_aws.py',) if check['check_id'] ==
+                  'aws_nist_cloudwatch_alarm_action_enabled' else
+                  ('peaso/checks/aws_b_loadbalancing.py',) if check['check_id'].startswith('aws.b.alb.') else
+                  ('peaso/checks/aws_extended.py',))
+                 if reviewed_fourth else
+                 (('peaso/checks/aws_b_core.py', 'peaso/checks/aws_b_compute.py')
+                  if check['check_id'] == 'aws.b.cognito.no_guest_identities' else
+                  ('peaso/checks/aws_b_core.py', 'peaso/checks/aws_b_regional.py')
+                  if check['check_id'].startswith('aws.b.dynamodb.') else
+                  ('peaso/checks/aws_b_core.py', 'peaso/checks/aws_b_databases.py')
+                  if check['check_id'].startswith('aws.b.rds_instance.') else
+                  ('peaso/checks/aws_extended.py',))
+                 if reviewed_fifth else
+                 (relative, 'peaso/checks/facts.py')
+                 if reviewed_final else
                  ('peaso/checks/claude2_aws_b_edge.py', 'peaso/collectors/aws_b_services.py'))
         for path in paths:
             if hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != SPECIAL_SOURCE_PINS[path]:
@@ -851,6 +1115,28 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
             'default launch-template version. Exact-992 API responses and '
             'every native FAIL scope are collection-bound; omissions are '
             'interpreted only after complete response proof.')
+    elif reviewed_fourth:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} uses '
+            'fixed typed action lists or a typed ELB attribute Key/Value '
+            'lookup. The exact 992 response carries every required list or '
+            'collected Attributes detail; duplicate/missing/malformed '
+            'attributes cannot produce FAIL. Every FAIL scope is bound.')
+    elif reviewed_fifth:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} reads '
+            'the literal registered typed field through strict facts.get. '
+            'Its static DOCS.get only supplies result metadata. Exact 992 '
+            'responses contain the registered field in every relevant '
+            'resource row, and each FAIL scope is collection-bound.')
+    elif reviewed_final:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} and each '
+            'listed helper were reviewed as typed recorded-field predicates. '
+            'The exact 992 response has the required sentinel fields and '
+            'nested API statuses for every resource of this kind; optional '
+            'omissions occur only after that complete response. Every FAIL '
+            'ID is bound to its collected resource scope.')
     elif simple and (direct or special):
         decision, reason = ('native_final_source_proven',
             f'Evaluator {relative}:{start}-{start + len(raw) - 1} uses only '
@@ -928,6 +1214,9 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                              + (list(IAM_USER_FIELDS[check['check_id']]) if reviewed_iam_user else [])
                              + (list(SECOND_FIELDS[check['check_id']]) if reviewed_second else [])
                              + (list(THIRD_FIELDS[check['check_id']]) if reviewed_third else [])
+                             + (list(FOURTH_FIELDS[check['check_id']]) if reviewed_fourth else [])
+                             + (list(FIFTH_FIELDS[check['check_id']]) if reviewed_fifth else [])
+                             + (list(FINAL_FIELDS[check['check_id']]) if reviewed_final else [])
                              + (['Definition.taskDefinition.containerDefinitions',
                                  'Definition.taskDefinition.volumes[].host.sourcePath',
                                  'Definition.taskDefinition.volumes[].name',
@@ -946,7 +1235,7 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
         'underlying_evaluator': underlying,
         'snapshot_completeness_ref': ({'snapshot_sha256': SNAPSHOT_SHA256,
                                        'resource_rows': (s3_coverage['bucket_rows'] if reviewed_s3 else
-                                                         s3_coverage['log_group_rows'] if check['check_id'].startswith('aws.a.cloudwatch.') else
+                                                         s3_coverage['log_group_rows'] if check['check_id'] == 'aws.a.cloudwatch.log_kms_encryption' else
                                                          s3_coverage['sqs_queue_rows'] if check['check_id'].startswith('aws.cb.sqs.') else
                                                          s3_coverage['cloudformation_stack_rows'] if check['check_id'].startswith('aws.c2b.cloudformation.') else
                                                          s3_coverage['ecs_task_definition_rows'] if reviewed_ecs else
@@ -956,6 +1245,9 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                                                          (s3_coverage['iam_user_rows'] if registered.kind == 'iam_user'
                                                           else second_expected[registered.kind]) if reviewed_second else
                                                          third_expected[registered.kind] if reviewed_third else
+                                                         fourth_expected[registered.kind] if reviewed_fourth else
+                                                         fifth_expected[registered.kind] if reviewed_fifth else
+                                                         final_expected[registered.kind] if reviewed_final else
                                                          s3_coverage['ecr_repository_rows']),
                                        'response_sections': sorted({path.split('.')[0]
                                                                     for path in (S3_FIELDS.get(check['check_id']) or
@@ -965,9 +1257,13 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                                                                                  CLOUDFRONT_FIELDS.get(check['check_id']) or
                                                                                  IAM_USER_FIELDS.get(check['check_id']) or
                                                                                  SECOND_FIELDS.get(check['check_id']) or
-                                                                                 THIRD_FIELDS.get(check['check_id'], ()))})}
+                                                                                 THIRD_FIELDS.get(check['check_id']) or
+                                                                                 FOURTH_FIELDS.get(check['check_id']) or
+                                                                                 FIFTH_FIELDS.get(check['check_id']) or
+                                                                                 FINAL_FIELDS.get(check['check_id'], ()))})}
                                       if reviewed_s3 or reviewed_other_snapshot or reviewed_ecs or reviewed_lambda
-                                      or reviewed_cloudfront or reviewed_iam_user or reviewed_second or reviewed_third else None),
+                                      or reviewed_cloudfront or reviewed_iam_user or reviewed_second or reviewed_third
+                                      or reviewed_fourth or reviewed_fifth or reviewed_final else None),
         'helper_source_refs': ([{'path': 'peaso/checks/facts.py', 'lines': '12-53',
                                  'purpose': 'strict coverage-checked get/guard'}]
                                if any(call['name'] == 'get' for call in calls) else [])
@@ -1050,7 +1346,17 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                                    'purpose': 'GetStages complete response'},
                                   {'path': 'peaso/collectors/aws_facts_cb_ca.py', 'lines': '1092-1103',
                                    'purpose': 'DescribeLaunchTemplateVersions default-version projection'}]
-                                 if reviewed_third else []),
+                                 if reviewed_third else [])
+                              + ([{'path': 'peaso/checks/aws_b_loadbalancing.py', 'lines': '9-17',
+                                   'purpose': 'strict attribute list and duplicate-key rejection'},
+                                  {'path': 'peaso/checks/aws_extended.py', 'lines': '121-130',
+                                   'purpose': 'exactly one selected attribute or unavailable'}]
+                                 if reviewed_fourth and registered.kind == 'load_balancer' else [])
+                              + ([{'path': FINAL_COLLECTOR_REFS[registered.kind][0],
+                                   'lines': FINAL_COLLECTOR_REFS[registered.kind][1],
+                                   'purpose': 'source-pinned exact-992 API collection and nested response projection',
+                                   'source_file_sha256': SPECIAL_SOURCE_PINS[FINAL_COLLECTOR_REFS[registered.kind][0]]}]
+                                 if reviewed_final else []),
         'index_read_line': index_read,
         'untraced_helper_call': unsupported,
         'evidence_keys': inventory['evidence_keys'],

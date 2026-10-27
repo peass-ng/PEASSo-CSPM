@@ -120,6 +120,21 @@ def test_fixed_age_from_recorded_api_timestamp_and_scan_time(tmp_path, monkeypat
     assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value))
 
 
+def test_recorded_empty_string_and_numeric_threshold_are_source_pinned(tmp_path, monkeypatch):
+    value = qualified_manifest()
+    evidence = value['checks'][0]['deterministic_evidence']
+    evidence['operation']['threshold'] = ''
+    assert native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value)) == {
+        'aws.test.direct_setting'}
+    evidence['source_fields'][0]['field_type'] = 'number'
+    evidence['operation'] = {'kind': 'number_comparison', 'comparison': 'lt',
+                             'threshold': 14, 'threshold_unit': 'characters'}
+    assert native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value)) == {
+        'aws.test.direct_setting'}
+    evidence['operation']['threshold_unit'] = 'free_text'
+    assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value))
+
+
 def test_content_policy_intent_and_unreviewed_code_path_rejected(tmp_path, monkeypatch):
     for mutate in (
         lambda e: e['source_fields'][0].update(field_type='content'),

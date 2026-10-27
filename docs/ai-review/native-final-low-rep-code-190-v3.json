@@ -500,9 +500,13 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "AlarmActions",
+        "OKActions",
+        "InsufficientDataActions"
+      ],
       "check_id": "aws.a.cloudwatch.any_state_actions",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 33,
         "function_sha256": "ca394770fab3b391cc9be5f0102fc4b47de27bcf1741dc6aee55d612f13dd36c",
@@ -518,6 +522,13 @@
         "state_actions": {
           "dict": 43
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "968db68d8b6454711497b74e7b48e8392b107efed9c71a29930c2d53317ab226",
+        "matched_native_fail_ids": 43,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -541,12 +552,20 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 43,
-      "reason": "dynamic get field at peaso/checks/aws_a_cloudwatch.py:36 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_a_cloudwatch.py:33-39 uses fixed typed action lists or a typed ELB attribute Key/Value lookup. The exact 992 response carries every required list or collected Attributes detail; duplicate/missing/malformed attributes cannot produce FAIL. Every FAIL scope is bound.",
       "recorded_field_reads": [],
       "result_lines": [
         39
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 196,
+        "response_sections": [
+          "AlarmActions",
+          "InsufficientDataActions",
+          "OKActions"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 33,
         "path": "peaso/checks/aws_a_cloudwatch.py",
@@ -1532,9 +1551,12 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "user",
+        "mfa_active"
+      ],
       "check_id": "aws.a.iam.report_all_mfa",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 118,
         "function_sha256": "70011865b8ddafb5820d6f299899ffee26feb3d2b2b03d078a72021ebd59da5e",
@@ -1550,6 +1572,13 @@
         "mfa_active": {
           "bool": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "d42f58381f184775cad6887e0d3067c2caa21fc77547ba740c22cad063e2034d",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1570,17 +1599,30 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "6499b70ab725fe55edafa8adf436ffd50aab99cd5c105e67dcfdb15e615d339d",
           "symbol": "csv_boolean"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "helper chain csv_boolean at peaso/checks/aws_a_facts.py:63-67 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_a_iam.py:118-122 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         122
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 13,
+        "response_sections": [
+          "mfa_active",
+          "user"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -1685,10 +1727,11 @@
     },
     {
       "bound_api_fields": [
-        "Status"
+        "Status",
+        "Certificate.Certificate.Status"
       ],
       "check_id": "aws.b.acm.no_failed_validation",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 163,
         "function_sha256": "a6dad9f89536a45c0ed01c1314e55c6e35182614f8c7be8db496ada8dc71b79c",
@@ -1704,6 +1747,13 @@
         "certificate_status": {
           "str": 6
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "d6201b98fadd1e27d4ade2f34a0ea8526746fd2b220355093e309273844bda7a",
+        "matched_native_fail_ids": 6,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1729,12 +1779,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "7893bd90cb37ab8ea8c489215d5d62f4178e9bf015a4310b889757f037dad6e5",
           "symbol": "certificate"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 6,
-      "reason": "helper chain certificate at peaso/checks/aws_b_loadbalancing.py:116-117 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_loadbalancing.py:163-168 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 165,
@@ -1744,17 +1800,26 @@
       "result_lines": [
         168
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 45,
+        "response_sections": [
+          "Certificate"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "Type"
+        "Type",
+        "Type",
+        "Attributes.Attributes[].Key",
+        "Attributes.Attributes[].Value"
       ],
       "check_id": "aws.b.alb.access_logs",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 30,
         "function_sha256": "fc75bd86e5e07b7139c35704767d9b0ce9ed03ef46ccb98bcac329c1662341ba",
@@ -1774,6 +1839,13 @@
         "configured": {
           "str": 9
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "0032e9956d53e70ffba1648139b7bb4ff09edddaef763d900293c2b483914002",
+        "matched_native_fail_ids": 9,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1799,12 +1871,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "7893bd90cb37ab8ea8c489215d5d62f4178e9bf015a4310b889757f037dad6e5",
           "symbol": "lb_attrs"
+        },
+        {
+          "lines": "9-17",
+          "path": "peaso/checks/aws_b_loadbalancing.py",
+          "purpose": "strict attribute list and duplicate-key rejection"
+        },
+        {
+          "lines": "121-130",
+          "path": "peaso/checks/aws_extended.py",
+          "purpose": "exactly one selected attribute or unavailable"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 9,
-      "reason": "helper chain lb_attrs at peaso/checks/aws_b_loadbalancing.py:9-17 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_loadbalancing.py:30-42 uses fixed typed action lists or a typed ELB attribute Key/Value lookup. The exact 992 response carries every required list or collected Attributes detail; duplicate/missing/malformed attributes cannot produce FAIL. Every FAIL scope is bound.",
       "recorded_field_reads": [
         {
           "line": 32,
@@ -1814,17 +1896,27 @@
       "result_lines": [
         42
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 10,
+        "response_sections": [
+          "Attributes",
+          "Type"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "Type"
+        "Type",
+        "Type",
+        "Attributes.Attributes[].Key",
+        "Attributes.Attributes[].Value"
       ],
       "check_id": "aws.b.alb.deletion_protection",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 30,
         "function_sha256": "fc75bd86e5e07b7139c35704767d9b0ce9ed03ef46ccb98bcac329c1662341ba",
@@ -1844,6 +1936,13 @@
         "configured": {
           "str": 9
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "aa9734f72ab5a43cded799af2a104680b2d00f9e4a0f99ccdf1b700cc1d06f20",
+        "matched_native_fail_ids": 9,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1869,12 +1968,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "7893bd90cb37ab8ea8c489215d5d62f4178e9bf015a4310b889757f037dad6e5",
           "symbol": "lb_attrs"
+        },
+        {
+          "lines": "9-17",
+          "path": "peaso/checks/aws_b_loadbalancing.py",
+          "purpose": "strict attribute list and duplicate-key rejection"
+        },
+        {
+          "lines": "121-130",
+          "path": "peaso/checks/aws_extended.py",
+          "purpose": "exactly one selected attribute or unavailable"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 9,
-      "reason": "helper chain lb_attrs at peaso/checks/aws_b_loadbalancing.py:9-17 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_loadbalancing.py:30-42 uses fixed typed action lists or a typed ELB attribute Key/Value lookup. The exact 992 response carries every required list or collected Attributes detail; duplicate/missing/malformed attributes cannot produce FAIL. Every FAIL scope is bound.",
       "recorded_field_reads": [
         {
           "line": 32,
@@ -1884,17 +1993,27 @@
       "result_lines": [
         42
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 10,
+        "response_sections": [
+          "Attributes",
+          "Type"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "Type"
+        "Type",
+        "Type",
+        "Attributes.Attributes[].Key",
+        "Attributes.Attributes[].Value"
       ],
       "check_id": "aws.b.alb.invalid_header_dropping",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 30,
         "function_sha256": "fc75bd86e5e07b7139c35704767d9b0ce9ed03ef46ccb98bcac329c1662341ba",
@@ -1914,6 +2033,13 @@
         "configured": {
           "str": 9
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "f463db2513183f52d6b3b6b75a8adb3fbd02b030b5eb3e72eeac311a0741b3db",
+        "matched_native_fail_ids": 9,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1939,12 +2065,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "7893bd90cb37ab8ea8c489215d5d62f4178e9bf015a4310b889757f037dad6e5",
           "symbol": "lb_attrs"
+        },
+        {
+          "lines": "9-17",
+          "path": "peaso/checks/aws_b_loadbalancing.py",
+          "purpose": "strict attribute list and duplicate-key rejection"
+        },
+        {
+          "lines": "121-130",
+          "path": "peaso/checks/aws_extended.py",
+          "purpose": "exactly one selected attribute or unavailable"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 9,
-      "reason": "helper chain lb_attrs at peaso/checks/aws_b_loadbalancing.py:9-17 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_loadbalancing.py:30-42 uses fixed typed action lists or a typed ELB attribute Key/Value lookup. The exact 992 response carries every required list or collected Attributes detail; duplicate/missing/malformed attributes cannot produce FAIL. Every FAIL scope is bound.",
       "recorded_field_reads": [
         {
           "line": 32,
@@ -1954,7 +2090,14 @@
       "result_lines": [
         42
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 10,
+        "response_sections": [
+          "Attributes",
+          "Type"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -2062,10 +2205,12 @@
       "bound_api_fields": [
         "OFF",
         "DefaultRouteSettings",
-        "OFF"
+        "OFF",
+        "StageName",
+        "DefaultRouteSettings.LoggingLevel"
       ],
       "check_id": "aws.b.apigateway.http_execution_logging",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 39,
         "function_sha256": "e6c8709470626dabbfe811957fc4db37ba1202080e66c9429a0eac1a46dc1447",
@@ -2085,6 +2230,13 @@
         "stage_family": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "946b2d3632ea023fd63532577054eefc0499b4fa308998285ee4cef931a90b7b",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -2117,12 +2269,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "3bba75269b3358c4ac16ef70100b8c7aa68134600cd8829205fb4ea28de526d4",
           "symbol": "method_settings"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_apigateway.py:42; helper chain stage at peaso/checks/aws_b_apigateway.py:7-9 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_apigateway.py:39-49 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 42,
@@ -2140,7 +2298,14 @@
       "result_lines": [
         49
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "DefaultRouteSettings",
+          "StageName"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -3444,10 +3609,13 @@
     },
     {
       "bound_api_fields": [
-        "artifacts"
+        "artifacts",
+        "Configuration.projects[].name",
+        "Configuration.projects[].artifacts.encryptionDisabled",
+        "Configuration.projects[].secondaryArtifacts[].encryptionDisabled"
       ],
       "check_id": "aws.b.codebuild.artifact_encryption",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 126,
         "function_sha256": "ee055dfa3fe35158cf3e2e9dc7ae5b5ca9171a8bf01f4616c0ba5ae6196c4a78",
@@ -3471,6 +3639,13 @@
         "semantics": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "12dc191deea25ab9e0fbf7e4eabbe91291467a5e5de74e1d741fed27ba5eacf0",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -3524,12 +3699,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "136f48264836bc8a8a43b495ff71af02cbdafb008358cca8d2ffa162620e3a2e",
           "symbol": "_artifact_setting"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_compute.py:132; helper chain project at peaso/checks/aws_b_compute.py:97-101 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_compute.py:126-136 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 130,
@@ -3539,17 +3720,24 @@
       "result_lines": [
         134
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "environment.privilegedMode"
+        "environment.privilegedMode",
+        "Configuration.projects[].environment.privilegedMode"
       ],
       "check_id": "aws.b.codebuild.nonprivileged",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 104,
         "function_sha256": "534b509c1715f6e22fb586679ab2b1d36ab8fc83dc62a5a4c5767158560417fe",
@@ -3565,6 +3753,13 @@
         "privileged_environment": {
           "bool": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "b773d4055049525b42c75e4177019402c7b05de584db91ec7a5cdf2bcdef0e2a",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -3590,12 +3785,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "136f48264836bc8a8a43b495ff71af02cbdafb008358cca8d2ffa162620e3a2e",
           "symbol": "project"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain project at peaso/checks/aws_b_compute.py:97-101 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_compute.py:104-107 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 106,
@@ -3605,15 +3806,23 @@
       "result_lines": [
         107
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Configuration.UserPool.AdminCreateUserConfig.AllowAdminCreateUserOnly"
+      ],
       "check_id": "aws.b.cognito.admin_only_signup",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 30,
         "function_sha256": "7b374fee918538d7f799b5be8841b7c0685d7aaf3484a314a4f26e2a15b36643",
@@ -3634,6 +3843,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "b2dc5aa8dda27551996cd20b450b673902e0d6cbf9782ae35b4a4a40e5634a8b",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -3653,17 +3869,29 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
           "symbol": "setting"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain setting at peaso/checks/aws_b_cognito.py:12-25 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_cognito.py:30-36 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         36
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -3674,10 +3902,12 @@
         "RiskConfiguration",
         "AccountTakeoverRiskConfiguration",
         "Actions",
-        "EventAction"
+        "EventAction",
+        "Configuration.UserPool.UserPoolAddOns.AdvancedSecurityMode",
+        "Risk.RiskConfiguration.AccountTakeoverRiskConfiguration.Actions"
       ],
       "check_id": "aws.b.cognito.block_all_takeover_risks",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 104,
         "function_sha256": "eaec6e1a357c4975c6464cd75316afc68457f3e25ba1eb226ada73d74638ac73",
@@ -3693,6 +3923,13 @@
         "threat_protection_mode": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "535d5425fe787a9ab2018adebdaa99e9f4b7011120f9a03c15de30bbbb6ac6aa",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -3757,12 +3994,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "optional"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_cognito.py:110; dynamic get field at peaso/checks/aws_b_cognito.py:116 lacks literal registration binding; helper chain threat_mode at peaso/checks/aws_b_cognito.py:71-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_cognito.py:104-121 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 109,
@@ -3789,7 +4032,14 @@
         108,
         121
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration",
+          "Risk"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -3801,10 +4051,13 @@
         "CompromisedCredentialsRiskConfiguration",
         "EventFilter",
         "Actions",
-        "EventAction"
+        "EventAction",
+        "Configuration.UserPool.UserPoolAddOns.AdvancedSecurityMode",
+        "Risk.RiskConfiguration.CompromisedCredentialsRiskConfiguration.EventFilter",
+        "Risk.RiskConfiguration.CompromisedCredentialsRiskConfiguration.Actions.EventAction"
       ],
       "check_id": "aws.b.cognito.block_compromised_signin",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 82,
         "function_sha256": "77ff09bad8ebd1a8db53aac92129bd5c2ac54e93972757ee6a01ce595dbed035",
@@ -3820,6 +4073,13 @@
         "threat_protection_mode": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "cc24e812d8f6dcabc3370516eec1eb9855f6ffc902743ab2b796456c4c62d429",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -3884,12 +4144,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "optional"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_cognito.py:88; helper chain threat_mode at peaso/checks/aws_b_cognito.py:71-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_cognito.py:82-98 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 87,
@@ -3920,15 +4186,24 @@
         86,
         98
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration",
+          "Risk"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Configuration.UserPool.DeletionProtection"
+      ],
       "check_id": "aws.b.cognito.deletion_protection",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 30,
         "function_sha256": "7b374fee918538d7f799b5be8841b7c0685d7aaf3484a314a4f26e2a15b36643",
@@ -3949,6 +4224,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "555ce7c7f41bf2376e7370e5eb12476d989c51ad25adcea894ebe949e1b225eb",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -3968,25 +4250,39 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
           "symbol": "setting"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain setting at peaso/checks/aws_b_cognito.py:12-25 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_cognito.py:30-36 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         36
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Configuration.UserPool.UserPoolAddOns.AdvancedSecurityMode"
+      ],
       "check_id": "aws.b.cognito.enforced_threat_protection",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 30,
         "function_sha256": "7b374fee918538d7f799b5be8841b7c0685d7aaf3484a314a4f26e2a15b36643",
@@ -4007,6 +4303,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "ee499015e36d3242d977e8c9a8e7d5ad9be1790eba182df7659645659cf6af89",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -4026,25 +4329,39 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
           "symbol": "setting"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain setting at peaso/checks/aws_b_cognito.py:12-25 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_cognito.py:30-36 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         36
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Configuration.AllowUnauthenticatedIdentities"
+      ],
       "check_id": "aws.b.cognito.no_guest_identities",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 39,
         "function_sha256": "2f423d1f07a1e11cad78cde2d0573e8c17a7fbde56de3ee33a69e6a057c9fdc8",
@@ -4069,6 +4386,13 @@
           "null": 2
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "fae970f09480351d67e8d7d69dd1f42e671f8fad8847ca93e8d8534fbcf18a06",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -4091,12 +4415,18 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_core.py:44; dynamic get field at peaso/checks/aws_b_core.py:41 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_core.py:39-44 reads the literal registered typed field through strict facts.get. Its static DOCS.get only supplies result metadata. Exact 992 responses contain the registered field in every relevant resource row, and each FAIL scope is collection-bound.",
       "recorded_field_reads": [],
       "result_lines": [
         44
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 3,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 76,
         "path": "peaso/checks/aws_b_compute.py",
@@ -4107,9 +4437,11 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Configuration.UserPool.Policies.PasswordPolicy.MinimumLength"
+      ],
       "check_id": "aws.b.cognito.password_minimum_fourteen",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 51,
         "function_sha256": "316bfc343b9928b1af7bc96bca9e91da8d7cde3178a0b004e43d26ab25c1fde1",
@@ -4130,6 +4462,13 @@
           "int": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "df47c93629411c8bbd8cd4734487488458071af33744803386c6f59b52d3f181",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "length < 14",
@@ -4149,25 +4488,39 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
           "symbol": "setting"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain setting at peaso/checks/aws_b_cognito.py:12-25 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_cognito.py:51-57 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         57
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Configuration.UserPool.MfaConfiguration"
+      ],
       "check_id": "aws.b.cognito.required_mfa",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 30,
         "function_sha256": "7b374fee918538d7f799b5be8841b7c0685d7aaf3484a314a4f26e2a15b36643",
@@ -4188,6 +4541,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "d0923f1c382262f8754f5788987a69409e81cdbf49a67c43a56e3cc322f952f3",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -4207,25 +4567,39 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
           "symbol": "setting"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain setting at peaso/checks/aws_b_cognito.py:12-25 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_cognito.py:30-36 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         36
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Table.Table.DeletionProtectionEnabled"
+      ],
       "check_id": "aws.b.dynamodb.deletion_protection",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 39,
         "function_sha256": "2f423d1f07a1e11cad78cde2d0573e8c17a7fbde56de3ee33a69e6a057c9fdc8",
@@ -4250,6 +4624,13 @@
           "str": 2
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "fcc8975bb8a0906b67288c20090b4e6b6da83f2c737f0666d68d2c9ef52f643a",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -4272,12 +4653,18 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_core.py:44; dynamic get field at peaso/checks/aws_b_core.py:41 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_core.py:39-44 reads the literal registered typed field through strict facts.get. Its static DOCS.get only supplies result metadata. Exact 992 responses contain the registered field in every relevant resource row, and each FAIL scope is collection-bound.",
       "recorded_field_reads": [],
       "result_lines": [
         44
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "Table"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 106,
         "path": "peaso/checks/aws_b_regional.py",
@@ -4356,9 +4743,11 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "ContinuousBackups.ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus"
+      ],
       "check_id": "aws.b.dynamodb.point_in_time_recovery",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 39,
         "function_sha256": "2f423d1f07a1e11cad78cde2d0573e8c17a7fbde56de3ee33a69e6a057c9fdc8",
@@ -4383,6 +4772,13 @@
           "str": 2
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "ec8c266e850c442df5da357a1fc0c398f08366d757344cca05a8ad0434ae7f26",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -4405,12 +4801,18 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_core.py:44; dynamic get field at peaso/checks/aws_b_core.py:41 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_core.py:39-44 reads the literal registered typed field through strict facts.get. Its static DOCS.get only supplies result metadata. Exact 992 responses contain the registered field in every relevant resource row, and each FAIL scope is collection-bound.",
       "recorded_field_reads": [],
       "result_lines": [
         44
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "ContinuousBackups"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 81,
         "path": "peaso/checks/aws_b_core.py",
@@ -5303,9 +5705,11 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "IAMDatabaseAuthenticationEnabled"
+      ],
       "check_id": "aws.b.rds_instance.iam_authentication",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 39,
         "function_sha256": "2f423d1f07a1e11cad78cde2d0573e8c17a7fbde56de3ee33a69e6a057c9fdc8",
@@ -5330,6 +5734,13 @@
           "str": 4
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "9067998b51283b118eff72e02ca6db3fea9ae7c1b1c26c37b663790765e6a61a",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -5352,12 +5763,18 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_core.py:44; dynamic get field at peaso/checks/aws_b_core.py:41 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_core.py:39-44 reads the literal registered typed field through strict facts.get. Its static DOCS.get only supplies result metadata. Exact 992 responses contain the registered field in every relevant resource row, and each FAIL scope is collection-bound.",
       "recorded_field_reads": [],
       "result_lines": [
         44
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "IAMDatabaseAuthenticationEnabled"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 12,
         "path": "peaso/checks/aws_b_databases.py",
@@ -5536,9 +5953,11 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "CopyTagsToSnapshot"
+      ],
       "check_id": "aws.b.rds_instance.snapshot_tags",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 39,
         "function_sha256": "2f423d1f07a1e11cad78cde2d0573e8c17a7fbde56de3ee33a69e6a057c9fdc8",
@@ -5563,6 +5982,13 @@
           "str": 4
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "af729630de1fb1fd86eb2639a1dfb13c2ce5d746354c5577efdec862313e8199",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -5585,12 +6011,18 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_core.py:44; dynamic get field at peaso/checks/aws_b_core.py:41 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_core.py:39-44 reads the literal registered typed field through strict facts.get. Its static DOCS.get only supplies result metadata. Exact 992 responses contain the registered field in every relevant resource row, and each FAIL scope is collection-bound.",
       "recorded_field_reads": [],
       "result_lines": [
         44
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "CopyTagsToSnapshot"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 15,
         "path": "peaso/checks/aws_b_databases.py",
@@ -8637,10 +9069,12 @@
     },
     {
       "bound_api_fields": [
-        "StageName"
+        "StageName",
+        "StageName",
+        "AccessLogSettings"
       ],
       "check_id": "aws.cb.apigatewayv2.stage_access_logging",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 138,
         "function_sha256": "fef755694b78663e1bf8121902409f65b5e50c74ca7c5c6cff13ca53ec59bee6",
@@ -8660,6 +9094,13 @@
         "stage": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "bb7084f3e2db389b1237c6a7b31424da8388df2f8cd8573c03bb31b49801a68b",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -8692,12 +9133,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
           "symbol": "empty"
+        },
+        {
+          "lines": "129-275,447-535",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain absent_or at peaso/checks/claude_aws_b_common.py:91-106 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_storage.py:138-146 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 146,
@@ -8707,7 +9154,14 @@
       "result_lines": [
         146
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "AccessLogSettings",
+          "StageName"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -8993,10 +9447,13 @@
     },
     {
       "bound_api_fields": [
-        "DBInstanceClass"
+        "DBInstanceClass",
+        "DBInstanceClass",
+        "DBInstanceArn",
+        "EnhancedMonitoringResourceArn"
       ],
       "check_id": "aws.cb.rds.instance_enhanced_monitoring_except_m1_small",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 369,
         "function_sha256": "acb9ca081599ab7715f423101819ed7c5ef6d3e53bd00cce82f07bb71d020505",
@@ -9012,6 +9469,13 @@
         "enhanced_monitoring_resource_arn": {
           "null": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "224fcd6f520b6606d25dbcd5fab6402f7e49786c5055334cb067a50b0741bed4",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9037,12 +9501,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
           "symbol": "absent_or"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "helper chain absent_or at peaso/checks/claude_aws_b_common.py:91-106 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_db.py:369-380 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 376,
@@ -9052,15 +9522,26 @@
       "result_lines": [
         380
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "DBInstanceArn",
+          "DBInstanceClass",
+          "EnhancedMonitoringResourceArn"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "DBInstanceArn",
+        "EngineLifecycleSupport"
+      ],
       "check_id": "aws.cb.rds.instance_extended_support",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 691,
         "function_sha256": "96471daef0a6d1534cd14377e72c9da839f79776ce204c41e18541825c6ed15c",
@@ -9076,6 +9557,13 @@
         "engine_lifecycle_support": {
           "str": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "2d26252aa3c6d54949c6d885a9b68fc4c40e71054201120d0492641045b5da78",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9096,27 +9584,43 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
           "symbol": "absent_or"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "helper chain absent_or at peaso/checks/claude_aws_b_common.py:91-106 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_db.py:691-697 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         697
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "DBInstanceArn",
+          "EngineLifecycleSupport"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "Engine"
+        "Engine",
+        "Engine",
+        "DBInstanceArn",
+        "IAMDatabaseAuthenticationEnabled"
       ],
       "check_id": "aws.cb.rds.instance_iam_auth_supported_engines",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 619,
         "function_sha256": "d6d7f3f516ba66b7081e99c85f023c3d039e3ee1e85d07891dd61e9fa993726a",
@@ -9132,6 +9636,13 @@
         "iam_database_authentication": {
           "bool": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "55a29be0635b6ffc1ddb09148bb6e0ba6035db143f71915c04057a386d6fd3c4",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9157,12 +9668,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
           "symbol": "absent_or"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "helper chain absent_or at peaso/checks/claude_aws_b_common.py:91-106 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_db.py:619-630 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 626,
@@ -9172,7 +9689,15 @@
       "result_lines": [
         630
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "DBInstanceArn",
+          "Engine",
+          "IAMDatabaseAuthenticationEnabled"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -9585,10 +10110,12 @@
     },
     {
       "bound_api_fields": [
-        "OutputDataConfig"
+        "OutputDataConfig",
+        "OutputDataConfig.S3OutputPath",
+        "OutputDataConfig.KmsKeyId"
       ],
       "check_id": "aws.cb.sagemaker.training_output_kms",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 600,
         "function_sha256": "78378868c24e00de9900565314f2b7bb4415b190523bba747911893847f6d2fb",
@@ -9604,6 +10131,13 @@
         "kms_key_id": {
           "str": 5
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "327969b6ce145ed855bdd04d66cfcb41817ec1480fabb20d6a2f492d201b4b16",
+        "matched_native_fail_ids": 5,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9629,12 +10163,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
           "symbol": "absent_or"
+        },
+        {
+          "lines": "887-909,965-975,1092-1105,1316-1330",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 5,
-      "reason": "helper chain absent_or at peaso/checks/claude_aws_b_common.py:91-106 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_compute.py:600-607 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 605,
@@ -9644,17 +10184,25 @@
       "result_lines": [
         607
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 5,
+        "response_sections": [
+          "OutputDataConfig"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "ResourceConfig"
+        "ResourceConfig",
+        "ResourceConfig.InstanceType",
+        "ResourceConfig.VolumeKmsKeyId"
       ],
       "check_id": "aws.cb.sagemaker.training_volume_kms",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 610,
         "function_sha256": "4adf62abbb0d9fdd1aadfd9c0fd458a04add404cd4245a4bd9b24aa998f90570",
@@ -9670,6 +10218,13 @@
         "volume_kms_key_id": {
           "null": 5
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "775c7df68a460c95fdefab63a5f108cb6888fcb17c566e44c314e4613c5f5a27",
+        "matched_native_fail_ids": 5,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9695,12 +10250,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
           "symbol": "absent_or"
+        },
+        {
+          "lines": "887-909,965-975,1092-1105,1316-1330",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 5,
-      "reason": "helper chain absent_or at peaso/checks/claude_aws_b_common.py:91-106 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_compute.py:610-617 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 615,
@@ -9710,7 +10271,13 @@
       "result_lines": [
         617
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 5,
+        "response_sections": [
+          "ResourceConfig"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -9986,10 +10553,12 @@
       "bound_api_fields": [
         "items",
         "status",
-        "items"
+        "items",
+        "ReplicationSets.items[].status",
+        "ResponsePlans.items"
       ],
       "check_id": "aws.cb.ssmincidents.active_with_response_plans",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 900,
         "function_sha256": "f4bc18c715d1179b96c284b8aa58683e40fa0b030fd29ae78d596734783a0dac",
@@ -10005,6 +10574,13 @@
         "replication_set": {
           "null": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "ba62c8c7a958d183885d1bb5fa39d685ff94be387e91e41f6a55a69f13adabeb",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -10041,12 +10617,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "list_of_objects"
+        },
+        {
+          "lines": "887-909,965-975,1092-1105,1316-1330",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/claude_aws_b_security.py:907; dynamic get field at peaso/checks/claude_aws_b_security.py:905 lacks literal registration binding; helper chain list_of_objects at peaso/checks/facts.py:72-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_security.py:900-914 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 909,
@@ -10065,7 +10647,14 @@
         911,
         914
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 2,
+        "response_sections": [
+          "ReplicationSets",
+          "ResponsePlans"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -10246,10 +10835,12 @@
     {
       "bound_api_fields": [
         "Attachments",
-        "DeleteOnTermination"
+        "DeleteOnTermination",
+        "State",
+        "Attachments[].DeleteOnTermination"
       ],
       "check_id": "aws.claude_a.ebs.attached_delete_on_termination",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 103,
         "function_sha256": "47e820bf9ff26da66f2db31789f1a255e07a001054fb6bd8797d76c3b0682323",
@@ -10265,6 +10856,13 @@
         "delete_on_termination": {
           "list": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "6a021c2f3586c518d275bac8214649e0ce3c902fc59331ed9eade83f71a23e7d",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -10297,12 +10895,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "list_of_objects"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain volume_state at peaso/checks/claude_aws_a_ec2.py:85-89 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_ec2.py:103-113 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 111,
@@ -10316,17 +10920,25 @@
       "result_lines": [
         113
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 34,
+        "response_sections": [
+          "Attachments[]",
+          "State"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "BlockDeviceMappings"
+        "BlockDeviceMappings",
+        "BlockDeviceMappings[].Ebs.Encrypted"
       ],
       "check_id": "aws.claude_a.ec2.ami_ebs_encrypted",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 324,
         "function_sha256": "d3d18780eb4a5d0c5057cfdb0c05a1ec39ddd0adc252d581981b70847d2f269b",
@@ -10342,6 +10954,13 @@
         "encrypted": {
           "list": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "ca1f67e374f6e3c3762279040016356b7215795b70687aa7f0b34a1562b51ed6",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -10367,12 +10986,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "list_of_objects"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "dict.get omission/value flow at peaso/checks/claude_aws_a_ec2.py:334; helper chain list_of_objects at peaso/checks/facts.py:72-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_ec2.py:324-335 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 331,
@@ -10382,7 +11007,13 @@
       "result_lines": [
         335
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "BlockDeviceMappings[]"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -10455,10 +11086,13 @@
     },
     {
       "bound_api_fields": [
-        "Status"
+        "Status",
+        "Status",
+        "NetworkInterfaceId",
+        "Attachment.InstanceId"
       ],
       "check_id": "aws.claude_a.ec2.eni_in_use",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 1178,
         "function_sha256": "a10ea462234541402fa89f01dea35a75b048b7f64f34450e4680877cb4bf5595",
@@ -10478,6 +11112,13 @@
         "status": {
           "str": 13
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "67444e58ac5e10b4bba980a1ae56794ecb3dfbbcd256d961aa225987247d11f0",
+        "matched_native_fail_ids": 13,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -10503,12 +11144,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "42218f329b77e55cd56c2f46de0a82ab260c849ca1ae1e89ac95a54e201a87d8",
           "symbol": "absent_or"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 13,
-      "reason": "helper chain absent_or at peaso/checks/claude_aws_a_common.py:144-159 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_ec2.py:1178-1186 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 1182,
@@ -10518,7 +11165,15 @@
       "result_lines": [
         1186
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 104,
+        "response_sections": [
+          "Attachment",
+          "NetworkInterfaceId",
+          "Status"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -10592,10 +11247,11 @@
     {
       "bound_api_fields": [
         "BlockDeviceMappings",
-        "DeleteOnTermination"
+        "DeleteOnTermination",
+        "BlockDeviceMappings[].Ebs.DeleteOnTermination"
       ],
       "check_id": "aws.claude_a.ec2.instance_ebs_delete_on_termination",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 706,
         "function_sha256": "5e5d9b0709d620ba19227e841894a9b6c5c63f390b43dcdd5ab9aae9f68af897",
@@ -10611,6 +11267,13 @@
         "devices": {
           "list": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "fe2899e8c61e9d4bf400795582f086f40296af1b578b9129d4e54e480fb4ada2",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -10643,12 +11306,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "optional"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "dict.get omission/value flow at peaso/checks/claude_aws_a_ec2.py:716; helper chain list_of_objects at peaso/checks/facts.py:72-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_ec2.py:706-717 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 713,
@@ -10662,7 +11331,13 @@
       "result_lines": [
         717
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 34,
+        "response_sections": [
+          "BlockDeviceMappings[]"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -10875,9 +11550,12 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Versions[].DefaultVersion",
+        "Versions[].LaunchTemplateData.BlockDeviceMappings[].Ebs.Encrypted"
+      ],
       "check_id": "aws.claude_a.ec2.launch_template_default_ebs_encrypted",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 1029,
         "function_sha256": "2a03fbab5d24a5aba012d1616076157c38da55157fe98e96fec4747cd826514c",
@@ -10893,6 +11571,13 @@
         "unencrypted_devices": {
           "list": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "b4441cc106e8f8e114dfbd4f30c31261344db977ecc00c502baf91930351b651",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -10932,17 +11617,29 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "list_of_objects"
+        },
+        {
+          "lines": "887-909,965-975,1092-1105,1316-1330",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "dict.get omission/value flow at peaso/checks/claude_aws_a_ec2.py:1040; helper chain _default_data at peaso/checks/claude_aws_a_ec2.py:1011-1015 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_ec2.py:1029-1041 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         1041
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 11,
+        "response_sections": [
+          "Versions[]"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -11049,7 +11746,7 @@
         "items"
       ],
       "check_id": "aws.claude_a.guardduty.detector_no_findings",
-      "decision": "provisional_source_candidate",
+      "decision": "retain_ai",
       "evaluator": {
         "first_line": 145,
         "function_sha256": "ef74d708ff24cf239970130ca1b09e06bd05e0c35d5d39cd1391ddbff2553b1b",
@@ -11102,7 +11799,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain detector_enabled at peaso/checks/claude_aws_a_security.py:59-63 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "peaso/checks/claude_aws_a_security.py:24-30 treats missing nested collection_status as collected; a partial HighSeverityFindingIds list could yield FAIL.",
       "recorded_field_reads": [
         {
           "line": 152,
@@ -11405,7 +12102,7 @@
     {
       "bound_api_fields": [],
       "check_id": "aws.claude_a.guardduty.prowler_ai_protection",
-      "decision": "provisional_source_candidate",
+      "decision": "retain_ai",
       "evaluator": {
         "first_line": 226,
         "function_sha256": "c6f98e62e257766ecb8265a6bc5ffaae0089bedda6de4c8ca032cb4d5599e0d4",
@@ -11453,7 +12150,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain detector_enabled at peaso/checks/claude_aws_a_security.py:59-63 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "peaso/checks/claude_aws_a_security.py:182-199 defaults a malformed feature Status to DISABLED via dict.get, which can yield FAIL instead of UNKNOWN.",
       "recorded_field_reads": [],
       "result_lines": [
         236
@@ -11525,7 +12222,7 @@
         "items"
       ],
       "check_id": "aws.claude_a.guardduty.prowler_no_high_severity_findings",
-      "decision": "provisional_source_candidate",
+      "decision": "retain_ai",
       "evaluator": {
         "first_line": 268,
         "function_sha256": "d8660f12840c7fed8a9cd523543df0bcc56f0d6cd49622ab45463a87967055d1",
@@ -11571,7 +12268,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain collected at peaso/checks/claude_aws_a_security.py:24-30 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "peaso/checks/claude_aws_a_security.py:24-30 treats missing nested collection_status as collected; absence of an explicit complete finding-list marker is ambiguous.",
       "recorded_field_reads": [
         {
           "line": 273,
@@ -11589,7 +12286,7 @@
     {
       "bound_api_fields": [],
       "check_id": "aws.claude_a.guardduty.prowler_runtime_monitoring",
-      "decision": "provisional_source_candidate",
+      "decision": "retain_ai",
       "evaluator": {
         "first_line": 239,
         "function_sha256": "179579341cc336ad40c3c4ef2e0b55a55a23642f77fb497fd079ba9d82ffa7d4",
@@ -11645,7 +12342,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain detector_enabled at peaso/checks/claude_aws_a_security.py:59-63 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "peaso/checks/claude_aws_a_security.py:182-199 defaults missing feature Name/Status via dict.get, so malformed feature rows can reach FAIL.",
       "recorded_field_reads": [],
       "result_lines": [
         249,
@@ -11831,9 +12528,13 @@
       }
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "user",
+        "access_key_1_active",
+        "access_key_2_active"
+      ],
       "check_id": "aws.claude_a.iam.not_two_active_keys",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 833,
         "function_sha256": "646ab07ece92954532b38526b2292c1c1789abd5d819cec9109ccdb4a615b93c",
@@ -11849,6 +12550,13 @@
         "both_active": {
           "bool": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "1de3cb8d89bd2ea3fd9b123195f04138373747f8f0aaac6adb6a148935f3d8a6",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -11869,17 +12577,31 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687",
           "symbol": "flag"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain flag at peaso/checks/claude_aws_a_iam.py:731-735 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_iam.py:833-839 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         839
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 13,
+        "response_sections": [
+          "access_key_1_active",
+          "access_key_2_active",
+          "user"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -12131,9 +12853,12 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Metadata.KeyMetadata.KeyManager",
+        "Metadata.KeyMetadata.KeyState"
+      ],
       "check_id": "aws.claude_a.kms.customer_key_not_pending_deletion",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 361,
         "function_sha256": "27e064ae230bb6a63182cfa3ab68884670cb45ee697657f89e556b6b8f4736ef",
@@ -12149,6 +12874,13 @@
         "key_state": {
           "str": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "16094ca845fefb4a8ad61446bce5e47b6aa6d3a7af6ae1db64cf6e1e6b347fd5",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -12176,17 +12908,29 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8",
           "symbol": "meta"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "helper chain customer at peaso/checks/claude_aws_a_security.py:320-324 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_security.py:361-370 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [],
       "result_lines": [
         370
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 34,
+        "response_sections": [
+          "Metadata"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -13519,10 +14263,13 @@
     },
     {
       "bound_api_fields": [
-        "Type"
+        "Type",
+        "Type",
+        "Attributes.Attributes[].Key",
+        "Attributes.Attributes[].Value"
       ],
       "check_id": "aws.elbv2.access_logging",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 138,
         "function_sha256": "a879fff4501c84fb2ecc2f8f1a7f22678d4ef8237454c754d5a407d179052fc7",
@@ -13542,6 +14289,13 @@
         "configured": {
           "str": 10
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "8637d6073be1611577264b05ca469476b397fbe46e15d0806ffde746d1b70562",
+        "matched_native_fail_ids": 10,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -13567,12 +14321,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "aac21cb7a83d89836beb374e72746d9f1f1e3b8de42137d5915397e7a0ea8f4b",
           "symbol": "lb_attribute"
+        },
+        {
+          "lines": "9-17",
+          "path": "peaso/checks/aws_b_loadbalancing.py",
+          "purpose": "strict attribute list and duplicate-key rejection"
+        },
+        {
+          "lines": "121-130",
+          "path": "peaso/checks/aws_extended.py",
+          "purpose": "exactly one selected attribute or unavailable"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 10,
-      "reason": "helper chain lb_attribute at peaso/checks/aws_extended.py:121-130 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_extended.py:138-150 uses fixed typed action lists or a typed ELB attribute Key/Value lookup. The exact 992 response carries every required list or collected Attributes detail; duplicate/missing/malformed attributes cannot produce FAIL. Every FAIL scope is bound.",
       "recorded_field_reads": [
         {
           "line": 142,
@@ -13582,17 +14346,27 @@
       "result_lines": [
         150
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 10,
+        "response_sections": [
+          "Attributes",
+          "Type"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "Type"
+        "Type",
+        "Type",
+        "Attributes.Attributes[].Key",
+        "Attributes.Attributes[].Value"
       ],
       "check_id": "aws.elbv2.deletion_protection",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 138,
         "function_sha256": "a879fff4501c84fb2ecc2f8f1a7f22678d4ef8237454c754d5a407d179052fc7",
@@ -13612,6 +14386,13 @@
         "configured": {
           "str": 10
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "9545bee3532b4cd39643f5d1d81aab796978a9a2f15f38cf90134dcb7aacbb61",
+        "matched_native_fail_ids": 10,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -13637,12 +14418,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "aac21cb7a83d89836beb374e72746d9f1f1e3b8de42137d5915397e7a0ea8f4b",
           "symbol": "lb_attribute"
+        },
+        {
+          "lines": "9-17",
+          "path": "peaso/checks/aws_b_loadbalancing.py",
+          "purpose": "strict attribute list and duplicate-key rejection"
+        },
+        {
+          "lines": "121-130",
+          "path": "peaso/checks/aws_extended.py",
+          "purpose": "exactly one selected attribute or unavailable"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 10,
-      "reason": "helper chain lb_attribute at peaso/checks/aws_extended.py:121-130 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_extended.py:138-150 uses fixed typed action lists or a typed ELB attribute Key/Value lookup. The exact 992 response carries every required list or collected Attributes detail; duplicate/missing/malformed attributes cannot produce FAIL. Every FAIL scope is bound.",
       "recorded_field_reads": [
         {
           "line": 142,
@@ -13652,17 +14443,27 @@
       "result_lines": [
         150
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 10,
+        "response_sections": [
+          "Attributes",
+          "Type"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
-        "Type"
+        "Type",
+        "Type",
+        "Attributes.Attributes[].Key",
+        "Attributes.Attributes[].Value"
       ],
       "check_id": "aws.elbv2.drop_invalid_headers",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 138,
         "function_sha256": "a879fff4501c84fb2ecc2f8f1a7f22678d4ef8237454c754d5a407d179052fc7",
@@ -13682,6 +14483,13 @@
         "configured": {
           "str": 9
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "3a0312d14d43cf1c4ce2d5460255b345c9006d42df3ba4b21fb45bb17cef45bf",
+        "matched_native_fail_ids": 9,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -13707,12 +14515,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "aac21cb7a83d89836beb374e72746d9f1f1e3b8de42137d5915397e7a0ea8f4b",
           "symbol": "lb_attribute"
+        },
+        {
+          "lines": "9-17",
+          "path": "peaso/checks/aws_b_loadbalancing.py",
+          "purpose": "strict attribute list and duplicate-key rejection"
+        },
+        {
+          "lines": "121-130",
+          "path": "peaso/checks/aws_extended.py",
+          "purpose": "exactly one selected attribute or unavailable"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 9,
-      "reason": "helper chain lb_attribute at peaso/checks/aws_extended.py:121-130 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_extended.py:138-150 uses fixed typed action lists or a typed ELB attribute Key/Value lookup. The exact 992 response carries every required list or collected Attributes detail; duplicate/missing/malformed attributes cannot produce FAIL. Every FAIL scope is bound.",
       "recorded_field_reads": [
         {
           "line": 142,
@@ -13722,7 +14540,14 @@
       "result_lines": [
         150
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 10,
+        "response_sections": [
+          "Attributes",
+          "Type"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -13804,10 +14629,13 @@
         "Configuration.Status",
         "Configuration.Features",
         "Name",
-        "Status"
+        "Status",
+        "Configuration.Status",
+        "Configuration.Features[].Name",
+        "Configuration.Features[].Status"
       ],
       "check_id": "aws.guardduty.runtime_monitoring",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 297,
         "function_sha256": "23e7043986c1b4993f6b55f72ceebeb1d6565cdd70bfebeeca2ac64f36649c2b",
@@ -13831,6 +14659,13 @@
         "feature": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "947f59879d2acfa1863934cffd2897c6a8a3e00eea0c9257374c0c84ea13518d",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -13860,12 +14695,18 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "list_of_objects"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "helper chain list_of_objects at peaso/checks/facts.py:72-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_extended.py:297-313 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 301,
@@ -13888,7 +14729,13 @@
         309,
         313
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 1,
+        "response_sections": [
+          "Configuration"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -14085,7 +14932,7 @@
         "SerialNumber"
       ],
       "check_id": "aws.iam.console_mfa",
-      "decision": "provisional_source_candidate",
+      "decision": "retain_ai",
       "evaluator": {
         "first_line": 339,
         "function_sha256": "7b514b957e81442f73aa1b412ebb374a3c08181fcf35e965ab40f2e40be61991",
@@ -14156,7 +15003,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 4,
-      "reason": "helper chain optional at peaso/checks/facts.py:127-132 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "peaso/checks/__init__.py:358-379 permits MFADevices.collection_status outside collected/empty and can return FAIL for a denied empty list.",
       "recorded_field_reads": [
         {
           "line": 343,
@@ -14261,10 +15108,14 @@
     {
       "bound_api_fields": [
         "Metadata.KeyMetadata",
+        "Rotation.KeyRotationEnabled",
+        "Metadata.KeyMetadata.KeyManager",
+        "Metadata.KeyMetadata.Origin",
+        "Metadata.KeyMetadata.KeySpec",
         "Rotation.KeyRotationEnabled"
       ],
       "check_id": "aws.kms.rotation",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 84,
         "function_sha256": "5fea9732300bf24833e14ca89bce230a9c8282ba40215324f20b67403d245ddb",
@@ -14280,6 +15131,13 @@
         "rotation_enabled": {
           "bool": 3
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "7e85d8116586e7696871a76fb670f8abced0c44f7b2383a635a0210c75138091",
+        "matched_native_fail_ids": 3,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -14298,12 +15156,18 @@
           "lines": "178-183",
           "path": "peaso/checks/__init__.py",
           "purpose": "pure FAIL/PASS/UNKNOWN construction"
+        },
+        {
+          "lines": "1060-1130,1234-1500,2799-2920",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "source-pinned exact-992 API collection and nested response projection",
+          "source_file_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 3,
-      "reason": "dynamic get field at peaso/checks/aws.py:87 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws.py:84-91 and each listed helper were reviewed as typed recorded-field predicates. The exact 992 response has the required sentinel fields and nested API statuses for every resource of this kind; optional omissions occur only after that complete response. Every FAIL ID is bound to its collected resource scope.",
       "recorded_field_reads": [
         {
           "line": 86,
@@ -14317,7 +15181,14 @@
       "result_lines": [
         91
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 34,
+        "response_sections": [
+          "Metadata",
+          "Rotation"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -14493,7 +15364,7 @@
         "logGroupName"
       ],
       "check_id": "aws.logs.retention",
-      "decision": "provisional_source_candidate",
+      "decision": "retain_ai",
       "evaluator": {
         "first_line": 234,
         "function_sha256": "7e1d0157fe1ba6cf456acd548dc59d29b32a71618b6c739595c9230f27351189",
@@ -14547,7 +15418,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 12,
-      "reason": "helper chain _native_optional at peaso/checks/aws.py:26-34 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "peaso/checks/aws.py:26-34 defaults an omitted retentionInDays without requiring DescribeLogGroups native_response_complete; an incomplete row can FAIL.",
       "recorded_field_reads": [
         {
           "line": 236,
@@ -15110,9 +15981,11 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Attributes.Attributes.KmsMasterKeyId"
+      ],
       "check_id": "aws.sns.kms_encryption",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 65,
         "function_sha256": "90a36866245362615a3c31c3dad2a5155028f7288d27fdbd978fc41d6a8f1fce",
@@ -15137,6 +16010,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "a5c194797a8f7d11520e2831fb2042210b2f7e649c573b4bda04079cba82037e",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not bool(value)",
@@ -15159,12 +16039,18 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 1,
-      "reason": "dynamic get field at peaso/checks/aws_extended.py:67 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_extended.py:65-68 reads the literal registered typed field through strict facts.get. Its static DOCS.get only supplies result metadata. Exact 992 responses contain the registered field in every relevant resource row, and each FAIL scope is collection-bound.",
       "recorded_field_reads": [],
       "result_lines": [
         68
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 5,
+        "response_sections": [
+          "Attributes"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 75,
         "path": "peaso/checks/aws_extended.py",
@@ -15410,10 +16296,14 @@
     },
     {
       "bound_api_fields": [
-        "ActionsEnabled"
+        "ActionsEnabled",
+        "ActionsEnabled",
+        "AlarmActions",
+        "OKActions",
+        "InsufficientDataActions"
       ],
       "check_id": "aws_nist_cloudwatch_alarm_action_enabled",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 150,
         "function_sha256": "d97f004066a747637aede5c61e153007b21fc0b977592344841ef620db985ae7",
@@ -15433,6 +16323,13 @@
         "state_actions": {
           "dict": 43
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "1c58dd3783613afb15e3be34602d013d2f2203d715ff3e5062f58fe4383af64e",
+        "matched_native_fail_ids": 43,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -15456,7 +16353,7 @@
       "index_read_line": null,
       "initial_representatives": 1,
       "native_fail_count": 43,
-      "reason": "dynamic get field at peaso/checks/compliance_new_aws.py:157 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/compliance_new_aws.py:150-162 uses fixed typed action lists or a typed ELB attribute Key/Value lookup. The exact 992 response carries every required list or collected Attributes detail; duplicate/missing/malformed attributes cannot produce FAIL. Every FAIL scope is bound.",
       "recorded_field_reads": [
         {
           "line": 154,
@@ -15466,7 +16363,16 @@
       "result_lines": [
         161
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 196,
+        "response_sections": [
+          "ActionsEnabled",
+          "AlarmActions",
+          "InsufficientDataActions",
+          "OKActions"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -15474,13 +16380,13 @@
   ],
   "disjoint_split_sha256": "507a637bec632b85fe6b14333a994debd77f05bc6eeed131bdae9b4a8ec2ab45",
   "exact_fail_scope_binding": {
-    "source_proven_fail_ids_bound_to_collected_scopes": 6470,
+    "source_proven_fail_ids_bound_to_collected_scopes": 6698,
     "source_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
     "zero_item_noncollected_envelopes_never_count_as_complete": true,
     "zero_item_partial_or_denied_envelopes_excluded": 193
   },
-  "provisional_candidate_count": 72,
-  "retain_ai_count": 23,
+  "provisional_candidate_count": 24,
+  "retain_ai_count": 29,
   "s3_snapshot_completeness": {
     "bucket_rows": 148,
     "cloudformation_root_notification_complete_count": 22,
@@ -15522,6 +16428,33 @@
     "ecr_repository_rows": 35,
     "ecs_task_definition_complete_count": 4684,
     "ecs_task_definition_rows": 4684,
+    "fifth_pass_complete_rows": {
+      "cognito_identity_pool": 3,
+      "dynamodb_table": 4,
+      "rds_instance": 4,
+      "sns_topic": 5
+    },
+    "final_pass_complete_rows": {
+      "acm_certificate": 45,
+      "codebuild_project": 1,
+      "cognito_user_pool": 1,
+      "ebs_volume": 34,
+      "ec2_image": 1,
+      "ec2_launch_template": 11,
+      "guardduty_detector": 1,
+      "http_api_stage": 1,
+      "iam_credential_report": 13,
+      "instance": 34,
+      "kms_key": 34,
+      "network_interface": 104,
+      "rds_instance": 4,
+      "sagemaker_training_job": 5,
+      "ssmincidents_account": 2
+    },
+    "fourth_pass_complete_rows": {
+      "cloudwatch_alarm": 196,
+      "load_balancer": 10
+    },
     "iam_user_configuration_complete_count": 22,
     "iam_user_rows": 22,
     "lambda_function_complete_count": 11,
@@ -15550,7 +16483,7 @@
   "scope": "code-worker 190-ID disjoint low-representative source slice; provisional aws.c2b IDs handed to audit worker",
   "source_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
   "source_inventory_sha256": "7eb72b3169e69ce40f1d2f33be3a1341c30de75a2c9dda68bf3675705fc1ffd9",
-  "source_proven_count": 95,
+  "source_proven_count": 137,
   "split_sha256": "e1713fd8d5ec5860c061aab4c37c89f3b7e2ba3ce35e77f9f475977ea6395660",
   "status": "independent_source_review"
 }
