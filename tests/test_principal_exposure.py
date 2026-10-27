@@ -77,6 +77,31 @@ def test_gcp_foreign_project_policy_does_not_apply_to_other_service_accounts():
     assert not project(snap, resources(snap))["serviceAccount:app@home.iam.gserviceaccount.com"]["exposures"]
 
 
+def test_gcp_managed_ad_external_domain_trust_is_a_principal_signal():
+    domain = {"name": "projects/home/locations/global/domains/home.test", "fqdn": "home.test",
+              "trusts": [{"targetDomainName": "partner.test", "state": "CONNECTED", "trustDirection": "INBOUND"}]}
+    snap = snapshot("gcp", {"managed_ad_domain": [domain]}, {"trusted_domains": ["home.test"]})
+    card = project(snap, resources(snap))["home.test"]
+    assert card["exposures"][0]["kind"] == "external_domain_trust"
+    assert card["exposures"][0]["state"] == "declared"
+    assert card["exposures"][0]["target_domain"] == "partner.test"
+
+
+def test_gcp_identity_platform_anonymous_tenant_signup_signal():
+    tenant = {"name": "projects/home/tenants/open", "enableAnonymousUser": True}
+    snap = snapshot("gcp", {"identityplatform_tenant": [tenant]})
+    assert project(snap, resources(snap))[tenant["name"]]["exposures"][0]["kind"] == "anonymous_identity_signup"
+    tenant["client"] = {"permissions": {"disabledUserSignup": True}}
+    snap = snapshot("gcp", {"identityplatform_tenant": [tenant]})
+    assert project(snap, resources(snap))[tenant["name"]]["exposures"][0]["state"] == "conditional"
+
+
+def test_gcp_identity_platform_anonymous_project_signup_signal():
+    config = {"name": "projects/home/config", "signIn": {"anonymous": {"enabled": True}}}
+    snap = snapshot("gcp", {"identityplatform_config": [config]})
+    assert project(snap, resources(snap))[config["name"]]["exposures"][0]["state"] == "declared"
+
+
 def test_azure_foreign_application_is_external_and_federation_is_conditional():
     snap = snapshot("azure", {"directory_service_principal": [{"id": "sp", "appId": "app", "appOwnerOrganizationId": "outside"}],
         "directory_federated_credential": [{"id": "fic", "appId": "app", "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:home/app:ref:refs/heads/main"}]}, {"tenant_id": "home"})

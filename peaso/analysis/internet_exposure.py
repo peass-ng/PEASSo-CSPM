@@ -1645,6 +1645,521 @@ def _gcp_bucket(snapshot, inventory, resource):
     return a
 
 
+def _gcp_bigquery_dataset(snapshot, inventory, resource):
+    """Legacy dataset ACLs can expose data without a separate IAM binding."""
+    data = resource["data"]
+    access = data.get("access")
+    if not isinstance(access, list):
+        return None
+    public = []
+    delegated = []
+    for entry in access:
+        if not isinstance(entry, dict):
+            continue
+        member = entry.get("iamMember") or entry.get("specialGroup")
+        if member in ("allUsers", "allAuthenticatedUsers"):
+            public.append({"member": member, "role": entry.get("role")})
+        for kind in ("view", "routine", "dataset"):
+            ref = entry.get(kind)
+            if isinstance(ref, dict):
+                delegated.append({"kind": kind, "reference": ref})
+    if not public and not delegated:
+        return None
+    a = Assessment(resource, "data_share")
+    if public:
+        a.data_exposure = True
+        a.authenticated = not any(row["member"] == "allUsers" for row in public)
+        a.step("dataset_acl", "allow", public=public, delegated=delegated)
+    else:
+        # An authorized view/routine/dataset receives source-data privileges,
+        # but the destination's readers and project ownership need a join.
+        a.explicit = "UNKNOWN"
+        a.step("dataset_acl", "unknown", delegated=delegated)
+        a.gap("policy", "authorized BigQuery resource can read this dataset; destination access and ownership are unresolved")
+    return a
+
+
+def _gcp_firebase_rules(snapshot, inventory, resource):
+    data = resource["data"]
+    a = Assessment(resource, "data_share")
+    if data.get("source_inspected") is not True:
+        a.gap("inventory", "active Firebase ruleset source was not completely inspected")
+        return a
+    public = data.get("public_read") is True or data.get("public_write") is True
+    authenticated = data.get("authenticated_read") is True
+    conditional = data.get("conditional_read") is True
+    a.step("firebase_rules", "allow" if public or authenticated else "unknown" if conditional else "block",
+           services=data.get("services"), ruleset=data.get("rulesetName"),
+           public_read=data.get("public_read"), public_write=data.get("public_write"),
+           authenticated_read=authenticated, conditional_read=conditional)
+    if public:
+        a.data_exposure = True
+        if conditional:
+            a.notes.append("Other conditional rules may expose additional paths")
+    elif authenticated:
+        a.authenticated = True
+        a.explicit = "UNKNOWN"
+        a.gap("authorization", "rules allow authenticated users, but public identity enrollment and downstream claim restrictions are not established")
+    elif conditional:
+        a.gap("policy", "request-dependent Firebase rule conditions need runtime path and authentication context")
+    else:
+        a.ports = {}
+    return a
+
+
+def _gcp_vpn_gateway(snapshot, inventory, resource):
+    interfaces = [row for row in as_list(resource["data"].get("vpnInterfaces")) if isinstance(row, dict)]
+    public = [ip for row in interfaces if not row.get("interconnectAttachment")
+              for ip in (row.get("ipAddress"), row.get("ipv6Address"))
+              if isinstance(ip, str) and _public_ip(ip)]
+    if not public:
+        return None
+    a = Assessment(resource, "vpn_gateway")
+    a.addresses = public
+    a.ports = union(pset("udp", 500, 500), pset("udp", 4500, 4500))
+    a.ports["esp"] = ((0, 0),)
+    a.authenticated = True
+    a.step("public_vpn_interfaces", "allow", addresses=public, protocols=["udp/500", "udp/4500", "esp"])
+    a.notes.append("Only authenticated IPsec peers can establish a tunnel; VPC routes and firewall rules control traffic after decapsulation")
+    return a
+
+
+def _gcp_ftp(snapshot, inventory, resource):
+    data = resource["data"]
+    config = data.get("externalConfig")
+    if not isinstance(config, dict):
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True  # SFTP user authentication is a separate layer.
+    address = config.get("ipAddress")
+    if isinstance(address, str) and _public_ip(address):
+        a.addresses = [address]
+    else:
+        a.explicit = "UNKNOWN"
+        a.gap("public_ip", "external SFTP server has no observed public address")
+    ranges = config.get("allowedCidrBlocks")
+    if not isinstance(ranges, list) or not ranges:
+        a.explicit = "UNKNOWN"
+        a.gap("source_ranges", "external SFTP source ranges are unavailable")
+    elif any(_public_source(value) for value in ranges):
+        a.step("source_ranges", "allow", allowed_cidrs=ranges)
+        a.ports = pset("tcp", 22, 22)
+    else:
+        a.step("source_ranges", "block", allowed_cidrs=ranges)
+        a.ports = {}
+    return a
+
+
+def _gcp_looker(snapshot, inventory, resource):
+    data = resource["data"]
+    if data.get("publicIpEnabled") is not True:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    address = data.get("ingressPublicIp")
+    if isinstance(address, str) and _public_ip(address):
+        a.addresses = [address]
+    else:
+        a.explicit = "UNKNOWN"
+        a.gap("public_ip", "Looker public ingress is enabled but its address is unavailable")
+    allowlist = data.get("ingressIpAllowlistConfig")
+    if not isinstance(allowlist, dict) or allowlist.get("enabled") is False:
+        a.step("ip_allowlist", "allow", enabled=False)
+        a.ports = pset("tcp", 443, 443)
+    elif allowlist.get("enabled") is True and isinstance(allowlist.get("allowlistRules"), list):
+        ranges = [row.get("ipRange") for row in allowlist["allowlistRules"] if isinstance(row, dict)]
+        open_to_internet = any(_public_source(value) for value in ranges)
+        a.step("ip_allowlist", "allow" if open_to_internet else "block", ranges=ranges)
+        a.ports = pset("tcp", 443, 443) if open_to_internet else {}
+    else:
+        a.explicit = "UNKNOWN"
+        a.gap("ip_allowlist", "Looker ingress allowlist state is unavailable")
+    return a
+
+
+def _gcp_blockchain_node(snapshot, inventory, resource):
+    data = resource["data"]
+    if data.get("privateServiceConnectEnabled") is True:
+        return None
+    info = data.get("connectionInfo") if isinstance(data.get("connectionInfo"), dict) else {}
+    endpoints = info.get("endpointInfo") if isinstance(info.get("endpointInfo"), dict) else {}
+    urls = [endpoints.get(field) for field in ("jsonRpcApiEndpoint", "websocketsApiEndpoint")]
+    urls = [value for value in urls if isinstance(value, str) and value.startswith(("https://", "wss://"))]
+    if not urls:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.addresses = urls
+    a.authenticated = True
+    a.step("public_endpoint", "allow", private_service_connect=False, endpoints=urls)
+    a.ports = pset("tcp", 443, 443)
+    return a
+
+
+def _gcp_data_fusion(snapshot, inventory, resource):
+    data = resource["data"]
+    if data.get("privateInstance") is not False:
+        return None
+    endpoints = [data.get(field) for field in ("serviceEndpoint", "apiEndpoint")]
+    endpoints = [value for value in endpoints if isinstance(value, str) and value.startswith("https://")]
+    if not endpoints:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.addresses = endpoints
+    a.authenticated = True
+    a.step("public_instance", "allow", private_instance=False)
+    a.ports = pset("tcp", 443, 443)
+    return a
+
+
+def _gcp_vertex_index(snapshot, inventory, resource):
+    data = resource["data"]
+    if data.get("publicEndpointEnabled") is not True:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    domain = data.get("publicEndpointDomainName")
+    if isinstance(domain, str) and domain:
+        a.addresses = [domain]
+        a.step("public_endpoint", "allow", enabled=True, domain=domain)
+        a.ports = pset("tcp", 443, 443)
+        a.authenticated = True
+    else:
+        a.explicit = "UNKNOWN"
+        a.gap("public_endpoint", "Vertex AI public index endpoint is enabled but has no observed domain")
+    return a
+
+
+def _gcp_vertex_feature_store(snapshot, inventory, resource):
+    data = resource["data"]
+    endpoint = data.get("dedicatedServingEndpoint")
+    if not isinstance(endpoint, dict) or not isinstance(endpoint.get("publicEndpointDomainName"), str):
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.addresses = [endpoint["publicEndpointDomainName"]]
+    a.authenticated = True
+    a.step("public_endpoint", "allow", domain=endpoint["publicEndpointDomainName"])
+    a.ports = pset("tcp", 443, 443)
+    return a
+
+
+def _gcp_app_engine(snapshot, inventory, resource):
+    data = resource["data"]
+    hostname = data.get("defaultHostname")
+    if not isinstance(hostname, str) or not hostname:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.addresses = [hostname]
+    a.authenticated = (data.get("iap") or {}).get("enabled") is True
+    if data.get("servingStatus") in {"USER_DISABLED", "SYSTEM_DISABLED"}:
+        a.step("serving_status", "block", status=data["servingStatus"])
+        a.ports = {}
+    else:
+        a.step("default_hostname", "allow", hostname=hostname, iap_enabled=a.authenticated)
+        a.ports = pset("tcp", 443, 443)
+    return a
+
+
+def _gcp_api_gateway(snapshot, inventory, resource):
+    data = resource["data"]
+    hostname = data.get("defaultHostname")
+    if not isinstance(hostname, str) or not hostname:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.addresses = [hostname]
+    if data.get("state") in {"FAILED", "DELETING"}:
+        a.step("gateway_state", "block", state=data["state"])
+        a.ports = {}
+    elif data.get("state") == "ACTIVE":
+        a.step("gateway_hostname", "allow", hostname=hostname, api_config=data.get("apiConfig"))
+        a.ports = pset("tcp", 443, 443)
+        a.notes.append("API Config request authentication was not evaluated")
+    else:
+        a.explicit = "UNKNOWN"
+        a.gap("gateway_state", "Gateway has a hostname but is not confirmed ACTIVE")
+    return a
+
+
+def _gcp_firebase_apphosting(snapshot, inventory, resource):
+    data = resource["data"]
+    uri = data.get("uri")
+    if not isinstance(uri, str) or not uri.startswith("https://"):
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.addresses = [uri]
+    if data.get("deleteTime"):
+        a.step("backend_state", "block", deleted=True)
+        a.ports = {}
+    else:
+        a.step("backend_uri", "allow", uri=uri)
+        a.ports = pset("tcp", 443, 443)
+    return a
+
+
+def _gcp_media_cdn(snapshot, inventory, resource):
+    data = resource["data"]
+    addresses = [ip for field in ("ipv4Addresses", "ipv6Addresses") for ip in as_list(data.get(field))
+                 if isinstance(ip, str) and _public_ip(ip)]
+    if not addresses:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    hosts = [host for rule in as_list((data.get("routing") or {}).get("hostRules")) if isinstance(rule, dict)
+             for host in as_list(rule.get("hosts")) if isinstance(host, str)]
+    a.addresses = addresses + hosts
+    a.step("edge_addresses", "allow", addresses=addresses, hosts=hosts)
+    a.ports = pset("tcp", 443, 443) if data.get("requireTls") is True else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
+    armor = data.get("edgeSecurityPolicy")
+    if armor:
+        decision = _gcp_armor_decision(inventory, armor)
+        if decision == "block":
+            a.step("cloud_armor", "block", policy=armor)
+            a.ports = {}
+        elif decision == "allow":
+            a.step("cloud_armor", "allow", policy=armor)
+        else:
+            a.gap("cloud_armor", "Media CDN edge security policy cannot establish an unconditional public path",
+                  "securityPolicies.get")
+    return a
+
+
+def _gcp_workstation(snapshot, inventory, resource):
+    data = resource["data"]
+    host = data.get("host")
+    if not isinstance(host, str) or not host:
+        return None
+    cluster_ref = data.get("name", "").split("/workstationConfigs/", 1)[0]
+    cluster = inventory.get("workstation_cluster", cluster_ref)
+    a = Assessment(resource, "managed_endpoint")
+    a.addresses = [host]
+    a.authenticated = True
+    if cluster is None:
+        a.explicit = "UNKNOWN"
+        a.gap("cluster", "Cloud Workstations cluster configuration was not collected", "workstationClusters.list")
+    elif (cluster["data"].get("privateClusterConfig") or {}).get("enablePrivateEndpoint") is True:
+        a.step("private_cluster", "block", cluster=cluster_ref)
+        a.ports = {}
+    elif data.get("state") == "STATE_RUNNING":
+        a.step("public_gateway", "allow", cluster=cluster_ref, host=host)
+        a.ports = pset("tcp", 443, 443)
+    elif data.get("state") in {"STATE_STOPPED", "STATE_STOPPING", "STATE_DELETED"}:
+        a.step("workstation_state", "block", state=data["state"])
+        a.ports = {}
+    else:
+        a.explicit = "UNKNOWN"
+        a.gap("workstation_state", "Workstation has a host but is not confirmed running")
+    return a
+
+
+def _gcp_beyondcorp_connection(snapshot, inventory, resource):
+    data = resource["data"]
+    gateway = data.get("gateway")
+    if not isinstance(gateway, dict) or not gateway.get("uri"):
+        return None
+    a = Assessment(resource, "application_gateway")
+    a.addresses = [gateway["uri"]]
+    a.authenticated = True
+    a.ports = pset("tcp", gateway.get("ingressPort") or 19443, gateway.get("ingressPort") or 19443)
+    a.step("gateway", "allow", uri=gateway["uri"], ingress_port=gateway.get("ingressPort") or 19443,
+           application_endpoint=data.get("applicationEndpoint"), private_service_connection=gateway.get("l7psc"))
+    if data.get("state") != "CREATED":
+        a.dormant = True
+        a.notes.append(f"AppConnection state {data.get('state') or 'unknown'}")
+    a.notes.append("BeyondCorp access policy and target application authorization are separate from gateway reachability")
+    return a
+
+
+def _gcp_contact_center(snapshot, inventory, resource):
+    data = resource["data"]
+    detail_status = (data.get("_coverage") or {}).get("network_detail", {}).get("status")
+    if detail_status not in (None, "collected"):
+        a = Assessment(resource, "application_gateway")
+        a.gap("inventory", f"contact center detail {detail_status}; private ingress is unknown")
+        return a
+    ingress = as_list((data.get("privateAccess") or {}).get("ingressSettings"))
+    private_agent = any(isinstance(row, dict) and row.get("name") == "AGENT" for row in ingress)
+    a = Assessment(resource, "application_gateway")
+    a.authenticated = True
+    if private_agent:
+        a.step("private_ingress", "block", component="AGENT", settings=ingress)
+        a.ports = {}
+    else:
+        a.step("private_ingress", "allow", component="AGENT", settings=ingress,
+               reason="no private agent ingress setting")
+        a.ports = pset("tcp", 443, 443)
+        a.notes.append("The agent portal uses application authentication; end-user contact channels are separate")
+    if data.get("state") in ("DELETING", "DOWN", "STATE_DELETING", "STATE_DOWN"):
+        a.dormant = True
+        a.notes.append(f"contact center state {data.get('state')}")
+    return a
+
+
+def _gcp_oracle_goldengate(snapshot, inventory, resource):
+    properties = resource["data"].get("properties")
+    if not isinstance(properties, dict) or properties.get("isPublic") is not True:
+        return None
+    a = Assessment(resource, "application_gateway")
+    a.authenticated = True
+    addresses = [properties.get("publicIpAddress"), properties.get("deploymentUrl")]
+    addresses.extend(row.get("ingressIpAddress") for row in as_list(properties.get("ingressIps")) if isinstance(row, dict))
+    a.addresses = [value for value in addresses if isinstance(value, str) and value]
+    a.ports = pset("tcp", 443, 443)
+    a.step("public_deployment", "allow", is_public=True, addresses=a.addresses,
+           network_security_groups=as_list(properties.get("nsgIds")))
+    a.gap("firewall", "Oracle network security group and subnet security-list ingress rules are not in the GCP snapshot")
+    if properties.get("lifecycleState") not in (None, "ACTIVE"):
+        a.dormant = True
+    return a
+
+
+def _gcp_vertex_sandbox(snapshot, inventory, resource):
+    data = resource["data"]
+    connection = data.get("connectionInfo")
+    if not isinstance(connection, dict):
+        return None
+    address = connection.get("loadBalancerIp")
+    host = connection.get("loadBalancerHostname")
+    if not (isinstance(address, str) and _public_ip(address)) and not host:
+        return None
+    a = Assessment(resource, "application_gateway")
+    a.addresses = [value for value in (address, host) if isinstance(value, str) and value]
+    a.explicit = "UNKNOWN"
+    a.step("load_balancer", "unknown", addresses=a.addresses,
+           private_service_attachment=connection.get("serviceAttachment"))
+    a.gap("backend", "sandbox load-balancer listener ports and access controls are not established by connectionInfo")
+    if data.get("state") != "STATE_RUNNING":
+        a.dormant = True
+    return a
+
+
+def _gcp_tpu_node(snapshot, inventory, resource):
+    data = resource["data"]
+    endpoints = [row for row in as_list(data.get("networkEndpoints")) if isinstance(row, dict)]
+    addresses = [row.get("accessConfig", {}).get("externalIp") for row in endpoints
+                 if isinstance(row.get("accessConfig"), dict)]
+    addresses = [ip for ip in addresses if isinstance(ip, str) and _public_ip(ip)]
+    if not addresses:
+        return None
+    a = Assessment(resource, "public_ip")
+    a.addresses = addresses
+    a.step("external_ip", "allow", addresses=addresses)
+    config = data.get("networkConfig")
+    network = config.get("network") if isinstance(config, dict) else None
+    if not isinstance(network, str) or not network:
+        a.explicit = "UNKNOWN"
+        a.gap("firewall", "TPU external IP exists but its VPC network is unavailable")
+        return a
+    # TPU network endpoints expose the public address but not a Compute VM
+    # identity. Apply only VPC-wide rules; targeted policy membership is unknown.
+    matching = [row for row in _gcp_network_internet_rules(inventory, network)
+                if not row["data"].get("targetTags") and not row["data"].get("targetServiceAccounts")]
+    if inventory.state("firewall").startswith("missing") or inventory.state("firewall_policy").startswith("missing"):
+        a.explicit = "UNKNOWN"
+        a.gap("firewall", "TPU VPC or hierarchical firewall inventory is incomplete")
+        return a
+    if matching:
+        a.explicit = "UNKNOWN"
+        a.gap("firewall", "TPU public IP has VPC-wide rules; effective policy and target evaluation is unresolved")
+    else:
+        a.explicit = "UNKNOWN"
+        a.gap("firewall", "TPU public IP exists; firewall target identity is unavailable")
+    return a
+
+
+def _gcp_vmware_address(snapshot, inventory, resource):
+    data = resource["data"]
+    ip = data.get("externalIp")
+    if not isinstance(ip, str) or not _public_ip(ip):
+        return None
+    a = Assessment(resource, "public_ip")
+    a.addresses = [ip]
+    a.step("external_ip", "allow", address=ip, state=data.get("state"))
+    if data.get("state") != "ACTIVE":
+        a.explicit = "UNKNOWN"
+        a.gap("external_ip", "VMware Engine external address is not confirmed ACTIVE")
+        return a
+    cloud_ref = data.get("name", "").split("/externalAddresses/", 1)[0]
+    cloud = inventory.get("vmware_private_cloud", cloud_ref)
+    network = ((cloud or {}).get("data", {}).get("networkConfig") or {}).get("vmwareEngineNetworkCanonical")
+    if not isinstance(network, str):
+        a.explicit = "UNKNOWN"
+        a.gap("network_policy", "VMware Engine private cloud network is unavailable", "privateClouds.list")
+        return a
+    location = data.get("name", "").split("/locations/", 1)[-1].split("/", 1)[0]
+    region = location.rsplit("-", 1)[0] if location.rsplit("-", 1)[-1] in "abcdef" else location
+    policies = [row for row in inventory.items("vmware_network_policy")
+                if row["data"].get("vmwareEngineNetworkCanonical") == network and
+                row["data"].get("name", "").split("/locations/", 1)[-1].split("/", 1)[0] in {region, "global"}]
+    if len(policies) != 1:
+        a.explicit = "UNKNOWN"
+        a.gap("network_policy", "Exactly one applicable VMware Engine network policy was not collected",
+              "networkPolicies.list")
+        return a
+    policy = policies[0]["data"]
+    external = policy.get("externalIp")
+    if isinstance(external, dict) and external.get("enabled") is False:
+        a.step("network_policy", "block", policy=policy.get("name"), external_ip_enabled=False)
+        a.ports = {}
+        return a
+    if not isinstance(external, dict) or external.get("state") != "ACTIVE":
+        a.explicit = "UNKNOWN"
+        a.gap("network_policy", "VMware Engine external IP service is not confirmed ACTIVE")
+        return a
+    if external.get("enabled") is not True or inventory.state("vmware_external_access_rule").startswith("missing"):
+        a.explicit = "UNKNOWN"
+        a.gap("external_access_rule", "VMware Engine external access policy or rules are unavailable",
+              "externalAccessRules.list")
+        return a
+    rules = [row["data"] for row in inventory.items("vmware_external_access_rule")
+             if row["data"].get("name", "").startswith(policy["name"] + "/externalAccessRules/")]
+    if any(row.get("state") != "ACTIVE" for row in rules):
+        a.explicit = "UNKNOWN"
+        a.gap("external_access_rule", "VMware Engine access rules are changing or have unknown state")
+        return a
+    try:
+        rules.sort(key=lambda row: int(row["priority"]))
+    except (KeyError, TypeError, ValueError):
+        a.explicit = "UNKNOWN"
+        a.gap("external_access_rule", "VMware Engine access rule priority is malformed")
+        return a
+    if len({row["priority"] for row in rules}) != len(rules):
+        a.explicit = "UNKNOWN"
+        a.gap("external_access_rule", "Equal-priority VMware Engine access rules have nondeterministic ordering")
+        return a
+    allowed, decided = {}, {}
+    def public_source(entry):
+        value = entry.get("ipAddressRange", entry.get("ipAddress"))
+        network = _cidr(value)
+        return _public_source(value)
+
+    def destination(entry):
+        if entry.get("externalAddress") == data.get("name") or entry.get("ipAddress") == ip:
+            return True
+        network = _cidr(entry.get("ipAddressRange"))
+        return network is not None and ipaddress.ip_address(ip) in network
+
+    for rule in rules:
+        sources = as_list(rule.get("sourceIpRanges"))
+        if sources and not any(isinstance(entry, dict) and public_source(entry) for entry in sources):
+            continue
+        destinations = as_list(rule.get("destinationIpRanges"))
+        if destinations and not any(isinstance(entry, dict) and destination(entry) for entry in destinations):
+            continue
+        ports = {}
+        for spec in as_list(rule.get("destinationPorts")) or [None]:
+            ports = union(ports, _port_spec(rule.get("ipProtocol"), spec) or {})
+        fresh = subtract(ports, decided)
+        if rule.get("action") in {"ALLOW", "ACTION_UNSPECIFIED"}:
+            allowed = union(allowed, fresh)
+        elif rule.get("action") != "DENY":
+            a.explicit = "UNKNOWN"
+            a.gap("external_access_rule", "VMware Engine access rule action is unknown")
+            return a
+        decided = union(decided, ports)
+    a.ports = allowed
+    a.step("external_access_rule", "allow" if not empty(allowed) else "block",
+           policy=policy.get("name"), allowed=describe(allowed))
+    a.notes.append("VMware NSX firewall rules are outside the Google Cloud API")
+    return a
+
+
 def gcp_public_policy_findings(snapshot, resources):
     """Report public resource IAM declarations already present in the snapshot.
 
@@ -3074,8 +3589,14 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
-GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service",
-             "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket", "project", "workload_identity_provider"]
+GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "security_policy",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "vpn_gateway",
+             "project", "workload_identity_provider",
+             "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
+             "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
+             "media_cdn_service", "target_pool", "target_instance",
+             "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
+             "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
                "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", *_AZURE_MANAGED_ENDPOINTS]
@@ -3087,7 +3608,12 @@ EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
                      "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
-             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
+             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "vpn_gateway",
+                     "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
+                     "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
+                     "media_cdn_service",
+                     "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
+                     "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
@@ -3124,7 +3650,19 @@ def assess(snapshot, resources):
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
                 "cloudfront_distribution": _aws_cloudfront, "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
-                "sql_instance": _gcp_sql, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket},
+                "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket,
+                "bigquery_dataset": _gcp_bigquery_dataset, "firebase_rules_release": _gcp_firebase_rules,
+                "vpn_gateway": _gcp_vpn_gateway,
+                "cloud_ftp_server": _gcp_ftp, "looker_instance": _gcp_looker, "blockchain_node": _gcp_blockchain_node,
+                "data_fusion_instance": _gcp_data_fusion, "vertex_index_endpoint": _gcp_vertex_index,
+                "vertex_feature_online_store": _gcp_vertex_feature_store, "app_engine_application": _gcp_app_engine,
+                "api_gateway": _gcp_api_gateway, "firebase_apphosting_endpoint": _gcp_firebase_apphosting,
+                "media_cdn_service": _gcp_media_cdn,
+                "workstation": _gcp_workstation, "beyondcorp_connection": _gcp_beyondcorp_connection,
+                "contact_center": _gcp_contact_center, "oracle_goldengate_deployment": _gcp_oracle_goldengate,
+                "vertex_agent_sandbox": _gcp_vertex_sandbox,
+                "tpu_node": _gcp_tpu_node,
+                "vmware_external_address": _gcp_vmware_address},
         "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
                   "app_service": lambda s, i, r: _azure_app_service(s, i, r, extra["configs"]), "aks_cluster": _azure_aks,
                   "storage_account": _azure_storage, "storage_container": _azure_storage_container,

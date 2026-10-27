@@ -6,6 +6,7 @@ from urllib.parse import quote
 from .gcp import ReadError
 from .gcp_fanout import location_fanout
 
+
 REGIONAL = {
     "datastream_private_connection": ("datastream", "v1", "privateConnections", "privateConnections"),
     "migration_private_connection": ("datamigration", "v1", "privateConnections", "privateConnections"),
@@ -33,7 +34,7 @@ REGIONAL = {
 PRIVATE_SERVICES = json.loads(Path(__file__).with_name('gcp_network_private_services.json').read_text())
 REGIONAL.update({kind: (p['service'], p['version'], p['segment'], p['key']) for kind, p in PRIVATE_SERVICES.items()
                  if not p.get('project_wide') and not p.get('organization_scoped')})
-TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {"network_connectivity_hub", "service_networking_connection", "dataflow_network_job", "app_engine_network_version", "dns_record_set", "backend_service_health"}
+TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {"network_connectivity_hub", "service_networking_connection", "dataflow_network_job", "app_engine_network_version", "dns_record_set", "backend_service_health", "target_pool", "target_instance", "identityplatform_config", "firebase_rules_release"}
 DATAFLOW_FIELDS = "id,name,location,projectId,currentState,type,environment(workerPools(network,subnetwork,ipConfiguration))"
 APPENGINE_FIELDS = "versions(id,name,servingStatus,env,network,vpcAccessConnector),nextPageToken"
 BATCH_FIELDS = "jobs(name,uid,status(state),allocationPolicy(network,location,instances(instanceTemplate))),nextPageToken,unreachable"
@@ -397,6 +398,21 @@ def backend_service_health(collector, scope):
                 'groups': groups}], receipt
 
 
+def compute_forward_targets(collector, scope, kind):
+    """One read-only aggregate inventory for legacy passthrough/protocol targets."""
+    segment, key = ("targetPools", "targetPools") if kind == "target_pool" else ("targetInstances", "targetInstances")
+    endpoint = f"https://compute.googleapis.com/compute/v1/{scope}/aggregated/{segment}"
+    yield from collector.pages(endpoint, scope, key=key, aggregate=key,
+        params={"returnPartialSuccess": "true"}, page_size_key="maxResults")
+
+
+def identityplatform_config(collector, scope):
+    """Read only the project sign-in controls; omit hash and provider secrets."""
+    endpoint = f"https://identitytoolkit.googleapis.com/admin/v2/{scope}/config"
+    yield from collector.pages(endpoint, scope, single=True,
+        params={"fields": "name,signIn(anonymous(enabled)),client(permissions(disabledUserSignup))"})
+
+
 def scope_jobs(collector, scope):
     scope_kind = scope.split('/', 1)[0]
     if scope_kind not in {'projects', 'organizations'}:
@@ -409,6 +425,17 @@ def scope_jobs(collector, scope):
     if 'backend_service_health' in collector.needed:
         jobs.append(('backend_service_health', scope, 'compute',
             lambda: backend_service_health(collector, scope)))
+    for kind in ('target_pool', 'target_instance'):
+        if kind in collector.needed:
+            jobs.append((kind, scope, 'compute',
+                lambda kind=kind: compute_forward_targets(collector, scope, kind)))
+    if 'identityplatform_config' in collector.needed:
+        jobs.append(('identityplatform_config', scope, 'identitytoolkit',
+            lambda: identityplatform_config(collector, scope)))
+    if 'firebase_rules_release' in collector.needed:
+        from .gcp_firebase_rules_exposure import collection_pages
+        jobs.append(('firebase_rules_release', scope, 'firebaserules',
+            lambda: collection_pages(collector, scope)))
     for kind, plan in PRIVATE_SERVICES.items():
         if kind not in collector.needed:
             continue
