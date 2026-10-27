@@ -1704,7 +1704,7 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.ports = {}
         return a
     if props.get("publicNetworkAccess") is None and as_list(props.get("privateEndpointConnections")):
-        a.notes.append("private endpoint present; public access defaults to disabled when publicNetworkAccess is unset")
+        a.gap("inventory", "publicNetworkAccess is unset while private endpoint connections are present; public default is unresolved")
     ports = pset("tcp", 443, 443) if props.get("httpsOnly") else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
     a.step("public_network_access", "allow", public_network_access=props.get("publicNetworkAccess", "default(Enabled)"))
     config = configs.get(str(resource["data"].get("id", "")).lower())
@@ -1773,6 +1773,46 @@ def _azure_storage(snapshot, inventory, resource):
     return a
 
 
+def _azure_storage_container(snapshot, inventory, resource):
+    """An anonymous container requires both its own ACL and account gates."""
+    level = _props(resource).get("publicAccess")
+    if level not in ("Blob", "Container"):
+        return None
+    a = Assessment(resource, "data_share")
+    a.authenticated = False
+    parent_id = resource["data"].get("parent_id") or str(resource["data"].get("id", "")).split("/blobServices/")[0]
+    account = inventory.get("storage_account", parent_id)
+    if account is None:
+        a.gap("inventory", "parent storage account is not collected", "Microsoft.Storage/storageAccounts")
+        return a
+    props = _props(account)
+    a.step("container_acl", "allow", public_access=level)
+    if props.get("allowBlobPublicAccess") is False or str(props.get("publicNetworkAccess", "")).lower() == "disabled":
+        a.step("account_gate", "block", allow_blob_public_access=props.get("allowBlobPublicAccess"),
+               public_network_access=props.get("publicNetworkAccess"))
+        a.ports = {}
+        return a
+    if props.get("allowBlobPublicAccess") is not True:
+        a.gap("inventory", "account allowBlobPublicAccess setting is unavailable")
+    if props.get("publicNetworkAccess") is None:
+        a.gap("inventory", "account publicNetworkAccess setting is unavailable")
+    acls = props.get("networkAcls")
+    if not isinstance(acls, dict) or acls.get("defaultAction") not in ("Allow", "Deny"):
+        a.gap("firewall", "account network ACL default action is unavailable")
+    elif acls["defaultAction"] == "Deny":
+        a.step("firewall", "block", default_action="Deny")
+        a.ports = {}
+        return a
+    else:
+        a.step("firewall", "allow", default_action="Allow")
+    a.addresses = [v for v in (props.get("primaryEndpoints") or {}).values() if isinstance(v, str) and "blob" in v][:1]
+    if not a.addresses:
+        a.gap("inventory", "public blob endpoint is not collected")
+    a.data_exposure = True
+    a.ports = pset("tcp", 443, 443)
+    return a
+
+
 def _azure_sql(snapshot, inventory, resource, rules):
     props = _props(resource)
     if str(props.get("publicNetworkAccess", "")).lower() == "disabled":
@@ -1796,6 +1836,86 @@ def _azure_sql(snapshot, inventory, resource, rules):
         a.notes.append("'Allow Azure services' rule (0.0.0.0-0.0.0.0) admits any Azure tenant's resources")
     a.step("firewall", "allow" if open_rules else "block", open_rules=open_rules)
     a.ports = pset("tcp", 1433, 1433) if open_rules else {}
+    return a
+
+
+def _azure_container_group(snapshot, inventory, resource):
+    """Container Instances expose only declared ports on a public IP group."""
+    props = _props(resource)
+    ip = props.get("ipAddress") or {}
+    if str(ip.get("type", "")).lower() != "public":
+        return None
+    a = Assessment(resource, "container")
+    address = ip.get("ip") or props.get("fqdn")
+    if address:
+        a.addresses.append(address)
+    ports = {}
+    for port in as_list(ip.get("ports")):
+        if not isinstance(port, dict):
+            continue
+        number = port.get("port")
+        if isinstance(number, int) and 1 <= number <= 65535:
+            ports = union(ports, pset(port.get("protocol", "tcp"), number, number) or {})
+    if not ports:
+        a.gap("listener", "public Container Instance has no collected valid port declaration")
+    a.step("public_ip", "allow", ip_type="Public", address=address)
+    a.step("listener", "allow" if ports else "unknown", ports=describe(ports))
+    a.ports = ports
+    if not address:
+        a.gap("inventory", "public Container Instance address is not collected")
+    return a
+
+
+_AZURE_MANAGED_ENDPOINTS = {
+    "vault": (443, "networkAcls"),
+    "cosmos_account": (443, "ipRules"),
+    "container_registry": (443, "networkRuleSet"),
+    "cognitive_account": (443, "networkAcls"),
+    "search_service": (443, "networkRuleSet"),
+    "app_configuration": (443, "networkRuleSet"),
+    "servicebus_namespace": (443, "networkRuleSet"),
+    "eventhub_namespace": (443, "networkRuleSet"),
+    "mysql_flexible_server": (3306, "firewallRules"),
+    "postgresql_flexible_server": (5432, "firewallRules"),
+}
+
+
+def _azure_managed_endpoint(snapshot, inventory, resource):
+    """Surface explicit public endpoint settings without inventing firewall joins."""
+    props = _props(resource)
+    kind = resource["type"]
+    port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
+    a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
+    a.authenticated = True
+    endpoint = next((props.get(field) for field in ("vaultUri", "loginServer", "endpoint", "documentEndpoint", "fullyQualifiedDomainName")
+                     if isinstance(props.get(field), str) and props.get(field)), None)
+    if endpoint:
+        a.addresses.append(endpoint)
+    public = props.get("publicNetworkAccess")
+    if isinstance(public, str) and public.lower() == "disabled":
+        a.step("public_network_access", "block", public_network_access=public)
+        a.ports = {}
+        return a
+    if not isinstance(public, str) or public.lower() != "enabled":
+        a.gap("inventory", "publicNetworkAccess is not explicitly collected as Enabled or Disabled")
+        return a
+    a.step("public_network_access", "allow", public_network_access=public)
+    # A private endpoint does not close an explicitly enabled public endpoint.
+    rules = props.get(rules_name)
+    if isinstance(rules, dict) and rules_name != "firewallRules":
+        action = rules.get("defaultAction")
+        if action == "Deny":
+            a.step("firewall", "block", default_action=action)
+            a.ports = {}
+            return a
+        if action == "Allow":
+            a.step("firewall", "allow", default_action=action)
+            a.ports = pset("tcp", port, port)
+            if not endpoint:
+                a.gap("inventory", "managed public endpoint address is not collected")
+            return a
+    a.gap("firewall", f"{rules_name} public ingress rules are not resolved", f"{kind} {rules_name}")
+    a.ports = pset("tcp", port, port)
     return a
 
 
@@ -1931,13 +2051,15 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service",
              "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket", "project", "workload_identity_provider"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
-               "app_service_config", "aks_cluster", "storage_account", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential"]
+               "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
+               "container_group", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node"]
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "sql_server"},
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
+                       "container_group", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress"}}
 
 
@@ -1970,7 +2092,10 @@ def assess(snapshot, resources):
                 "sql_instance": _gcp_sql, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket},
         "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
                   "app_service": lambda s, i, r: _azure_app_service(s, i, r, extra["configs"]), "aks_cluster": _azure_aks,
-                  "storage_account": _azure_storage, "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"])},
+                  "storage_account": _azure_storage, "storage_container": _azure_storage_container,
+                  "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"]),
+                  "container_group": _azure_container_group,
+                  **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress},
     }.get(provider, {})
     for resource in resources:
