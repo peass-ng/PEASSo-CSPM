@@ -814,7 +814,9 @@ def _native(item, kind, cluster, scope, namespaced):
     # Cluster, kind and namespace repeat for every object; their (identical) encoding is remembered.
     native_id = "k8s://" + "/".join((k8s_id_parts.quoted(str(cluster)), k8s_id_parts.quoted(str(kind)),
                                      k8s_id_parts.quoted(str(namespace)), quote(str(meta.get("uid") or name), safe="")))
-    pod_environment(item, kind=kind, resource_id=native_id, scope=namespace if scope == '*' else scope)
+    # Findings carry the collection scope ("*" for all namespaces); a private
+    # location must use that same scope to attach to the pod's finding.
+    pod_environment(item, kind=kind, resource_id=native_id, scope=scope)
     result = _sanitize(item)
     if kind == "kcc_project":
         from .k8s_kcc_project import project_identity

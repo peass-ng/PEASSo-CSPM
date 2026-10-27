@@ -1,5 +1,6 @@
 """Finite batch512 bootstrap preserves the immutable RawV2 epoch and fresh proofs."""
 import hashlib
+import json
 from pathlib import Path
 import pytest
 from peaso import rawv2_private_source_successor_20261021 as rawv2
@@ -16,7 +17,7 @@ def test_exact_current_sources_reconstruct_unchanged_ancestors():
     from peaso import checks
     assert len(checks.CHECKS) == 4179
     assert len(epoch.source_rows()) == 50
-    assert hashlib.sha256((ROOT / 'peaso/private_secret_source_epoch_20261021.json').read_bytes()).hexdigest() == '5cb5cb3b403b838e39a637668ef68c13fa30fb034a7be791d8654cb670b25009'
+    assert hashlib.sha256((ROOT / 'peaso/private_secret_source_epoch_20261021.json').read_bytes()).hexdigest() == '5fed0e7f3a73d31cc8c2339e81c20fd8c96a26a5764ae9dc9d94d767b32531f9'
     source = (ROOT / PACKAGE).read_bytes()
     before = rawv2.source_bytes(PACKAGE, source, PACKAGE_BEFORE, ROOT)
     assert hashlib.sha256(before).hexdigest() == PACKAGE_BEFORE
@@ -30,7 +31,7 @@ def test_current_package_producer_projection_retains_source_and_module_binding()
     old = {'path': PACKAGE, 'qualname': '_image', 'sha256': definition['before'],
            'module_sha256': row['before_sha256']}
     current = shared.rawv2_current_content_projection(package._image, old, ROOT)
-    assert current['sha256'] == definition['after']
+    assert current['sha256'] == json.loads((ROOT / shared._PRIVATE_RECEIPT).read_bytes())['rawv2_package128_admission']['current_definitions']['_image']['current_sha256']
     assert current['module_sha256'] == hashlib.sha256((ROOT / PACKAGE).read_bytes()).hexdigest()
     with pytest.raises(epoch.AdmissionError):
         shared.rawv2_current_content_projection(package._image, dict(old, sha256='0' * 64), ROOT)

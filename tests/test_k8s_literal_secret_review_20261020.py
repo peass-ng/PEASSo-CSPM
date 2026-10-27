@@ -668,17 +668,33 @@ def test_reference_only_pod_metadata_literals_are_assessed(monkeypatch):
     assert all(b'opaque annotation' in p and b'selected-secret' not in p for p,_,_ in trace.scans)
 
 
-def test_detected_value_scrubs_other_native_inventory_before_snapshot_and_cache(monkeypatch):
+def test_detected_value_stays_clear_in_native_inventory_and_private_store(monkeypatch):
+    from peaso import secret_evidence
     sensitive='sensitive-canary'
     t=target('ConfigMap','selected-config')
     req=request([t],inventories=[source.KIND,'pod'])
     pod=native(target(name=sensitive))
     listing='/api/v1/namespaces/'+NS+'/pods'
     def detector(payload,path,timeout):return [(sensitive,'test-canary',1)] if sensitive.encode() in payload else []
-    snapshot,trace=capture(monkeypatch,targets=[t],req=req,documents={route(t):native(t,sensitive)},scanner=detector,
-        extra_documents={listing:{'apiVersion':'v1','kind':'PodList','metadata':{'resourceVersion':'208'},'items':[pod]}})
+    cipher=secret_evidence.EphemeralCipher()
+    with secret_evidence.capture(cipher,tenant='t',scan_id='s') as private:
+        snapshot,trace=capture(monkeypatch,targets=[t],req=req,documents={route(t):native(t,sensitive)},scanner=detector,
+            extra_documents={listing:{'apiVersion':'v1','kind':'PodList','metadata':{'resourceVersion':'208'},'items':[pod]}})
+        document=private.document()
     assert {r['status'] for r in findings(snapshot)}=={'FAIL'}
+    # Collection may warm the pod listing before the selected reads; the set of
+    # reads stays exact: one listing plus the two selected-artifact reads.
     assert sorted(c[2] for c in trace.calls)==sorted([listing,route(t),route(t)])
-    assert sensitive not in json.dumps([snapshot,findings(snapshot)])
+    # Found secrets are shown in clear text: other native inventory keeps the
+    # detected value, and the encrypted private store holds the real value.
+    assert sensitive in json.dumps(snapshot)
+    assert sensitive not in json.dumps(document)
+    values={cipher.decrypt(sealed)['value'] for sealed in document['records'].values()}
+    assert sensitive in values
+    # The value reaches the finding's authorized detail (what the API returns).
+    detail=secret_evidence.details(next(r for r in findings(snapshot) if r['status']=='FAIL'),document,cipher,tenant='t',scan_id='s')
+    assert detail['status']=='available' and sensitive in [m['value'] for m in detail['matches']]
+    # The scanner's own connector credential never appears anywhere.
+    assert AUTH not in json.dumps([snapshot,findings(snapshot)]) and AUTH not in values
     assert getattr(trace.api.api_client,'last_response',None) is None
     assert all(r.closed and r.released for r in trace.responses)

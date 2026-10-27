@@ -144,18 +144,23 @@ def sql_entra_only(item, index):
     entra = [admin for admin in admins if get(admin, "properties.administratorType", str) == "ActiveDirectory"]
     if not entra:
         return "NOT_APPLICABLE", {"reason": "no Microsoft Entra administrator (azure.claude.sql_server_entra_admin)"}
-    flags = [get(admin, "properties.azureADOnlyAuthentication", bool) for admin in entra]
+    modes = list_of_objects(get(item, "azureADOnlyAuthentications", list))
+    flags = [get(mode, "properties.azureADOnlyAuthentication", bool) for mode in modes]
+    if len(flags) != 1 or flags[0] is None:
+        return "UNKNOWN", {"reason": "missing or malformed native SQL authentication mode"}
     return result(not all(flags), azure_ad_only_authentication=flags)
 
 
 def _sql(only):
     return {**_arm("Microsoft.Sql/servers", "sql"), "serverAdministrators": [
-        {"properties": {"administratorType": "ActiveDirectory", "login": "dba", "azureADOnlyAuthentication": only}}]}
+        {"properties": {"administratorType": "ActiveDirectory", "login": "dba"}}],
+        "azureADOnlyAuthentications": [{"properties": {"azureADOnlyAuthentication": only}}]}
 
 
 CASES["azure.htbp.sql.entra_only_authentication"] = {
     "pass": _sql(True), "fail": _sql(False), "missing": _arm("Microsoft.Sql/servers", "sql"),
-    "malformed": {**_arm("Microsoft.Sql/servers", "sql"), "serverAdministrators": [{"properties": {"administratorType": "ActiveDirectory", "azureADOnlyAuthentication": "no"}}]}}
+    "malformed": {**_arm("Microsoft.Sql/servers", "sql"), "serverAdministrators": [{"properties": {"administratorType": "ActiveDirectory"}}],
+                  "azureADOnlyAuthentications": [{"properties": {"azureADOnlyAuthentication": "no"}}]}}
 
 
 @ht_register("azure.htbp.postgresql.password_auth_disabled", "azure", "least_privilege", "postgresql_flexible_server",

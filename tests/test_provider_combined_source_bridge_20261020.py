@@ -270,7 +270,7 @@ REVIEWED_CURRENT_CHANGES = {'peaso/ai/access.py': {'after_sha256': 'ab7d0ff1b899
  'peaso/collectors/aws_access_analyzer_lifecycle.py': {'after_sha256': '05ef0cc1157de1cd226da2e48d71dd63be1e6bea2cb759b7bc9c273acdf8e427',
                                                        'after_size': 9357,
                                                        'before_sha256': '23788052bbe56fc609e1a61f567995f237884520a15daf1cb50879a26a218a5e'},
- 'peaso/collectors/aws_additional_secret_indicators.py': {'after_sha256': 'c48782094d4e06282f4780a87d5b39c10bae7a90a52202a3dc6f7ba49359b374',
+ 'peaso/collectors/aws_additional_secret_indicators.py': {'after_sha256': '505ebd8f6d11b43979110094840701fe75170e368a7387d08e35dec022785035',
                                                           'after_size': 17383,
                                                           'before_sha256': 'e2cfc9bcd839b1a7a803580b549b3d02d8a67757274551a0afc4130e5d184787'},
  'peaso/collectors/aws_b_services.py': {'after_sha256': '59c138a826795d03a12d427e84307db040a514326079300cd3cede104dd1896e',

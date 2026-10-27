@@ -112,7 +112,14 @@ def test_existing_candidate_current_unwrapped_source_not_registration_only(cid):
     assert body == PACK['native_candidates'][cid]['predicate_body']
     assert digest(body.encode()) == capture['predicate']['sha256']
     assert str(Path(inspect.getsourcefile(function)).relative_to(ROOT)) == capture['predicate']['file']
-    assert inspect.getsourcelines(function)[1] == capture['predicate']['line']
+    # ``line`` is where the reviewed body sat when the report was written.
+    # Later edits above it shift the position without touching the body, so the
+    # current location is bound by the exact, unique body text instead.
+    source = (ROOT / capture['predicate']['file']).read_text()
+    assert source.count(body) == 1
+    line = inspect.getsourcelines(function)[1]
+    assert source.splitlines(keepends=True)[line - 1:line - 1 + body.count('\n')] == body.splitlines(keepends=True)
+    assert isinstance(capture['predicate']['line'], int) and capture['predicate']['line'] >= 1
     assert capture['active'] == (cid not in exclusions())
     assert c.dependencies == capture['dependencies']
 

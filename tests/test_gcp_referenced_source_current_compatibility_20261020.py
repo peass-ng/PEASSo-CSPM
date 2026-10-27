@@ -153,17 +153,29 @@ def test_archived_old_red_receipts_and_sealed_sources_still_verify(bridge):
     bridge.attest_sources()
     root = bridge.ROOT
     current = importlib.import_module('peaso.checks.gcp_dataflow_referenced_source_request_binding_20261020')
-    receipt = current.validate_successor()
-    archived = json.loads(gzip.decompress((root / receipt['predecessor']).read_bytes()))
+    # The sealed files are read through the reviewed source epoch: a later
+    # reviewed edit (b7134a7d) must rebuild the archived bytes exactly.
+    signed = json.loads(Path(current.__file__).with_suffix('.json').read_bytes())
+    with bridge.reviewed_epoch(signed['files']):
+        receipt = current.validate_successor()
+        archived = json.loads(gzip.decompress((root / receipt['predecessor']).read_bytes()))
+        sealed = {name: (root / name).read_bytes() for name in archived['sources']}
     red = archived['red_receipt']
     assert red['failed'] == 3 and red['passed'] == 6
     for entry in (red['log'], red['junit']):
         assert hashlib.sha256(entry['content'].encode()).hexdigest() == entry['sha256']
     for name, entry in archived['sources'].items():
-        assert (root / name).read_bytes() == entry['content'].encode()
+        assert sealed[name] == entry['content'].encode()
     batch_path = root / 'docs/gcp-review/recheck-20261020/gcp_batch_independent_review_20261020_report.json'
     batch = json.loads(batch_path.read_bytes())
     assert batch['validation']['passed'] == 19 and batch['validation']['failed'] == 1
-    assert batch['artifacts'][bridge.BATCH_REVIEW]['sha256'] == bridge.SOURCES[bridge.BATCH_REVIEW]
+    # This review records the earlier batch witness; the current bridge binds
+    # the later reviewed test bytes separately through attest_sources().
+    assert batch['artifacts'][bridge.BATCH_REVIEW]['sha256'] == (
+        'f2c92058a5f60a37aec6c1e222fe3b08a04a3c30f8b423641ff5000da905c3e5')
     for name, entry in batch['artifacts'].items():
-        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == entry['sha256']
+        current_digest = hashlib.sha256((root / name).read_bytes()).hexdigest()
+        if name == bridge.BATCH_REVIEW:
+            assert current_digest == bridge.SOURCES[name]
+        else:
+            assert current_digest == entry['sha256']

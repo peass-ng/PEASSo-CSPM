@@ -29,6 +29,25 @@ def indicators(encoded):
     return {'InspectionStatus': 'collected', 'HasAwsKeyPair': access}
 
 
+def _remember_key_pair(row):
+    """The key-pair check failed on text the payload reader rejected. Keep the
+    exact access key and secret it matched in private evidence."""
+    from peaso.secret_evidence import enabled, remember, source_context
+    from peaso.secret_scanning import _fingerprint
+    arn = row.get('LaunchConfigurationARN')
+    match = re.fullmatch(r'arn:(?:aws|aws-cn|aws-us-gov):autoscaling:([a-z0-9-]+):([0-9]{12}):launchConfiguration:[^:]+:launchConfigurationName/.+', arn) if isinstance(arn, str) else None
+    if not enabled() or match is None:
+        return
+    text = base64.b64decode(row['UserData'].replace('\r', '').replace('\n', ''), validate=True).decode('utf-8')
+    values = [(found[0], found.start()) for found in ACCESS.finditer(text)] + [(found[1], found.start(1)) for found in SECRET.finditer(text)]
+    with source_context(resource_id=arn, scope=match[2] + '/' + match[1], path='UserData',
+                        check_ids={'aws_autoscaling_userdata_plaintext_aws_key'},
+                        source='autoscaling:DescribeLaunchConfigurations'):
+        for value, offset in values:
+            remember(value, _fingerprint(value), path='UserData', line=text[:offset].count('\n') + 1,
+                     engine='configuration', rule='cloud_credential')
+
+
 def project_response(response):
     from .aws_b_services import _metadata
     if not isinstance(response, dict) or not isinstance(response.get('LaunchConfigurations'), list):
@@ -43,5 +62,8 @@ def project_response(response):
         safe['UserDataIndicators'] = indicators(row.get('UserData'))
         from .aws_configuration_payload_secret_indicators import launch_configuration_indicator
         safe['PayloadSecretIndicators'] = launch_configuration_indicator(row)
+        if (safe['UserDataIndicators'].get('HasAwsKeyPair')
+                and safe['PayloadSecretIndicators'].get('collection_status') != 'collected'):
+            _remember_key_pair(row)
         rows.append(safe)
     return {**_metadata(response), 'LaunchConfigurations': rows}

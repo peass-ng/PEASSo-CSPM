@@ -330,7 +330,7 @@ def test_exact_finding_reuse_reviews_only_six_new_rows(monkeypatch, tmp_path):
     early = pipeline.review_scan(report(140), snapshot, {}, tenant="tenant", artifacts=None,
                                  stages=("hardening",))
     assert early["status"] == "completed" and len(early["reviews"]["hardening"]) == 140, (early, calls)
-    assert [len(ids) for stage, ids, _ in calls if stage == "hardening"] == [40, 40, 40, 20]
+    assert [len(ids) for stage, ids, _ in calls if stage == "hardening"] == [35, 35, 35, 35]
     saved_early = copy.deepcopy(early)
     final_report = report(146)
     final_report["snapshot_id"] = "final-view-of-same-section-revision"

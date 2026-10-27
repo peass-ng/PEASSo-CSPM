@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+pytest_plugins = ('tests.azure_current_native_route_successor_20261027',)
+
 # Synthetic deployment identities for isolated tests; production has no defaults.
 for _name, _value in {
     "PEASO_AWS_COLLECTOR_ROLE_ARN": "arn:aws:iam::111122223333:role/HackTricks-CSPM",

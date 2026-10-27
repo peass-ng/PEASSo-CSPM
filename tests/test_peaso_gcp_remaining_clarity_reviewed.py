@@ -575,6 +575,45 @@ def test_capability_fingerprint_distinguishes_authority_and_alias_links():
         cases_fingerprint({'unknown': object()})
 
 
+# Predicates replaced by reviewed commits after the extension review row was
+# recorded.  de012c38 keeps fully bound leak evidence when later reads or
+# detectors are incomplete (clean partial coverage cannot pass); 45112721 moved
+# image content scanning to the streaming evaluator and tightened Cloud Build
+# log binding.
+EXTENSION_PREDICATE_SUCCESSORS = {
+    'gcp.review.artifact_image.content_secret_indicators': {'before_predicate_source_sha256': '3e7924e4bccdd5aa1ea83b3e9254deffce20b7322d528e640ba0afafd9c45866',
+        'after_predicate_source_sha256': 'e589f341effbcb5c6677df442174e26bef216314ea56755a0d9b93188d116d9d', 'module': 'peaso.checks.gcp_image_stream_review_20261021', 'commit': '45112721'},
+    'gcp.review.artifactregistry.selected_file_secret_indicators': {'before_predicate_source_sha256': '6f4b7c50441776d28a7a4e06f8610bf3b79ea0c9984e11cc49326d7479e5d3a6',
+        'after_predicate_source_sha256': 'c41d3d5751c7dd70a0fb9e7d0c2f515570f2348cb506c1651f62436731d31c20', 'commit': 'de012c38'},
+    'gcp.review.cloudbuild.stored_log_secret_indicators': {'before_predicate_source_sha256': '7a4d78e54b01344cae0539f479c8dc841be8b07e5a53fc171499ad080cb9390c',
+        'after_predicate_source_sha256': '4259fc418c00fcf3818527e8b5837127bab64e00752618b4154e5af67ae64237', 'commit': '45112721'},
+    'gcp.review.composer.dag_source_secret_indicators': {'before_predicate_source_sha256': 'f85e0b7feb17116f32cb5f8f3b030c549e00fbbcd6e8c2635da5c52957ff7acf',
+        'after_predicate_source_sha256': 'cf50624ef905049ed067559a1f38faec8322215d55393c539ac68f5a7b20243e', 'commit': 'de012c38'},
+    'gcp.review.sourcerepo.selected_file_secret_indicators': {'before_predicate_source_sha256': '9efdc7277d249274984369dfd0db9cf279fb154c75b31ae00119dbce484d91a5',
+        'after_predicate_source_sha256': '8e508714233b7d84fc62d9f4a18c3c3f53271aa338d837601e836634e4629bf6', 'commit': 'de012c38'},
+    'gcp.review.storage.selected_archive_secret_indicators': {'before_predicate_source_sha256': '67ae5ee1485f86d7a817c9ad180dcb5cc1254832d92af29bec618a6f8bff71c1',
+        'after_predicate_source_sha256': 'd50d76c3d00fc766162a8aa4dd92f20cc0fcd34d0b3046e3c09f3da25d1fcc62', 'commit': 'de012c38'},
+}
+
+
+# Owner modules edited by reviewed commits after their extension review row was
+# recorded (de012c38: confirmed secret findings survive incomplete content
+# scans; 45112721: provider control reviews).  Current pins: kept equal to the
+# current bytes by scripts/peaso_repin_sources.py (PY_PIN_BLOCKS).  The exact
+# current source bodies are separately recorded in
+# docs/gcp-review/source-recheck-20261021.jsonl.
+CURRENT_EXTENSION_SOURCES = {
+    'peaso/checks/gcp_artifact_file_secret_review_20261019.py': '83b18b9e43d88c7fa4271defd6cb9d1111e320814e7e4d8f191f010fba7ba0b2',
+    'peaso/checks/gcp_cloudbuild_log_secret_review_20261019.py': 'ea79ddaf6041bee7fbfc75504af71d6def2698d23b82c2b7d77dba4b48eec792',
+    'peaso/checks/gcp_composer_source_secret_review_20261019.py': '4d792063c7dfde93400aa5ca89c5637f978fbca645aae51aaba7e06ae7aa12b7',
+    'peaso/checks/gcp_dataproc_referenced_source_secret_review_20261020.py': 'b0896e0082f39de705a4a8648d9cb8236c8b4f34e3c59c3c852f485e714d138c',
+    'peaso/checks/gcp_image_secret_review_20261019.py': '0c0e9e68f1a7a39457822e3f7a20195f21c1f61948efa5c4e6b3fa926872263b',
+    'peaso/checks/gcp_selected_archive_secret_review_20261019.py': 'cde1fe3ec267ef201f7b9fbe432dd2266b36164b3ee6e20fa55d589f77388cfb',
+    'peaso/checks/gcp_sourcerepo_secret_review_20261019.py': '1edae1338a7f2a7f8b13e5939b4e33ad01c79c7fe3d80f634c69f5243d2664ac',
+    'peaso/checks/gcp_task_routine_secret_review_20261020.py': '7deb55ddf182adade8f6f0e2beb52a019ed30e62908698de5758fef7b99fa63b',
+}
+
+
 @pytest.mark.parametrize('cid',sorted(NATIVE_EXTENSION_REVIEWS))
 def test_admitted_extension_owner_binds_source_fixtures_and_copy(cid):
     import hashlib
@@ -585,13 +624,12 @@ def test_admitted_extension_owner_binds_source_fixtures_and_copy(cid):
     admitted=json.loads((root/admission_path).read_text())['checks']
     admission = next(x for x in admitted if x['spec']['id']==cid)
     assert _digest(historical_admission_row(cid, admission))==row['admission_sha256']
-    source_successors = {
-        # Exact current source bodies are separately recorded in
-        # docs/gcp-review/source-recheck-20261021.jsonl.
-        'gcp.review.composer.dag_source_secret_indicators': '4d792063c7dfde93400aa5ca89c5637f978fbca645aae51aaba7e06ae7aa12b7',
-        'gcp.review.storage.selected_archive_secret_indicators': 'cde1fe3ec267ef201f7b9fbe432dd2266b36164b3ee6e20fa55d589f77388cfb',
-    }
-    assert hashlib.sha256((root/row['source']).read_bytes()).hexdigest()==source_successors.get(cid,row['source_sha256'])
+    if row['source'] in CURRENT_EXTENSION_SOURCES:
+        # The retained review row keeps the reviewed bytes; a later reviewed
+        # edit of the owner module is bound by its exact current digest.
+        assert hashlib.sha256((root/row['source']).read_bytes()).hexdigest()==CURRENT_EXTENSION_SOURCES[row['source']]
+    else:
+        assert hashlib.sha256((root/row['source']).read_bytes()).hexdigest()==row['source_sha256']
     for asset in row['fixture_sources']:
         assert hashlib.sha256((root/asset['path']).read_bytes()).hexdigest()==asset['sha256']
     spec=extension_cases(cid, CASES)
@@ -599,16 +637,17 @@ def test_admitted_extension_owner_binds_source_fixtures_and_copy(cid):
     assert _digest(CATALOG[cid])==row['copy_catalog_sha256']
     check=CHECK_BY_ID[cid];f=inspect.unwrap(check.evaluate)
     binding=row['reviewed_binding']
-    assert (check.kind,f.__module__,f.__qualname__)==(binding['kind'],binding['module'],binding['source_qualname'])
+    successor=EXTENSION_PREDICATE_SUCCESSORS.get(cid)
+    if successor:
+        # The retained row keeps the reviewed predicate; the reviewed later
+        # edit is bound exactly here.
+        assert binding['predicate_source_sha256']==successor['before_predicate_source_sha256']
+    module=successor.get('module',binding['module']) if successor else binding['module']
+    assert (check.kind,f.__module__,f.__qualname__)==(binding['kind'],module,binding['source_qualname'])
     nonlocals=inspect.getclosurevars(f).nonlocals
     assert _stable_binding(nonlocals)==binding['closure']
-    predicate_successors = {
-        # Both versions keep fully bound leak evidence when later reads or
-        # detectors are incomplete; clean partial coverage cannot pass.
-        'gcp.review.composer.dag_source_secret_indicators': 'cf50624ef905049ed067559a1f38faec8322215d55393c539ac68f5a7b20243e',
-        'gcp.review.storage.selected_archive_secret_indicators': 'd50d76c3d00fc766162a8aa4dd92f20cc0fcd34d0b3046e3c09f3da25d1fcc62',
-    }
-    assert hashlib.sha256(inspect.getsource(f).encode()).hexdigest()==predicate_successors.get(cid,binding['predicate_source_sha256'])
+    expected=successor['after_predicate_source_sha256'] if successor else binding['predicate_source_sha256']
+    assert hashlib.sha256(inspect.getsource(f).encode()).hexdigest()==expected
     assert _stable_binding(inspect.getclosurevars(f).nonlocals)==binding['predicate_bindings']
     for branch in ('pass','fail','unknown'):
         if branch not in spec:continue

@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import random
 import re
 import threading
 import time
@@ -22,6 +23,14 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import unquote
+
+
+THROTTLE_RETRY_ATTEMPTS = 8
+THROTTLE_RETRY_MAX_WAIT = 16.0
+THROTTLE_RETRY_CODES = frozenset({"Throttling", "ThrottlingException", "TooManyRequestsException",
+    "RequestLimitExceeded", "SlowDown", "RequestThrottled", "RequestThrottledException",
+    "ProvisionedThroughputExceededException", "PriorRequestNotComplete",
+    "BandwidthLimitExceeded", "EC2ThrottledException", "ThrottledException"})
 
 
 def _bound(options, key, default, minimum=1, maximum=10000):
@@ -335,10 +344,19 @@ class Requests:
         # call. Per-endpoint AIMD limiting still backs off on throttling.
         self.workers = _bound(options, "service_concurrency", 32, maximum=32)
         self.attempts = _bound(options, "retry_attempts", 3, maximum=5)
+        # Provider throttling is a rate signal, not a failed read: three tries
+        # spaced 0.2s/0.4s apart turned bursts (e.g. ~5000 ECS
+        # DescribeTaskDefinition reads) into UNKNOWN evidence. Throttled reads
+        # get extra jittered exponential waits, always bounded by the scan
+        # deadline. An explicit retry_attempts keeps its exact old budget.
+        self.throttle_attempts = max(self.attempts, _bound(options, "throttle_retry_attempts",
+            self.attempts if "retry_attempts" in options else THROTTLE_RETRY_ATTEMPTS, maximum=10))
+        self._retry_random = random.Random()
         self.timeout = _bound(options, "read_timeout", 15, maximum=120)
         self.connect_timeout = _bound(options, "connect_timeout", 5, maximum=30)
         self.calls = 0
         self.cache_hits = 0
+        self.throttle_retries = 0
         self._cache, self._clients, self._sessions = {}, OrderedDict(), {}
         from .aws_request_pool import RawReadCache
         # Native reads shared below projections for this scan only.
@@ -609,7 +627,7 @@ class Requests:
                     and bool({'s3_selected_source_content', 'ecs_selected_environment_file_content', 'workload_referenced_source_content', 'build_deployment_referenced_source_content'} & set(getattr(self, 'content_secret_scan_kinds', ())))):
                 from .aws_s3_selected_source_secret_indicators import validate_native_client
                 validate_native_client(client, service, region)
-            for attempt in range(self.attempts):
+            for attempt in range(self.throttle_attempts):
                 if service == "cloudtrail" and operation == "lookup_events":
                     rate_key = (id(session), region)
                     with self._lock:
@@ -644,7 +662,10 @@ class Requests:
                         projection_contract.before_request(self)
                     if content_profile or service == 'sts' or _uncached_credential_exchange:
                         from .aws_content_sdk_logging import private_sdk_logs
-                        with private_sdk_logs():
+                        from contextlib import nullcontext
+                        admission = (self.raw_reads.admit(client, session, lambda: projection_contract.remaining(self))
+                            if _metadata_profile == 'aws-selected-configuration-content-v1' else nullcontext())
+                        with admission, private_sdk_logs():
                             response = getattr(client, operation)(**arguments)
                     else:
                         with shared_reads(not _cache_refresh and _metadata_profile in SHARED_PROFILES and _codecommit_routes is None):
@@ -805,11 +826,22 @@ class Requests:
                     response_meta = getattr(exc, "response", None)
                     response_meta = response_meta.get("ResponseMetadata", {}) if isinstance(response_meta, dict) else {}
                     http_status = response_meta.get("HTTPStatusCode") if isinstance(response_meta, dict) else None
-                    retryable = transient_transport or http_status == 429 or failure.code in {"Throttling", "ThrottlingException", "TooManyRequestsException", "RequestLimitExceeded", "SlowDown", "ServiceUnavailable", "ServiceUnavailableException", "InternalError", "InternalServerError", "InternalServerException"}
-                    if failure.code == "unsupported_region_service" or not retryable or attempt + 1 == self.attempts:
+                    throttled = http_status == 429 or failure.code in THROTTLE_RETRY_CODES
+                    retryable = transient_transport or throttled or failure.code in {"Throttling", "ThrottlingException", "TooManyRequestsException", "RequestLimitExceeded", "SlowDown", "ServiceUnavailable", "ServiceUnavailableException", "InternalError", "InternalServerError", "InternalServerException"}
+                    budget = self.throttle_attempts if throttled else self.attempts
+                    if failure.code == "unsupported_region_service" or not retryable or attempt + 1 >= budget:
                         evict_retryable_failure = retryable and failure.code != "unsupported_region_service"
                         raise failure from None
-                    fallback = min(0.2 * (2 ** attempt), 2)
+                    if attempt + 1 < self.attempts:
+                        fallback = min(0.2 * (2 ** attempt), 2)
+                    else:
+                        # Throttle-only extension: full-jitter exponential
+                        # backoff (1-2s, 2-4s, ... capped at 16s) so retries
+                        # from many workers do not re-synchronise.
+                        ceiling = min(2.0 ** (attempt - self.attempts + 2), THROTTLE_RETRY_MAX_WAIT)
+                        fallback = ceiling * (0.5 + 0.5 * self._retry_random.random())
+                        with self._lock:
+                            self.throttle_retries += 1
                     provider_minimum = _retry_after_minimum(exc)
                     delay = max(fallback, provider_minimum or 0.0)
                     if self.deadline is not None and time.monotonic() + delay >= self.deadline:

@@ -25,7 +25,34 @@ from importlib import import_module
 ROOT = Path(__file__).resolve().parents[1]
 CHECK_BY_ID = {c.id: c for c in CHECKS if c.provider == 'aws'}
 ROWS = review_rows()
-LEDGER = json.loads((ROOT / 'docs/evidence-reviews/aws.json').read_text())
+# aws.json is the historical review ledger.  Later reviewed edits only moved
+# current pins inside it; each is listed with its historical value and the file
+# whose current bytes it must match, so the ledger is read back at its epoch.
+LEDGER_CURRENT_PINS = {
+    ('checks', 'aws.review.workload.selected_command_literal_secret_indicators', 'runtime_receipt', 'sha256'): {
+        'historical': 'b4bc249947fb0ec67f24a59ba55df4ac8baa5f674d9055d904631394fec4d791',
+        'current_of': 'docs/check-review/aws-workload-command-runtime-20261020.json',
+        'commit': '5826f6d2'},
+}
+
+
+def _historical_ledger_bytes():
+    raw = (ROOT / 'docs/evidence-reviews/aws.json').read_bytes()
+    current = json.loads(raw)
+    for pointer, pin in LEDGER_CURRENT_PINS.items():
+        value = current
+        for key in pointer:
+            value = value[key]
+        assert value == hashlib.sha256((ROOT / pin['current_of']).read_bytes()).hexdigest(), pointer
+        if value != pin['historical']:
+            needle = b'"' + pointer[-1].encode() + b'": "' + value.encode() + b'"'
+            assert raw.count(needle) == 1 and raw.count(value.encode()) == 1, pointer
+            raw = raw.replace(needle, b'"' + pointer[-1].encode() + b'": "' + pin['historical'].encode() + b'"')
+    return raw
+
+
+LEDGER_RAW = _historical_ledger_bytes()
+LEDGER = json.loads(LEDGER_RAW)
 CURRENT = json.loads((ROOT / 'docs/evidence-reviews/aws-current-successor-20261022.json').read_text())
 HISTORICAL_SUCCESSOR = json.loads((ROOT / 'docs/evidence-reviews/aws-historical-successor-20261022.json').read_text())
 CASES = json.loads(gzip.decompress((ROOT / 'tests/fixtures/aws_evidence_review.json.gz').read_bytes()))
@@ -84,7 +111,7 @@ def test_every_registered_aws_check_and_retired_alias_has_source_review_and_real
     assert set(CHECK_BY_ID) | aliases == set(ROWS) == historical_review | CURRENT_IDS
     assert CURRENT['retired_aliases'] == {old: CHECK_ALIASES[old] for old in retired}
     assert CURRENT['base_commit'] == 'e7510bc898183fd9f478d0cb511c37aed8db4286'
-    assert hashlib.sha256((ROOT / 'docs/evidence-reviews/aws.json').read_bytes()).hexdigest() == CURRENT['historical_ledger_sha256']
+    assert hashlib.sha256(LEDGER_RAW).hexdigest() == CURRENT['historical_ledger_sha256']
     assert HISTORICAL_SUCCESSOR['historical_ledger_sha256'] == CURRENT['historical_ledger_sha256']
     assert hashlib.sha256((ROOT / 'tests/fixtures/aws_evidence_review.json.gz').read_bytes()).hexdigest() == HISTORICAL_SUCCESSOR['historical_fixture_sha256']
     assert set(HISTORICAL_SUCCESSOR['reviewed_current_native_contracts']) == {

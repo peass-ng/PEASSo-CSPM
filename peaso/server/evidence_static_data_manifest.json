@@ -22,7 +22,7 @@
   "peaso/checks/central_batch_fixtures.json": "a145cffa0702ff94e29027a29c8e54cf5365b197f8028d9bfe9e2bfac1c1b0a0",
   "peaso/checks/gcp_consolidated_secret_profiles_20261020.json": "89693bfe01782c44e5dfc273fe1940a671cf878173164b44fadfa550a70d36d3",
   "peaso/checks/gcp_evidence_explanations.json": "91d201e8a8c094c538dbc759d4fad695cb16c3cae41ae582925af03a79d14cfc",
-  "peaso/checks/gcp_evidence_explanations_current_20261023.json": "d0cfac399589ee9597ea4fd404560ea3cc30155ceb20f888ca37b3f66467cc63",
+  "peaso/checks/gcp_evidence_explanations_current_20261023.json": "2ea4c9e8b8a0efb7343b67be6b55c6990b27c98f2f277b5c898d02fbcbd98007",
   "peaso/checks/k8s_evidence_explanations.json": "14ee369452b958dd6205242c8968ba649bc5b729965ba84dfd3d4568085495d1",
   "peaso/checks/k8s_evidence_explanations_current_20261023.json": "88aa4138b239dac775255d33db5d5f13767b80e0a84becf54afa744c152ff4b1",
   "peaso/checks/k8s_kubelet_declaration_observed_20261020.json": "e656228bb13e48d160e220af247bde084b9a0cd5157343bba874717459ea4d6f",

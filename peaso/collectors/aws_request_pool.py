@@ -210,6 +210,14 @@ class RawReadCache:
             pass
         return client
 
+    def admit(self, client, root, check_deadline):
+        """Admit a content-profile wire attempt at its native endpoint.
+
+        Content clients cannot use native response sharing because their raw
+        payloads may contain secrets. They still share the endpoint budget.
+        """
+        return self.limiter.slot((id(root), client.meta.endpoint_url), check=check_deadline)
+
     def _key(self, client, root_id, operation_name, api_params):
         try:
             model = client.meta.service_model
@@ -399,20 +407,24 @@ class AdaptiveLimiter:
         self.waits = 0
 
     @contextlib.contextmanager
-    def slot(self, key):
+    def slot(self, key, *, check=None):
         with self._condition:
             state = self._state.get(key)
             if state is None:
                 state = self._state[key] = [float(self.initial), 0]
             waited = False
             while True:
+                if check is not None:
+                    check()
                 pause = self._paused.get(key, 0.0) - self._clock()
                 if state[1] < int(state[0]) and pause <= 0:
                     break
                 if not waited:
                     self.waits += 1
                     waited = True
-                self._condition.wait(pause if pause > 0 else None)
+                timeout = min(pause, 0.1) if check is not None and pause > 0 else (
+                    0.1 if check is not None else pause if pause > 0 else None)
+                self._condition.wait(timeout)
             state[1] += 1
         ok = False
         try:

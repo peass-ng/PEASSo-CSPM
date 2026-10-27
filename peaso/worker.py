@@ -777,20 +777,28 @@ def _process(role, request, connection):
             # Freeze the native items once; evaluation, publication and AI
             # review share them instead of each making a read-only copy.
             snapshot = frozen_view(artifacts.get(tenant, request["snapshot_ref"]))
+            from peaso.related_snapshots import related_view
             related, sources = [], {}
             for entry in request.get("related", []):
                 try:
                     item = artifacts.get(tenant, entry["snapshot_ref"])
                 except Exception:  # noqa: BLE001 - an expired/removed sibling snapshot only means no join
                     continue
+                # One full document at a time: the view drops the kinds no
+                # privesc join reads, and the loaded document is released.
+                item = related_view(item)
                 related.append(item)
                 sources[item.get("snapshot_id")] = {"scan_id": entry["scan_id"], "connector_id": entry["connector_id"]}
+            item = None
             with _runtime_span('worker.evaluate'):
                 report = evaluate_snapshot(snapshot, categories=selectors.get("categories") if selectors.get("content_checks") else selectors.get("categories") or None,
                                checks=selectors.get("checks") or None, frameworks=selectors.get("frameworks") or None,
                                content_checks=selectors.get("content_checks"),
                                include_not_applicable=bool(selectors.get("include_not_applicable", False)),
                                related_snapshots=related)
+            # Only the privesc join reads related snapshots; publication and AI
+            # review never do, so release them before those long phases.
+            del related
             for row in report.get("related_snapshots", []):
                 row.update(sources.get(row["snapshot_id"], {}))
             with _runtime_span('worker.redact'):

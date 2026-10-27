@@ -459,6 +459,12 @@ class Capture:
         return snapshot
 
 
+# NAME=value or NAME: value, and --name value or --name=value options.
+_NAMED_ASSIGNMENT = (
+    re.compile(r'''(?m)(?:^|[\s;'"])(?:export\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_.-]{0,127})["']?\s*[:=]\s*["']?(?P<value>[^\s"'#;]{6,512})'''),
+    re.compile(r'''(?m)(?:^|\s)--(?P<name>[A-Za-z][A-Za-z0-9_-]{0,127})(?:=|\s+)["']?(?P<value>[^\s"'#;-][^\s"'#;]{5,511})'''))
+
+
 def legacy_text(text, resource_id=None):
     """Capture only the already-used bounded pattern detector's real matches."""
     if not enabled():
@@ -487,9 +493,9 @@ def legacy_text(text, resource_id=None):
                             record(value[start:start + end.end()], 'private_key', match.start())
             else:
                 end = re.search(r'-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----', text[match.end():])
-                value = text[match.start():match.end() + end.end()] if end else match[0]
-                if end:
-                    record(value, 'private_key', match.start())
+                # The private_key category is reported on BEGIN alone. Keep the
+                # observed block even when its END marker is missing.
+                record(text[match.start():match.end() + end.end()] if end else text[match.start():], 'private_key', match.start())
         if _ACCESS.search(text) and _SECRET.search(text):
             for match in _ACCESS.finditer(text):
                 record(match[0], 'cloud_credential', match.start())
@@ -501,6 +507,15 @@ def legacy_text(text, resource_id=None):
                     and not value.lower().startswith(('example', 'your_', 'replace_', 'placeholder'))
                     and re.search(r'[A-Za-z]', value) and re.search(r'[0-9!@#%^&*]', value)):
                 record(value, 'password_assignment', match.start(2))
+        if context.get('path') == 'ec2/user-data':
+            # The user-data check reports secret-named words; keep the literal
+            # values assigned to secret-named variables or options.
+            for match in (match for pattern in _NAMED_ASSIGNMENT for match in pattern.finditer(text)):
+                name, value = match['name'], match['value']
+                if (SECRET_NAME.search(name) and not REFERENCE_SUFFIX.search(name)
+                        and not any(marker in value for marker in ('$', '{{', '}}', '<', '>', '`'))
+                        and not value.lower().startswith(('example', 'your_', 'replace_', 'placeholder', 'changeme'))):
+                    record(value, 'secret_named_assignment', match.start('value'))
 
 
 def native_environment_resources(value, *, provider, method, url, body=None, scope=''):
