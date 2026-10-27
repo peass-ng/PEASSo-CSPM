@@ -39,8 +39,8 @@
       "kwdefaults": "None"
     }
   },
-  "normalized_module_sha256": "3542fb3773d1844c56cd8357487b4125578841cbc14d1cb2e6640327d7e7b987",
-  "private_manifest_sha256": "de1fb7902d2425c4eb1050ebe8319bf5be86ea34b9fea91384ba81e78eb86fd7",
+  "normalized_module_sha256": "df9693e445a950449d00f3fea63583ebf403b437c2eabda2f7f4c366facab521",
+  "private_manifest_sha256": "b0ade34f917bebdc17fcc990d4c492654196e1f2dd8a248a39007d0d9bcd772e",
   "private_roster": [
     "peaso/collectors/aws_additional_secret_indicators.py",
     "peaso/collectors/aws_code_log_content_indicators.py",

@@ -36,7 +36,7 @@ SOURCE_DELTA_SHA256 = '6f803d15053fdccf982ab20883b76a72a821ef98f703192eba25c3a05
 BRIDGE_RECEIPT = 'peaso/checks/gcp_positive_conservation_source_bridge_20261020.json'
 BRIDGE_RECEIPT_SHA256 = 'da2c2b52467ea97ff0d54a146556fa6b64239f8d70b847641b85cf65969d251c'
 PRIVATE_RECEIPT = 'peaso/checks/gcp_private_source_successor_20261021.json'
-PRIVATE_RECEIPT_SHA256 = '3166bcc4c05ec6e716fb00b6c6deea35642bc16e836067d154d0302461376f2c'
+PRIVATE_RECEIPT_SHA256 = 'cb45c1f2e7b0e6e0e47dc12efb949eee7a7fa906f1a646760e7bbcc6b1481d8f'
 
 
 _MODULE_ARTIFACTS = ContextVar('gcp_positive_module_artifacts', default=None)
@@ -336,6 +336,8 @@ def _source_delta(root):
 
 def _source_hash(name, data, expected, rows, root=None):
     root = Path(root or Path(__file__).resolve().parents[1]).resolve()
+    if name == 'peaso/secret_findings.py':
+        data = private_source.predecessor_bytes(name, data, expected, root)
     if name == 'peaso/secret_scanning.py':
         from peaso.rawv2_private_source_successor_20261021 import source_bytes
         source_bytes(name, data, expected, root)
@@ -472,6 +474,9 @@ def reviewed_inputs(root=None):
                     private_source.source_rows()[name]['before_sha256'], root)
                 if before != data:
                     raise RuntimeError('Functions inherited private predecessor changed: ' + name)
+            elif name == 'peaso/secret_findings.py':
+                if private_source.predecessor_bytes(name, actual, row['sha256'], root) != data:
+                    raise RuntimeError('Functions inherited finding predecessor changed')
             elif actual != data:
                 raise RuntimeError('Functions inherited predecessor source changed')
     original = bytes.fromhex(archive['files']['peaso/collectors/gcp.py']['hex'])
