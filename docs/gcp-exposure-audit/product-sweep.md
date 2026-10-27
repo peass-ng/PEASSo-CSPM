@@ -124,12 +124,12 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | Migration | [Migrate to VMs](https://docs.cloud.google.com/migrate/virtual-machines/docs/5.0) | — | REVIEW REQUIRED |
 | Migration | [Migration Center](https://docs.cloud.google.com/migration-center/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud Armor](https://docs.cloud.google.com/armor/docs) | security_policy | REVIEW REQUIRED |
-| Networking | [Cloud CDN](https://docs.cloud.google.com/cdn/docs) | — | REVIEW REQUIRED |
+| Networking | [Cloud CDN](https://docs.cloud.google.com/cdn/docs) | backend_bucket origin join, edge Cloud Armor and signed-key presence | REVIEW REQUIRED |
 | Networking | [Cloud DNS](https://docs.cloud.google.com/dns/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud Domains](https://docs.cloud.google.com/domains/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud IDS](https://docs.cloud.google.com/intrusion-detection-system/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud Interconnect](https://docs.cloud.google.com/network-connectivity/docs/interconnect) | — | REVIEW REQUIRED |
-| Networking | [Cloud Load Balancing](https://docs.cloud.google.com/load-balancing/docs) | forwarding_rule | REVIEW REQUIRED |
+| Networking | [Cloud Load Balancing](https://docs.cloud.google.com/load-balancing/docs) | forwarding_rule / target proxy / URL map / backend service or bucket / edge policy | REVIEW REQUIRED |
 | Networking | [Cloud NAT](https://docs.cloud.google.com/nat/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud NGFW](https://docs.cloud.google.com/firewall/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud Router](https://docs.cloud.google.com/network-connectivity/docs/router) | — | REVIEW REQUIRED |

@@ -1628,12 +1628,27 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
             services = [proxy["data"]["service"]]
         services = [s for s in dict.fromkeys(services) if s]
         armor, unprotected, buckets = [], [], []
+        unresolved_backend = not services
+        if not services:
+            a.gap("backend", "target proxy has no collected URL-map backend route")
         for service in services:
             if "/backendBuckets/" in service:
-                buckets.append(service)
+                bucket = inventory.get("backend_bucket", service)
+                if bucket is None:
+                    unresolved_backend = True
+                    a.gap("backend", f"backend bucket {service} not collected", "compute backendBuckets")
+                    continue
+                detail = bucket["data"]
+                origin = {"backend_bucket": service, "bucket_name": detail.get("bucketName"),
+                          "cdn_enabled": detail.get("enableCdn"),
+                          "signed_url_keys_present": bool(as_list((detail.get("cdnPolicy") or {}).get("signedUrlKeyNames")))}
+                buckets.append(origin)
+                policy = detail.get("edgeSecurityPolicy")
+                (armor if policy else unprotected).append({**origin, "security_policy": policy})
                 continue
             backend = inventory.get("backend_service", service)
             if backend is None:
+                unresolved_backend = True
                 a.gap("backend", f"backend service {service} not collected", "compute backendServices")
                 continue
             policy = backend["data"].get("securityPolicy")
@@ -1641,8 +1656,8 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
             if backend["data"].get("iap", {}).get("enabled"):
                 a.authenticated = True
                 a.notes.append(f"IAP enabled on {service}")
-        a.step("cloud_armor", "allow" if unprotected or buckets else "unknown", unprotected=unprotected, protected=armor, backend_buckets=buckets)
-        if armor and not unprotected and not buckets:
+        a.step("cloud_armor", "allow" if unprotected else "unknown", unprotected=unprotected, protected=armor, backend_buckets=buckets)
+        if armor and not unprotected and not unresolved_backend:
             decisions = [_gcp_armor_decision(inventory, entry["security_policy"]) for entry in armor]
             if all(decision == "block" for decision in decisions):
                 a.step("cloud_armor_rules", "block", decisions=decisions)
@@ -4017,7 +4032,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
-GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "security_policy",
+GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",

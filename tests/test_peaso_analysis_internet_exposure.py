@@ -921,6 +921,34 @@ def test_gcp_vmware_external_ip_and_ordered_access_rules():
     assert one(gcp(*base), "vmware_external_address")["status"] == "UNKNOWN"
 
 
+def test_gcp_backend_bucket_edge_policy_is_not_an_unprotected_route():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
+    from peaso.snapshot import resources
+    target = "https://compute.googleapis.com/compute/v1/projects/p1/global/targetHttpProxies/p"
+    url_map = "https://compute.googleapis.com/compute/v1/projects/p1/global/urlMaps/m"
+    backend = "https://compute.googleapis.com/compute/v1/projects/p1/global/backendBuckets/b"
+    policy_ref = "https://compute.googleapis.com/compute/v1/projects/p1/global/securityPolicies/deny"
+    forwarding = {"name": "fr", "IPAddress": "34.4.4.4", "IPProtocol": "TCP", "ports": ["443"],
+                  "loadBalancingScheme": "EXTERNAL_MANAGED", "target": target}
+    bucket = {"name": "b", "selfLink": backend, "bucketName": "origin-bucket", "enableCdn": True,
+              "edgeSecurityPolicy": policy_ref}
+    policy = {"name": "deny", "selfLink": policy_ref, "rules": [
+        {"priority": 2147483647, "action": "deny(403)", "match": {"config": {"srcIpRanges": ["*"]}}}]}
+    def assessment(bucket_row=bucket):
+        snap = gcp(gcoll("forwarding_rule", [forwarding]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                   gcoll("url_map", [{"name": "m", "selfLink": url_map, "defaultService": backend}]),
+                   gcoll("backend_bucket", [bucket_row] if bucket_row else []),
+                   gcoll("security_policy", [policy]))
+        items = resources(snap)
+        return _gcp_forwarding_rule(snap, Inventory(snap, items),
+                                    next(row for row in items if row["type"] == "forwarding_rule"))
+    assert assessment().verdict() == "PASS"
+    bucket.pop("edgeSecurityPolicy")
+    assert assessment().verdict() == "FAIL"
+    assert assessment(None).verdict() == "UNKNOWN"
+
+
 def test_gcp_vmware_declared_public_path_preserves_nsx_api_boundary():
     from peaso.analysis.internet_exposure import Inventory, _gcp_vmware_address
     from peaso.snapshot import resources
