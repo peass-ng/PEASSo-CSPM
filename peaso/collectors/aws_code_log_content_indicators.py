@@ -7,8 +7,13 @@ Offline Kingfisher and TruffleHog detection is limited to the selected bounded c
 from __future__ import annotations
 from peaso.secret_evidence import scan_with_source
 import copy
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
+from contextvars import ContextVar
 import json
 import re
+import threading
 from .aws_user_data_secret_indicators import project
 
 PROFILE = 'aws-code-log-content-indicators-v1'
@@ -18,6 +23,7 @@ SPECS = {'codecommit_repository': ('codecommit', 'list_repositories', 'repositor
 NATIVE_IDS = {'codecommit_repository': 'repositoryName'}
 MAX_BYTES, MAX_FILES, MAX_FOLDERS, MAX_MESSAGES = 1048576, 128, 128, 100
 CATEGORIES = {'private_key', 'cloud_credential', 'password_assignment', 'secret'}
+_LOG_SCANNER_GATE = ContextVar('aws_log_scanner_gate', default=None)
 
 
 def _text(value, maximum=2048):
@@ -172,8 +178,9 @@ def project_response(response, service, operation, arguments, *, request_context
                 # Preparation stages only already-admitted message bytes in
                 # volatile tmpfs. Each original event still enters the normal
                 # scanner with its own thread-local source context.
-                with prepared_content_batch([(payload, 'log-message')
-                                             for _, message, payload, _ in batch], timeout=60):
+                gate = _LOG_SCANNER_GATE.get()
+                with gate if gate is not None else nullcontext(), prepared_content_batch(
+                        [(payload, 'log-message') for _, message, payload, _ in batch], timeout=60):
                     for timestamp, message, payload, row in batch:
                         outcome = scan_with_source(scan_content, payload, 'log-message', source={
                             'path': arguments['logGroupName'], 'scope': region,
@@ -340,13 +347,47 @@ def scan_logs(requests, session, region, item):
         return _failure(scan, exc)
 
 
-def _enricher(scanner):
+LOG_GROUP_WORKERS = 2
+
+
+def _enricher(scanner, *, parallel_logs=False):
     def enrich(requests, session, region, items):
         output = copy.deepcopy(items)
+        # A global call/item cap must retain input-order admission. Each log
+        # group otherwise owns its own page, byte, and message budgets. Keep
+        # only two scans in flight: a group can stage up to MAX_BYTES of log
+        # text and start its own bounded detector process.
+        parallel = (parallel_logs and len(output) > 1
+                    and getattr(requests, 'content_secret_scans', False) is True
+                    and getattr(requests, 'max_calls', None) is None
+                    and getattr(requests, 'max_items', None) is None
+                    and getattr(requests, 'deadline', None) is None
+                    and getattr(requests, 'workers', 1) > 1)
+        if parallel:
+            # Keep detector preparation and its subprocess at one per scan,
+            # while allowing the two independent AWS read chains to overlap.
+            gate = threading.Lock()
+            def run(item):
+                token = _LOG_SCANNER_GATE.set(gate)
+                try:
+                    return scanner(requests, session, region, item)
+                finally:
+                    _LOG_SCANNER_GATE.reset(token)
+            with ThreadPoolExecutor(max_workers=LOG_GROUP_WORKERS, thread_name_prefix='aws-log-content') as pool:
+                pending = deque()
+                for item in output:
+                    pending.append((item, pool.submit(run, item)))
+                    if len(pending) == LOG_GROUP_WORKERS:
+                        settled, future = pending.popleft()
+                        settled['ContentSecretIndicators'] = future.result()
+                while pending:
+                    settled, future = pending.popleft()
+                    settled['ContentSecretIndicators'] = future.result()
+            return output
         for item in output:
             item['ContentSecretIndicators'] = scanner(requests, session, region, item)
         return output
     return enrich
 
 
-ENRICHERS = {'codecommit_repository': _enricher(scan_repository), 'log_group': _enricher(scan_logs)}
+ENRICHERS = {'codecommit_repository': _enricher(scan_repository), 'log_group': _enricher(scan_logs, parallel_logs=True)}
