@@ -6,8 +6,11 @@ It never loads a cloud snapshot, finding evidence values, or model credentials.
 """
 import argparse
 import ast
+import collections
+import gzip
 import hashlib
 import inspect
+import ijson
 import json
 from pathlib import Path
 import sys
@@ -68,7 +71,268 @@ SPECIAL_SOURCE_PINS = {
     'peaso/checks/aws_a_facts.py': '6499b70ab725fe55edafa8adf436ffd50aab99cd5c105e67dcfdb15e615d339d',
     'peaso/checks/claude2_aws_b_edge.py': '7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e',
     'peaso/collectors/aws_b_services.py': '5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3',
+    'peaso/checks/hacktricks_bp_aws.py': '2b1752f0d615a63966fccc4173dbbb04d5e0178c9252e0f4790ac22ccd563d45',
+    'peaso/checks/hacktricks_bp_common.py': 'a7f127c0ecd1a2876c4ea1124304709cf68feff80c5a9d8564b62193d0226b5e',
+    'peaso/checks/aws.py': '18b513e7e115dfcff6869e20bb2c776c9c979ac2ad4b7662c6179acb146debbd',
+    'peaso/checks/aws_a_s3.py': 'ff02961210c23380ae79b3ea983e7734f5205ef49acb0a3e00bbb5f7eea3916d',
+    'peaso/checks/claude_aws_a_s3.py': '18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160',
+    'peaso/collectors/aws.py': '6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5',
+    'peaso/checks/aws_extended.py': 'aac21cb7a83d89836beb374e72746d9f1f1e3b8de42137d5915397e7a0ea8f4b',
+    'peaso/checks/aws_b_ecr.py': '552b98f0e65964ceff93530c4b08f017874bdce2c219055afc9c98e489cb678a',
+    'peaso/checks/aws_a_cloudwatch.py': '7cae38304bca4ec34d34d7604f44af5f07c084a49987c204e63988276c5b67f9',
+    'peaso/checks/claude_aws_b_messaging.py': '3c01e5e55f6bb580757ad65dd8239f0edd21943b3539f1d2ae4d4c9168fb4084',
+    'peaso/checks/claude2_aws_b_devtools.py': '6434e604a4f39fe952b97826c9b4d4e81b969e5ad6aab6196108d4d2b6918caf',
+    'peaso/checks/claude_aws_b_common.py': '0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3',
+    'peaso/collectors/aws_facts_data_identity.py': '0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0',
+    'peaso/checks/aws_b_compute.py': '136f48264836bc8a8a43b495ff71af02cbdafb008358cca8d2ffa162620e3a2e',
+    'peaso/checks/claude2_aws_b_compute.py': '8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed',
+    'peaso/checks/aws_b_core.py': '4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b',
+    'peaso/checks/claude_aws_b_compute.py': '969058175c791c7b7e16c60483ab0e51a09cd7d1567171e961d4f02c015fc8c1',
+    'peaso/checks/aws_b_cloudfront.py': 'd84100a1052473bbb5fcba81d36b33d1fdf1b774e2141a6fc6ec815c061853df',
+    'peaso/checks/compliance_new_aws.py': '631a322dcfbd561bfbf4ec5cda53949c1030328b42462255e045e9c8cf0a5bce',
+    'peaso/collectors/aws_facts_compute_edge.py': '33132a9fd900a55e6e7a259abcbb9af7b9a978a3ceb1cc589d78c4e754de2671',
+    'peaso/checks/claude_aws_a_iam.py': '5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687',
+    'peaso/checks/claude_aws_a_common.py': '42218f329b77e55cd56c2f46de0a82ab260c849ca1ae1e89ac95a54e201a87d8',
 }
+SNAPSHOT_SHA256 = '3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f'
+S3_FIELDS = {
+    'aws.a.s3.mfa_delete_enabled': ('Versioning.MFADelete',),
+    'aws.s3.versioning': ('Versioning.Status',),
+    'aws.s3.access_logging': ('Logging.LoggingEnabled.TargetBucket',),
+    'aws.claude_a.s3.default_encryption_kms_key': ('Encryption.ServerSideEncryptionConfiguration.Rules[].ApplyServerSideEncryptionByDefault.KMSMasterKeyID',),
+    'aws.claude_a.s3.prowler_kms_encryption': ('Encryption.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm',),
+    'aws.claude_a.s3.object_lock_configured': ('ObjectLock.ObjectLockConfiguration',),
+    'aws.claude_a.s3.replication_rule_enabled': ('Replication.ReplicationConfiguration.Rules[].Status',),
+    'aws.claude_a.s3.lifecycle_rule_enabled': ('Lifecycle.Rules[].Status',),
+    'aws.claude_a.s3.versioning_and_lifecycle': ('Versioning.Status', 'Lifecycle.Rules[].Status'),
+    'aws.claude_a.s3.prowler_acl_disabled': ('OwnershipControls.OwnershipControls.Rules[0].ObjectOwnership',),
+}
+OTHER_SNAPSHOT_FIELDS = {
+    'aws.a.cloudwatch.log_kms_encryption': ('logGroupName', '_provenance.operation',
+                                           '_provenance.native_response_complete', 'kmsKeyId'),
+    'aws.b.ecr.all_tags_immutable': ('imageTagMutability',),
+    'aws.ecr.lifecycle_policy': ('LifecyclePolicy.collection_status',
+                                 'LifecyclePolicy.absent', 'LifecyclePolicy.lifecyclePolicyText'),
+    'aws.cb.sqs.cmk_encryption': ('Attributes.Attributes.QueueArn',
+                                  'Attributes.Attributes.KmsMasterKeyId'),
+    'aws.cb.sqs.dead_letter_queue': ('Attributes.Attributes.QueueArn',
+                                     'Attributes.Attributes.RedrivePolicy'),
+    'aws.c2b.cloudformation.notifications': ('StackName', 'NotificationARNs'),
+    'aws.c2b.cloudformation.termination_protection_root_stacks':
+        ('StackName', 'RootId', 'EnableTerminationProtection'),
+}
+ECS_FIELDS = {
+    'aws.c2b.ecs.all_containers_logging':
+        ('Definition.taskDefinition.containerDefinitions[].name',
+         'Definition.taskDefinition.containerDefinitions[].logConfiguration.logDriver'),
+    'aws.b.ecs.some_logging_configuration':
+        ('Definition.taskDefinition.containerDefinitions[].name',
+         'Definition.taskDefinition.containerDefinitions[].logConfiguration'),
+    'aws.b.ecs.no_host_pid': ('Definition.taskDefinition.pidMode',),
+    'aws.b.ecs.no_privileged_containers':
+        ('Definition.taskDefinition.containerDefinitions[].privileged',),
+}
+LAMBDA_FIELDS = {
+    'aws.b.lambda.active_tracing': ('Configuration.TracingConfig.Mode',),
+    'aws.b.lambda.insights_layer': ('Configuration.FunctionName', 'Configuration.Layers[].Arn'),
+    'aws.cb.lambda.kms_key_configured': ('FunctionArn', 'KMSKeyArn'),
+    'aws.lambda.vpc_configuration': ('VpcConfig.VpcId',),
+}
+CLOUDFRONT_FIELDS = {
+    'aws.b.cloudfront.access_logging': ('Config.DistributionConfig.Logging.Enabled',),
+    'aws.b.cloudfront.custom_acm_certificate': ('Config.DistributionConfig.ViewerCertificate.ACMCertificateArn',
+                                                  'Config.DistributionConfig.ViewerCertificate.Certificate'),
+    'aws.b.cloudfront.custom_origin_encryption': ('Config.DistributionConfig.Origins.Items[].CustomOriginConfig.OriginProtocolPolicy',
+                                                   'Config.DistributionConfig.DefaultCacheBehavior.ViewerProtocolPolicy',
+                                                   'Config.DistributionConfig.CacheBehaviors.Items[].ViewerProtocolPolicy'),
+    'aws.b.cloudfront.default_root_object': ('Config.DistributionConfig.DefaultRootObject',),
+    'aws.b.cloudfront.field_level_encryption': ('Config.DistributionConfig.DefaultCacheBehavior.FieldLevelEncryptionId',),
+    'aws.b.cloudfront.geo_restrictions': ('Config.DistributionConfig.Restrictions.GeoRestriction.RestrictionType',),
+    'aws.b.cloudfront.origin_group_metadata': ('Config.DistributionConfig.OriginGroups.Items',),
+    'aws.b.cloudfront.sni': ('Config.DistributionConfig.ViewerCertificate.SSLSupportMethod',),
+    'aws.b.cloudfront.viewer_encryption': ('Config.DistributionConfig.DefaultCacheBehavior.ViewerProtocolPolicy',
+                                            'Config.DistributionConfig.CacheBehaviors.Items[].ViewerProtocolPolicy'),
+    'aws.b.cloudfront.waf_reference': ('Config.DistributionConfig.WebACLId',),
+    'aws.c2b.cloudfront.default_behavior_https': ('Config.DistributionConfig.DefaultCacheBehavior.ViewerProtocolPolicy',),
+    'aws.c2b.cloudfront.logging_any': ('Config.DistributionConfig.Logging.Enabled',
+                                       'Config.DistributionConfig.DefaultCacheBehavior.RealtimeLogConfigArn',
+                                       'LogDeliveries.deliveries'),
+    'aws.c2b.cloudfront.origin_traffic_encrypted': ('Config.DistributionConfig.Origins.Items',
+                                                     'Config.DistributionConfig.DefaultCacheBehavior',
+                                                     'Config.DistributionConfig.CacheBehaviors.Items'),
+    'aws.c2b.cloudfront.recommended_tls_policy': ('Config.DistributionConfig.ViewerCertificate.MinimumProtocolVersion',),
+    'aws_cloudfront_origin_failover_configured': ('Config.DistributionConfig.Origins.Items',
+                                                  'Config.DistributionConfig.OriginGroups.Items',
+                                                  'Config.DistributionConfig.DefaultCacheBehavior'),
+}
+IAM_USER_FIELDS = {
+    'aws.claude_a.iam.user_in_group': ('GroupList',),
+    'aws.claude_a.iam.user_one_active_key': ('AccessKeys.items[].Status',),
+    'aws.claude_a.iam.admin_user_has_mfa':
+        ('AttachedManagedPolicies[].PolicyArn', 'MFADevices.items'),
+}
+S3_EXPECTED = {
+    'Encryption': {'collected': 148}, 'Versioning': {'collected': 148},
+    'Logging': {'collected': 148}, 'Lifecycle': {'collected': 10, 'denied': 15, 'empty': 123},
+    'Replication': {'denied': 15, 'empty': 133},
+    'ObjectLock': {'denied': 15, 'empty': 133},
+    'OwnershipControls': {'collected': 147, 'empty': 1},
+}
+
+
+def snapshot_completeness(path):
+    source = Path(path)
+    if hashlib.sha256(source.read_bytes()).hexdigest() != SNAPSHOT_SHA256:
+        raise ValueError('exact 992 snapshot SHA changed')
+    counts = collections.defaultdict(collections.Counter)
+    bucket_rows = 0
+    ecr_rows = 0
+    ecr_status = collections.Counter()
+    log_rows = 0
+    log_provenance = collections.Counter()
+    sqs_rows = 0
+    sqs_attributes_complete = 0
+    cfn_rows = 0
+    cfn_complete = 0
+    ecs_rows = 0
+    ecs_complete = 0
+    lambda_rows = 0
+    lambda_complete = 0
+    cloudfront_rows = 0
+    cloudfront_complete = 0
+    iam_user_rows = 0
+    iam_user_complete = 0
+    with gzip.open(source, 'rb') as stream:
+        for collection in ijson.items(stream, 'collections.item'):
+            if collection.get('type') == 'sqs_queue':
+                if collection.get('status') != 'collected':
+                    raise ValueError('incomplete SQS collection')
+                for item in collection.get('items', []):
+                    sqs_rows += 1
+                    container = item.get('Attributes', {})
+                    attributes = container.get('Attributes', {}) if isinstance(container, dict) else {}
+                    if (isinstance(container, dict)
+                            and container.get('collection_status') == 'collected'
+                            and isinstance(attributes, dict) and 'QueueArn' in attributes):
+                        sqs_attributes_complete += 1
+            if collection.get('type') == 'cloudformation_stack':
+                if collection.get('status') != 'collected':
+                    raise ValueError('incomplete CloudFormation collection')
+                for item in collection.get('items', []):
+                    cfn_rows += 1
+                    if ('StackName' in item and 'RootId' not in item
+                            and 'NotificationARNs' in item):
+                        cfn_complete += 1
+            if collection.get('type') == 'ecs_task_definition':
+                if collection.get('status') != 'collected':
+                    raise ValueError('incomplete ECS task definition collection')
+                for item in collection.get('items', []):
+                    ecs_rows += 1
+                    detail = item.get('Definition')
+                    if (isinstance(detail, dict)
+                            and detail.get('collection_status') == 'collected'
+                            and isinstance(detail.get('taskDefinition'), dict)):
+                        ecs_complete += 1
+            if collection.get('type') == 'lambda_function':
+                if collection.get('status') != 'collected':
+                    raise ValueError('incomplete Lambda function collection')
+                for item in collection.get('items', []):
+                    lambda_rows += 1
+                    cfg = item.get('Configuration')
+                    if (isinstance(cfg, dict) and cfg.get('collection_status') == 'collected'
+                            and isinstance(cfg.get('FunctionName'), str)
+                            and 'Layers' not in cfg and 'FunctionArn' in item
+                            and 'KMSKeyArn' not in item and 'VpcConfig' in item):
+                        lambda_complete += 1
+            if collection.get('type') == 'cloudfront_distribution':
+                if collection.get('status') != 'collected':
+                    raise ValueError('incomplete CloudFront collection')
+                for item in collection.get('items', []):
+                    cloudfront_rows += 1
+                    cfg = item.get('Config')
+                    deliveries = item.get('LogDeliveries')
+                    if (isinstance(cfg, dict) and cfg.get('collection_status') == 'collected'
+                            and isinstance(cfg.get('DistributionConfig'), dict)
+                            and isinstance(deliveries, dict)
+                            and deliveries.get('collection_status') == 'collected'
+                            and isinstance(deliveries.get('deliveries'), list)):
+                        cloudfront_complete += 1
+            if collection.get('type') == 'iam_user':
+                if collection.get('status') != 'collected':
+                    raise ValueError('incomplete IAM user collection')
+                for item in collection.get('items', []):
+                    iam_user_rows += 1
+                    keys, mfa = item.get('AccessKeys'), item.get('MFADevices')
+                    if (isinstance(item.get('GroupList'), list)
+                            and item.get('_provenance', {}).get('native_response_complete') is True
+                            and isinstance(item.get('AttachedManagedPolicies'), list)
+                            and isinstance(keys, dict) and keys.get('collection_status') in {'collected', 'empty'}
+                            and isinstance(keys.get('items'), list)
+                            and isinstance(mfa, dict) and mfa.get('collection_status') in {'collected', 'empty'}
+                            and isinstance(mfa.get('items'), list)):
+                        iam_user_complete += 1
+            if collection.get('type') == 'ecr_repository':
+                if collection.get('status') != 'collected':
+                    raise ValueError('incomplete ECR repository collection')
+                for item in collection.get('items', []):
+                    ecr_rows += 1
+                    detail = item.get('LifecyclePolicy')
+                    ecr_status[detail.get('collection_status') if isinstance(detail, dict) else None] += 1
+            if collection.get('type') == 'log_group':
+                if collection.get('status') != 'collected':
+                    raise ValueError('incomplete log group collection')
+                for item in collection.get('items', []):
+                    log_rows += 1
+                    provenance = item.get('_provenance', {})
+                    log_provenance[(provenance.get('operation'),
+                                    provenance.get('native_response_complete'),
+                                    'kmsKeyId' in item)] += 1
+            if collection.get('type') != 'bucket':
+                continue
+            if collection.get('status') != 'collected':
+                raise ValueError('incomplete S3 bucket collection')
+            for item in collection.get('items', []):
+                bucket_rows += 1
+                for name in S3_EXPECTED:
+                    response = item.get(name)
+                    status = response.get('collection_status') if isinstance(response, dict) else None
+                    counts[name][status] += 1
+    actual = {key: dict(counts[key]) for key in S3_EXPECTED}
+    if bucket_rows != 148 or actual != S3_EXPECTED:
+        raise ValueError('992 S3 detail completeness changed')
+    if ecr_rows != 35 or dict(ecr_status) != {'collected': 26, 'empty': 9}:
+        raise ValueError('992 ECR lifecycle detail completeness changed')
+    if log_rows != 101 or dict(log_provenance) != {
+            ('logs:DescribeLogGroups', True, False): 101}:
+        raise ValueError('992 log group response completeness changed')
+    if sqs_rows != 32 or sqs_attributes_complete != 32:
+        raise ValueError('992 SQS attributes completeness changed')
+    if cfn_rows != 22 or cfn_complete != 22:
+        raise ValueError('992 CloudFormation root/notification completeness changed')
+    if ecs_rows != 4684 or ecs_complete != 4684:
+        raise ValueError('992 ECS task definition completeness changed')
+    if lambda_rows != 11 or lambda_complete != 11:
+        raise ValueError('992 Lambda configuration completeness changed')
+    if cloudfront_rows != 10 or cloudfront_complete != 10:
+        raise ValueError('992 CloudFront configuration completeness changed')
+    if iam_user_rows != 22 or iam_user_complete != 22:
+        raise ValueError('992 IAM user configuration completeness changed')
+    return {'snapshot_sha256': SNAPSHOT_SHA256, 'bucket_rows': bucket_rows,
+            'detail_status_counts': actual,
+            'ecr_repository_rows': ecr_rows, 'ecr_lifecycle_status_counts': dict(ecr_status),
+            'log_group_rows': log_rows,
+            'log_group_complete_omitted_kms_key_count': log_rows,
+            'sqs_queue_rows': sqs_rows, 'sqs_attributes_complete_count': sqs_attributes_complete,
+            'cloudformation_stack_rows': cfn_rows,
+            'cloudformation_root_notification_complete_count': cfn_complete,
+            'ecs_task_definition_rows': ecs_rows,
+            'ecs_task_definition_complete_count': ecs_complete,
+            'lambda_function_rows': lambda_rows,
+            'lambda_function_complete_count': lambda_complete,
+            'cloudfront_distribution_rows': cloudfront_rows,
+            'cloudfront_configuration_complete_count': cloudfront_complete,
+            'iam_user_rows': iam_user_rows,
+            'iam_user_configuration_complete_count': iam_user_complete}
 
 
 def call_name(node):
@@ -80,7 +344,24 @@ def call_name(node):
     return '<dynamic>'
 
 
-def proof(check, inventory, field_specs):
+def ecs_mount_underlying(function):
+    """Pin the register -> HackTricks wrapper -> exact check implementation."""
+    chain = []
+    current = function
+    for _ in range(3):
+        cells = [cell.cell_contents for cell in current.__closure__ or ()
+                 if inspect.isfunction(cell.cell_contents)]
+        if len(cells) != 1:
+            raise ValueError('ECS evaluator wrapper chain changed')
+        current = cells[0]
+        chain.append(str(Path(inspect.getsourcefile(current)).resolve().relative_to(ROOT)))
+    if chain != ['peaso/checks/__init__.py', 'peaso/checks/hacktricks_bp_common.py',
+                 'peaso/checks/hacktricks_bp_aws.py'] or current.__name__ != 'ecs_host_mounts':
+        raise ValueError('ECS evaluator implementation changed')
+    return current
+
+
+def proof(check, inventory, field_specs, *, s3_coverage=None):
     from peaso.checks import CHECKS
     registered = next((row for row in CHECKS if row.id == check['check_id']), None)
     if registered is None:
@@ -180,6 +461,47 @@ def proof(check, inventory, field_specs):
                             'symbol': 'lifecycle', 'purpose': 'JSON rules metadata presence only',
                             'source_file_sha256': hashlib.sha256((ROOT / 'peaso/checks/aws_b_ecr.py').read_bytes()).hexdigest()})
     reviewed_scope = check['check_id'].startswith('aws.a.iam.password_policy_')
+    reviewed_ecs_mount = check['check_id'] == 'aws.htbp.ecs.no_sensitive_host_mounts'
+    reviewed_ecs = (check['check_id'] in ECS_FIELDS
+                    and isinstance(s3_coverage, dict)
+                    and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                    and s3_coverage.get('ecs_task_definition_rows') == 4684
+                    and s3_coverage.get('ecs_task_definition_complete_count') == 4684)
+    reviewed_lambda = (check['check_id'] in LAMBDA_FIELDS
+                       and isinstance(s3_coverage, dict)
+                       and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                       and s3_coverage.get('lambda_function_rows') == 11
+                       and s3_coverage.get('lambda_function_complete_count') == 11)
+    reviewed_cloudfront = (check['check_id'] in CLOUDFRONT_FIELDS
+                           and isinstance(s3_coverage, dict)
+                           and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                           and s3_coverage.get('cloudfront_distribution_rows') == 10
+                           and s3_coverage.get('cloudfront_configuration_complete_count') == 10)
+    reviewed_iam_user = (check['check_id'] in IAM_USER_FIELDS
+                         and isinstance(s3_coverage, dict)
+                         and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                         and s3_coverage.get('iam_user_rows') == 22
+                         and s3_coverage.get('iam_user_configuration_complete_count') == 22)
+    if reviewed_ecs:
+        for helper in helper_refs:
+            if helper['symbol'] in {'task', 'optional'}:
+                helper['purpose'] = 'reviewed complete DescribeTaskDefinition field helper'
+    reviewed_s3 = (check['check_id'] in S3_FIELDS
+                   and isinstance(s3_coverage, dict)
+                   and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                   and s3_coverage.get('bucket_rows') == 148
+                   and s3_coverage.get('detail_status_counts') == S3_EXPECTED)
+    reviewed_other_snapshot = (check['check_id'] in OTHER_SNAPSHOT_FIELDS
+                               and isinstance(s3_coverage, dict)
+                               and s3_coverage.get('snapshot_sha256') == SNAPSHOT_SHA256
+                               and s3_coverage.get('ecr_repository_rows') == 35
+                               and s3_coverage.get('ecr_lifecycle_status_counts') == {'collected': 26, 'empty': 9}
+                               and s3_coverage.get('log_group_rows') == 101
+                               and s3_coverage.get('log_group_complete_omitted_kms_key_count') == 101
+                               and s3_coverage.get('sqs_queue_rows') == 32
+                               and s3_coverage.get('sqs_attributes_complete_count') == 32
+                               and s3_coverage.get('cloudformation_stack_rows') == 22
+                               and s3_coverage.get('cloudformation_root_notification_complete_count') == 22)
     password_fields = []
     if reviewed_scope:
         from peaso.checks.aws_a_iam import PASSWORD_SPECS, STRONG_FIELDS
@@ -214,27 +536,128 @@ def proof(check, inventory, field_specs):
                                                 for node in dynamic_gets)))
               and not any(isinstance(node.func, ast.Attribute) and node.func.attr == 'get'
                           for node in nodes if isinstance(node, ast.Call)))
-    special = (reviewed_scope or
+    special = (reviewed_scope or reviewed_s3 or reviewed_other_snapshot or reviewed_ecs or reviewed_lambda
+               or reviewed_cloudfront or reviewed_iam_user or
                check['check_id'] == 'aws.c2b.cloudfront.custom_ssl_certificate')
     if special:
         paths = (('peaso/checks/aws_a_iam.py', 'peaso/checks/aws_a_facts.py')
                  if reviewed_scope else
+                 ('peaso/checks/aws.py' if check['check_id'].startswith('aws.s3.') else
+                  'peaso/checks/aws_a_s3.py' if check['check_id'].startswith('aws.a.s3.') else
+                  'peaso/checks/claude_aws_a_s3.py', 'peaso/collectors/aws.py')
+                 if reviewed_s3 else
+                 (('peaso/checks/aws_a_cloudwatch.py', 'peaso/checks/aws_a_facts.py',
+                   'peaso/collectors/aws.py')
+                  if check['check_id'] == 'aws.a.cloudwatch.log_kms_encryption' else
+                  ('peaso/checks/aws_b_ecr.py', 'peaso/collectors/aws.py')
+                  if check['check_id'] == 'aws.b.ecr.all_tags_immutable' else
+                  ('peaso/checks/aws_extended.py', 'peaso/collectors/aws.py')
+                  if check['check_id'] == 'aws.ecr.lifecycle_policy' else
+                  ('peaso/checks/claude_aws_b_messaging.py', 'peaso/checks/claude_aws_b_common.py',
+                   'peaso/collectors/aws.py')
+                  if check['check_id'].startswith('aws.cb.sqs.') else
+                  ('peaso/checks/claude2_aws_b_devtools.py',
+                   'peaso/checks/claude_aws_b_common.py',
+                   'peaso/collectors/aws_facts_data_identity.py'))
+                 if reviewed_other_snapshot else
+                 (('peaso/checks/aws_b_compute.py', 'peaso/collectors/aws_b_services.py')
+                  if check['check_id'].startswith('aws.b.ecs.') else
+                  ('peaso/checks/claude2_aws_b_compute.py', 'peaso/collectors/aws_b_services.py'))
+                 if reviewed_ecs else
+                 (('peaso/checks/aws_b_core.py', 'peaso/collectors/aws_b_services.py')
+                  if check['check_id'] == 'aws.b.lambda.active_tracing' else
+                  ('peaso/checks/aws_b_core.py', 'peaso/collectors/aws_b_services.py')
+                  if check['check_id'] == 'aws.b.lambda.insights_layer' else
+                  ('peaso/checks/claude_aws_b_compute.py', 'peaso/checks/claude_aws_b_common.py',
+                   'peaso/collectors/aws.py')
+                  if check['check_id'] == 'aws.cb.lambda.kms_key_configured' else
+                  ('peaso/checks/aws_extended.py', 'peaso/collectors/aws.py'))
+                 if reviewed_lambda else
+                 (('peaso/checks/aws_b_core.py', 'peaso/checks/aws_b_cloudfront.py',
+                   'peaso/collectors/aws_b_services.py')
+                  if check['check_id'] in {'aws.b.cloudfront.access_logging', 'aws.b.cloudfront.sni'} else
+                  ('peaso/checks/aws_b_cloudfront.py', 'peaso/collectors/aws_b_services.py')
+                  if check['check_id'].startswith('aws.b.cloudfront.') else
+                  ('peaso/checks/claude2_aws_b_edge.py', 'peaso/collectors/aws_b_services.py',
+                   'peaso/collectors/aws_facts_compute_edge.py')
+                  if check['check_id'].startswith('aws.c2b.cloudfront.') else
+                  ('peaso/checks/compliance_new_aws.py', 'peaso/collectors/aws_b_services.py'))
+                 if reviewed_cloudfront else
+                 ('peaso/checks/claude_aws_a_iam.py', 'peaso/checks/claude_aws_a_common.py',
+                  'peaso/collectors/aws.py')
+                 if reviewed_iam_user else
                  ('peaso/checks/claude2_aws_b_edge.py', 'peaso/collectors/aws_b_services.py'))
         for path in paths:
             if hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != SPECIAL_SOURCE_PINS[path]:
                 raise ValueError('reviewed helper or collector source changed: ' + path)
     if check['check_id'] in MANUAL_RETAIN:
         decision, reason = 'retain_ai', MANUAL_RETAIN[check['check_id']]
+    elif reviewed_ecs_mount:
+        decision, reason = ('native_final_source_proven',
+            'peaso/checks/hacktricks_bp_aws.py:231-260 checks normalized '
+            'DescribeTaskDefinition host sourcePath membership in a fixed '
+            'sensitive-path set and joins it to recorded mountPoints by sourceVolume; '
+            'no path content or policy intent is interpreted.')
+    elif reviewed_s3:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} reads '
+            'typed S3 configuration. Exact 992 bucket detail states and '
+            'peaso/collectors/aws.py:1654-1701 prove complete success, '
+            'documented absence, or denied/UNKNOWN before optional defaults.')
+    elif reviewed_other_snapshot:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} makes a '
+            'fixed recorded-configuration predicate; the exact 992 native '
+            'response status/provenance and collector source prove the '
+            'optional API response complete. Serialized policy text is '
+            'tested for presence only, not parsed or interpreted.')
+    elif reviewed_ecs:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} reads '
+            'ECS DescribeTaskDefinition container or task settings. Exact '
+            '992 task definition detail is collected for all 4,684 rows; '
+            'optional missing members are the API configuration defaults.')
+    elif reviewed_lambda:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} reads '
+            'typed Lambda configuration. Exact 992 rows have collected '
+            'GetFunctionConfiguration, FunctionArn identity, and explicit '
+            'observed optional-field absence or VpcConfig; no source content is read.')
+    elif reviewed_cloudfront:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} compares '
+            'typed CloudFront distribution configuration, list cardinality, '
+            'references, or fixed protocol enums. All 10 exact-992 '
+            'GetDistributionConfig and LogDeliveries responses are complete; '
+            'unsupported/ambiguous branches do not establish FAIL.')
+    elif reviewed_iam_user:
+        decision, reason = ('native_final_source_proven',
+            f'Evaluator {relative}:{start}-{start + len(raw) - 1} compares '
+            'IAM group membership, access-key Status count, or direct '
+            'AdministratorAccess ARN membership with MFA device count. '
+            'All 22 exact-992 IAM user rows have complete authorization '
+            'metadata and collected/empty credential detail collections.')
     elif simple and (direct or special):
         decision, reason = ('native_final_source_proven',
             f'Evaluator {relative}:{start}-{start + len(raw) - 1} uses only '
             'recorded fields, fixed comparisons and cited pure helpers; '
             'malformed or unavailable facts do not establish FAIL.')
     elif simple:
+        gaps = []
+        method_gets = [start + node.lineno - 1 for node in nodes
+                       if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                       and node.func.attr == 'get']
+        if method_gets:
+            gaps.append(f'dict.get omission/value flow at {relative}:{method_gets[0]}')
+        if dynamic_gets and (spec is None or binding_line is None):
+            gaps.append(f'dynamic get field at {relative}:{start + dynamic_gets[0].lineno - 1} lacks literal registration binding')
+        if helper_refs:
+            helper = helper_refs[0]
+            gaps.append(f'helper chain {helper.get("symbol", "unknown")} at {helper["path"]}:{helper["lines"]} lacks per-call completeness proof')
+        if not gaps:
+            gaps.append(f'derived branch at {relative}:{start} lacks field-to-verdict proof')
         decision, reason = ('provisional_source_candidate',
-            f'Evaluator {relative}:{start}-{start + len(raw) - 1} has an '
-            'unverified helper chain, dynamic field binding, or optional '
-            'dict.get omission; AI remains required pending collector/API proof.')
+            '; '.join(gaps) + '; AI remains required pending source/API proof.')
     elif index_read is not None:
         decision, reason = 'retain_ai', f'Scoped/index dependency at {relative}:{index_read} is not proven complete in this slice.'
     elif unsupported:
@@ -243,8 +666,35 @@ def proof(check, inventory, field_specs):
         decision, reason = 'retain_ai', f'No strict recorded-field path proved at {relative}:{start}.'
     else:
         decision, reason = 'retain_ai', f'Evaluator branch/length at {relative}:{start} needs separate source proof.'
+    underlying = None
+    if reviewed_ecs_mount:
+        for path in ('peaso/checks/hacktricks_bp_aws.py',
+                     'peaso/checks/hacktricks_bp_common.py',
+                     'peaso/collectors/aws_b_services.py'):
+            if hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != SPECIAL_SOURCE_PINS[path]:
+                raise ValueError('reviewed ECS evaluator/helper/collector source changed: ' + path)
+        actual = ecs_mount_underlying(registered.evaluate)
+        actual_lines, actual_start = inspect.getsourcelines(actual)
+        actual_path = str(Path(inspect.getsourcefile(actual)).resolve().relative_to(ROOT))
+        actual_syntax = ast.parse(textwrap.dedent(''.join(actual_lines)))
+        actual_definition = next(node for node in ast.walk(actual_syntax)
+                                 if isinstance(node, ast.FunctionDef) and node.name == 'ecs_host_mounts')
+        actual_nodes = [node for statement in actual_definition.body for node in ast.walk(statement)]
+        predicates = [{'line': actual_start + node.lineno - 1,
+                       'expression': ast.get_source_segment(textwrap.dedent(''.join(actual_lines)), node.args[0])}
+                      for node in actual_nodes if isinstance(node, ast.Call)
+                      and call_name(node) == 'result' and node.args]
+        result_lines = [row['line'] for row in predicates]
+        underlying = {'path': actual_path, 'first_line': actual_start,
+                      'last_line': actual_start + len(actual_lines) - 1,
+                      'symbol': 'ecs_host_mounts',
+                      'source_file_sha256': SPECIAL_SOURCE_PINS[actual_path],
+                      'function_sha256': hashlib.sha256(''.join(actual_lines).encode()).hexdigest()}
     return {
         'check_id': check['check_id'], 'decision': decision, 'reason': reason,
+        'followup_owner': ('audit_worker' if check['check_id'].startswith('aws.c2b.')
+                           and decision == 'provisional_source_candidate' else
+                           'code_worker'),
         'native_fail_count': check['native_fail_count'],
         'initial_representatives': check['initial_representatives'],
         'evaluator': {'path': relative, 'first_line': start,
@@ -255,6 +705,19 @@ def proof(check, inventory, field_specs):
         'recorded_field_reads': fields,
         'bound_api_fields': ([field['path'] for field in fields]
                              + password_fields
+                             + (list(S3_FIELDS[check['check_id']]) if reviewed_s3 else [])
+                             + (list(OTHER_SNAPSHOT_FIELDS[check['check_id']])
+                                if reviewed_other_snapshot else [])
+                             + (list(ECS_FIELDS[check['check_id']]) if reviewed_ecs else [])
+                             + (list(LAMBDA_FIELDS[check['check_id']]) if reviewed_lambda else [])
+                             + (list(CLOUDFRONT_FIELDS[check['check_id']]) if reviewed_cloudfront else [])
+                             + (list(IAM_USER_FIELDS[check['check_id']]) if reviewed_iam_user else [])
+                             + (['Definition.taskDefinition.containerDefinitions',
+                                 'Definition.taskDefinition.volumes[].host.sourcePath',
+                                 'Definition.taskDefinition.volumes[].name',
+                                 'Definition.taskDefinition.containerDefinitions[].mountPoints[].sourceVolume',
+                                 'Definition.taskDefinition.containerDefinitions[].mountPoints[].readOnly']
+                                if reviewed_ecs_mount else [])
                              + (['LifecyclePolicy.collection_status', 'LifecyclePolicy.absent',
                                  'LifecyclePolicy.lifecyclePolicyText', 'rules'] if structured else [])
                              + (['Config.DistributionConfig.ViewerCertificate.CloudFrontDefaultCertificate']
@@ -264,6 +727,26 @@ def proof(check, inventory, field_specs):
                                  'purpose': 'literal ID and field/setting registration'} if binding_line else None,
         'result_lines': result_lines,
         'fail_predicates': predicates,
+        'underlying_evaluator': underlying,
+        'snapshot_completeness_ref': ({'snapshot_sha256': SNAPSHOT_SHA256,
+                                       'resource_rows': (s3_coverage['bucket_rows'] if reviewed_s3 else
+                                                         s3_coverage['log_group_rows'] if check['check_id'].startswith('aws.a.cloudwatch.') else
+                                                         s3_coverage['sqs_queue_rows'] if check['check_id'].startswith('aws.cb.sqs.') else
+                                                         s3_coverage['cloudformation_stack_rows'] if check['check_id'].startswith('aws.c2b.cloudformation.') else
+                                                         s3_coverage['ecs_task_definition_rows'] if reviewed_ecs else
+                                                         s3_coverage['lambda_function_rows'] if reviewed_lambda else
+                                                         s3_coverage['cloudfront_distribution_rows'] if reviewed_cloudfront else
+                                                         s3_coverage['iam_user_rows'] if reviewed_iam_user else
+                                                         s3_coverage['ecr_repository_rows']),
+                                       'response_sections': sorted({path.split('.')[0]
+                                                                    for path in (S3_FIELDS.get(check['check_id']) or
+                                                                                 OTHER_SNAPSHOT_FIELDS.get(check['check_id']) or
+                                                                                 ECS_FIELDS.get(check['check_id']) or
+                                                                                 LAMBDA_FIELDS.get(check['check_id']) or
+                                                                                 CLOUDFRONT_FIELDS.get(check['check_id']) or
+                                                                                 IAM_USER_FIELDS.get(check['check_id'], ()))})}
+                                      if reviewed_s3 or reviewed_other_snapshot or reviewed_ecs or reviewed_lambda
+                                      or reviewed_cloudfront or reviewed_iam_user else None),
         'helper_source_refs': ([{'path': 'peaso/checks/facts.py', 'lines': '12-53',
                                  'purpose': 'strict coverage-checked get/guard'}]
                                if any(call['name'] == 'get' for call in calls) else [])
@@ -282,7 +765,59 @@ def proof(check, inventory, field_specs):
                                  if structured else [])
                               + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '475-476',
                                    'purpose': 'GetDistributionConfig complete response'}]
-                                 if check['check_id'] == 'aws.c2b.cloudfront.custom_ssl_certificate' else []),
+                                 if check['check_id'] == 'aws.c2b.cloudfront.custom_ssl_certificate' else [])
+                              + ([{'path': 'peaso/checks/hacktricks_bp_common.py', 'lines': '38-61',
+                                   'purpose': 'wrapper only validates native row and invokes evaluator'},
+                                  {'path': 'peaso/checks/hacktricks_bp_aws.py', 'lines': '220-260',
+                                   'purpose': 'fixed sensitive host path list and exact volume/mount join'},
+                                  {'path': 'peaso/collectors/aws_b_services.py', 'lines': '458-465',
+                                   'purpose': 'complete DescribeTaskDefinition enrichment'}]
+                                 if reviewed_ecs_mount else [])
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '952-961',
+                                   'purpose': 'successful API response marked collected; documented absent/denied distinct'},
+                                  {'path': 'peaso/collectors/aws.py', 'lines': '1654-1701',
+                                   'purpose': 'per-bucket S3 detail API reads'},
+                                  {'path': 'peaso/checks/claude_aws_a_s3.py', 'lines': '57-72',
+                                   'purpose': 'absent S3 section requires exact empty marker and no payload'}]
+                                 if reviewed_s3 else [])
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '2908-2911',
+                                   'purpose': 'complete DescribeLogGroups response provenance'},
+                                  {'path': 'peaso/checks/aws_a_facts.py', 'lines': '70-80',
+                                   'purpose': 'optional omission requires matching operation and complete native response'}]
+                                 if check['check_id'] == 'aws.a.cloudwatch.log_kms_encryption' else [])
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1321-1324',
+                                   'purpose': 'ECR GetLifecyclePolicy explicit collected or absent response'}]
+                                 if check['check_id'] == 'aws.ecr.lifecycle_policy' else [])
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1424-1430',
+                                   'purpose': 'GetQueueAttributes(All) complete response and explicit KMS omission'},
+                                  {'path': 'peaso/checks/claude_aws_b_common.py', 'lines': '91-106',
+                                   'purpose': 'QueueArn sentinel and coverage-checked optional field'}]
+                                 if check['check_id'].startswith('aws.cb.sqs.') else [])
+                              + ([{'path': 'peaso/collectors/aws_facts_data_identity.py', 'lines': '714-722',
+                                   'purpose': 'DescribeStacks projection retains RootId and NotificationARNs'},
+                                  {'path': 'peaso/checks/claude_aws_b_common.py', 'lines': '91-106',
+                                   'purpose': 'StackName sentinel and coverage-checked omission'}]
+                                 if check['check_id'].startswith('aws.c2b.cloudformation.') else [])
+                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '458-481',
+                                   'purpose': 'complete DescribeTaskDefinition enrichment for every revision'},
+                                  {'path': 'peaso/checks/facts.py', 'lines': '127-132',
+                                   'purpose': 'coverage-checked API optional member default'}]
+                                 if reviewed_ecs else [])
+                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '480-490',
+                                   'purpose': 'GetFunctionConfiguration collected detail'},
+                                  {'path': 'peaso/collectors/aws.py', 'lines': '2947-2957',
+                                   'purpose': 'Lambda documented optional VpcConfig projection'}]
+                                 if reviewed_lambda else [])
+                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '475-476',
+                                   'purpose': 'complete GetDistributionConfig response'},
+                                  {'path': 'peaso/collectors/aws_facts_compute_edge.py', 'lines': '554-569',
+                                   'purpose': 'collected CloudFront v2 LogDeliveries fact'}]
+                                 if reviewed_cloudfront else [])
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1484-1503',
+                                   'purpose': 'per-user access key and MFA device collections'},
+                                  {'path': 'peaso/collectors/aws.py', 'lines': '1525-1558',
+                                   'purpose': 'complete IAM authorization details and managed policy projection'}]
+                                 if reviewed_iam_user else []),
         'index_read_line': index_read,
         'untraced_helper_call': unsupported,
         'evidence_keys': inventory['evidence_keys'],
@@ -295,6 +830,8 @@ def main():
     parser.add_argument('split_ids')
     parser.add_argument('source_inventory')
     parser.add_argument('--disjoint-split', required=True)
+    parser.add_argument('--snapshot', required=True,
+                        help='SHA-pinned exact 992 snapshot; only metadata status counts are retained')
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
     split = json.loads(Path(args.split_ids).read_text())
@@ -312,7 +849,8 @@ def main():
             or len(set(selected) & set(disjoint.get('check_ids', []))) != 0):
         raise ValueError('audit worker split overlaps or changed')
     from peaso.checks.facts import FIELD_SPECS
-    rows = [proof(by_id[ident], by_id[ident], FIELD_SPECS)
+    s3_coverage = snapshot_completeness(args.snapshot)
+    rows = [proof(by_id[ident], by_id[ident], FIELD_SPECS, s3_coverage=s3_coverage)
             for ident in selected]
     if (len(rows) != 190 or len({row['check_id'] for row in rows}) != len(rows)
             or any(row['initial_representatives'] >= 3 for row in rows)):
@@ -320,10 +858,11 @@ def main():
     value = {'schema_version': 2, 'status': 'independent_source_review',
              'allowlist_activation': False,
              'scan_id': split['scan_id'], 'source_commit': inventory['source_commit'],
-             'scope': 'code-worker 190-ID disjoint low-representative source slice',
+             'scope': 'code-worker 190-ID disjoint low-representative source slice; provisional aws.c2b IDs handed to audit worker',
              'source_inventory_sha256': hashlib.sha256(Path(args.source_inventory).read_bytes()).hexdigest(),
              'split_sha256': hashlib.sha256(Path(args.split_ids).read_bytes()).hexdigest(),
              'disjoint_split_sha256': hashlib.sha256(Path(args.disjoint_split).read_bytes()).hexdigest(),
+             's3_snapshot_completeness': s3_coverage,
              'source_proven_count': sum(row['decision'] == 'native_final_source_proven' for row in rows),
              'provisional_candidate_count': sum(row['decision'] == 'provisional_source_candidate' for row in rows),
              'retain_ai_count': sum(row['decision'] == 'retain_ai' for row in rows),
