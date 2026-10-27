@@ -459,8 +459,14 @@ def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     delegated = {"name": "projects/p1/datasets/source", "datasetReference": {"projectId": "p1", "datasetId": "source"},
                  "access": [{"view": {"projectId": "foreign", "datasetId": "views", "tableId": "v"}}]}
     result = one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")
-    assert result["status"] == "UNKNOWN"
+    assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["foreign"]
     assert result["evidence"]["path"][0]["delegated"][0]["reference"]["projectId"] == "foreign"
+    delegated["access"][0]["view"]["projectId"] = "p1"
+    assert one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")["status"] == "UNKNOWN"
+    delegated["access"] = [{"dataset": {"dataset": {"project_id": "foreign", "dataset_id": "views"},
+                                 "target_types": ["VIEWS"]}}]
+    result = one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")
+    assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["foreign"]
 
 
 @pytest.mark.parametrize("kind,target_segment,detail", [

@@ -1870,10 +1870,26 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     if not public and not delegated:
         return None
     a = Assessment(resource, "data_share")
+    source_project = resource["scope"].removeprefix("projects/")
+    def destination_project(row):
+        ref = row["reference"]
+        if row["kind"] == "dataset" and isinstance(ref.get("dataset"), dict):
+            ref = ref["dataset"]
+        return ref.get("projectId") or ref.get("project_id")
+    external_projects = sorted({project for row in delegated
+                                if isinstance(project := destination_project(row), str)
+                                and project and project != source_project})
+    a.external_ids = external_projects
     if public:
         a.data_exposure = True
         a.authenticated = not any(row["member"] == "allUsers" for row in public)
         a.step("dataset_acl", "allow", public=public, delegated=delegated)
+    elif external_projects:
+        # The dataset ACL itself grants an authorized resource in another
+        # project access to source data. Its downstream readers are separate.
+        a.data_exposure = True
+        a.step("dataset_acl", "allow", delegated=delegated, external_projects=external_projects)
+        a.notes.append("Destination readers and project ownership are not established by this grant")
     else:
         # An authorized view/routine/dataset receives source-data privileges,
         # but the destination's readers and project ownership need a join.
