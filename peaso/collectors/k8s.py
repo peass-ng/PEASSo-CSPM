@@ -11,6 +11,8 @@ import re
 import socket
 import tempfile
 import threading
+import time
+from contextvars import ContextVar, copy_context
 from datetime import datetime, timezone
 from itertools import count
 from concurrent.futures import ThreadPoolExecutor
@@ -99,6 +101,62 @@ class K8sReader(_Reader):
             exc = K8sReadError(exc.code, exc.status_code)
         super().unavailable(kind, scope, service, exc)
         self.progress(scope=scope, settled=self.collections[-1], _kept=True)
+
+
+class _LiteralReader:
+    """Keep one automatic workload's mutable evidence off the shared reader."""
+    def __init__(self, parent):
+        self.parent = parent
+        self.parent_total = parent.total
+        self.collections = []
+        self.total = self.parent_total
+        self._configmap_association_phases = {}
+
+    def __getattr__(self, name):
+        return getattr(self.parent, name)
+
+
+def _automatic_literal_group(reader, api, options, scopes, cluster, group, literals,
+                             log_samples, private_content, parallel):
+    """Return ordered worker results; the caller commits them after all settle."""
+    if not parallel:
+        results = []
+        for target in group:
+            scope = target['namespace'] if target['namespace'] in scopes else '*'
+            selected = {**options, literals.OPTION: [target]}
+            if private_content:
+                with log_samples.private_native_logs():
+                    metadata, matches = literals.collect(reader, api, selected, [scope], cluster)
+            else:
+                metadata, matches = literals.collect(reader, api, selected, [scope], cluster)
+            results.append((None, reader.collections[-1], scope, metadata, matches))
+        return results
+
+    from peaso.secret_scanning_batch import prepared_content_member
+    from peaso.secret_scanning_cohort import ContentCohort
+    members = [literals.identity(target) + '.literals' for target in group]
+    cohort = ContentCohort(members, time.monotonic() + literals.base.MAX_SECONDS,
+        max_bytes=len(group) * literals.base.MAX_CONTENT)
+
+    def one(target):
+        local = _LiteralReader(reader)
+        member = literals.identity(target) + '.literals'
+        scope = target['namespace'] if target['namespace'] in scopes else '*'
+        selected = {**options, literals.OPTION: [target]}
+        try:
+            with prepared_content_member(cohort, member):
+                with log_samples.private_native_logs():
+                    metadata, matches = literals.collect(local, api, selected, [scope], cluster)
+            return local, local.collections[-1], scope, metadata, matches
+        finally:
+            cohort.finish(member)
+
+    try:
+        with ThreadPoolExecutor(max_workers=min(reader.workers, len(group))) as workers:
+            contexts = [copy_context() for _ in group]
+            return list(workers.map(lambda pair: pair[0].run(one, pair[1]), zip(contexts, group)))
+    finally:
+        cohort.close()
 
 # Inventory paths; the transport separately admits metadata-only Secret lists and exact node configz.
 ENDPOINTS = {
@@ -488,8 +546,18 @@ class _BoundedPool:
         self.pool = pool
         self.server = urlsplit(server) if server else None
         self.allow_self_subject_access_review = False
-        self.literal_paths = frozenset()  # Populated only for the exact optional selected reader.
+        self._literal_paths = ContextVar('k8s_literal_paths', default=frozenset())
         self.selected_log_requests = frozenset()  # Exact runtime grants from the opted-in log sampler.
+
+    @property
+    def literal_paths(self):
+        return self._literal_paths.get()
+
+    @literal_paths.setter
+    def literal_paths(self, paths):
+        # Grants belong to the selected reader's context, never to another
+        # workload using this same credentialed transport on a worker thread.
+        self._literal_paths.set(frozenset(paths))
 
     def request(self, method, url, **kwargs):
         review_request = method == "POST" and self.allow_self_subject_access_review
@@ -2063,22 +2131,33 @@ def collect(connector, requirements=None, *, api=None):
                 reader.automatic_literal_batches = []
             if auto_workload_literals and literal_plan.targets:
                 all_matches = set()
-                for batch in environment_discovery.batches(literal_plan.targets, 1):
-                    literal_options = {**options, literals.OPTION: list(batch)}
-                    scope = batch[0]['namespace'] if batch[0]['namespace'] in scopes else '*'
-                    if private_content:
-                        with log_samples.private_native_logs():
-                            literal_metadata, matches = literals.collect(reader, api, literal_options, [scope], cluster)
-                    else:
-                        literal_metadata, matches = literals.collect(reader, api, literal_options, [scope], cluster)
-                    all_matches.update(matches)
-                    batch_id = literals.KIND + ':' + str(len(reader.automatic_literal_batches) + 1)
-                    reader.collections[-1]['automatic_batch'] = batch_id
-                    reader.automatic_literal_batches.append({'id': batch_id, 'scope': scope,
-                        'metadata': literal_metadata,
-                        'issues': environment_discovery.native_denial_issues(
-                            literals.KIND, literals.MARKER, reader.collections[-1]['items'],
-                            literal_metadata)})
+                from peaso.secret_scanning_batch import _volatile_shm_available
+                cohort_size = min(8, reader.workers)
+                cohort_available = cohort_size > 1 and _volatile_shm_available(
+                    cohort_size * literals.base.MAX_CONTENT)
+                target_batches = environment_discovery.batches(literal_plan.targets,
+                    cohort_size if cohort_available else 1)
+                for group in target_batches:
+                    within_items = (reader.budget.max_items is None
+                        or reader.total + len(group) < reader.budget.max_items)
+                    within_calls = (reader.budget.max_calls is None
+                        or reader.budget.calls + 16 * len(group) <= reader.budget.max_calls)
+                    parallel = len(group) > 1 and within_items and within_calls
+                    results = _automatic_literal_group(reader, api, options, scopes, cluster,
+                        group, literals, log_samples, private_content, parallel)
+                    for local, collection, scope, literal_metadata, matches in results:
+                        if local is not None:
+                            reader.collections.extend(local.collections)
+                            reader.total += local.total - local.parent_total
+                        all_matches.update(matches)
+                        batch_id = literals.KIND + ':' + str(len(reader.automatic_literal_batches) + 1)
+                        collection['automatic_batch'] = batch_id
+                        reader.automatic_literal_batches.append({'id': batch_id, 'scope': scope,
+                            'metadata': literal_metadata,
+                            'issues': environment_discovery.native_denial_issues(
+                                literals.KIND, literals.MARKER, collection['items'],
+                                literal_metadata)})
+                    reader._configmap_association_phases = {}
                 literal_matches = all_matches
                 environment_discovery.fold_collections(reader.collections,
                     literals.KIND, reader.automatic_literal_batches)
