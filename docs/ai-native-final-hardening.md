@@ -14,6 +14,8 @@ check records the audit receipt digest, typed recorded API fields and their
 recorded evidence references, a structured operation and fixed threshold, the
 scan-time source when age is calculated, and an exact code-path audit reference
 with a verified source-file SHA-256 pin.
+Audited evaluator paths are confined to `peaso/checks/` plus the exact
+`peaso/unused_iam_aws_activity.py` evaluator; other paths fail admission.
 These declarations require source review; their presence alone does not prove
 that an evaluator is pure. Root sets
 `replay_qualification.status` to `qualified` and records the replay receipt

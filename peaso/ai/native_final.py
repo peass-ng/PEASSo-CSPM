@@ -138,7 +138,8 @@ def _deterministic_evidence(value):
     if not (type(ref) is dict and set(ref) == {
             'path', 'symbol', 'source_sha256', 'audit_ref'}
             and all(_nonempty(ref[key]) for key in ref)
-            and ref['path'].startswith('peaso/checks/')
+            and (ref['path'].startswith('peaso/checks/')
+                 or ref['path'] == 'peaso/unused_iam_aws_activity.py')
             and ref['path'].endswith('.py') and '..' not in ref['path'].split('/')
             and _digest(ref['source_sha256'])):
         return False

@@ -138,6 +138,21 @@ def test_content_policy_intent_and_unreviewed_code_path_rejected(tmp_path, monke
         assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value))
 
 
+def test_exact_pinned_iam_activity_evaluator_path(tmp_path, monkeypatch):
+    value = qualified_manifest()
+    ref = value['checks'][0]['deterministic_evidence']['code_path_audit_ref']
+    ref['path'] = 'peaso/unused_iam_aws_activity.py'
+    ref['symbol'] = 'evaluate'
+    ref['source_sha256'] = hashlib.sha256((Path(native_final.__file__).resolve()
+        .parents[2] / ref['path']).read_bytes()).hexdigest()
+    assert native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value)) == {
+        'aws.test.direct_setting'}
+    ref['path'] = 'peaso/unused_iam_aws_completion.py'
+    ref['source_sha256'] = hashlib.sha256((Path(native_final.__file__).resolve()
+        .parents[2] / ref['path']).read_bytes()).hexdigest()
+    assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value))
+
+
 def test_native_fail_reaches_priorities_with_exact_id_and_report_unchanged(tmp_path):
     row = {'id': 'finding-h1', 'check_id': 'aws.test.direct_setting', 'provider': 'aws',
            'category': 'hardening', 'status': 'FAIL', 'resource_id': 'resource-1',
