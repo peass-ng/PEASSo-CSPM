@@ -3451,6 +3451,37 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         a.gap("inventory", "publicNetworkAccess is not explicitly collected as Enabled or Disabled")
         return a
     a.step("public_network_access", "allow", public_network_access=public)
+    if kind == "cosmos_account":
+        ip_rules = props.get("ipRules")
+        if not isinstance(ip_rules, list):
+            a.gap("firewall", "Cosmos IP firewall rules are not collected")
+        elif not ip_rules and props.get("isVirtualNetworkFilterEnabled") is False:
+            a.step("firewall", "allow", reason="no IP or VNet access list")
+        elif not ip_rules:
+            a.gap("firewall", "Cosmos VNet access list may restrict public sources")
+        else:
+            public_ips, azure_tenants, malformed = [], False, False
+            for rule in ip_rules:
+                value = rule.get("ipAddressOrRange") if isinstance(rule, dict) else None
+                if value == "0.0.0.0":
+                    azure_tenants = True
+                    continue
+                network = _cidr(value) if value else None
+                if network is None:
+                    malformed = True
+                elif _azure_public_remainder([network], []):
+                    public_ips.append(value)
+            if public_ips or azure_tenants:
+                a.step("firewall", "allow", public_ip_rules=public_ips,
+                       cross_tenant_azure_services=azure_tenants)
+            else:
+                a.gap("firewall", "Cosmos IP rule or network ACL bypass is unresolved"
+                      if malformed or props.get("networkAclBypass") not in (None, "None")
+                      else "Cosmos nonpublic IP rule requires source validation")
+        a.ports = pset("tcp", port, port)
+        if not endpoint:
+            a.gap("inventory", "Cosmos public endpoint address is not collected")
+        return a
     # A private endpoint does not close an explicitly enabled public endpoint.
     rules = props.get(rules_name)
     if isinstance(rules, dict) and rules_name != "firewallRules":

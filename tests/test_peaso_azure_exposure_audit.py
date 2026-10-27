@@ -335,6 +335,20 @@ def test_redis_public_listeners_preserve_firewall_uncertainty():
     assert with_rules([public], status="partial").verdict() == "UNKNOWN"
 
 
+def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
+    base = {"publicNetworkAccess": "Enabled", "documentEndpoint": "https://db.documents.azure.com:443/",
+            "isVirtualNetworkFilterEnabled": False}
+    assert decision("cosmos_account", {**base, "ipRules": []}).verdict() == "FAIL"
+    assert decision("cosmos_account", {**base, "ipRules": [
+        {"ipAddressOrRange": "8.8.8.8"}]}).verdict() == "FAIL"
+    azure = decision("cosmos_account", {**base, "ipRules": [{"ipAddressOrRange": "0.0.0.0"}]})
+    assert azure.verdict() == "FAIL" and azure.path[-1]["cross_tenant_azure_services"] is True
+    assert decision("cosmos_account", {**base, "ipRules": [{"ipAddressOrRange": "bad"}]}).verdict() == "UNKNOWN"
+    assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": []}).verdict() == "UNKNOWN"
+    assert decision("cosmos_account", {**base, "ipRules": None}).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind", ["vault", "managed_hsm", "container_registry", "search_service", "servicebus_namespace"])
 def test_managed_endpoint_explicit_network_gate(kind):
     rule = {"vault": "networkAcls", "managed_hsm": "networkAcls", "container_registry": "networkRuleSet",
