@@ -175,6 +175,17 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
     assert ml_decision(acls={"defaultAction": "Allow"}, status="denied").verdict() == "FAIL"
 
 
+def test_databricks_arm_public_gate_keeps_external_ingress_policy_unknown():
+    host = "adb-123.4.azuredatabricks.net"
+    disabled = decision("databricks_workspace", {"publicNetworkAccess": "Disabled", "workspaceUrl": host})
+    assert disabled.verdict() == "PASS"
+    enabled = decision("databricks_workspace", {"publicNetworkAccess": "Enabled", "workspaceUrl": host})
+    assert enabled.verdict() == "UNKNOWN" and enabled.addresses == [host]
+    assert enabled.ports == {"tcp": ((443, 443),)}
+    assert any("IP access lists" in gap["reason"] for gap in enabled.unresolved)
+    assert decision("databricks_workspace", {"workspaceUrl": host}).verdict() == "UNKNOWN"
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})
