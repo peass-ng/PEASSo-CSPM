@@ -96,6 +96,12 @@ def test_gcp_identity_platform_anonymous_tenant_signup_signal():
     assert project(snap, resources(snap))[tenant["name"]]["exposures"][0]["state"] == "conditional"
 
 
+def test_gcp_identity_platform_anonymous_project_signup_signal():
+    config = {"name": "projects/home/config", "signIn": {"anonymous": {"enabled": True}}}
+    snap = snapshot("gcp", {"identityplatform_config": [config]})
+    assert project(snap, resources(snap))[config["name"]]["exposures"][0]["state"] == "declared"
+
+
 def test_azure_foreign_application_is_external_and_federation_is_conditional():
     snap = snapshot("azure", {"directory_service_principal": [{"id": "sp", "appId": "app", "appOwnerOrganizationId": "outside"}],
         "directory_federated_credential": [{"id": "fic", "appId": "app", "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:home/app:ref:refs/heads/main"}]}, {"tenant_id": "home"})

@@ -12,7 +12,7 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | Cross-product tools | [Cloud Quotas](https://docs.cloud.google.com/docs/quotas) | — | REVIEW REQUIRED |
 | Cross-product tools | [Config Connector](https://docs.cloud.google.com/config-connector/docs) | — | REVIEW REQUIRED |
 | Cross-product tools | [gcloud CLI](https://docs.cloud.google.com/sdk/gcloud) | — | REVIEW REQUIRED |
-| Cross-product tools | [Identity Platform](https://docs.cloud.google.com/identity-platform/docs) | identityplatform_tenant anonymous sign-up / IAM; project config pending | REVIEW REQUIRED |
+| Cross-product tools | [Identity Platform](https://docs.cloud.google.com/identity-platform/docs) | identityplatform_tenant / identityplatform_config anonymous sign-up / IAM | REVIEW REQUIRED |
 | Cross-product tools | [Infra Manager](https://docs.cloud.google.com/infrastructure-manager/docs) | — | REVIEW REQUIRED |
 | Cross-product tools | [Managed Microsoft AD](https://docs.cloud.google.com/managed-microsoft-ad/docs) | managed_ad_domain trust direction / authorizedNetworks | REVIEW REQUIRED |
 | Cross-product tools | [Recommender](https://docs.cloud.google.com/recommender/docs) | — | REVIEW REQUIRED |
@@ -98,7 +98,7 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | Databases | [Bigtable](https://docs.cloud.google.com/bigtable/docs) | — | REVIEW REQUIRED |
 | Databases | [Cloud SQL](https://docs.cloud.google.com/sql/docs) | sql_instance | REVIEW REQUIRED |
 | Databases | [Database Migration Service](https://docs.cloud.google.com/database-migration/docs) | — | REVIEW REQUIRED |
-| Databases | [Firestore in Datastore mode](https://docs.cloud.google.com/datastore/docs) | IAM policy | REVIEW REQUIRED |
+| Databases | [Firestore in Datastore mode](https://docs.cloud.google.com/datastore/docs) | IAM policy / Firebase rules releases where applicable | REVIEW REQUIRED |
 | Databases | [Firestore with MongoDB compatibility](https://docs.cloud.google.com/firestore/mongodb-compatibility/docs) | — | REVIEW REQUIRED |
 | Databases | [Memorystore for Redis Cluster](https://docs.cloud.google.com/memorystore/docs/cluster) | — | REVIEW REQUIRED |
 | Databases | [Memorystore for Valkey](https://docs.cloud.google.com/memorystore/docs/valkey) | — | REVIEW REQUIRED |
@@ -178,6 +178,6 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | Security | [Unified Maintenance](https://docs.cloud.google.com/unified-maintenance/docs) | — | REVIEW REQUIRED |
 | Security | [Web Risk](https://docs.cloud.google.com/web-risk/docs) | — | REVIEW REQUIRED |
 | Storage | [Backup and DR Service](https://docs.cloud.google.com/backup-disaster-recovery/docs) | — | REVIEW REQUIRED |
-| Storage | [Cloud Storage](https://docs.cloud.google.com/storage/docs) | bucket / ACL | REVIEW REQUIRED |
+| Storage | [Cloud Storage](https://docs.cloud.google.com/storage/docs) | bucket / ACL / Firebase Storage rules releases | REVIEW REQUIRED |
 | Storage | [Filestore](https://docs.cloud.google.com/filestore/docs) | — | REVIEW REQUIRED |
 | Storage | [NetApp Volumes](https://docs.cloud.google.com/netapp/volumes/docs) | — | REVIEW REQUIRED |

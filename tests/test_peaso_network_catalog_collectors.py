@@ -93,6 +93,75 @@ def test_gcp_compute_forward_targets_use_aggregated_inventory(kind, segment):
     assert len(collection(snap, kind)["items"]) == len(transport.requests) == 1
 
 
+def test_gcp_identity_platform_config_reads_only_signup_controls():
+    def resolver(request):
+        assert request["method"] == "GET"
+        assert request["url"] == "https://identitytoolkit.googleapis.com/admin/v2/projects/p-one/config"
+        assert request["params"]["fields"] == "name,signIn(anonymous(enabled)),client(permissions(disabledUserSignup))"
+        return {"name": "projects/p-one/config", "signIn": {"anonymous": {"enabled": True}}}
+    snap, transport = snapshot(["identityplatform_config"], resolver)
+    assert collection(snap, "identityplatform_config")["status"] == "collected"
+    assert len(transport.requests) == 1
+
+
+def test_gcp_firebase_rules_releases_read_ruleset_once_without_storing_source():
+    from peaso.analysis import analyze
+    content = "service cloud.firestore { match /databases/{db}/documents { match /public/{id} { allow read: if true; } } }"
+    def resolver(request):
+        assert request["method"] == "GET"
+        if request["url"].endswith("/releases"):
+            return {"releases": [
+                {"name": "projects/p-one/releases/cloud.firestore", "rulesetName": "projects/p-one/rulesets/r1"},
+                {"name": "projects/p-one/releases/cloud.firestore/prod", "rulesetName": "projects/p-one/rulesets/r1"}]}
+        assert request["url"] == "https://firebaserules.googleapis.com/v1/projects/p-one/rulesets/r1"
+        return {"name": "projects/p-one/rulesets/r1", "source": {"files": [{"content": content}]},
+                "metadata": {"services": ["cloud.firestore"]}}
+    snap, transport = snapshot(["firebase_rules_release"], resolver)
+    rows = collection(snap, "firebase_rules_release")["items"]
+    assert len(rows) == 2 and len(transport.requests) == 2
+    assert all(row["public_read"] is True and "source" not in row for row in rows)
+    assert content not in json.dumps(snap)
+    assert any(f["check_id"] == "analysis.internet_exposure" and f["status"] == "FAIL"
+               for f in analyze(snap)["findings"])
+
+
+def test_gcp_firebase_rules_summary_ignores_comments_and_unknown_conditions():
+    from peaso.collectors.gcp_firebase_rules_exposure import summarize
+    source = """// allow read: if true;
+    service cloud.firestore { match /databases/{db}/documents {
+      match /items/{id} { allow get: if request.auth != null;
+        allow list: if request.time < timestamp('2030-01-01'); }
+    } }"""
+    assert summarize([{"content": source}]) == {"public_read": False, "public_write": False,
+        "authenticated_read": True, "conditional_read": True}
+    assert summarize([{"content": "allow get: if request.auth == null; allow write: if false;"}]) == {
+        "public_read": True, "public_write": False, "authenticated_read": False, "conditional_read": False}
+
+
+def test_gcp_firebase_rules_exact_host_uses_existing_transport_cache():
+    from peaso.collectors.gcp import Transport
+    from peaso.collectors.gcp_firebase_rules_exposure import _read
+    class Response:
+        status_code = 200
+        content = b'{"releases": []}'
+        headers = {}
+        def json(self):
+            return {"releases": []}
+    class Session:
+        calls = 0
+        def request(self, *args, **kwargs):
+            self.calls += 1
+            return Response()
+    session = Session()
+    transport = Transport(SimpleNamespace(headers=lambda: {}), {"retries": 0})
+    transport._session = lambda: session
+    url = "https://firebaserules.googleapis.com/v1/projects/p-one/releases"
+    collector = SimpleNamespace(transport=transport)
+    assert _read(collector, url, "projects/p-one", {})[0] == {"releases": []}
+    assert _read(collector, url, "projects/p-one", {})[0] == {"releases": []}
+    assert session.calls == 1
+
+
 @pytest.mark.parametrize("kind,location,parent_segment,child_segment", [
     ("vmware_external_address", "us-central1-a", "privateClouds", "externalAddresses"),
     ("vmware_external_access_rule", "us-central1", "networkPolicies", "externalAccessRules"),

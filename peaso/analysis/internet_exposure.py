@@ -1822,6 +1822,34 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     return a
 
 
+def _gcp_firebase_rules(snapshot, inventory, resource):
+    data = resource["data"]
+    a = Assessment(resource, "data_share")
+    if data.get("source_inspected") is not True:
+        a.gap("inventory", "active Firebase ruleset source was not completely inspected")
+        return a
+    public = data.get("public_read") is True or data.get("public_write") is True
+    authenticated = data.get("authenticated_read") is True
+    conditional = data.get("conditional_read") is True
+    a.step("firebase_rules", "allow" if public or authenticated else "unknown" if conditional else "block",
+           services=data.get("services"), ruleset=data.get("rulesetName"),
+           public_read=data.get("public_read"), public_write=data.get("public_write"),
+           authenticated_read=authenticated, conditional_read=conditional)
+    if public:
+        a.data_exposure = True
+        if conditional:
+            a.notes.append("Other conditional rules may expose additional paths")
+    elif authenticated:
+        a.authenticated = True
+        a.explicit = "UNKNOWN"
+        a.gap("authorization", "rules allow authenticated users, but public identity enrollment and downstream claim restrictions are not established")
+    elif conditional:
+        a.gap("policy", "request-dependent Firebase rule conditions need runtime path and authentication context")
+    else:
+        a.ports = {}
+    return a
+
+
 def _gcp_vpn_gateway(snapshot, inventory, resource):
     interfaces = [row for row in as_list(resource["data"].get("vpnInterfaces")) if isinstance(row, dict)]
     public = [ip for row in interfaces if not row.get("interconnectAttachment")
@@ -3705,7 +3733,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "vpn_gateway",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "vpn_gateway",
              "project", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
@@ -3723,7 +3751,7 @@ EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
                      "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
-             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "vpn_gateway",
+             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
                      "media_cdn_service",
@@ -3766,7 +3794,7 @@ def assess(snapshot, resources):
                 "cloudfront_distribution": _aws_cloudfront, "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
                 "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket,
-                "bigquery_dataset": _gcp_bigquery_dataset,
+                "bigquery_dataset": _gcp_bigquery_dataset, "firebase_rules_release": _gcp_firebase_rules,
                 "vpn_gateway": _gcp_vpn_gateway,
                 "cloud_ftp_server": _gcp_ftp, "looker_instance": _gcp_looker, "blockchain_node": _gcp_blockchain_node,
                 "data_fusion_instance": _gcp_data_fusion, "vertex_index_endpoint": _gcp_vertex_index,

@@ -133,6 +133,13 @@ def project(snapshot, resources):
                             caller=member, classification=classification, conditions=condition,
                             restrictions=restrictive_conditions(condition), grant=statement)
     elif provider == "gcp":
+        for row in by_type["identityplatform_config"]:
+            data = row["data"]
+            if ((data.get("signIn") or {}).get("anonymous") or {}).get("enabled") is True:
+                disabled_signup = ((data.get("client") or {}).get("permissions") or {}).get("disabledUserSignup") is True
+                signal(data.get("name"), row, "anonymous_identity_signup", "conditional" if disabled_signup else "declared",
+                    client_signup_disabled=disabled_signup,
+                    note="A project-level anonymous ID token does not by itself grant application data or Google Cloud IAM access")
         for row in by_type["identityplatform_tenant"]:
             data = row["data"]
             if data.get("enableAnonymousUser") is True and data.get("disableAuth") is not True:
