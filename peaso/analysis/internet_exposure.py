@@ -2070,6 +2070,23 @@ def _gcp_bucket(snapshot, inventory, resource):
                effective_public=effective_public)
         a.ports = {}
         return a
+    ip_filter = data.get("ipFilter")
+    if isinstance(ip_filter, dict) and ip_filter.get("mode") == "Enabled":
+        source = ip_filter.get("publicNetworkSource")
+        ranges = source.get("allowedIpCidrRanges", []) if isinstance(source, dict) else [] if source is None else None
+        if not isinstance(ranges, list) or any(not isinstance(value, str) or _cidr(value) is None for value in ranges):
+            a.gap("policy", "enabled bucket IP filter has malformed or unavailable public CIDR ranges")
+            a.explicit = "UNKNOWN"
+        elif not any(_public_source(value) for value in ranges):
+            a.step("bucket_ip_filter", "block", public_cidrs=ranges,
+                   semantics="direct public-network requests; VPC and service-agent paths assessed separately")
+            a.ports = {}
+            return a
+        else:
+            a.step("bucket_ip_filter", "allow", public_cidrs=ranges)
+    elif ip_filter is not None and (not isinstance(ip_filter, dict) or ip_filter.get("mode") != "Disabled"):
+        a.gap("policy", "bucket IP filter mode is not recognized")
+        a.explicit = "UNKNOWN"
     a.step("policy", "allow" if public or acl or effective_public else "unknown", bindings=public, acl=acl,
            conditional=conditional, effective_public=effective_public, public_access_prevention=prevention)
     if (not public and not acl and not effective_public) or prevention == "inherited":

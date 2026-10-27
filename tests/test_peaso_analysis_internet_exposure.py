@@ -899,6 +899,31 @@ def test_gcp_bucket_inherited_public_grant_and_effective_pap():
     assert assessment().verdict() == "UNKNOWN"
 
 
+def test_gcp_bucket_ip_filter_blocks_direct_public_grant_without_public_network_range():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bucket
+    from peaso.snapshot import resources
+    bucket = {"name": "sample-bucket", "iamPolicy": {"bindings": [
+        {"role": "roles/storage.objectViewer", "members": ["allUsers"]}]},
+        "iamConfiguration": {"publicAccessPrevention": "inherited"},
+        "ipFilter": {"mode": "Enabled", "publicNetworkSource": {"allowedIpCidrRanges": []},
+                     "allowAllServiceAgentAccess": True}}
+    effective = {"name": GSCOPE + "/policies/storage.publicAccessPrevention",
+                 "constraint": "storage.publicAccessPrevention", "spec": {"rules": [{"enforce": False}]}}
+    def assessment(with_effective=False):
+        snap = gcp(gcoll("bucket", [bucket], service="storage"),
+                   *(gcoll("org_policy_effective", [effective], service="orgpolicy"),) if with_effective else ())
+        items = resources(snap)
+        return _gcp_bucket(snap, Inventory(snap, items), items[0])
+    result = assessment()
+    assert result.verdict() == "PASS"
+    assert any(step["layer"] == "bucket_ip_filter" and step["decision"] == "block" for step in result.path)
+    bucket["ipFilter"]["publicNetworkSource"]["allowedIpCidrRanges"] = ["8.8.8.0/24"]
+    assert assessment().verdict() == "UNKNOWN"  # inherited PAP is still unresolved
+    assert assessment(with_effective=True).verdict() == "FAIL"
+    bucket["ipFilter"]["publicNetworkSource"]["allowedIpCidrRanges"] = ["bad-cidr"]
+    assert assessment(with_effective=True).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,record,expected", [
     ("cloud_ftp_server", {"name": "projects/p1/locations/us/servers/s", "externalConfig":
                           {"ipAddress": "34.2.3.4", "allowedCidrBlocks": ["0.0.0.0/0"]}}, "FAIL"),
