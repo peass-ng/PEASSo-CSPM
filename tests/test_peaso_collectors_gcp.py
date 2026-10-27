@@ -1544,6 +1544,30 @@ def test_bigquery_routine_metadata_uses_cached_read_only_iam_policy():
     assert sum(request["url"] == policy_url for request in transport.requests) == 1
 
 
+def test_bigquery_routine_public_custom_role_is_hydrated_once():
+    reference = {"projectId": "p-one", "datasetId": "d", "routineId": "run"}
+    role = "projects/p-one/roles/useRoutine"
+    role_url = "https://iam.googleapis.com/v1/" + role
+    def resolve(request):
+        url = request["url"]
+        if url.endswith("/datasets"):
+            return {"datasets": [{"datasetReference": {"projectId": "p-one", "datasetId": "d"}}]}
+        if url.endswith("/datasets/d"):
+            return {"datasetReference": {"projectId": "p-one", "datasetId": "d"}, "access": []}
+        if url.endswith("/datasets/d/routines"):
+            return {"routines": [{"routineReference": reference, "routineType": "PROCEDURE", "language": "SQL"}]}
+        if url.endswith("/routines/run:getIamPolicy"):
+            return {"bindings": [{"role": role, "members": ["allUsers"]}]}
+        if url == role_url:
+            assert request["method"] == "GET"
+            return {"name": role, "includedPermissions": ["bigquery.routines.get"]}
+        raise AssertionError(url)
+    result, transport = snapshot(["bigquery_routine_metadata", "iam_role"], resolve)
+    roles = collection(result, "iam_role")["items"]
+    assert len(roles) == 1 and roles[0]["includedPermissions"] == ["bigquery.routines.get"]
+    assert sum(request["url"] == role_url for request in transport.requests) == 1
+
+
 def test_public_bucket_custom_role_is_hydrated_once_for_permission_review():
     role = "projects/p-one/roles/objectReader"
     role_url = "https://iam.googleapis.com/v1/" + role

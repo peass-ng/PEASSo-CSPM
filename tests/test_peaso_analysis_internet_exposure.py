@@ -710,6 +710,37 @@ def test_gcp_authorized_resources_join_project_inherited_public_permissions():
     assert assessment().verdict() == "UNKNOWN"
 
 
+def test_gcp_authorized_resources_join_direct_custom_role_permissions():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"view": {"projectId": "p1", "datasetId": "api", "tableId": "v"}},
+        {"routine": {"projectId": "p1", "datasetId": "api", "routineId": "r"}}]}
+    target = {"name": "projects/p1/datasets/api", "access": []}
+    view_role = {"name": "projects/p1/roles/viewData", "includedPermissions": ["bigquery.tables.getData"]}
+    routine_role = {"name": "projects/p1/roles/useRoutine", "includedPermissions": ["bigquery.routines.get"]}
+    view = {"name": "projects/p1/datasets/api/tables/v", "type": "VIEW", "iamPolicy": {"bindings": [
+        {"role": view_role["name"], "members": ["allUsers"]}]}}
+    routine = {"name": "projects/p1/datasets/api/routines/r", "routineType": "PROCEDURE", "iamPolicy": {"bindings": [
+        {"role": routine_role["name"], "members": ["allAuthenticatedUsers"]}]}}
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [source, target], service="bigquery"),
+                   gcoll("bigquery_table", [view], service="bigquery"),
+                   gcoll("bigquery_routine_metadata", [routine], service="bigquery"),
+                   gcoll("iam_role", [view_role, routine_role], service="iam"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert len(result.path[-1]["public_views"]) == len(result.path[-1]["public_routines"]) == 1
+    view_role["includedPermissions"] = ["bigquery.tables.get"]
+    result = assessment()
+    assert not result.path[-1]["public_views"] and len(result.path[-1]["public_routines"]) == 1
+    routine_role["includedPermissions"] = ["bigquery.routines.list"]
+    assert assessment().verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,target_segment,detail", [
     ("target_instance", "targetInstances", {"instance": "vm-ref"}),
     ("target_pool", "targetPools", {"instances": ["vm-ref"]}),

@@ -2258,6 +2258,22 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         return grants
     inherited_view_readers = inherited_public("bigquery.tables.getData")
     inherited_routine_readers = inherited_public("bigquery.routines.get")
+    def direct_public(policy, permission, known_roles):
+        if not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected"):
+            return False
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict) or binding.get("condition") or not any(
+                    member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members"))):
+                continue
+            role = binding.get("role")
+            role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+            permissions = role_row["data"].get("includedPermissions") if role_row else None
+            if isinstance(permissions, list):
+                if permission in permissions:
+                    return True
+            elif role in known_roles:
+                return True
+        return False
     public_views = []
     view_refs = []
     for row in delegated:
@@ -2293,11 +2309,8 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
                 for entry in target["data"]["access"]))
         policy = view["data"].get("iamPolicy")
-        table_public = (isinstance(policy, dict) and policy.get("collection_status") in (None, "collected") and
-            any(isinstance(binding, dict) and not binding.get("condition") and
-                binding.get("role") in ("roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.admin") and
-                any(member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members")))
-                for binding in as_list(policy.get("bindings"))))
+        table_public = direct_public(policy, "bigquery.tables.getData",
+                                     {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.admin"})
         if dataset_public or table_public or inherited_view_readers:
             public_views.append({"view": view_name, "authorization": authorization,
                                  "dataset_public": bool(dataset_public),
@@ -2320,12 +2333,9 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
                 for entry in target["data"]["access"]))
         policy = routine["data"].get("iamPolicy")
-        routine_public = (isinstance(policy, dict) and policy.get("collection_status") in (None, "collected") and
-            any(isinstance(binding, dict) and not binding.get("condition") and
-                binding.get("role") in ("roles/bigquery.dataViewer", "roles/bigquery.dataOwner",
-                                        "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor") and
-                any(member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members")))
-                for binding in as_list(policy.get("bindings"))))
+        routine_public = direct_public(policy, "bigquery.routines.get",
+                                       {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner",
+                                        "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor"})
         if dataset_public or routine_public or inherited_routine_readers:
             public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
                                     "dataset_public": bool(dataset_public), "routine_public": bool(routine_public),
