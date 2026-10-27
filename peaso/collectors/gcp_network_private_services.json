@@ -457,14 +457,14 @@
     "version": "v1"
   },
   "hypercompute_cluster": {
-    "fields": "clusters(orchestrator(slurm(nodeSets(id,storageConfigs(id)),partitions(id),loginNodes(storageConfigs(id)))),name),nextPageToken,unreachable",
-    "get_fields": "orchestrator(slurm(nodeSets(id,storageConfigs(id)),partitions(id),loginNodes(storageConfigs(id)))),name",
+    "fields": "clusters(name,reconciling,orchestrator(slurm(loginNodes(count,zone,instances(instance))))),nextPageToken,unreachable",
+    "get_fields": "name,reconciling,orchestrator(slurm(loginNodes(count,zone,instances(instance))))",
     "get_parameters": {},
     "hydrate": true,
     "key": "clusters",
-    "location_kind": "zone",
+    "location_kind": "region",
     "reference": "https://hypercomputecluster.googleapis.com/$discovery/rest?version=v1",
-    "resource_fields": "orchestrator(slurm(nodeSets(id,storageConfigs(id)),partitions(id),loginNodes(storageConfigs(id)))),name",
+    "resource_fields": "name,reconciling,orchestrator(slurm(loginNodes(count,zone,instances(instance))))",
     "scope_kind": "projects",
     "segment": "clusters",
     "service": "hypercomputecluster",
