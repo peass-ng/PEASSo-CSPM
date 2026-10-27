@@ -224,6 +224,21 @@
     "service": "run",
     "version": "v2"
   },
+  "config_delivery_fleet_package": {
+    "default_location": "us-central1",
+    "fields": "fleetPackages(name),nextPageToken,unreachable",
+    "get_fields": "name,state,target",
+    "get_parameters": {},
+    "hydrate": true,
+    "key": "fleetPackages",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/kubernetes-engine/config-sync/docs/reference/rest/v1/projects.locations.fleetPackages",
+    "resource_fields": "name,state,target",
+    "scope_kind": "projects",
+    "segment": "fleetPackages",
+    "service": "configdelivery",
+    "version": "v1"
+  },
   "contact_center": {
     "fields": "contactCenters(state,name,privateAccess(egressSettings(name,serviceAttachmentNames),ingressSettings(name,serviceAttachmentNames))),nextPageToken,unreachable",
     "get_fields": "state,name,privateAccess(egressSettings(name,serviceAttachmentNames),ingressSettings(name,serviceAttachmentNames))",
@@ -645,6 +660,7 @@
     "get_fields": "target(loadBalancingScheme),networkRules(to(operations(mcp(baseProtocolMethodsOption,methods(name,params(ignoreCase))),hosts(ignoreCase),snis(ignoreCase),paths(ignoreCase)),notOperations(mcp(baseProtocolMethodsOption,methods(name,params(ignoreCase))),hosts(ignoreCase),snis(ignoreCase),paths(ignoreCase))),from(sources(principals(principal(ignoreCase)),resources(iamServiceAccount(ignoreCase))),notSources(principals(principal(ignoreCase)),resources(iamServiceAccount(ignoreCase))))),name,httpRules(to(operations(mcp(baseProtocolMethodsOption,methods(name))),notOperations(mcp(baseProtocolMethodsOption,methods(name)))))",
     "get_parameters": {},
     "hydrate": true,
+    "iam_policy": true,
     "key": "authzPolicies",
     "location_kind": "region",
     "reference": "https://networksecurity.googleapis.com/$discovery/rest?version=v1",

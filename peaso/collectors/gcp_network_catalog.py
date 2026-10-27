@@ -14,6 +14,11 @@ REGIONAL = {
         "mesh_http_route": "httpRoutes", "mesh_grpc_route": "grpcRoutes", "mesh_tcp_route": "tcpRoutes", "mesh_tls_route": "tlsRoutes"}.items()},
     **{kind: ("networksecurity", "v1", segment, segment) for kind, segment in {
         "server_tls_policy": "serverTlsPolicies", "client_tls_policy": "clientTlsPolicies", "authorization_policy": "authorizationPolicies"}.items()},
+    **{kind: ("networksecurity", "v1", segment, segment) for kind, segment in {
+        "network_security_address_group": "addressGroups",
+        "network_security_client_tls_policy": "clientTlsPolicies",
+        "network_security_authorization_policy": "authorizationPolicies",
+        "network_security_server_tls_policy": "serverTlsPolicies"}.items()},
     "managed_kafka_cluster": ("managedkafka", "v1", "clusters", "clusters"),
     "memorystore_instance": ("memorystore", "v1", "instances", "instances"),
     "vertex_endpoint": ("aiplatform", "v1", "endpoints", "endpoints"),
@@ -36,6 +41,12 @@ ROUTE_FIELDS = {kind: f"{segment}(name,selfLink,meshes,gateways,rules(action(des
     ",nextPageToken,unreachable" for kind, (_, _, segment, _) in REGIONAL.items() if kind.startswith("mesh_") and kind.endswith("_route")}
 for _kind in ("mesh_http_route", "mesh_grpc_route"):
     ROUTE_FIELDS[_kind] = ROUTE_FIELDS[_kind].replace("name,selfLink,", "name,selfLink,hostnames,")
+IAM_NETWORK_SECURITY = frozenset({
+    "network_security_address_group", "network_security_client_tls_policy",
+    "network_security_authorization_policy", "ngfw_authz_policy",
+    "server_tls_policy", "client_tls_policy", "authorization_policy",
+    "network_security_server_tls_policy",
+})
 
 
 SERVICE_ENDPOINTS = json.loads(Path(__file__).with_name('gcp_network_service_endpoints.json').read_text())
@@ -89,6 +100,9 @@ def locations(collector, scope, kind):
         return
     if regions is not None:
         yield _location_validations(regions), None
+        return
+    if plan.get('default_location'):
+        yield [plan['default_location']], None
         return
     result = []
     locations_version = 'v1' if service == 'run' else version
@@ -160,6 +174,10 @@ def inventory_pages(collector, scope, plan, parent, root):
                         for details, detail_receipt in collector.pages(root + '/' + name, scope, single=True, params=params):
                             if len(details) != 1 or details[0].get('name') != name:
                                 raise ReadError('malformed', 'network_detail_identity_mismatch')
+                            if plan.get('iam_policy'):
+                                details = [collector.hydrate(details[0], 'iamPolicy',
+                                    root + '/' + name + ':getIamPolicy', scope,
+                                    params={'options.requestedPolicyVersion': 3})]
                             out.append((details, detail_receipt))
                     except ReadError as exc:
                         out.append(([dict(row, _coverage={'network_detail': {'status': exc.status, 'reason': 'native_metadata_get_unavailable'}})], getattr(exc, 'request_id', receipt)))
@@ -199,7 +217,18 @@ def regional_pages(collector, scope, kind):
         if plan:
             return inventory_pages(collector, scope, plan, parent, root)
         mask = BATCH_FIELDS if kind == 'batch_network_job' else ROUTE_FIELDS.get(kind)
-        return collector.pages(root + f'/{parent}/{segment}', scope, key=key, params={'fields': mask} if mask else None)
+        def direct_pages():
+            for page, receipt in collector.pages(root + f'/{parent}/{segment}', scope, key=key,
+                    params={'fields': mask} if mask else None):
+                if kind in IAM_NETWORK_SECURITY:
+                    def policy(item):
+                        name, _ = _native_child_name(item, parent, segment, collector, scope)
+                        return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                            params={'options.requestedPolicyVersion': 3})
+                    parallel = getattr(collector, 'parallel', None)
+                    page = parallel(policy, page) if callable(parallel) else [policy(item) for item in page]
+                yield page, receipt
+        return direct_pages()
     for _location, pages, exc in location_fanout(collector, dict.fromkeys(discovered), location_pages):
         yield from pages
         if exc is not None:
