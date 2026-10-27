@@ -1,0 +1,63 @@
+{
+  "cost_projection": {
+    "basis": "Five completed pinned AWS Hardening reviewer launches with 70-110 KB documents; K8s initial documents are 75-110 KB. Planning proxy only.",
+    "historical_comparator_launches": 5,
+    "initial_document_bytes_reduction": 17660,
+    "initial_launch_reduction_if_no_rechecks": 1,
+    "median_per_launch": {
+      "cpu_seconds": 31.199273,
+      "cpu_x_peak_rss_byte_seconds": 20511162833.272835,
+      "input_tokens": 566241,
+      "model_calls": 11,
+      "output_tokens": 4930,
+      "peak_rss_bytes": 657424384
+    },
+    "remaining_uncertainty": "Different batch sizes, prompt content, retry/recheck count, model variability, and Priorities can outweigh the initial-stage proxy. No measured token, CPU/RSS, action-ID, or hosted quality gate result exists.",
+    "same_token_per_byte_input_token_savings_range": [
+      63399,
+      250595
+    ]
+  },
+  "hosted_model_calls": 0,
+  "manifest_default_off": true,
+  "model": {
+    "historical_scan_model_identical": null,
+    "model": "gpt-5.6-sol",
+    "provider": "codex",
+    "thinking": "high"
+  },
+  "next_command_after_release": "python scripts/run_k8s_native_final_hosted.py launch",
+  "offline": {
+    "baseline_hardening_inputs": 1594,
+    "baseline_initial_batches": 3,
+    "baseline_initial_document_bytes": 233356,
+    "baseline_representatives": 81,
+    "candidate_initial_batches": 2,
+    "candidate_initial_document_bytes": 215696,
+    "candidate_remaining_ai_inputs": 1564,
+    "candidate_representatives": 79,
+    "initial_document_byte_reduction_percent": 7.57,
+    "native_substitutions": 30,
+    "saved_ai_status": "partial",
+    "saved_hardening_coverage": "1594/1594",
+    "saved_priorities_action_ids": []
+  },
+  "pinned_image_id": "sha256:ad277f7ec3677d5e78bf723d42256ea41f69528309483a07304b64914111e312",
+  "private_common_sha256": "b83ca320b7207b2f78b94199375d64e4fb8c6cb5298f693ed85e4b04efa11ad7",
+  "private_plans_sha256": "ce010c5282357683db7266347ee099459e1e2444963039b14020a688dbed5e88",
+  "private_preflight_sha256": "1950130d895c0dfad583c497349f493cc1df6cbee1e5879823c1622e8d611bd6",
+  "production_scan_started": false,
+  "quality_gate_pending": [
+    "same-model baseline/candidate verdicts by finding ID",
+    "published finding status and evidence parity",
+    "remaining AI input ID parity",
+    "Priorities action IDs from paired hosted stages",
+    "measured model tokens and CPU x peak RSS"
+  ],
+  "release_condition": "Root grants the exclusive replay slot after the AWS production scan.",
+  "release_marker_present": false,
+  "release_marker_required": "ROOT_RELEASE_K8S_NATIVE_FINAL_05A1919E",
+  "scan_id": "05a1919efd1849d99c2ae8e6b8637b6f",
+  "status": "prepared_blocked_on_exclusive_root_replay_slot",
+  "version": 1
+}
