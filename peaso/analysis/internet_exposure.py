@@ -2243,7 +2243,7 @@ def _gcp_vertex_sandbox(snapshot, inventory, resource):
     a.explicit = "UNKNOWN"
     a.step("load_balancer", "unknown", addresses=a.addresses,
            private_service_attachment=connection.get("serviceAttachment"))
-    a.gap("backend", "sandbox load-balancer listener ports and access controls are not established by connectionInfo")
+    a.gap("backend", "Vertex SandboxEnvironment.connectionInfo publishes the managed load balancer IP/hostname but no listener port or effective ingress controls; the public endpoint cannot be resolved to an open port from this API")
     if data.get("state") != "STATE_RUNNING":
         a.dormant = True
     return a

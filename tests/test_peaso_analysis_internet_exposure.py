@@ -515,6 +515,7 @@ def test_gcp_vertex_sandbox_public_load_balancer_is_reported_unknown():
                "loadBalancerHostname": "s.example.test"}}
     result = one(gcp(gcoll("vertex_agent_sandbox", [sandbox], service="aiplatform")), "vertex_agent_sandbox")
     assert result["status"] == "UNKNOWN" and "34.1.2.3" in result["evidence"]["public_addresses"]
+    assert "no listener port" in result["evidence"]["unresolved"][0]["reason"]
 
 
 def test_gcp_firebase_rules_conditional_read_stays_unknown():
