@@ -137,6 +137,25 @@ def test_aws_instance_without_public_ip_is_not_assessed():
     assert not exposure(aws(*aws_network(), instance(public=False)))
 
 
+def test_aws_ipv6_instance_requires_matching_sg_acl_and_igw_route():
+    ipv6_instance = instance(public=False)
+    ipv6_instance["items"][0]["NetworkInterfaces"][0]["Ipv6Addresses"] = [{"Ipv6Address": "2001:db8::10"}]
+    network = aws_network()
+    # An IPv4 path cannot make an IPv6-only address reachable.
+    assert one(aws(*network, ipv6_instance), "instance")["status"] == "PASS"
+    sg = next(c for c in network if c["type"] == "security_group")
+    sg["items"][0]["IpPermissions"][0]["Ipv6Ranges"] = [{"CidrIpv6": "::/0"}]
+    acl = next(c for c in network if c["type"] == "network_acl")
+    for entry in acl["items"][0]["Entries"]:
+        entry["Ipv6CidrBlock"] = "::/0"
+    assert one(aws(*network, ipv6_instance), "instance")["status"] == "PASS"
+    table = next(c for c in network if c["type"] == "route_table")
+    table["items"][0]["Routes"].append({"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"})
+    result = one(aws(*network, ipv6_instance), "instance")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["exposed_ports"] == ["tcp/22"]
+
+
 def test_aws_internet_facing_alb_listener_and_sg():
     lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/web/1", "Scheme": "internet-facing", "Type": "application",
           "DNSName": "web-1.us-east-1.elb.amazonaws.com", "VpcId": "vpc-1", "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
