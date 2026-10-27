@@ -1,0 +1,42 @@
+{
+  "checks": [
+    {
+      "check_id": "gcp.compute.secure_boot",
+      "failing_value": false,
+      "field_path": "shieldedInstanceConfig.enableSecureBoot",
+      "saved_native_failures": 6
+    },
+    {
+      "check_id": "gcp.gke.secrets_encryption",
+      "failing_value": "DECRYPTED",
+      "field_path": "databaseEncryption.state",
+      "saved_native_failures": 5
+    },
+    {
+      "check_id": "gcp.network.custom_subnets",
+      "failing_value": true,
+      "field_path": "autoCreateSubnetworks",
+      "saved_native_failures": 6
+    },
+    {
+      "check_id": "gcp.reviewed.compute.deletion_protection",
+      "failing_value": false,
+      "field_path": "deletionProtection",
+      "saved_native_failures": 6
+    }
+  ],
+  "provider": "gcp",
+  "replay_qualification": {
+    "hosted_receipt_sha256": null,
+    "status": "pending_hosted"
+  },
+  "saved_parity_sha256": "f33b642caadd6335d96f75d871d8f73a5fd37b92909bb990eadb05e31c26da65",
+  "source_audit_sha256": "1431f5d57a308d4483de4a5c3408709e137b3e353c602f8a1d87f520dcac781f",
+  "source_sha256": {
+    "peaso/checks/__init__.py": "9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae",
+    "peaso/checks/facts.py": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
+    "peaso/checks/gcp.py": "2a05ef582c4527eb97cf757ec9419cb0d8eb7a61bc33be76e02c8a7721eb6bd6",
+    "peaso/checks/gcp_extended.py": "f2d535d449b2babb2d7ba61d839be491b0c83c25642b5f63e41051ffec2689ae"
+  },
+  "version": 1
+}

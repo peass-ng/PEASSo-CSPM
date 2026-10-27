@@ -641,8 +641,13 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             return result
         hardening, exposure, duplicates = inputs(report)
         from .native_final import admitted_check_ids, partition, reviews as native_reviews
-        native_hardening, ai_hardening = partition(
-            hardening, admitted_check_ids() if 'hardening' in selected else frozenset())
+        if report['provider'] == 'gcp':
+            from .gcp_native_final import admitted_check_ids as gcp_admitted, partition as gcp_partition
+            native_hardening, ai_hardening = gcp_partition(
+                hardening, gcp_admitted() if 'hardening' in selected else frozenset())
+        else:
+            native_hardening, ai_hardening = partition(
+                hardening, admitted_check_ids() if 'hardening' in selected else frozenset())
         result['reviews']['hardening'] = native_reviews(native_hardening)
         result['native_final'] = {'hardening': [row['id'] for row in native_hardening]}
         result['duplicates'] = duplicates
