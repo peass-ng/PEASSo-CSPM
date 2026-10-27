@@ -1,6 +1,6 @@
 # GCP official product sweep — 2026-10-27
 
-Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs/product-list), retrieved 2026-10-27. The table is a tracking inventory, not a closure claim. `REVIEW REQUIRED` means an independent exposure primitive has not yet been ruled out or implemented.
+Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs/product-list), retrieved 2026-10-27, supplemented with Firebase Realtime Database because its rules are an independent exposure surface. The table is a tracking inventory, not a closure claim. `REVIEW REQUIRED` means an independent exposure primitive has not yet been ruled out or implemented.
 
 | Category | Product | Native path found so far | Audit state |
 | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | App hosting | [App Engine](https://docs.cloud.google.com/appengine/docs) | app_engine_application | REVIEW REQUIRED |
 | App hosting | [Blockchain Node Engine](https://docs.cloud.google.com/blockchain-node-engine/docs) | blockchain_node | REVIEW REQUIRED |
 | App hosting | [Buildpacks](https://docs.cloud.google.com/docs/buildpacks) | — | REVIEW REQUIRED |
-| App hosting | [Cloud Run](https://docs.cloud.google.com/run/docs) | cloudrun_service / function | REVIEW REQUIRED |
+| App hosting | [Cloud Run](https://docs.cloud.google.com/run/docs) | cloudrun_service / function v2 backing-service ingress and IAM | REVIEW REQUIRED |
 | App hosting | [Google Kubernetes Engine (GKE)](https://docs.cloud.google.com/kubernetes-engine/docs) | gke_cluster / Kubernetes snapshot | REVIEW REQUIRED |
 | Compute | [AI Hypercomputer](https://docs.cloud.google.com/ai-hypercomputer/docs) | — | REVIEW REQUIRED |
 | Compute | [Batch](https://docs.cloud.google.com/batch/docs) | — | REVIEW REQUIRED |
@@ -100,6 +100,7 @@ Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs
 | Databases | [Database Migration Service](https://docs.cloud.google.com/database-migration/docs) | — | REVIEW REQUIRED |
 | Databases | [Firestore in Datastore mode](https://docs.cloud.google.com/datastore/docs) | IAM policy / Firebase rules releases where applicable | REVIEW REQUIRED |
 | Databases | [Firestore with MongoDB compatibility](https://docs.cloud.google.com/firestore/mongodb-compatibility/docs) | — | REVIEW REQUIRED |
+| Databases | [Firebase Realtime Database](https://firebase.google.com/docs/database/security) | firebase_database_rules read-only instance/rules inventory; public/authenticated/conditional flags | REVIEW REQUIRED |
 | Databases | [Memorystore for Redis Cluster](https://docs.cloud.google.com/memorystore/docs/cluster) | — | REVIEW REQUIRED |
 | Databases | [Memorystore for Valkey](https://docs.cloud.google.com/memorystore/docs/valkey) | — | REVIEW REQUIRED |
 | Databases | [Spanner](https://docs.cloud.google.com/spanner/docs) | — | REVIEW REQUIRED |

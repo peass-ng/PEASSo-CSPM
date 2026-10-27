@@ -34,7 +34,7 @@ HOSTS = frozenset(f"{s}.googleapis.com" for s in (
     "networkmanagement", "networkconnectivity", "networksecurity", "networkservices", "datastream", "datamigration", "certificatemanager", "privateca", "orgpolicy", "pubsub", "policyanalyzer", "accesscontextmanager",
     "cloudbuild", "clouddeploy", "composer", "notebooks", "cloudscheduler", "domains", "sourcerepo", "osconfig", "integrations", "policytroubleshooter", "containeranalysis", "datacatalog", "metastore",
     # Groups Settings API (www.googleapis.com/groups/v1), read only with group_settings=true.
-    "www", "workflows", "vpcaccess", "file", "redis", "netapp", "servicenetworking", "dataflow", "batch", "aiplatform", "managedkafka", "memorystore", "bigqueryconnection", "cloudprivatecatalogproducer", "krmapihosting",
+    "www", "workflows", "vpcaccess", "file", "redis", "netapp", "servicenetworking", "dataflow", "batch", "aiplatform", "managedkafka", "memorystore", "bigqueryconnection", "cloudprivatecatalogproducer", "krmapihosting", "firebasedatabase",
     "memcache", "looker", "lustre", "ids", "tpu", "backupdr", "vmwareengine", "datafusion", "dataplex", "apigee", "ml", "workstations", "baremetalsolution", "connectors", "contactcenterinsights", "agentidentity", "bigquerydatatransfer", "bigqueryreservation", "developerconnect", "discoveryengine", "iap", "identitytoolkit", "config"))
 
 

@@ -36,7 +36,7 @@ REGIONAL = {
 PRIVATE_SERVICES = json.loads(Path(__file__).with_name('gcp_network_private_services.json').read_text())
 REGIONAL.update({kind: (p['service'], p['version'], p['segment'], p['key']) for kind, p in PRIVATE_SERVICES.items()
                  if not p.get('project_wide') and not p.get('organization_scoped')})
-TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {"network_connectivity_hub", "service_networking_connection", "dataflow_network_job", "app_engine_network_version", "dns_record_set", "backend_service_health", "target_pool", "target_instance", "identityplatform_config", "firebase_rules_release"}
+TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {"network_connectivity_hub", "service_networking_connection", "dataflow_network_job", "app_engine_network_version", "dns_record_set", "backend_service_health", "target_pool", "target_instance", "identityplatform_config", "firebase_rules_release", "firebase_database_rules"}
 DATAFLOW_FIELDS = "id,name,location,projectId,currentState,type,environment(workerPools(network,subnetwork,ipConfiguration))"
 APPENGINE_FIELDS = "versions(id,name,servingStatus,env,network,vpcAccessConnector),nextPageToken"
 BATCH_FIELDS = "jobs(name,uid,status(state),allocationPolicy(network,location,instances(instanceTemplate))),nextPageToken,unreachable"
@@ -437,6 +437,10 @@ def scope_jobs(collector, scope):
     if 'firebase_rules_release' in collector.needed:
         from .gcp_firebase_rules_exposure import collection_pages
         jobs.append(('firebase_rules_release', scope, 'firebaserules',
+            lambda: collection_pages(collector, scope)))
+    if 'firebase_database_rules' in collector.needed:
+        from .gcp_firebase_database_exposure import collection_pages
+        jobs.append(('firebase_database_rules', scope, 'firebasedatabase',
             lambda: collection_pages(collector, scope)))
     for kind, plan in PRIVATE_SERVICES.items():
         if kind not in collector.needed:

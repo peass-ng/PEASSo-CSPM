@@ -15,9 +15,9 @@ def test_gcp_exposure_catalog_types_are_supported_and_scheduled():
     from tests.test_peaso_collectors_gcp import FixtureTransport, connector
 
     native_catalog = set(GCP_TYPES) & (set(REGIONAL) | set(PRIVATE_SERVICES) | {
-        "target_pool", "target_instance", "identityplatform_config", "firebase_rules_release"})
+        "target_pool", "target_instance", "identityplatform_config", "firebase_rules_release", "firebase_database_rules"})
     assert {"api_gateway", "firebase_apphosting_endpoint", "media_cdn_service",
-            "vmware_external_address", "firebase_rules_release"} <= native_catalog
+            "vmware_external_address", "firebase_rules_release", "firebase_database_rules"} <= native_catalog
     assert native_catalog <= TYPES <= SUPPORTED_TYPES
     collector = GCPCollector(connector(sorted(native_catalog)),
                              transport=FixtureTransport(lambda _: {}))
@@ -154,6 +154,85 @@ def test_gcp_firebase_rules_summary_ignores_comments_and_unknown_conditions():
         "authenticated_read": True, "conditional_read": True}
     assert summarize([{"content": "allow get: if request.auth == null; allow write: if false;"}]) == {
         "public_read": True, "public_write": False, "authenticated_read": False, "conditional_read": False}
+
+
+def test_gcp_firebase_database_rules_are_projected_before_snapshot():
+    from peaso.analysis.internet_exposure import assess
+    from peaso.collectors.gcp import GCPCollector
+    from peaso.snapshot import resources
+    from tests.test_peaso_collectors_gcp import NativeDataFixtureTransport, connector
+    source = {"rules": {"private": {".read": "auth != null"},
+                        "public": {".read": True, ".write": "now < 2000000000000"}}}
+    def resolver(request):
+        assert request["method"] == "GET"
+        if request["url"] == "https://cloudresourcemanager.googleapis.com/v3/projects/p-one01":
+            return {"name": "projects/123", "projectId": "p-one01"}
+        if request["url"].endswith("/locations/-/instances"):
+            assert request["url"] == "https://firebasedatabase.googleapis.com/v1beta/projects/123/locations/-/instances"
+            return {"instances": [{"name": "projects/123/locations/us-central1/instances/db",
+                                   "databaseUrl": "https://db.europe-west1.firebasedatabase.app", "state": "ACTIVE"}]}
+        assert request["url"] == "https://db.europe-west1.firebasedatabase.app/.settings/rules.json"
+        return source
+    transport = NativeDataFixtureTransport(resolver)
+    snap = GCPCollector(connector(["firebase_database_rules"], scopes=["projects/p-one01"]), transport=transport).collect()
+    row = collection(snap, "firebase_database_rules", scope="projects/p-one01")["items"][0]
+    assert row["public_read"] is True and row["conditional_write"] is True
+    assert "rules" not in row and json.dumps(source) not in json.dumps(snap)
+    assert len(transport.requests) == 3
+    assert any(a.resource["type"] == "firebase_database_rules" and a.verdict() == "FAIL"
+               for a in assess(snap, resources(snap)))
+
+
+def test_gcp_firebase_database_rules_parser_preserves_unknown_conditions():
+    from peaso.collectors.gcp_firebase_database_exposure import summarize_rules, _rules_url
+    flags = summarize_rules({"rules": {"private": {".read": False},
+        "users": {"$uid": {".read": "auth.uid == $uid", ".write": "auth != null"}}}})
+    assert flags == {"public_read": False, "public_write": False, "authenticated_read": False,
+                     "conditional_read": True, "conditional_write": True}
+    assert _rules_url("https://db.firebaseio.com") == "https://db.firebaseio.com/.settings/rules.json"
+    with pytest.raises(Exception):
+        _rules_url("https://attacker.example/.settings/rules.json")
+
+
+def test_gcp_firebase_database_rules_transport_cache_keeps_only_flags():
+    from peaso.collectors.gcp import Transport
+    from peaso.collectors.gcp_firebase_database_exposure import _read_rules
+    raw = {"rules": {"secret_path": {".read": True}}}
+    class Response:
+        status_code = 200
+        content = json.dumps(raw).encode()
+        def json(self):
+            return raw
+    class Session:
+        calls = 0
+        def request(self, *args, **kwargs):
+            self.calls += 1
+            return Response()
+    session = Session()
+    transport = Transport(SimpleNamespace(headers=lambda: {}), {"retries": 0})
+    transport._session = lambda: session
+    collector = SimpleNamespace(transport=transport)
+    url = "https://db.firebaseio.com/.settings/rules.json"
+    assert _read_rules(collector, url, "projects/p-one")[0]["public_read"] is True
+    assert _read_rules(collector, url, "projects/p-one")[0]["public_read"] is True
+    assert session.calls == 1 and "secret_path" not in json.dumps(
+        [entry.get("data") for entry in transport.cache.values()])
+
+
+def test_gcp_firebase_database_rules_denied_read_is_not_clearance():
+    from peaso.collectors.gcp import GCPCollector, ReadError
+    from tests.test_peaso_collectors_gcp import NativeDataFixtureTransport, connector
+    def resolver(request):
+        if request["url"].endswith("/projects/p-one01"):
+            return {"name": "projects/123", "projectId": "p-one01"}
+        if request["url"].endswith("/locations/-/instances"):
+            return {"instances": [{"name": "projects/123/locations/us-central1/instances/db",
+                                   "databaseUrl": "https://db.firebaseio.com", "state": "ACTIVE"}]}
+        raise ReadError("denied", "firebase_database_rules_denied")
+    snap = GCPCollector(connector(["firebase_database_rules"], scopes=["projects/p-one01"]),
+                        transport=NativeDataFixtureTransport(resolver)).collect()
+    row = collection(snap, "firebase_database_rules", scope="projects/p-one01")
+    assert row["status"] == "denied" and row["items"] == []
 
 
 def test_gcp_firebase_rules_exact_host_uses_existing_transport_cache():
