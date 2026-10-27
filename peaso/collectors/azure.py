@@ -907,7 +907,10 @@ def _validate_readonly_post(url, audience, body):
               r"/providers/Microsoft.PolicyInsights/policyStates/latest/queryResults", parsed.path) is not None and
               version_valid and set(query) <= {"api-version", "$filter", "$top", "$skiptoken", "$skipToken", "$select", "$orderby", "$apply", "$expand", "$from", "$to"} and
               body == {})
-    if not (arg or logs or policy):
+    from . import azure_graph_batch
+    graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and
+                   parsed.path == "/v1.0/$batch" and not query and azure_graph_batch.valid_body(body))
+    if not (arg or logs or policy or graph_batch):
         raise AzureReadError("cloud_mutation_prohibited")
 
 
@@ -1213,6 +1216,9 @@ def _strict_native_json(raw):
 
 class AzureTransport:
     """Audience-separated refreshed tokens and origin-checked HTTPS requests."""
+    # Accepts the reviewed read-only Graph $batch POST (azure_graph_batch).
+    graph_batch = True
+
     def __init__(self, auth, credential=None):
         self.auth = auth
         import uuid
@@ -3390,8 +3396,11 @@ def collect(connector, requirements=None, *, transport=None):
             elif not jobs:
                 reader.collections.append({"type": policy_kind, "scope": tenant_scope,
                                            "service": "Microsoft.Graph", "status": "empty", "items": [], "parent_inventory": "directory_group"})
+        from . import azure_graph_batch
+        graph_batching = (getattr(transport, "graph_batch", False) is True
+                          and not reader.explicit_limits)
         if "directory_owner" in wanted or "directory_administrative_unit_member" in wanted:
-            jobs = []
+            jobs, graph_urls = [], []
             owner_types = (("directory_application", "applications", "application"),
                            ("directory_service_principal", "servicePrincipals", "servicePrincipal"),
                            ("directory_group", "groups", "group"))
@@ -3401,10 +3410,11 @@ def collect(connector, requirements=None, *, transport=None):
                 for parent in object_collections[parent_kind]:
                     object_id = parent["id"]
                     url = GRAPH + "/v1.0/" + endpoint + "/" + quote(object_id, safe="") + "/owners?$select=id"
+                    graph_urls.append(url)
                     def owners(url=url, object_id=object_id, object_type=object_type):
                         owner_ids = []
                         try:
-                            for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+                            for page in reader.pages(graph_request, url, audience=GRAPH, next_key="@odata.nextLink"):
                                 if any(not isinstance(owner, dict) or not isinstance(owner.get("id"), str) or not owner["id"] for owner in page):
                                     raise ValueError("malformed directory owner metadata")
                                 owner_ids.extend(owner["id"] for owner in page)
@@ -3421,14 +3431,16 @@ def collect(connector, requirements=None, *, transport=None):
                 for unit in object_collections["directory_administrative_unit"]:
                     object_id = unit["id"]
                     url = GRAPH + "/v1.0/directory/administrativeUnits/" + quote(object_id, safe="") + "/members?$select=id"
+                    graph_urls.append(url)
                     def members(url=url, object_id=object_id):
-                        for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+                        for page in reader.pages(graph_request, url, audience=GRAPH, next_key="@odata.nextLink"):
                             if any(not isinstance(member, dict) or not isinstance(member.get("id"), str) for member in page):
                                 raise ValueError("malformed administrative unit membership")
                             yield [{**member, "administrativeUnitId": object_id,
                                     "_provenance": {"tenant_id": tenant_scope.removeprefix("/tenants/"), "endpoint": urlsplit(url).path, "read_only": True}} for member in page]
                     jobs.append(("directory_administrative_unit_member", tenant_scope + "/administrativeUnits/" + object_id, "Microsoft.Graph", members))
-            reader.run(jobs)
+            with azure_graph_batch.first_pages(reader, transport, request, graph_urls, enabled=graph_batching) as graph_request:
+                reader.run(jobs)
             # Privesc reads directory_administrative_unit.memberIds. Only a complete
             # member read sets it; denied/partial leaves it absent (unknown, not empty).
             member_reads = {c["scope"].rsplit("/", 1)[-1]: c for c in reader.collections if c["type"] == "directory_administrative_unit_member"}
@@ -3443,14 +3455,15 @@ def collect(connector, requirements=None, *, transport=None):
             # Application.Read.All: one bounded, paginated read per collected
             # application. Each envelope is that application's complete (or
             # denied/partial) FIC list; issuer/subject/audiences carry no secret.
-            jobs = []
+            jobs, graph_urls = [], []
             for application in object_collections["directory_application"]:
                 object_id = application.get("id")
                 if not isinstance(object_id, str) or not object_id:
                     continue
                 url = GRAPH + "/v1.0/applications/" + quote(object_id, safe="") + "/federatedIdentityCredentials?$select=id,name,issuer,subject,audiences"
+                graph_urls.append(url)
                 def credentials(url=url, object_id=object_id, app_id=application.get("appId")):
-                    for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+                    for page in reader.pages(graph_request, url, audience=GRAPH, next_key="@odata.nextLink"):
                         rows = []
                         for row in page:
                             if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"]:
@@ -3461,7 +3474,8 @@ def collect(connector, requirements=None, *, transport=None):
                                 "_provenance": {"tenant_id": tenant_scope.removeprefix("/tenants/"), "endpoint": urlsplit(url).path, "read_only": True}})
                         yield rows
                 jobs.append(("directory_federated_credential", tenant_scope + "/applications/" + object_id, "Microsoft.Graph", credentials))
-            reader.run(jobs)
+            with azure_graph_batch.first_pages(reader, transport, request, graph_urls, enabled=graph_batching) as graph_request:
+                reader.run(jobs)
             parents = [c for c in reader.collections if c["type"] == "directory_application"]
             parent_states = {c["status"] for c in parents}
             if not parents or not parent_states <= {"collected", "empty"}:
@@ -3489,12 +3503,13 @@ def collect(connector, requirements=None, *, transport=None):
                         cached = {"id": resource_id, "collection_status": _safe_error(exc)[0], "error": _safe_error(exc)[1]}
                     resources[resource_id] = cached
                     return cached
-            jobs = []
+            jobs, graph_urls = [], []
             for principal in object_collections["directory_service_principal"]:
                 principal_id = principal["id"]
                 url = GRAPH + "/v1.0/servicePrincipals/" + quote(principal_id, safe="") + "/appRoleAssignments"
+                graph_urls.append(url)
                 def assignments(url=url, principal_id=principal_id):
-                    for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+                    for page in reader.pages(graph_request, url, audience=GRAPH, next_key="@odata.nextLink"):
                         enriched = []
                         for assignment in page:
                             if not isinstance(assignment, dict) or assignment.get("principalId") != principal_id or not all(isinstance(assignment.get(key), str) for key in ("id", "resourceId", "appRoleId")):
@@ -3514,15 +3529,18 @@ def collect(connector, requirements=None, *, transport=None):
                             enriched.append(row)
                         yield enriched
                 jobs.append(("directory_app_role_assignment", tenant_scope + "/servicePrincipals/" + principal_id, "Microsoft.Graph", assignments))
-            reader.run(jobs)
+            with azure_graph_batch.first_pages(reader, transport, request, graph_urls, enabled=graph_batching) as graph_request:
+                reader.run(jobs)
         if "directory_membership" in wanted:
-            jobs = []
+            jobs, graph_urls = [], []
             for c in reader.collections:
                 if c["type"] == "directory_group":
                     for group in c["items"]:
                         url = GRAPH + "/v1.0/groups/" + quote(group["id"], safe="") + "/members?$select=id"
-                        jobs.append(("directory_membership", tenant_scope + "/groups/" + group["id"], "Microsoft.Graph", lambda url=url: reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink")))
-            reader.run(jobs)
+                        graph_urls.append(url)
+                        jobs.append(("directory_membership", tenant_scope + "/groups/" + group["id"], "Microsoft.Graph", lambda url=url: reader.pages(graph_request, url, audience=GRAPH, next_key="@odata.nextLink")))
+            with azure_graph_batch.first_pages(reader, transport, request, graph_urls, enabled=graph_batching) as graph_request:
+                reader.run(jobs)
             unresolved_groups = {group["id"] for group in object_collections["directory_group"]
                                  if "DynamicMembership" in group.get("groupTypes", []) or group.get("visibility") == "HiddenMembership"}
             for collection in reader.collections:
