@@ -10816,11 +10816,9 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [
-        "PremiumSupport"
-      ],
+      "bound_api_fields": [],
       "check_id": "aws.cb.trustedadvisor.premium_support",
-      "decision": "native_final_source_proven",
+      "decision": "retain_ai",
       "evaluator": {
         "first_line": 609,
         "function_sha256": "8aa119c94f7f8673cae4e06af52ef8e43b3fcf6f9d3ecd7d4d20802f86004df4",
@@ -10844,14 +10842,6 @@
         "field": {
           "str": 2
         }
-      },
-      "exact_fail_scope_binding": {
-        "collected_scope_count": 2,
-        "exact_finding_resource_scope_pairs_sha256": "0ea85b63ae28326634f3a9e46dfd3f3a521d91d7e9e160e76a2e5698ea7b8798",
-        "matched_native_fail_ids": 2,
-        "no_partial_or_denied_scope_overlap": true,
-        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
-        "resource_identity_bound": true
       },
       "fail_predicates": [
         {
@@ -10882,18 +10872,12 @@
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "Evaluator peaso/checks/claude_aws_b_common.py:609-623 reads source-pinned API configuration or a documented support-service exception boolean. Exact 992 response sentinels and nested collection statuses are complete in every resource row; each native FAIL ID is bound to its collected scope. No free-text content or policy intent is evaluated.",
+      "reason": "peaso/collectors/aws_facts_cb_ca.py:854-860 derives PremiumSupport from support:DescribeSeverityLevels success or SubscriptionRequiredException; the current manifest schema has no collector-derivation evidence type and the raw API response status is not retained in the snapshot.",
       "recorded_field_reads": [],
       "result_lines": [
         623
       ],
-      "snapshot_completeness_ref": {
-        "resource_rows": 2,
-        "response_sections": [
-          "PremiumSupport"
-        ],
-        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
-      },
+      "snapshot_completeness_ref": null,
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": {
@@ -16601,14 +16585,14 @@
   "disjoint_split_sha256": "507a637bec632b85fe6b14333a994debd77f05bc6eeed131bdae9b4a8ec2ab45",
   "exact_fail_scope_binding": {
     "scope_target_fail_ids_with_complete_dependencies": 9,
-    "source_proven_fail_ids_bound_to_collected_scopes": 6713,
-    "source_proven_fail_ids_bound_to_exact_resources": 6704,
+    "source_proven_fail_ids_bound_to_collected_scopes": 6711,
+    "source_proven_fail_ids_bound_to_exact_resources": 6702,
     "source_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
     "zero_item_noncollected_envelopes_never_count_as_complete": true,
     "zero_item_partial_or_denied_envelopes_excluded": 193
   },
   "provisional_candidate_count": 24,
-  "retain_ai_count": 24,
+  "retain_ai_count": 25,
   "s3_snapshot_completeness": {
     "bucket_rows": 148,
     "cloudformation_root_notification_complete_count": 22,
@@ -16712,7 +16696,7 @@
   "scope": "code-worker 190-ID disjoint low-representative source slice; provisional aws.c2b IDs handed to audit worker",
   "source_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
   "source_inventory_sha256": "7eb72b3169e69ce40f1d2f33be3a1341c30de75a2c9dda68bf3675705fc1ffd9",
-  "source_proven_count": 142,
+  "source_proven_count": 141,
   "split_sha256": "e1713fd8d5ec5860c061aab4c37c89f3b7e2ba3ce35e77f9f475977ea6395660",
   "status": "independent_source_review"
 }

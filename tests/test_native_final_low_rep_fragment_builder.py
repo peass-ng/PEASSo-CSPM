@@ -24,9 +24,14 @@ def test_explicit_thresholds_and_inactive_fragment_boundary():
                      if row['decision'] == 'native_final_source_proven'}
     provisional = {row['check_id'] for row in receipt['checks']
                    if row['decision'] == 'provisional_source_candidate'}
-    assert len(source_proven) == 142
+    assert len(source_proven) == 141
+    assert 'aws.cb.trustedadvisor.premium_support' not in source_proven
     assert len(provisional) == 24 and all(ident.startswith('aws.c2b.') for ident in provisional)
     assert {row['check_id'] for row in fragment['checks']} == source_proven
+    reservation = next(row for row in fragment['checks']
+                       if row['check_id'] == 'aws.b.lambda.reserved_concurrency')
+    assert any('GetFunctionConcurrency' in field['api']
+               for field in reservation['deterministic_evidence']['source_fields'])
     assert fragment['replay_qualification'] == {'status': 'pending', 'receipt_sha256': None}
     assert all(row['audit_receipt_sha256'] == builder.RECEIPT_SHA256
                for row in fragment['checks'])

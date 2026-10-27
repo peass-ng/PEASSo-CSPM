@@ -54,6 +54,11 @@ BOUND_REGISTRATIONS = frozenset({
     'aws.lambda.vpc_configuration', 'aws.sns.kms_encryption',
 })
 MANUAL_RETAIN = {
+    'aws.cb.trustedadvisor.premium_support':
+        'peaso/collectors/aws_facts_cb_ca.py:854-860 derives PremiumSupport from '
+        'support:DescribeSeverityLevels success or SubscriptionRequiredException; '
+        'the current manifest schema has no collector-derivation evidence type '
+        'and the raw API response status is not retained in the snapshot.',
     'aws.claude_a.guardduty.detector_no_findings':
         'peaso/checks/claude_aws_a_security.py:24-30 treats missing nested collection_status as collected; a partial HighSeverityFindingIds list could yield FAIL.',
     'aws.claude_a.guardduty.prowler_no_high_severity_findings':
@@ -298,7 +303,6 @@ FOLLOWUP_FIELDS = {
     'aws.cb.route53.domain_auto_renew': ('Detail.DomainName', 'Detail.AutoRenew'),
     'aws.cb.sagemaker.training_intercontainer_encryption':
         ('TrainingJobArn', 'EnableInterContainerTrafficEncryption'),
-    'aws.cb.trustedadvisor.premium_support': ('PremiumSupport',),
 }
 FINAL_COLLECTOR_REFS = {
     'acm_certificate': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
@@ -989,9 +993,6 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
             'aws.cb.sagemaker.training_intercontainer_encryption': ('peaso/checks/claude_aws_b_common.py',
                                                                       'peaso/checks/claude_aws_b_compute.py',
                                                                       'peaso/collectors/aws_facts_cb_ca.py'),
-            'aws.cb.trustedadvisor.premium_support': ('peaso/checks/claude_aws_b_common.py',
-                                                       'peaso/checks/claude_aws_b_security.py',
-                                                       'peaso/collectors/aws_facts_cb_ca.py'),
         }[check['check_id']]
         for path in source_paths:
             if hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != SPECIAL_SOURCE_PINS[path]:

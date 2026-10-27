@@ -18,7 +18,7 @@ from scripts.audit_native_final_low_reps import SNAPSHOT_SHA256
 
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / 'docs/ai-review/native-final-low-rep-code-190-v3.json'
-RECEIPT_SHA256 = '714cff13cd84642e2802abe349216a2d66619c85706004598b7684e2b09f682f'
+RECEIPT_SHA256 = 'ee097152ac77e292683c159dcf2bb76be7f179f0ce4ced07d3cfce690143bab7'
 SCAN_ID = '992d7b8cbd4340a79e41139ba1a44c1e'
 BASE_COMMIT = 'd3e0e0ebfc8cf85196951460ed6db99f59e99c19'
 
@@ -39,7 +39,7 @@ API_BY_KIND = {
     'dynamodb_table': 'dynamodb:DescribeTable/DescribeContinuousBackups',
     'ecr_repository': 'ecr:DescribeRepositories/GetLifecyclePolicy',
     'ecs_task_definition': 'ecs:DescribeTaskDefinition',
-    'lambda_function': 'lambda:GetFunctionConfiguration',
+    'lambda_function': 'lambda:GetFunctionConfiguration/GetFunctionConcurrency',
     'rds_instance': 'rds:DescribeDBInstances',
     'ssm_parameter_metadata': 'ssm:DescribeParameters',
     'cloudformation_stack': 'cloudformation:DescribeStacks',
@@ -66,7 +66,6 @@ API_BY_KIND = {
     'ec2_image': 'ec2:DescribeImages',
     'network_interface': 'ec2:DescribeNetworkInterfaces',
     'guardduty_detector': 'guardduty:GetDetector/ListFindings',
-    'trustedadvisor_support': 'support:DescribeTrustedAdvisorChecks',
 }
 
 # These are operation classes reviewed against the exact FAIL expression in
@@ -207,11 +206,11 @@ def build(source_receipt, source_inventory, snapshot):
     if hashlib.sha256(inventory_raw).hexdigest() != receipt['source_inventory_sha256']:
         raise ValueError('source inventory changed')
     inventory = json.loads(inventory_raw)
-    if (receipt['scan_id'] != SCAN_ID or receipt['source_proven_count'] != 142
+    if (receipt['scan_id'] != SCAN_ID or receipt['source_proven_count'] != 141
             or receipt['provisional_candidate_count'] != 24
-            or receipt['retain_ai_count'] != 24
-            or receipt['exact_fail_scope_binding']['source_proven_fail_ids_bound_to_collected_scopes'] != 6713
-            or receipt['exact_fail_scope_binding']['source_proven_fail_ids_bound_to_exact_resources'] != 6704
+            or receipt['retain_ai_count'] != 25
+            or receipt['exact_fail_scope_binding']['source_proven_fail_ids_bound_to_collected_scopes'] != 6711
+            or receipt['exact_fail_scope_binding']['source_proven_fail_ids_bound_to_exact_resources'] != 6702
             or receipt['exact_fail_scope_binding']['scope_target_fail_ids_with_complete_dependencies'] != 9):
         raise ValueError('reviewed source decision or exact FAIL binding changed')
     inventory_by_id = {row['check_id']: row for row in inventory['checks']}
@@ -283,7 +282,7 @@ def build(source_receipt, source_inventory, snapshot):
                 'scan_time': None, 'code_path_audit_ref': code_ref,
             },
         })
-    if len(checks) != 142:
+    if len(checks) != 141:
         raise ValueError('source-proven check count changed')
     return {'version': 2, 'source_scan_id': SCAN_ID, 'base_commit': BASE_COMMIT,
             'replay_qualification': {'status': 'pending', 'receipt_sha256': None},

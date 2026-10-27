@@ -1,13 +1,13 @@
 {
-  "candidate_checks": 142,
-  "candidate_sha256": "1fa4d3f86ff24c0b1f3b9e7960ec83240c59f4aa56a663087681ff78fc388c5c",
+  "candidate_checks": 141,
+  "candidate_sha256": "7ac2274fb4e2766d180753393cce5bf234ac145b6286ea058054c63e8ebe7b44",
   "model_replay_run": false,
   "pending_admitted": 0,
   "production_manifest_modified": false,
-  "resolved_recorded_evidence_references": 295,
+  "resolved_recorded_evidence_references": 294,
   "schema_version": 1,
   "sha_tamper_admitted": 0,
   "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f",
-  "temporary_qualified_admitted": 142,
+  "temporary_qualified_admitted": 141,
   "unresolved_recorded_evidence_references": 0
 }

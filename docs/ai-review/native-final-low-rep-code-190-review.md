@@ -6,8 +6,8 @@ The JSON receipt pins both split hashes and each evaluator's source hash. It
 contains the exact FAIL predicate line and bound API field paths for every ID.
 
 The initial `4608bbf2` checkpoint classified 137 source-proven IDs. This follow-up
-classifies **142 source-proven** (6,713 exact native FAILs, 200 representatives), **24 provisional**
-(112 FAILs, all assigned `aws.c2b.*` IDs), and **24 retained for AI** (195 FAILs). The earlier 166 candidate
+classifies **141 source-proven** (6,711 exact native FAILs), **24 provisional**
+(112 FAILs, all assigned `aws.c2b.*` IDs), and **25 retained for AI** (197 FAILs). The earlier 166 candidate
 count was provisional. A
 function named `get`, a helper name, or a check title never establishes proof.
 The receipt is not an activated allowlist; the versioned runtime manifest
@@ -31,7 +31,7 @@ Source-proven examples:
   response metadata before the corresponding optional-field predicates are
   source-proven. The receipt stores counts and status markers only.
 - The grouped pre-AI report SHA `4dcaa76a…de2ba` binds every one of the
-  6,713 source-proven native FAIL IDs to its exact resource scope. For 6,704
+  6,711 source-proven native FAIL IDs to its exact resource scope. For 6,702
   resource targets, the native resource ID must uniquely match an item ID (or
   the log group ARN) in the collected envelope. Nine scope targets require
   complete scope-matched dependency collections. The resource kind and scope
@@ -46,16 +46,20 @@ Source-proven examples:
 - `aws.b.cloudfront.custom_acm_certificate` checks only the presence of
   certificate references at `peaso/checks/aws_b_cloudfront.py:69-75`; the
   snapshot confirms all 10 `GetDistributionConfig` responses were collected.
-- Five additional direct setting checks have pinned evaluator and collector
+- Four additional direct setting checks have pinned evaluator and collector
   paths: DynamoDB SSE description, Lambda reserved concurrency, Route 53 domain
-  auto renew, SageMaker intercontainer encryption, and premium support. Their
-  exact 15 native FAIL resources are bound individually to collected 992 rows.
+  auto renew, and SageMaker intercontainer encryption. Their exact 13 native
+  FAIL resources are bound individually to collected 992 rows.
 
 Fail-closed examples:
 
 - `aws.b.ecr.lifecycle_rules` parses serialized `lifecyclePolicyText` at
   `peaso/checks/aws_b_ecr.py:23`; it stays AI-reviewed. ECR policy *presence*
   controls that use recorded metadata alone remain eligible by source proof.
+- `aws.cb.trustedadvisor.premium_support` remains AI-reviewed: the collector
+  derives its boolean from `support:DescribeSeverityLevels` success or a
+  subscription exception, and the current evidence schema cannot describe
+  this derivation while retaining the underlying response status.
 - Untraced optional-field helpers, dynamic field bindings, and index joins stay
   provisional or AI-reviewed. The 72 indexed IDs assigned to the audit worker
   are absent from this receipt.
@@ -75,11 +79,11 @@ but each final admission still needs per-check direct API evidence, source pins,
 and the root's hosted replay decision.
 
 The separate `native-final-low-rep-code-190-fragment-v2.json` contains only
-the 142 source-proven rows and is **inactive** (`replay_qualification: pending`).
+the 141 source-proven rows and is **inactive** (`replay_qualification: pending`).
 Its builder requires the exact source-receipt SHA, the exact 992 snapshot SHA,
 each approved FAIL scope binding, and each evaluator whole-file SHA. The
 `native-final-low-rep-code-190-fragment-validation.json` preflight resolved
-295 recorded source-field refs, admitted zero pending rows, admitted all 142
+294 recorded source-field refs, admitted zero pending rows, admitted all 141
 only in a temporary qualified test copy, and rejected a SHA-tampered copy.
 This is schema validation, not hosted replay qualification. The root must
 combine and independently review it before any manifest activation.
