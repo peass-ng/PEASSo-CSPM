@@ -668,6 +668,7 @@ def _aws_elbv2(snapshot, inventory, resource):
     a = Assessment(resource, "load_balancer")
     a.endpoint = data.get("DNSName")
     a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
+    static_ipv6 = []
     if data.get("Type") == "network":
         static = []
         for zone in as_list(data.get("AvailabilityZones")):
@@ -676,9 +677,14 @@ def _aws_elbv2(snapshot, inventory, resource):
             for address in as_list(zone.get("LoadBalancerAddresses")):
                 if isinstance(address, dict) and _public_ip(address.get("IpAddress")):
                     static.append({"ip": address["IpAddress"], "allocation_id": address.get("AllocationId")})
+                if isinstance(address, dict) and _public_ip(address.get("IPv6Address")):
+                    static_ipv6.append(address["IPv6Address"])
         if static:
             a.addresses.extend(x["ip"] for x in static)
             a.step("public_address", "allow", static_ipv4=static)
+        if static_ipv6:
+            a.addresses.extend(sorted(set(static_ipv6)))
+            a.step("public_address", "allow", static_ipv6=sorted(set(static_ipv6)))
     listeners = data.get("Listeners") if isinstance(data.get("Listeners"), dict) else {}
     ports = {}
     if listeners.get("collection_status") in ("collected", "empty"):
@@ -697,6 +703,10 @@ def _aws_elbv2(snapshot, inventory, resource):
     subnets = [z.get("SubnetId") for z in as_list(data.get("AvailabilityZones")) if isinstance(z, dict) and z.get("SubnetId")]
     a.ports = _aws_vpc_path(inventory, a, subnets, groups if data.get("Type") == "application" or groups else None, ports,
                             native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True)
+    if static_ipv6:
+        a.ports = union(a.ports, _aws_vpc_path(inventory, a, subnets, groups if groups else None, ports,
+                                             native_id(resource), route=False, vpc_id=data.get("VpcId"),
+                                             family=6, narrow_public=True))
     if data.get("Type") == "network" and not groups:
         a.notes.append("NLB without security groups: target security groups govern client traffic (client IP preserved)")
     if any(g["layer"] == "listener" for g in a.unresolved) and not empty(a.ports):

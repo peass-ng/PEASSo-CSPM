@@ -236,6 +236,28 @@ def test_aws_nlb_static_public_ipv4_is_in_listener_evidence():
         {"ip": "54.1.2.3", "allocation_id": "eipalloc-1"}]
 
 
+def test_aws_nlb_static_ipv6_uses_ipv6_sg_and_nacl_path():
+    lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/net/v6/1",
+          "Scheme": "internet-facing", "Type": "network", "DNSName": "v6.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1", "LoadBalancerAddresses": [
+              {"IPv6Address": "2600:1f18:abcd::1"}, {"IPv6Address": "fd00::1"}]}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "TCP"}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+           "Ipv6Ranges": [{"CidrIpv6": "::/0"}]}]
+    nacl = [{"RuleNumber": 100, "Egress": direction, "Protocol": "-1", "RuleAction": "allow",
+             "Ipv6CidrBlock": "::/0"} for direction in (False, True)]
+    def finding(rules=sg, entries=nacl):
+        return one(aws(*aws_network(sg_rules=rules, nacl_entries=entries),
+                       coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["2600:1f18:abcd::1", "v6.example.com"]
+    assert next(s for s in result["evidence"]["path"] if s["layer"] == "public_address")["static_ipv6"] == [
+        "2600:1f18:abcd::1"]
+    assert finding(entries=[])["status"] == "PASS"
+    assert finding(rules=[])["status"] == "PASS"
+
+
 def test_aws_public_rds_instance():
     db = {"DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:prod", "PubliclyAccessible": True, "Engine": "postgres", "Endpoint": {"Address": "prod.x.rds.amazonaws.com", "Port": 5432},
           "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}], "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}}
