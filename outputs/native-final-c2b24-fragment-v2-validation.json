@@ -1,0 +1,285 @@
+{
+  "candidate_checks": 24,
+  "candidate_sha256": "ad7ec549f4dc2ae443d29499bd37ac8aa15fb4837320c779efdb8a16e2ecef3d",
+  "code_gate_sha256": "314c3e5bb18ccc851be5489931e86097a4a267610d2476aed32842f552f54b65",
+  "exact_fail_row_field_bindings": 204,
+  "exact_native_fail_rows": 112,
+  "initial_representatives": 36,
+  "model_replay_run": false,
+  "pending_admitted": 0,
+  "per_check": [
+    {
+      "check_id": "aws.c2b.apigateway.methods_request_validator",
+      "collector_ref": {
+        "lines": "404-414,455-473",
+        "path": "peaso/collectors/aws_facts_compute_edge.py",
+        "source_sha256": "33132a9fd900a55e6e7a259abcbb9af7b9a978a3ceb1cc589d78c4e754de2671"
+      },
+      "exact_fail_row_field_bindings": 2,
+      "initial_representatives": 2,
+      "native_fail_count": 2
+    },
+    {
+      "check_id": "aws.c2b.apigateway.stage_execution_logging",
+      "collector_ref": {
+        "lines": "252-275",
+        "path": "peaso/collectors/aws_b_services.py",
+        "source_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
+      },
+      "exact_fail_row_field_bindings": 2,
+      "initial_representatives": 2,
+      "native_fail_count": 2
+    },
+    {
+      "check_id": "aws.c2b.athena.cloudwatch_metrics",
+      "collector_ref": {
+        "lines": "415-417",
+        "path": "peaso/collectors/aws_facts_data_identity.py",
+        "source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+      },
+      "exact_fail_row_field_bindings": 3,
+      "initial_representatives": 1,
+      "native_fail_count": 3
+    },
+    {
+      "check_id": "aws.c2b.athena.cloudwatch_metrics_prowler",
+      "collector_ref": {
+        "lines": "415-417",
+        "path": "peaso/collectors/aws_facts_data_identity.py",
+        "source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+      },
+      "exact_fail_row_field_bindings": 6,
+      "initial_representatives": 1,
+      "native_fail_count": 3
+    },
+    {
+      "check_id": "aws.c2b.athena.enforce_configuration",
+      "collector_ref": {
+        "lines": "415-417",
+        "path": "peaso/collectors/aws_facts_data_identity.py",
+        "source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+      },
+      "exact_fail_row_field_bindings": 2,
+      "initial_representatives": 2,
+      "native_fail_count": 2
+    },
+    {
+      "check_id": "aws.c2b.athena.enforce_configuration_prowler",
+      "collector_ref": {
+        "lines": "415-417",
+        "path": "peaso/collectors/aws_facts_data_identity.py",
+        "source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+      },
+      "exact_fail_row_field_bindings": 4,
+      "initial_representatives": 2,
+      "native_fail_count": 2
+    },
+    {
+      "check_id": "aws.c2b.athena.results_encrypted",
+      "collector_ref": {
+        "lines": "415-417",
+        "path": "peaso/collectors/aws_facts_data_identity.py",
+        "source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+      },
+      "exact_fail_row_field_bindings": 4,
+      "initial_representatives": 2,
+      "native_fail_count": 2
+    },
+    {
+      "check_id": "aws.c2b.athena.results_encrypted_prowler",
+      "collector_ref": {
+        "lines": "415-417",
+        "path": "peaso/collectors/aws_facts_data_identity.py",
+        "source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+      },
+      "exact_fail_row_field_bindings": 4,
+      "initial_representatives": 2,
+      "native_fail_count": 2
+    },
+    {
+      "check_id": "aws.c2b.autoscaling.mixed_policy_multiple_types",
+      "collector_ref": {
+        "lines": "1067,2880-2930",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 9,
+      "initial_representatives": 1,
+      "native_fail_count": 9
+    },
+    {
+      "check_id": "aws.c2b.dynamodb.sse_kms",
+      "collector_ref": {
+        "lines": "1450-1453",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 2,
+      "initial_representatives": 1,
+      "native_fail_count": 2
+    },
+    {
+      "check_id": "aws.c2b.ecs.cluster_has_active_services",
+      "collector_ref": {
+        "lines": "477-480",
+        "path": "peaso/collectors/aws_b_services.py",
+        "source_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
+      },
+      "exact_fail_row_field_bindings": 4,
+      "initial_representatives": 2,
+      "native_fail_count": 2
+    },
+    {
+      "check_id": "aws.c2b.ecs.container_insights",
+      "collector_ref": {
+        "lines": "477-480",
+        "path": "peaso/collectors/aws_b_services.py",
+        "source_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
+      },
+      "exact_fail_row_field_bindings": 14,
+      "initial_representatives": 2,
+      "native_fail_count": 7
+    },
+    {
+      "check_id": "aws.c2b.ecs.container_insights_setting",
+      "collector_ref": {
+        "lines": "477-480",
+        "path": "peaso/collectors/aws_b_services.py",
+        "source_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
+      },
+      "exact_fail_row_field_bindings": 14,
+      "initial_representatives": 2,
+      "native_fail_count": 7
+    },
+    {
+      "check_id": "aws.c2b.ecs.service_load_balancer_attached",
+      "collector_ref": {
+        "lines": "125-220",
+        "path": "peaso/collectors/aws_facts_compute_edge.py",
+        "source_sha256": "33132a9fd900a55e6e7a259abcbb9af7b9a978a3ceb1cc589d78c4e754de2671"
+      },
+      "exact_fail_row_field_bindings": 23,
+      "initial_representatives": 1,
+      "native_fail_count": 23
+    },
+    {
+      "check_id": "aws.c2b.efs.automatic_backups_enabled",
+      "collector_ref": {
+        "lines": "442-449",
+        "path": "peaso/collectors/aws_facts_data_identity.py",
+        "source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+      },
+      "exact_fail_row_field_bindings": 6,
+      "initial_representatives": 1,
+      "native_fail_count": 3
+    },
+    {
+      "check_id": "aws.c2b.efs.backup_not_disabled",
+      "collector_ref": {
+        "lines": "442-449",
+        "path": "peaso/collectors/aws_facts_data_identity.py",
+        "source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+      },
+      "exact_fail_row_field_bindings": 6,
+      "initial_representatives": 1,
+      "native_fail_count": 3
+    },
+    {
+      "check_id": "aws.c2b.elasticache.rg_backup_retention_15",
+      "collector_ref": {
+        "lines": "2911-2927",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 1,
+      "initial_representatives": 1,
+      "native_fail_count": 1
+    },
+    {
+      "check_id": "aws.c2b.elbv2.listener_fips_tls",
+      "collector_ref": {
+        "lines": "1431-1439",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 27,
+      "initial_representatives": 2,
+      "native_fail_count": 9
+    },
+    {
+      "check_id": "aws.c2b.elbv2.listener_pqc_tls",
+      "collector_ref": {
+        "lines": "1431-1439",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 27,
+      "initial_representatives": 2,
+      "native_fail_count": 9
+    },
+    {
+      "check_id": "aws.c2b.elbv2.listeners_secure_protocol",
+      "collector_ref": {
+        "lines": "1431-1439",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 21,
+      "initial_representatives": 2,
+      "native_fail_count": 7
+    },
+    {
+      "check_id": "aws.c2b.elbv2.nlb_tls_termination",
+      "collector_ref": {
+        "lines": "1431-1439",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 2,
+      "initial_representatives": 1,
+      "native_fail_count": 1
+    },
+    {
+      "check_id": "aws.c2b.elbv2.recommended_tls_policy",
+      "collector_ref": {
+        "lines": "1431-1439",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 15,
+      "initial_representatives": 1,
+      "native_fail_count": 5
+    },
+    {
+      "check_id": "aws.c2b.emr.cluster_security_configuration",
+      "collector_ref": {
+        "lines": "79,286-310",
+        "path": "peaso/collectors/aws_network_catalog.py",
+        "source_sha256": "557c2ba6dcf9dc10194e2a95e5554d2bcef60e6eeb703cb68718d52edd007df5"
+      },
+      "exact_fail_row_field_bindings": 5,
+      "initial_representatives": 1,
+      "native_fail_count": 5
+    },
+    {
+      "check_id": "aws.c2b.lambda.runtime_not_obsolete",
+      "collector_ref": {
+        "lines": "1120",
+        "path": "peaso/collectors/aws.py",
+        "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+      },
+      "exact_fail_row_field_bindings": 1,
+      "initial_representatives": 1,
+      "native_fail_count": 1
+    }
+  ],
+  "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+  "production_manifest_modified": false,
+  "scan_id": "992d7b8c",
+  "schema_version": 1,
+  "sha_tamper_admitted": 0,
+  "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f",
+  "source_proof_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+  "status": "inactive_temp_gate_validation",
+  "temporary_qualified_admitted": 24
+}

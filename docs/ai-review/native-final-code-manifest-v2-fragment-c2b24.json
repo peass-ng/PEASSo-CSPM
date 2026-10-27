@@ -1,0 +1,857 @@
+{
+  "base_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
+  "checks": [
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.apigateway.methods_request_validator",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.apigateway.methods_request_validator",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "apigw_validator"
+        },
+        "operation": {
+          "comparison": "not_contains",
+          "kind": "list_membership",
+          "threshold": "requestValidatorId",
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "apigateway:GetResources(embed=methods)",
+            "field_path": "Resources.items[].resourceMethods.*.requestValidatorId",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rest_api].items[].Resources.items[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.apigateway.stage_execution_logging",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.apigateway.stage_execution_logging",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "apigw_logging"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "apigateway:GetStages",
+            "field_path": "methodSettings.*.loggingLevel",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rest_api_stage].items[].methodSettings",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.athena.cloudwatch_metrics",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.athena.cloudwatch_metrics",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "literal_comparison",
+          "threshold": false,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.Configuration.PublishCloudWatchMetricsEnabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.Configuration",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.athena.cloudwatch_metrics_prowler",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.athena.cloudwatch_metrics_prowler",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.State",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.State",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.Configuration.PublishCloudWatchMetricsEnabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.Configuration",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.athena.enforce_configuration",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.athena.enforce_configuration",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "literal_comparison",
+          "threshold": false,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.Configuration.EnforceWorkGroupConfiguration",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.Configuration",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.athena.enforce_configuration_prowler",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.athena.enforce_configuration_prowler",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.State",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.State",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.Configuration.EnforceWorkGroupConfiguration",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.Configuration",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.athena.results_encrypted",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.athena.results_encrypted",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "athena_results_encrypted"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.Configuration.ManagedQueryResultsConfiguration.Enabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.Configuration",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.Configuration.ResultConfiguration.EncryptionConfiguration.EncryptionOption",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.Configuration",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.athena.results_encrypted_prowler",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.athena.results_encrypted_prowler",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "athena_results_encrypted_prowler"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.State",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.State",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "athena:GetWorkGroup",
+            "field_path": "WorkGroup.WorkGroup.Configuration.ResultConfiguration.EncryptionConfiguration.EncryptionOption",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=athena_workgroup].items[].WorkGroup.WorkGroup.Configuration",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.autoscaling.mixed_policy_multiple_types",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.autoscaling.mixed_policy_multiple_types",
+          "path": "peaso/checks/claude2_aws_b_compute.py",
+          "source_sha256": "8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed",
+          "symbol": "asg_mixed"
+        },
+        "operation": {
+          "comparison": "lt",
+          "kind": "count_comparison",
+          "threshold": 2,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "autoscaling:DescribeAutoScalingGroups",
+            "field_path": "MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceType",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=autoscaling_group].items[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 9
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.dynamodb.sse_kms",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.dynamodb.sse_kms",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "table_sse_kms"
+        },
+        "operation": {
+          "comparison": "ne",
+          "kind": "literal_comparison",
+          "threshold": "KMS",
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "dynamodb:DescribeTable",
+            "field_path": "Table.Table.SSEDescription.SSEType",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=dynamodb_table].items[].Table.Table",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.ecs.cluster_has_active_services",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.ecs.cluster_has_active_services",
+          "path": "peaso/checks/claude2_aws_b_compute.py",
+          "source_sha256": "8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed",
+          "symbol": "ecs_active"
+        },
+        "operation": {
+          "comparison": "lte",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ecs:DescribeClusters",
+            "field_path": "Configuration.clusters[].activeServicesCount",
+            "field_type": "number",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_cluster].items[].Configuration.clusters[].activeServicesCount",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "ecs:DescribeClusters",
+            "field_path": "Configuration.clusters[].clusterArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_cluster].items[].Configuration.clusters[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.ecs.container_insights",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.ecs.container_insights",
+          "path": "peaso/checks/claude2_aws_b_compute.py",
+          "source_sha256": "8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed",
+          "symbol": "ecs_insights"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ecs:DescribeClusters(include=SETTINGS,CONFIGURATIONS)",
+            "field_path": "Configuration.clusters[].settings[].name",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_cluster].items[].Configuration.clusters[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "ecs:DescribeClusters(include=SETTINGS,CONFIGURATIONS)",
+            "field_path": "Configuration.clusters[].settings[].value",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_cluster].items[].Configuration.clusters[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 7
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.ecs.container_insights_setting",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.ecs.container_insights_setting",
+          "path": "peaso/checks/claude2_aws_b_compute.py",
+          "source_sha256": "8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed",
+          "symbol": "ecs_insights_setting"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ecs:DescribeClusters(include=SETTINGS,CONFIGURATIONS)",
+            "field_path": "Configuration.clusters[].settings[].name",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_cluster].items[].Configuration.clusters[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "ecs:DescribeClusters(include=SETTINGS,CONFIGURATIONS)",
+            "field_path": "Configuration.clusters[].settings[].value",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_cluster].items[].Configuration.clusters[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 7
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.ecs.service_load_balancer_attached",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.ecs.service_load_balancer_attached",
+          "path": "peaso/checks/claude2_aws_b_compute.py",
+          "source_sha256": "8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed",
+          "symbol": "ecs_svc_lb"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ecs:DescribeServices",
+            "field_path": "loadBalancers",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_service].items[].loadBalancers",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 23
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.efs.automatic_backups_enabled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.efs.automatic_backups_enabled",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "efs_backup_turbot"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "efs:DescribeBackupPolicy",
+            "field_path": "BackupPolicy.BackupPolicy.Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=efs_file_system].items[].BackupPolicy",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "efs:DescribeBackupPolicy",
+            "field_path": "BackupPolicy.absent",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=efs_file_system].items[].BackupPolicy",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.efs.backup_not_disabled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.efs.backup_not_disabled",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "efs_backup_prowler"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "efs:DescribeBackupPolicy",
+            "field_path": "BackupPolicy.BackupPolicy.Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=efs_file_system].items[].BackupPolicy",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "efs:DescribeBackupPolicy",
+            "field_path": "BackupPolicy.absent",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=efs_file_system].items[].BackupPolicy",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.elasticache.rg_backup_retention_15",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.elasticache.rg_backup_retention_15",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "rg_backup_15"
+        },
+        "operation": {
+          "comparison": "lt",
+          "kind": "count_comparison",
+          "threshold": 15,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elasticache:DescribeReplicationGroups",
+            "field_path": "SnapshotRetentionLimit",
+            "field_type": "number",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=elasticache_replication_group].items[].SnapshotRetentionLimit",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.elbv2.listener_fips_tls",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.elbv2.listener_fips_tls",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "v2_fips"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Type",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Type",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Protocol",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].SslPolicy",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 9
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.elbv2.listener_pqc_tls",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.elbv2.listener_pqc_tls",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "v2_pqc"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Type",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Type",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Protocol",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].SslPolicy",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 9
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.elbv2.listeners_secure_protocol",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.elbv2.listeners_secure_protocol",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "v2_secure_protocol"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Type",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Type",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Protocol",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Port",
+            "field_type": "number",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 7
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.elbv2.nlb_tls_termination",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.elbv2.nlb_tls_termination",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "v2_nlb_tls"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Type",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Type",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Protocol",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.elbv2.recommended_tls_policy",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.elbv2.recommended_tls_policy",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "v2_recommended"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Type",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Type",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Protocol",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].SslPolicy",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.emr.cluster_security_configuration",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.emr.cluster_security_configuration",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "emr_secconf"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "literal_comparison",
+          "threshold": "absent",
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "emr:DescribeCluster",
+            "field_path": "Cluster.Cluster.SecurityConfiguration",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_cluster].items[].Cluster.Cluster",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "2faa2cd0f4244b22ce7337905104dbbbf78ea0c79aaf5503f044277d0fee51ca",
+      "check_id": "aws.c2b.lambda.runtime_not_obsolete",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-c2b-low-rep-proofs-v1.json#aws.c2b.lambda.runtime_not_obsolete",
+          "path": "peaso/checks/claude2_aws_b_compute.py",
+          "source_sha256": "8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed",
+          "symbol": "lambda_runtime"
+        },
+        "operation": {
+          "comparison": "contains",
+          "kind": "list_membership",
+          "threshold": "source-pinned OBSOLETE enum",
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "lambda:ListFunctions",
+            "field_path": "Runtime",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].Runtime",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    }
+  ],
+  "replay_qualification": {
+    "receipt_sha256": null,
+    "status": "pending"
+  },
+  "source_scan_id": "992d7b8cbd4340a79e41139ba1a44c1e",
+  "version": 2
+}
