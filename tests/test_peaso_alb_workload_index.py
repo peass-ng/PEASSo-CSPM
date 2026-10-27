@@ -8,7 +8,7 @@ import pytest
 from examples.benchmark_peaso_alb_workloads import FormerAlbWorkloads, synthetic_snapshot
 from peaso.analysis import cloud_workload_index as indexed
 from peaso.principal_exposure import project
-from peaso.snapshot import resources, seal, validate
+from peaso.snapshot import make_snapshot, resources, seal, validate
 
 
 def outcome(function):
@@ -172,3 +172,45 @@ def test_nlb_tcp_ip_target_requires_exact_health_and_backend_sg_nacl(backend_ope
         assert signal['backend_evidence']['healthy_target'] == {'ip': '10.0.0.1', 'port': 8080}
         assert signal['backend_evidence']['backend_security_groups'] == ['sg-target']
         assert signal['backend_evidence']['backend_acl'] == 'acl-0'
+
+
+@pytest.mark.parametrize('healthy,backend_open,expected', [
+    (True, True, 'declared'), (False, True, 'unknown'), (True, False, 'unknown')])
+def test_classic_elb_instance_role_requires_health_and_backend_port(healthy, backend_open, expected):
+    scope = '111122223333/us-east-1'
+    role = 'arn:aws:iam::111122223333:role/classic-target'
+    profile = 'arn:aws:iam::111122223333:instance-profile/classic-target'
+    lb = {'LoadBalancerName': 'classic-web', 'Scheme': 'internet-facing', 'DNSName': 'classic.example.com',
+          'VPCId': 'vpc-1', 'Subnets': ['subnet-1'], 'SecurityGroups': ['sg-lb'],
+          'ListenerDescriptions': [{'Listener': {'LoadBalancerPort': 443, 'InstancePort': 8080,
+                                                  'Protocol': 'HTTPS', 'InstanceProtocol': 'HTTP'}}],
+          'Instances': [{'InstanceId': 'i-1'}],
+          'InstanceHealth': {'collection_status': 'collected', 'InstanceStates': [
+              {'InstanceId': 'i-1', 'State': 'InService' if healthy else 'OutOfService'}]}}
+    instance = {'InstanceId': 'i-1', 'State': {'Name': 'running'}, 'VpcId': 'vpc-1',
+                'IamInstanceProfile': {'Arn': profile}, 'NetworkInterfaces': [
+                    {'NetworkInterfaceId': 'eni-1', 'SubnetId': 'subnet-1', 'VpcId': 'vpc-1',
+                     'Attachment': {'DeviceIndex': 0}, 'Groups': [{'GroupId': 'sg-target'}]}]}
+    def sg(name, port, open_rule=True):
+        return {'GroupId': name, 'VpcId': 'vpc-1', 'IpPermissions': [
+            {'IpProtocol': 'tcp', 'FromPort': port, 'ToPort': port, 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
+        ] if open_rule else []}
+    collections = {
+        'classic_load_balancer': [lb], 'instance': [instance],
+        'iam_instance_profile': [{'Arn': profile, 'Roles': [{'Arn': role}]}],
+        'vpc': [{'VpcId': 'vpc-1'}], 'subnet': [{'SubnetId': 'subnet-1', 'VpcId': 'vpc-1'}],
+        'security_group': [sg('sg-lb', 443), sg('sg-target', 8080, backend_open)],
+        'network_acl': [{'NetworkAclId': 'acl-1', 'VpcId': 'vpc-1',
+                         'Associations': [{'SubnetId': 'subnet-1'}],
+                         'Entries': [{'RuleNumber': 100, 'Protocol': '-1', 'CidrBlock': '0.0.0.0/0',
+                                      'RuleAction': 'allow', 'Egress': egress} for egress in (False, True)]}],
+    }
+    snap = make_snapshot('aws', [scope], [{'type': kind, 'scope': scope,
+        'status': 'collected', 'items': items} for kind, items in collections.items()])
+    actual = project(snap, resources(snap))
+    signal = actual[role]['exposures'][0]
+    assert signal['state'] == expected
+    assert ('backend_evidence' in signal) == (expected == 'declared')
+    if expected == 'declared':
+        assert signal['backend_evidence']['healthy_target'] == {'instance_id': 'i-1', 'port': 8080}
+        assert signal['backend_evidence']['listener_port'] == 443

@@ -305,7 +305,7 @@ def _workloads(snapshot, resources, by_type, signal):
         k8s_workloads = K8sWorkloadIndex(snapshot, by_type, _cluster)
     from peaso.analysis.cloud_workload_index import CloudWorkloadIndex, compute_path
     cloud_workloads = CloudWorkloadIndex(by_type)
-    nlb_backend_inventory = None
+    aws_backend_inventory = None
     profiles = {r["data"].get("Arn"): r["data"] for r in by_type["iam_instance_profile"]}
     # IAM role inventory embeds instance profiles on some collector versions.
     for role in by_type["iam_role"]:
@@ -349,6 +349,7 @@ def _workloads(snapshot, resources, by_type, signal):
         row = assessment.resource
         targets = [row]
         backend_evidence = {}
+        confirmed_targets = set()
         azure_target_routes = {}
         if provider == "k8s":
             services = [row] if row["type"] == "service" else []
@@ -432,7 +433,6 @@ def _workloads(snapshot, resources, by_type, signal):
             service_defs = {s["data"].get("taskDefinition") for s in cloud_workloads.candidates("ecs_service", "ecs_service_target_group", tgs) if any(b.get("targetGroupArn") in tgs for b in s["data"].get("loadBalancers") or [])}
             targets = [task for task in cloud_workloads.candidates("ecs_task", "running_task_definition", service_defs) if task["data"].get("lastStatus") == "RUNNING" and task["data"].get("taskDefinitionArn") in service_defs]
             lb_tasks = CloudWorkloadIndex({"ecs_task": targets})
-            confirmed_targets = set()
             listeners = (row["data"].get("Listeners") or {}).get("items") or []
             public_ports = {port for protocol, port in ports_of(assessment.ports or {}) if protocol == "tcp"}
             forwards = {}
@@ -504,14 +504,14 @@ def _workloads(snapshot, resources, by_type, signal):
                             eni, port = match
                             backend_network = {}
                             if lb_type == "network":
-                                if nlb_backend_inventory is None:
-                                    nlb_backend_inventory = Inventory(snapshot, [*by_type["subnet"], *by_type["security_group"],
-                                                                        *by_type["network_acl"]])
+                                if aws_backend_inventory is None:
+                                    aws_backend_inventory = Inventory(snapshot, [*by_type["subnet"], *by_type["security_group"],
+                                                                       *by_type["network_acl"]])
                                 eni_data = eni["data"]
                                 groups = [g.get("GroupId") for g in as_list(eni_data.get("Groups"))
                                           if isinstance(g, dict) and isinstance(g.get("GroupId"), str)]
                                 proof = Assessment(eni, "backend")
-                                allowed = _aws_vpc_path(nlb_backend_inventory, proof, [eni_data.get("SubnetId")], groups,
+                                allowed = _aws_vpc_path(aws_backend_inventory, proof, [eni_data.get("SubnetId")], groups,
                                                         pset("tcp", port, port), eni_data.get("NetworkInterfaceId"),
                                                         route=False, vpc_id=eni_data.get("VpcId"))
                                 if proof.unresolved or proof.notes or empty(intersect(allowed, pset("tcp", port, port))):
@@ -526,6 +526,48 @@ def _workloads(snapshot, resources, by_type, signal):
                             backend_evidence.setdefault(task["id"], {"target_group": tg_arn,
                                 "healthy_target": {"ip": eni["data"].get("PrivateIpAddress"), "port": port},
                                 "ecs_service": svc.get("serviceName"), **forwards[tg_arn], **backend_network})
+        if provider == "aws" and row["type"] == "classic_load_balancer":
+            lb = row["data"]
+            registered = {x.get("InstanceId") for x in as_list(lb.get("Instances")) if isinstance(x, dict)}
+            targets = [instance for instance in cloud_workloads.candidates("instance", "InstanceId", registered)
+                       if instance["data"].get("InstanceId") in registered]
+            health = lb.get("InstanceHealth") if isinstance(lb.get("InstanceHealth"), dict) else {}
+            states = health.get("InstanceStates") if health.get("collection_status") == "collected" else None
+            public_ports = {port for protocol, port in ports_of(assessment.ports or {}) if protocol == "tcp"}
+            listeners = [x.get("Listener") for x in as_list(lb.get("ListenerDescriptions")) if isinstance(x, dict)]
+            for instance in targets:
+                instance_id = instance["data"].get("InstanceId")
+                matching_health = [x for x in states if isinstance(x, dict) and x.get("InstanceId") == instance_id] if isinstance(states, list) else []
+                if (len(matching_health) != 1 or matching_health[0].get("State") != "InService"
+                        or (instance["data"].get("State") or {}).get("Name") != "running"):
+                    continue
+                interfaces = [x for x in as_list(instance["data"].get("NetworkInterfaces")) if isinstance(x, dict)]
+                primary = [x for x in interfaces if (x.get("Attachment") or {}).get("DeviceIndex") == 0]
+                interface = primary[0] if len(primary) == 1 else interfaces[0] if len(interfaces) == 1 else None
+                if interface is None:
+                    continue
+                groups = [x.get("GroupId") for x in as_list(interface.get("Groups")) if isinstance(x, dict)
+                          and isinstance(x.get("GroupId"), str)]
+                for listener in listeners:
+                    if (not isinstance(listener, dict) or listener.get("LoadBalancerPort") not in public_ports
+                            or not isinstance(listener.get("InstancePort"), int)):
+                        continue
+                    port = listener["InstancePort"]
+                    if aws_backend_inventory is None:
+                        aws_backend_inventory = Inventory(snapshot, [*by_type["subnet"], *by_type["security_group"],
+                                                           *by_type["network_acl"]])
+                    proof = Assessment(instance, "backend")
+                    allowed = _aws_vpc_path(aws_backend_inventory, proof, [interface.get("SubnetId")], groups,
+                                            pset("tcp", port, port), interface.get("NetworkInterfaceId"), route=False,
+                                            vpc_id=interface.get("VpcId") or instance["data"].get("VpcId"))
+                    if proof.unresolved or proof.notes or empty(intersect(allowed, pset("tcp", port, port))):
+                        continue
+                    confirmed_targets.add(instance["id"])
+                    backend_evidence[instance["id"]] = {"load_balancer": lb.get("LoadBalancerName"),
+                        "healthy_target": {"instance_id": instance_id, "port": port},
+                        "listener_port": listener["LoadBalancerPort"], "backend_security_groups": groups,
+                        "backend_subnet": interface.get("SubnetId")}
+                    break
         if provider == "aws" and row["type"] == "rest_api":
             def base_lambda_arn(value):
                 if not isinstance(value, str) or ":function:" not in value:
@@ -589,12 +631,12 @@ def _workloads(snapshot, resources, by_type, signal):
             targets = [function for function in by_type["lambda_function"]
                 if base_lambda_arn(function["data"].get("FunctionArn")) in integrations]
         state = "declared" if (assessment.verdict() == "FAIL" or auth_public_api) and not assessment.unresolved and not assessment.dormant and assessment.addresses else "unknown"
-        if provider == "aws" and row["type"] == "load_balancer":
+        if provider == "aws" and row["type"] in ("load_balancer", "classic_load_balancer"):
             state = "unknown" if not confirmed_targets else state
         path_state = state
         for target in targets:
             state = path_state
-            if provider == "aws" and row["type"] == "load_balancer" and target["id"] not in confirmed_targets:
+            if provider == "aws" and row["type"] in ("load_balancer", "classic_load_balancer") and target["id"] not in confirmed_targets:
                 state = "unknown"
             identity_gaps = []
             if provider == "k8s" and (target["data"].get("metadata", {}).get("deletionTimestamp") or target["data"].get("status", {}).get("phase") in {"Succeeded", "Failed"}):
@@ -651,13 +693,13 @@ def _workloads(snapshot, resources, by_type, signal):
                             if provider == "azure" and row["type"] == "load_balancer" else describe(assessment.ports or {}),
                         public_addresses=list(dict.fromkeys(route["public_ip"] for route in target_routes if route.get("public_ip")))
                             if provider == "azure" and row["type"] == "load_balancer" else assessment.addresses,
-                        unresolved=assessment.unresolved + identity_gaps + ([{"layer": "endpoint", "reason": "No public endpoint address observed"}] if not assessment.addresses else []) + ([{"layer": "backend", "reason": "Target routing and health require resolution"}] if provider == "aws" and row["type"] == "load_balancer" and target["id"] not in confirmed_targets else []),
+                        unresolved=assessment.unresolved + identity_gaps + ([{"layer": "endpoint", "reason": "No public endpoint address observed"}] if not assessment.addresses else []) + ([{"layer": "backend", "reason": "Target routing, health or network controls require resolution"}] if provider == "aws" and row["type"] in ("load_balancer", "classic_load_balancer") and target["id"] not in confirmed_targets else []),
                         path=assessment.path, requires_application_compromise=True,
                         token_automount=token_available,
                         **({"backend_evidence": backend_evidence[compute_path(target["data"].get("selfLink"))]}
                             if provider == "gcp" and row["type"] == "forwarding_rule" else
                             {"backend_evidence": backend_evidence[target["id"]]}
-                            if provider == "aws" and row["type"] == "load_balancer" and target["id"] in backend_evidence else
+                            if provider == "aws" and row["type"] in ("load_balancer", "classic_load_balancer") and target["id"] in backend_evidence else
                             {"backend_evidence": target_routes} if provider == "azure" and row["type"] == "load_balancer" else {}),
                         limitations=["Application compromise required; network policy enforcement and downstream backend reachability are not proven."] if provider == "k8s" else [])
 

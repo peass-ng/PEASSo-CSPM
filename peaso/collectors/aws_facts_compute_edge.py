@@ -55,6 +55,7 @@ READ_ACTIONS.update({
     ("apigatewayv2", "get_routes"), ("apigatewayv2", "get_authorizers"),
     ("apigatewayv2", "get_api_mappings"), ("apigatewayv2", "get_integrations"),
     ("apigatewayv2", "list_routing_rules"),
+    ("elb", "describe_instance_health"),
     ("appsync", "get_api_cache"), ("eks", "describe_addon"), ("lambda", "get_function_configuration"),
     ("elbv2", "describe_rules"), ("logs", "describe_delivery_sources"), ("logs", "describe_deliveries"),
     ("ec2", "get_managed_prefix_list_entries"), ("ec2", "describe_image_attribute"),
@@ -561,6 +562,29 @@ def _load_balancer_rules(requests, session, region, items):
     return output
 
 
+def _classic_instance_health(requests, session, region, items):
+    """Collect only Classic ELB target identity and health state via the scan cache."""
+    output = []
+    for item in items:
+        current = copy.deepcopy(item)
+        name = current.get("LoadBalancerName")
+        if not isinstance(name, str) or not name:
+            current["InstanceHealth"] = {"collection_status": "malformed"}
+            output.append(current)
+            continue
+        read = requests.detail(session, "elb", region, "describe_instance_health", LoadBalancerName=name)
+        status = read.get("collection_status", "not_collected")
+        states = read.get("InstanceStates")
+        if status == "collected" and isinstance(states, list) and all(isinstance(x, dict) for x in states):
+            current["InstanceHealth"] = {"collection_status": "collected", "InstanceStates": [
+                _pick(x, ("InstanceId", "State", "ReasonCode")) for x in states]}
+        else:
+            current["InstanceHealth"] = {"collection_status": "malformed" if status == "collected" else status,
+                                         **({"error": read["error"]} if isinstance(read.get("error"), dict) else {})}
+        output.append(current)
+    return output
+
+
 def _cloudfront_log_deliveries(requests, session, region, items):
     """CloudWatch Logs v2 deliveries whose source resourceArns name the distribution."""
     home = _global_region(region)
@@ -704,5 +728,6 @@ ENRICHERS = {
     "appsync_graphql_api": _appsync_cache,
     "managed_prefix_list": _prefix_list_entries,
     "load_balancer": _load_balancer_rules,
+    "classic_load_balancer": _classic_instance_health,
     "cloudfront_distribution": _cloudfront_log_deliveries,
 }

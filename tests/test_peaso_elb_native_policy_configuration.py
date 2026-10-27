@@ -40,6 +40,7 @@ class Session:
                         if outer.mode=='nonssl_optional':row['ListenerDescriptions'][0]['PolicyNames'].append('cookie')
                         return {'LoadBalancerDescriptions':[row, {**copy.deepcopy(row),'LoadBalancerName':'elb2'}] if outer.two else [row]}
                     if op=='describe_load_balancer_attributes':return {'LoadBalancerAttributes':{}}
+                    if op=='describe_instance_health':return {'InstanceStates':[]}
                     assert op=='describe_load_balancer_policies'
                     if outer.mode=='denied' and args:
                         raise ClientError({'Error':{'Code':'AccessDenied','Message':'inert'}},op)
@@ -79,6 +80,9 @@ def test_normal_collect_live_positive_and_cached_catalog(monkeypatch):
     details=[x for x in session.calls if x[1]=='describe_load_balancer_policies' and x[2]]
     assert len(catalog)==1 and len(details)==2
     assert all(x[2]['PolicyNames']==[POLICY['PolicyName']] for x in details)
+    assert len([x for x in session.calls if x[1]=='describe_instance_health'])==2
+    assert all(c['items'][0]['InstanceHealth']['collection_status']=='collected'
+               for c in snap['collections'] if c['type']=='classic_load_balancer')
     assert 'PolicyOrigin' not in str(snap)
 
 
