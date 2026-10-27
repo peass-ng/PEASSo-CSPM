@@ -121,6 +121,51 @@ def test_stage_capacity_is_revisited_without_new_artifact_read(monkeypatch):
     assert store.result_reads == 2
 
 
+def test_last_checkpoint_ready_at_collected_handoff_starts_before_final(monkeypatch):
+    artifacts = Artifacts()
+    store = FakeStore()
+    store.row['data'] = json.dumps({'ai_enabled': True})
+    original_claim = store.claim_stage
+
+    def claim_at_handoff(tenant, ident, stage, revision, owner, lease_seconds):
+        # The durable stores admit stage claims in collected as well as collecting.
+        with store.lock:
+            store.row['status'] = 'collecting'
+        try:
+            return original_claim(tenant, ident, stage, revision, owner, lease_seconds)
+        finally:
+            with store.lock:
+                store.row['status'] = 'collected'
+
+    store.claim_stage = claim_at_handoff
+    final_seen = []
+
+    def final(*args, stage_poll=None):
+        final_seen.append((list(Stage.launched), stage_poll is not None))
+        while stage_poll is not None and not stage_poll(store.job('tenant', 'scan')):
+            pass
+        assert store.stage_results('tenant', 'scan')['network']['data_revision'] == 7
+        store.row['status'] = 'completed'
+
+    worker = SimpleNamespace(role='analyzer', store=store, artifacts=artifacts,
+        settings=SimpleNamespace(lease_seconds=30), run_once=final,
+        stopping=Stopper(10, lambda tick: advance(tick)))
+
+    def advance(tick):
+        if tick == 2:
+            store.row['partial_report'] = 'last-report'
+            artifacts.values['last-report'] = copy.deepcopy(artifacts.values['partial-report'])
+            artifacts.values['last-report']['summary']['publication']['sections']['network'] = {
+                'status': 'complete', 'data_revision': 7}
+            store.row['status'] = 'collected'
+
+    Stage.launched = []
+    monkeypatch.setattr(watcher, '_StageProcess', Stage)
+    monkeypatch.setattr(watcher, 'review_concurrency', lambda: 2)
+    watcher.run_progressive(worker, 'tenant', 'scan', poll_seconds=0)
+    assert final_seen == [([('network', 7, 'last-report', 'partial-snapshot')], True)]
+
+
 @pytest.mark.parametrize('publication', [None, [], {'state': 'final', 'phase': 'completed'},
     {'state': 'partial', 'phase': 'collecting', 'sections': []}])
 def test_invalid_or_final_readiness_never_launches_review(monkeypatch, publication):

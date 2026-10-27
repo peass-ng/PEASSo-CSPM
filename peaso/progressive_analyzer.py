@@ -285,19 +285,10 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
                 worker.store.expire_job(tenant, ident)
                 break
             poll_active(job)
-            if job["status"] == "collected":
-                if active:
-                    # Publish final native data immediately. The worker keeps
-                    # polling these stages while its child publishes, then
-                    # supplies their durable results before final AI review.
-                    worker.run_once(tenant, ident, stage_poll=poll_active)
-                else:
-                    worker.run_once(tenant, ident)
-                break
             if job["status"] == "queued":
                 worker.stopping.wait(poll_seconds)
                 continue
-            if job["status"] != "collecting":
+            if job["status"] not in {"collecting", "collected"}:
                 break
             selectors = json.loads(job["data"])
             if selectors.get("ai_enabled", True):
@@ -322,26 +313,33 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
                         revision = section.get("data_revision")
                         if type(revision) is int and revision >= 0 and (stage, revision) not in seen:
                             eligible.append((stage, revision))
-                    if not eligible or len(active) >= max_workers:
-                        worker.stopping.wait(poll_seconds)
-                        continue
-                    persisted = worker.store.stage_results(tenant, ident)
-                    for stage, revision in eligible:
-                        if persisted.get(stage, {}).get("data_revision") == revision:
+                    if eligible and len(active) < max_workers:
+                        persisted = worker.store.stage_results(tenant, ident)
+                        for stage, revision in eligible:
+                            if persisted.get(stage, {}).get("data_revision") == revision:
+                                seen.add((stage, revision))
+                                continue
+                            if len(active) >= max_workers:
+                                break
+                            if not worker.store.claim_stage(tenant, ident, stage, revision, owner, lease_seconds):
+                                continue
                             seen.add((stage, revision))
-                            continue
-                        if len(active) >= max_workers:
-                            break
-                        if not worker.store.claim_stage(tenant, ident, stage, revision, owner, lease_seconds):
-                            continue
-                        seen.add((stage, revision))
-                        try:
-                            task = _StageProcess(worker, tenant, ident, stage, revision, job, selectors)
-                            task.start()
-                        except Exception:
-                            LOGGER.warning("Progressive AI stage %s could not start", stage, exc_info=False)
-                            continue
-                        active[stage] = (revision, task)
+                            try:
+                                task = _StageProcess(worker, tenant, ident, stage, revision, job, selectors)
+                                task.start()
+                            except Exception:
+                                LOGGER.warning("Progressive AI stage %s could not start", stage, exc_info=False)
+                                continue
+                            active[stage] = (revision, task)
+            if job["status"] == "collected":
+                if active:
+                    # A section may first become complete in the last paired
+                    # checkpoint. Start it before final native evaluation and
+                    # let the final revision/fingerprint checks decide reuse.
+                    worker.run_once(tenant, ident, stage_poll=poll_active)
+                else:
+                    worker.run_once(tenant, ident)
+                break
             worker.stopping.wait(poll_seconds)
     finally:
         _stop_active(active)
