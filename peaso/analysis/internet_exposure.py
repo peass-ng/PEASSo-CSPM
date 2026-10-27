@@ -1861,17 +1861,29 @@ def _gcp_sql(snapshot, inventory, resource):
 def _gcp_alloydb(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("networkConfig")
-    if not isinstance(config, dict) or config.get("enablePublicIp") is not True:
+    public_ip = isinstance(config, dict) and config.get("enablePublicIp") is True
+    data_api = data.get("dataApiAccess") == "ENABLED"
+    if not public_ip and not data_api:
         return None
     a = Assessment(resource, "database")
+    a.authenticated = True
+    if data_api:
+        a.endpoint = "alloydb.googleapis.com"
+        a.step("data_api", "allow", access="ENABLED", method="instances.executeSql",
+               private_ip_supported=True)
+        a.ports = pset("tcp", 443, 443)
+    if not public_ip:
+        if data.get("state") not in (None, "READY"):
+            a.dormant = True
+            a.notes.append(f"instance state {data.get('state')}")
+        return a
     address = data.get("publicIpAddress")
     if isinstance(address, str) and _public_ip(address):
         a.addresses = [address]
     networks = [row.get("cidrRange") for row in as_list(config.get("authorizedExternalNetworks")) if isinstance(row, dict)]
-    a.authenticated = True
     a.step("public_ip", "allow", enabled=True, observed_address=a.addresses,
            authorized_external_networks=networks)
-    a.ports = pset("tcp", 5433, 5433)
+    a.ports = union(a.ports or {}, pset("tcp", 5433, 5433))
     connectors_required = (data.get("clientConnectionConfig") or {}).get("requireConnectors") is True
     if any(_public_source(network) for network in networks) and not connectors_required:
         a.ports = union(a.ports, pset("tcp", 5432, 5432))

@@ -3920,7 +3920,7 @@ class GCPCollector:
                         raise ReadError("unavailable", "alloydb_cluster_inventory_incomplete")
                     for cluster in clusters["items"]:
                         yield from self.pages(f"https://alloydb.googleapis.com/v1/{cluster['name']}/instances", scope,
-                            key="instances", params={"fields": "instances(name,uid,state,instanceType,databaseFlags,networkConfig,clientConnectionConfig,labels),nextPageToken,unreachable"})
+                            key="instances", params={"fields": "instances(name,uid,state,instanceType,databaseFlags,networkConfig,clientConnectionConfig,dataApiAccess,labels),nextPageToken,unreachable"})
                 alloy_jobs.append(("alloydb_instance", scope, "alloydb", instances))
             self.run_jobs(alloy_jobs)
         jobs = []

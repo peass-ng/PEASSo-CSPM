@@ -745,6 +745,26 @@ def test_gcp_alloydb_public_ip_including_proxy_only_access():
     assert not exposure(gcp(gcoll("alloydb_instance", [instance], service="alloydb")))
 
 
+def test_gcp_alloydb_data_api_exposes_private_ip_instance_only_when_enabled():
+    from peaso.analysis.internet_exposure import _gcp_alloydb
+    instance = {"name": "projects/p1/locations/us/clusters/c/instances/i", "state": "READY",
+                "networkConfig": {"enablePublicIp": False}, "dataApiAccess": "ENABLED"}
+    resource = {"provider": "gcp", "type": "alloydb_instance", "data": instance}
+    result = _gcp_alloydb(None, None, resource)
+    assert result.verdict() == "FAIL"
+    assert result.ports == {"tcp": ((443, 443),)}
+    assert result.authenticated is True
+    assert result.endpoint == "alloydb.googleapis.com"
+    instance["networkConfig"]["enablePublicIp"] = True
+    combined = _gcp_alloydb(None, None, resource)
+    assert combined.verdict() == "FAIL"
+    assert combined.ports == {"tcp": ((443, 443), (5433, 5433))}
+    instance["networkConfig"]["enablePublicIp"] = False
+    for access in ("DISABLED", "DEFAULT_DATA_API_ENABLED_FOR_GOOGLE_CLOUD_SERVICES"):
+        instance["dataApiAccess"] = access
+        assert _gcp_alloydb(None, None, resource) is None
+
+
 def test_gcp_public_resource_iam_is_reported_with_conditions_and_read_status():
     secret = {"name": "projects/p1/secrets/s", "iamPolicy": {"bindings": [
         {"role": "roles/secretmanager.secretAccessor", "members": ["allUsers"]}]},
