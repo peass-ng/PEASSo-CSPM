@@ -17,7 +17,7 @@ def test_exact_current_sources_reconstruct_unchanged_ancestors():
     from peaso import checks
     assert len(checks.CHECKS) == 4179
     assert len(epoch.source_rows()) == 50
-    assert hashlib.sha256((ROOT / 'peaso/private_secret_source_epoch_20261021.json').read_bytes()).hexdigest() == 'a942073e7a9ba589ade194103b50dba0f21c9e27c0ac792569511bdafc73d814'
+    assert hashlib.sha256((ROOT / 'peaso/private_secret_source_epoch_20261021.json').read_bytes()).hexdigest() == '72b24fc3dc1475a4f619661b6c8e6e9de7a151889fa1257bdecf86392e04a814'
     source = (ROOT / PACKAGE).read_bytes()
     before = rawv2.source_bytes(PACKAGE, source, PACKAGE_BEFORE, ROOT)
     assert hashlib.sha256(before).hexdigest() == PACKAGE_BEFORE

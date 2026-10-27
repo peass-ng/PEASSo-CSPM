@@ -590,6 +590,239 @@ def remember_matches(requests,values):
             requests.configuration_content_redaction_overflow=True
 
 
+# The context is collector-owned and never enters options, native envelopes or
+# Requests' projected-response cache. Only this ECS producer enables deferral.
+from contextvars import ContextVar
+_DEFERRED_ECS = ContextVar('selected_ecs_content_phase', default=None)
+
+
+def _complete_content(requests, info, marker, payload, native, *, timeout=None):
+    """Original per-source parser, privacy callback and result bounds."""
+    allowance=min(60,remaining(requests))
+    if timeout is not None:allowance=min(allowance,timeout)
+    outcome=scan_with_source(scan_content,payload,info['id']+'.content',
+        timeout=allowance,
+        _redact_values=lambda values:remember_matches(requests,values),
+        source={'scope':info['scope'],'path':info['surface'],'location_kind':'configuration'},native=native)
+    leaks=merge_leaks(outcome['leaks'])
+    for leak in leaks:leak['locations']=[{'path':info['id']+'.content'}]
+    if len(leaks)>MAX_LEAKS or sum(len(l['locations']) for l in leaks)>MAX_LOCATIONS:
+        raise ValueError('findings_bound')
+    marker.update(engines=deepcopy(outcome['engines']),leaks=leaks)
+    remaining(requests)
+    marker['complete']=outcome['complete'] is True
+
+
+def _ecs_phase_remaining(requests):
+    # Convert no new authority and create no fresh deadline. The worker's
+    # inherited lease and any explicit Requests deadline only tighten the
+    # existing selected-reader absolute deadline.
+    from peaso.collection_lease import effective_deadline
+    left=remaining(requests)
+    deadline=effective_deadline(requests)
+    if deadline is not None:left=min(left,deadline-time.monotonic())
+    if left<=0:raise TimeoutError('ecs_phase_deadline')
+    return left
+
+
+class _DeferredEcsContent:
+    """Bounded native admission, followed by one source-bound detector consumer.
+
+    Native groups retain their existing call/response reservations. Committed
+    groups gather once for at most one second, never once per subsequent group.
+    Slow later reads cannot hold an earlier committed group indefinitely.
+    """
+    def __init__(self,requests,targets,session):
+        from threading import Condition,Thread
+        from collections import namedtuple
+        if not 1<len(targets)<=MAX_TARGETS:raise ValueError('ecs_phase_bound')
+        self.requests=requests
+        from .aws_request_pool import canonical_wrapper
+        session_id=id(canonical_wrapper(requests,session))
+        self.cache_keys={}
+        for target in targets:
+            service,operation,args=route(target)
+            self.cache_keys[identity(target)]=(session_id,service,parse(target)[2],operation,
+                json.dumps(opaque_arguments(args),sort_keys=True),PROFILE)
+        self.bindings={identity(t):(t['scope'],tuple(sorted(target_source(t,path='ecs_environment',location_kind='configuration').items())))for t in targets}
+        if len(self.bindings)!=len(targets) or any(parse(t)[0]!='ecs_environment'for t in targets):
+            raise ValueError('ecs_phase_identity')
+        self.Job=namedtuple('_EcsContentJob','member payload native info marker source')
+        self.condition=Condition();self.jobs={};self.groups=[];self.completed={}
+        self.response_bytes=self.payload_bytes=0
+        self.done=False;self.stopped=False;self.gather_until=None
+        self.thread=Thread(target=self._consume,name='ecs-content-preparation',daemon=False)
+        self.thread.start()
+
+    def enqueue(self,requests,info,marker,payload,native,response_bytes):
+        ident=info['id'];binding=self.bindings.get(ident)
+        if (requests is not self.requests or binding is None or info['surface']!='ecs_environment'
+                or info['scope']!=binding[0] or type(payload)is not bytes
+                or not 0<len(payload)<=MAX_CONTENT or type(response_bytes)is not int
+                or not 0<response_bytes<=MAX_RESPONSE):raise ValueError('ecs_phase_identity')
+        # Own a bounded copy, so a later mutation of the SDK response cannot
+        # change this source's literal field bindings or native identity.
+        owned=deepcopy(native)
+        with self.condition:
+            if self.stopped or self.done or ident in self.jobs or ident in self.completed:
+                raise ValueError('ecs_phase_closed')
+            if (self.response_bytes+response_bytes>MAX_TOTAL
+                    or self.payload_bytes+len(payload)>MAX_TOTAL):raise ValueError('ecs_phase_bound')
+            self.response_bytes+=response_bytes;self.payload_bytes+=len(payload)
+            self.jobs[ident]=self.Job(ident,payload,owned,tuple(sorted(info.items())),marker,binding[1])
+
+    def _matches(self,item,ident,expected):
+        from .aws import _safe
+        if not isinstance(item,dict)or item.get('id')!=ident:return False
+        marker=item.get(MARKER)
+        if not isinstance(marker,dict):return False
+        immutable=lambda v:{k:x for k,x in v.items()if k not in {'complete','engines','leaks'}}
+        expected=_safe(expected)
+        return (immutable(marker)==immutable(expected)
+            and item.get('_provenance')=={'scope':self.bindings[ident][0],
+                'capture':expected['capture'],'selection_locator':ident})
+
+    def _cached(self,ident):
+        future=getattr(self.requests,'_cache',{}).get(self.cache_keys[ident])
+        if future is None or not future.done()or future.exception()is not None:return None
+        return future.result()
+
+    def commit(self,targets,items):
+        returned={item.get('id'):item for item in items if isinstance(item,dict)}
+        with self.condition,self.requests._lock:
+            group=[]
+            for target in targets:
+                ident=identity(target);job=self.jobs.get(ident)
+                if job is None:continue
+                cached=self._cached(ident)
+                if self._matches(returned.get(ident),ident,job.marker)and self._matches(cached,ident,job.marker):
+                    group.append(job)
+                else:
+                    # A failed safe projection or a changed binding never gains
+                    # a successful result from the earlier native payload.
+                    job.marker['complete']=False;job.native.clear();self.jobs.pop(ident,None)
+            if group:
+                self.groups.append(tuple(group))
+                if self.gather_until is None:self.gather_until=time.monotonic()+1.0
+            self.condition.notify_all()
+
+    def _finish(self,job):
+        try:
+            with source_context(**dict(job.source)):
+                _complete_content(self.requests,dict(job.info),job.marker,job.payload,job.native,timeout=_ecs_phase_remaining(self.requests))
+        except Exception:
+            job.marker['complete']=False
+        finally:
+            # Only safe projected metadata is retained after source consumption.
+            with self.condition:
+                self.completed[job.member]=deepcopy(job.marker)
+                self.jobs.pop(job.member,None)
+            job.native.clear()
+
+    def _small(self,group):
+        from peaso.secret_scanning_batch import prepared_content_batch
+        with prepared_content_batch([(j.payload,j.member+'.content')for j in group],
+                timeout=min(30,_ecs_phase_remaining(self.requests))):
+            for job in group:self._finish(job)
+
+    def _prepare(self,groups):
+        from peaso import secret_scanning_batch as batch
+        from peaso.secret_scan_clean import known_clean
+        if len(groups)==1:
+            self._small(groups[0]);return
+        jobs=[j for g in groups for j in g]
+        pending=sum(not known_clean(j.payload)for j in jobs)
+        fallback=False
+        with batch.prepared_content_batch([(j.payload,j.member+'.content')for j in jobs],
+                timeout=min(10,_ecs_phase_remaining(self.requests))):
+            # A failed large preparation consumes no source. Release that map
+            # before replaying the ORIGINAL native group boundaries, never a
+            # merged map or a flat sixteen-source serial fallback.
+            if pending>1 and batch._PREPARED_BATCH.get()is None:
+                fallback=True
+            else:
+                for job in jobs:self._finish(job)
+        if fallback:
+            for group in groups:self._small(group)
+
+    def _consume(self):
+        from peaso.runtime_metrics import span
+        try:
+            while True:
+                with self.condition:
+                    while not self.groups and not self.done:
+                        with span('secret.trufflehog.ecs_queue_wait'):
+                            self.condition.wait(min(.1,_ecs_phase_remaining(self.requests)))
+                    if not self.groups:
+                        if self.done:return
+                        continue
+                    left=_ecs_phase_remaining(self.requests)
+                    gather_left=min(max(0,(self.gather_until or 0)-time.monotonic()),max(0,left-60))
+                    if not self.done and gather_left>0:
+                        with span('secret.trufflehog.ecs_queue_wait'):
+                            self.condition.wait(min(left,gather_left))
+                        continue
+                    groups=self.groups;self.groups=[]
+                self._prepare(groups)
+        except Exception:
+            # Fixed incomplete markers only; no exception or raw traceback is
+            # stored in a Future, cache, collection or diagnostic frame.
+            pass
+        finally:
+            with self.condition:
+                self.stopped=True
+                for job in self.jobs.values():
+                    job.marker['complete']=False;job.native.clear()
+                self.jobs.clear();self.groups.clear();self.condition.notify_all()
+
+    def close(self):
+        with self.condition:self.done=True;self.condition.notify_all()
+        # The original bounded tool/lease owns cancellation. Never return while
+        # a background consumer could still mutate markers or private capture.
+        self.thread.join()
+
+    def apply(self,items):
+        from .aws import _safe
+        with self.requests._lock:
+            for item in items:
+                ident=item.get('id');marker=self.completed.get(ident)
+                if marker is None:continue
+                cached=self._cached(ident)
+                # Reconcile the real Requests._safe copy, not a presumed alias
+                # of the original projector dictionary. Only the exact scoped
+                # profile Future and immutable native provenance may change.
+                if not self._matches(item,ident,marker):
+                    item[MARKER]['complete']=False
+                    continue
+                final=_safe({**item,MARKER:marker})
+                if not self._matches(cached,ident,marker):
+                    # Preserve positives bound to this returned native source,
+                    # but never certify or overwrite a changed cache identity.
+                    final[MARKER]['complete']=False
+                else:
+                    cached.clear();cached.update(deepcopy(final))
+                item.clear();item.update(deepcopy(final))
+        self.completed.clear()
+
+
+def _defer_ecs_content(requests,targets,workers,session):
+    """Enable only a full native ECS contract with ample original headroom."""
+    if (workers<=1 or getattr(requests,'max_calls',None)is not None or not 1<len(targets)<=MAX_TARGETS
+            or any(parse(t)[0]!='ecs_environment'for t in targets)):return None
+    for target in targets:
+        service,operation,args=route(target)
+        info=requests.configuration_content_approved.get((service,operation,parse(target)[2],opaque_arguments(args)['request_locator']),{})
+        if (info.get('id')!=identity(target) or info.get('scope')!=target['scope']
+                or info.get('surface')!='ecs_environment' or info.get('ownership')is not False):return None
+    try:
+        from peaso.secret_scanning_batch import _volatile_shm_available
+        if not _volatile_shm_available(MAX_TOTAL) or _ecs_phase_remaining(requests)<61:return None
+        from peaso.secret_scanning import _trufflehog
+        _trufflehog()
+        return _DeferredEcsContent(requests,targets,session)
+    except Exception:return None
+
+
 def project_response(response,service,operation,arguments,*,request_context=None,region=None):
     validate_request(service,operation,arguments,request_context=request_context,region=region)
     requests,session=request_context;locator=opaque_arguments(arguments)['request_locator']
@@ -624,21 +857,46 @@ def project_response(response,service,operation,arguments,*,request_context=None
             payload,count=extract(response,service,operation,arguments,info)
             if info['surface']=='ssm_document':marker['requests'].insert(0,deepcopy(requests.configuration_content_owned[info['id']]))
             marker.update(native_complete=True,status='collected',literal_count=count,bytes=len(payload))
-            outcome=scan_with_source(scan_content, payload,info['id']+'.content',timeout=min(60,remaining(requests)),
-                _redact_values=lambda values:remember_matches(requests,values), source={'scope': info['scope'], 'path': info['surface'], 'location_kind': 'configuration'}, native=response)
+            deferred=_DEFERRED_ECS.get()
+            if deferred is not None:
+                deferred.enqueue(requests,info,marker,payload,response,size)
+            else:
+                _complete_content(requests,info,marker,payload,response)
             del payload
-            leaks=merge_leaks(outcome['leaks'])
-            # Literal rendering/JSON decoding can represent the same source
-            # value twice. Retain one opaque native-target occurrence rather
-            # than invent provider file line numbers from transformed text.
-            for leak in leaks:leak['locations']=[{'path':info['id']+'.content'}]
-            if len(leaks)>MAX_LEAKS or sum(len(l['locations']) for l in leaks)>MAX_LOCATIONS:raise ValueError('findings_bound')
-            marker.update(engines=deepcopy(outcome['engines']),leaks=leaks)
-            remaining(requests)
-            marker['complete']=outcome['complete'] is True
     except Exception:
         marker['complete']=False
     return {'id':info['id'],MARKER:marker,'_provenance':{'scope':info['scope'],'capture':marker['capture'],'selection_locator':info['id']}}
+
+
+def _record_read_failure(requests,failure):
+    """Finite aggregate diagnostics, never an exception message or payload."""
+    from .aws import ReadFailure
+    code=failure.code if isinstance(failure,ReadFailure)else None
+    expired={'ExpiredToken','ExpiredTokenException','RequestExpired'}
+    denied={'AccessDenied','AccessDeniedException','UnauthorizedOperation','ForbiddenException'}
+    if code in expired:category='credential_expiry'
+    elif code in denied:category='access_denied'
+    elif code in {'selected_configuration_call_bound','call_limit'}:category='call_bound'
+    elif code in {'intentional_scan_deadline','retry_wait_exceeds_deadline'}:category='local_deadline'
+    else:
+        now=time.monotonic()
+        with requests._lock:
+            state=requests.configuration_content_state
+            deadlines=(state.get('deadline'),getattr(requests,'deadline',None))
+            elapsed=any(type(value)in(int,float)and value<=now for value in deadlines)
+            bounded=state['attempts']>=MAX_CALLS
+        category='local_deadline'if elapsed else'call_bound'if bounded else'unknown_read_failure'
+    exception=type(failure).__name__
+    if exception not in {'ReadFailure','TimeoutError','ValueError','TypeError','KeyError'}:exception='OtherException'
+    with requests._lock:
+        metadata=requests.configuration_content_metadata
+        counts=metadata.setdefault(KIND+'_read_failures',{})
+        key=category+':'+exception
+        counts[key]=counts.get(key,0)+1
+        if code in expired:
+            codes=metadata.setdefault(KIND+'_credential_expiry_codes',[])
+            if code not in codes:codes.append(code);codes.sort()
+    return code if code in expired else None
 
 
 def collect_selected(requests,session,region,caller,options,scopes):
@@ -654,11 +912,13 @@ def collect_selected(requests,session,region,caller,options,scopes):
         requests.configuration_content_sessions[id(session)]={'account':account,'partition':m[1],'principal':principal}
         requests.configuration_content_metadata[KIND+'_principals'][account]=principal
     from contextlib import nullcontext
-    def read(target, cohort=None):
+    read_failures=[]
+    def read(target, cohort=None, deferred=None):
         surface,selected_account,selected_region,partition,_=parse(target)
         service,operation,args=route(target);locator=opaque_arguments(args)['request_locator']
         info=requests.configuration_content_approved[(service,operation,region,locator)]
         member=info['id']+'.content'
+        deferred_token=_DEFERRED_ECS.set(deferred)
         try:
             from peaso.secret_scanning_batch import prepared_content_member
             with prepared_content_member(cohort,member) if cohort is not None else nullcontext():
@@ -669,11 +929,14 @@ def collect_selected(requests,session,region,caller,options,scopes):
                         if owned[MARKER]['status']!='owned_document_metadata':raise ValueError('document_owner_unresolved')
                     item=requests.call(session,service,region,operation,_metadata_profile=PROFILE,**args)
         except Exception as exc:
+            failure_code=_record_read_failure(requests,exc)
+            with requests._lock:read_failures.append(failure_code)
             from .workload_environment_discovery import record_denial
             record_denial(requests, exc, info['id'], service, operation)
             marker=base(info,requests,locator);marker['principal']=principal
             item={'id':info['id'],MARKER:marker,'_provenance':{'scope':info['scope'],'capture':marker['capture'],'selection_locator':info['id']}}
         finally:
+            _DEFERRED_ECS.reset(deferred_token)
             if cohort is not None:cohort.finish(member)
         return item
 
@@ -690,9 +953,11 @@ def collect_selected(requests,session,region,caller,options,scopes):
             admission=Lock()
             requests.configuration_content_admission_lock=admission
 
+    deferred=None
+
     def collect_group(group):
         cohort=None
-        if len(group)>1 and workers>1 and getattr(requests,'max_calls',None) is None:
+        if deferred is None and len(group)>1 and workers>1 and getattr(requests,'max_calls',None) is None:
             try:
                 from peaso.secret_scanning_batch import _volatile_shm_available
                 if _volatile_shm_available(MAX_CONTENT*len(group)):
@@ -705,7 +970,7 @@ def collect_selected(requests,session,region,caller,options,scopes):
                         max_bytes=MAX_CONTENT*len(group),cancelled=getattr(requests,'cancel_event',None))
             except Exception:
                 cohort=None
-        if cohort is None:
+        if cohort is None and deferred is None:
             items.extend(read(target) for target in group)
             return
         try:
@@ -713,42 +978,60 @@ def collect_selected(requests,session,region,caller,options,scopes):
             pending=[];unsubmitted=[]
             try:pool=ThreadPoolExecutor(max_workers=min(workers,len(group)),thread_name_prefix='ecs-content')
             except RuntimeError:
-                cohort.close()
-                items.extend(read(target) for target in group)
+                if cohort is not None:cohort.close()
+                items.extend(read(target,deferred=deferred) for target in group)
                 return
             with pool:
                 for index,target in enumerate(group):
-                    try:pending.append(pool.submit(read,target,cohort))
+                    try:pending.append(pool.submit(read,target,cohort,deferred))
                     except RuntimeError:
                         unsubmitted=group[index:]
-                        for missing in unsubmitted:cohort.finish(identity(missing)+'.content')
+                        if cohort is not None:
+                            for missing in unsubmitted:cohort.finish(identity(missing)+'.content')
                         break
                 try:items.extend(future.result() for future in pending)
                 except BaseException:
-                    cohort.close()
+                    if cohort is not None:cohort.close()
                     raise
-            items.extend(read(target) for target in unsubmitted)
+            items.extend(read(target,deferred=deferred) for target in unsubmitted)
         finally:
-            cohort.close()
-    cursor=0
-    while cursor<len(selected):
-        with admission:
-            width=1
-            if (workers>1 and getattr(requests,'max_calls',None) is None
-                    and parse(selected[cursor])[0]=='ecs_environment'):
-                with requests._lock:
-                    state=requests.configuration_content_state
-                    allowance=min(8, workers,
-                        max(0,(MAX_TOTAL-state['bytes'])//MAX_RESPONSE),
-                        max(0,MAX_CALLS-state['responses']),
-                        max(0,MAX_CALLS-state['attempts']))
-                while (width<allowance and cursor+width<len(selected)
-                        and parse(selected[cursor+width])[0]=='ecs_environment'):
-                    width+=1
-            group=selected[cursor:cursor+width]
-            cursor+=width
-            collect_group(group)
+            if cohort is not None:cohort.close()
+    try:
+        deferred=_defer_ecs_content(requests,selected,workers,session)
+        # Keep other invocations from observing a cached safe-but-incomplete
+        # marker until its source-bound consumer has joined.
+        with admission if deferred is not None else nullcontext():
+            cursor=0
+            while cursor<len(selected):
+                with nullcontext() if deferred is not None else admission:
+                    width=1
+                    if (workers>1 and getattr(requests,'max_calls',None) is None
+                            and parse(selected[cursor])[0]=='ecs_environment'):
+                        with requests._lock:
+                            state=requests.configuration_content_state
+                            allowance=min(8, workers,
+                                max(0,(MAX_TOTAL-state['bytes'])//MAX_RESPONSE),
+                                max(0,MAX_CALLS-state['responses']),
+                                max(0,MAX_CALLS-state['attempts']))
+                        while (width<allowance and cursor+width<len(selected)
+                                and parse(selected[cursor+width])[0]=='ecs_environment'):
+                            width+=1
+                    group=selected[cursor:cursor+width]
+                    cursor+=width
+                    first=len(items)
+                    collect_group(group)
+                    if deferred is not None:deferred.commit(group,items[first:])
+            if deferred is not None:
+                deferred.close()
+                deferred.apply(items)
+    finally:
+        if deferred is not None:deferred.close()
     if not items:return ReadResult([],'not_collected',{'code':'selected_configuration_scope_omitted'})
+    if read_failures:
+        error={'code':'selected_configuration_read_incomplete'}
+        expired=sorted({code for code in read_failures if code is not None})
+        if expired:error['additional_errors']=[{'code':code}for code in expired]
+        return ReadResult(items,'partial',error)
     return ReadResult(items)
 
 

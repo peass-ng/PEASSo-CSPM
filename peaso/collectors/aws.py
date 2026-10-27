@@ -857,9 +857,15 @@ class Requests:
             failure = _failure(exc)
             if _metadata_profile in ('aws-lambda-environment-content-v1', 'aws-selected-configuration-content-v1'):
                 # Unknown provider error codes can echo a selected name/value.
-                if (getattr(self, 'automatic_workload_environment_active', False) is not True
+                safe_configuration_code = (
+                    _metadata_profile == 'aws-selected-configuration-content-v1'
+                    and failure.code in {'ExpiredToken', 'ExpiredTokenException', 'RequestExpired',
+                        'selected_configuration_call_bound', 'call_limit',
+                        'intentional_scan_deadline', 'retry_wait_exceeds_deadline'})
+                if (not safe_configuration_code and (
+                        getattr(self, 'automatic_workload_environment_active', False) is not True
                         or failure.status != 'denied' or failure.code not in {
-                        'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'ForbiddenException'}):
+                        'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'ForbiddenException'})):
                     failure = ReadFailure(failure.status, 'selected_configuration_read_unavailable' if _metadata_profile == 'aws-selected-configuration-content-v1' else 'lambda_environment_read_unavailable')
             # A failed projection's traceback can retain raw provider payload
             # in frame locals. Cache a fresh code/status-only exception that

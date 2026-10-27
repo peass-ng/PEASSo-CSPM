@@ -183,6 +183,20 @@ def fold_collections(collections, kind, batches):
             parent.pop('error', None)
         else:
             parent['error'] = {'code': 'automatic_content_incomplete'}
+            if kind == 'configuration_selected_content':
+                expired = {'ExpiredToken', 'ExpiredTokenException', 'RequestExpired'}
+                codes = set()
+                for record in batches:
+                    if record['scope'] != scope:
+                        continue
+                    error = record.get('error') or {}
+                    if error.get('code') in expired:
+                        codes.add(error['code'])
+                    for item in error.get('additional_errors', ()):
+                        if isinstance(item, dict) and item.get('code') in expired:
+                            codes.add(item['code'])
+                if codes:
+                    parent['error']['additional_errors'] = [{'code': code} for code in sorted(codes)]
     collections[:] = keep
 
 

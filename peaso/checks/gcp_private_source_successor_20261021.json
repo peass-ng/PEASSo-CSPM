@@ -40,7 +40,7 @@
     }
   },
   "normalized_module_sha256": "3542fb3773d1844c56cd8357487b4125578841cbc14d1cb2e6640327d7e7b987",
-  "private_manifest_sha256": "a942073e7a9ba589ade194103b50dba0f21c9e27c0ac792569511bdafc73d814",
+  "private_manifest_sha256": "72b24fc3dc1475a4f619661b6c8e6e9de7a151889fa1257bdecf86392e04a814",
   "private_roster": [
     "peaso/collectors/aws_additional_secret_indicators.py",
     "peaso/collectors/aws_code_log_content_indicators.py",

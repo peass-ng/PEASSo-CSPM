@@ -9,6 +9,7 @@ import __future__
 import ast
 import builtins
 import contextlib
+import contextvars
 import dis
 import hashlib
 import hmac
@@ -25,8 +26,8 @@ from types import CodeType, FunctionType, MethodType, ModuleType
 import zipfile
 from peaso import source_attestation_mode as _attestation_mode
 
-_RECEIPT_SHA256 = "a942073e7a9ba589ade194103b50dba0f21c9e27c0ac792569511bdafc73d814"
-_SELF_SHA256 = "e05033dad7c538fec3f75e124260ee54fa37f150d865dea4e25dbba5a3df5af2"
+_RECEIPT_SHA256 = "72b24fc3dc1475a4f619661b6c8e6e9de7a151889fa1257bdecf86392e04a814"
+_SELF_SHA256 = "c8cbfa0716c7649b01c2fdab71f279bf2856554aba2ea397ca81c27884aee1f0"
 _ARCHIVE_SHA256 = "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0"
 _HELPER_SHA256 = "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a"
 _BASE = "6b6ee759234d7e2dad978342838cb3af4e1fe767"
@@ -1387,6 +1388,12 @@ def _check_globals(fn: FunctionType, tree: ast.Module, compiled: CodeType, const
         elif name in constants:
             if not _same(value, constants[name]):
                 raise AdmissionError("literal global mismatch: " + name)
+        elif (module.__name__, name) == (
+                "peaso.collectors.aws_selected_configuration_secret_indicators", "_DEFERRED_ECS"):
+            if (type(value) is not contextvars.ContextVar
+                    or value.name != "selected_ecs_content_phase"
+                    or contextvars.Context().run(value.get) is not None):
+                raise AdmissionError("selected ECS context binding mismatch")
         elif name in imports:
             modname, attr = imports[name]
             imported = sys.modules.get(modname)
@@ -1481,7 +1488,7 @@ def trusted_definition(fn: FunctionType | MethodType, root: str | Path) -> dict:
         hashes = definition
         # One finite current successor; retained epoch definition witnesses do not change.
         successor_rosters = {
-            "peaso/collectors/aws_selected_configuration_secret_indicators.py": {"collect_selected"},
+            "peaso/collectors/aws_selected_configuration_secret_indicators.py": {"collect_selected", "project_response"},
             "peaso/collectors/gcp_configuration_secret_indicators.py": {"project_response"},
         }
         if name in successor_rosters.get(relative, ()):
@@ -1554,6 +1561,26 @@ def trusted_definition(fn: FunctionType | MethodType, root: str | Path) -> dict:
         # the producer's direct globals. Reuse the existing live binding checks.
         _check_globals(vars(module)["identity"], tree, compiled, constants, module, root)
         _check_globals(vars(module)["number_alias"], tree, compiled, constants, module, root)
+    if (relative == "peaso/collectors/aws_selected_configuration_secret_indicators.py"
+            and fn.__qualname__ in {"collect_selected", "project_response"}):
+        # These exact new dependencies move work out of the retained producers.
+        # Reuse the existing compiled/default/global/class checks at each edge.
+        for helper_name in ("_complete_content", "_ecs_phase_remaining", "_defer_ecs_content", "_record_read_failure"):
+            helper = vars(module).get(helper_name)
+            helper_nodes = [x for x in tree.body if isinstance(x, ast.FunctionDef) and x.name == helper_name]
+            if (len(helper_nodes) != 1 or type(helper) is not FunctionType
+                    or helper.__globals__ is not vars(module)
+                    or helper.__module__ != module.__name__
+                    or helper.__name__ != helper_name or helper.__qualname__ != helper_name
+                    or not _code_equal(helper.__code__, _code_from(compiled, helper_name))):
+                raise AdmissionError("selected ECS helper binding mismatch: " + helper_name)
+            _check_defaults(helper, helper_nodes[0], constants, helper.__code__.co_filename)
+            _check_globals(helper, tree, compiled, constants, module, root)
+        # _defer_ecs_content's class dependency already proves method code,
+        # defaults and roster; now prove every method's live global bindings.
+        for member in vars(module._DeferredEcsContent).values():
+            if type(member) is FunctionType:
+                _check_globals(member, tree, compiled, constants, module, root)
     qualifier = fn.__qualname__
     return {
         "current": {"path": relative, "name": qualifier, "module": module.__name__, "file_sha256": row["after_sha256"], "source_sha256": hashes["after"], "ast_sha256": hashes["after_ast_sha256"]},
