@@ -1,11 +1,14 @@
 """The independent source receipt cannot treat a helper name as proof."""
 import hashlib
 import inspect
+import gzip
+import json
 
 import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks.facts import FIELD_SPECS
+from scripts import audit_native_final_low_reps as audit
 from scripts.audit_native_final_low_reps import proof, S3_EXPECTED, SNAPSHOT_SHA256
 
 
@@ -83,3 +86,60 @@ def test_unregistered_and_changed_evaluator_are_rejected():
         proof({'check_id': check['check_id'], 'native_fail_count': 1,
                'initial_representatives': 1}, {'evaluator_source_sha256': 'bad',
                'native_fail_count': 1, 'initial_representatives': 1}, FIELD_SPECS)
+
+
+def test_exact_fail_scope_does_not_use_empty_denied_collection(tmp_path, monkeypatch):
+    snapshot = tmp_path / 'snapshot.gz'
+    report = tmp_path / 'pre-ai.gz'
+    snapshot.write_bytes(gzip.compress(json.dumps({'collections': [
+        {'type': 'bucket', 'scope': 'scope-a', 'status': 'collected', 'items': [{}]},
+        {'type': 'bucket', 'scope': 'scope-b', 'status': 'denied', 'items': []},
+    ]}).encode()))
+    def write_report(scope):
+        report.write_bytes(gzip.compress(json.dumps({'findings': [{
+            'observations': [{'id': 'native-1', 'check_id': 'aws.test',
+                              'status': 'FAIL', 'scope': scope}],
+        }]}).encode()))
+        monkeypatch.setattr(audit, 'PRE_AI_SHA256', hashlib.sha256(report.read_bytes()).hexdigest())
+    rows = [{'check_id': 'aws.test', 'decision': 'native_final_source_proven',
+             'native_fail_count': 1}]
+    inventory = {'aws.test': {'kind': 'bucket'}}
+    write_report('scope-a')
+    binding = audit.bind_fail_scopes(snapshot, report, rows, inventory)
+    assert binding['zero_item_partial_or_denied_envelopes_excluded'] == 1
+    assert rows[0]['exact_fail_scope_binding']['matched_native_fail_ids'] == 1
+    write_report('scope-b')
+    with pytest.raises(ValueError, match='lacks complete collection'):
+        audit.bind_fail_scopes(snapshot, report, rows, inventory)
+
+
+def test_partial_envelope_in_same_scope_blocks_absence_proof(tmp_path, monkeypatch):
+    snapshot = tmp_path / 'snapshot.gz'
+    report = tmp_path / 'pre-ai.gz'
+    snapshot.write_bytes(gzip.compress(json.dumps({'collections': [
+        {'type': 'bucket', 'scope': 'same', 'status': 'collected', 'items': [{}]},
+        {'type': 'bucket', 'scope': 'same', 'status': 'partial', 'items': []},
+    ]}).encode()))
+    report.write_bytes(gzip.compress(json.dumps({'findings': [{
+        'observations': [{'id': 'native-1', 'check_id': 'aws.test',
+                          'status': 'FAIL', 'scope': 'same'}],
+    }]}).encode()))
+    monkeypatch.setattr(audit, 'PRE_AI_SHA256', hashlib.sha256(report.read_bytes()).hexdigest())
+    rows = [{'check_id': 'aws.test', 'decision': 'native_final_source_proven',
+             'native_fail_count': 1}]
+    with pytest.raises(ValueError, match='lacks complete collection'):
+        audit.bind_fail_scopes(snapshot, report, rows, {'aws.test': {'kind': 'bucket'}})
+
+
+def test_third_pass_optional_fields_require_complete_snapshot():
+    check_id = 'aws.b.apigateway.waf_reference'
+    assert reviewed(check_id)['decision'] == 'provisional_source_candidate'
+    coverage = {'snapshot_sha256': SNAPSHOT_SHA256,
+                'third_pass_complete_rows': {'aws_account_configuration': 2,
+                                             'rest_api_stage': 2,
+                                             'ec2_launch_template': 11}}
+    proven = reviewed(check_id, s3_coverage=coverage)
+    assert proven['decision'] == 'native_final_source_proven'
+    assert 'webAclArn' in proven['bound_api_fields']
+    coverage['third_pass_complete_rows']['rest_api_stage'] = 1
+    assert reviewed(check_id, s3_coverage=coverage)['decision'] == 'provisional_source_candidate'

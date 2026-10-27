@@ -6,10 +6,14 @@
         "Partition",
         "SecurityContact",
         "NamePresent",
-        "NamePresent"
+        "NamePresent",
+        "Partition",
+        "SecurityContact.collection_status",
+        "SecurityContact.absent",
+        "SecurityContact.NamePresent"
       ],
       "check_id": "aws.a.account.security_contact_present",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 19,
         "function_sha256": "cb37dc802778240b46fae8b723ba1ffce31e4465131c730638d4173ccc63278a",
@@ -25,6 +29,13 @@
         "security_contact_present": {
           "bool": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "6604d84f29fe5f1d1b916cd4f03c797a73dd63da32a295be8487df0e90d79554",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -47,12 +58,27 @@
           "lines": "178-183",
           "path": "peaso/checks/__init__.py",
           "purpose": "pure FAIL/PASS/UNKNOWN construction"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "per-scope API status and explicit absent response"
+        },
+        {
+          "lines": "252-264",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "GetStages complete response"
+        },
+        {
+          "lines": "1092-1103",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "DescribeLaunchTemplateVersions default-version projection"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_a_account.py:28; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_a_account.py:19-30 compares typed API configuration, fixed wildcard settings, or a unique default launch-template version. Exact-992 API responses and every native FAIL scope are collection-bound; omissions are interpreted only after complete response proof.",
       "recorded_field_reads": [
         {
           "line": 22,
@@ -75,17 +101,27 @@
         29,
         30
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 2,
+        "response_sections": [
+          "Partition",
+          "SecurityContact"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
+        "KmsKeyId",
+        "Region",
+        "HomeRegion",
         "KmsKeyId"
       ],
       "check_id": "aws.a.cloudtrail.home_kms_encryption",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 22,
         "function_sha256": "27bbcd4f10aba5162662c76655bc74e47158e18c1227319cc4efc99a4c1fbebc",
@@ -101,6 +137,13 @@
         "kms_key_declared": {
           "bool": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "227a8430cc324f80b3f317f860a90d58080569c1b6435e8eb8cc96967a9871d0",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -126,12 +169,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "f48b7b74843dfc2a9dbafefe059982d6fa4bd811b65308b3016c702efcb54248",
           "symbol": "home"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "helper chain home at peaso/checks/aws_a_cloudtrail_variants.py:17-19 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_a_cloudtrail_variants.py:22-28 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [
         {
           "line": 27,
@@ -141,7 +194,15 @@
       "result_lines": [
         28
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 3,
+        "response_sections": [
+          "HomeRegion",
+          "KmsKeyId",
+          "Region"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -150,10 +211,16 @@
       "bound_api_fields": [
         "Status.IsLogging",
         "InsightSelectors",
-        "InsightSelectors"
+        "InsightSelectors",
+        "Region",
+        "HomeRegion",
+        "Status.IsLogging",
+        "InsightSelectors.collection_status",
+        "InsightSelectors.absent",
+        "InsightSelectors.InsightSelectors"
       ],
       "check_id": "aws.a.cloudtrail.home_logging_with_insights",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 35,
         "function_sha256": "3cc31cdd7013557ecec8b05f22c947384a6e62f6aa78c32871541e64dac948cb",
@@ -173,6 +240,13 @@
         "logging": {
           "bool": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "70da9702775d8871b3ccdad1f021de48bc95091e72b9e3747e354731283e380d",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -202,12 +276,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "f48b7b74843dfc2a9dbafefe059982d6fa4bd811b65308b3016c702efcb54248",
           "symbol": "home"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_a_cloudtrail_variants.py:44; helper chain home at peaso/checks/aws_a_cloudtrail_variants.py:17-19 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_a_cloudtrail_variants.py:35-50 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [
         {
           "line": 40,
@@ -226,7 +310,16 @@
         42,
         50
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 3,
+        "response_sections": [
+          "HomeRegion",
+          "InsightSelectors",
+          "Region",
+          "Status"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -235,10 +328,14 @@
       "bound_api_fields": [
         "Status.IsLogging",
         "InsightSelectors",
-        "InsightSelectors"
+        "InsightSelectors",
+        "Status.IsLogging",
+        "InsightSelectors.collection_status",
+        "InsightSelectors.absent",
+        "InsightSelectors.InsightSelectors"
       ],
       "check_id": "aws.a.cloudtrail.insights_logging_trail",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 14,
         "function_sha256": "91cf183edf9b966c5039849e6aeccf776e18377ba8459ef708f66d4a2a7ce09f",
@@ -254,6 +351,13 @@
         "insight_selectors": {
           "str": 3
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "bf10629cb374222163b4aa4da5503b76315289e84188e996c7b37ccd28e9fc6d",
+        "matched_native_fail_ids": 3,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -283,12 +387,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "list_of_objects"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 3,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_a_cloudtrail.py:21; helper chain list_of_objects at peaso/checks/facts.py:72-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_a_cloudtrail.py:14-24 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [
         {
           "line": 17,
@@ -307,7 +421,14 @@
         22,
         24
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 3,
+        "response_sections": [
+          "InsightSelectors",
+          "Status"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -333,6 +454,13 @@
         "alarm_actions": {
           "list": 43
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "245c3fa922e574d5ddb505811541566724bf925464b3c0af9abe4504c0961c2c",
+        "matched_native_fail_ids": 43,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -454,6 +582,13 @@
           "str": 101
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "6c1d3a1dff9f2620a45d0eac0ac9c90615aa89252d490fb35fa4fd8787a59d3c",
+        "matched_native_fail_ids": 101,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not bool(key)",
@@ -542,6 +677,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "a561d48b600000dcdccc6f790526900f0abab640dfa4d70630239aff78a297de",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "True",
@@ -628,6 +770,13 @@
         "semantics": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "460793e791546ff80f4da1733306ad6e988eaf6043be1feab75accee5318484b",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -716,6 +865,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "c96da45ba22f74e96364ebe1568952b7e70bcdd3d7e700cc487aafa1c84bb562",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "True",
@@ -803,6 +959,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "2f9a3b9a94d880af6962913e658fb5c163752a6c819e686ec203ba3e598df7cf",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "True",
@@ -889,6 +1052,13 @@
         "semantics": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "259fdc10d1a3b602364a72529583791879f785b48372e5d21ad817c6fa6a550f",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -981,6 +1151,13 @@
         "password_policy": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "b26fa75319a35c2aaafc089d2111d00e673dddf990337e21b40a23f94df2c32b",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1085,6 +1262,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "f6cac3408b9893af48e5960d634cc99fd167c18526a591dba1c882c9f5e30763",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "True",
@@ -1185,6 +1369,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "25e9d1894ec7a43a5767297526a8bef2bea6f588ea09631817a52050627d01e4",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "True",
@@ -1271,6 +1462,13 @@
         "semantics": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "21e48d5aa8e2d5483d3823408e997784f1163118aef157fea1180337cc3af9df",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1410,6 +1608,13 @@
         "mfa_delete": {
           "str": 148
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "11dafdbdf42dfb2876dfb7d337bf29d1b3bda66a9bc2ece496fd465f3380940b",
+        "matched_native_fail_ids": 148,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1755,9 +1960,12 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "stageName",
+        "clientCertificateId"
+      ],
       "check_id": "aws.b.apigateway.client_certificate",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 63,
         "function_sha256": "684156f198306a7b99191532641b6c8c211ca4e6b7bd89a0800eee77930479b7",
@@ -1781,6 +1989,13 @@
         "semantics": {
           "str": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "c4cdbeb062ab23b3c694fe517610e8bccfe0d9cee01d67bb3e8e7e3fe5b14e1f",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1806,17 +2021,39 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "3bba75269b3358c4ac16ef70100b8c7aa68134600cd8829205fb4ea28de526d4",
           "symbol": "stage"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "per-scope API status and explicit absent response"
+        },
+        {
+          "lines": "252-264",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "GetStages complete response"
+        },
+        {
+          "lines": "1092-1103",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "DescribeLaunchTemplateVersions default-version projection"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_apigateway.py:66; helper chain stage at peaso/checks/aws_b_apigateway.py:7-9 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_apigateway.py:63-69 compares typed API configuration, fixed wildcard settings, or a unique default launch-template version. Exact-992 API responses and every native FAIL scope are collection-bound; omissions are interpreted only after complete response proof.",
       "recorded_field_reads": [],
       "result_lines": [
         69
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 2,
+        "response_sections": [
+          "clientCertificateId",
+          "stageName"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -1912,10 +2149,12 @@
       "bound_api_fields": [
         "OFF",
         "DefaultRouteSettings",
-        "OFF"
+        "OFF",
+        "stageName",
+        "methodSettings.*/*.loggingLevel"
       ],
       "check_id": "aws.b.apigateway.rest_execution_logging",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 39,
         "function_sha256": "e6c8709470626dabbfe811957fc4db37ba1202080e66c9429a0eac1a46dc1447",
@@ -1935,6 +2174,13 @@
         "stage_family": {
           "str": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "72d05e292c44ef02d1f39cbc9983637928088c1a525aeb699d9bd03b0882510d",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -1967,12 +2213,27 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "3bba75269b3358c4ac16ef70100b8c7aa68134600cd8829205fb4ea28de526d4",
           "symbol": "method_settings"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "per-scope API status and explicit absent response"
+        },
+        {
+          "lines": "252-264",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "GetStages complete response"
+        },
+        {
+          "lines": "1092-1103",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "DescribeLaunchTemplateVersions default-version projection"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_apigateway.py:42; helper chain stage at peaso/checks/aws_b_apigateway.py:7-9 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_apigateway.py:39-49 compares typed API configuration, fixed wildcard settings, or a unique default launch-template version. Exact-992 API responses and every native FAIL scope are collection-bound; omissions are interpreted only after complete response proof.",
       "recorded_field_reads": [
         {
           "line": 42,
@@ -1990,17 +2251,26 @@
       "result_lines": [
         49
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 2,
+        "response_sections": [
+          "methodSettings",
+          "stageName"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
       "bound_api_fields": [
+        "tracingEnabled",
+        "stageName",
         "tracingEnabled"
       ],
       "check_id": "aws.b.apigateway.rest_xray",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 54,
         "function_sha256": "3d90cf1d49b9b1e7b5eccd9c4c2baf6fb351c8a9d33dd2441a9f85efe1401fdf",
@@ -2016,6 +2286,13 @@
         "tracing_enabled": {
           "bool": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "c6c2faa98d84cb569ccfceb89e7d1924961fdcf51cb1a32aa4beedf5533e05f2",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -2041,12 +2318,27 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "3bba75269b3358c4ac16ef70100b8c7aa68134600cd8829205fb4ea28de526d4",
           "symbol": "stage"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "per-scope API status and explicit absent response"
+        },
+        {
+          "lines": "252-264",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "GetStages complete response"
+        },
+        {
+          "lines": "1092-1103",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "DescribeLaunchTemplateVersions default-version projection"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "helper chain stage at peaso/checks/aws_b_apigateway.py:7-9 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_apigateway.py:54-58 compares typed API configuration, fixed wildcard settings, or a unique default launch-template version. Exact-992 API responses and every native FAIL scope are collection-bound; omissions are interpreted only after complete response proof.",
       "recorded_field_reads": [
         {
           "line": 57,
@@ -2056,15 +2348,25 @@
       "result_lines": [
         58
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 2,
+        "response_sections": [
+          "stageName",
+          "tracingEnabled"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "stageName",
+        "webAclArn"
+      ],
       "check_id": "aws.b.apigateway.waf_reference",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 63,
         "function_sha256": "684156f198306a7b99191532641b6c8c211ca4e6b7bd89a0800eee77930479b7",
@@ -2088,6 +2390,13 @@
         "semantics": {
           "str": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "79be62c43617ddc7c99311fb7148a64e4521e16d0ced574975163bed35f4e581",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -2113,25 +2422,51 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "3bba75269b3358c4ac16ef70100b8c7aa68134600cd8829205fb4ea28de526d4",
           "symbol": "stage"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "per-scope API status and explicit absent response"
+        },
+        {
+          "lines": "252-264",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "GetStages complete response"
+        },
+        {
+          "lines": "1092-1103",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "DescribeLaunchTemplateVersions default-version projection"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_apigateway.py:66; helper chain stage at peaso/checks/aws_b_apigateway.py:7-9 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_apigateway.py:63-69 compares typed API configuration, fixed wildcard settings, or a unique default launch-template version. Exact-992 API responses and every native FAIL scope are collection-bound; omissions are interpreted only after complete response proof.",
       "recorded_field_reads": [],
       "result_lines": [
         69
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 2,
+        "response_sections": [
+          "stageName",
+          "webAclArn"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "stageName",
+        "methodSettings.*/*.cachingEnabled",
+        "methodSettings.*/*.cacheDataEncrypted"
+      ],
       "check_id": "aws.b.apigateway.wildcard_cache_encryption",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 23,
         "function_sha256": "6772bf5852681536413bfce44a47d0bd51b83e69346eac46c84463f7eeaf90f2",
@@ -2151,6 +2486,13 @@
         "wildcard_method_settings": {
           "dict": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "4d39073b40147926951f7e28ba25dd3b5b2e2b457092ef184cdebb8b393a01bb",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -2176,17 +2518,39 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "3bba75269b3358c4ac16ef70100b8c7aa68134600cd8829205fb4ea28de526d4",
           "symbol": "method_settings"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "per-scope API status and explicit absent response"
+        },
+        {
+          "lines": "252-264",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "GetStages complete response"
+        },
+        {
+          "lines": "1092-1103",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "DescribeLaunchTemplateVersions default-version projection"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_apigateway.py:26; helper chain method_settings at peaso/checks/aws_b_apigateway.py:12-20 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_apigateway.py:23-29 compares typed API configuration, fixed wildcard settings, or a unique default launch-template version. Exact-992 API responses and every native FAIL scope are collection-bound; omissions are interpreted only after complete response proof.",
       "recorded_field_reads": [],
       "result_lines": [
         29
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 2,
+        "response_sections": [
+          "methodSettings",
+          "stageName"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -2220,6 +2584,13 @@
         "official_reference": {
           "null": 9
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "328e16491a9bba991196309c17d0a20520ec26130fa7c9a5db3c78a3b58a3caf",
+        "matched_native_fail_ids": 9,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -2301,6 +2672,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "0dd74851fbe76792cc9b0c567bcfacb55f7880fdbaaa3d98120abddf88a7c3ca",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not (viewer.get(\"ACMCertificateArn\") is not None and viewer.get(\"Certificate\") is not None)",
@@ -2377,6 +2755,13 @@
         "viewer_protocol_policies": {
           "list": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "584a4bf6c3e813e20bb849e9857b10cc2d8f26fd8bea1e524565ac8c1ba51bca",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -2482,6 +2867,13 @@
           "str": 6
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "7b79410c96f204806a18ce5ad038170007a7485f9238318b4344b7b76a7a915a",
+        "matched_native_fail_ids": 6,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value == \"\"",
@@ -2560,6 +2952,13 @@
           "str": 10
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "c7ca56cf32612ad3bc7246f5967c7fb86de7c0cb0c0848df32f5525decad0e42",
+        "matched_native_fail_ids": 10,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value == \"\"",
@@ -2634,6 +3033,13 @@
           "str": 9
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "d60cdf5b8b3a1720e6f2ffd9e38a32238c836a5562aa7482d7bd86f352569303",
+        "matched_native_fail_ids": 9,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value == \"none\"",
@@ -2707,6 +3113,13 @@
         "semantics": {
           "str": 10
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "4189f0c5943ac13bfcc9e86b20902f03afec8efd456d1dda02f565a610c42f1e",
+        "matched_native_fail_ids": 10,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -2793,6 +3206,13 @@
           "null": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "40e4a85e864437ba7b8e8ef29ca6f8ab82fc5f415a135e0d1b10bfcb44f5e364",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -2872,6 +3292,13 @@
         "viewer_protocol_policies": {
           "list": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "9a4a7b34d36784fafedd0de478955c9c2df4fac7036e4f054bd76b208558872b",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -2959,6 +3386,13 @@
         "official_reference": {
           "str": 10
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "13a190f186737c92b068e95525d9ee3c204f24453c680ea383f6b6d6842d9bf3",
+        "matched_native_fail_ids": 10,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -4017,6 +4451,13 @@
           "str": 24
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "6fe939aa6c2a7b7f97aca391839093fad9a1282f36abd32a1ed0718d9331d4e2",
+        "matched_native_fail_ids": 24,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "mode != \"IMMUTABLE\"",
@@ -4178,6 +4619,13 @@
           "str": 24
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "bcab121799851ad1d70bfc8ea20556db120807aace030c6f33d13f6852400395",
+        "matched_native_fail_ids": 24,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "mode == \"MUTABLE\"",
@@ -4236,6 +4684,13 @@
         "pid_mode": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "7a0e1ed79f563a24fbdbe118e761c51050865695446d00f2fa09cfd8d14b2013",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -4315,6 +4770,13 @@
         "privileged_containers": {
           "list": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "5b39090bcc7e7e23e0a3c827a3d4d75a0b9a5238d182ce4720e288590ad9c7ae",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -4399,6 +4861,13 @@
         "semantics": {
           "str": 12
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "a1ba2ab47620bac62a46c43c5df5cc08709e3ee47c4ce8e0c87cfb3df823f6b4",
+        "matched_native_fail_ids": 12,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -4487,6 +4956,13 @@
           "str": 11
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "0b074cf35b5ab344e8f1134a41c960030cdd79429b751a3d712dad581e814495",
+        "matched_native_fail_ids": 11,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -4571,6 +5047,13 @@
         "semantics": {
           "str": 11
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "4436462711d104ab1bd4dfee96792dae5bae1e15b47b1867654c384447c4b537",
+        "matched_native_fail_ids": 11,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -4766,6 +5249,13 @@
           "list": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "80ea51826147cbfd64f68c4a0b642e50a3b8a1d3fe3f1dd69991be6260f2e702",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "True",
@@ -4904,6 +5394,13 @@
           "bool": 3
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "121092200ee8866715861ceedf73130f6ea181f28e3113ae6986d0c1c0033f70",
+        "matched_native_fail_ids": 3,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not enabled",
@@ -4947,10 +5444,12 @@
     },
     {
       "bound_api_fields": [
-        "Engine"
+        "Engine",
+        "Engine",
+        "Endpoint.Port"
       ],
       "check_id": "aws.b.rds_instance.nondefault_port_policy",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 68,
         "function_sha256": "36a42fc82788147751fbdd1f251e6d7994f8a610b6a3f5e541b003b9e622e957",
@@ -4975,6 +5474,13 @@
           "str": 4
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "f477453645055884e590e634bf9c9e4c4f3a153053ee9fa5aecc92efd2a60df0",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "failed",
@@ -4992,12 +5498,22 @@
           "lines": "178-183",
           "path": "peaso/checks/__init__.py",
           "purpose": "pure FAIL/PASS/UNKNOWN construction"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 4,
-      "reason": "dynamic get field at peaso/checks/aws_b_storage.py:71 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_storage.py:68-78 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [
         {
           "line": 70,
@@ -5007,7 +5523,14 @@
       "result_lines": [
         78
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 4,
+        "response_sections": [
+          "Endpoint",
+          "Engine"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -5078,9 +5601,11 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Type"
+      ],
       "check_id": "aws.b.ssm.parameter_secure_type",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 39,
         "function_sha256": "2f423d1f07a1e11cad78cde2d0573e8c17a7fbde56de3ee33a69e6a057c9fdc8",
@@ -5105,6 +5630,13 @@
           "null": 6
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "9b14aa05c4b6c6bf920958adbc9d92cfe9db7701b214217cc740aabcc57cadc4",
+        "matched_native_fail_ids": 6,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value != good",
@@ -5122,17 +5654,33 @@
           "lines": "178-183",
           "path": "peaso/checks/__init__.py",
           "purpose": "pure FAIL/PASS/UNKNOWN construction"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 6,
-      "reason": "dict.get omission/value flow at peaso/checks/aws_b_core.py:44; dynamic get field at peaso/checks/aws_b_core.py:41 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_b_core.py:39-44 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [],
       "result_lines": [
         44
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 6,
+        "response_sections": [
+          "Type"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 64,
         "path": "peaso/checks/aws_b_regional.py",
@@ -5858,6 +6406,13 @@
           "int": 22
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "430db19bdbc9dfc925dc59b1a7edbfcf12c0249314026f4d14e25ad5774f73d2",
+        "matched_native_fail_ids": 22,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not arns",
@@ -5931,6 +6486,13 @@
         "termination_protection": {
           "bool": 22
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "0d2ea899fbaa192d72d469530c5c79a4a3c995f94a13c4479189e0102dabc359",
+        "matched_native_fail_ids": 22,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -6007,6 +6569,13 @@
         "termination_protection": {
           "bool": 22
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "addb0fb6d09d076cb029ad54ee7cd5568b0c085d512ef33441735225ecf39b97",
+        "matched_native_fail_ids": 22,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -6093,6 +6662,13 @@
           "bool": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "90221072e2f5e81fedc0e929e910ebebf41f6c5fc745769c4d5052df479e28c9",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "default",
@@ -6163,6 +6739,13 @@
         "viewer_protocol_policy": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "725fd6ae60b5f15b88f1ef8205f22df41f03e80afecae7bc32571ce8fb2e9610",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -6254,6 +6837,13 @@
         "v2_deliveries": {
           "int": 9
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "115435ffc49ef7e7d9da7d00a9f20c758581529f17dbd33b96a544a1a969bb56",
+        "matched_native_fail_ids": 9,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -6388,6 +6978,13 @@
         "unencrypted_origins": {
           "list": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "2ce56a8edf423a336b61ab2a6e30a4b5a6d20caa488f354c97456c8ebb71ad65",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -6551,6 +7148,13 @@
         "minimum_protocol_version": {
           "str": 3
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "45861c942cdb3638b6bb2adf6ac7b0f9fb7a26a3ddd5adea3fdc36d609530287",
+        "matched_native_fail_ids": 3,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -6864,6 +7468,13 @@
         "containers_without_log_driver": {
           "list": 13
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "2f1aac29d91a71981443ce9c505115065351f7b0c0468a7f915602d17f5c65e7",
+        "matched_native_fail_ids": 13,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -8123,6 +8734,13 @@
           "str": 2
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "4b7fc3e9b847126aa4b4bad3c17618f34835c2c1fa3b6e7655bd4330396cae51",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "mode == \"DISABLED\"",
@@ -8181,6 +8799,13 @@
         "return_connection_password_encrypted": {
           "bool": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "04e64405ba5109aaca0fb53202b8cf9d88d8b47c6d7098ff0dc288eedbaacc23",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -8241,6 +8866,13 @@
         "kms_key_arn": {
           "null": 11
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "ddc6831e2025d84efb1f9059aefeff2cc2c722b840e0be233e6b18e5a1cb2685",
+        "matched_native_fail_ids": 11,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -8314,6 +8946,13 @@
         "copy_tags_to_snapshot": {
           "bool": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "b4d99c929f8cbfd724eca3eee0f452e5f7560161d4fa5d7d3505d032c80f7045",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -8561,6 +9200,13 @@
           "bool": 3
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "c02e77f8e044417edbb57ef109fd133459e2074f4d2d31feeab21c499140e1ae",
+        "matched_native_fail_ids": 3,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not value",
@@ -8674,10 +9320,12 @@
     },
     {
       "bound_api_fields": [
-        "Detail"
+        "Detail",
+        "Detail.DomainName",
+        "Detail.StatusList"
       ],
       "check_id": "aws.cb.route53.domain_transfer_lock",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 387,
         "function_sha256": "a8afd20d76b8850629553e6a656d4a709c9d4e0139d03904b5106bace0bb1125",
@@ -8693,6 +9341,13 @@
         "status_list": {
           "list": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "259c86580dc577ccdf068f1b33b465b69470ecda599538bb5aaf1f0eb0f6372d",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -8725,12 +9380,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3",
           "symbol": "absent_or"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 4,
-      "reason": "helper chain strings at peaso/checks/claude_aws_b_common.py:85-88 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_security.py:387-394 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [
         {
           "line": 393,
@@ -8740,7 +9405,13 @@
       "result_lines": [
         394
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 9,
+        "response_sections": [
+          "Detail"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -8748,10 +9419,12 @@
     {
       "bound_api_fields": [
         "Config.PrivateZone",
-        "QueryLoggingConfigs.QueryLoggingConfigs"
+        "QueryLoggingConfigs.QueryLoggingConfigs",
+        "Config.PrivateZone",
+        "QueryLoggingConfigs.QueryLoggingConfigs[].CloudWatchLogsLogGroupArn"
       ],
       "check_id": "aws.cb.route53.public_zone_query_logging",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 419,
         "function_sha256": "2f2527566d27bcce1047903a803f300ecfe725c1721cb9843b42e1be47d6943d",
@@ -8767,6 +9440,13 @@
         "log_groups": {
           "list": 8
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "286ee4a5df6357773036ecbc5a3e55ef46e4222249fe5002c87b9f8c28183079",
+        "matched_native_fail_ids": 8,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -8792,12 +9472,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "list_of_objects"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 8,
-      "reason": "dict.get omission/value flow at peaso/checks/claude_aws_b_security.py:430; helper chain list_of_objects at peaso/checks/facts.py:72-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_security.py:419-431 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [
         {
           "line": 427,
@@ -8811,7 +9501,14 @@
       "result_lines": [
         431
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 12,
+        "response_sections": [
+          "Config",
+          "QueryLoggingConfigs"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -9019,9 +9716,12 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Attributes.Attributes.TopicArn",
+        "Attributes.Attributes.*FailureFeedbackRoleArn"
+      ],
       "check_id": "aws.cb.sns.failure_feedback_role",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 367,
         "function_sha256": "c2695a212b5815ea6d87d0fdf63bac9def026a1d4190a96ccdfbb7cde03c41b8",
@@ -9037,6 +9737,13 @@
         "failure_feedback_roles": {
           "list": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "db9beff24fa9a1e53b26a34865ed3223f33f5bd195fa5e35214917d8b239f040",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9062,17 +9769,33 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "3c01e5e55f6bb580757ad65dd8239f0edd21943b3539f1d2ae4d4c9168fb4084",
           "symbol": "_attrs"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 4,
-      "reason": "dict.get omission/value flow at peaso/checks/claude_aws_b_messaging.py:374; helper chain _attrs at peaso/checks/claude_aws_b_messaging.py:338-341 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_b_messaging.py:367-375 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [],
       "result_lines": [
         375
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 5,
+        "response_sections": [
+          "Attributes"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -9100,6 +9823,13 @@
         "kms_master_key_id": {
           "str": 32
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "a7603ae5fd6c5412c1e72562b3a6917f2da9c20f6d6e3c25cb331dc715eb789d",
+        "matched_native_fail_ids": 32,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9184,6 +9914,13 @@
         "redrive_policy": {
           "bool": 13
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "dab984c9f66d38895df5f125524885efe4b2de092fa3dc7b3581a235b4ef06e5",
+        "matched_native_fail_ids": 13,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9672,6 +10409,13 @@
           "bool": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "efeb432e496b098b79ba345184f28f0cf63192e0dec97e1de078d8c543936c59",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not value",
@@ -9800,6 +10544,13 @@
         "monitoring_state": {
           "str": 34
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "c3d8b2416b4f63d217f11341f56dd64f6f35dffff09569752856024a129dc620",
+        "matched_native_fail_ids": 34,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -9938,6 +10689,13 @@
           "bool": 5
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "f8ef45528215076699dda71ef1b319c275a1919ad2be6d34aee220f42c76620f",
+        "matched_native_fail_ids": 5,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not value",
@@ -10002,6 +10760,13 @@
           "str": 10
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "fe29be28b26eb575beba3279256cd7e4bf27bc3753efaf28385654ed652bfde7",
+        "matched_native_fail_ids": 10,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not (tokens == \"required\" and applied == \"applied\")",
@@ -10064,6 +10829,13 @@
         "disable_api_termination": {
           "bool": 34
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "b5abedd47add0c0e7c18d57ad13c2f65488420f7ed6bbc64c39dcd83b1b578c6",
+        "matched_native_fail_ids": 34,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -10176,9 +10948,12 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "Versions[].DefaultVersion",
+        "Versions[].LaunchTemplateData.MetadataOptions.HttpTokens"
+      ],
       "check_id": "aws.claude_a.ec2.launch_template_default_imdsv2",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 1018,
         "function_sha256": "82a8bbe45a033d478f1fb0b8099a9b49820410881c18d5a85cb785a75e0df8d9",
@@ -10194,6 +10969,13 @@
         "http_tokens": {
           "null": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "c16325056fd980a745dd0d8bd232366e8df195e23c65275a7c93f47258ad501d",
+        "matched_native_fail_ids": 2,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -10226,17 +11008,38 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "optional"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "per-scope API status and explicit absent response"
+        },
+        {
+          "lines": "252-264",
+          "path": "peaso/collectors/aws_b_services.py",
+          "purpose": "GetStages complete response"
+        },
+        {
+          "lines": "1092-1103",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "DescribeLaunchTemplateVersions default-version projection"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 2,
-      "reason": "dict.get omission/value flow at peaso/checks/claude_aws_a_ec2.py:1025; helper chain _default_data at peaso/checks/claude_aws_a_ec2.py:1011-1015 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_ec2.py:1018-1026 compares typed API configuration, fixed wildcard settings, or a unique default launch-template version. Exact-992 API responses and every native FAIL scope are collection-bound; omissions are interpreted only after complete response proof.",
       "recorded_field_reads": [],
       "result_lines": [
         1026
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 11,
+        "response_sections": [
+          "Versions[]"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -10555,6 +11358,13 @@
           "bool": 580
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "b3dc181bc8bbb4a5a51572803c4277b372ecd4501ad6fa2d5e375d6311fecc6b",
+        "matched_native_fail_ids": 580,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not archived",
@@ -10872,6 +11682,13 @@
           "int": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "4a09365d32508578d9231ed76801568a770e313ea8eb9faed63120ef4d0eae67",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not devices",
@@ -11156,6 +11973,13 @@
           "int": 12
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "981188fbad3111351c87afe0745c04f87b3ad63f59bc1636d5802559c679ae01",
+        "matched_native_fail_ids": 12,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not groups",
@@ -11238,6 +12062,13 @@
         "active_keys": {
           "int": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "f9a332462d117336c2de809cbb06cad4c32a4ee4735e54144e66f55b0aa0e564",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -11432,6 +12263,13 @@
           "int": 148
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "a4c2b97979e80722e5d1fa7c5eb103bccc921de7e2720b2c0dec2c1deb763afa",
+        "matched_native_fail_ids": 148,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "False",
@@ -11604,6 +12442,13 @@
           "list": 123
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "e676f3b6368747b311aba5c5dffe00c0e770dafe073aac2057f73a8034ffbae2",
+        "matched_native_fail_ids": 123,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not enabled",
@@ -11681,6 +12526,13 @@
         "object_lock": {
           "bool": 133
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "9fcf812214cecb1432fcc3922f78a7be0c99f05cbd28721090b732b02f90ea1f",
+        "matched_native_fail_ids": 133,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -11776,6 +12628,13 @@
           "null": 1,
           "str": 2
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "0ecd55d63e03d7ee2f3a43b5e548aab7fe9656302bc832e17f51435e04009117",
+        "matched_native_fail_ids": 3,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -11881,6 +12740,13 @@
           "str": 147
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "c9f987f4841ff5cfb6ab83eb51c2fed7b9c718122745bd7de43bf4ff74b9fd53",
+        "matched_native_fail_ids": 147,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "True",
@@ -11974,6 +12840,13 @@
         "enabled_rules": {
           "list": 133
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "fd459f7608d266afa12f8b34fda373e828eed88330d2aed6fe5099c0fab57ae1",
+        "matched_native_fail_ids": 133,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -12090,6 +12963,13 @@
           "bool": 39
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "369b05dff4928379684ff2f3d975f2038c68bb2e3f8ad99a12d41e2b15e29f6c",
+        "matched_native_fail_ids": 39,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not enabled",
@@ -12154,9 +13034,11 @@
       "untraced_helper_call": null
     },
     {
-      "bound_api_fields": [],
+      "bound_api_fields": [
+        "KmsKeyId"
+      ],
       "check_id": "aws.cloudtrail.kms_encryption",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 65,
         "function_sha256": "90a36866245362615a3c31c3dad2a5155028f7288d27fdbd978fc41d6a8f1fce",
@@ -12181,6 +13063,13 @@
           "str": 3
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "f9055e46a00e537ae8138151e25a1837774dbfe8485c7924961b670efa6ca235",
+        "matched_native_fail_ids": 3,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not bool(value)",
@@ -12198,17 +13087,33 @@
           "lines": "178-183",
           "path": "peaso/checks/__init__.py",
           "purpose": "pure FAIL/PASS/UNKNOWN construction"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 3,
-      "reason": "dynamic get field at peaso/checks/aws_extended.py:67 lacks literal registration binding; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws_extended.py:65-68 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [],
       "result_lines": [
         68
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 3,
+        "response_sections": [
+          "KmsKeyId"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": {
         "line": 74,
         "path": "peaso/checks/aws_extended.py",
@@ -12243,6 +13148,13 @@
         "field": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "61172dded106938fa908516e697511975224151d8813540bf58528604b330517",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -12313,6 +13225,13 @@
           "str": 1
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "e7f5689052e800d840b1cee08f6d23b5af626d4aa81dfa040ad32ae510e6493f",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value not in good if isinstance(good, tuple) else value != good",
@@ -12382,6 +13301,13 @@
           "str": 24
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "2fda122cb892a275a0215433dbf0f416ad353929aabfde49681df7e7d04cd8ef",
+        "matched_native_fail_ids": 24,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "value not in good if isinstance(good, tuple) else value != good",
@@ -12450,6 +13376,13 @@
         "lifecycle_policy": {
           "str": 9
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "71e48df71a73ce3fb365e32bd7d56ab2b5759c52220c4597f80610e4a92ddb4a",
+        "matched_native_fail_ids": 9,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -12533,6 +13466,13 @@
         "field": {
           "str": 15
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "137649503fe650cd98cc8cf24134e0c1f7b4fc7b44608c992f2a8b3841b5b0b8",
+        "matched_native_fail_ids": 15,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -12983,6 +13923,13 @@
           "list": 3600
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "52b1b00f9e3ebb67797769b59eefed97915237dbd1f3dceca581cbfa7893a67d",
+        "matched_native_fail_ids": 3600,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "bool(mounted)",
@@ -13033,10 +13980,11 @@
     {
       "bound_api_fields": [
         "AccessKeys.items",
-        "Status"
+        "Status",
+        "AccessKeys.items[].Status"
       ],
       "check_id": "aws.iam.access_key_count",
-      "decision": "provisional_source_candidate",
+      "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 214,
         "function_sha256": "bfc7f79716258651b9e9488c3ed1d549ab8b3fefc595bc45a61f79f6629744f0",
@@ -13052,6 +14000,13 @@
         "active_key_count": {
           "int": 4
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "e79b3f44144bd0ebeb2816cc0bb54aaf743d07f39d2d2951067f08883df132d0",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -13081,12 +14036,22 @@
           "purpose": "candidate helper source; chain and omissions unverified",
           "source_file_sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
           "symbol": "list_of_objects"
+        },
+        {
+          "lines": "952-961",
+          "path": "peaso/collectors/aws.py",
+          "purpose": "recorded collected/empty detail status"
+        },
+        {
+          "lines": "821-837",
+          "path": "peaso/collectors/aws_facts_cb_ca.py",
+          "purpose": "Route53 domain detail projection and contact omission"
         }
       ],
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 4,
-      "reason": "helper chain list_of_objects at peaso/checks/facts.py:72-75 lacks per-call completeness proof; AI remains required pending source/API proof.",
+      "reason": "Evaluator peaso/checks/aws.py:214-230 uses typed recorded configuration, fixed membership/count/enum, and exact-992 collected detail or explicit absent response; no policy content or subjective intent is read.",
       "recorded_field_reads": [
         {
           "line": 216,
@@ -13101,7 +14066,13 @@
         227,
         230
       ],
-      "snapshot_completeness_ref": null,
+      "snapshot_completeness_ref": {
+        "resource_rows": 22,
+        "response_sections": [
+          "AccessKeys"
+        ],
+        "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+      },
       "source_field_binding": null,
       "underlying_evaluator": null,
       "untraced_helper_call": null
@@ -13239,6 +14210,13 @@
           "str": 4
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "d9bceb56e0f3aa67f7421eeff913affba9c4c2087b2fc26985c1130852118430",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "state == \"PendingDeletion\"",
@@ -13367,6 +14345,13 @@
           "dict": 10
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "d2d9442499d246e00340e0540ba7b011a83d30015bd45055dbeb74f325463942",
+        "matched_native_fail_ids": 10,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "True",
@@ -13442,6 +14427,13 @@
         "semantics": {
           "str": 11
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "497d76863f4c2e1dff356a6ec690bd4a7f1468cad68fd6f19b042b075fd1277f",
+        "matched_native_fail_ids": 11,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -13718,6 +14710,13 @@
           "str": 4
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "933be171cc4e12389bc07a32bc10a43f551940dbe61d1f139604e4592ba78285",
+        "matched_native_fail_ids": 4,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "not enabled",
@@ -13784,6 +14783,13 @@
         "field": {
           "str": 1
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 1,
+        "exact_finding_scope_pairs_sha256": "0c5d9769a48f102ee8dc2d9e32b409c041c954d30ffc6e1a86671986d513eddf",
+        "matched_native_fail_ids": 1,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -13855,6 +14861,13 @@
         "semantics": {
           "str": 148
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "42d6009ac0d6bc4f7628a1ce0f7d9615b738ec528fea343b07ad85f176d9cfb1",
+        "matched_native_fail_ids": 148,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -13948,6 +14961,13 @@
           "str": 94
         }
       },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "12bad8c556692bbe674d655804f6c2ca1464d03b28b7e3280844e7f527e7ef0e",
+        "matched_native_fail_ids": 94,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
+      },
       "fail_predicates": [
         {
           "expression": "state != \"Enabled\"",
@@ -14038,6 +15058,13 @@
         "field": {
           "str": 469
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "c8dd2d31bea3a11b329145bff79a0f7efd5ad3f113c9925baadee3df44087552",
+        "matched_native_fail_ids": 469,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -14187,6 +15214,13 @@
         "origin_group_count": {
           "int": 10
         }
+      },
+      "exact_fail_scope_binding": {
+        "collected_scope_count": 2,
+        "exact_finding_scope_pairs_sha256": "6081c80003524c57afcea1af13b025207fdc830aabfce4283da0c36242e6c075",
+        "matched_native_fail_ids": 10,
+        "no_partial_or_denied_scope_overlap": true,
+        "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba"
       },
       "fail_predicates": [
         {
@@ -14439,7 +15473,13 @@
     }
   ],
   "disjoint_split_sha256": "507a637bec632b85fe6b14333a994debd77f05bc6eeed131bdae9b4a8ec2ab45",
-  "provisional_candidate_count": 89,
+  "exact_fail_scope_binding": {
+    "source_proven_fail_ids_bound_to_collected_scopes": 6470,
+    "source_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+    "zero_item_noncollected_envelopes_never_count_as_complete": true,
+    "zero_item_partial_or_denied_envelopes_excluded": 193
+  },
+  "provisional_candidate_count": 72,
   "retain_ai_count": 23,
   "s3_snapshot_completeness": {
     "bucket_rows": 148,
@@ -14488,16 +15528,29 @@
     "lambda_function_rows": 11,
     "log_group_complete_omitted_kms_key_count": 101,
     "log_group_rows": 101,
+    "second_pass_complete_rows": {
+      "cloudtrail": 3,
+      "rds_instance": 4,
+      "route53_domain": 9,
+      "route53_zone": 12,
+      "sns_topic": 5,
+      "ssm_parameter_metadata": 6
+    },
     "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f",
     "sqs_attributes_complete_count": 32,
-    "sqs_queue_rows": 32
+    "sqs_queue_rows": 32,
+    "third_pass_complete_rows": {
+      "aws_account_configuration": 2,
+      "ec2_launch_template": 11,
+      "rest_api_stage": 2
+    }
   },
   "scan_id": "992d7b8cbd4340a79e41139ba1a44c1e",
   "schema_version": 2,
   "scope": "code-worker 190-ID disjoint low-representative source slice; provisional aws.c2b IDs handed to audit worker",
   "source_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
   "source_inventory_sha256": "7eb72b3169e69ce40f1d2f33be3a1341c30de75a2c9dda68bf3675705fc1ffd9",
-  "source_proven_count": 78,
+  "source_proven_count": 95,
   "split_sha256": "e1713fd8d5ec5860c061aab4c37c89f3b7e2ba3ce35e77f9f475977ea6395660",
   "status": "independent_source_review"
 }
