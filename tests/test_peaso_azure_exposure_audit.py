@@ -552,6 +552,21 @@ def test_flexible_database_firewall_public_and_cross_tenant_sources(kind, port):
 def test_managed_endpoint_explicit_network_gate(kind):
     rule = {"vault": "networkAcls", "managed_hsm": "networkAcls", "container_registry": "networkRuleSet",
             "search_service": "networkRuleSet", "servicebus_namespace": "networkRuleSet"}[kind]
+    if kind == "servicebus_namespace":
+        # Parent properties do not stand in for the separate namespace rule child.
+        assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
+                               rule: {"defaultAction": "Allow"}}).verdict() == "UNKNOWN"
+        assert decision(kind, {"publicNetworkAccess": "Enabled", rule: {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
+        return
+    if kind == "search_service":
+        # The collected IP list is required to distinguish unrestricted and restricted access.
+        assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
+                               rule: {"defaultAction": "Allow"}}).verdict() == "UNKNOWN"
+        assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
+                               rule: {"defaultAction": "Allow", "ipRules": []}}).verdict() == "FAIL"
+        assert decision(kind, {"publicNetworkAccess": "Enabled",
+                               rule: {"ipRules": [{"value": "10.0.0.0/8"}]}}).verdict() == "PASS"
+        return
     assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
                            rule: {"defaultAction": "Allow"}}).verdict() == "FAIL"
     vault_like = kind in ("vault", "managed_hsm")
@@ -559,7 +574,7 @@ def test_managed_endpoint_explicit_network_gate(kind):
         **({"bypass": "None"} if vault_like else {})}}).verdict() == "PASS"
     assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
         rule: {"defaultAction": "Deny", "ipRules": [{"value": "0.0.0.0/0"}],
-               **({"bypass": "None"} if vault_like else {})}}).verdict() == ("FAIL" if vault_like else "UNKNOWN")
+               **({"bypass": "None"} if vault_like else {})}}).verdict() == "FAIL"
     if vault_like:
         assert decision(kind, {"publicNetworkAccess": "Enabled",
             rule: {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
