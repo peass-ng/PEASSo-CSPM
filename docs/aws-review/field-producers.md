@@ -2,7 +2,7 @@
 
 Review status covers identified accessor fields only, not exhaustive semantics. SDK shape membership proves only API-boundary possibility; credited field emission requires an executed modeled or source-bound SDK pipeline receipt. Derived-producer means the actual callback emitted the path in a modeled probe or a passing SDK-pipeline receipt with matching recorded test-source and collector-pipeline hashes; this does not prove values, availability, branch completeness, SDK parameter correctness, or real-world success. Fixtures prove reads only. No cloud calls, live proof, or new broad predicate gate.
 
-Snapshot: 1418 active IDs, 1418 unique rows, 609 supported AWS kinds. Catalog SHA256 `176233d36f564615c1f907c4cc9f36a7da72ccc0b9bdcb6b23bf9495ab650a53`.
+Snapshot: 1418 active IDs, 1418 unique rows, 638 supported AWS kinds. Catalog SHA256 `565a84b824b78db4c7bbce9e44ebefc166df9d54632ba4ed17623d27cefe8b1b`.
 Catalog IDs awaiting root exclusion rebuild: []. Observed-field review states: {'witness-only': 1143, 'derived-producer': 219, 'proven-native-shape': 51, 'needsmanualreview': 5}. These are not completed semantic reviews. Installed botocore: 1.43.38.
 
 Each kind has callback-only and public collector pipeline probes. Both use SDK-validated modeled responses and execute real Requests/cache/projection code; public probes additionally execute nested dispatch, append metadata and snapshot validation. Per-field `emission_receipts` identify modeled probes and `sdk_emission_receipts` identify passing SDK pipeline executions that recorded that exact emitted path with matching test-source and collector-pipeline hashes. Possible SDK members, source literals and saved-fixture reads do not count as producer-to-consumer proof. Direct dictionary input reads are traced with normal-versus-instrumented status/evidence equality; static aliases and unvisited branches remain explicit in JSON.
@@ -54,25 +54,25 @@ These receipts cover bounded SDK cases only. They do not establish live availabi
 
 | ID | Executed cases | Contract |
 |---|---:|---|
-| aws_cis_elasticbeanstalk_https_listener | 6 (executed-bounded-sdk-receipt) | Sibling native configuration/resources/classic-or-v2 LB reads through real cache and registered snapshot consumer; log destination is documented managed-path resolution only, not delivery or retention. Test: `tests/test_aws_beanstalk_runtime_metadata_review.py` |
-| aws_cis_elasticbeanstalk_load_balancer_access_logs | 6 (executed-bounded-sdk-receipt) | Sibling native configuration/resources/classic-or-v2 LB reads through real cache and registered snapshot consumer; log destination is documented managed-path resolution only, not delivery or retention. Test: `tests/test_aws_beanstalk_runtime_metadata_review.py` |
-| aws_cis_beanstalk_persistent_logs_s3 | 6 (executed-bounded-sdk-receipt) | Sibling native configuration/resources/classic-or-v2 LB reads through real cache and registered snapshot consumer; log destination is documented managed-path resolution only, not delivery or retention. Test: `tests/test_aws_beanstalk_runtime_metadata_review.py` |
-| aws.a.iam.report_console_mfa | 2 (executed-bounded-sdk-receipt) | SDK existing report blob through public collector CSV parser to registered snapshot consumer; no report generation. Test: `tests/test_aws_field_producer_review.py` |
-| aws_wafv2_request_validation_rules | 4 (executed-bounded-sdk-receipt) | Actual SDK public ALB pipeline and request-bound WAF association to registered consumer with controlled WAF subject inventory; PASS/FAIL/UNKNOWN. Root owns shared hook. Test: `tests/test_aws_alb_waf_association_metadata.py` |
-| aws_cis_lambda_execution_role_no_admin | 3 (executed-bounded-sdk-receipt) | Native Lambda/IAM read branches to legacy registered consumer; no EffectiveAdminAccess flag. Test: `tests/test_aws_lambda_role_policy_review_20261019.py` |
-| aws_ec2_instance_time_offset_monitored | 3 (executed-bounded-sdk-receipt) | Actual SDK metric requests through enrich and registered snapshot consumer; positive/negative offsets. Test: `tests/test_aws_ec2_clock_metadata_review.py` |
-| aws_cloudtrail_s3_siem_delivery | 12 (executed-bounded-sdk-receipt) | Actual SDK metadata reads through pre-cache projection, enrichment and registered snapshot consumer; bounded delivery only. Test: `tests/test_aws_cloudtrail_s3_delivery_metadata_review.py` |
-| aws.claude_a.ec2.launch_template_instances_no_public_ip | 8 (executed-bounded-sdk-receipt) | Actual SDK GetLaunchTemplateData through shared cache, enrichment and registered snapshot consumer. Test: `tests/test_aws_launch_template_instance_metadata_review.py` |
-| aws_nist_rds_db_cluster_aurora_backtracking_enabled | 4 (executed-bounded-sdk-receipt) | SDK DescribeDBClusters through public collector, validated snapshot and registered predicate. Test: `tests/test_aws_field_producer_review.py` |
-| aws_cis_lightsail_bucket_private | 6 (executed-bounded-sdk-receipt) | SDK GetBuckets through public collector and registered accessRules predicate. Test: `tests/test_aws_field_producer_review.py` |
-| aws_cloudtrail_bucket_lifecycle_retention_365 | 5 (executed-bounded-sdk-receipt) | SDK settings through actual bucket callback and registered predicate using synchronized dependency fixture; full public dispatch not exercised in this receipt. Test: `tests/test_aws_field_producer_review.py` |
-| aws.a.iam.attached_policy_no_star_star | 8 (executed-bounded-sdk-receipt) | SDK GAAD through public collector to registered snapshot consumer; missing/duplicate/mismatched default joins UNKNOWN. Test: `tests/test_aws_field_producer_review.py` |
-| aws.pci.iam.nonconsole_mfa_policy | 8 (executed-bounded-sdk-receipt) | SDK GAAD through public collector to registered snapshot consumer; native default identity validated. Test: `tests/test_aws_field_producer_review.py` |
-| aws.pci.iam.policy_attached_to_active_principal | 8 (executed-bounded-sdk-receipt) | SDK GAAD user/group/role/policy inventories through public collector to native declared-attachment snapshot consumer. Test: `tests/test_aws_field_producer_review.py` |
+| aws_cis_elasticbeanstalk_https_listener | 0 (unproved) | Sibling native configuration/resources/classic-or-v2 LB reads through real cache and registered snapshot consumer; log destination is documented managed-path resolution only, not delivery or retention. Test: `tests/test_aws_beanstalk_runtime_metadata_review.py` |
+| aws_cis_elasticbeanstalk_load_balancer_access_logs | 0 (unproved) | Sibling native configuration/resources/classic-or-v2 LB reads through real cache and registered snapshot consumer; log destination is documented managed-path resolution only, not delivery or retention. Test: `tests/test_aws_beanstalk_runtime_metadata_review.py` |
+| aws_cis_beanstalk_persistent_logs_s3 | 0 (unproved) | Sibling native configuration/resources/classic-or-v2 LB reads through real cache and registered snapshot consumer; log destination is documented managed-path resolution only, not delivery or retention. Test: `tests/test_aws_beanstalk_runtime_metadata_review.py` |
+| aws.a.iam.report_console_mfa | 0 (unproved) | SDK existing report blob through public collector CSV parser to registered snapshot consumer; no report generation. Test: `tests/test_aws_field_producer_review.py` |
+| aws_wafv2_request_validation_rules | 0 (unproved) | Actual SDK public ALB pipeline and request-bound WAF association to registered consumer with controlled WAF subject inventory; PASS/FAIL/UNKNOWN. Root owns shared hook. Test: `tests/test_aws_alb_waf_association_metadata.py` |
+| aws_cis_lambda_execution_role_no_admin | 0 (unproved) | Native Lambda/IAM read branches to legacy registered consumer; no EffectiveAdminAccess flag. Test: `tests/test_aws_lambda_role_policy_review_20261019.py` |
+| aws_ec2_instance_time_offset_monitored | 0 (unproved) | Actual SDK metric requests through enrich and registered snapshot consumer; positive/negative offsets. Test: `tests/test_aws_ec2_clock_metadata_review.py` |
+| aws_cloudtrail_s3_siem_delivery | 0 (unproved) | Actual SDK metadata reads through pre-cache projection, enrichment and registered snapshot consumer; bounded delivery only. Test: `tests/test_aws_cloudtrail_s3_delivery_metadata_review.py` |
+| aws.claude_a.ec2.launch_template_instances_no_public_ip | 0 (unproved) | Actual SDK GetLaunchTemplateData through shared cache, enrichment and registered snapshot consumer. Test: `tests/test_aws_launch_template_instance_metadata_review.py` |
+| aws_nist_rds_db_cluster_aurora_backtracking_enabled | 0 (unproved) | SDK DescribeDBClusters through public collector, validated snapshot and registered predicate. Test: `tests/test_aws_field_producer_review.py` |
+| aws_cis_lightsail_bucket_private | 0 (unproved) | SDK GetBuckets through public collector and registered accessRules predicate. Test: `tests/test_aws_field_producer_review.py` |
+| aws_cloudtrail_bucket_lifecycle_retention_365 | 0 (unproved) | SDK settings through actual bucket callback and registered predicate using synchronized dependency fixture; full public dispatch not exercised in this receipt. Test: `tests/test_aws_field_producer_review.py` |
+| aws.a.iam.attached_policy_no_star_star | 0 (unproved) | SDK GAAD through public collector to registered snapshot consumer; missing/duplicate/mismatched default joins UNKNOWN. Test: `tests/test_aws_field_producer_review.py` |
+| aws.pci.iam.nonconsole_mfa_policy | 0 (unproved) | SDK GAAD through public collector to registered snapshot consumer; native default identity validated. Test: `tests/test_aws_field_producer_review.py` |
+| aws.pci.iam.policy_attached_to_active_principal | 0 (unproved) | SDK GAAD user/group/role/policy inventories through public collector to native declared-attachment snapshot consumer. Test: `tests/test_aws_field_producer_review.py` |
 
 Exact test names, receipt/source hashes and source-after-receipt checks are in JSON. JUnit files are bounded local receipts under `/tmp/peasso-aws-review-20261019/native`.
 
-Verification receipts: field-final-bounded.xml: 165 tests, 0 failures, 0 errors; field-producers.xml: 92 tests, 0 failures, 0 errors; field-alb-waf.xml: 29 tests, 0 failures, 0 errors; field-native-producer-receipts.xml: 180 tests, 0 failures, 0 errors; field-base-edge.xml: 547 tests, 0 failures, 0 errors; field-sw40-iam.xml: 11 tests, 0 failures, 0 errors; rds-backtracking-legacy.xml: 1 tests, 0 failures, 0 errors; object-lock-legacy.xml: 7 tests, 0 failures, 0 errors; lightsail-legacy.xml: 2 tests, 0 failures, 0 errors.
+Verification receipts: field-final-bounded.xml: ? tests, ? failures, ? errors; field-producers.xml: ? tests, ? failures, ? errors; field-alb-waf.xml: ? tests, ? failures, ? errors; field-native-producer-receipts.xml: ? tests, ? failures, ? errors; field-base-edge.xml: ? tests, ? failures, ? errors; field-sw40-iam.xml: ? tests, ? failures, ? errors; rds-backtracking-legacy.xml: ? tests, ? failures, ? errors; object-lock-legacy.xml: ? tests, ? failures, ? errors; lightsail-legacy.xml: ? tests, ? failures, ? errors.
 
 Reproduce: `.venv/bin/python scripts/audit_aws_field_producers.py`. Targeted verification: `.venv/bin/python -m pytest -q tests/test_aws_field_producer_review.py`.
 
@@ -90,6 +90,8 @@ Every supported kind is probed, including those without active consumers. Requir
 | agentcore_agent_runtime | 0 | 0 | 0 | collected |
 | agentcore_browser | 0 | 0 | 0 | collected |
 | agentcore_code_interpreter | 0 | 0 | 0 | collected |
+| agentcore_harness | 0 | 0 | 0 | unknown |
+| agentcore_runtime_endpoint | 0 | 0 | 0 | collected |
 | ami | 0 | 0 | 0 | collected |
 | amplify_app | 1 | 0 | 0 | collected |
 | aoss_network_policy | 0 | 0 | 0 | collected |
@@ -105,11 +107,15 @@ Every supported kind is probed, including those without active consumers. Requir
 | app_runner_vpc_ingress_connection | 0 | 0 | 0 | collected |
 | appautoscaling_target | 1 | 0 | 0 | collected |
 | appflow_connector_profile | 0 | 0 | 0 | collected |
+| appstream_app_block | 0 | 0 | 0 | collected |
 | appstream_app_block_builder | 0 | 0 | 0 | collected |
+| appstream_app_block_builder_association | 0 | 0 | 0 | collected |
 | appstream_fleet | 4 | 0 | 0 | collected |
+| appstream_image | 0 | 0 | 0 | collected |
 | appstream_image_builder | 0 | 0 | 0 | collected |
 | appstream_stack | 0 | 0 | 0 | collected |
 | appsync_graphql_api | 7 | 0 | 0 | collected |
+| athena_session | 0 | 0 | 0 | collected |
 | athena_workgroup | 6 | 0 | 2 | collected |
 | autoscaling_group | 11 | 0 | 1 | collected |
 | autoscaling_launch_configuration | 1 | 0 | 0 | collected |
@@ -122,7 +128,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | aws_enabled_region | 0 | 0 | 0 | partial |
 | aws_identity_center_account_assignment | 0 | 0 | 0 | collected |
 | aws_identity_center_permission_set | 0 | 0 | 0 | collected |
-| aws_identity_center_permission_set_consumer | 1 | 2 | 10 | malformed |
+| aws_identity_center_permission_set_consumer | 1 | 2 | 11 | malformed |
 | aws_identity_center_user | 0 | 0 | 0 | collected |
 | aws_organization_account | 0 | 0 | 0 | malformed |
 | aws_region | 1 | 0 | 0 | collected |
@@ -143,6 +149,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | backup_vault | 6 | 0 | 0 | collected |
 | batch_compute_environment | 1 | 0 | 0 | collected |
 | batch_job_definition | 2 | 0 | 4 | collected |
+| batch_job_queue | 0 | 0 | 0 | collected |
 | bedrock_agent | 4 | 2 | 0 | collected |
 | bedrock_agent_account_inventory | 1 | 0 | 6 | collected |
 | bedrock_automated_reasoning_policy | 0 | 0 | 0 | collected |
@@ -156,6 +163,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | bedrock_model_invocation_logging | 3 | 0 | 1 | collected |
 | bedrock_prompt | 2 | 0 | 0 | collected |
 | blockchain_network | 0 | 0 | 0 | collected |
+| braket_device | 0 | 0 | 0 | malformed |
 | bucket | 55 | 13 | 11 | collected |
 | budget_action | 0 | 0 | 0 | malformed |
 | build_deployment_referenced_source_content | 1 | 50 | 2 | not_collected |
@@ -166,6 +174,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | client_vpn_endpoint | 2 | 0 | 0 | collected |
 | client_vpn_route | 0 | 0 | 0 | collected |
 | client_vpn_target_network | 0 | 0 | 0 | collected |
+| cloudformation_organizations_access | 0 | 0 | 0 | collected |
 | cloudformation_stack | 7 | 7 | 1 | collected |
 | cloudformation_stack_instance | 0 | 0 | 0 | collected |
 | cloudfront_distribution | 26 | 0 | 3 | malformed |
@@ -190,6 +199,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | codebuild_network_sandbox | 0 | 0 | 0 | collected |
 | codebuild_project | 18 | 44 | 2 | collected |
 | codebuild_report_group | 1 | 0 | 0 | collected |
+| codebuild_sandbox | 0 | 0 | 0 | collected |
 | codebuild_selected_inline_buildspec | 1 | 30 | 0 | not_collected |
 | codebuild_source_credential | 1 | 0 | 0 | collected |
 | codecommit_pull_request | 0 | 0 | 0 | malformed |
@@ -239,12 +249,17 @@ Every supported kind is probed, including those without active consumers. Requir
 | dax_cluster | 3 | 0 | 0 | collected |
 | dax_subnet_group | 0 | 0 | 0 | collected |
 | deadline_fleet | 0 | 0 | 0 | collected |
+| deadline_fleet_role | 0 | 0 | 0 | partial |
 | deadline_license_endpoint | 0 | 0 | 0 | collected |
+| deadline_queue | 0 | 0 | 0 | partial |
+| deadline_worker | 0 | 0 | 0 | partial |
 | detective_graph | 0 | 0 | 0 | collected |
+| devicefarm_device_pool | 0 | 0 | 0 | malformed |
 | devicefarm_project | 0 | 0 | 0 | collected |
 | devicefarm_remote_access_session | 0 | 0 | 0 | collected |
 | devicefarm_run | 0 | 0 | 0 | collected |
 | devicefarm_testgrid_project | 0 | 0 | 0 | collected |
+| devicefarm_upload | 0 | 0 | 0 | malformed |
 | devicefarm_vpc_endpoint | 0 | 0 | 0 | collected |
 | dhcp_options | 1 | 0 | 0 | collected |
 | directconnect_connection | 1 | 0 | 0 | collected |
@@ -295,7 +310,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | ecr_public_selected_image_content | 2 | 0 | 0 | not_collected |
 | ecr_registry | 3 | 0 | 10 | collected |
 | ecr_registry_scanning_configuration | 3 | 0 | 0 | collected |
-| ecr_repository | 16 | 26 | 18 | collected |
+| ecr_repository | 16 | 18 | 14 | collected |
 | ecr_selected_image_vulnerabilities | 1 | 0 | 0 | not_collected |
 | ecs_account_setting | 1 | 0 | 0 | collected |
 | ecs_capacity_provider | 0 | 0 | 0 | collected |
@@ -336,6 +351,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | environment_workload_resource | 0 | 0 | 0 | not_collected |
 | event_rule | 6 | 9 | 0 | collected |
 | eventbridge_bus | 4 | 0 | 0 | collected |
+| eventbridge_custom_bus | 0 | 0 | 0 | unknown |
 | eventbridge_endpoint | 1 | 0 | 0 | collected |
 | eventbridge_pipe | 0 | 0 | 0 | collected |
 | eventbridge_rule | 3 | 0 | 8 | collected |
@@ -356,7 +372,9 @@ Every supported kind is probed, including those without active consumers. Requir
 | fsx_file_cache | 0 | 0 | 0 | collected |
 | fsx_file_system | 14 | 0 | 0 | collected |
 | fsx_volume | 0 | 0 | 0 | collected |
+| gamelift_ec2_compute | 0 | 0 | 0 | malformed |
 | gamelift_vpc_peering | 0 | 0 | 0 | collected |
+| gameliftstreams_stream_session | 0 | 0 | 0 | partial |
 | glacier_vault | 3 | 0 | 0 | collected |
 | global_dns_resolver | 0 | 0 | 0 | collected |
 | global_dns_view | 0 | 0 | 0 | collected |
@@ -369,7 +387,9 @@ Every supported kind is probed, including those without active consumers. Requir
 | glue_job | 7 | 3 | 3 | collected |
 | glue_ml_transform | 2 | 0 | 1 | collected |
 | glue_security_configuration | 8 | 0 | 0 | collected |
+| glue_session | 0 | 0 | 0 | collected |
 | glue_table | 2 | 0 | 0 | unknown |
+| glue_trigger | 0 | 0 | 0 | collected |
 | grafana_workspace | 0 | 0 | 0 | collected |
 | groundstation_endpoint_group | 0 | 0 | 0 | collected |
 | guardduty_detector | 24 | 0 | 0 | collected |
@@ -407,6 +427,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | inspector_organization_review | 4 | 0 | 0 | collected |
 | instance | 88 | 30 | 6 | collected |
 | internet_gateway | 2 | 0 | 0 | collected |
+| iot_role_alias | 0 | 0 | 0 | malformed |
 | iot_rule_destination | 0 | 0 | 0 | collected |
 | k8s_admission_policy | 0 | 0 | 0 | not_collected |
 | kafka_version | 1 | 0 | 0 | collected |
@@ -414,12 +435,13 @@ Every supported kind is probed, including those without active consumers. Requir
 | kinesis_stream | 4 | 0 | 0 | collected |
 | kms_external_key_store | 0 | 0 | 0 | collected |
 | kms_grant | 1 | 3 | 2 | empty |
-| kms_key | 28 | 1 | 2 | collected |
+| kms_key | 28 | 1 | 3 | collected |
 | lambda_alias | 0 | 0 | 0 | collected |
 | lambda_capacity_provider | 0 | 0 | 0 | collected |
 | lambda_event_source_mapping | 1 | 0 | 0 | collected |
 | lambda_function | 33 | 29 | 5 | collected |
 | lambda_layer_version | 2 | 13 | 3 | collected |
+| lambda_microvm_image | 0 | 0 | 0 | collected |
 | lambda_selected_environment | 1 | 31 | 3 | not_collected |
 | lattice_listener | 0 | 0 | 0 | collected |
 | lattice_listener_rule | 0 | 0 | 0 | collected |
@@ -522,6 +544,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | pcs_compute_node_group | 0 | 0 | 0 | collected |
 | prometheus_scraper | 0 | 0 | 0 | collected |
 | qbusiness_data_source | 0 | 0 | 0 | collected |
+| quicksight_account_subscription | 0 | 0 | 0 | collected |
 | quicksight_action_connector | 0 | 0 | 0 | collected |
 | quicksight_data_source | 0 | 0 | 0 | collected |
 | quicksight_network_restrictions | 0 | 0 | 0 | collected |
@@ -588,6 +611,7 @@ Every supported kind is probed, including those without active consumers. Requir
 | s3_outposts_endpoint | 0 | 0 | 0 | collected |
 | s3_outposts_shared_endpoint | 0 | 0 | 0 | collected |
 | s3_selected_source_content | 1 | 35 | 2 | not_collected |
+| sagemaker_app | 0 | 0 | 0 | collected |
 | sagemaker_automl_job | 0 | 0 | 0 | collected |
 | sagemaker_cluster | 0 | 0 | 0 | collected |
 | sagemaker_compilation_job | 0 | 0 | 0 | collected |
@@ -605,8 +629,11 @@ Every supported kind is probed, including those without active consumers. Requir
 | sagemaker_model_quality_job_definition | 0 | 0 | 0 | collected |
 | sagemaker_monitoring_schedule | 1 | 0 | 0 | collected |
 | sagemaker_notebook_instance | 8 | 6 | 1 | collected |
+| sagemaker_notebook_lifecycle_config | 0 | 0 | 0 | collected |
 | sagemaker_optimization_job | 0 | 0 | 0 | collected |
 | sagemaker_processing_job | 1 | 0 | 0 | collected |
+| sagemaker_space | 0 | 0 | 0 | partial |
+| sagemaker_studio_lifecycle_config | 0 | 0 | 0 | collected |
 | sagemaker_training_job | 6 | 0 | 0 | collected |
 | sagemaker_user_profile | 0 | 0 | 0 | collected |
 | sagemaker_workforce | 0 | 0 | 0 | collected |
@@ -629,12 +656,14 @@ Every supported kind is probed, including those without active consumers. Requir
 | shield_protection | 9 | 3 | 0 | collected |
 | shield_protection_region | 1 | 2 | 0 | malformed |
 | shield_subscription | 7 | 0 | 0 | collected |
+| signer_profile | 0 | 0 | 0 | collected |
 | sns_subscription | 3 | 0 | 0 | collected |
 | sns_topic | 9 | 6 | 6 | collected |
 | spot_instance_request | 0 | 0 | 0 | collected |
 | sqs_queue | 7 | 4 | 2 | collected |
 | ssm_document_metadata | 3 | 0 | 0 | collected |
 | ssm_inventory_read_event | 0 | 0 | 0 | malformed |
+| ssm_maintenance_window | 0 | 0 | 0 | collected |
 | ssm_managed_instance | 5 | 3 | 1 | collected |
 | ssm_parameter_metadata | 1 | 0 | 0 | collected |
 | ssm_resource_compliance_summary | 1 | 0 | 0 | collected |
@@ -1066,7 +1095,7 @@ The strict-read column enumerates exact attributed paths without an emission rec
 | aws.c2b.dynamodb.table_in_backup_selection_or_tag | witness-only | — | 0 / 3 |
 | aws.c2b.dynamodb.table_in_backup_selection_prowler | witness-only | — | 0 / 1 |
 | aws.c2b.dynamodb.table_protected_resource | derived-producer | — | 0 / 0 |
-| aws.c2b.ecr.latest_image_no_medium_plus_findings | witness-only | ecr_repository.Images<br>ecr_repository.Images.items[].artifactMediaType<br>ecr_repository.Images.items[].imagePushedAt<br>ecr_repository.Images.items[].imageScanFindingsSummary<br>ecr_repository.Images.items[].imageScanFindingsSummary.findingSeverityCounts<br>ecr_repository.Images.items[].imageScanStatus<br>ecr_repository.Images.items[].imageScanStatus.status<br>ecr_repository.Images.items[].imageTags | 8 / 6 |
+| aws.c2b.ecr.latest_image_no_medium_plus_findings | witness-only | — | 4 / 6 |
 | aws.c2b.ecr.registry_automated_scanning | witness-only | — | 0 / 1 |
 | aws.c2b.ecr.registry_enhanced_scanning | witness-only | — | 0 / 1 |
 | aws.c2b.ecr.repository_not_public | witness-only | — | 0 / 28 |
@@ -1901,7 +1930,7 @@ The strict-read column enumerates exact attributed paths without an emission rec
 | aws.iam.access_key_count | derived-producer | — | 0 / 0 |
 | aws.iam.console_mfa | witness-only | — | 1 / 0 |
 | aws.iam.group_inline_policies_have_members | witness-only | — | 10 / 18 |
-| aws.iam.identity_center.permission_set_has_consumer_all_accounts | witness-only | aws_identity_center_permission_set_consumer.OrganizationAccounts<br>aws_identity_center_permission_set_consumer.PermissionSetArn | 11 / 6 |
+| aws.iam.identity_center.permission_set_has_consumer_all_accounts | witness-only | aws_identity_center_permission_set_consumer.OrganizationAccounts<br>aws_identity_center_permission_set_consumer.PermissionSetArn | 12 / 15 |
 | aws.iam.no_full_admin | witness-only | iam_policy.PolicyDocument<br>iam_policy.PolicyDocument.Statement<br>iam_policy.PolicyDocument.Statement[].Action<br>iam_policy.PolicyDocument.Statement[].Effect<br>iam_policy.PolicyDocument.Statement[].Resource | 4 / 9 |
 | aws.iam.no_root_keys | derived-producer | — | 0 / 1 |
 | aws.iam.oidc_provider_has_role_consumer | witness-only | iam_role.AssumeRolePolicyDocument.Statement[].Condition | 14 / 0 |
@@ -2086,7 +2115,7 @@ The strict-read column enumerates exact attributed paths without an emission rec
 | aws_inspector_critical_image_findings_alert | witness-only | event_rule.EventPattern.detail<br>event_rule.EventPattern.detail-type<br>event_rule.EventPattern.detail.resources<br>event_rule.EventPattern.detail.resources.type<br>event_rule.EventPattern.detail.severity<br>event_rule.EventPattern.source | 0 / 15 |
 | aws_kms_compromised_key_restricted | witness-only | — | 1 / 9 |
 | aws_kms_imported_key_origin_spec | witness-only | — | 1 / 33 |
-| aws_kms_key_expiry | witness-only | — | 0 / 15 |
+| aws_kms_key_expiry | witness-only | — | 1 / 15 |
 | aws_lambda_code_signing_configured | witness-only | lambda_function.CodeSigning.FunctionArn<br>lambda_function.Configuration.State | 3 / 37 |
 | aws_log_archive_immutable | witness-only | — | 0 / 75 |
 | aws_msk_in_cluster_tls_enabled | witness-only | — | 1 / 34 |

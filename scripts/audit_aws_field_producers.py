@@ -22,6 +22,7 @@ import re
 import sys
 import textwrap
 import xml.etree.ElementTree as ET
+from botocore.exceptions import UnknownServiceError
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -427,7 +428,7 @@ def producer(kind, models):
             if shape is not None:
                 row['api_item_shape'] = shape.name
                 row['api_top_fields'] = sorted(shape.members) if shape.type_name == 'structure' else []
-        except (ValueError, KeyError, StopIteration) as exc:
+        except (ValueError, KeyError, StopIteration, UnknownServiceError) as exc:
             row['shape_error'] = type(exc).__name__
     # _enrich starts from a deepcopy; later extension callbacks can project.
     row['native_shape_retention_proven'] = shape is not None and kind not in special and kind not in aws.FETCHERS and kind not in aws.ENRICHERS
