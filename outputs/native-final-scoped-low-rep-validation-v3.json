@@ -1,0 +1,15 @@
+{
+  "integration_hash_mismatches": 0,
+  "merged_into_code_manifest": false,
+  "model_replay_run": false,
+  "proof_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+  "retain_ai_ids": 8,
+  "reviewed_ids": 72,
+  "scan_id": "992d7b8cbd4340a79e41139ba1a44c1e",
+  "schema_version": 1,
+  "source_low_rep_receipt_sha256": "333ccb7146e02db59f14b2f8056c54bcbad266c5b55e696ced3ab5f19eb52eb3",
+  "source_proven_ids": 64,
+  "source_proven_initial_representatives": 88,
+  "source_proven_native_fail": 2644,
+  "whole_file_hashes_checked_in_integration": 36
+}
