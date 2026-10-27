@@ -349,6 +349,28 @@ def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
     assert decision("cosmos_account", {**base, "ipRules": None}).verdict() == "UNKNOWN"
 
 
+@pytest.mark.parametrize("kind", ["signalr_service", "web_pubsub"])
+def test_realtime_service_public_request_and_ip_paths(kind):
+    base = {"publicNetworkAccess": "Enabled", "hostName": "service.example.signalr.net",
+            "publicPort": 443}
+    allowed = {"defaultAction": "Deny", "publicNetwork": {"allow": ["ClientConnection"]},
+               "ipRules": []}
+    public = decision(kind, {**base, "networkACLs": allowed})
+    assert public.verdict() == "FAIL" and public.ports == {"tcp": ((443, 443),)}
+    assert public.addresses == [base["hostName"]]
+    assert decision(kind, {**base, "publicNetworkAccess": "Disabled",
+        "networkACLs": allowed}).verdict() == "PASS"
+    assert decision(kind, {**base, "networkACLs": {"defaultAction": "Deny",
+        "publicNetwork": {"allow": []}, "ipRules": []}}).verdict() == "PASS"
+    assert decision(kind, {**base, "networkACLs": {"defaultAction": "Allow",
+        "ipRules": [{"value": "0.0.0.0/0", "action": "Deny"},
+                    {"value": "::/0", "action": "Deny"}]}}).verdict() == "PASS"
+    assert decision(kind, {**base, "networkACLs": {"defaultAction": "Deny",
+        "publicNetwork": {"allow": ["ClientConnection"]},
+        "ipRules": [{"value": "bad", "action": "Allow"}]}}).verdict() == "UNKNOWN"
+    assert decision(kind, {**base, "networkACLs": allowed, "publicPort": None}).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,port", [("mysql_flexible_server", 3306), ("postgresql_flexible_server", 5432)])
 def test_flexible_database_firewall_public_and_cross_tenant_sources(kind, port):
     rid = f"{SCOPE}/resourceGroups/rg/providers/test/{kind}/db"

@@ -3635,6 +3635,87 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     return a
 
 
+def _azure_realtime_endpoint(snapshot, inventory, resource):
+    """SignalR/Web PubSub public listener from recorded request and IP ACLs."""
+    props = _props(resource)
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "realtime service publicNetworkAccess is unavailable")
+        return a
+    a.step("public_network_access", "allow", value=access)
+    hostname = props.get("hostName")
+    port = props.get("publicPort")
+    if isinstance(hostname, str) and hostname:
+        a.addresses.append(hostname)
+    else:
+        a.gap("inventory", "realtime service hostname is unavailable")
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "realtime service public port is unavailable")
+        return a
+    a.ports = pset("tcp", port, port)
+    acl = props.get("networkACLs")
+    if not isinstance(acl, dict) or acl.get("defaultAction") not in ("Allow", "Deny"):
+        a.gap("firewall", "realtime service network ACL default is unavailable")
+        return a
+    default = acl["defaultAction"]
+    public = acl.get("publicNetwork")
+    if public is not None and not isinstance(public, dict):
+        a.gap("policy", "realtime public request ACL is malformed")
+        return a
+    public = public or {}
+    allow_types, deny_types = public.get("allow", []), public.get("deny", [])
+    if not isinstance(allow_types, list) or not isinstance(deny_types, list):
+        a.gap("policy", "realtime public request types are malformed")
+        return a
+    request_types = {"ClientConnection", "ServerConnection", "RESTAPI", "Trace"}
+    if any(t not in request_types for t in allow_types + deny_types) or set(allow_types) & set(deny_types):
+        a.gap("policy", "realtime public request type precedence is unresolved")
+        return a
+    permitted_types = (request_types if default == "Allow" else set()) | set(allow_types)
+    permitted_types -= set(deny_types)
+    rules = acl.get("ipRules", [])
+    if not isinstance(rules, list):
+        a.gap("firewall", "realtime service IP rules are malformed")
+        return a
+    denied, public_source, malformed = [], False, False
+    for rule in rules:
+        value = rule.get("value") if isinstance(rule, dict) else None
+        action = rule.get("action") if isinstance(rule, dict) else None
+        network = _cidr(value) if value else None
+        if network is None or action not in ("Allow", "Deny"):
+            malformed = True
+            continue
+        if action == "Allow" and _azure_public_remainder([network], denied):
+            public_source = True
+        elif action == "Deny":
+            denied.append(network)
+    if default == "Allow" and _azure_public_remainder(
+            [ipaddress.ip_network("0.0.0.0/0"), ipaddress.ip_network("::/0")], denied):
+        public_source = True
+    if not rules and permitted_types:
+        public_source = True
+    if malformed:
+        a.gap("firewall", "realtime service IP rule syntax is unresolved")
+    if not permitted_types and not rules:
+        a.step("policy", "block", reason="no public request type admitted")
+        a.ports = {}
+    elif not public_source and not malformed and default == "Allow":
+        a.step("firewall", "block", reason="no public source admitted")
+        a.ports = {}
+    elif public_source and permitted_types:
+        a.step("listener", "allow", public_request_types=sorted(permitted_types))
+    else:
+        a.gap("policy", "realtime listener public request path is unresolved")
+    a.notes.append("Public listener does not establish a valid client or server authorization token")
+    return a
+
+
 def _azure_public_edge(snapshot, inventory, resource):
     """Assess the public listener from the collector's bounded route projection."""
     data = resource["data"]
@@ -4294,7 +4375,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -4310,7 +4391,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -4369,6 +4450,8 @@ def assess(snapshot, resources):
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
+                  "signalr_service": _azure_realtime_endpoint,
+                  "web_pubsub": _azure_realtime_endpoint,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
