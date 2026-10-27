@@ -181,6 +181,6 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **150 have no native pa
 | Security | [Unified Maintenance](https://docs.cloud.google.com/unified-maintenance/docs) | — | REVIEW REQUIRED |
 | Security | [Web Risk](https://docs.cloud.google.com/web-risk/docs) | — | REVIEW REQUIRED |
 | Storage | [Backup and DR Service](https://docs.cloud.google.com/backup-disaster-recovery/docs) | — | REVIEW REQUIRED |
-| Storage | [Cloud Storage](https://docs.cloud.google.com/storage/docs) | bucket / ACL / complete effective ancestor IAM / effective PAP / Firebase Storage rules releases | REVIEW REQUIRED |
+| Storage | [Cloud Storage](https://docs.cloud.google.com/storage/docs) | bucket / ACL / effective ancestor IAM with hydrated custom roles / PAP / IP filter / Firebase Storage rules releases | REVIEW REQUIRED |
 | Storage | [Filestore](https://docs.cloud.google.com/filestore/docs) | — | REVIEW REQUIRED |
 | Storage | [NetApp Volumes](https://docs.cloud.google.com/netapp/volumes/docs) | — | REVIEW REQUIRED |

@@ -144,7 +144,7 @@ def _root_policies(collector,scope):
     return policies
 
 
-def _public_grants(policy):
+def _public_grants(policy,collector):
     if not isinstance(policy,dict):raise _error('storage_iam_policy_malformed')
     bindings=policy.get('bindings')
     if not isinstance(bindings,list):raise _error('storage_iam_bindings_unavailable')
@@ -155,8 +155,19 @@ def _public_grants(policy):
         if 'condition' in binding:raise _error('storage_conditional_iam_unresolved')
         if not PUBLIC.intersection(binding['members']):continue
         role=binding.get('role')
-        if role not in READ_ROLES|WRITE_ROLES:raise _error('storage_public_role_permissions_unresolved')
-        access=True;write|=role in WRITE_ROLES
+        matches=[item for _,item in collector.items('iam_role') if item.get('name')==role]
+        permissions=[item.get('includedPermissions') for item in matches]
+        if not permissions and role in READ_ROLES|WRITE_ROLES:
+            access=True;write|=role in WRITE_ROLES
+            continue
+        if not permissions or any(not isinstance(value,list) or value!=permissions[0] or
+                any(not isinstance(permission,str) for permission in value) for value in permissions):
+            raise _error('storage_public_role_permissions_unresolved')
+        granted=set(permissions[0])
+        read=bool(granted&{'storage.objects.get','storage.objects.list','storage.objects.getIamPolicy'})
+        mutation=bool(granted&{'storage.objects.create','storage.objects.update','storage.objects.delete',
+                               'storage.objects.setIamPolicy','storage.buckets.setIamPolicy'})
+        access|=read or mutation;write|=mutation
     return access,write
 
 
@@ -169,13 +180,13 @@ def _effective(collector,scope):
     requests=set(parent['source_requests'])
     inherited_access=inherited_write=False
     for node,policy in policies:
-        access,write=_public_grants(policy);inherited_access|=access;inherited_write|=write
+        access,write=_public_grants(policy,collector);inherited_access|=access;inherited_write|=write
         requests.update(policy.get('_provenance',{}).get('source_requests',[]))
     for request in sorted(requests):yield [],request
     for bucket in parent['items']:
         coverage=bucket.get('_coverage',{}).get('iamPolicy',{})
         if coverage.get('status')!='collected':raise _error('storage_bucket_iam_unavailable')
-        access,write=_public_grants(bucket.get('iamPolicy',{}))
+        access,write=_public_grants(bucket.get('iamPolicy',{}),collector)
         for request in coverage.get('source_requests',[]):yield [],request
         hierarchy=bucket.get('hierarchicalNamespace')
         if hierarchy is not None and (not isinstance(hierarchy,dict) or hierarchy.get('enabled') is not False):

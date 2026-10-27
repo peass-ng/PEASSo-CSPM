@@ -993,6 +993,29 @@ def test_gcp_bucket_ip_filter_blocks_direct_public_grant_without_public_network_
     assert assessment(with_effective=True).verdict() == "UNKNOWN"
 
 
+def test_gcp_bucket_custom_role_permissions_gate_public_object_exposure():
+    from peaso.analysis.internet_exposure import GCP_TYPES, Inventory, _gcp_bucket
+    from peaso.snapshot import resources
+    assert "iam_role" in GCP_TYPES
+    role_name = "projects/p1/roles/custom"
+    bucket = {"name": "sample-bucket", "iamPolicy": {"bindings": [
+        {"role": role_name, "members": ["allUsers"]}]},
+        "iamConfiguration": {"publicAccessPrevention": "inherited"}}
+    effective = {"name": GSCOPE + "/policies/storage.publicAccessPrevention",
+                 "constraint": "storage.publicAccessPrevention", "spec": {"rules": [{"enforce": False}]}}
+    role = {"name": role_name, "includedPermissions": ["storage.objects.get"]}
+    def assessment(with_role=True):
+        snap = gcp(gcoll("bucket", [bucket], service="storage"),
+                   gcoll("org_policy_effective", [effective], service="orgpolicy"),
+                   gcoll("iam_role", [role] if with_role else [], service="iam"))
+        items = resources(snap)
+        return _gcp_bucket(snap, Inventory(snap, items), next(row for row in items if row["type"] == "bucket"))
+    assert assessment().verdict() == "FAIL"
+    role["includedPermissions"] = ["logging.logEntries.list"]
+    assert assessment() is None
+    assert assessment(with_role=False).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,record,expected", [
     ("cloud_ftp_server", {"name": "projects/p1/locations/us/servers/s", "externalConfig":
                           {"ipAddress": "34.2.3.4", "allowedCidrBlocks": ["0.0.0.0/0"]}}, "FAIL"),

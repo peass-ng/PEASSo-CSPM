@@ -2064,6 +2064,15 @@ def _gcp_bucket(snapshot, inventory, resource):
     policy = data.get("iamPolicy")
     public = []
     conditional = []
+    unresolved_roles = []
+    known_storage_roles = {"roles/storage.objectViewer", "roles/storage.objectUser",
+                           "roles/storage.objectCreator", "roles/storage.objectAdmin", "roles/storage.admin",
+                           "roles/storage.legacyObjectReader", "roles/storage.legacyObjectOwner",
+                           "roles/storage.legacyBucketReader", "roles/storage.legacyBucketWriter",
+                           "roles/viewer", "roles/editor", "roles/owner"}
+    object_permissions = {"storage.objects.get", "storage.objects.list", "storage.objects.create",
+                          "storage.objects.update", "storage.objects.delete", "storage.objects.getIamPolicy",
+                          "storage.objects.setIamPolicy", "storage.buckets.setIamPolicy"}
     coverage = (data.get("_coverage") or {}).get("iamPolicy", {})
     policy_ok = (isinstance(policy, dict) and policy.get("collection_status") in (None, "collected")
                  and isinstance(coverage, dict) and coverage.get("status") in (None, "collected"))
@@ -2073,7 +2082,18 @@ def _gcp_bucket(snapshot, inventory, resource):
                 continue
             grants = [(binding.get("role"), m) for m in as_list(binding.get("members"))
                       if m in ("allUsers", "allAuthenticatedUsers")]
-            (conditional if binding.get("condition") else public).extend(grants)
+            if not grants:
+                continue
+            role = binding.get("role")
+            role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+            permissions = role_row["data"].get("includedPermissions") if role_row else None
+            if isinstance(permissions, list):
+                if any(permission in object_permissions for permission in permissions):
+                    (conditional if binding.get("condition") else public).extend(grants)
+            elif role in known_storage_roles:
+                (conditional if binding.get("condition") else public).extend(grants)
+            else:
+                unresolved_roles.extend(grants)
     # The collector attaches these only after complete native ACL reads and
     # verifies that uniform bucket-level access is disabled.
     acl = []
@@ -2093,7 +2113,7 @@ def _gcp_bucket(snapshot, inventory, resource):
                       if row.get("scope") == resource.get("scope") and row["data"].get("name") == data.get("name")]
     effective_public = (len(effective_rows) == 1 and effective_rows[0]["data"].get("resolutionComplete") is True
                         and effective_rows[0]["data"].get("publicAccess") is True)
-    if not public and not acl and not conditional and not effective_public:
+    if not public and not acl and not conditional and not effective_public and not unresolved_roles:
         return None
     a = Assessment(resource, "data_share")
     prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention")
@@ -2132,10 +2152,11 @@ def _gcp_bucket(snapshot, inventory, resource):
         a.gap("policy", "bucket IP filter mode is not recognized")
         a.explicit = "UNKNOWN"
     a.step("policy", "allow" if public or acl or effective_public else "unknown", bindings=public, acl=acl,
-           conditional=conditional, effective_public=effective_public, public_access_prevention=prevention)
+           conditional=conditional, unresolved_roles=unresolved_roles,
+           effective_public=effective_public, public_access_prevention=prevention)
     if (not public and not acl and not effective_public) or prevention == "inherited":
         a.explicit = "UNKNOWN"
-        a.gap("policy", "conditional public grant or inherited public access prevention requires effective-policy evaluation")
+        a.gap("policy", "conditional or unresolved public IAM role, or inherited public access prevention, requires effective-policy evaluation")
     a.data_exposure = True
     a.addresses = [f"https://storage.googleapis.com/{data.get('name', native_id(resource))}"]
     return a
@@ -4495,7 +4516,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
-             "project", "workload_identity_provider",
+             "project", "iam_role", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
              "media_cdn_service", "target_pool", "target_instance",

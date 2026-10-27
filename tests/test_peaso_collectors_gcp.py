@@ -1544,6 +1544,43 @@ def test_bigquery_routine_metadata_uses_cached_read_only_iam_policy():
     assert sum(request["url"] == policy_url for request in transport.requests) == 1
 
 
+def test_public_bucket_custom_role_is_hydrated_once_for_permission_review():
+    role = "projects/p-one/roles/objectReader"
+    role_url = "https://iam.googleapis.com/v1/" + role
+    def resolve(request):
+        url = request["url"]
+        if url == "https://storage.googleapis.com/storage/v1/b":
+            return {"items": [{"name": "sample-bucket", "iamConfiguration": {
+                "uniformBucketLevelAccess": {"enabled": True}, "publicAccessPrevention": "inherited"}}]}
+        if url == "https://storage.googleapis.com/storage/v1/b/sample-bucket/iam":
+            return {"bindings": [{"role": role, "members": ["allUsers"]}]}
+        if url == role_url:
+            assert request["method"] == "GET"
+            return {"name": role, "includedPermissions": ["storage.objects.get"]}
+        raise AssertionError(url)
+    result, transport = snapshot(["bucket", "iam_role"], resolve)
+    roles = collection(result, "iam_role")["items"]
+    assert len(roles) == 1 and roles[0]["includedPermissions"] == ["storage.objects.get"]
+    assert sum(request["url"] == role_url for request in transport.requests) == 1
+
+
+def test_storage_effective_public_grants_use_collected_custom_role_permissions():
+    from peaso.collectors.gcp_storage_acl_native import _public_grants
+    role = "projects/p-one/roles/objectReader"
+    policy = {"bindings": [{"role": role, "members": ["allUsers"]}]}
+    class Collector:
+        def __init__(self, permissions):
+            self.permissions = permissions
+        def items(self, kind):
+            assert kind == "iam_role"
+            return [("projects/p-one", {"name": role, "includedPermissions": self.permissions})]
+    assert _public_grants(policy, Collector(["storage.objects.get"])) == (True, False)
+    assert _public_grants(policy, Collector(["storage.objects.create"])) == (True, True)
+    assert _public_grants(policy, Collector(["logging.logEntries.list"])) == (False, False)
+    with pytest.raises(gcp.ReadError, match="storage_public_role_permissions_unresolved"):
+        _public_grants(policy, Collector(None))
+
+
 def test_discovery_search_results_are_metadata_and_kinds_are_evaluated_only_at_native_scope_types():
     def resolve(request):
         url = request["url"]

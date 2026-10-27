@@ -4509,7 +4509,7 @@ class GCPCollector:
                     role = binding.get("role")
                     if isinstance(role, str) and re.fullmatch(r"(?:roles/[\w.]+|(?:projects|organizations)/[\w.-]+/roles/[\w.]+)", role):
                         role_scopes.setdefault(role, set()).add(scope)
-            for kind in ("secret", "pubsub_topic", "pubsub_subscription", "kms_key_ring", "kms_key",
+            for kind in ("bucket", "secret", "pubsub_topic", "pubsub_subscription", "kms_key_ring", "kms_key",
                          "integration_connection", "contact_center_authorized_view"):
                 for scope, resource in self.items(kind):
                     if ((resource.get("_coverage") or {}).get("iamPolicy") or {}).get("status") != "collected":
