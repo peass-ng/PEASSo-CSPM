@@ -480,6 +480,31 @@ def test_gcp_native_final_preserves_priorities_finding_ids(environment, monkeypa
     assert data == original
 
 
+def test_k8s_native_final_preserves_remaining_hardening_ai_inputs(environment, monkeypatch):
+    from peaso.ai import k8s_native_final
+    data = {'provider': 'k8s', 'findings': [
+        dict(finding('h1', check='k8s.deployment.non_root'), provider='k8s'),
+        dict(finding('h2', check='k8s.job.non_root'), provider='k8s')],
+        'resources': [], 'graphs': {}}
+    original = copy.deepcopy(data)
+    monkeypatch.setattr(k8s_native_final, 'admitted_check_ids', lambda: k8s_native_final.ELIGIBLE)
+    calls = []
+
+    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
+        calls.append((stage, [row['id'] for row in findings]))
+        return {'items': [review(row['id']) for row in findings]}
+
+    monkeypatch.setattr(pipeline, 'invoke', invoke)
+    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2],
+                                  stages={'hardening'})
+    assert calls == [('hardening', ['h2'])]
+    assert result['native_final'] == {'hardening': ['h1']}
+    assert result['stage_inputs']['hardening'] == ['h2']
+    assert {row['finding_id']: row['verdict'] for row in result['reviews']['hardening']} == {
+        'h1': 'FAIL', 'h2': 'FAIL'}
+    assert data == original
+
+
 def test_failed_review_remains_unknown_and_scan_survives(environment, monkeypatch):
     _, _, artifacts = environment
     def invoke(*a, **kw):

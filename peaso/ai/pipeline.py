@@ -641,13 +641,19 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             return result
         hardening, exposure, duplicates = inputs(report)
         from .native_final import admitted_check_ids, partition, reviews as native_reviews
+        native_hardening, ai_hardening = partition(
+            hardening, admitted_check_ids() if 'hardening' in selected else frozenset())
         if report['provider'] == 'gcp':
-            from .gcp_native_final import admitted_check_ids as gcp_admitted, partition as gcp_partition
-            native_hardening, ai_hardening = gcp_partition(
-                hardening, gcp_admitted() if 'hardening' in selected else frozenset())
-        else:
-            native_hardening, ai_hardening = partition(
-                hardening, admitted_check_ids() if 'hardening' in selected else frozenset())
+            from .gcp_native_final import admitted_check_ids as gcp_admitted
+            from .gcp_native_final import partition as gcp_partition
+            gcp_native_hardening, ai_hardening = gcp_partition(
+                ai_hardening, gcp_admitted() if 'hardening' in selected else frozenset())
+            native_hardening += gcp_native_hardening
+        from .k8s_native_final import admitted_check_ids as k8s_admitted_check_ids
+        from .k8s_native_final import partition as k8s_partition
+        k8s_native_hardening, ai_hardening = k8s_partition(
+            ai_hardening, k8s_admitted_check_ids() if 'hardening' in selected else frozenset())
+        native_hardening += k8s_native_hardening
         result['reviews']['hardening'] = native_reviews(native_hardening)
         result['native_final'] = {'hardening': [row['id'] for row in native_hardening]}
         result['duplicates'] = duplicates

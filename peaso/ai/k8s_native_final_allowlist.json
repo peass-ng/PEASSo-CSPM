@@ -1,0 +1,25 @@
+{
+  "audit_receipt_sha256": "3f1e9b4b3f3dadb48f08977501127a6c0b5ed816b32b4d26b92916cc91b10871",
+  "checks": [
+    {
+      "check_id": "k8s.deployment.non_root",
+      "disagreements": 0,
+      "reviewed_failures": 15,
+      "source_rechecks": 15
+    },
+    {
+      "check_id": "k8s.replicaset.non_root",
+      "disagreements": 0,
+      "reviewed_failures": 15,
+      "source_rechecks": 15
+    }
+  ],
+  "qualification": {
+    "hosted_cost_gate": "pending",
+    "status": "offline_qualified"
+  },
+  "snapshot_id": "sha256:936d10ad96a726229ef233bc370bf425a9a7724415b9790a61591c9e510aef59",
+  "source_scan_id": "05a1919efd1849d99c2ae8e6b8637b6f",
+  "source_sha256": "b03575a8b0fbdcafedae64b7b9152ef5b0d18e0ac6d85e365e8d5686ade7b898",
+  "version": 1
+}
