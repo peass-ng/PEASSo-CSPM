@@ -5,6 +5,7 @@ be reviewed and pinned by its exact SHA-256 before any row can bypass AI.
 """
 import hashlib
 import ast
+from datetime import date
 import json
 import os
 from pathlib import Path
@@ -55,7 +56,9 @@ def admitted_check_ids(path=MANIFEST):
                     or type(check['prod992_reviewed_failures']) is not int
                     or check['prod992_reviewed_failures'] < 1
                     or not _digest(check['audit_receipt_sha256'])
-                    or not _deterministic_evidence(check['deterministic_evidence'])):
+                    or not _deterministic_evidence(check['deterministic_evidence'])
+                    or (check['deterministic_evidence']['operation']['kind'] == 'versioned_lookup_date'
+                        and ident != 'aws.cb.lambda.runtime_not_deprecated_list')):
                 return frozenset()
             ids.add(ident)
         return frozenset(ids)
@@ -99,10 +102,14 @@ def _deterministic_evidence(value):
                     field['source_semantics'] == 'recorded_api_timestamp')):
             return False
     operation = value['operation']
-    if type(operation) is not dict or set(operation) != {
-            'kind', 'comparison', 'threshold', 'threshold_unit'}:
+    if type(operation) is not dict or 'kind' not in operation:
         return False
     kind = operation['kind']
+    operation_keys = {'kind', 'comparison', 'threshold', 'threshold_unit'}
+    if kind == 'versioned_lookup_date':
+        operation_keys.add('lookup_table')
+    if set(operation) != operation_keys:
+        return False
     comparison = operation['comparison']
     threshold = operation['threshold']
     unit = operation['threshold_unit']
@@ -112,6 +119,7 @@ def _deterministic_evidence(value):
         'list_membership': {'contains', 'not_contains', 'all', 'any'},
         'boolean_combination': {'and', 'or'},
         'age_comparison': {'lt', 'lte', 'gt', 'gte'},
+        'versioned_lookup_date': {'gte'},
     }
     if kind not in comparisons or comparison not in comparisons[kind]:
         return False
@@ -122,15 +130,23 @@ def _deterministic_evidence(value):
     elif kind == 'boolean_combination':
         if threshold is not None or unit is not None or len(fields) < 2:
             return False
+    elif kind == 'versioned_lookup_date':
+        if (threshold is not None or unit is not None or len(fields) != 2
+                or {field['field_path'] for field in fields} != {'PackageType', 'Runtime'}
+                or any(field['field_type'] != 'enum' for field in fields)):
+            return False
     elif type(threshold) not in (bool, int, str) or (
             type(threshold) is str and (not threshold or len(threshold) > 128)) or unit is not None:
         return False
     scan_time = value['scan_time']
-    if kind == 'age_comparison':
+    if kind in {'age_comparison', 'versioned_lookup_date'}:
         if (type(scan_time) is not dict or set(scan_time) != {
                 'source_field', 'recorded_evidence_ref'}
                 or not all(_nonempty(scan_time[key]) for key in scan_time)
-                or not any(field['field_type'] == 'timestamp' for field in fields)):
+                or (kind == 'age_comparison' and not any(
+                    field['field_type'] == 'timestamp' for field in fields))
+                or (kind == 'versioned_lookup_date' and scan_time['source_field'] not in {
+                    '_provenance.collected_at', 'context.created_at'})):
             return False
     elif scan_time is not None:
         return False
@@ -139,7 +155,11 @@ def _deterministic_evidence(value):
             'path', 'symbol', 'source_sha256', 'audit_ref'}
             and all(_nonempty(ref[key]) for key in ref)
             and (ref['path'].startswith('peaso/checks/')
-                 or ref['path'] == 'peaso/unused_iam_aws_activity.py')
+                 or ref['path'] in {
+                     'peaso/unused_iam_aws_activity.py',
+                     'peaso/unused_iam_aws_completion.py',
+                     'peaso/unused_network_aws.py',
+                 })
             and ref['path'].endswith('.py') and '..' not in ref['path'].split('/')
             and _digest(ref['source_sha256'])):
         return False
@@ -154,8 +174,53 @@ def _deterministic_evidence(value):
         syntax = ast.parse(body)
     except (SyntaxError, UnicodeDecodeError):
         return False
-    return any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-               and node.name == ref['symbol'] for node in ast.walk(syntax))
+    if not any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and node.name == ref['symbol'] for node in ast.walk(syntax)):
+        return False
+    return kind != 'versioned_lookup_date' or _runtime_lookup_table(
+        operation['lookup_table'], ref, syntax)
+
+
+def _runtime_lookup_table(table, ref, syntax):
+    """Admit only the reviewed Lambda runtime date table and expiry guard."""
+    if (ref['path'] != 'peaso/checks/claude_aws_b_compute.py'
+            or ref['symbol'] != 'lambda_runtime'
+            or type(table) is not dict or set(table) != {
+                'symbol', 'source_sha256', 'reviewed_at',
+                'valid_through_symbol', 'audit_ref'}
+            or table['symbol'] != 'RUNTIME_DEPRECATION'
+            or table['source_sha256'] != ref['source_sha256']
+            or table['reviewed_at'] != '2026-10-12'
+            or table['valid_through_symbol'] != 'RUNTIME_POLICY_VALID_THROUGH'
+            or table['audit_ref'] != 'peaso/checks/claude_aws_b_compute.py:109-158'):
+        return False
+    assignments = {
+        target.id: node.value for node in syntax.body if isinstance(node, ast.Assign)
+        for target in node.targets if isinstance(target, ast.Name)
+    }
+    reviewed = assignments.get('RUNTIME_POLICY_REVIEWED_AT')
+    table_node = assignments.get('RUNTIME_DEPRECATION')
+    valid_through = assignments.get('RUNTIME_POLICY_VALID_THROUGH')
+    if (not isinstance(reviewed, ast.Constant)
+            or reviewed.value != table['reviewed_at']
+            or not isinstance(table_node, ast.Dict)
+            or not table_node.keys
+            or not isinstance(valid_through, ast.AST)
+            or ast.unparse(valid_through) !=
+                '(date.fromisoformat(RUNTIME_POLICY_REVIEWED_AT) + timedelta(days=180)).isoformat()'):
+        return False
+    keys = set()
+    for key, value in zip(table_node.keys, table_node.values):
+        if (not isinstance(key, ast.Constant) or type(key.value) is not str
+                or not key.value or key.value in keys
+                or not isinstance(value, ast.Constant) or type(value.value) is not str):
+            return False
+        keys.add(key.value)
+        try:
+            date.fromisoformat(value.value)
+        except ValueError:
+            return False
+    return True
 
 
 def partition(rows, admitted):

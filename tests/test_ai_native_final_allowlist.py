@@ -150,7 +150,68 @@ def test_exact_pinned_iam_activity_evaluator_path(tmp_path, monkeypatch):
     ref['path'] = 'peaso/unused_iam_aws_completion.py'
     ref['source_sha256'] = hashlib.sha256((Path(native_final.__file__).resolve()
         .parents[2] / ref['path']).read_bytes()).hexdigest()
+    assert native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value)) == {
+        'aws.test.direct_setting'}
+    ref['path'] = 'peaso/unused_network_aws.py'
+    ref['symbol'] = 'target_group'
+    ref['source_sha256'] = hashlib.sha256((Path(native_final.__file__).resolve()
+        .parents[2] / ref['path']).read_bytes()).hexdigest()
+    assert native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value)) == {
+        'aws.test.direct_setting'}
+    ref['path'] = 'peaso/unused_iam_aws_completion.py'
+    ref['source_sha256'] = hashlib.sha256((Path(native_final.__file__).resolve()
+        .parents[2] / ref['path']).read_bytes()).hexdigest()
+    # The path exception never bypasses the exact evaluator symbol check.
     assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value))
+    ref['path'] = 'peaso/unused_network_gcp.py'
+    ref['source_sha256'] = hashlib.sha256((Path(native_final.__file__).resolve()
+        .parents[2] / ref['path']).read_bytes()).hexdigest()
+    assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value))
+
+
+def test_versioned_runtime_lookup_is_exact_and_time_bound(tmp_path, monkeypatch):
+    value = qualified_manifest()
+    check = value['checks'][0]
+    check['check_id'] = 'aws.cb.lambda.runtime_not_deprecated_list'
+    evidence = check['deterministic_evidence']
+    evidence['source_fields'] = [
+        {'api': 'lambda:GetFunctionConfiguration', 'field_path': path,
+         'field_type': 'enum', 'source_semantics': 'recorded_api_field',
+         'recorded_evidence_ref': 'prod992/snapshot#lambda-runtime'}
+        for path in ('PackageType', 'Runtime')]
+    ref = evidence['code_path_audit_ref']
+    ref['path'] = 'peaso/checks/claude_aws_b_compute.py'
+    ref['symbol'] = 'lambda_runtime'
+    ref['source_sha256'] = hashlib.sha256((Path(native_final.__file__).resolve()
+        .parents[2] / ref['path']).read_bytes()).hexdigest()
+    evidence['operation'] = {
+        'kind': 'versioned_lookup_date', 'comparison': 'gte',
+        'threshold': None, 'threshold_unit': None,
+        'lookup_table': {'symbol': 'RUNTIME_DEPRECATION',
+                         'source_sha256': ref['source_sha256'],
+                         'reviewed_at': '2026-10-12',
+                         'valid_through_symbol': 'RUNTIME_POLICY_VALID_THROUGH',
+                         'audit_ref': 'peaso/checks/claude_aws_b_compute.py:109-158'},
+    }
+    evidence['scan_time'] = {'source_field': 'context.created_at',
+                             'recorded_evidence_ref': 'prod992/snapshot#created_at'}
+    assert native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value)) == {
+        check['check_id']}
+    for mutation in (
+            lambda e: e['operation']['lookup_table'].update(symbol='ARBITRARY_TABLE'),
+            lambda e: e['operation']['lookup_table'].update(reviewed_at='2025-01-01'),
+            lambda e: e['operation']['lookup_table'].update(source_sha256='0' * 64),
+            lambda e: e['operation']['lookup_table'].update(audit_ref='arbitrary'),
+            lambda e: e['operation'].update(comparison='lte'),
+            lambda e: e.update(scan_time=None),
+            lambda e: e['source_fields'][1].update(field_path='PolicyText'),
+    ):
+        changed = copy.deepcopy(value)
+        mutation(changed['checks'][0]['deterministic_evidence'])
+        assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, changed))
+    changed = copy.deepcopy(value)
+    changed['checks'][0]['check_id'] = 'aws.test.direct_setting'
+    assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, changed))
 
 
 def test_native_fail_reaches_priorities_with_exact_id_and_report_unchanged(tmp_path):
