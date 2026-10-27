@@ -13,6 +13,11 @@ def evidence_summary(finding):
     if correction:
         return correction
     provider = finding.get('provider')
+    if provider == 'k8s':
+        from peaso.checks.k8s_workload_finding_summary import pod_level_observation
+        pod_observation = pod_level_observation(finding)
+        if pod_observation is not None:
+            return pod_observation
     if finding.get('category') == 'privesc' or finding.get('check_id') == 'admin-equivalent':
         if provider == 'aws':
             from peaso.privesc.aws_observed_evidence_v3 import evidence_summary as privilege_path

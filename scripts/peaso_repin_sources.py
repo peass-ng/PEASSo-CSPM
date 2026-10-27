@@ -44,6 +44,7 @@ FROZEN = frozenset((
     'tests/fixtures/post_dfaf_integration/historical-release-manifests.json',
     'tests/fixtures/post_dfaf_integration/sprint_source_changes.json',
     'tests/test_native_admission_cpu_successor_20261020.py',
+    'tests/test_provider_combined_source_bridge_20261020.py',
 ))
 # Whole trees of dated review records and retained predecessor fixtures; the
 # same set push_locked.sh reverts after its own re-pin.  A current value a

@@ -2,6 +2,115 @@
 from .k8s_workload_clarity_reviewed import ROWS
 
 
+_POD_LEVEL_IDS = {
+    'k8s.ports.pod.host_namespaces',
+    'k8s.ports.pod.host_network',
+    'k8s.ports.pod.explicit_serviceaccount',
+    'k8s.ports.pod.pod_runtime_default_seccomp',
+}
+
+
+def _unknown_pod_level(cid, reason):
+    reason = _text(reason)
+    if reason is None:
+        return None
+    if cid.endswith('.host_namespaces'):
+        missing = reason.removeprefix('host namespace declaration unavailable: ')
+        if missing in ('hostPID', 'hostIPC', 'hostPID, hostIPC'):
+            return (f'The PodSpec {missing} declaration was unavailable.',
+                    'The workload may share a host process or shared-memory namespace.',
+                    'That could expose host details if sharing is enabled.')
+        field = 'hostPID or hostIPC'
+    elif cid.endswith('.host_network'):
+        field = 'hostNetwork'
+        if reason in ('fact unavailable or malformed coverage: hostNetwork', 'malformed fact: hostNetwork'):
+            return (f'The PodSpec {field} declaration was unavailable or malformed.',
+                    'The workload may share the node’s network namespace if this setting is enabled.',
+                    'That could expose node network ports or traffic.')
+    elif cid.endswith('.explicit_serviceaccount'):
+        field = 'serviceAccountName'
+        if reason in ('fact unavailable or malformed coverage: serviceAccountName', 'malformed service account name'):
+            return (f'The PodSpec {field} declaration was unavailable or malformed.',
+                    'The workload may use a named or default ServiceAccount.',
+                    'Its permissions could affect access to other resources.')
+    else:
+        field = 'seccompProfile'
+        if reason in ('fact unavailable or malformed coverage: securityContext',
+                      'fact unavailable or malformed coverage: seccompProfile',
+                      'unknown seccomp profile type'):
+            return (f'The PodSpec {field} declaration was unavailable or malformed.',
+                    'The workload may have fewer system-call restrictions.',
+                    'A container override could also change the effective restriction.')
+    return (f'The PodSpec {field} declaration could not be determined.',
+            f'The recorded reason was “{reason}”.',
+            f'The {field} setting remains unclear from that fact.')
+
+
+def pod_level_observation(finding):
+    """Explain only recorded PodSpec declarations affected by leaf authority."""
+    if (not isinstance(finding, dict) or finding.get('provider') != 'k8s'
+            or finding.get('check_id') not in _POD_LEVEL_IDS
+            or finding.get('status') not in ('PASS', 'FAIL', 'UNKNOWN')
+            or not isinstance(finding.get('evidence'), dict)):
+        return None
+    cid, status, evidence = finding['check_id'], finding['status'], finding['evidence']
+    lines = None
+    if status == 'UNKNOWN':
+        lines = _unknown_pod_level(cid, evidence.get('reason'))
+    elif cid.endswith('.host_namespaces'):
+        pid, ipc = evidence.get('hostPID'), evidence.get('hostIPC')
+        if status == 'FAIL' and (pid is True or ipc is True):
+            if pid is True and ipc is True:
+                lines = ('The PodSpec declares hostPID=true and hostIPC=true.',
+                         'The workload may share the node’s process and shared-memory namespaces.',
+                         'That could expose host process and shared-memory details to the workload.')
+            elif pid is True:
+                lines = ('The PodSpec declares hostPID=true.',
+                         'The workload may share the node’s process namespace.',
+                         'That could expose host process details to the workload.')
+            else:
+                lines = ('The PodSpec declares hostIPC=true.',
+                         'The workload may share the node’s shared-memory namespace.',
+                         'That could expose host shared-memory details to the workload.')
+        elif status == 'PASS' and pid is False and ipc is False:
+            lines = ('The PodSpec declares hostPID=false and hostIPC=false.',
+                     'These settings call for separate process and shared-memory namespaces.',
+                     'That may reduce the workload’s access to host process and shared-memory details.')
+    elif cid.endswith('.host_network') and type(evidence.get('hostNetwork')) is bool:
+        if status == 'FAIL' and evidence['hostNetwork'] is True:
+            lines = ('The PodSpec declares hostNetwork=true.',
+                     'The workload may share the node’s network namespace.',
+                     'That could expose node network ports or traffic to the workload.')
+        elif status == 'PASS' and evidence['hostNetwork'] is False:
+            lines = ('The PodSpec declares hostNetwork=false.',
+                     'This setting calls for a network namespace separate from the node.',
+                     'That may limit the workload’s access to node network traffic.')
+    elif cid.endswith('.explicit_serviceaccount'):
+        value = evidence.get('declared_service_account')
+        safe_value = _text(value)
+        if status == 'PASS' and safe_value:
+            lines = (f'The PodSpec declares ServiceAccount “{safe_value}”.',
+                     'The workload may use this identity for Kubernetes API requests.',
+                     'Its assigned permissions could allow access to other resources.')
+        elif status == 'FAIL' and value in (None, ''):
+            lines = ('The PodSpec declares no ServiceAccount name.',
+                     'The workload may use the namespace’s default ServiceAccount.',
+                     'That identity could have permissions shared with other workloads.')
+    elif cid.endswith('.pod_runtime_default_seccomp'):
+        value = evidence.get('declared_pod_profile')
+        if status == 'PASS' and value == 'RuntimeDefault':
+            lines = ('The PodSpec declares seccompProfile.type=RuntimeDefault.',
+                     'This profile may restrict system calls available to the workload.',
+                     'A container override could change the effective restriction.')
+        elif status == 'FAIL' and value in (None, 'Localhost', 'Unconfined'):
+            declaration = ('no Pod-level seccomp profile' if value is None else
+                           f'seccompProfile.type={value}')
+            lines = (f'The PodSpec declares {declaration}.',
+                     'The workload may have fewer system-call restrictions.',
+                     'A compromised process could have more ways to affect the node.')
+    return '\n'.join(lines) if lines else None
+
+
 def _text(value):
     return value if isinstance(value, str) and 0 < len(value) <= 160 and all(ord(c) >= 32 for c in value) else None
 
