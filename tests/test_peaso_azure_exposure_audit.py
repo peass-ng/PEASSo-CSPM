@@ -119,6 +119,37 @@ def test_nsg_specific_public_source_respects_per_source_priority():
     assert _nsg_allowed(nsg)[0] == {"tcp": ((22, 22),)}
 
 
+def test_container_app_requires_public_environment_and_effective_ingress():
+    env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
+    app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
+
+    def app_decision(env_public="Enabled", rules=None, transport="http", extra=None):
+        ingress = {"external": True, "transport": transport, "fqdn": "app.example.azurecontainerapps.io",
+                   "ipSecurityRestrictions": rules or []}
+        if transport == "tcp":
+            ingress["exposedPort"] = 8443
+        if extra:
+            ingress["additionalPortMappings"] = extra
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
+             "items": [{"id": env_id, "properties": {"publicNetworkAccess": env_public,
+                         "vnetConfiguration": {"internal": False}}}]},
+            {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
+             "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
+                         "configuration": {"ingress": ingress}, "provisioningState": "Succeeded"}}]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "container_app")
+
+    assert app_decision().verdict() == "FAIL"
+    assert app_decision(env_public="Disabled").verdict() == "PASS"
+    assert app_decision(env_public=None).verdict() == "UNKNOWN"
+    private_allow = [{"action": "Allow", "ipAddressRange": "10.0.0.0/8"}]
+    public_allow = [{"action": "Allow", "ipAddressRange": "8.8.8.8/32"}]
+    assert app_decision(rules=private_allow).verdict() == "PASS"
+    assert app_decision(rules=public_allow).verdict() == "FAIL"
+    tcp = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}])
+    assert tcp.verdict() == "FAIL" and tcp.ports == {"tcp": ((8443, 8443), (9000, 9000))}
+
+
 @pytest.mark.parametrize("kind", ["vault", "container_registry", "search_service", "servicebus_namespace"])
 def test_managed_endpoint_explicit_network_gate(kind):
     rule = {"vault": "networkAcls", "container_registry": "networkRuleSet",

@@ -1940,6 +1940,82 @@ def _azure_container_group(snapshot, inventory, resource):
     return a
 
 
+def _azure_container_app(snapshot, inventory, resource):
+    props = _props(resource)
+    ingress = (props.get("configuration") or {}).get("ingress") or {}
+    if ingress.get("external") is not True:
+        return None
+    a = Assessment(resource, "container")
+    env_id = props.get("environmentId") or props.get("managedEnvironmentId")
+    environment = inventory.get("container_app_environment", env_id)
+    if environment is None:
+        a.gap("inventory", "Container Apps environment is not collected", "Microsoft.App/managedEnvironments")
+    else:
+        ep = _props(environment)
+        if (str(ep.get("publicNetworkAccess", "")).lower() == "disabled" or
+                (ep.get("vnetConfiguration") or {}).get("internal") is True):
+            a.step("environment", "block", public_network_access=ep.get("publicNetworkAccess"),
+                   internal=(ep.get("vnetConfiguration") or {}).get("internal"))
+            a.ports = {}
+            return a
+        if str(ep.get("publicNetworkAccess", "")).lower() != "enabled":
+            a.gap("inventory", "Container Apps environment publicNetworkAccess is not explicit")
+        a.step("environment", "allow", public_network_access=ep.get("publicNetworkAccess"))
+    transport = str(ingress.get("transport") or "auto").lower()
+    if transport == "tcp":
+        port = ingress.get("exposedPort")
+        if isinstance(port, int) and 1 <= port <= 65535:
+            a.ports = pset("tcp", port, port)
+        else:
+            a.gap("listener", "Container App TCP exposedPort is unavailable")
+    elif transport in ("auto", "http", "http2"):
+        a.ports = pset("tcp", 443, 443)
+        if ingress.get("allowInsecure") is True:
+            a.ports = union(a.ports, pset("tcp", 80, 80))
+    else:
+        a.gap("listener", "Container App ingress transport is unrecognized")
+    for mapping in as_list(ingress.get("additionalPortMappings")):
+        if isinstance(mapping, dict) and mapping.get("external") is True:
+            port = mapping.get("exposedPort") or mapping.get("targetPort")
+            if isinstance(port, int) and 1 <= port <= 65535:
+                a.ports = union(a.ports or {}, pset("tcp", port, port))
+            else:
+                a.gap("listener", "Container App external additional port is unavailable")
+    rules = as_list(ingress.get("ipSecurityRestrictions"))
+    if rules:
+        actions = {r.get("action") for r in rules if isinstance(r, dict)}
+        networks = [_cidr(r.get("ipAddressRange")) for r in rules if isinstance(r, dict)]
+        if len(actions) != 1 or None in networks or len(networks) != len(rules):
+            a.gap("access_restrictions", "Container App IP restriction rules are malformed or mixed")
+        elif actions == {"Allow"}:
+            if not _azure_public_remainder(networks, []):
+                a.step("access_restrictions", "block", action="Allow", rule_count=len(rules))
+                a.ports = {}
+                return a
+            a.step("access_restrictions", "allow", action="Allow", rule_count=len(rules))
+        elif actions == {"Deny"}:
+            if not _azure_public_remainder(_azure_restriction_sources("Any"), networks):
+                a.step("access_restrictions", "block", action="Deny", rule_count=len(rules))
+                a.ports = {}
+                return a
+            a.step("access_restrictions", "allow", action="Deny", rule_count=len(rules))
+        else:
+            a.gap("access_restrictions", "Container App IP restriction action is unrecognized")
+    else:
+        a.step("access_restrictions", "allow", rule_count=0)
+    if ingress.get("clientCertificateMode") == "Require":
+        a.authenticated = True
+    fqdn = ingress.get("fqdn")
+    if isinstance(fqdn, str) and fqdn:
+        a.addresses.append(fqdn)
+    else:
+        a.gap("inventory", "Container App public ingress FQDN is not collected")
+    if props.get("provisioningState") not in (None, "Succeeded"):
+        a.gap("inventory", "Container App provisioning is not confirmed successful")
+    a.step("listener", "allow" if a.ports else "unknown", transport=transport, ports=describe(a.ports or {}))
+    return a
+
+
 _AZURE_MANAGED_ENDPOINTS = {
     "vault": (443, "networkAcls"),
     "cosmos_account": (443, "ipRules"),
@@ -2130,14 +2206,14 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket", "project", "workload_identity_provider"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node"]
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress"}}
 
 
@@ -2173,6 +2249,7 @@ def assess(snapshot, resources):
                   "storage_account": _azure_storage, "storage_container": _azure_storage_container,
                   "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"]),
                   "container_group": _azure_container_group,
+                  "container_app": _azure_container_app,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress},
     }.get(provider, {})
