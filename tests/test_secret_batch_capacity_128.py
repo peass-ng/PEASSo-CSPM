@@ -9,12 +9,12 @@ class FixtureCipher:
     def encrypt(self, value): return json.dumps(value, sort_keys=True)
     def decrypt(self, value): return json.loads(value)
 
-def test_512_sources_keep_private_full_values_and_original_paths(monkeypatch):
-    assert batch.MAX_BATCH_ITEMS == packages.BATCH_ITEMS == 512
+def test_2048_sources_keep_private_full_values_and_original_paths(monkeypatch):
+    assert batch.MAX_BATCH_ITEMS == packages.BATCH_ITEMS == 2048
     assert batch.MAX_BATCH_BYTES == packages.BATCH_BYTES == 64 * 1024 * 1024
     primary = 'synthetic-primary'
     full = primary + ':' + 'A' * 40
-    items = [((full + '\nsource=' + str(i)).encode(), 'original/' + str(i)) for i in range(512)]
+    items = [((full + '\nsource=' + str(i)).encode(), 'original/' + str(i)) for i in range(2048)]
     def prepare(items, timeout):
         return {item: json.dumps({'Raw': primary, 'RawV2': full, 'Verified': False,
                                  'DetectorName': 'AWS'}).encode() for item in items}
@@ -38,8 +38,8 @@ def test_512_sources_keep_private_full_values_and_original_paths(monkeypatch):
     assert batch._PREPARED_BATCH.get() is None
     scanning._RESULTS.clear()
 
-def test_513_sources_remain_outside_finite_bound(monkeypatch):
+def test_2049_sources_remain_outside_finite_bound(monkeypatch):
     monkeypatch.setattr(batch, '_prepare_trufflehog_batch', lambda *args: pytest.fail('invalid batch reached scanner'))
     with pytest.raises(ValueError, match='content batch bound'):
-        with batch.prepared_content_batch([(b'x', 'path')] * 513):
+        with batch.prepared_content_batch([(b'x', 'path')] * 2049):
             pass
