@@ -1278,7 +1278,9 @@ def test_review_admission_respects_memory_headroom(available_mib, requested, exp
     assert pipeline.review_concurrency() == expected
 
 
-@pytest.mark.parametrize('available_mib,requested,expected', [(1100, 6, 6), (600, 6, 3), (200, 6, 0)])
+@pytest.mark.parametrize('available_mib,requested,expected',
+    [(8192, 12, 12), (4096, 12, 12), (2048, 12, 7),
+     (1100, 6, 3), (600, 6, 1), (200, 6, 0)])
 def test_remote_review_admission_reserves_only_local_staging_memory(available_mib, requested, expected, monkeypatch):
     monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', str(requested))
     monkeypatch.setenv('PEASO_AI_RUNTIME', 'fargate')
@@ -1430,7 +1432,12 @@ def test_review_queue_admits_six_workers_and_keeps_the_priorities_barrier(enviro
 
 
 def test_review_queue_rejects_unbounded_concurrency(monkeypatch):
+    monkeypatch.setattr(pipeline.isolation, 'remote', lambda: False)
     monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', '7')
+    with pytest.raises(ValueError, match='invalid_ai_concurrency'):
+        pipeline.review_concurrency()
+    monkeypatch.setattr(pipeline.isolation, 'remote', lambda: True)
+    monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', '13')
     with pytest.raises(ValueError, match='invalid_ai_concurrency'):
         pipeline.review_concurrency()
 

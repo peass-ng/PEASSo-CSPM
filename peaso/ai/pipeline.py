@@ -428,13 +428,15 @@ def available_memory():
 
 def review_concurrency():
     requested = int(os.getenv('PEASO_AI_MAX_CONCURRENCY', '2'))
-    if not 1 <= requested <= 6:
+    remote = isolation.remote()
+    if not 1 <= requested <= (12 if remote else 6):
         raise ValueError('invalid_ai_concurrency')
     # Admission estimate, not an enforced per-process memory limit. Current
     # analyzer usage is already included in the cgroup's used memory. A
     # Fargate agent runs in its own task; locally it only stages its input
-    # bundle and polls, so it reserves far less than a local agent process.
-    per_agent = (128 if isolation.remote() else 512) * 1024**2
+    # bundle and polls, so it reserves less than a local agent process. Keep
+    # twice the former hosted staging allowance for the larger bounded pool.
+    per_agent = (256 if remote else 512) * 1024**2
     capacity = max(0, (available_memory() - 128 * 1024**2) // per_agent)
     return min(requested, capacity)
 
@@ -541,7 +543,11 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
                         recheck_buffer[stage].clear()
                 # Recheck admission before starting another batch. Existing
                 # agents retain their slots; no unbounded futures queue exists.
-                capacity = min(slots, review_concurrency() + len(pending))
+                # Local agents account for their own memory in this cgroup;
+                # hosted agents run in separate Fargate tasks, so adding their
+                # pending count back would over-admit on analyzer memory.
+                capacity = min(slots, review_concurrency() +
+                               (0 if isolation.remote() else len(pending)))
                 while queue and len(pending) < capacity and time.monotonic() < end:
                     task = queue.popleft()
                     pending[executor.submit(run, task[0], task[1])] = task

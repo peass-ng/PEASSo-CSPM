@@ -113,7 +113,7 @@ locals {
     PEASO_AI_FARGATE_SUBNETS         = aws_subnet.ai.id
     PEASO_AI_FARGATE_SECURITY_GROUPS = aws_security_group.ai.id
     PEASO_AI_FARGATE_BUCKET          = aws_s3_bucket.ai_transport.id
-    PEASO_AI_MAX_CONCURRENCY         = "6"
+    PEASO_AI_MAX_CONCURRENCY         = "12"
     PEASO_AI_TIMEOUT_SECONDS         = "3000"
   }
 }

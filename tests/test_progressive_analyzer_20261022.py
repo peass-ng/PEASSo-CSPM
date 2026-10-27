@@ -120,6 +120,87 @@ class FakeStageProcess:
         self.thread.join(timeout=1)
 
 
+@pytest.mark.parametrize('budget', [6, 12])
+def test_three_ready_sections_share_agent_slots(monkeypatch, tmp_path, budget):
+    store, artifacts = FakeStore(), FakeArtifacts()
+    sections = artifacts.values['report-json']['publication']['sections']
+    for stage in progressive_analyzer.STAGES:
+        sections[stage] = {'status': 'complete', 'data_revision': 1}
+    started = {stage: threading.Event() for stage in progressive_analyzer.STAGES}
+    release = threading.Event()
+
+    def review(report, snapshot, selectors, **kwargs):
+        stage = kwargs['stages'][0]
+        started[stage].set()
+        assert release.wait(3)
+        return {'status': 'completed', 'reviews': {stage: []}}
+
+    monkeypatch.setattr(progressive_analyzer, 'review_scan', review)
+    monkeypatch.setattr(progressive_analyzer, 'review_concurrency', lambda: budget)
+    monkeypatch.setattr(progressive_analyzer, '_StageProcess', FakeStageProcess)
+    FakeStageProcess.instances.clear()
+    worker = SimpleNamespace(role='analyzer', store=store, artifacts=artifacts,
+        settings=SimpleNamespace(state_dir=tmp_path, identity_dir=tmp_path, lease_seconds=30),
+        stopping=threading.Event())
+
+    def final(tenant, ident, *, stage_poll=None):
+        with store.lock:
+            store.row['status'] = 'analyzing'
+        if stage_poll is not None:
+            while not stage_poll(store.job(tenant, ident)):
+                assert not worker.stopping.wait(.01)
+        assert set(store.stage_results(tenant, ident)) == set(progressive_analyzer.STAGES)
+        with store.lock:
+            store.row['status'] = 'completed'
+
+    worker.run_once = final
+    thread = threading.Thread(target=progressive_analyzer.run_progressive,
+        args=(worker, 'tenant', 'scan'), kwargs={'poll_seconds': .01})
+    thread.start()
+    try:
+        assert all(event.wait(2) for event in started.values())
+        assert [task.stage for task in FakeStageProcess.instances] == list(progressive_analyzer.STAGES)
+        semaphore = FakeStageProcess.instances[0].agent_semaphore
+        assert semaphore is not None
+        assert all(task.agent_semaphore is semaphore for task in FakeStageProcess.instances)
+        assert all(semaphore.acquire(block=False) for _ in range(budget))
+        assert not semaphore.acquire(block=False)
+        for _ in range(budget):
+            semaphore.release()
+        with store.lock:
+            store.row['status'] = 'collected'
+        release.set()
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert set(store.results) == set(progressive_analyzer.STAGES)
+    finally:
+        release.set()
+        worker.stopping.set()
+        thread.join(timeout=3)
+
+
+def test_stage_child_forwards_shared_agent_semaphore(monkeypatch, tmp_path):
+    artifacts = FakeArtifacts()
+    artifacts.values['report-json']['publication']['sections']['hardening'] = {
+        'status': 'complete', 'data_revision': 1}
+    monkeypatch.setattr(progressive_analyzer, 'FileArtifacts', lambda _: artifacts)
+    monkeypatch.setattr(progressive_analyzer.signal, 'signal', lambda *args: None)
+    observed = []
+    semaphore = threading.BoundedSemaphore(3)
+
+    def review(*args, **kwargs):
+        observed.append((kwargs['agent_semaphore'], kwargs['stages']))
+        return {'status': 'completed', 'reviews': {'hardening': []}}
+
+    monkeypatch.setattr(progressive_analyzer, 'review_scan', review)
+    connection = SimpleNamespace(send=lambda value: observed.append(value), close=lambda: None)
+    progressive_analyzer._stage_child({'mode': 'file', 'root': str(tmp_path)}, 'tenant', 'scan',
+        'hardening', 1, 'partial-report', 'partial-snapshot', {}, time.time() + 5,
+        {}, threading.Event(), connection, semaphore)
+    assert observed[0] == (semaphore, ('hardening',))
+    assert isinstance(observed[1], str)
+
+
 def test_network_starts_while_images_blocked_and_no_stage_starts_early(monkeypatch, tmp_path):
     store, artifacts = FakeStore(), FakeArtifacts()
     store.row["status"] = "queued"
