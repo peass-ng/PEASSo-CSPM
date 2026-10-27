@@ -416,6 +416,37 @@ def test_pipeline_waits_for_reviews_then_prioritizes_and_redacts(environment, mo
     assert result['actions'][0]['rationale'] == '[REDACTED]'
 
 
+def test_native_final_skips_only_exact_hardening_check_and_reaches_priorities(environment, monkeypatch):
+    from peaso.ai import native_final
+    data = report()
+    data['findings'][0]['check_id'] = 'aws.test.direct_setting'
+    data['findings'].append(finding('h2', check='aws.test.other_setting'))
+    data['coverage'] = [{'type': 'ec2', 'status': 'evaluated'}]
+    original = copy.deepcopy(data)
+    monkeypatch.setattr(native_final, 'admitted_check_ids', lambda: {'aws.test.direct_setting'})
+    calls = []
+
+    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
+        calls.append((stage, [row['id'] for row in findings]))
+        if stage == 'priorities':
+            assert {row['finding_id']: row['verdict'] for row in reviews} == {
+                'h1': 'FAIL', 'h2': 'FAIL', 'e1': 'FAIL'}
+            assert platform['report']['findings'] == original['findings']
+            assert platform['report']['coverage'] == original['coverage']
+            return {'actions': [action()], 'limitations': []}
+        return {'items': [review(row['id']) for row in findings]}
+
+    monkeypatch.setattr(pipeline, 'invoke', invoke)
+    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
+    assert ('hardening', ['h1']) not in calls
+    assert ('hardening', ['h2']) in calls
+    assert result['native_final'] == {'hardening': ['h1']}
+    assert result['stage_inputs']['hardening'] == ['h2']
+    assert result['actions'][0]['finding_ids'] == ['h1']
+    assert result['coverage']['hardening'] == 2 and result['coverage']['reviewed'] == 3
+    assert data == original
+
+
 def test_failed_review_remains_unknown_and_scan_survives(environment, monkeypatch):
     _, _, artifacts = environment
     def invoke(*a, **kw):

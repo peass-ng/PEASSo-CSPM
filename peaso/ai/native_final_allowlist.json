@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "source_scan_id": "992d7b8cbd4340a79e41139ba1a44c1e",
+  "base_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
+  "replay_qualification": {
+    "status": "pending",
+    "receipt_sha256": null
+  },
+  "checks": []
+}

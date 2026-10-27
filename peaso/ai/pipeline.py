@@ -602,9 +602,14 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             result['limitations'].append('AI agents were not started: this deployment has no configured isolation launcher. Deterministic scan findings remain available.')
             return result
         hardening, exposure, duplicates = inputs(report)
+        from .native_final import admitted_check_ids, partition, reviews as native_reviews
+        native_hardening, ai_hardening = partition(
+            hardening, admitted_check_ids() if 'hardening' in selected else frozenset())
+        result['reviews']['hardening'] = native_reviews(native_hardening)
+        result['native_final'] = {'hardening': [row['id'] for row in native_hardening]}
         result['duplicates'] = duplicates
         result['stage_inputs'] = {
-            'hardening': sorted(row['id'] for row in hardening),
+            'hardening': sorted(row['id'] for row in ai_hardening),
             'exposure': sorted(row['id'] for row in exposure),
         }
         entries = []
@@ -628,7 +633,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result['review_fingerprints'] = {
             stage: review_fingerprints(report, inventory_by_id, rows, identity=identity, entries=entries)
             if stage in selected else {}
-            for stage, rows in (('hardening', hardening), ('exposure', exposure))
+            for stage, rows in (('hardening', ai_hardening), ('exposure', exposure))
         }
         # The final report publication follows this stage inside the same
         # scan deadline, so keep its reserve out of the AI budget.
@@ -696,16 +701,18 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                     and proof.get(row['finding_id']) == current.get(row['finding_id'])}
                 if len(reusable_reviews[stage]) == len(current):
                     ordered = [reusable_reviews[stage][row['id']]
-                        for row in (hardening if stage == 'hardening' else exposure)]
+                        for row in (ai_hardening if stage == 'hardening' else exposure)]
                     try:
-                        result['reviews'][stage] = validate_reviews({'items': ordered},
-                            hardening if stage == 'hardening' else exposure)['items']
+                        validated = validate_reviews({'items': ordered},
+                            ai_hardening if stage == 'hardening' else exposure)['items']
+                        result['reviews'][stage] = (native_reviews(native_hardening) + validated
+                            if stage == 'hardening' else validated)
                     except (TypeError, ValueError):
                         continue
                     pending.remove(stage)
         # Independent reviewers can start as each section becomes complete.
         # Priorities below wait for the selected reviewer calls to settle.
-        missing_hardening = [row for row in hardening if row['id'] not in reusable_reviews['hardening']]
+        missing_hardening = [row for row in ai_hardening if row['id'] not in reusable_reviews['hardening']]
         missing_exposure = [row for row in exposure if row['id'] not in reusable_reviews['exposure']]
         if not pending & {'hardening', 'exposure', 'network'}:
             fresh, failed_stage = {}, False
@@ -720,9 +727,11 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         for stage in ('hardening', 'exposure'):
             if stage in fresh:
                 by_id = {**reusable_reviews[stage], **{row['finding_id']: row for row in fresh[stage]}}
-                expected = hardening if stage == 'hardening' else exposure
-                result['reviews'][stage] = validate_reviews({'items':
+                expected = ai_hardening if stage == 'hardening' else exposure
+                validated = validate_reviews({'items':
                     [by_id[row['id']] for row in expected]}, expected)['items']
+                result['reviews'][stage] = (native_reviews(native_hardening) + validated
+                    if stage == 'hardening' else validated)
         if 'network' in fresh:
             result['network'] = fresh['network']
         result['network'] = result.get('network', {

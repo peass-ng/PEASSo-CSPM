@@ -86,7 +86,9 @@ def apply_report_reviews(report):
     reviews = review_index(report.get('ai'))
     if not reviews:
         return report
-    findings = [apply_review(row, reviews, report.get('check_meta')) for row in report.get('findings', [])]
+    native_ids = set(((report.get('ai') or {}).get('native_final') or {}).get('hardening', ()))
+    findings = [row if row.get('id') in native_ids else apply_review(row, reviews, report.get('check_meta'))
+                for row in report.get('findings', [])]
     stats = dict(report.get('stats', {}))
     if 'scanner_by_status' not in stats:
         stats['scanner_by_status'] = stats.get('by_status', {})
