@@ -1905,6 +1905,10 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     if isinstance(rules, dict) and rules_name != "firewallRules":
         action = rules.get("defaultAction")
         if action == "Deny":
+            if as_list(rules.get("ipRules")) or as_list(rules.get("virtualNetworkRules")):
+                a.gap("firewall", f"{rules_name} allow rules require effective source evaluation")
+                a.ports = pset("tcp", port, port)
+                return a
             a.step("firewall", "block", default_action=action)
             a.ports = {}
             return a

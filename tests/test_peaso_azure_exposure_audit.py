@@ -68,5 +68,7 @@ def test_managed_endpoint_explicit_network_gate(kind):
     assert decision(kind, {"publicNetworkAccess": "Enabled", "endpoint": "https://public.example.test",
                            rule: {"defaultAction": "Allow"}}).verdict() == "FAIL"
     assert decision(kind, {"publicNetworkAccess": "Enabled", rule: {"defaultAction": "Deny"}}).verdict() == "PASS"
+    assert decision(kind, {"publicNetworkAccess": "Enabled", rule: {"defaultAction": "Deny",
+                           "ipRules": [{"value": "0.0.0.0/0"}]}}).verdict() == "UNKNOWN"
     assert decision(kind, {"publicNetworkAccess": "Enabled"}).verdict() == "UNKNOWN"
     assert decision(kind, {"publicNetworkAccess": "Disabled", rule: {"defaultAction": "Allow"}}).verdict() == "PASS"
