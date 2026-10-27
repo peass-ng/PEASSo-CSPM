@@ -1075,7 +1075,7 @@
     "peaso/collectors/aws_public_ingress_native.py": "3dda8ed8ffdb9e3b650ffe50bc6da24d52f57e53c908357ef9bc4a2094309b7e",
     "peaso/collectors/aws_region_data_native.py": "e2440353ea5b31d50ce281e049dd4586e05710763c0b0b7ee8c737b79ae9f9e1",
     "peaso/collectors/aws_region_shield_native.py": "fb64d7f95397490c9043fde0e93c227286335a9a98746521e4f1f8bbffde1876",
-    "peaso/collectors/aws_request_pool.py": "f41c30a8becb82e876fbe2a6c7f7202310b5efc8d82c9b46e81cbb0e5f6b2136",
+    "peaso/collectors/aws_request_pool.py": "744dc88a4a92996272d1cc32c2527b7db4bf56a66f0e3532bfd600899e6b9cfd",
     "peaso/collectors/aws_resolver_firewall_native.py": "ca0970fa271384e2167db3cb2ed855cceda0dd834348671654597ec3d8b19a52",
     "peaso/collectors/aws_resource_policy_families.py": "f270e20e5a2e5ff6075f603d330bd00e743231975eb8f9d72922fbccd73c9013",
     "peaso/collectors/aws_resource_policy_native.py": "f6b42108736fde01c856defa11156820d85e617041c55ef6a1fe9900cf830a8e",
@@ -1816,7 +1816,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1708,
-  "python_source_sha256": "4f41d17325f7282ee33e82d49a2dc40150666bdfb924852a7e5ff0ee7a504b56",
+  "python_source_sha256": "7b98fb6dc8dc5f647c14f05168d44cf901ea2efab8962a57a4fbf1ddfc505593",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
