@@ -255,6 +255,34 @@ def test_app_service_specific_public_source_and_priority_shadowing():
     assert site_decision([{**deny, "ipAddress": "10.0.0.0/8"}, allow]).verdict() == "FAIL"
 
 
+def test_app_service_multisource_and_header_filtered_restrictions():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+
+    def app_decision(rules, default=None):
+        config = {"ipSecurityRestrictions": rules}
+        if default is not None:
+            config["ipSecurityRestrictionsDefaultAction"] = default
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected", "items": [
+                {"id": site_id, "properties": {"defaultHostName": "app.azurewebsites.net",
+                 "publicNetworkAccess": "Enabled"}}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected", "items": [
+                {"id": site_id + "/config/web", "parent_id": site_id, "properties": config}]}])
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+
+    allow = {"name": "two-sources", "ipAddress": "10.0.0.0/8, 8.8.8.8/32",
+             "action": "Allow", "priority": 200}
+    assert app_decision([allow]).verdict() == "FAIL"
+    assert app_decision([{**allow, "ipAddress": "10.0.0.0/8, 192.168.0.0/16"}]).verdict() == "PASS"
+    deny = {"name": "conditional-deny", "ipAddress": "8.8.8.8/32", "action": "Deny",
+            "priority": 100, "headers": {"x-forwarded-host": ["private.example"]}}
+    assert app_decision([deny, allow]).verdict() == "FAIL"
+    assert app_decision([{**deny, "headers": None}, allow]).verdict() == "PASS"
+    assert app_decision([{**allow, "priority": "invalid"}]).verdict() == "UNKNOWN"
+    assert app_decision(["malformed"]).verdict() == "UNKNOWN"
+    assert app_decision([{"name": "any", "ipAddress": "Any", "action": "Deny"}]).path[-1]["default_action"] == "Deny"
+
+
 def test_anonymous_blob_requires_container_and_account_gates():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
     container = {"id": account_id + "/blobServices/default/containers/public",

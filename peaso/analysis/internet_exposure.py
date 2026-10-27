@@ -3311,6 +3311,12 @@ def _azure_appgw(snapshot, inventory, resource):
 
 
 def _azure_restriction_sources(value):
+    if isinstance(value, str) and "," in value:
+        parts = [part.strip() for part in value.split(",")]
+        if not all(parts):
+            return []
+        networks = [_azure_restriction_sources(part) for part in parts]
+        return [net for group in networks for net in group] if all(networks) else []
     if value in ("Any", "*", "Internet"):
         return [ipaddress.ip_network("0.0.0.0/0"), ipaddress.ip_network("::/0")]
     network = _cidr(value)
@@ -3343,12 +3349,15 @@ def _azure_app_service(snapshot, inventory, resource, configs):
     props = _props(resource)
     a = Assessment(resource, "web_app")
     a.addresses = [h for h in as_list(props.get("defaultHostName")) if h]
-    if str(props.get("publicNetworkAccess", "")).lower() == "disabled":
+    public_access = props.get("publicNetworkAccess")
+    if str(public_access).lower() == "disabled":
         a.step("public_network_access", "block", public_network_access="Disabled")
         a.ports = {}
         return a
     if props.get("publicNetworkAccess") is None and as_list(props.get("privateEndpointConnections")):
         a.gap("inventory", "publicNetworkAccess is unset while private endpoint connections are present; public default is unresolved")
+    if public_access is not None and str(public_access).lower() != "enabled":
+        a.gap("inventory", "App Service publicNetworkAccess value is unrecognized")
     ports = pset("tcp", 443, 443) if props.get("httpsOnly") else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
     a.step("public_network_access", "allow", public_network_access=props.get("publicNetworkAccess", "default(Enabled)"))
     config = configs.get(str(resource["data"].get("id", "")).lower())
@@ -3357,17 +3366,35 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.ports = ports
         return a
     cp = _props(config)
-    restrictions = [r for r in as_list(cp.get("ipSecurityRestrictions")) if isinstance(r, dict)]
-    default = cp.get("ipSecurityRestrictionsDefaultAction") or ("Deny" if restrictions and not any(r.get("ipAddress") == "Any" for r in restrictions) else "Allow")
+    raw_restrictions = as_list(cp.get("ipSecurityRestrictions"))
+    restrictions = [r for r in raw_restrictions if isinstance(r, dict)]
+    if len(restrictions) != len(raw_restrictions):
+        a.gap("access_restrictions", "App Service restriction entry is malformed")
+    default = cp.get("ipSecurityRestrictionsDefaultAction") or ("Deny" if restrictions else "Allow")
+    if default not in ("Allow", "Deny"):
+        a.gap("access_restrictions", "App Service unmatched rule action is unrecognized")
     prior, open_rules, unsupported = [], [], []
-    for restriction in sorted(restrictions, key=lambda r: int(r.get("priority", 65000))):
+    try:
+        ordered = sorted(restrictions, key=lambda r: int(r.get("priority", 65000)))
+    except (TypeError, ValueError):
+        a.gap("access_restrictions", "App Service restriction priority is invalid")
+        a.ports = ports
+        return a
+    for restriction in ordered:
         sources = _azure_restriction_sources(restriction.get("ipAddress"))
         if not sources:
             unsupported.append(restriction.get("name"))
             continue
-        if restriction.get("action", "Allow") == "Allow" and _azure_public_remainder(sources, prior):
+        action = restriction.get("action", "Allow")
+        if action not in ("Allow", "Deny"):
+            unsupported.append(restriction.get("name"))
+            continue
+        if action == "Allow" and _azure_public_remainder(sources, prior):
             open_rules.append(restriction.get("name"))
-        prior.extend(sources)
+        # Header filters further narrow the matching request. A conditional deny
+        # cannot shadow every request from its IP range.
+        if not restriction.get("headers"):
+            prior.extend(sources)
     reachable = bool(open_rules) or (default == "Allow" and _azure_public_remainder(
         _azure_restriction_sources("Any"), prior))
     if unsupported:
