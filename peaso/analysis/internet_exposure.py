@@ -1680,6 +1680,26 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                 origin = {"backend_bucket": service, "bucket_name": detail.get("bucketName"),
                           "cdn_enabled": detail.get("enableCdn"),
                           "signed_url_keys_present": bool(as_list((detail.get("cdnPolicy") or {}).get("signedUrlKeyNames")))}
+                storage = inventory.get("bucket", detail.get("bucketName"))
+                projects = [row["data"] for row in inventory.items("project")
+                            if row.get("scope") == resource.get("scope")]
+                project_number = (str(projects[0]["projectNumber"])
+                                  if len(projects) == 1 and projects[0].get("projectNumber") is not None else None)
+                service_agent = (f"service-{project_number}@https-lb.iam.gserviceaccount.com"
+                                 if project_number and project_number.isdecimal() else None)
+                policy = storage["data"].get("iamPolicy") if storage else None
+                grants = []
+                if service_agent and isinstance(policy, dict) and policy.get("collection_status") in (None, "collected"):
+                    grants = [binding for binding in as_list(policy.get("bindings"))
+                              if isinstance(binding, dict) and binding.get("role") == "roles/storage.objectViewer"
+                              and not binding.get("condition") and
+                              f"serviceAccount:{service_agent}" in as_list(binding.get("members"))]
+                origin["cdn_service_agent_read_grant"] = bool(grants)
+                origin["origin_bucket_collected"] = storage is not None
+                a.step("cdn_origin", "allow" if grants else "unknown", **origin,
+                       service_agent=service_agent, object_content_observed=False)
+                if not grants:
+                    a.gap("origin", "origin object-read authorization or cached object state is not established by the backend bucket")
                 buckets.append(origin)
                 routes.append({**origin, "edge_security_policy": detail.get("edgeSecurityPolicy"),
                                "backend_security_policy": None})

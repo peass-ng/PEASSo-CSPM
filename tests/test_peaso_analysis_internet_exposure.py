@@ -1031,6 +1031,37 @@ def test_gcp_backend_bucket_edge_policy_is_not_an_unprotected_route():
     assert assessment(None).verdict() == "UNKNOWN"
 
 
+def test_gcp_backend_bucket_joins_private_origin_service_agent_grant():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
+    from peaso.snapshot import resources
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map, backend = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendBuckets", "b")))
+    agent = "serviceAccount:service-123@https-lb.iam.gserviceaccount.com"
+    policy = {"bindings": [{"role": "roles/storage.objectViewer", "members": [agent]}]}
+    bucket = {"name": "origin-bucket", "iamPolicy": policy}
+    def assessment():
+        snap = gcp(gcoll("forwarding_rule", [{"name": "fr", "IPAddress": "34.4.4.4",
+                    "IPProtocol": "TCP", "ports": ["443"], "target": target}]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                   gcoll("url_map", [{"name": "m", "selfLink": url_map, "defaultService": backend}]),
+                   gcoll("backend_bucket", [{"name": "b", "selfLink": backend,
+                                              "bucketName": "origin-bucket", "enableCdn": True}]),
+                   gcoll("project", [{"name": "projects/123", "projectNumber": "123"}]),
+                   gcoll("bucket", [bucket], service="storage"))
+        items = resources(snap)
+        return _gcp_forwarding_rule(snap, Inventory(snap, items),
+                                    next(row for row in items if row["type"] == "forwarding_rule"))
+    result = assessment()
+    origin = next(step for step in result.path if step["layer"] == "cdn_origin")
+    assert result.verdict() == "FAIL" and origin["decision"] == "allow"
+    assert origin["cdn_service_agent_read_grant"] is True
+    assert origin["object_content_observed"] is False
+    policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    origin = next(step for step in assessment().path if step["layer"] == "cdn_origin")
+    assert origin["decision"] == "unknown"
+
+
 def test_gcp_url_map_weighted_and_route_rule_backends_join_armor():
     from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
     from peaso.snapshot import resources
