@@ -3066,18 +3066,50 @@ def _azure_aks(snapshot, inventory, resource):
     return a
 
 
+def _azure_storage_public_ip_rules(acls):
+    """Classify public source ranges in the account's collected firewall rules."""
+    public, unresolved = [], False
+    rules = acls.get("ipRules", [])
+    if not isinstance(rules, list):
+        return public, True
+    for rule in rules:
+        value = rule.get("value") if isinstance(rule, dict) else None
+        network = _cidr(value) if value else None
+        if network is None or (isinstance(rule, dict) and rule.get("action", "Allow") != "Allow"):
+            unresolved = True
+        elif _azure_public_remainder([network], []):
+            public.append(value)
+    return public, unresolved
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
     if str(props.get("publicNetworkAccess", "")).lower() == "disabled":
         return None
+    if props.get("publicNetworkAccess") == "SecuredByPerimeter":
+        a.gap("firewall", "storage network security perimeter rules are not collected")
+        a.explicit = "UNKNOWN"
     acls = props.get("networkAcls") or {}
-    if acls.get("defaultAction", "Allow") != "Allow":
-        a.step("network_rules", "block", default_action=acls.get("defaultAction"), ip_rules=len(as_list(acls.get("ipRules"))))
-        a.ports = {}
+    if acls.get("defaultAction", "Allow") not in ("Allow", "Deny"):
+        a.gap("firewall", "storage account network ACL default action is unresolved")
         return a
+    if acls.get("defaultAction", "Allow") == "Deny":
+        public, unresolved = _azure_storage_public_ip_rules(acls)
+        if public:
+            a.step("network_rules", "allow", default_action="Deny", public_ip_rules=public)
+        elif unresolved:
+            a.gap("firewall", "storage account IP firewall rules are malformed or incomplete")
+            a.ports = None
+            return a
+        else:
+            a.step("network_rules", "block", default_action=acls.get("defaultAction"),
+                   ip_rules=len(as_list(acls.get("ipRules"))))
+            a.ports = {}
+            return a
     a.addresses = sorted(v for v in (props.get("primaryEndpoints") or {}).values() if isinstance(v, str))[:4]
-    a.step("network_rules", "allow", default_action="Allow")
+    if not a.path:
+        a.step("network_rules", "allow", default_action="Allow")
     a.ports = pset("tcp", 443, 443) if props.get("supportsHttpsTrafficOnly", True) else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
     if props.get("allowBlobPublicAccess") is True:
         a.step("anonymous_access", "allow", allow_blob_public_access=True)
@@ -3110,15 +3142,24 @@ def _azure_storage_container(snapshot, inventory, resource):
         return a
     if props.get("allowBlobPublicAccess") is not True:
         a.gap("inventory", "account allowBlobPublicAccess setting is unavailable")
+    if props.get("publicNetworkAccess") == "SecuredByPerimeter":
+        a.gap("firewall", "storage network security perimeter rules are not collected")
+        a.explicit = "UNKNOWN"
     if props.get("publicNetworkAccess") is None:
         a.gap("inventory", "account publicNetworkAccess setting is unavailable")
     acls = props.get("networkAcls")
     if not isinstance(acls, dict) or acls.get("defaultAction") not in ("Allow", "Deny"):
         a.gap("firewall", "account network ACL default action is unavailable")
     elif acls["defaultAction"] == "Deny":
-        a.step("firewall", "block", default_action="Deny")
-        a.ports = {}
-        return a
+        public, unresolved = _azure_storage_public_ip_rules(acls)
+        if public:
+            a.step("firewall", "allow", default_action="Deny", public_ip_rules=public)
+        elif unresolved:
+            a.gap("firewall", "storage account IP firewall rules are malformed or incomplete")
+        else:
+            a.step("firewall", "block", default_action="Deny")
+            a.ports = {}
+            return a
     else:
         a.step("firewall", "allow", default_action="Allow")
     a.addresses = [v for v in (props.get("primaryEndpoints") or {}).values() if isinstance(v, str) and "blob" in v][:1]

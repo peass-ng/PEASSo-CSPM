@@ -80,6 +80,29 @@ def test_anonymous_blob_requires_container_and_account_gates():
     assert assess_container({**open_account, "allowBlobPublicAccess": False}).verdict() == "PASS"
     assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny"}}).verdict() == "PASS"
     assert assess_container({**open_account, "networkAcls": {}}).verdict() == "UNKNOWN"
+    public_rule = {"value": "8.8.8.8/32", "action": "Allow"}
+    assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny",
+        "ipRules": [public_rule]}}).verdict() == "FAIL"
+    assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny",
+        "ipRules": [{"value": "not-an-ip"}]}}).verdict() == "UNKNOWN"
+    assert assess_container({**open_account, "publicNetworkAccess": "SecuredByPerimeter"}).verdict() == "UNKNOWN"
+    assert assess_container({**open_account, "publicNetworkAccess": "SecuredByPerimeter",
+        "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
+
+
+def test_storage_account_deny_default_retains_public_ip_rule_exposure():
+    base = {"publicNetworkAccess": "Enabled", "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"},
+            "supportsHttpsTrafficOnly": True}
+    assert decision("storage_account", {**base, "networkAcls": {"defaultAction": "Deny",
+        "ipRules": [{"value": "8.8.8.8/32", "action": "Allow"}]}}).verdict() == "FAIL"
+    assert decision("storage_account", {**base, "networkAcls": {"defaultAction": "Deny",
+        "ipRules": [{"value": "10.0.0.0/8", "action": "Allow"}]}}).verdict() == "PASS"
+    assert decision("storage_account", {**base, "networkAcls": {"defaultAction": "Deny",
+        "ipRules": [{"value": "invalid"}]}}).verdict() == "UNKNOWN"
+    assert decision("storage_account", {**base, "publicNetworkAccess": "SecuredByPerimeter",
+        "networkAcls": {"defaultAction": "Allow"}}).verdict() == "UNKNOWN"
+    assert decision("storage_account", {**base, "publicNetworkAccess": "SecuredByPerimeter",
+        "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
 
 
 def test_sql_firewall_public_ip_range_is_exposure_but_private_range_is_not():
