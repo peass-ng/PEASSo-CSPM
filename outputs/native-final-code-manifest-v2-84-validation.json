@@ -1,0 +1,61 @@
+{
+  "candidate_checks": 84,
+  "candidate_sha256": "2eefb66ab95c50a27a6c2cb993e4e9d201e1769ffbae3cf8f3e919f569bc8bd4",
+  "captured_clock_references_verified": 21,
+  "code_gate_sha256": "2be0d2e5db9e2beae26a7fce2a9193c87e65b1c2f55c5f89243ba512e91cc159",
+  "code_worker_low_rep_source_receipt_sha256": "333ccb7146e02db59f14b2f8056c54bcbad266c5b55e696ced3ab5f19eb52eb3",
+  "combined_temporary_qualified_admitted": 0,
+  "gate_modified": false,
+  "high20_candidate_sha256": "9a2d6b0dcb5b93f3ec87ce01d756178fff77ebe5c9db3fd55025afa8d904aca4",
+  "high_approved_checks": 20,
+  "individual_temporary_qualified_admitted": 78,
+  "individual_temporary_qualified_rejected": [
+    {
+      "check_id": "aws.a.iam.unused_credentials_45_days",
+      "evaluator_path": "peaso/unused_iam_aws_completion.py",
+      "evaluator_symbol": "evaluate",
+      "reason": "evaluator_path_outside_current_allowlist"
+    },
+    {
+      "check_id": "aws.a.iam.unused_credentials_90_days",
+      "evaluator_path": "peaso/unused_iam_aws_completion.py",
+      "evaluator_symbol": "evaluate",
+      "reason": "evaluator_path_outside_current_allowlist"
+    },
+    {
+      "check_id": "aws.cb.lambda.runtime_not_deprecated_list",
+      "evaluator_path": "peaso/checks/claude_aws_b_compute.py",
+      "evaluator_symbol": "lambda_runtime",
+      "reason": "pinned_runtime_date_has_no_recorded_api_timestamp_field"
+    },
+    {
+      "check_id": "aws.claude_a.iam.access_keys_used_45",
+      "evaluator_path": "peaso/unused_iam_aws_completion.py",
+      "evaluator_symbol": "evaluate",
+      "reason": "evaluator_path_outside_current_allowlist"
+    },
+    {
+      "check_id": "aws.gap.iam.active_keys_used_within_45_days",
+      "evaluator_path": "peaso/unused_iam_aws_completion.py",
+      "evaluator_symbol": "evaluate",
+      "reason": "evaluator_path_outside_current_allowlist"
+    },
+    {
+      "check_id": "aws.network.target_group_has_load_balancer",
+      "evaluator_path": "peaso/unused_network_aws.py",
+      "evaluator_symbol": "target_group",
+      "reason": "evaluator_path_outside_current_allowlist"
+    }
+  ],
+  "model_replay_run": false,
+  "pending_admitted": 0,
+  "production_manifest_modified": false,
+  "replay_qualification": "pending",
+  "resolved_recorded_evidence_references": 248,
+  "schema_version": 2,
+  "scoped_approved_checks": 64,
+  "scoped_source_proof_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+  "sha_tamper_admitted": 0,
+  "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f",
+  "whole_file_source_hashes_verified": 84
+}

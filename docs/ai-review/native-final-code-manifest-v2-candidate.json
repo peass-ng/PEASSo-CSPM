@@ -2,6 +2,93 @@
   "base_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
   "checks": [
     {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.a.cloudtrail.cloudwatch_delivery_24h",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.a.cloudtrail.cloudwatch_delivery_24h",
+          "path": "peaso/checks/aws_a_cloudtrail.py",
+          "source_sha256": "00da31c7b56e6a546dd5f89446428b1682c704a2a0beec3909a47a384ee5a5a0",
+          "symbol": "delivery"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 1,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=cloudtrail].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "cloudtrail:GetTrailStatus",
+            "field_path": "Status.LatestCloudWatchLogsDeliveryTime",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[].Status",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "cloudtrail:GetTrailStatus",
+            "field_path": "Status.collection_status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[].Status.collection_status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.a.cloudtrail.home_cloudwatch_date",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.a.cloudtrail.home_cloudwatch_date",
+          "path": "peaso/checks/aws_a_cloudtrail_variants.py",
+          "source_sha256": "f48b7b74843dfc2a9dbafefe059982d6fa4bd811b65308b3016c702efcb54248",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 1,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=cloudtrail].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "HomeRegion",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[].HomeRegion",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "CloudWatchLogsLogGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:GetTrailStatus",
+            "field_path": "Status.LatestCloudWatchLogsDeliveryTime",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[].Status",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
       "check_id": "aws.a.cloudwatch.finite_retention_365",
       "deterministic_evidence": {
@@ -76,6 +163,80 @@
       "prod992_reviewed_failures": 44
     },
     {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.a.config.region_recorder_enabled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.a.config.region_recorder_enabled",
+          "path": "peaso/checks/aws_a_regional.py",
+          "source_sha256": "77e0d7ecdaf4e4f1fa8aa87412052d5547032fa6ff306b7b9d9983e7ef094483",
+          "symbol": "config_region"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "config:DescribeConfigurationRecorders",
+            "field_path": "ConfigurationRecorders[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=config_recorder].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "config:DescribeConfigurationRecorderStatus",
+            "field_path": "ConfigurationRecordersStatus[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=config_recorder].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.a.guardduty.region_enabled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.a.guardduty.region_enabled",
+          "path": "peaso/checks/aws_a_regional.py",
+          "source_sha256": "77e0d7ecdaf4e4f1fa8aa87412052d5547032fa6ff306b7b9d9983e7ef094483",
+          "symbol": "guardduty_region"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "guardduty:ListDetectors",
+            "field_path": "DetectorIds[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=guardduty_detector].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "guardduty:GetDetector",
+            "field_path": "Configuration.Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=guardduty_detector].items[].Configuration",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
       "check_id": "aws.a.iam.active_key_age_90",
       "deterministic_evidence": {
@@ -116,6 +277,267 @@
       "prod992_reviewed_failures": 20
     },
     {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.a.iam.unused_credentials_45_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.a.iam.unused_credentials_45_days",
+          "path": "peaso/unused_iam_aws_completion.py",
+          "source_sha256": "a7f2ad7559271672277203f58c64cde3f2e07bbf81b9de981ea3a7a1045f18b3",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 45,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_credential_report].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "ReportGeneratedTime",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].ReportGeneratedTime",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "user",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].user",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_enabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_enabled",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_last_used",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_last_used",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_active",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_active",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.a.iam.unused_credentials_90_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.a.iam.unused_credentials_90_days",
+          "path": "peaso/unused_iam_aws_completion.py",
+          "source_sha256": "a7f2ad7559271672277203f58c64cde3f2e07bbf81b9de981ea3a7a1045f18b3",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 90,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_credential_report].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "ReportGeneratedTime",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].ReportGeneratedTime",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "user",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].user",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_enabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_enabled",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_last_used",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_last_used",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_active",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_active",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.b.backup.report_plan_presence",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.b.backup.report_plan_presence",
+          "path": "peaso/checks/aws_b_regional.py",
+          "source_sha256": "e1facce323da71cbe0596bbe151b38419e6062aeec5bb093a93fb71ea051cad5",
+          "symbol": "backup_report"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "backup:ListBackupPlans",
+            "field_path": "BackupPlansList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_plan].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "backup:ListReportPlans",
+            "field_path": "ReportPlans[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_report_plan].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.b.backup_plan.regional_presence",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.b.backup_plan.regional_presence",
+          "path": "peaso/checks/aws_b_regional.py",
+          "source_sha256": "e1facce323da71cbe0596bbe151b38419e6062aeec5bb093a93fb71ea051cad5",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "backup:ListBackupPlans",
+            "field_path": "BackupPlansList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_plan].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.b.backup_vault.regional_presence",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.b.backup_vault.regional_presence",
+          "path": "peaso/checks/aws_b_regional.py",
+          "source_sha256": "e1facce323da71cbe0596bbe151b38419e6062aeec5bb093a93fb71ea051cad5",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "backup:ListBackupVaults",
+            "field_path": "BackupVaultList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_vault].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
       "check_id": "aws.b.ecs.all_readonly_roots",
       "deterministic_evidence": {
@@ -144,6 +566,57 @@
       },
       "prod992_disagreements": 0,
       "prod992_reviewed_failures": 4684
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.b.efs.customer_managed_key",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.b.efs.customer_managed_key",
+          "path": "peaso/checks/aws_b_storage.py",
+          "source_sha256": "93943011991f833f90926b65d2f9dbe58d55983828ddb9a87930c940c9b0338a",
+          "symbol": "customer_key"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elasticfilesystem:DescribeFileSystems",
+            "field_path": "Encrypted",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=efs_file_system].items[].Encrypted",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elasticfilesystem:DescribeFileSystems",
+            "field_path": "KmsKeyId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=efs_file_system].items[].KmsKeyId",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.KeyManager",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.Enabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
     },
     {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
@@ -181,6 +654,103 @@
       },
       "prod992_disagreements": 0,
       "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.backup.report_plans_when_plans",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.backup.report_plans_when_plans",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "backup_report_plans"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "backup:ListBackupPlans",
+            "field_path": "BackupPlansList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_plan].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "backup:ListReportPlans",
+            "field_path": "ReportPlans[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_report_plan].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.bedrock.guardrails_configured",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.bedrock.guardrails_configured",
+          "path": "peaso/checks/claude2_aws_b_identity.py",
+          "source_sha256": "593df9c06c09868bb106c77c772abc69588fcb92dccb4307987a1bf5f3c13e05",
+          "symbol": "br_guardrails_configured"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "bedrock:ListGuardrails",
+            "field_path": "guardrails[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=bedrock_guardrail].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.bedrock.prompt_management_exists",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.bedrock.prompt_management_exists",
+          "path": "peaso/checks/claude2_aws_b_identity.py",
+          "source_sha256": "593df9c06c09868bb106c77c772abc69588fcb92dccb4307987a1bf5f3c13e05",
+          "symbol": "br_prompts_exist"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "bedrock-agent:ListPrompts",
+            "field_path": "promptSummaries[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=bedrock_prompt].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
     },
     {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
@@ -257,6 +827,87 @@
       "prod992_reviewed_failures": 3
     },
     {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.ecr.registry_enhanced_scanning",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.ecr.registry_enhanced_scanning",
+          "path": "peaso/checks/claude2_aws_b_devtools.py",
+          "source_sha256": "6434e604a4f39fe952b97826c9b4d4e81b969e5ad6aab6196108d4d2b6918caf",
+          "symbol": "registry_enhanced"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ecr:GetRegistryScanningConfiguration",
+            "field_path": "scanningConfiguration.scanType",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecr_registry_scanning_configuration].items[].scanningConfiguration.scanType",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "ecr:DescribeRepositories",
+            "field_path": "repositoryArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecr_repository].items[].repositoryArn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.elasticache.cmk_enabled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.elasticache.cmk_enabled",
+          "path": "peaso/checks/claude2_aws_b_data.py",
+          "source_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102",
+          "symbol": "rg_cmk"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elasticache:DescribeReplicationGroups",
+            "field_path": "AtRestEncryptionEnabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=elasticache_replication_group].items[].AtRestEncryptionEnabled",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elasticache:DescribeReplicationGroups",
+            "field_path": "KmsKeyId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=elasticache_replication_group].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.Enabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
       "check_id": "aws.c2b.elbv2.listeners_acm_certificate",
       "deterministic_evidence": {
@@ -292,6 +943,612 @@
       },
       "prod992_disagreements": 0,
       "prod992_reviewed_failures": 7
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.emr.cluster_at_rest_cse_custom",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.emr.cluster_at_rest_cse_custom",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "emr:DescribeCluster",
+            "field_path": "Cluster.Cluster.SecurityConfiguration",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_cluster].items[].Cluster.Cluster",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "SecurityConfiguration[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "EncryptionConfiguration.AtRestEncryptionConfiguration.S3EncryptionConfiguration.EncryptionMode",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.emr.cluster_at_rest_encryption",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.emr.cluster_at_rest_encryption",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "emr:DescribeCluster",
+            "field_path": "Cluster.Cluster.SecurityConfiguration",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_cluster].items[].Cluster.Cluster",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "SecurityConfiguration[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "EncryptionConfiguration.EnableAtRestEncryption",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.emr.cluster_at_rest_sse_kms",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.emr.cluster_at_rest_sse_kms",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "emr:DescribeCluster",
+            "field_path": "Cluster.Cluster.SecurityConfiguration",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_cluster].items[].Cluster.Cluster",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "SecurityConfiguration[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "EncryptionConfiguration.AtRestEncryptionConfiguration.S3EncryptionConfiguration.EncryptionMode",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.emr.cluster_in_transit_encryption",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.emr.cluster_in_transit_encryption",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "emr:DescribeCluster",
+            "field_path": "Cluster.Cluster.SecurityConfiguration",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_cluster].items[].Cluster.Cluster",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "SecurityConfiguration[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "EncryptionConfiguration.EnableInTransitEncryption",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.emr.cluster_local_disk_cmk",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.emr.cluster_local_disk_cmk",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "emr:DescribeCluster",
+            "field_path": "Cluster.Cluster.SecurityConfiguration",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_cluster].items[].Cluster.Cluster",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "SecurityConfiguration[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "EncryptionConfiguration.AtRestEncryptionConfiguration.LocalDiskEncryptionConfiguration.EncryptionKeyProviderType",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.c2b.emr.cluster_local_disk_encryption",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.c2b.emr.cluster_local_disk_encryption",
+          "path": "peaso/checks/claude2_aws_b_analytics.py",
+          "source_sha256": "8af1f542ec71555a8a5f866c098fa13ef529094241774add0d3f7950d2531c62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "emr:DescribeCluster",
+            "field_path": "Cluster.Cluster.SecurityConfiguration",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_cluster].items[].Cluster.Cluster",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "SecurityConfiguration[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "emr:DescribeSecurityConfiguration",
+            "field_path": "EncryptionConfiguration.AtRestEncryptionConfiguration.LocalDiskEncryptionConfiguration",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=emr_security_configuration].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 5
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.glue.catalog_metadata_sse_kms_with_tables",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.glue.catalog_metadata_sse_kms_with_tables",
+          "path": "peaso/checks/claude_aws_b_storage.py",
+          "source_sha256": "26b0efe39f42a9742da1e821432d49c48a33bba3a1ef42b7eb3901b9bb422a94",
+          "symbol": "glue_meta_tables"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "glue:GetDataCatalogEncryptionSettings",
+            "field_path": "EncryptionSettings.DataCatalogEncryptionSettings.EncryptionAtRest.CatalogEncryptionMode",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=glue_data_catalog].items[].EncryptionSettings.DataCatalogEncryptionSettings",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "glue:GetTables",
+            "field_path": "TableList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=glue_table].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.glue.catalog_password_encryption_with_tables",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.glue.catalog_password_encryption_with_tables",
+          "path": "peaso/checks/claude_aws_b_storage.py",
+          "source_sha256": "26b0efe39f42a9742da1e821432d49c48a33bba3a1ef42b7eb3901b9bb422a94",
+          "symbol": "glue_password_tables"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "glue:GetDataCatalogEncryptionSettings",
+            "field_path": "EncryptionSettings.DataCatalogEncryptionSettings.ConnectionPasswordEncryption.ReturnConnectionPasswordEncrypted",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=glue_data_catalog].items[].EncryptionSettings.DataCatalogEncryptionSettings",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "glue:GetTables",
+            "field_path": "TableList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=glue_table].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.lambda.runtime_not_deprecated_list",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.lambda.runtime_not_deprecated_list",
+          "path": "peaso/checks/claude_aws_b_compute.py",
+          "source_sha256": "969058175c791c7b7e16c60483ab0e51a09cd7d1567171e961d4f02c015fc8c1",
+          "symbol": "lambda_runtime"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=lambda_function].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "lambda:ListFunctions",
+            "field_path": "Runtime",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].Runtime",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "lambda:ListFunctions",
+            "field_path": "PackageType",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].PackageType",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.rds.instance_critical_event_subscription",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.rds.instance_critical_event_subscription",
+          "path": "peaso/checks/claude_aws_b_db.py",
+          "source_sha256": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "rds:DescribeEventSubscriptions",
+            "field_path": "EventSubscriptionsList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_event_subscription].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "rds:DescribeDBInstances",
+            "field_path": "DBInstanceIdentifier",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_instance].items[].DBInstanceIdentifier",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.rds.instance_multi_az_or_cluster",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.rds.instance_multi_az_or_cluster",
+          "path": "peaso/checks/claude_aws_b_db.py",
+          "source_sha256": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62",
+          "symbol": "instance_multi"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "rds:DescribeDBInstances",
+            "field_path": "MultiAZ",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_instance].items[].MultiAZ",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "rds:DescribeDBClusters",
+            "field_path": "DBClusters[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_cluster].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.rds.parameter_group_critical_event_subscription",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.rds.parameter_group_critical_event_subscription",
+          "path": "peaso/checks/claude_aws_b_db.py",
+          "source_sha256": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "rds:DescribeEventSubscriptions",
+            "field_path": "EventSubscriptionsList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_event_subscription].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "rds:DescribeDBInstances",
+            "field_path": "DBInstanceIdentifier",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_instance].items[].DBInstanceIdentifier",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.rds.security_group_critical_event_subscription",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.rds.security_group_critical_event_subscription",
+          "path": "peaso/checks/claude_aws_b_db.py",
+          "source_sha256": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "rds:DescribeEventSubscriptions",
+            "field_path": "EventSubscriptionsList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_event_subscription].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "rds:DescribeDBInstances",
+            "field_path": "DBInstanceIdentifier",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_instance].items[].DBInstanceIdentifier",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.secretsmanager.accessed_within_90_calendar_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.secretsmanager.accessed_within_90_calendar_days",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "sec_unused_c"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 90,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=secret].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "secretsmanager:ListSecrets",
+            "field_path": "LastAccessedDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "secretsmanager:ListSecrets",
+            "field_path": "ARN",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[].ARN",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.secretsmanager.accessed_within_90_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.secretsmanager.accessed_within_90_days",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "sec_unused_p"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 90,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=secret].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "secretsmanager:ListSecrets",
+            "field_path": "LastAccessedDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "secretsmanager:ListSecrets",
+            "field_path": "ARN",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[].ARN",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
     },
     {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
@@ -360,6 +1617,255 @@
       "prod992_reviewed_failures": 208
     },
     {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.secretsmanager.cmk_encryption",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.secretsmanager.cmk_encryption",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "sec_cmk"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "KmsKeyId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "_coverage.KmsKeyId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._coverage.KmsKeyId",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.KeyManager",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 469
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.secretsmanager.rotated_as_scheduled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.secretsmanager.rotated_as_scheduled",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "sec_sched"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 0,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=secret].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "_coverage.RotationRules.status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._coverage.RotationRules.status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "RotationRules.AutomaticallyAfterDays",
+            "field_type": "number",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "secretsmanager:ListSecrets",
+            "field_path": "CreatedDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[].CreatedDate",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "LastRotatedDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 465
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.secretsmanager.rotated_within_90_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.secretsmanager.rotated_within_90_days",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "sec_rot90"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 90,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=secret].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "LastRotatedDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "secretsmanager:ListSecrets",
+            "field_path": "ARN",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[].ARN",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 470
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.secretsmanager.rotation_lambda",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.secretsmanager.rotation_lambda",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "sec_lambda"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "_coverage.RotationRules.status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._coverage.RotationRules.status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "RotationLambdaARN",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 469
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.cb.secretsmanager.rotation_rules_present",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.cb.secretsmanager.rotation_rules_present",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "sec_rules"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "RotationEnabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[].RotationEnabled",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "secretsmanager:DescribeSecret",
+            "field_path": "_coverage.RotationRules",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._coverage.RotationRules",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 465
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.ec2.account_imdsv2_default",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.ec2.account_imdsv2_default",
+          "path": "peaso/checks/claude_aws_a_ec2.py",
+          "source_sha256": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa",
+          "symbol": "account_imdsv2"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ec2:GetInstanceMetadataDefaults",
+            "field_path": "InstanceMetadataDefaults.HttpTokens",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ec2_regional_settings].items[].InstanceMetadataDefaults",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "ec2:DescribeInstances",
+            "field_path": "InstanceId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=instance].items[].InstanceId",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
       "check_id": "aws.claude_a.ec2.instance_not_older_than_180_days",
       "deterministic_evidence": {
@@ -393,6 +1899,87 @@
       "prod992_reviewed_failures": 7
     },
     {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.guardduty.prowler_delegated_admin_region",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.guardduty.prowler_delegated_admin_region",
+          "path": "peaso/checks/claude_aws_a_security.py",
+          "source_sha256": "8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8",
+          "symbol": "gd_delegated_admin"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "guardduty:ListDetectors",
+            "field_path": "DetectorIds[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=guardduty_detector].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "guardduty:ListOrganizationAdminAccounts",
+            "field_path": "AdminAccounts[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=guardduty_organization_admin_account].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "guardduty:GetDetector",
+            "field_path": "Configuration.Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=guardduty_detector].items[].Configuration",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.guardduty.region_centrally_configured",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.guardduty.region_centrally_configured",
+          "path": "peaso/checks/claude_aws_a_security.py",
+          "source_sha256": "8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8",
+          "symbol": "centrally_configured"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "guardduty:ListDetectors",
+            "field_path": "DetectorIds[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=guardduty_detector].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "guardduty:GetDetector",
+            "field_path": "Administrator.AccountId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=guardduty_detector].items[].Administrator",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
       "check_id": "aws.claude_a.iam.access_key_age_365",
       "deterministic_evidence": {
@@ -424,6 +2011,135 @@
       },
       "prod992_disagreements": 0,
       "prod992_reviewed_failures": 8
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.iam.access_keys_rotated_90",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.iam.access_keys_rotated_90",
+          "path": "peaso/checks/claude_aws_a_iam.py",
+          "source_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687",
+          "symbol": "keys_rotated_90"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 90,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_credential_report].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_last_rotated",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_last_rotated",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_last_rotated",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_last_rotated",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_active",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 8
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.iam.access_keys_used_45",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.iam.access_keys_used_45",
+          "path": "peaso/unused_iam_aws_completion.py",
+          "source_sha256": "a7f2ad7559271672277203f58c64cde3f2e07bbf81b9de981ea3a7a1045f18b3",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 45,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_credential_report].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "ReportGeneratedTime",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].ReportGeneratedTime",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "user",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].user",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_enabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_enabled",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_last_used",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_last_used",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_active",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_active",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
     },
     {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
@@ -485,6 +2201,110 @@
       },
       "prod992_disagreements": 0,
       "prod992_reviewed_failures": 88
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.iam.saml_provider_present",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.iam.saml_provider_present",
+          "path": "peaso/checks/claude_aws_a_iam.py",
+          "source_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687",
+          "symbol": "saml_present"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "iam:ListSAMLProviders",
+            "field_path": "SAMLProviderList[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_saml_provider].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.iam.securityaudit_role_exists",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.iam.securityaudit_role_exists",
+          "path": "peaso/checks/claude_aws_a_iam.py",
+          "source_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "iam:ListRoles",
+            "field_path": "Roles[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:ListAttachedRolePolicies",
+            "field_path": "AttachedManagedPolicies",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].items[].AttachedManagedPolicies",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.iam.support_role_exists",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.iam.support_role_exists",
+          "path": "peaso/checks/claude_aws_a_iam.py",
+          "source_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "iam:ListRoles",
+            "field_path": "Roles[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:ListAttachedRolePolicies",
+            "field_path": "AttachedManagedPolicies",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].items[].AttachedManagedPolicies",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
     },
     {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
@@ -573,6 +2393,304 @@
       },
       "prod992_disagreements": 0,
       "prod992_reviewed_failures": 137
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.claude_a.vpc.flow_logs_active",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.claude_a.vpc.flow_logs_active",
+          "path": "peaso/checks/claude_aws_a_network.py",
+          "source_sha256": "dfe343109801c31dec12324a7b97fd76d88f6913161d8495b1bac9abb195abe6",
+          "symbol": "vpc_flow_logs"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ec2:DescribeVpcs",
+            "field_path": "VpcId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=vpc].items[].VpcId",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "ec2:DescribeFlowLogs",
+            "field_path": "FlowLogs[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=flow_log].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.gap.iam.active_keys_used_within_45_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.gap.iam.active_keys_used_within_45_days",
+          "path": "peaso/unused_iam_aws_completion.py",
+          "source_sha256": "a7f2ad7559271672277203f58c64cde3f2e07bbf81b9de981ea3a7a1045f18b3",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 45,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_credential_report].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "ReportGeneratedTime",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].ReportGeneratedTime",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "user",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].user",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_enabled",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_enabled",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_last_used",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_last_used",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_active",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_active",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_active",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.gap.iam.root_not_used_90_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.gap.iam.root_not_used_90_days",
+          "path": "peaso/checks/aws_gap_core.py",
+          "source_sha256": "406b1fd3041683c2ab2797f7d9702cc515cfcc3f00edd4682655cb7a000793e8",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "lte",
+          "kind": "age_comparison",
+          "threshold": 90,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_credential_report].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "password_last_used",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].password_last_used",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_1_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_1_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:GetCredentialReport",
+            "field_path": "access_key_2_last_used_date",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_credential_report].items[].access_key_2_last_used_date",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.network.target_group_has_load_balancer",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.network.target_group_has_load_balancer",
+          "path": "peaso/unused_network_aws.py",
+          "source_sha256": "894c77cff49b5703dcd4ceb1f49ca0f4785e86da3465f58896a34bd6e5702376",
+          "symbol": "target_group"
+        },
+        "operation": {
+          "comparison": "eq",
+          "kind": "count_comparison",
+          "threshold": 0,
+          "threshold_unit": "items"
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeTargetGroups",
+            "field_path": "TargetGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=target_group].items[].TargetGroupArn",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeTargetGroups",
+            "field_path": "LoadBalancerArns",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=target_group].items[].LoadBalancerArns",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 7
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.nist.cloudtrail_cloudwatch_integration",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.nist.cloudtrail_cloudwatch_integration",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "HomeRegion",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[].HomeRegion",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "CloudWatchLogsLogGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:GetTrailStatus",
+            "field_path": "Status.IsLogging",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[].Status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "logGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_log_group].items[].logGroupArn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws.pci.shield.protection_all_internet_resources",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws.pci.shield.protection_all_internet_resources",
+          "path": "peaso/checks/compliance_new_sw37.py",
+          "source_sha256": "13b8af96092045ed2358142e5d0d697c5686f868411cec6f36fc6a2ba9abd2a4",
+          "symbol": "shield_all"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "shield:ListProtections",
+            "field_path": "Protections[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=shield_protection].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Scheme",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Scheme",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudfront:ListDistributions",
+            "field_path": "ARN",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudfront_distribution].items[].ARN",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
     },
     {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
@@ -775,6 +2893,87 @@
       "prod992_reviewed_failures": 4
     },
     {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_cis_elbv2_only_tls_listeners",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_cis_elbv2_only_tls_listeners",
+          "path": "peaso/checks/next20_aws.py",
+          "source_sha256": "8b5bedb10366b2708e445bc0068f41a1e6aea0bf8fe7f20c81029dfce665e569",
+          "symbol": "elbv2_tls_listeners"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Type",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Type",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Protocol",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.collection_status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_cis_lambda_config_recorded",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_cis_lambda_config_recorded",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "lambda:ListFunctions",
+            "field_path": "FunctionArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].FunctionArn",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "config:DescribeConfigurationRecorders",
+            "field_path": "ConfigurationRecorders[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=config_recorder].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 11
+    },
+    {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
       "check_id": "aws_fedramp_acm_all_certificates_30_day_expiry",
       "deterministic_evidence": {
@@ -822,6 +3021,64 @@
       "prod992_reviewed_failures": 4
     },
     {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_fedramp_cloudtrail_destination_kms",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_fedramp_cloudtrail_destination_kms",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "KmsKeyId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "CloudWatchLogsLogGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.KeyManager",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.KeyState",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "logGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_log_group].items[].logGroupArn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
       "check_id": "aws_g6_acm_all_certificates_30_day_expiry",
       "deterministic_evidence": {
@@ -867,6 +3124,386 @@
       },
       "prod992_disagreements": 0,
       "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_g6_api_stage_effective_waf_acl",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_g6_api_stage_effective_waf_acl",
+          "path": "peaso/checks/compliance_new_sw37.py",
+          "source_sha256": "13b8af96092045ed2358142e5d0d697c5686f868411cec6f36fc6a2ba9abd2a4",
+          "symbol": "stage_waf"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "apigateway:GetStage",
+            "field_path": "webAclArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rest_api_stage].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "wafv2:GetWebACLForResource",
+            "field_path": "webAclArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=stage_waf_association].items[].webAclArn",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "wafv2:ListWebACLs",
+            "field_path": "WebACLs[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=wafv2_web_acl].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_g6_cloudtrail_all_trails_cloudwatch_integration",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_g6_cloudtrail_all_trails_cloudwatch_integration",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "HomeRegion",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[].HomeRegion",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "CloudWatchLogsLogGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:GetTrailStatus",
+            "field_path": "Status.IsLogging",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[].Status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "logGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_log_group].items[].logGroupArn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_g6_cloudtrail_kms_destination_join",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_g6_cloudtrail_kms_destination_join",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "KmsKeyId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "CloudWatchLogsLogGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.KeyManager",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.KeyState",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "logGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_log_group].items[].logGroupArn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_g6_ecs_all_containers_logging",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_g6_ecs_all_containers_logging",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ecs:DescribeTaskDefinition",
+            "field_path": "Definition.taskDefinition.status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_task_definition].items[].Definition.taskDefinition",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "ecs:DescribeTaskDefinition",
+            "field_path": "Definition.taskDefinition.containerDefinitions",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_task_definition].items[].Definition.taskDefinition",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 13
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_g6_elbv2_only_https_tls_listeners",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_g6_elbv2_only_https_tls_listeners",
+          "path": "peaso/checks/post_dfaf_aws.py",
+          "source_sha256": "d7b41a3a3d86242c60f22dd412688f0b2ae1ec4fff8b78c930f2678668b6fb48",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Type",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Type",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Protocol",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.collection_status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 7
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_lambda_code_signing_configured",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_lambda_code_signing_configured",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "lambda:ListFunctions",
+            "field_path": "PackageType",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].PackageType",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "lambda:GetFunctionCodeSigningConfig",
+            "field_path": "CodeSigning.CodeSigningConfigArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].CodeSigning",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "lambda:GetFunctionCodeSigningConfig",
+            "field_path": "CodeSigning.collection_status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[].CodeSigning.collection_status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 10
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_nist_cloudtrail_trail_logs_encrypted_with_kms_cmk",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_nist_cloudtrail_trail_logs_encrypted_with_kms_cmk",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "KmsKeyId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudtrail:DescribeTrails",
+            "field_path": "CloudWatchLogsLogGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudtrail].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.KeyManager",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "kms:DescribeKey",
+            "field_path": "Metadata.KeyMetadata.KeyState",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=kms_key].items[].Metadata.KeyMetadata",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "logGroupArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_log_group].items[].logGroupArn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_nist_dynamodb_table_encrypted_with_kms",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_nist_dynamodb_table_encrypted_with_kms",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "dynamodb:DescribeTable",
+            "field_path": "Table.Table.SSEDescription.SSEType",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=dynamodb_table].items[].Table.Table",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "dynamodb:DescribeTable",
+            "field_path": "Table.Table.SSEDescription.Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=dynamodb_table].items[].Table.Table",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "dynamodb:DescribeTable",
+            "field_path": "Table.Table.TableName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=dynamodb_table].items[].Table.Table.TableName",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 2
     },
     {
       "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
@@ -918,6 +3555,182 @@
       },
       "prod992_disagreements": 0,
       "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_nist_s3_bucket_cross_region_replication_enabled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_nist_s3_bucket_cross_region_replication_enabled",
+          "path": "peaso/checks/compliance_new_aws_s3.py",
+          "source_sha256": "fb149db4f287dee429d01b861e177b1a2d1a529a56a7315027172fef0dce25ef",
+          "symbol": "cross_region_replication"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "s3:GetBucketReplication",
+            "field_path": "Replication.ReplicationConfiguration.Rules",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=bucket].items[].Replication",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "s3:GetBucketLocation",
+            "field_path": "Location.LocationConstraint",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=bucket].items[].Location",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 133
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_route53_hosted_zone_dnssec_enabled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_route53_hosted_zone_dnssec_enabled",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "route53:GetDNSSEC",
+            "field_path": "DNSSEC.Status.ServeSignature",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=route53_zone].items[].DNSSEC.Status.ServeSignature",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "route53:GetDNSSEC",
+            "field_path": "DNSSEC.KeySigningKeys",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=route53_zone].items[].DNSSEC.KeySigningKeys",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 8
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_sns_delivery_failure_alarm_present",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_sns_delivery_failure_alarm_present",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudwatch:DescribeAlarms",
+            "field_path": "MetricAlarms[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_alarm].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudwatch:DescribeAlarms",
+            "field_path": "Namespace",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_alarm].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudwatch:DescribeAlarms",
+            "field_path": "MetricName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_alarm].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:ListTopics",
+            "field_path": "TopicArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].TopicArn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 1
+    },
+    {
+      "audit_receipt_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
+      "check_id": "aws_sqs_queue_depth_alarm_present",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json#aws_sqs_queue_depth_alarm_present",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_evaluate"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudwatch:DescribeAlarms",
+            "field_path": "MetricAlarms[]",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_alarm].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudwatch:DescribeAlarms",
+            "field_path": "Namespace",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_alarm].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudwatch:DescribeAlarms",
+            "field_path": "MetricName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudwatch_alarm].status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sqs:ListQueues",
+            "field_path": "QueueUrl",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sqs_queue].items[].QueueUrl",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 13
     }
   ],
   "replay_qualification": {
