@@ -607,6 +607,24 @@ def test_gcp_conditional_public_invoker_is_unresolved(kind, service, role):
     assert one(gcp(gcoll(kind, [row], service=service)), kind)["status"] == "FAIL"
 
 
+def test_gcp_function_v2_joins_backing_cloud_run_service_access():
+    service_name = "projects/p1/locations/r/services/f"
+    function = {"name": "projects/p1/locations/r/functions/f", "serviceConfig": {
+        "service": service_name, "uri": "https://f.cloudfunctions.net", "ingressSettings": "ALLOW_ALL"},
+        "iamPolicy": {"bindings": []}}
+    backing = {"name": service_name, "uri": "https://f.run.app", "ingress": "INGRESS_TRAFFIC_ALL",
+               "iamPolicy": {"bindings": [{"role": "roles/run.invoker", "members": ["allUsers"]}]}}
+    def finding(*rows):
+        return one(gcp(gcoll("function", [function], service="cloudfunctions"), *rows), "function")
+    assert finding(gcoll("cloudrun_service", [backing], service="run"))["status"] == "FAIL"
+    backing["ingress"] = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+    assert finding(gcoll("cloudrun_service", [backing], service="run"))["status"] == "PASS"
+    backing["ingress"] = "INGRESS_TRAFFIC_ALL"
+    backing.pop("iamPolicy")
+    assert finding(gcoll("cloudrun_service", [backing], service="run"))["status"] == "UNKNOWN"
+    assert finding()["status"] == "UNKNOWN"
+
+
 def test_gcp_proxy_lb_cloud_armor():
     fr = {"id": "fr", "name": "fr", "selfLink": "fr", "loadBalancingScheme": "EXTERNAL_MANAGED", "IPAddress": "34.2.2.2", "IPProtocol": "TCP",
           "portRange": "443-443", "target": "https://x/targetHttpsProxies/p"}

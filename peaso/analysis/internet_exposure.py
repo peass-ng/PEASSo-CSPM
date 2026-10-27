@@ -1750,6 +1750,7 @@ def _gcp_invoker(policy, roles):
 def _gcp_serverless(snapshot, inventory, resource):
     data = resource["data"]
     a = Assessment(resource, "serverless")
+    backing = None
     if resource["type"] == "cloudrun_service":
         ingress = data.get("ingress", "INGRESS_TRAFFIC_ALL")
         open_ingress = ingress == "INGRESS_TRAFFIC_ALL"
@@ -1763,10 +1764,23 @@ def _gcp_serverless(snapshot, inventory, resource):
         a.addresses = [config.get("uri") or (data.get("httpsTrigger") or {}).get("url")] if (config.get("uri") or (data.get("httpsTrigger") or {}).get("url")) else []
         roles = {"roles/cloudfunctions.invoker", "roles/run.invoker", "roles/run.servicesInvoker"}
         disabled = False
+        service_ref = config.get("service")
+        if isinstance(service_ref, str) and service_ref:
+            backing = inventory.get("cloudrun_service", service_ref)
     a.step("ingress", "allow" if open_ingress else "block", ingress=ingress)
     a.ports = pset("tcp", 443, 443) if open_ingress else {}
     if not open_ingress:
         return a
+    if backing is not None:
+        backing_ingress = backing["data"].get("ingress", "INGRESS_TRAFFIC_ALL")
+        a.step("backing_service_ingress", "allow" if backing_ingress == "INGRESS_TRAFFIC_ALL" else "block",
+               service=service_ref, ingress=backing_ingress)
+        if backing_ingress != "INGRESS_TRAFFIC_ALL":
+            a.ports = {}
+            return a
+        if backing["data"].get("invokerIamDisabled") is True:
+            a.step("backing_service_invoker", "allow", service=service_ref, invoker_iam_disabled=True)
+            return a
     if disabled:
         a.step("invoker", "allow", invoker_iam_disabled=True)
         return a
@@ -1774,6 +1788,24 @@ def _gcp_serverless(snapshot, inventory, resource):
     if isinstance(policy, dict) and policy.get("collection_status") not in (None, "collected"):
         policy = None
     public, conditional = _gcp_invoker(policy, roles)
+    if backing is not None:
+        backing_policy = backing["data"].get("iamPolicy")
+        if isinstance(backing_policy, dict) and backing_policy.get("collection_status") not in (None, "collected"):
+            backing_policy = None
+        backing_public, backing_conditional = _gcp_invoker(backing_policy,
+            {"roles/run.invoker", "roles/run.servicesInvoker"})
+        if backing_public:
+            public = list(dict.fromkeys((public or []) + backing_public))
+        if backing_conditional:
+            conditional = list(dict.fromkeys((conditional or []) + backing_conditional))
+        if not public and backing_public is None:
+            a.gap("invoker", "backing Cloud Run service IAM policy not collected", "run services.getIamPolicy")
+            a.ports = None
+            return a
+    elif resource["type"] == "function" and isinstance(service_ref, str) and service_ref and not public:
+        a.gap("invoker", "Cloud Functions v2 backing Cloud Run service not collected", "run services.list")
+        a.ports = None
+        return a
     if public is None:
         a.gap("invoker", "invoker IAM policy not collected", "getIamPolicy")
     elif public:
