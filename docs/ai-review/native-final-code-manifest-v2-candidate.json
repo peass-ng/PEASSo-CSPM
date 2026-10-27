@@ -1293,14 +1293,21 @@
           "symbol": "lambda_runtime"
         },
         "operation": {
-          "comparison": "and",
-          "kind": "boolean_combination",
+          "comparison": "gte",
+          "kind": "versioned_lookup_date",
+          "lookup_table": {
+            "audit_ref": "peaso/checks/claude_aws_b_compute.py:109-158",
+            "reviewed_at": "2026-10-12",
+            "source_sha256": "969058175c791c7b7e16c60483ab0e51a09cd7d1567171e961d4f02c015fc8c1",
+            "symbol": "RUNTIME_DEPRECATION",
+            "valid_through_symbol": "RUNTIME_POLICY_VALID_THROUGH"
+          },
           "threshold": null,
           "threshold_unit": null
         },
         "scan_time": {
-          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=lambda_function].items[]._provenance.collected_at|created_at",
-          "source_field": "collections[type=lambda_function].items[]._provenance.collected_at or snapshot.created_at"
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#created_at",
+          "source_field": "context.created_at"
         },
         "source_fields": [
           {

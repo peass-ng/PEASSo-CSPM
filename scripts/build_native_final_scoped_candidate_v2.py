@@ -11,6 +11,7 @@ from build_native_final_code_candidate_v2 import ROOT, SNAPSHOT_SHA256, field, o
 SCOPED_RECEIPT = ROOT / "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json"
 SCOPED_SHA256 = "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889"
 SOURCE_LOW_SHA256 = "333ccb7146e02db59f14b2f8056c54bcbad266c5b55e696ced3ab5f19eb52eb3"
+RUNTIME_SOURCE_SHA256 = "969058175c791c7b7e16c60483ab0e51a09cd7d1567171e961d4f02c015fc8c1"
 HIGH_CANDIDATE = ROOT / "docs/ai-review/native-final-code-manifest-v2-candidate-high20.json"
 HIGH_SHA256 = "9a2d6b0dcb5b93f3ec87ce01d756178fff77ebe5c9db3fd55025afa8d904aca4"
 
@@ -121,7 +122,15 @@ add("aws.cb.glue.catalog_password_encryption_with_tables",
 add("aws.cb.lambda.runtime_not_deprecated_list",
     [f("lambda:ListFunctions", "lambda_function", "Runtime", "enum"),
      f("lambda:ListFunctions", "lambda_function", "PackageType", "enum")],
-    operation("boolean_combination", "and"), captured("lambda_function"))
+    {"kind": "versioned_lookup_date", "comparison": "gte", "threshold": None,
+     "threshold_unit": None,
+     "lookup_table": {"symbol": "RUNTIME_DEPRECATION",
+                      "source_sha256": RUNTIME_SOURCE_SHA256,
+                      "reviewed_at": "2026-10-12",
+                      "valid_through_symbol": "RUNTIME_POLICY_VALID_THROUGH",
+                      "audit_ref": "peaso/checks/claude_aws_b_compute.py:109-158"}},
+    {"source_field": "context.created_at",
+     "recorded_evidence_ref": f"sha256:{SNAPSHOT_SHA256}#created_at"})
 
 subscription = [f("rds:DescribeEventSubscriptions", "rds_event_subscription", "EventSubscriptionsList[]", "list", "@"),
                 f("rds:DescribeDBInstances", "rds_instance", "DBInstanceIdentifier", "enum")]
@@ -293,6 +302,8 @@ def main():
         source_sha = row["source_file_sha256"][path]
         if hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != source_sha:
             raise ValueError("whole-file evaluator hash changed: " + ident)
+        if ident == "aws.cb.lambda.runtime_not_deprecated_list" and source_sha != RUNTIME_SOURCE_SHA256:
+            raise ValueError("versioned runtime table source changed")
         if row["ai_verdict_counts"] != {"FAIL": row["native_fail_count"]}:
             raise ValueError("scoped verdict changed: " + ident)
         checks.append({"check_id": ident, "prod992_disagreements": 0,

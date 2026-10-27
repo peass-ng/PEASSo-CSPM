@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the pending 84-ID candidate against exact 992 and the unchanged gate."""
+"""Validate the pending 84-ID candidate against exact 992 and the reviewed gate."""
 import argparse
 from collections import defaultdict
 import gzip
@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCOPED_SHA256 = "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889"
 SOURCE_LOW_SHA256 = "333ccb7146e02db59f14b2f8056c54bcbad266c5b55e696ced3ab5f19eb52eb3"
 HIGH_SHA256 = "9a2d6b0dcb5b93f3ec87ce01d756178fff77ebe5c9db3fd55025afa8d904aca4"
+EXPECTED_CANDIDATE_SHA256 = "b4f6ae81fd961d81c084c51219b41fd54b6c21b90b6b51517531550b6aa59d13"
+REVIEWED_GATE_SHA256 = "314c3e5bb18ccc851be5489931e86097a4a267610d2476aed32842f552f54b65"
 EXPECTED_REFERENCES = {"high20": 62, "scoped64": 186}
 COLLECTION = re.compile(r"#collections\[type=([^]]+)\](.*)$")
 
@@ -61,6 +63,8 @@ def main():
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     candidate_raw = Path(args.candidate).read_bytes()
+    if digest(candidate_raw) != EXPECTED_CANDIDATE_SHA256:
+        raise ValueError("reviewed 84-ID candidate SHA changed")
     candidate = json.loads(candidate_raw)
     scoped_raw = (ROOT / "docs/ai-review/native-final-scoped-low-rep-proofs-v3.json").read_bytes()
     scoped = json.loads(scoped_raw)
@@ -129,19 +133,26 @@ def main():
             references_by_proof["scoped64" if proof else "high20"] += 1
         clock = det["scan_time"]
         if clock is not None:
-            if (not clock["source_field"].endswith("or snapshot.created_at") or
-                    not clock["recorded_evidence_ref"].startswith("sha256:" + snapshot_sha + "#") or
-                    not clock["recorded_evidence_ref"].endswith("|created_at")):
+            if det["operation"]["kind"] == "versioned_lookup_date":
+                if (ident != "aws.cb.lambda.runtime_not_deprecated_list" or
+                        clock != {"source_field": "context.created_at",
+                                  "recorded_evidence_ref": "sha256:" + snapshot_sha + "#created_at"}):
+                    raise ValueError("versioned lookup clock changed: " + ident)
+            elif (not clock["source_field"].endswith("or snapshot.created_at") or
+                  not clock["recorded_evidence_ref"].startswith("sha256:" + snapshot_sha + "#") or
+                  not clock["recorded_evidence_ref"].endswith("|created_at")):
                 raise ValueError("captured clock reference changed: " + ident)
             clocks += 1
     if references_by_proof != EXPECTED_REFERENCES or references != 248:
         raise ValueError("84-ID snapshot-reference count changed")
     gate_raw = Path(args.code_gate).read_bytes()
+    if digest(gate_raw) != REVIEWED_GATE_SHA256:
+        raise ValueError("reviewed integration gate SHA changed")
     gate = load_gate(args.code_gate)
     pending = gate_admission(gate, candidate, checks, False)
     combined_qualified = gate_admission(gate, candidate, checks, True)
-    if pending or combined_qualified:
-        raise ValueError("combined candidate admitted under unchanged gate")
+    if pending or combined_qualified != set(by_id):
+        raise ValueError("reviewed gate did not admit exactly all 84 only in temporary qualified copy")
     admitted = set()
     rejected = []
     for check in checks:
@@ -149,22 +160,10 @@ def main():
         single = gate_admission(gate, candidate, [check], True)
         if single == {ident}:
             admitted.add(ident)
-        elif not single:
-            ref = check["deterministic_evidence"]["code_path_audit_ref"]
-            reason = ("evaluator_path_outside_current_allowlist"
-                      if ref["path"] in {"peaso/unused_iam_aws_completion.py",
-                                          "peaso/unused_network_aws.py"}
-                      else "pinned_runtime_date_has_no_recorded_api_timestamp_field")
-            rejected.append({"check_id": ident, "evaluator_path": ref["path"],
-                             "evaluator_symbol": ref["symbol"], "reason": reason})
         else:
-            raise ValueError("unexpected single-row gate admission: " + ident)
-    expected_rejected = {
-        "aws.a.iam.unused_credentials_45_days", "aws.a.iam.unused_credentials_90_days",
-        "aws.claude_a.iam.access_keys_used_45", "aws.gap.iam.active_keys_used_within_45_days",
-        "aws.network.target_group_has_load_balancer", "aws.cb.lambda.runtime_not_deprecated_list"}
-    if ({row["check_id"] for row in rejected} != expected_rejected or len(admitted) != 78):
-        raise ValueError("current gate rejection set changed; review before updating receipt")
+            raise ValueError("reviewed gate rejected or over-admitted single row: " + ident)
+    if rejected or len(admitted) != 84:
+        raise ValueError("reviewed gate did not admit exactly 84 isolated rows")
     receipt = {
         "schema_version": 2, "candidate_sha256": digest(candidate_raw),
         "snapshot_sha256": snapshot_sha, "code_gate_sha256": digest(gate_raw),
