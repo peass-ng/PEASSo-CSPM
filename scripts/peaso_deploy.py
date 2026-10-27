@@ -238,6 +238,7 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_aws_index_result_reuse_20261022.py',
     'tests/test_document_redaction_performance.py',
     'tests/test_incremental_report_cadence.py',
+    'tests/test_worker_content_tail_deepcopy_20261027.py',
     'tests/test_peaso_k8s_psp_native_applicability.py',
     'tests/test_incremental_scope_plan_20261022.py',
     'tests/test_progressive_poll_cost.py',

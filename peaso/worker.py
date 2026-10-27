@@ -469,6 +469,13 @@ def _safe_failure_details(exc):
     return details
 
 
+def _checkpoint_content_tail_callback(checkpoint_session):
+    """Keep worker-owned checkpoint state out of connector deep copies."""
+    def content_tail(active):
+        return checkpoint_session.on_content_tail(active)
+    return content_tail
+
+
 def _collector_checkpoint_publisher(artifacts, publication_artifacts, tenant, ident,
                                     secret_capture, private_checkpoint, connection):
     """Durable raw batches must not wait for cumulative report rendering.
@@ -710,7 +717,7 @@ def _process(role, request, connection):
                         connector.setdefault("options", {}).pop("collect_all", None)
                         connector["options"]["inventories"] = remaining
                 request["_collection_callback"] = checkpoint_session.on_collection
-                connector.setdefault("options", {})["_content_tail_callback"] = checkpoint_session.on_content_tail
+                connector.setdefault("options", {})["_content_tail_callback"] = _checkpoint_content_tail_callback(checkpoint_session)
                 request["_scope_plan_callback"] = checkpoint_session.on_scope_plan
                 try:
                     from peaso.worker_progress import stream_progress
