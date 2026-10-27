@@ -2413,6 +2413,43 @@ def _azure_public_edge(snapshot, inventory, resource):
     return a
 
 
+def _azure_api_management(snapshot, inventory, resource):
+    """Assess the managed gateway listener, independently of API authorization."""
+    props = resource["data"].get("properties") or {}
+    a = Assessment(resource, "api_gateway")
+    access = props.get("publicNetworkAccess")
+    network = props.get("virtualNetworkType")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        a.ports = {}
+        return a
+    if network == "Internal":
+        a.step("network", "block", virtual_network_type=network)
+        a.ports = {}
+        return a
+    if props.get("disableGateway") is True:
+        a.step("listener", "block", reason="managed gateway disabled")
+        a.ports = {}
+        return a
+    if access not in (None, "Enabled") or network not in (None, "None", "External"):
+        a.gap("inventory", "API Management public access or virtual network mode is unresolved")
+        return a
+    if props.get("disableGateway") is not False:
+        a.gap("listener", "managed gateway enable state was not collected")
+    endpoint = props.get("gatewayUrl")
+    if isinstance(endpoint, str) and endpoint.startswith("https://"):
+        a.addresses.append(endpoint)
+    else:
+        a.gap("inventory", "API Management gateway URL was not collected")
+    a.step("public_network_access", "allow", value=access or "Enabled (service default)",
+           virtual_network_type=network or "None (service default)")
+    if network == "External":
+        a.gap("nsg", "external VNet gateway subnet NSG and route path are not resolved")
+    a.ports = pset("tcp", 443, 443)
+    a.notes.append("Gateway listener exposure does not establish anonymous API access or a healthy backend")
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -2907,7 +2944,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket", "project", "workload_identity_provider"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -2918,7 +2955,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -2962,6 +2999,7 @@ def assess(snapshot, resources):
                   "container_app": _azure_container_app,
                   "azure_firewall": _azure_firewall,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
+                  "api_management": _azure_api_management,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,

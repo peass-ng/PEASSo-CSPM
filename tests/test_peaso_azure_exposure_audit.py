@@ -238,6 +238,19 @@ def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncerta
     assert edge_decision([route], hostname=False).verdict() == "UNKNOWN"
 
 
+def test_api_management_public_gateway_and_network_gates():
+    base = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
+            "disableGateway": False, "gatewayUrl": "https://gateway.azure-api.net"}
+    exposed = decision("api_management", base)
+    assert exposed.verdict() == "FAIL" and exposed.ports == {"tcp": ((443, 443),)}
+    assert exposed.addresses == ["https://gateway.azure-api.net"]
+    assert decision("api_management", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+    assert decision("api_management", {**base, "virtualNetworkType": "Internal"}).verdict() == "PASS"
+    assert decision("api_management", {**base, "disableGateway": True}).verdict() == "PASS"
+    assert decision("api_management", {**base, "virtualNetworkType": "External"}).verdict() == "UNKNOWN"
+    assert decision("api_management", {**base, "gatewayUrl": None}).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind", ["vault", "container_registry", "search_service", "servicebus_namespace"])
 def test_managed_endpoint_explicit_network_gate(kind):
     rule = {"vault": "networkAcls", "container_registry": "networkRuleSet",
