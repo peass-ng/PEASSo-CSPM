@@ -15,6 +15,8 @@ SCAN_CAPACITY = 10
 QUEUE_WAIT_SECONDS = 3600
 TERMINAL = {"completed", "failed", "cancelled", "timed_out", "queue_exhausted", "credentials_expired"}
 GENERIC_FAILURE = "Scan processing failed; check connector access and coverage"
+INVALID_CREDENTIALS_FAILURE = ("The provider rejected the connector credentials, so no data was read. "
+                               "Update the connector credentials, then start a new scan.")
 # Fifty maximum-length role ARNs with the longest fixed message serialize to <64 KiB.
 _MAX_FAILURE_ERROR_BYTES = 128 * 1024
 _ROLE_ARN = re.compile(r"arn:(?:aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}\Z")
@@ -755,12 +757,14 @@ class SQLiteStore:
             if not row or row["status"] not in {"collecting", "analyzing"} or (previous and row["status"] != previous):
                 return False
             if status in {"failed", "credentials_expired"}:
-                allowed = {"processing_failed", "invalid_input", "credential_access_denied", "dependency_unavailable", "provider_error", "collector_timeout", "artifact_error", "worker_interrupted"}
+                allowed = {"processing_failed", "invalid_input", "credential_access_denied", "dependency_unavailable", "provider_error", "collector_timeout", "artifact_error", "worker_interrupted", "credentials_invalid"}
                 error_code = ("credentials_expired" if status == "credentials_expired" else
                               error_code if error_code in allowed else "processing_failed")
                 stage = "collector" if row["status"] == "collecting" else "analyzer"
                 error = ("Connector credentials expired during the scan. Update them, then resume this scan or start a new one."
-                         if status == "credentials_expired" else failure_error(failure_reasons))
+                         if status == "credentials_expired" else
+                         INVALID_CREDENTIALS_FAILURE if error_code == "credentials_invalid" and not curated_failure_reasons(failure_reasons) else
+                         failure_error(failure_reasons))
                 if status == "credentials_expired" and artifact is not None:
                     db.execute("UPDATE jobs SET status=?,snapshot=?,error=?,error_code=?,error_stage=?,history=?,owner=NULL,lease=NULL WHERE id=? AND owner=?", (status, artifact, error, error_code, stage, history(row, status, now), ident, owner))
                 else:

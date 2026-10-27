@@ -10,7 +10,7 @@ import re
 import time
 from urllib.parse import urlsplit
 
-from peaso.secret_scanning import scan_content, merge_leaks, redact_matches
+from peaso.secret_scanning import scan_content, merge_leaks, redact_matches, prepared_content_batch
 
 MARKER = 'ConfigurationSecretIndicators'
 SCHEMA = 'gcp-configuration-literal-secrets-v1'
@@ -73,6 +73,17 @@ def _object(row):
     return row
 
 
+def number_alias(name, route, ident, row):
+    """Cloud Build names builds with the project number, not the project id.
+
+    The alias binds only a build whose own projectId names the scanned project.
+    """
+    return (route['kind'] == 'cloudbuild_build' and isinstance(name, str)
+            and row.get('projectId') == route['scope'].split('/')[1]
+            and re.fullmatch(r'projects/[1-9][0-9]{0,19}/locations/' + re.escape(route['location'])
+                             + '/builds/' + re.escape(ident), name) is not None)
+
+
 def identity(row, route):
     kind, scope = route['kind'], route['scope']
     _object(row)
@@ -102,7 +113,7 @@ def identity(row, route):
         if kind == 'cloudbuild_build' and row.get('projectId') != scope.split('/')[1]:
             raise ValueError('Cloud Build project mismatch')
         resource_name = row.get('resourceName') if kind == 'cloudbuild_trigger' else row.get('name')
-        if resource_name is not None and resource_name != prefix + ident:
+        if resource_name is not None and resource_name != prefix + ident and not number_alias(resource_name, route, ident, row):
             raise ValueError('Cloud Build resource name mismatch')
     if not isinstance(ident, str) or not re.fullmatch(IDENT, ident) or route['name'] is not None and ident != route['name']:
         raise ValueError('Run/Build identity differs from request')
@@ -228,8 +239,12 @@ def _scrub(value):
     return sanitize(output)
 
 
-def _unknown(reason):
-    return {'schema': SCHEMA, 'status': reason, 'complete': False, 'leaks': []}
+def _unknown(reason, cause=None):
+    marker = {'schema': SCHEMA, 'status': reason, 'complete': False, 'leaks': []}
+    text = str(cause) if isinstance(cause, (ValueError, TimeoutError)) else ''
+    # Only this module's fixed literal messages are recorded; never content.
+    marker['reason'] = text if re.fullmatch(r'[A-Za-z][A-Za-z /-]{0,79}', text) else (type(cause).__name__ if cause else reason)
+    return marker
 
 
 def project_response(response, *, method, url, scope, params=None, body=None, enabled=False,
@@ -266,6 +281,7 @@ def project_response(response, *, method, url, scope, params=None, body=None, en
     if route['aggregate']:
         incomplete |= any(isinstance(group, dict) and group.get('warning', {}).get('code') not in (None, 'NO_RESULTS_ON_PAGE') for group in response.get('items', {}).values() if isinstance(group, dict) and isinstance(group.get('warning', {}), dict))
     redactions = set()
+    admitted = []
     for raw, output, row_route in pairs:
         if not isinstance(raw, dict) or not isinstance(output, dict): continue
         try:
@@ -275,18 +291,30 @@ def project_response(response, *, method, url, scope, params=None, body=None, en
             payload, count = _parts(raw, route['kind'])
             if len(payload) > budget: raise ValueError('page byte bound')
             budget -= len(payload)
-            if check_cancelled is not None: check_cancelled()
-            remaining = deadline - time.monotonic()
-            if remaining <= 0: raise TimeoutError('scan deadline')
-            outcome = scan_with_source(scan_content, payload, route['kind'] + '.literal_configuration', timeout=min(10, remaining / 2),
-                                   _redact_values=redactions.update, source={'resource_id': resource, 'location_kind': 'configuration', 'scope': route['scope']}, native=raw)
-            leaks = merge_leaks(outcome['leaks'])
-            if len(leaks) > MAX_LEAKS or sum(len(leak['locations']) for leak in leaks) > MAX_LOCATIONS:
-                raise ValueError('redacted result bound')
-            output[MARKER] = {'schema': SCHEMA, 'status': 'collected' if outcome['complete'] else 'incomplete',
-                'kind': route['kind'], 'identity': resource, 'scope': scope, 'source_fields': FIELDS[route['kind']],
-                'bytes': len(payload), 'parts': count, 'complete': outcome['complete'], 'engines': outcome['engines'],
-                'leaks': leaks, 'verification': 'not_attempted'}
-        except Exception:
-            output[MARKER] = _unknown('unavailable')
+            admitted.append((raw, output, resource, payload, count))
+        except Exception as exc:
+            output[MARKER] = _unknown('unavailable', exc)
+    if not admitted:
+        return redact_matches(safe, redactions)
+    path = route['kind'] + '.literal_configuration'
+    # One offline TruffleHog process prepares every admitted row of the page;
+    # each row still runs the normal two-engine scan with its own source.
+    with prepared_content_batch([(payload, path) for _, _, _, payload, _ in admitted],
+                                timeout=max(.001, min(20, (deadline - time.monotonic()) / 2))):
+        for raw, output, resource, payload, count in admitted:
+            try:
+                if check_cancelled is not None: check_cancelled()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0: raise TimeoutError('scan deadline')
+                outcome = scan_with_source(scan_content, payload, path, timeout=min(10, remaining / 2),
+                                       _redact_values=redactions.update, source={'resource_id': resource, 'location_kind': 'configuration', 'scope': route['scope']}, native=raw)
+                leaks = merge_leaks(outcome['leaks'])
+                if len(leaks) > MAX_LEAKS or sum(len(leak['locations']) for leak in leaks) > MAX_LOCATIONS:
+                    raise ValueError('redacted result bound')
+                output[MARKER] = {'schema': SCHEMA, 'status': 'collected' if outcome['complete'] else 'incomplete',
+                    'kind': route['kind'], 'identity': resource, 'scope': scope, 'source_fields': FIELDS[route['kind']],
+                    'bytes': len(payload), 'parts': count, 'complete': outcome['complete'], 'engines': outcome['engines'],
+                    'leaks': leaks, 'verification': 'not_attempted'}
+            except Exception as exc:
+                output[MARKER] = _unknown('unavailable', exc)
     return redact_matches(safe, redactions)

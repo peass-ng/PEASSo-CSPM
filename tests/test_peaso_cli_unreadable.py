@@ -45,10 +45,11 @@ def test_hosted_collector_fails_scan_when_nothing_was_readable(tmp_path, monkeyp
                                            "items": [], "error": {"code": "credential_refresh_failed", "kind": "denied"}}])
     monkeypatch.setattr(peaso.engine, "collect_snapshot", lambda request: denied)
     monkeypatch.setattr(worker.os, "dup2", lambda *a: None)
-    request = {"artifact_config": {"mode": "file", "root": str(tmp_path)}, "tenant_id": "t", "scan_id": "s",
+    request = {"artifact_config": {"mode": "file", "root": str(tmp_path)}, "tenant_id": "t", "scan_id": "0" * 32,
                "connector": {"provider": "gcp", "auth": {}}}
     worker._process("collector", request, Pipe())
-    assert Pipe.sent[:2] == (False, "credential_access_denied")
+    # credential_refresh_failed names a rejected credential, not missing permissions.
+    assert Pipe.sent[:2] == (False, "credentials_invalid")
 
 
 @pytest.mark.parametrize("failure, expected", [
@@ -75,7 +76,7 @@ def test_hosted_collector_distinguishes_file_permission_from_provider_denial(
 
     monkeypatch.setattr(peaso.engine, "collect_snapshot", fail_collection)
     monkeypatch.setattr(worker.os, "dup2", lambda *_args: None)
-    request = {"artifact_config": {"mode": "file", "root": str(tmp_path)}, "tenant_id": "t", "scan_id": "s",
+    request = {"artifact_config": {"mode": "file", "root": str(tmp_path)}, "tenant_id": "t", "scan_id": "0" * 32,
                "connector": {"provider": "gcp", "auth": {}}}
     pipe = Pipe()
     worker._process("collector", request, pipe)

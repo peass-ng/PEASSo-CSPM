@@ -18190,7 +18190,7 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "cloudbuild_build"
     },
     "source": "peaso/checks/gcp_configuration_secret_review_20261019.py",
-    "source_sha256": "bb0b2d16b21e611a1961f3f917a11f1bfa504ec6c587b61be36a77422985d1be"
+    "source_sha256": "ec412b06a76abdfa7df9401d21f278c0976b78d040f75531cbd00ffc8df7b125"
   },
   "gcp.review.cloudbuild_trigger.literal_configuration_secret_indicators": {
     "admission_sha256": "7e1975fbee9aa99ed97524885651beb1ea50d914fdf07d027619306689d8cebc",
@@ -18212,7 +18212,7 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "cloudbuild_trigger"
     },
     "source": "peaso/checks/gcp_configuration_secret_review_20261019.py",
-    "source_sha256": "bb0b2d16b21e611a1961f3f917a11f1bfa504ec6c587b61be36a77422985d1be"
+    "source_sha256": "ec412b06a76abdfa7df9401d21f278c0976b78d040f75531cbd00ffc8df7b125"
   },
   "gcp.review.cloudrun_job.literal_configuration_secret_indicators": {
     "admission_sha256": "9ea35f881a4ed3e55f31ab3e19c5c0184a7b853a9c5b63b19d970802ee376e63",
@@ -18234,7 +18234,7 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "cloudrun_job"
     },
     "source": "peaso/checks/gcp_configuration_secret_review_20261019.py",
-    "source_sha256": "bb0b2d16b21e611a1961f3f917a11f1bfa504ec6c587b61be36a77422985d1be"
+    "source_sha256": "ec412b06a76abdfa7df9401d21f278c0976b78d040f75531cbd00ffc8df7b125"
   },
   "gcp.review.cloudrun_service.literal_configuration_secret_indicators": {
     "admission_sha256": "8345c5ae651bdcfe082a17163075e3400d51ad5e5d444d85937c69d70d3e3bbd",
@@ -18256,7 +18256,7 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "cloudrun_service"
     },
     "source": "peaso/checks/gcp_configuration_secret_review_20261019.py",
-    "source_sha256": "bb0b2d16b21e611a1961f3f917a11f1bfa504ec6c587b61be36a77422985d1be"
+    "source_sha256": "ec412b06a76abdfa7df9401d21f278c0976b78d040f75531cbd00ffc8df7b125"
   },
   "gcp.review.composer.dag_source_secret_indicators": {
     "admission_sha256": "1fe0bcb7e068019e0556ae3b987cd0fcbc4b30e36ed861881b140ece4a0cefe8",
@@ -18477,7 +18477,7 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "instance"
     },
     "source": "peaso/checks/gcp_configuration_secret_review_20261019.py",
-    "source_sha256": "bb0b2d16b21e611a1961f3f917a11f1bfa504ec6c587b61be36a77422985d1be"
+    "source_sha256": "ec412b06a76abdfa7df9401d21f278c0976b78d040f75531cbd00ffc8df7b125"
   },
   "gcp.review.instance_template.literal_configuration_secret_indicators": {
     "admission_sha256": "8309826a4880a834a6eb97596f4f2559b29caaeb2d84566f1453195a6141bb9b",
@@ -18499,7 +18499,7 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "instance_template"
     },
     "source": "peaso/checks/gcp_configuration_secret_review_20261019.py",
-    "source_sha256": "bb0b2d16b21e611a1961f3f917a11f1bfa504ec6c587b61be36a77422985d1be"
+    "source_sha256": "ec412b06a76abdfa7df9401d21f278c0976b78d040f75531cbd00ffc8df7b125"
   },
   "gcp.review.logging.application_log_secret_indicators": {
     "admission_sha256": "2582ceca7284d2c399f07cd486c73f38a5bd2bec9f45bbfa429cdb84b09fec27",
@@ -18543,7 +18543,7 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
       "source_qualname": "project"
     },
     "source": "peaso/checks/gcp_configuration_secret_review_20261019.py",
-    "source_sha256": "bb0b2d16b21e611a1961f3f917a11f1bfa504ec6c587b61be36a77422985d1be"
+    "source_sha256": "ec412b06a76abdfa7df9401d21f278c0976b78d040f75531cbd00ffc8df7b125"
   },
   "gcp.review.scheduler_job.literal_target_secret_indicators": {
     "admission_sha256": "65b645f4ba8746603bd9fe45f58196be6bc7048b84d31f8b416b9b1e94b66c97",

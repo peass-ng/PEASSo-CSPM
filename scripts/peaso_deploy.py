@@ -57,6 +57,9 @@ RUNTIME_ADMISSION_INPUTS = {
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
+    'tests/test_credential_rejection_20261026.py',
+    'tests/test_peaso_cli_unreadable.py',
+    'tests/test_gcp_cloudbuild_current_source_transition_20261027.py',
     'tests/test_finding_index_concurrency.py',
     'tests/test_independent_finding_index_20261026.py',
     'tests/test_aws_ecs_content_cohort_20261026.py',

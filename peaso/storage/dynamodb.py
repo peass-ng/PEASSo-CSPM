@@ -11,7 +11,7 @@ import time
 import uuid
 from boto3.dynamodb.types import TypeSerializer, TypeDeserializer
 from botocore.exceptions import ClientError
-from .sqlite import SQLiteStore, StoreError, TERMINAL, SCAN_CAPACITY, QUEUE_WAIT_SECONDS, failure_error, utc, week
+from .sqlite import SQLiteStore, StoreError, TERMINAL, SCAN_CAPACITY, QUEUE_WAIT_SECONDS, failure_error, curated_failure_reasons, INVALID_CREDENTIALS_FAILURE, utc, week
 
 SERIALIZER, DESERIALIZER = TypeSerializer(), TypeDeserializer()
 
@@ -1215,9 +1215,11 @@ class DynamoStore:
         names = {"#owner": "owner", "#status": "status", "#artifact": "snapshot" if status in {"collected", "credentials_expired"} else "report", "#error": "error"}
         values = {":owner": owner, ":now": now, ":status": status, ":null": None, ":artifact": artifact,
                   ":error": ("Connector credentials expired during the scan. Update them, then resume this scan or start a new one."
-                             if status == "credentials_expired" else failure_error(failure_reasons) if status == "failed" else None)}
+                             if status == "credentials_expired" else
+                             INVALID_CREDENTIALS_FAILURE if status == "failed" and error_code == "credentials_invalid" and not curated_failure_reasons(failure_reasons) else
+                             failure_error(failure_reasons) if status == "failed" else None)}
         names.update({"#error_code": "error_code", "#error_stage": "error_stage"})
-        allowed = {"processing_failed", "invalid_input", "credential_access_denied", "dependency_unavailable", "provider_error", "collector_timeout", "artifact_error", "worker_interrupted"}
+        allowed = {"processing_failed", "invalid_input", "credential_access_denied", "dependency_unavailable", "provider_error", "collector_timeout", "artifact_error", "worker_interrupted", "credentials_invalid"}
         values[":error_code"] = ("credentials_expired" if status == "credentials_expired" else
                                  error_code if status == "failed" and error_code in allowed else
                                  "processing_failed" if status == "failed" else None)

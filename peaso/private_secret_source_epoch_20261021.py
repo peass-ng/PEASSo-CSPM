@@ -25,8 +25,8 @@ from types import CodeType, FunctionType, MethodType, ModuleType
 import zipfile
 from peaso import source_attestation_mode as _attestation_mode
 
-_RECEIPT_SHA256 = "5fed0e7f3a73d31cc8c2339e81c20fd8c96a26a5764ae9dc9d94d767b32531f9"
-_SELF_SHA256 = "1b2b5dbf2a8de8a1c39f1d1578457b15bad727b3e60b3b36759f394540a1b2c4"
+_RECEIPT_SHA256 = "a942073e7a9ba589ade194103b50dba0f21c9e27c0ac792569511bdafc73d814"
+_SELF_SHA256 = "e05033dad7c538fec3f75e124260ee54fa37f150d865dea4e25dbba5a3df5af2"
 _ARCHIVE_SHA256 = "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0"
 _HELPER_SHA256 = "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a"
 _BASE = "6b6ee759234d7e2dad978342838cb3af4e1fe767"
@@ -529,10 +529,12 @@ def _live(root: str | Path, relative: str, row: dict) -> tuple[bytes, Path]:
     data = path.read_bytes()
     if relative in ("peaso/collectors/aws_code_log_content_indicators.py",
                     "peaso/collectors/gcp_log_secret_indicators.py",
+                    "peaso/collectors/gcp_configuration_secret_indicators.py",
                     "peaso/collectors/aws_selected_configuration_secret_indicators.py"):
         receipt, _ = _receipt()
         transition = receipt["current_reviewed_files"][relative]
         old_sha = {
+            "peaso/collectors/gcp_configuration_secret_indicators.py": "fece1e1e725f899dc06f7d257e97a5cf018b27f4915524289d398832d4e8969b",
             "peaso/collectors/aws_selected_configuration_secret_indicators.py": "c7a87afb1fc02740979a34efa2a03141d4e0daddbfdda1e45c604507c31c450f",
             "peaso/collectors/aws_code_log_content_indicators.py": "9a93faa6ea79503a43d80da060b9623b27b05ee22b7a5cda5b2037b63d02f8f4",
             "peaso/collectors/gcp_log_secret_indicators.py": "742707093416635c370b49b5f4d4ceb7aa6ead869a7d3748e1ee3698a4ab8268",
@@ -1478,14 +1480,16 @@ def trusted_definition(fn: FunctionType | MethodType, root: str | Path) -> dict:
         node, definition = nodes[0], defs[0]
         hashes = definition
         # One finite current successor; retained epoch definition witnesses do not change.
-        if (relative, name) == (
-                "peaso/collectors/aws_selected_configuration_secret_indicators.py",
-                "collect_selected"):
+        successor_rosters = {
+            "peaso/collectors/aws_selected_configuration_secret_indicators.py": {"collect_selected"},
+            "peaso/collectors/gcp_configuration_secret_indicators.py": {"project_response"},
+        }
+        if name in successor_rosters.get(relative, ()):
             receipt, _ = _receipt()
             transition = receipt["current_reviewed_files"][relative]
             successors = transition.get("current_definitions")
             if successors is not None:
-                if type(successors) is not dict or set(successors) != {"collect_selected"}:
+                if type(successors) is not dict or set(successors) != successor_rosters[relative]:
                     raise AdmissionError("reviewed definition successor roster changed")
                 successor = successors[name]
                 if (successor["predecessor_sha256"] != definition["after"]
@@ -1544,6 +1548,12 @@ def trusted_definition(fn: FunctionType | MethodType, root: str | Path) -> dict:
     if not _code_equal(fn.__code__, expected_code):
         raise AdmissionError("compiled callable mismatch")
     _check_globals(fn, tree, compiled, constants, module, root)
+    if (relative, fn.__qualname__) == (
+            "peaso/collectors/gcp_configuration_secret_indicators.py", "project_response"):
+        # The reviewed alias helper is reached through identity, one level below
+        # the producer's direct globals. Reuse the existing live binding checks.
+        _check_globals(vars(module)["identity"], tree, compiled, constants, module, root)
+        _check_globals(vars(module)["number_alias"], tree, compiled, constants, module, root)
     qualifier = fn.__qualname__
     return {
         "current": {"path": relative, "name": qualifier, "module": module.__name__, "file_sha256": row["after_sha256"], "source_sha256": hashes["after"], "ast_sha256": hashes["after_ast_sha256"]},
