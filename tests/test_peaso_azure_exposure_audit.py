@@ -137,7 +137,13 @@ def test_container_app_requires_public_environment_and_effective_ingress():
             {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
                          "configuration": {"ingress": ingress}, "provisioningState": "Succeeded"}}]}])
-        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "container_app")
+        observed_resources = resources(snap)
+        rows = assess(snap, observed_resources)
+        matches = [row for row in rows if row.resource["type"] == "container_app"]
+        assert matches, {"resource_types": [row["type"] for row in observed_resources],
+                         "assessment_types": [row.resource["type"] for row in rows],
+                         "dispatch_present": "container_app" in assess.__globals__["AZURE_TYPES"]}
+        return matches[0]
 
     assert app_decision().verdict() == "FAIL"
     assert app_decision(env_public="Disabled").verdict() == "PASS"
@@ -148,6 +154,59 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     assert app_decision(rules=public_allow).verdict() == "FAIL"
     tcp = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}])
     assert tcp.verdict() == "FAIL" and tcp.ports == {"tcp": ((8443, 8443), (9000, 9000))}
+
+
+def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
+    ip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
+    firewall_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw"
+
+    def firewall_decision(rules, policy=None):
+        props = {"ipConfigurations": [{"properties": {"publicIPAddress": {"id": ip_id}}}],
+                 "natRuleCollections": [{"name": "nat", "properties": {"action": {"type": "Dnat"},
+                                          "rules": rules}}]}
+        if policy:
+            props["firewallPolicy"] = {"id": policy}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": ip_id, "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "azure_firewall", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": firewall_id, "properties": props}]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "azure_firewall")
+
+    rule = {"name": "web", "sourceAddresses": ["0.0.0.0/0"],
+            "destinationAddresses": ["8.8.8.8"], "destinationPorts": ["443"],
+            "protocols": ["TCP"], "translatedAddress": "10.0.0.4", "translatedPort": "8443"}
+    candidate = firewall_decision([rule])
+    assert candidate.verdict() == "UNKNOWN" and candidate.ports == {"tcp": ((443, 443),)}
+    assert any(gap["layer"] == "backend" for gap in candidate.unresolved)
+    assert firewall_decision([]).verdict() == "PASS"
+    assert firewall_decision([], policy="/policy").verdict() == "UNKNOWN"
+
+
+def test_firewall_policy_dnat_uses_collected_full_group():
+    policy_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/firewallPolicies/p"
+    public_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
+    group_id = policy_id + "/ruleCollectionGroups/nat"
+    group = {"id": group_id, "_provenance": {"representation": "full",
+        "source_operation": "get_rule_collection_group"}, "properties": {"ruleCollections": [
+        {"name": "nat", "ruleCollectionType": "FirewallPolicyNatRuleCollection",
+         "action": {"type": "DNAT"}, "rules": [{"name": "ssh", "ruleType": "NatRule",
+             "sourceAddresses": ["1.1.1.1/32"], "destinationAddresses": ["8.8.8.8"],
+             "destinationPorts": ["22"], "ipProtocols": ["TCP"],
+             "translatedAddress": "10.0.0.4", "translatedPort": "22"}]}]}}
+    snap = make_snapshot("azure", [SCOPE], [
+        {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": public_id, "properties": {"ipAddress": "8.8.8.8"}}]},
+        {"type": "firewall_policy", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": policy_id, "properties": {}, "_coverage": {"ruleCollectionGroups": {"status": "collected"}},
+                    "ruleCollectionGroups": [group]}]},
+        {"type": "azure_firewall", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw",
+                    "properties": {"firewallPolicy": {"id": policy_id},
+                                   "ipConfigurations": [{"properties": {"publicIPAddress": {"id": public_id}}}]}}]}])
+    row = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "azure_firewall")
+    assert row.verdict() == "UNKNOWN" and row.ports == {"tcp": ((22, 22),)}
+    assert any(gap["layer"] == "backend" for gap in row.unresolved)
 
 
 @pytest.mark.parametrize("kind", ["vault", "container_registry", "search_service", "servicebus_namespace"])

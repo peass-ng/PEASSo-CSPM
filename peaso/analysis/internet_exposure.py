@@ -41,7 +41,7 @@ STATIC_GAPS = {
         {"fact": "compute instanceGroups.listInstances / NEG endpoints", "for": "passthrough forwarding_rule backends"},
     ],
     "azure": [
-        {"fact": "Microsoft.Network/azureFirewalls + firewallPolicies rule collections", "for": "Azure Firewall DNAT"},
+        {"fact": "Azure Firewall DNAT translated backend route and effective NSG", "for": "Azure Firewall DNAT"},
         {"fact": "Microsoft.Network/applicationSecurityGroups membership", "for": "NSG ASG rules"},
         {"fact": "Microsoft.Web/sites/config/authsettingsV2", "for": "App Service authentication"},
     ],
@@ -2221,6 +2221,88 @@ def _azure_container_app(snapshot, inventory, resource):
     return a
 
 
+def _azure_firewall(snapshot, inventory, resource):
+    """Classic Firewall DNAT frontends; backend reachability remains explicit."""
+    props = _props(resource)
+    frontends = []
+    for config in as_list(props.get("ipConfigurations")):
+        if not isinstance(config, dict):
+            continue
+        public_id = ((config.get("properties") or {}).get("publicIPAddress") or {}).get("id")
+        public = inventory.get("public_ip", public_id)
+        address = _props(public).get("ipAddress") if public is not None else None
+        if address and _public_ip(address):
+            frontends.append(address)
+    if not frontends and not as_list(props.get("natRuleCollections")) and not props.get("firewallPolicy"):
+        return None
+    a = Assessment(resource, "firewall_dnat")
+    a.addresses = frontends
+    collections = list(as_list(props.get("natRuleCollections")))
+    if props.get("firewallPolicy"):
+        policy_id = (props.get("firewallPolicy") or {}).get("id")
+        policy = inventory.get("firewall_policy", policy_id)
+        if policy is None:
+            a.gap("policy", "referenced Firewall Policy is not collected", "Microsoft.Network/firewallPolicies")
+        else:
+            policy_data = policy["data"]
+            coverage = ((policy_data.get("_coverage") or {}).get("ruleCollectionGroups") or {}).get("status")
+            if coverage not in ("collected", "empty"):
+                a.gap("policy", "Firewall Policy rule collection group pages are incomplete",
+                      "Microsoft.Network/firewallPolicies/ruleCollectionGroups")
+            else:
+                for group in as_list(policy_data.get("ruleCollectionGroups")):
+                    provenance = (group or {}).get("_provenance") or {}
+                    if (provenance.get("representation") != "full" or
+                            provenance.get("source_operation") != "get_rule_collection_group"):
+                        a.gap("policy", "Firewall Policy group lacks full GET provenance")
+                        continue
+                    for collection in as_list(((group or {}).get("properties") or {}).get("ruleCollections")):
+                        if ((collection or {}).get("ruleCollectionType") == "FirewallPolicyNatRuleCollection" and
+                                str((((collection or {}).get("action") or {}).get("type", "")).lower()) == "dnat"):
+                            collections.append(collection)
+            if ((policy_data.get("properties") or {}).get("basePolicy") or {}).get("id"):
+                a.gap("policy", "Firewall Policy base-policy inheritance is not resolved")
+    ports, matched = {}, []
+    for collection in collections:
+        cp = (collection or {}).get("properties") or collection or {}
+        if str((cp.get("action") or {}).get("type", "")).lower() != "dnat":
+            continue
+        for rule in as_list(cp.get("rules")):
+            if not isinstance(rule, dict):
+                continue
+            sources = [_cidr(value) for value in as_list(rule.get("sourceAddresses"))]
+            if rule.get("sourceIpGroups"):
+                a.gap("policy", "DNAT source IP group membership is not resolved")
+            if None in sources:
+                a.gap("policy", "DNAT source address syntax is not resolved")
+            if not sources or None in sources or not _azure_public_remainder(sources, []):
+                continue
+            destinations = [_cidr(value) for value in as_list(rule.get("destinationAddresses"))]
+            if None in destinations:
+                a.gap("policy", "DNAT destination address syntax is not resolved")
+            if not frontends or not any(net and ipaddress.ip_address(front) in net
+                                        for net in destinations for front in frontends):
+                continue
+            exposed = {}
+            for protocol in as_list(rule.get("protocols")) + as_list(rule.get("ipProtocols")):
+                for spec in as_list(rule.get("destinationPorts")):
+                    exposed = union(exposed, _port_spec(protocol, spec) or {})
+            if exposed:
+                ports = union(ports, exposed)
+                matched.append({"collection": collection.get("name"), "rule": rule.get("name"),
+                                "frontend_ports": describe(exposed), "translated_address": rule.get("translatedAddress"),
+                                "translated_port": rule.get("translatedPort")})
+    if matched:
+        a.step("dnat", "allow", rules=matched)
+        a.gap("backend", "translated backend route and effective NSG are not resolved")
+    elif frontends and not a.unresolved:
+        a.step("dnat", "block", reason="no collected public-source classic DNAT rule")
+    else:
+        a.gap("inventory", "Firewall public frontend or policy DNAT rule inventory is unavailable")
+    a.ports = ports
+    return a
+
+
 _AZURE_MANAGED_ENDPOINTS = {
     "vault": (443, "networkAcls"),
     "cosmos_account": (443, "ipRules"),
@@ -2772,7 +2854,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket", "project", "workload_identity_provider"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -2783,7 +2865,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -2825,6 +2907,7 @@ def assess(snapshot, resources):
                   "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"]),
                   "container_group": _azure_container_group,
                   "container_app": _azure_container_app,
+                  "azure_firewall": _azure_firewall,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
