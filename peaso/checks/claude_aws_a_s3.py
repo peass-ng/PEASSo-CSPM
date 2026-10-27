@@ -543,6 +543,8 @@ def prowler_acl_disabled(item, index):
     controls = section(item, "OwnershipControls")
     if controls is None:
         return result(True, ownership=None)
+    if get(controls, "collection_status", str) != "collected":
+        raise Unavailable("ownership controls detail unavailable")
     rules = list_of_objects(get(controls, "OwnershipControls.Rules", list))
     if not rules:
         raise Unavailable("empty ownership rules")

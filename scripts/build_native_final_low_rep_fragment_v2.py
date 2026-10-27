@@ -18,7 +18,7 @@ from scripts.audit_native_final_low_reps import SNAPSHOT_SHA256
 
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / 'docs/ai-review/native-final-low-rep-code-190-v3.json'
-RECEIPT_SHA256 = 'ee097152ac77e292683c159dcf2bb76be7f179f0ce4ced07d3cfce690143bab7'
+RECEIPT_SHA256 = '1ed2f23460b3ce98a4b3de993062bd2c7b9d24a9bf986aafbf4efe06b7128682'
 SCAN_ID = '992d7b8cbd4340a79e41139ba1a44c1e'
 BASE_COMMIT = 'd3e0e0ebfc8cf85196951460ed6db99f59e99c19'
 

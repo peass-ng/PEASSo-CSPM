@@ -119,6 +119,21 @@ def test_shards_match_dispositions():
 # --------------------------------------------------------------------------- focused semantics
 from peaso.checks import claude_aws_a_s3 as s3  # noqa: E402
 
+def test_s3_prowler_acl_requires_collected_ownership_detail():
+    cid = "aws.claude_a.s3.prowler_acl_disabled"
+    failing = copy.deepcopy(CASES[cid]["fail"])
+    assert _run(cid, failing, {}) == "FAIL"
+    for status in (None, "partial", "denied"):
+        incomplete = copy.deepcopy(failing)
+        if status is None:
+            incomplete["OwnershipControls"].pop("collection_status")
+        else:
+            incomplete["OwnershipControls"]["collection_status"] = status
+        assert _run(cid, incomplete, {}) == "UNKNOWN"
+    absent = copy.deepcopy(failing)
+    absent["OwnershipControls"] = {"collection_status": "empty", "absent": True}
+    assert _run(cid, absent, {}) == "FAIL"
+
 
 def test_s3_prowler_replication_unresolved_destination_is_manual():
     item = copy.deepcopy(s3.B)

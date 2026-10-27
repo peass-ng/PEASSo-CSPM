@@ -13169,7 +13169,7 @@
         "function_sha256": "c27cb9888ad1ec5be2c5689e5819921bc64dea8d31669820de17f08be53de178",
         "last_line": 288,
         "path": "peaso/checks/claude_aws_a_s3.py",
-        "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
         "symbol": "kms_key"
       },
       "evidence_keys": [
@@ -13209,7 +13209,7 @@
           "lines": "147-149",
           "path": "peaso/checks/claude_aws_a_s3.py",
           "purpose": "candidate helper source; chain and omissions unverified",
-          "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
           "symbol": "encryption_rules"
         },
         {
@@ -13273,7 +13273,7 @@
         "function_sha256": "125ee22fcdf1336f417c96dc75421232f0c3d950da182c8630a73d1ff7da67a0",
         "last_line": 465,
         "path": "peaso/checks/claude_aws_a_s3.py",
-        "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
         "symbol": "notifications"
       },
       "evidence_keys": [
@@ -13349,7 +13349,7 @@
         "function_sha256": "1223ce97bb015cfbf64e46afc0ff5795c98f0c3ec0b2ce633cd791d91207556e",
         "last_line": 415,
         "path": "peaso/checks/claude_aws_a_s3.py",
-        "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
         "symbol": "lifecycle"
       },
       "evidence_keys": [
@@ -13385,7 +13385,7 @@
           "lines": "391-405",
           "path": "peaso/checks/claude_aws_a_s3.py",
           "purpose": "candidate helper source; chain and omissions unverified",
-          "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
           "symbol": "_enabled_lifecycle_rules"
         },
         {
@@ -13435,7 +13435,7 @@
         "function_sha256": "96caf5b77a25c99e2dae04d86a6e80bb39d88dfcaf5f00af7fd655b249fdb743",
         "last_line": 439,
         "path": "peaso/checks/claude_aws_a_s3.py",
-        "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
         "symbol": "object_lock"
       },
       "evidence_keys": [
@@ -13480,7 +13480,7 @@
           "lines": "57-72",
           "path": "peaso/checks/claude_aws_a_s3.py",
           "purpose": "candidate helper source; chain and omissions unverified",
-          "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
           "symbol": "section"
         },
         {
@@ -13526,6 +13526,7 @@
     },
     {
       "bound_api_fields": [
+        "collection_status",
         "OwnershipControls.Rules",
         "ObjectOwnership",
         "OwnershipControls.OwnershipControls.Rules[0].ObjectOwnership"
@@ -13534,10 +13535,10 @@
       "decision": "native_final_source_proven",
       "evaluator": {
         "first_line": 538,
-        "function_sha256": "ba3c5deeabdb1107cddf5e1c055919128929e98109aa8ee2e0e84d3f147e50ef",
-        "last_line": 550,
+        "function_sha256": "af010e883ece4165102f8aeeb5ca795365a06507cb4bc817f5e8ebd7465ee262",
+        "last_line": 552,
         "path": "peaso/checks/claude_aws_a_s3.py",
-        "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
         "symbol": "prowler_acl_disabled"
       },
       "evidence_keys": [
@@ -13564,7 +13565,7 @@
         },
         {
           "expression": "\"BucketOwnerEnforced\" not in ownership",
-          "line": 550
+          "line": 552
         }
       ],
       "followup_owner": "code_worker",
@@ -13583,7 +13584,7 @@
           "lines": "57-72",
           "path": "peaso/checks/claude_aws_a_s3.py",
           "purpose": "candidate helper source; chain and omissions unverified",
-          "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
           "symbol": "section"
         },
         {
@@ -13612,20 +13613,24 @@
       "index_read_line": null,
       "initial_representatives": 2,
       "native_fail_count": 3,
-      "reason": "Evaluator peaso/checks/claude_aws_a_s3.py:538-550 reads typed S3 configuration. Exact 992 bucket detail states and peaso/collectors/aws.py:1654-1701 prove complete success, documented absence, or denied/UNKNOWN before optional defaults.",
+      "reason": "Evaluator peaso/checks/claude_aws_a_s3.py:538-552 reads typed S3 configuration. Exact 992 bucket detail states and peaso/collectors/aws.py:1654-1701 prove complete success, documented absence, or denied/UNKNOWN before optional defaults.",
       "recorded_field_reads": [
         {
           "line": 546,
+          "path": "collection_status"
+        },
+        {
+          "line": 548,
           "path": "OwnershipControls.Rules"
         },
         {
-          "line": 549,
+          "line": 551,
           "path": "ObjectOwnership"
         }
       ],
       "result_lines": [
         545,
-        550
+        552
       ],
       "snapshot_completeness_ref": {
         "resource_rows": 148,
@@ -13650,7 +13655,7 @@
         "function_sha256": "431de4565b88a34229d949978f8e35efa705b95a180fc34d075c65232ea06474",
         "last_line": 301,
         "path": "peaso/checks/claude_aws_a_s3.py",
-        "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
         "symbol": "prowler_kms"
       },
       "evidence_keys": [
@@ -13695,7 +13700,7 @@
           "lines": "147-149",
           "path": "peaso/checks/claude_aws_a_s3.py",
           "purpose": "candidate helper source; chain and omissions unverified",
-          "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
           "symbol": "encryption_rules"
         },
         {
@@ -13752,7 +13757,7 @@
         "function_sha256": "140c052f8c4a4bd91c008b01084b5b8d41548b4f1e4e77f8cb7a1730fb8fea8d",
         "last_line": 333,
         "path": "peaso/checks/claude_aws_a_s3.py",
-        "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
         "symbol": "replication_enabled"
       },
       "evidence_keys": [
@@ -13797,7 +13802,7 @@
           "lines": "57-72",
           "path": "peaso/checks/claude_aws_a_s3.py",
           "purpose": "candidate helper source; chain and omissions unverified",
-          "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
           "symbol": "section"
         },
         {
@@ -13871,7 +13876,7 @@
         "function_sha256": "b417c6684ce24619b04496e3d841d3f5baab400c4c34510a62da0c74ac1143cf",
         "last_line": 427,
         "path": "peaso/checks/claude_aws_a_s3.py",
-        "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
         "symbol": "versioning_lifecycle"
       },
       "evidence_keys": [
@@ -13911,14 +13916,14 @@
           "lines": "134-139",
           "path": "peaso/checks/claude_aws_a_s3.py",
           "purpose": "candidate helper source; chain and omissions unverified",
-          "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
           "symbol": "versioning_enabled"
         },
         {
           "lines": "391-405",
           "path": "peaso/checks/claude_aws_a_s3.py",
           "purpose": "candidate helper source; chain and omissions unverified",
-          "source_file_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "source_file_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf",
           "symbol": "_enabled_lifecycle_rules"
         },
         {

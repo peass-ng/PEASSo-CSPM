@@ -224,7 +224,10 @@ def _codebuild(item,index,any_type):
 
 
 def _ecs(item,index):
-    arn=_member(item,index,'ecs_task_definition');detail=get(item,'Definition.taskDefinition',dict)
+    arn=_member(item,index,'ecs_task_definition')
+    if get(item,'Definition.collection_status',str)!='collected':
+        raise Unavailable('DescribeTaskDefinition detail unavailable')
+    detail=get(item,'Definition.taskDefinition',dict)
     if get(detail,'taskDefinitionArn',str)!=arn:raise Unavailable('ECS task detail identity mismatch')
     if get(detail,'status',str)!='ACTIVE':return 'NOT_APPLICABLE',{'task_definition_arn':arn}
     containers=list_of_objects(get(detail,'containerDefinitions',list))

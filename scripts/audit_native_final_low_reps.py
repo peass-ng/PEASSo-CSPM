@@ -84,7 +84,7 @@ SPECIAL_SOURCE_PINS = {
     'peaso/checks/hacktricks_bp_common.py': 'a7f127c0ecd1a2876c4ea1124304709cf68feff80c5a9d8564b62193d0226b5e',
     'peaso/checks/aws.py': '18b513e7e115dfcff6869e20bb2c776c9c979ac2ad4b7662c6179acb146debbd',
     'peaso/checks/aws_a_s3.py': 'ff02961210c23380ae79b3ea983e7734f5205ef49acb0a3e00bbb5f7eea3916d',
-    'peaso/checks/claude_aws_a_s3.py': '18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160',
+    'peaso/checks/claude_aws_a_s3.py': '154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf',
     'peaso/collectors/aws.py': '6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5',
     'peaso/checks/aws_extended.py': 'aac21cb7a83d89836beb374e72746d9f1f1e3b8de42137d5915397e7a0ea8f4b',
     'peaso/checks/aws_b_ecr.py': '552b98f0e65964ceff93530c4b08f017874bdce2c219055afc9c98e489cb678a',
@@ -119,6 +119,13 @@ SPECIAL_SOURCE_PINS = {
     'peaso/checks/claude_aws_a_security.py': '8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8',
     'peaso/checks/facts.py': '15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926',
     'peaso/checks/__init__.py': '9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae',
+}
+REVIEWED_EVALUATOR_UPGRADES = {
+    # Exact-992 4,832-row verdict/evidence parity and missing-status UNKNOWN
+    # are pinned in native-final-detail-guards-992-proof.json.
+    'aws.claude_a.s3.prowler_acl_disabled': (
+        'ba3c5deeabdb1107cddf5e1c055919128929e98109aa8ee2e0e84d3f147e50ef',
+        'af010e883ece4165102f8aeeb5ca795365a06507cb4bc817f5e8ebd7465ee262'),
 }
 SNAPSHOT_SHA256 = '3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f'
 PRE_AI_SHA256 = '4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba'
@@ -829,7 +836,11 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
     body = ''.join(raw)
     relative = str(Path(inspect.getsourcefile(function)).resolve().relative_to(ROOT))
     evaluator_hash = hashlib.sha256(body.encode()).hexdigest()
-    if (inventory['evaluator_source_sha256'] != evaluator_hash
+    expected_source = inventory['evaluator_source_sha256']
+    reviewed_upgrade = REVIEWED_EVALUATOR_UPGRADES.get(check['check_id'])
+    source_matches = (expected_source == evaluator_hash or
+                      reviewed_upgrade == (expected_source, evaluator_hash))
+    if (not source_matches
             or inventory['native_fail_count'] != check['native_fail_count']
             or inventory['initial_representatives'] != check['initial_representatives']):
         raise ValueError('source or exact-992 count changed: ' + check['check_id'])

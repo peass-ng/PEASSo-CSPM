@@ -66,7 +66,7 @@ def cases():
     for cid,typ in [('aws.nist.codebuild_exact_aws_key_env_names','PLAINTEXT'),('aws.pci.codebuild.aws_key_environment_vars','SECRETS_MANAGER')]:
         good,bad=project(),project('AWS_ACCESS_KEY_ID',typ)
         configs[cid]=(good,indexed({'codebuild_project':[good]}),bad,indexed({'codebuild_project':[bad]}))
-    good={'taskDefinitionArn':'arn:aws:ecs:us-east-1:111111111111:task-definition/t:1','Definition':{'taskDefinition':{'taskDefinitionArn':'arn:aws:ecs:us-east-1:111111111111:task-definition/t:1','status':'ACTIVE','containerDefinitions':[{'name':'app','logConfiguration':{'logDriver':'awslogs'}}]}}}
+    good={'taskDefinitionArn':'arn:aws:ecs:us-east-1:111111111111:task-definition/t:1','Definition':{'collection_status':'collected','taskDefinition':{'taskDefinitionArn':'arn:aws:ecs:us-east-1:111111111111:task-definition/t:1','status':'ACTIVE','containerDefinitions':[{'name':'app','logConfiguration':{'logDriver':'awslogs'}}]}}}
     bad=copy.deepcopy(good);bad['Definition']['taskDefinition']['containerDefinitions'][0].pop('logConfiguration')
     configs['aws_g6_ecs_all_containers_logging']=(good,indexed({'ecs_task_definition':[good]}),bad,indexed({'ecs_task_definition':[bad]}))
     ec2={'InstanceId':'i-1','State':{'Name':'running'}}
@@ -211,6 +211,19 @@ def cases():
     return configs
 
 CASES=cases()
+
+def test_ecs_logging_requires_collected_definition_detail():
+    cid='aws_g6_ecs_all_containers_logging'
+    bad,index=copy.deepcopy((CASES[cid][2],CASES[cid][3]))
+    assert CHECKS_BY_ID[cid].evaluate(bad,index)[0]=='FAIL'
+    for status in (None,'partial','denied'):
+        incomplete=copy.deepcopy(bad)
+        if status is None:
+            incomplete['Definition'].pop('collection_status')
+        else:
+            incomplete['Definition']['collection_status']=status
+        incomplete_index=indexed({'ecs_task_definition':[incomplete]})
+        assert CHECKS_BY_ID[cid].evaluate(incomplete,incomplete_index)[0]=='UNKNOWN'
 
 @pytest.mark.parametrize('cid',sorted(batch.SPECS))
 def test_registry_pass_fail_unknown_and_immutable(cid):
