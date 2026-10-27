@@ -1652,7 +1652,7 @@
     "peaso/server/models.py": "580c4815277872eb6dd2e132a64899ed65dc5421fdbf117b3b3230f75b48fb41",
     "peaso/server/native_policy_validation.py": "c84159d8cc96b092aeea28db399c31a6c7b09bff90502e9b3e76cb2bb79791bd",
     "peaso/server/native_policy_validation_static_20261020.py": "73f591a82788f8bff65e8dd3018b6ed25a2f817b77a4cf4656706f2019063a29",
-    "peaso/server/privesc_display_catalog.py": "bfab4a13d3a2e64b894f796dcaff55e5b2b45592cfe9aff2d9261bce302371d7",
+    "peaso/server/privesc_display_catalog.py": "76342d63565c5d708bea25b8193e3ba3e74d305af29663434cccfd60f3477da2",
     "peaso/server/remediation_presentation_static_20261020.py": "d989960c6feb0339e95aa1f55c6228972c4ae9035d6a7e2406db588675123b31",
     "peaso/server/report_projection_static_20261020.py": "e35d635f2ce9685378eea31103605e20fd359a7950a1939d3197f3bfa5f859bf",
     "peaso/server/scan_names.py": "bc807595f0006516ba2996df566ab0705d2bafb64afed85e39b1366414114a74",
@@ -1812,7 +1812,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1704,
-  "python_source_sha256": "76b9c65dd937dac9dc00c630f4f6f48e5bd714c19e8f8c823e709b58c5ef59f9",
+  "python_source_sha256": "872992e44b3039d39d6fa68b373dc519dc7a7d1820a8b28336c32c5fa392cbe2",
   "review_context": "Reviewed explicit original related-snapshot binding for operator report reconciliation; no SDK client creation or service closure changes.",
   "source_commit": "51cf9cb2b7f815bcf76ed07be3938bade66d0269",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
