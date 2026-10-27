@@ -6,6 +6,7 @@ from peaso.analysis.aws_public_ingress import witness,MODEL,DEPENDENCIES
 from peaso.collectors import aws,aws_public_ingress_native as native
 from peaso.collectors import collect_live
 from peaso.engine import evaluate_snapshot
+from peaso.analysis import analyze
 from test_peaso_aws_bulk_inventory import sdk,ACCOUNT,REGION
 
 SCOPE=ACCOUNT+'/'+REGION
@@ -55,6 +56,24 @@ def test_native_witness_is_configuration_counterexample_not_listener_or_universe
     assert proof['application_listening']=='unknown' and proof['network_probes']is False
     assert proof['all_paths_evaluated']is False
     assert decisions(snap)==['FAIL','FAIL']
+
+
+def test_internet_exposure_uses_only_reverified_narrow_public_source_witness():
+    rows=facts()
+    rows['security_group'][0]['IpPermissions'][0]['IpRanges']=[{'CidrIp':'8.8.8.8/32'}]
+    snap=snapshot(rows)
+    findings=[f for f in analyze(snap)['findings'] if f['check_id']=='analysis.internet_exposure' and f['status']=='FAIL']
+    assert len(findings)==1
+    path=findings[0]['evidence']['path']
+    assert path[-1]['layer']=='configured_path_witness'
+    assert path[-1]['source_address']=='8.8.8.8'
+    assert findings[0]['evidence']['exposed_ports']==['tcp/443']
+    projection=next(c for c in snap['collections'] if c['type']=='ec2_effective_ingress')
+    projection['items'][0]['configured_path_witness']['source_address']='1.1.1.1'
+    tampered=make_snapshot('aws',[SCOPE],snap['collections'])
+    mismatched=[f for f in analyze(tampered)['findings'] if f['check_id']=='analysis.internet_exposure'
+                and f['resource_id']==findings[0]['resource_id']]
+    assert len(mismatched)==1 and mismatched[0]['status']=='UNKNOWN'
 
 
 @pytest.mark.parametrize('mode',[

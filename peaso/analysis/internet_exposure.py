@@ -571,7 +571,10 @@ def _aws_instance(snapshot, inventory, resource):
     addresses = []
     for interface in interfaces:
         declared = (interface.get("Association") or {}).get("PublicIp")
-        public = sorted(set(([declared] if declared else []) + _aws_eip_addresses(inventory, resource["scope"], interface.get("NetworkInterfaceId"))))
+        private_public = [(x.get("Association") or {}).get("PublicIp") for x in as_list(interface.get("PrivateIpAddresses"))
+                          if isinstance(x, dict)]
+        public = sorted(set(([declared] if declared else []) + [x for x in private_public if isinstance(x, str) and x] +
+                            _aws_eip_addresses(inventory, resource["scope"], interface.get("NetworkInterfaceId"))))
         v6 = [x.get("Ipv6Address") for x in as_list(interface.get("Ipv6Addresses")) if isinstance(x, dict) and x.get("Ipv6Address")]
         if public or v6:
             addresses.append((interface, public, v6))
@@ -592,6 +595,27 @@ def _aws_instance(snapshot, inventory, resource):
     a.ports = total
     if not empty(total):
         a.blocked_by = None
+    elif (projected := inventory.get("ec2_effective_ingress", data.get("InstanceId"))) is not None and projected["scope"] == resource["scope"]:
+        proof = projected["data"].get("configured_path_witness")
+        if isinstance(proof, dict):
+            from .aws_public_ingress import MODEL, prepare, witness
+            cache_key = ("aws_public_ingress_prepared", resource["scope"])
+            if cache_key not in inventory.network_cache:
+                inventory.network_cache[cache_key] = prepare(snapshot, resource["scope"])
+            prepared = inventory.network_cache[cache_key]
+            verified = witness(snapshot, resource["scope"], data.get("InstanceId"), prepared=prepared) if prepared is not None else None
+            if projected["data"].get("proof_model") == MODEL and verified == proof:
+                a.addresses = sorted(set(a.addresses + [proof["public_address"]]))
+                a.ports = pset(proof["protocol"], proof["destination_port"], proof["destination_port"])
+                a.blocked_by = None
+                a.step("configured_path_witness", "allow", source_address=proof["source_address"],
+                       network_interface_id=proof["network_interface_id"], destination_port=proof["destination_port"],
+                       protocol=proof["protocol"], semantics="Positive direct IPv4 configuration witness; application listening unknown")
+            else:
+                a.gap("inventory", "cached direct-ingress witness does not match independently recomputed snapshot facts",
+                      "ec2_effective_ingress")
+                a.blocked_by = None
+                a.ports = None
     if state and state != "running":
         a.dormant = True
         a.notes.append(f"instance state is {state}; exposure applies when it runs (public address retained)")
@@ -605,7 +629,10 @@ def _aws_eni(snapshot, inventory, resource):
             "nat_gateway", "network_load_balancer", "gateway_load_balancer", "gateway_load_balancer_endpoint", "vpc_endpoint", "load_balancer"):
         return None
     declared = (data.get("Association") or {}).get("PublicIp")
-    public = sorted(set(([declared] if declared else []) + _aws_eip_addresses(inventory, resource["scope"], data.get("NetworkInterfaceId"))))
+    private_public = [(x.get("Association") or {}).get("PublicIp") for x in as_list(data.get("PrivateIpAddresses"))
+                      if isinstance(x, dict)]
+    public = sorted(set(([declared] if declared else []) + [x for x in private_public if isinstance(x, str) and x] +
+                        _aws_eip_addresses(inventory, resource["scope"], data.get("NetworkInterfaceId"))))
     v6 = [x.get("Ipv6Address") for x in as_list(data.get("Ipv6Addresses")) if isinstance(x, dict) and x.get("Ipv6Address")]
     if not public and not v6:
         return None
