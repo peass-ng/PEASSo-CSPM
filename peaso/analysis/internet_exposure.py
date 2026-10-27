@@ -1665,7 +1665,7 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
         elif proxy["data"].get("service"):
             services = [proxy["data"]["service"]]
         services = [s for s in dict.fromkeys(services) if s]
-        armor, unprotected, buckets = [], [], []
+        routes, buckets = [], []
         unresolved_backend = not services
         if not services:
             a.gap("backend", "target proxy has no collected URL-map backend route")
@@ -1681,29 +1681,45 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                           "cdn_enabled": detail.get("enableCdn"),
                           "signed_url_keys_present": bool(as_list((detail.get("cdnPolicy") or {}).get("signedUrlKeyNames")))}
                 buckets.append(origin)
-                policy = detail.get("edgeSecurityPolicy")
-                (armor if policy else unprotected).append({**origin, "security_policy": policy})
+                routes.append({**origin, "edge_security_policy": detail.get("edgeSecurityPolicy"),
+                               "backend_security_policy": None})
                 continue
             backend = inventory.get("backend_service", service)
             if backend is None:
                 unresolved_backend = True
                 a.gap("backend", f"backend service {service} not collected", "compute backendServices")
                 continue
-            policy = backend["data"].get("securityPolicy")
-            (armor if policy else unprotected).append({"backend_service": service, "security_policy": policy})
+            routes.append({"backend_service": service,
+                           "edge_security_policy": backend["data"].get("edgeSecurityPolicy"),
+                           "backend_security_policy": backend["data"].get("securityPolicy"),
+                           "cdn_enabled": backend["data"].get("enableCDN") is True})
             if backend["data"].get("iap", {}).get("enabled"):
                 a.authenticated = True
                 a.notes.append(f"IAP enabled on {service}")
-        a.step("cloud_armor", "allow" if unprotected else "unknown", unprotected=unprotected, protected=armor, backend_buckets=buckets)
-        if armor and not unprotected and not unresolved_backend:
-            decisions = [_gcp_armor_decision(inventory, entry["security_policy"]) for entry in armor]
-            if all(decision == "block" for decision in decisions):
-                a.step("cloud_armor_rules", "block", decisions=decisions)
-                a.ports = {}
-            elif any(decision == "allow" for decision in decisions):
-                a.step("cloud_armor_rules", "allow", decisions=decisions)
+        decisions = []
+        for route in routes:
+            edge_ref, backend_ref = route["edge_security_policy"], route["backend_security_policy"]
+            edge = _gcp_armor_decision(inventory, edge_ref) if edge_ref else "allow"
+            backend = _gcp_armor_decision(inventory, backend_ref) if backend_ref else "allow"
+            if edge == "block":
+                outcome = "block"
+            elif backend == "block" and not route.get("cdn_enabled"):
+                outcome = "block"
+            elif edge == "allow" and backend == "allow":
+                outcome = "allow"
             else:
-                a.gap("cloud_armor", "Cloud Armor policy rules or request-dependent matches cannot establish a public path", STATIC_GAPS["gcp"][0]["fact"])
+                outcome = "unknown"
+            decisions.append({**route, "edge_decision": edge, "backend_decision": backend,
+                              "decision": outcome})
+        if any(row["decision"] == "allow" for row in decisions):
+            a.step("cloud_armor", "allow", routes=decisions, backend_buckets=buckets)
+        elif decisions and not unresolved_backend and all(row["decision"] == "block" for row in decisions):
+            a.step("cloud_armor", "block", routes=decisions, backend_buckets=buckets)
+            a.ports = {}
+        else:
+            a.step("cloud_armor", "unknown", routes=decisions, backend_buckets=buckets)
+            a.gap("cloud_armor", "edge/backend policy decision or CDN cache-hit path is request dependent or unavailable",
+                  STATIC_GAPS["gcp"][0]["fact"])
     else:
         backend_ref = data.get("backendService")
         backend = inventory.get("backend_service", backend_ref)

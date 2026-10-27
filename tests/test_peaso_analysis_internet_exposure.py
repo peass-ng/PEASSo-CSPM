@@ -1057,6 +1057,40 @@ def test_gcp_url_map_weighted_and_route_rule_backends_join_armor():
         assert result.verdict() == "PASS"
 
 
+def test_gcp_cdn_backend_service_edge_policy_precedes_cache_and_backend_policy():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
+    from peaso.snapshot import resources
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target = prefix + "targetHttpProxies/p"
+    url_map = prefix + "urlMaps/m"
+    backend_ref = prefix + "backendServices/b"
+    edge_ref = prefix + "securityPolicies/edge"
+    backend_policy_ref = prefix + "securityPolicies/backend"
+    deny = [{"priority": 2147483647, "action": "deny(403)", "match": {"config": {"srcIpRanges": ["*"]}}}]
+    allow = [{"priority": 2147483647, "action": "allow", "match": {"config": {"srcIpRanges": ["*"]}}}]
+    forwarding = {"name": "fr", "IPAddress": "34.4.4.4", "IPProtocol": "TCP", "ports": ["443"],
+                  "loadBalancingScheme": "EXTERNAL_MANAGED", "target": target}
+    backend = {"name": "b", "selfLink": backend_ref, "enableCDN": True,
+               "securityPolicy": backend_policy_ref, "edgeSecurityPolicy": edge_ref}
+    edge = {"name": "edge", "selfLink": edge_ref, "rules": deny}
+    backend_policy = {"name": "backend", "selfLink": backend_policy_ref, "rules": deny}
+    def assess_backend():
+        snap = gcp(gcoll("forwarding_rule", [forwarding]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                   gcoll("url_map", [{"name": "m", "selfLink": url_map, "defaultService": backend_ref}]),
+                   gcoll("backend_service", [backend]), gcoll("security_policy", [edge, backend_policy]))
+        items = resources(snap)
+        return _gcp_forwarding_rule(snap, Inventory(snap, items),
+                                    next(row for row in items if row["type"] == "forwarding_rule"))
+    assert assess_backend().verdict() == "PASS"  # edge deny covers cache hits
+    backend.pop("edgeSecurityPolicy")
+    assert assess_backend().verdict() == "UNKNOWN"  # backend deny only covers misses
+    backend["enableCDN"] = False
+    assert assess_backend().verdict() == "PASS"
+    backend_policy["rules"] = allow
+    assert assess_backend().verdict() == "FAIL"
+
+
 def test_gcp_vmware_declared_public_path_preserves_nsx_api_boundary():
     from peaso.analysis.internet_exposure import Inventory, _gcp_vmware_address
     from peaso.snapshot import resources
