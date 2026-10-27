@@ -349,6 +349,31 @@ def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
     assert decision("cosmos_account", {**base, "ipRules": None}).verdict() == "UNKNOWN"
 
 
+@pytest.mark.parametrize("kind,port", [("mysql_flexible_server", 3306), ("postgresql_flexible_server", 5432)])
+def test_flexible_database_firewall_public_and_cross_tenant_sources(kind, port):
+    rid = f"{SCOPE}/resourceGroups/rg/providers/test/{kind}/db"
+    base = {"network": {"publicNetworkAccess": "Enabled"},
+            "fullyQualifiedDomainName": "db.database.azure.com"}
+
+    def evaluate(rows, status="collected", properties=None):
+        parent = {"id": rid, "properties": properties or base, "firewallRules": rows,
+                  "_coverage": {"firewallRules": {"status": status}}}
+        snap = make_snapshot("azure", [SCOPE], [{"type": kind, "scope": SCOPE,
+            "service": "database", "status": "collected", "items": [parent]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == kind)
+
+    public = {"name": "public", "properties": {"startIpAddress": "8.8.8.8", "endIpAddress": "8.8.8.8"}}
+    azure = {"name": "azure", "properties": {"startIpAddress": "0.0.0.0", "endIpAddress": "0.0.0.0"}}
+    assert evaluate([public]).verdict() == "FAIL"
+    candidate = evaluate([azure])
+    assert candidate.verdict() == "FAIL" and candidate.ports == {"tcp": ((port, port),)}
+    assert candidate.path[-1]["public_rules"][0]["source"] == "any Azure tenant"
+    assert evaluate([]).verdict() == "PASS"
+    assert evaluate([{"properties": {"startIpAddress": "bad", "endIpAddress": "8.8.8.8"}}]).verdict() == "UNKNOWN"
+    assert evaluate([public], status="partial").verdict() == "UNKNOWN"
+    assert evaluate([public], properties={"network": {"publicNetworkAccess": "Disabled"}}).verdict() == "PASS"
+
+
 @pytest.mark.parametrize("kind", ["vault", "managed_hsm", "container_registry", "search_service", "servicebus_namespace"])
 def test_managed_endpoint_explicit_network_gate(kind):
     rule = {"vault": "networkAcls", "managed_hsm": "networkAcls", "container_registry": "networkRuleSet",

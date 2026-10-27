@@ -217,7 +217,7 @@ EMBEDDED_LISTS = {
     "aks_cluster": (("managedNamespaces", "managedNamespaces", "2025-10-01"),),
     "eventhub_namespace": (("eventHubs", "eventhubs", "2024-01-01"), ("authorizationRules", "authorizationRules", "2024-01-01"), ("disasterRecoveryConfigs", "disasterRecoveryConfigs", "2024-01-01")),
     "network_watcher": (("flowLogs", "flowLogs", "2023-09-01"),),
-    "mysql_flexible_server": (("configurations", "configurations", "2023-12-30"), ("administrators", "administrators", "2023-12-30")),
+    "mysql_flexible_server": (("configurations", "configurations", "2023-12-30"), ("firewallRules", "firewallRules", "2023-12-30"), ("administrators", "administrators", "2023-12-30")),
     "postgresql_flexible_server": (("configurations", "configurations", "2024-08-01"), ("firewallRules", "firewallRules", "2024-08-01"), ("administrators", "administrators", "2024-08-01")),
     "postgresql_single_server": (("configurations", "configurations", "2017-12-01"), ("firewallRules", "firewallRules", "2017-12-01")),
     "redis_cache": (("firewallRules", "firewallRules", "2024-11-01"),),

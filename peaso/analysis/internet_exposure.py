@@ -3436,7 +3436,9 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                      if isinstance(props.get(field), str) and props.get(field)), None)
     if endpoint:
         a.addresses.append(endpoint)
-    public = props.get("publicNetworkAccess")
+    flexible = kind in ("mysql_flexible_server", "postgresql_flexible_server")
+    network = props.get("network") if isinstance(props.get("network"), dict) else {}
+    public = network.get("publicNetworkAccess") if flexible else props.get("publicNetworkAccess")
     if isinstance(public, str) and public.lower() == "disabled":
         a.step("public_network_access", "block", public_network_access=public)
         a.ports = {}
@@ -3451,6 +3453,41 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         a.gap("inventory", "publicNetworkAccess is not explicitly collected as Enabled or Disabled")
         return a
     a.step("public_network_access", "allow", public_network_access=public)
+    if flexible:
+        if network.get("delegatedSubnetResourceId"):
+            a.gap("nsg", "delegated database subnet route and NSG are not resolved")
+            a.explicit = "UNKNOWN"
+        coverage = (resource["data"].get("_coverage") or {}).get("firewallRules") or {}
+        rows = resource["data"].get("firewallRules")
+        if coverage.get("status") not in ("collected", "empty") or not isinstance(rows, list):
+            a.gap("firewall", "flexible server firewall child rules are not fully collected")
+            return a
+        public_rules, malformed = [], False
+        for row in rows:
+            fields = row.get("properties") if isinstance(row, dict) else None
+            try:
+                start = ipaddress.IPv4Address(fields["startIpAddress"])
+                end = ipaddress.IPv4Address(fields["endIpAddress"])
+                if start > end:
+                    raise ValueError("reversed range")
+                if start == end == ipaddress.IPv4Address("0.0.0.0"):
+                    public_rules.append({"name": row.get("name"), "source": "any Azure tenant"})
+                elif _azure_public_remainder(ipaddress.summarize_address_range(start, end), []):
+                    public_rules.append({"name": row.get("name"), "source": str(start) + "-" + str(end)})
+            except (TypeError, KeyError, ValueError):
+                malformed = True
+        if public_rules:
+            a.step("firewall", "allow", public_rules=public_rules)
+            a.ports = pset("tcp", port, port)
+            a.explicit = None
+            if not endpoint:
+                a.gap("inventory", "flexible server public hostname is not collected")
+        elif malformed:
+            a.gap("firewall", "flexible server firewall IP range is unresolved")
+        else:
+            a.step("firewall", "block", reason="no public-source firewall rule")
+            a.ports = {}
+        return a
     if kind == "cosmos_account":
         ip_rules = props.get("ipRules")
         if not isinstance(ip_rules, list):
