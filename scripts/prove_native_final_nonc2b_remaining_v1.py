@@ -22,7 +22,7 @@ NUMERIC = ROOT / "outputs/native-final-audit-992-v3-numeric.json"
 RECONCILIATION = ROOT / "docs/ai-review/native-final-nonc2b-worker-reconciliation-v1.json"
 RECONCILIATION_SHA = "ba06be850310afb0710d38c95010e54c4d774844747695293f9038ec26953a3a"
 OUT = ROOT / "docs/ai-review/native-final-nonc2b-remaining-proofs-v1.json"
-NEW_PROMOTIONS = {
+FUTURE_PATH_PENDING = {
     "aws.claude_a.guardduty.detector_no_findings",
     "aws.claude_a.guardduty.prowler_ai_protection",
     "aws.claude_a.guardduty.prowler_no_high_severity_findings",
@@ -30,13 +30,21 @@ NEW_PROMOTIONS = {
     "aws.iam.console_mfa",
     "aws.logs.retention",
 }
-RESOLVED_BLOCKER = {
+EXACT_992_BRANCH_PROOF = {
     "aws.claude_a.guardduty.detector_no_findings": "Exact FAIL has HighSeverityFindingIds.collection_status=collected and a nonempty filtered ListFindings result; collected() missing-status default is not taken.",
     "aws.claude_a.guardduty.prowler_ai_protection": "Exact FAIL has a unique AI_PROTECTION feature with recorded Name and Status=DISABLED; prowler_flags dict.get fallback is not taken.",
     "aws.claude_a.guardduty.prowler_no_high_severity_findings": "Exact FAIL has HighSeverityFindingIds.collection_status=collected and a nonempty filtered ListFindings result; collected() missing-status default is not taken.",
     "aws.claude_a.guardduty.prowler_runtime_monitoring": "Exact FAIL has a unique RUNTIME_MONITORING feature with recorded Name and Status=DISABLED; prowler_flags dict.get fallback is not taken.",
     "aws.iam.console_mfa": "All four exact FAIL rows have collected LoginProfile and MFADevices.collection_status=empty with zero items; malformed or unknown collection-status paths are not taken.",
     "aws.logs.retention": "All twelve exact FAIL rows have logs:DescribeLogGroups native_response_complete=true and omit retentionInDays; the optional default is bound to a complete response.",
+}
+FUTURE_PATH_BLOCKER = {
+    "aws.claude_a.guardduty.detector_no_findings": "collected() at peaso/checks/claude_aws_a_security.py:24-30 accepts an omitted nested collection_status; future partial finding lists can reach FAIL.",
+    "aws.claude_a.guardduty.prowler_ai_protection": "prowler_flags() at peaso/checks/claude_aws_a_security.py:174-190 defaults missing feature Name or Status; a future malformed feature can reach FAIL.",
+    "aws.claude_a.guardduty.prowler_no_high_severity_findings": "collected() at peaso/checks/claude_aws_a_security.py:24-30 accepts an omitted nested collection_status; future partial finding lists can reach FAIL.",
+    "aws.claude_a.guardduty.prowler_runtime_monitoring": "prowler_flags() at peaso/checks/claude_aws_a_security.py:174-190 defaults missing feature Name or Status; a future malformed feature can reach FAIL.",
+    "aws.iam.console_mfa": "aws_mfa() at peaso/checks/__init__.py:358-379 does not require MFADevices collection_status to be collected or empty before returning FAIL.",
+    "aws.logs.retention": "_native_optional() at peaso/checks/aws.py:26-34 accepts omitted retentionInDays without requiring native_response_complete from DescribeLogGroups.",
 }
 
 # Short source names below resolve to pinned whole files in the receipt.
@@ -189,10 +197,10 @@ def main():
     worker_decisions = {r["check_id"]: r["decision"] for r in worker["checks"]}
     candidates = {r["check_id"]: r for r in source["checks"]}
     assert set(candidates) == set(PROOF) and len(candidates) == 40
-    assert set(RESOLVED_BLOCKER) == NEW_PROMOTIONS
+    assert set(EXACT_992_BRANCH_PROOF) == set(FUTURE_PATH_BLOCKER) == FUTURE_PATH_PENDING
     assert set(worker_decisions) == set(PROOF)
-    assert {cid for cid, decision in worker_decisions.items() if decision == "retain_ai"} == NEW_PROMOTIONS
-    assert all(decision == "native_final_source_proven" for cid, decision in worker_decisions.items() if cid not in NEW_PROMOTIONS)
+    assert {cid for cid, decision in worker_decisions.items() if decision == "retain_ai"} == FUTURE_PATH_PENDING
+    assert all(decision == "native_final_source_proven" for cid, decision in worker_decisions.items() if cid not in FUTURE_PATH_PENDING)
     assert sha(SNAP) == SNAP_SHA and sha(PRE) == PRE_SHA and sha(NUMERIC) == NUM_SHA
     snap = json.loads(gzip.decompress(SNAP.read_bytes()))
     pre = json.loads(gzip.decompress(PRE.read_bytes()))
@@ -239,9 +247,11 @@ def main():
                 assert len(value) == 1 and value[0] in ("collected", "empty"), (cid, path)
             branch_proof(cid, item)
             assert evaluate_check(cid, item)[0] == "FAIL", cid
-        output.append({"check_id": cid, "decision": "source_proven_promotion_candidate" if cid in NEW_PROMOTIONS else "independent_confirmation_of_worker_proof",
+        output.append({"check_id": cid, "decision": "retain_ai_pending_evaluator_fail_closed_fix" if cid in FUTURE_PATH_PENDING else "independent_confirmation_of_worker_proof",
                        "worker_decision_at_reconciliation": worker_decisions[cid],
-                       "worker_blocker_resolved_by_exact_scope": RESOLVED_BLOCKER.get(cid),
+                       "exact_992_branch_proof": EXACT_992_BRANCH_PROOF.get(cid),
+                       "future_path_safety_blocker": FUTURE_PATH_BLOCKER.get(cid),
+                       "global_allowlist_eligible": cid not in FUTURE_PATH_PENDING,
                        "initial_representatives": source_row["initial_representatives"],
                        "native_fail_count": len(observations[cid]), "exact_992_fail_rows_checked": len(observations[cid]),
                        "exact_recorded_path_bindings": bound, "predicate_proof": spec["predicate"],
@@ -256,17 +266,18 @@ def main():
                "parent_source_inventory_sha256": PARENT_SHA, "snapshot_sha256": SNAP_SHA,
                "pre_ai_report_sha256": PRE_SHA, "numeric_crosscheck_sha256": NUM_SHA,
                "worker_reconciliation_sha256": RECONCILIATION_SHA,
-               "audited_check_count": len(output), "new_promotion_candidate_count": len(NEW_PROMOTIONS),
-               "independently_confirmed_worker_proof_count": len(output) - len(NEW_PROMOTIONS),
-               "new_promotion_initial_representatives": sum(r["initial_representatives"] for r in output if r["check_id"] in NEW_PROMOTIONS),
-               "new_promotion_native_fail_count": sum(r["native_fail_count"] for r in output if r["check_id"] in NEW_PROMOTIONS),
-               "retained_count": 0,
+               "audited_check_count": len(output), "new_allowlist_candidate_count": 0,
+               "independently_confirmed_worker_proof_count": len(output) - len(FUTURE_PATH_PENDING),
+               "future_path_pending_count": len(FUTURE_PATH_PENDING),
+               "future_path_pending_initial_representatives": sum(r["initial_representatives"] for r in output if r["check_id"] in FUTURE_PATH_PENDING),
+               "future_path_pending_exact_992_fail_count": sum(r["native_fail_count"] for r in output if r["check_id"] in FUTURE_PATH_PENDING),
+               "retained_count": len(FUTURE_PATH_PENDING),
                "initial_representatives": sum(r["initial_representatives"] for r in output),
                "native_fail_count": sum(r["native_fail_count"] for r in output),
                "exact_recorded_path_bindings": sum(r["exact_recorded_path_bindings"] for r in output),
-               "replay_qualification": "pending", "allowlist_activation": False, "checks": output}
+               "replay_qualification": "blocked_by_future_path_safety", "allowlist_activation": False, "checks": output}
     OUT.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-    print(json.dumps({k: receipt[k] for k in ("audited_check_count", "new_promotion_candidate_count", "independently_confirmed_worker_proof_count", "new_promotion_initial_representatives", "new_promotion_native_fail_count", "exact_recorded_path_bindings")}))
+    print(json.dumps({k: receipt[k] for k in ("audited_check_count", "new_allowlist_candidate_count", "independently_confirmed_worker_proof_count", "future_path_pending_count", "future_path_pending_exact_992_fail_count", "exact_recorded_path_bindings")}))
 
 
 if __name__ == "__main__":

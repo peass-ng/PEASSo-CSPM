@@ -18,8 +18,11 @@
         "source_sha256": "87eb85344dfae79d426809f9b711ff06ff5accbecbeb27d879fc2f46a8373168",
         "symbol": "report_all_mfa"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 4,
       "exact_recorded_path_bindings": 4,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -41,7 +44,6 @@
         "mfa_active"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -60,8 +62,11 @@
         "source_sha256": "7893bd90cb37ab8ea8c489215d5d62f4178e9bf015a4310b889757f037dad6e5",
         "symbol": "failed_certificate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 6,
       "exact_recorded_path_bindings": 6,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -91,7 +96,6 @@
       "required_nested_collections": [
         "Certificate"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -110,8 +114,11 @@
         "source_sha256": "3bba75269b3358c4ac16ef70100b8c7aa68134600cd8829205fb4ea28de526d4",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -145,7 +152,6 @@
         "DefaultRouteSettings"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -164,8 +170,11 @@
         "source_sha256": "136f48264836bc8a8a43b495ff71af02cbdafb008358cca8d2ffa162620e3a2e",
         "symbol": "artifacts"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -219,7 +228,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -238,8 +246,11 @@
         "source_sha256": "136f48264836bc8a8a43b495ff71af02cbdafb008358cca8d2ffa162620e3a2e",
         "symbol": "build_privileged"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -269,7 +280,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -288,8 +298,11 @@
         "source_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -313,7 +326,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -332,8 +344,11 @@
         "source_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
         "symbol": "takeover"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -393,7 +408,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -412,8 +426,11 @@
         "source_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
         "symbol": "compromised"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -473,7 +490,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -492,8 +508,11 @@
         "source_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -517,7 +536,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -536,8 +554,11 @@
         "source_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -561,7 +582,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -580,8 +600,11 @@
         "source_sha256": "4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 2,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -605,7 +628,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -624,8 +646,11 @@
         "source_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
         "symbol": "minimum"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -649,7 +674,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -668,8 +692,11 @@
         "source_sha256": "e52eb877a04d385637dd179ec28f3b8b1956ad9b308f3550efb1e9caa9bd40ed",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -693,7 +720,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -712,8 +738,11 @@
         "source_sha256": "4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 2,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -737,7 +766,6 @@
       "required_nested_collections": [
         "Table"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -756,8 +784,11 @@
         "source_sha256": "4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 2,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -781,7 +812,6 @@
       "required_nested_collections": [
         "ContinuousBackups"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -800,8 +830,11 @@
         "source_sha256": "4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 4,
       "exact_recorded_path_bindings": 4,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -823,7 +856,6 @@
         "IAMDatabaseAuthenticationEnabled"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -842,8 +874,11 @@
         "source_sha256": "4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 4,
       "exact_recorded_path_bindings": 4,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -865,7 +900,6 @@
         "CopyTagsToSnapshot"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -884,8 +918,11 @@
         "source_sha256": "26b0efe39f42a9742da1e821432d49c48a33bba3a1ef42b7eb3901b9bb422a94",
         "symbol": "v2_access_logs"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -919,7 +956,6 @@
         "StageName"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -938,8 +974,11 @@
         "source_sha256": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62",
         "symbol": "instance_em"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 4,
       "exact_recorded_path_bindings": 8,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -968,7 +1007,6 @@
         "DBInstanceArn"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -987,8 +1025,11 @@
         "source_sha256": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62",
         "symbol": "instance_extended"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 4,
       "exact_recorded_path_bindings": 8,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -1011,7 +1052,6 @@
         "EngineLifecycleSupport"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1030,8 +1070,11 @@
         "source_sha256": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62",
         "symbol": "instance_iam_supported"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 4,
       "exact_recorded_path_bindings": 8,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1060,7 +1103,6 @@
         "DBInstanceArn"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1079,8 +1121,11 @@
         "source_sha256": "969058175c791c7b7e16c60483ab0e51a09cd7d1567171e961d4f02c015fc8c1",
         "symbol": "tj_output"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 5,
       "exact_recorded_path_bindings": 10,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1109,7 +1154,6 @@
         "OutputDataConfig"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1128,8 +1172,11 @@
         "source_sha256": "969058175c791c7b7e16c60483ab0e51a09cd7d1567171e961d4f02c015fc8c1",
         "symbol": "tj_volume"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 5,
       "exact_recorded_path_bindings": 10,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1158,7 +1205,6 @@
         "ResourceConfig"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1177,8 +1223,11 @@
         "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
         "symbol": "incidents"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 2,
       "exact_recorded_path_bindings": 4,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1216,7 +1265,6 @@
         "ReplicationSets",
         "ResponsePlans"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1235,8 +1283,11 @@
         "source_sha256": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa",
         "symbol": "ebs_attached_dot"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1271,7 +1322,6 @@
         "Attachments"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1290,8 +1340,11 @@
         "source_sha256": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa",
         "symbol": "ami_encrypted"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1319,7 +1372,6 @@
         "BlockDeviceMappings"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1338,8 +1390,11 @@
         "source_sha256": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa",
         "symbol": "eni_unused"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 13,
       "exact_recorded_path_bindings": 26,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1368,7 +1423,6 @@
         "NetworkInterfaceId"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1387,8 +1441,11 @@
         "source_sha256": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa",
         "symbol": "inst_dot"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1422,7 +1479,6 @@
         "BlockDeviceMappings"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1441,8 +1497,11 @@
         "source_sha256": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa",
         "symbol": "lt_default_ebs"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1482,7 +1541,6 @@
         "Versions"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1499,15 +1557,18 @@
           "source_sha256": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe"
         }
       ],
-      "decision": "source_proven_promotion_candidate",
+      "decision": "retain_ai_pending_evaluator_fail_closed_fix",
       "evaluator_ref": {
         "lines": "145-155",
         "path": "peaso/checks/claude_aws_a_security.py",
         "source_sha256": "8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8",
         "symbol": "detector_no_findings"
       },
+      "exact_992_branch_proof": "Exact FAIL has HighSeverityFindingIds.collection_status=collected and a nonempty filtered ListFindings result; collected() missing-status default is not taken.",
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": "collected() at peaso/checks/claude_aws_a_security.py:24-30 accepts an omitted nested collection_status; future partial finding lists can reach FAIL.",
+      "global_allowlist_eligible": false,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1545,7 +1606,6 @@
         "Configuration",
         "HighSeverityFindingIds"
       ],
-      "worker_blocker_resolved_by_exact_scope": "Exact FAIL has HighSeverityFindingIds.collection_status=collected and a nonempty filtered ListFindings result; collected() missing-status default is not taken.",
       "worker_decision_at_reconciliation": "retain_ai"
     },
     {
@@ -1557,15 +1617,18 @@
           "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
-      "decision": "source_proven_promotion_candidate",
+      "decision": "retain_ai_pending_evaluator_fail_closed_fix",
       "evaluator_ref": {
         "lines": "226-236",
         "path": "peaso/checks/claude_aws_a_security.py",
         "source_sha256": "8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8",
         "symbol": "ai_protection"
       },
+      "exact_992_branch_proof": "Exact FAIL has a unique AI_PROTECTION feature with recorded Name and Status=DISABLED; prowler_flags dict.get fallback is not taken.",
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": "prowler_flags() at peaso/checks/claude_aws_a_security.py:174-190 defaults missing feature Name or Status; a future malformed feature can reach FAIL.",
+      "global_allowlist_eligible": false,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -1596,7 +1659,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": "Exact FAIL has a unique AI_PROTECTION feature with recorded Name and Status=DISABLED; prowler_flags dict.get fallback is not taken.",
       "worker_decision_at_reconciliation": "retain_ai"
     },
     {
@@ -1608,15 +1670,18 @@
           "source_sha256": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe"
         }
       ],
-      "decision": "source_proven_promotion_candidate",
+      "decision": "retain_ai_pending_evaluator_fail_closed_fix",
       "evaluator_ref": {
         "lines": "268-274",
         "path": "peaso/checks/claude_aws_a_security.py",
         "source_sha256": "8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8",
         "symbol": "high_findings"
       },
+      "exact_992_branch_proof": "Exact FAIL has HighSeverityFindingIds.collection_status=collected and a nonempty filtered ListFindings result; collected() missing-status default is not taken.",
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": "collected() at peaso/checks/claude_aws_a_security.py:24-30 accepts an omitted nested collection_status; future partial finding lists can reach FAIL.",
+      "global_allowlist_eligible": false,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1646,7 +1711,6 @@
       "required_nested_collections": [
         "HighSeverityFindingIds"
       ],
-      "worker_blocker_resolved_by_exact_scope": "Exact FAIL has HighSeverityFindingIds.collection_status=collected and a nonempty filtered ListFindings result; collected() missing-status default is not taken.",
       "worker_decision_at_reconciliation": "retain_ai"
     },
     {
@@ -1658,15 +1722,18 @@
           "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
-      "decision": "source_proven_promotion_candidate",
+      "decision": "retain_ai_pending_evaluator_fail_closed_fix",
       "evaluator_ref": {
         "lines": "239-254",
         "path": "peaso/checks/claude_aws_a_security.py",
         "source_sha256": "8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8",
         "symbol": "runtime_monitoring"
       },
+      "exact_992_branch_proof": "Exact FAIL has a unique RUNTIME_MONITORING feature with recorded Name and Status=DISABLED; prowler_flags dict.get fallback is not taken.",
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": "prowler_flags() at peaso/checks/claude_aws_a_security.py:174-190 defaults missing feature Name or Status; a future malformed feature can reach FAIL.",
+      "global_allowlist_eligible": false,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -1697,7 +1764,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": "Exact FAIL has a unique RUNTIME_MONITORING feature with recorded Name and Status=DISABLED; prowler_flags dict.get fallback is not taken.",
       "worker_decision_at_reconciliation": "retain_ai"
     },
     {
@@ -1716,8 +1782,11 @@
         "source_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687",
         "symbol": "two_active"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -1740,7 +1809,6 @@
         "access_key_2_active"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1759,8 +1827,11 @@
         "source_sha256": "8081b3cd6ef2bd08d817cfe1a7c5ed31169b4cf30062d2d5edaf7c85630016b8",
         "symbol": "not_pending"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 4,
       "exact_recorded_path_bindings": 8,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "178-183",
@@ -1791,7 +1862,6 @@
       "required_nested_collections": [
         "Metadata"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1810,8 +1880,11 @@
         "source_sha256": "aac21cb7a83d89836beb374e72746d9f1f1e3b8de42137d5915397e7a0ea8f4b",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 2,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1842,7 +1915,6 @@
       "required_nested_collections": [
         "Configuration"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1854,15 +1926,18 @@
           "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
-      "decision": "source_proven_promotion_candidate",
+      "decision": "retain_ai_pending_evaluator_fail_closed_fix",
       "evaluator_ref": {
         "lines": "339-382",
         "path": "peaso/checks/__init__.py",
         "source_sha256": "9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae",
         "symbol": "aws_mfa"
       },
+      "exact_992_branch_proof": "All four exact FAIL rows have collected LoginProfile and MFADevices.collection_status=empty with zero items; malformed or unknown collection-status paths are not taken.",
       "exact_992_fail_rows_checked": 4,
       "exact_recorded_path_bindings": 8,
+      "future_path_safety_blocker": "aws_mfa() at peaso/checks/__init__.py:358-379 does not require MFADevices collection_status to be collected or empty before returning FAIL.",
+      "global_allowlist_eligible": false,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1912,7 +1987,6 @@
         "LoginProfile",
         "MFADevices"
       ],
-      "worker_blocker_resolved_by_exact_scope": "All four exact FAIL rows have collected LoginProfile and MFADevices.collection_status=empty with zero items; malformed or unknown collection-status paths are not taken.",
       "worker_decision_at_reconciliation": "retain_ai"
     },
     {
@@ -1931,8 +2005,11 @@
         "source_sha256": "18b513e7e115dfcff6869e20bb2c776c9c979ac2ad4b7662c6179acb146debbd",
         "symbol": "rotation"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 3,
       "exact_recorded_path_bindings": 6,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -1958,7 +2035,6 @@
         "Metadata",
         "Rotation"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     },
     {
@@ -1970,15 +2046,18 @@
           "source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
         }
       ],
-      "decision": "source_proven_promotion_candidate",
+      "decision": "retain_ai_pending_evaluator_fail_closed_fix",
       "evaluator_ref": {
         "lines": "234-242",
         "path": "peaso/checks/aws.py",
         "source_sha256": "18b513e7e115dfcff6869e20bb2c776c9c979ac2ad4b7662c6179acb146debbd",
         "symbol": "retention"
       },
+      "exact_992_branch_proof": "All twelve exact FAIL rows have logs:DescribeLogGroups native_response_complete=true and omit retentionInDays; the optional default is bound to a complete response.",
       "exact_992_fail_rows_checked": 12,
       "exact_recorded_path_bindings": 24,
+      "future_path_safety_blocker": "_native_optional() at peaso/checks/aws.py:26-34 accepts omitted retentionInDays without requiring native_response_complete from DescribeLogGroups.",
+      "global_allowlist_eligible": false,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -2007,7 +2086,6 @@
         "_provenance.native_response_complete"
       ],
       "required_nested_collections": [],
-      "worker_blocker_resolved_by_exact_scope": "All twelve exact FAIL rows have logs:DescribeLogGroups native_response_complete=true and omit retentionInDays; the optional default is bound to a complete response.",
       "worker_decision_at_reconciliation": "retain_ai"
     },
     {
@@ -2026,8 +2104,11 @@
         "source_sha256": "aac21cb7a83d89836beb374e72746d9f1f1e3b8de42137d5915397e7a0ea8f4b",
         "symbol": "evaluate"
       },
+      "exact_992_branch_proof": null,
       "exact_992_fail_rows_checked": 1,
       "exact_recorded_path_bindings": 1,
+      "future_path_safety_blocker": null,
+      "global_allowlist_eligible": true,
       "helper_refs": [
         {
           "lines": "12-53",
@@ -2051,22 +2132,22 @@
       "required_nested_collections": [
         "Attributes"
       ],
-      "worker_blocker_resolved_by_exact_scope": null,
       "worker_decision_at_reconciliation": "native_final_source_proven"
     }
   ],
   "exact_recorded_path_bindings": 172,
+  "future_path_pending_count": 6,
+  "future_path_pending_exact_992_fail_count": 20,
+  "future_path_pending_initial_representatives": 6,
   "independently_confirmed_worker_proof_count": 34,
   "initial_representatives": 41,
   "native_fail_count": 106,
-  "new_promotion_candidate_count": 6,
-  "new_promotion_initial_representatives": 6,
-  "new_promotion_native_fail_count": 20,
+  "new_allowlist_candidate_count": 0,
   "numeric_crosscheck_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
   "parent_source_inventory_sha256": "c2e943107562db3f5bfd07e2b7611ee7ae28fb26e64ab9b9686f63bce29f36db",
   "pre_ai_report_sha256": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
-  "replay_qualification": "pending",
-  "retained_count": 0,
+  "replay_qualification": "blocked_by_future_path_safety",
+  "retained_count": 6,
   "scan_id": "992d7b8c",
   "schema_version": 1,
   "scope": "frozen_40_provisional_non_c2b",
