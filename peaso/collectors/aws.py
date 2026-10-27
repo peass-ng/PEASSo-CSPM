@@ -3123,6 +3123,9 @@ def collect(connector, requirements=None):
                         append(kind, f"{identity['Account']}/{region}", SPECS.get(kind, ("aws",))[0], ReadResult([], "not_collected", {"code": "unsupported_inventory" if kind in unsupported else "inventory_not_requested"}))
         if auto_lambda_environment or auto_ecs_environment:
             from . import workload_environment_discovery as environment_discovery
+            content_tail_callback = options.get('_content_tail_callback')
+            if content_tail_callback is not None:
+                content_tail_callback(True)
             automatic = {}
             automatic_batches = {}
             automatic_configuration_redactions = {}
@@ -3207,6 +3210,8 @@ def collect(connector, requirements=None):
                 if sum(len(values) for values in automatic_configuration_redactions.values()) > aws_selected_configuration_secret_indicators.MAX_REDACTION_DESCRIPTORS:
                     automatic_configuration_overflow = True
             requests.configuration_content_redaction_overflow |= automatic_configuration_overflow
+            if content_tail_callback is not None:
+                content_tail_callback(False)
     if usage_overlap:
         join_account_usage(collections)
     collections.sort(key=lambda c: (c["scope"], c["type"]))

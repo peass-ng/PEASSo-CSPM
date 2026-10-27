@@ -48,6 +48,50 @@ def test_fast_batches_are_durable_without_repeating_cumulative_reports(monkeypat
         session.close()
 
 
+def test_aws_content_tail_keeps_batches_and_publishes_one_terminal_report(monkeypatch, tmp_path):
+    session, artifacts, refs, now = manual_session(monkeypatch, tmp_path)
+    try:
+        commit(session, 0)
+        assert session._maybe_publish() is not None
+        session.on_content_tail(True)
+        now[0] = 30.0
+        commit(session, 64)
+        assert session._maybe_publish() is None
+        commit(session, 128)
+        assert session._maybe_publish() is None
+        assert [seq for seq, _, report in refs if report is None] == [64, 128, 192]
+        assert [seq for seq, _, report in refs if report] == [64]
+        assert session.on_content_tail(False) is not None
+        assert [seq for seq, _, report in refs if report] == [64, 192]
+        latest = artifacts.get(TENANT, refs[-1][1])
+        assert len(latest['collections']) == 192
+    finally:
+        session.close()
+
+
+def test_aws_content_tail_explicit_flush_and_error_cleanup(monkeypatch, tmp_path):
+    session, _, refs, _ = manual_session(monkeypatch, tmp_path)
+    try:
+        commit(session, 0)
+        session.on_content_tail(True)
+        assert session.flush() is not None
+        assert [seq for seq, _, report in refs if report] == [64]
+        commit(session, 64)
+        try:
+            raise RuntimeError('collector cancelled')
+        finally:
+            # The worker's collector finally closes the active tail before
+            # closing an interrupted checkpoint session.
+            if session.content_tail_active:
+                session.on_content_tail(False)
+    except RuntimeError as exc:
+        assert str(exc) == 'collector cancelled'
+        assert not session.content_tail_active
+        assert [seq for seq, _, report in refs if report] == [64, 128]
+    finally:
+        session.close()
+
+
 def test_new_section_publishes_immediately_with_same_ready_category(monkeypatch, tmp_path):
     session, _, refs, now = manual_session(monkeypatch, tmp_path)
     session.section_dependencies['leaks'] = {'secret'}
