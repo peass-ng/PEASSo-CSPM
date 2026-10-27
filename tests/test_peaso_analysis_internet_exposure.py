@@ -76,6 +76,27 @@ def aws(*collections, metadata=None):
     return make_snapshot("aws", [SCOPE], list(collections), created_at="2026-10-10T00:00:00+00:00", metadata=metadata)
 
 
+@pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
+    (["es:DescribeDomain"], "/*", False, True),
+    (["es:ESHttpGet"], "/other/*", False, True),
+    (["es:ESHttpGet"], "/*", False, False),
+    (["es:ESHttpGet"], "/*", True, True),
+])
+def test_opensearch_anonymous_policy_joins_http_action_domain_resource_and_deny(
+        actions, resource_suffix, deny, expected_authenticated):
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    statements = [{"Effect": "Allow", "Principal": "*", "Action": actions,
+                   "Resource": arn + resource_suffix}]
+    if deny:
+        statements.append({"Effect": "Deny", "Principal": "*", "Action": "es:ESHttpGet",
+                           "Resource": arn + "/*"})
+    item = {"DomainName": "search", "Domain": {"collection_status": "collected", "DomainStatus": {
+        "DomainName": "search", "ARN": arn, "Endpoint": "search.example.com",
+        "AccessPolicies": {"Statement": statements}}}}
+    result = one(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
+    assert result["evidence"]["authenticated_endpoint"] is expected_authenticated
+
+
 def test_aws_instance_open_ssh_fails_with_path_evidence():
     result = one(aws(*aws_network(), instance()), "instance")
     assert result["status"] == "FAIL" and result["severity"] == "high"
