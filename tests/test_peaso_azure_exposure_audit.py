@@ -197,11 +197,20 @@ def test_compute_gallery_community_and_direct_sharing_policy():
         "sharingStatus": {"aggregatedState": "Succeeded"}})
     assert community.verdict() == "FAIL" and community.kind == "gallery_share"
     assert "published image versions" in community.notes[0]
-    assert decision("compute_gallery", {"sharingProfile": {"permissions": "Private"}}).verdict() == "PASS"
+    from peaso.analysis.internet_exposure import _observed
+    assert len(_observed(community, "FAIL").splitlines()) == 4
+    private = decision("compute_gallery", {"sharingProfile": {"permissions": "Private"}})
+    assert private.verdict() == "PASS"
+    assert _observed(private, "PASS").splitlines()[0].endswith("permissions Private.")
+    assert len(_observed(private, "PASS").splitlines()) == 3
     direct = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
         "groups": [{"type": "AADTenants", "ids": ["outside-tenant"]}]}})
     assert direct.verdict() == "UNKNOWN"
-    assert decision("compute_gallery", {}).verdict() == "UNKNOWN"
+    assert len(_observed(direct, "UNKNOWN").splitlines()) == 3
+    missing = decision("compute_gallery", {})
+    assert missing.verdict() == "UNKNOWN"
+    assert _observed(missing, "UNKNOWN").splitlines()[0] == (
+        "The gallery has no recorded sharingProfile.permissions value.")
 
 
 def test_container_instance_public_ports_and_private_group():
