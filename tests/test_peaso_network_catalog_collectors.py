@@ -8,6 +8,24 @@ from tests.test_peaso_collectors_gcp import snapshot, collection
 from peaso.collectors.gcp_network_catalog import api_root
 
 
+def test_gcp_exposure_catalog_types_are_supported_and_scheduled():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.collectors.gcp import GCPCollector, SUPPORTED_TYPES
+    from peaso.collectors.gcp_network_catalog import TYPES, REGIONAL, PRIVATE_SERVICES
+    from tests.test_peaso_collectors_gcp import FixtureTransport, connector
+
+    native_catalog = set(GCP_TYPES) & (set(REGIONAL) | set(PRIVATE_SERVICES) | {
+        "target_pool", "target_instance", "identityplatform_config", "firebase_rules_release"})
+    assert {"api_gateway", "firebase_apphosting_endpoint", "media_cdn_service",
+            "vmware_external_address", "firebase_rules_release"} <= native_catalog
+    assert native_catalog <= TYPES <= SUPPORTED_TYPES
+    collector = GCPCollector(connector(sorted(native_catalog)),
+                             transport=FixtureTransport(lambda _: {}))
+    jobs = [kind for kind, _, _, _ in collector.scope_jobs("projects/p-one")]
+    assert set(jobs) == native_catalog
+    assert len(jobs) == len(native_catalog)
+
+
 @pytest.mark.parametrize("kind,service,segment", [
     ("redis_cluster", "redis", "clusters"), ("netapp_storage_pool", "netapp", "storagePools"),
     ("netapp_volume", "netapp", "volumes"), ("service_connection_policy", "networkconnectivity", "serviceConnectionPolicies"),
