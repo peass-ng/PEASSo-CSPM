@@ -50,13 +50,19 @@ def aws_network(sg_rules=None, nacl_entries=None, igw=True, extra=()):
     routes = [{"DestinationCidrBlock": "10.0.0.0/16", "GatewayId": "local", "State": "active"}]
     if igw:
         routes.append({"DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-1", "State": "active"})
+    extras = list(extra)
+    if not any(c["type"] == "vpc_block_public_access_options" for c in extras):
+        extras.append(coll("vpc_block_public_access_options", [{"VpcBlockPublicAccessOptions": {
+            "State": "default-state", "InternetGatewayBlockMode": "off"}}]))
+    if not any(c["type"] == "internet_gateway" for c in extras):
+        extras.append(coll("internet_gateway", [{"InternetGatewayId": "igw-1", "Attachments": [{"VpcId": "vpc-1", "State": "available"}]}]))
     return [
         coll("vpc", [{"VpcId": "vpc-1", "CidrBlock": "10.0.0.0/16"}]),
         coll("subnet", [{"SubnetId": "subnet-1", "VpcId": "vpc-1", "CidrBlock": "10.0.1.0/24"}]),
         coll("route_table", [{"RouteTableId": "rtb-1", "VpcId": "vpc-1", "Associations": [{"SubnetId": "subnet-1"}], "Routes": routes}]),
         coll("network_acl", [{"NetworkAclId": "acl-1", "VpcId": "vpc-1", "Associations": [{"SubnetId": "subnet-1"}], "Entries": nacl_entries}]),
         coll("security_group", [{"GroupId": "sg-1", "VpcId": "vpc-1", "IpPermissions": sg_rules}]),
-        *extra]
+        *extras]
 
 
 def instance(public=True, groups=("sg-1",)):
@@ -94,9 +100,37 @@ def test_aws_no_igw_route_passes_and_private_sg_passes():
     assert result["status"] == "PASS" and result["evidence"]["blocked_by"] == "security_group"
 
 
+def test_aws_vpc_public_access_block_and_igw_attachment():
+    def options(mode):
+        return coll("vpc_block_public_access_options", [{"VpcBlockPublicAccessOptions": {
+            "State": "default-state", "InternetGatewayBlockMode": mode}}])
+    exclusions = coll("vpc_block_public_access_exclusion", [])
+    blocked = one(aws(*aws_network(extra=[options("block-ingress"), exclusions]), instance()), "instance")
+    assert blocked["status"] == "PASS" and blocked["evidence"]["blocked_by"] == "vpc_public_access_block"
+    bidirectional = coll("vpc_block_public_access_exclusion", [{"ExclusionId": "e-1", "VpcId": "vpc-1",
+        "State": "create-complete", "InternetGatewayExclusionMode": "allow-bidirectional"}])
+    assert one(aws(*aws_network(extra=[options("block-ingress"), bidirectional]), instance()), "instance")["status"] == "FAIL"
+    egress_only = coll("vpc_block_public_access_exclusion", [{"ExclusionId": "e-1", "SubnetId": "subnet-1",
+        "State": "create-complete", "InternetGatewayExclusionMode": "allow-egress"}])
+    assert one(aws(*aws_network(extra=[options("block-bidirectional"), egress_only]), instance()), "instance")["status"] == "PASS"
+    detached = coll("internet_gateway", [{"InternetGatewayId": "igw-1", "Attachments": []}])
+    assert one(aws(*aws_network(extra=[options("off"), detached]), instance()), "instance")["status"] == "PASS"
+
+
 def test_aws_missing_security_group_inventory_is_unknown():
     network = [c for c in aws_network() if c["type"] != "security_group"] + [coll("security_group", [], status="denied")]
     assert one(aws(*network, instance()), "instance")["status"] == "UNKNOWN"
+
+
+def test_aws_security_group_managed_prefix_list_world_entry():
+    rules = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+              "PrefixListIds": [{"PrefixListId": "pl-1"}]}]
+    prefix = coll("managed_prefix_list", [{"PrefixListId": "pl-1", "Entries": {
+        "collection_status": "collected", "items": [{"Cidr": "0.0.0.0/0"}]}}])
+    result = one(aws(*aws_network(sg_rules=rules, extra=[prefix]), instance()), "instance")
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+    missing = one(aws(*aws_network(sg_rules=rules), instance()), "instance")
+    assert missing["status"] == "UNKNOWN"
 
 
 def test_aws_instance_without_public_ip_is_not_assessed():
@@ -126,6 +160,76 @@ def test_aws_public_rds_instance():
     assert one(aws(*aws_network(), coll("rds_instance", [db], service="rds")), "rds_instance")["status"] == "PASS"
 
 
+def test_aws_redshift_public_cluster_uses_collected_subnet_route_and_acl():
+    cluster = {"ClusterIdentifier": "warehouse", "PubliclyAccessible": True,
+               "Endpoint": {"Address": "warehouse.example.amazonaws.com", "Port": 5439},
+               "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1"}], "ClusterSubnetGroupName": "redshift-subnets"}
+    group = coll("redshift_subnet_group", [{"ClusterSubnetGroupName": "redshift-subnets", "VpcId": "vpc-1",
+                 "Subnets": [{"SubnetIdentifier": "subnet-1"}]}], service="redshift")
+    rules = [{"IpProtocol": "tcp", "FromPort": 5439, "ToPort": 5439, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def row(network, include_group=True):
+        return one(aws(*network, coll("redshift_cluster", [cluster], service="redshift"),
+                       *([group] if include_group else [])), "redshift_cluster")
+    assert row(aws_network(sg_rules=rules))["status"] == "FAIL"
+    assert row(aws_network(sg_rules=rules, igw=False))["status"] == "PASS"
+    assert row(aws_network(sg_rules=rules), include_group=False)["status"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize("kind,field,permission,operation", [
+    ("ebs_snapshot", "CreateVolumePermissions", "createVolumePermission", "DescribeSnapshotAttribute"),
+    ("ec2_image", "LaunchPermissions", "launchPermission", "DescribeImageAttribute"),
+])
+def test_aws_ec2_public_and_external_shares(kind, field, permission, operation):
+    identity = {"SnapshotId": "snap-1"} if kind == "ebs_snapshot" else {"ImageId": "ami-1"}
+    coverage = {"_coverage": {field: {"status": "collected", "source_operation": f"ec2:{operation}"}}}
+    def row(values, state="unblocked"):
+        settings = [coll("ec2_regional_settings", [{"SnapshotBlockPublicAccessState": state}])] if kind == "ebs_snapshot" else []
+        return one(aws(coll(kind, [{**identity, **coverage, field: values}]), *settings), kind)
+    public = row([{"Group": "all"}])
+    assert public["status"] == "FAIL" and public["evidence"]["data_exposure"] is True
+    external = row([{"UserId": "999988887777"}])
+    assert external["status"] == "FAIL" and external["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert row([])["status"] == "PASS"
+    if kind == "ebs_snapshot":
+        assert row([{"Group": "all"}], "block-all-sharing")["status"] == "PASS"
+        assert row([{"UserId": "999988887777"}], "block-all-sharing")["status"] == "FAIL"
+    incomplete = one(aws(coll(kind, [{**identity, field: [{"Group": "all"}]}])), kind)
+    assert incomplete["status"] == "UNKNOWN"
+
+
+def test_aws_cloudfront_enabled_viewer_endpoint_and_missing_config():
+    base = {"ARN": "arn:aws:cloudfront::111122223333:distribution/D1", "Id": "D1", "DomainName": "d123.cloudfront.net"}
+    config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+              "DefaultCacheBehavior": {"ViewerProtocolPolicy": "redirect-to-https"}}}
+    def row(value):
+        return one(aws(coll("cloudfront_distribution", [{**base, "Config": value}], service="cloudfront")), "cloudfront_distribution")
+    exposed = row(config)
+    assert exposed["status"] == "FAIL" and exposed["evidence"]["exposed_ports"] == ["tcp/80", "tcp/443"]
+    assert row({"collection_status": "denied"})["status"] == "UNKNOWN"
+    assert not exposure(aws(coll("cloudfront_distribution", [{**base, "Config": {**config, "DistributionConfig": {**config["DistributionConfig"], "Enabled": False}}}], service="cloudfront")))
+
+
+def test_aws_app_runner_public_default_private_and_missing_detail():
+    base = {"ServiceArn": f"arn:aws:apprunner:us-east-1:{ACCOUNT}:service/test/1", "ServiceUrl": "test.awsapprunner.com", "Status": "RUNNING"}
+    def row(ingress):
+        details = {"NetworkConfiguration": {"IngressConfiguration": ingress}, "ServiceUrl": base["ServiceUrl"], "Status": "RUNNING"}
+        return one(aws(coll("app_runner_service", [{**base, "NetworkDetails": details}], service="apprunner")), "app_runner_service")
+    assert row({})["status"] == "FAIL"  # Documented default is public.
+    assert row({"IsPubliclyAccessible": True})["evidence"]["exposed_ports"] == ["tcp/443"]
+    assert row({"IsPubliclyAccessible": False})["status"] == "PASS"
+    assert one(aws(coll("app_runner_service", [{**base, "NetworkDetails": {"collection_status": "denied"}}], service="apprunner")), "app_runner_service")["status"] == "UNKNOWN"
+
+
+def test_aws_amplify_hosted_branches_have_public_viewer_endpoint():
+    base = {"appArn": f"arn:aws:amplify:us-east-1:{ACCOUNT}:apps/d1", "defaultDomain": "d1.amplifyapp.com", "enableBasicAuth": False}
+    def snapshot(branches):
+        return aws(coll("amplify_app", [{**base, "Branches": branches}], service="amplify"))
+    hosted = one(snapshot({"collection_status": "collected", "items": [{"branchName": "main"}]}), "amplify_app")
+    assert hosted["status"] == "FAIL" and hosted["evidence"]["exposed_ports"] == ["tcp/443"]
+    assert one(snapshot({"collection_status": "denied"}), "amplify_app")["status"] == "UNKNOWN"
+    assert not exposure(snapshot({"collection_status": "empty", "items": []}))
+
+
 def lambda_function(auth="NONE", policy=True):
     statement = {"Effect": "Allow", "Principal": "*", "Action": "lambda:InvokeFunctionUrl", "Resource": "*", "Condition": {"StringEquals": {"lambda:FunctionUrlAuthType": "NONE"}}}
     return {"FunctionArn": f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:f", "FunctionName": "f",
@@ -152,6 +256,17 @@ def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():
     assert one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")["status"] == "FAIL"
     http["Routes"] = [{"RouteKey": "GET /", "AuthorizationType": "JWT"}]
     assert one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")["status"] == "PASS"
+
+
+def test_rest_api_collected_method_authorization():
+    api = {"id": "a1b2", "endpointConfiguration": {"types": ["REGIONAL"]},
+           "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}]}
+    assert one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")["status"] == "FAIL"
+    api["Methods"][0]["authorizationType"] = "AWS_IAM"
+    result = one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")
+    assert result["status"] == "PASS" and result["evidence"]["authenticated_endpoint"] is True
+    api["Methods"][0].pop("apiKeyRequired")
+    assert one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")["status"] == "UNKNOWN"
 
 
 def test_public_and_external_rds_snapshots():

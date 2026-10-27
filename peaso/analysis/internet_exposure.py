@@ -35,15 +35,7 @@ DATA_PORTS = {1433, 1521, 3306, 5432, 6379, 9200, 9300, 11211, 27017, 5984, 8086
 AVAILABLE = ("collected", "empty", "partial")
 # Facts the collectors would need for a complete model (routed to collector owners).
 STATIC_GAPS = {
-    "aws": [
-        {"fact": "apigateway get_resources(embed=methods) authorizationType/apiKeyRequired", "for": "rest_api"},
-        {"fact": "apigatewayv2 get_routes AuthorizationType/ApiKeyRequired", "for": "http_api"},
-        {"fact": "ec2 describe_snapshots(OwnerIds=[self]) + describe_snapshot_attribute(createVolumePermission)", "for": "ebs_snapshot"},
-        {"fact": "ec2 describe_images(Owners=[self]) + describe_image_attribute(launchPermission)", "for": "ami"},
-        {"fact": "rds describe_db_cluster_snapshot_attributes", "for": "rds_cluster_snapshot"},
-        {"fact": "ec2 describe_managed_prefix_lists + get_managed_prefix_list_entries", "for": "security_group prefix-list rules"},
-        {"fact": "redshift describe_cluster_subnet_groups", "for": "redshift_cluster subnet NACL/route"},
-    ],
+    "aws": [],
     "gcp": [
         {"fact": "compute securityPolicies.get (Cloud Armor rules)", "for": "backend_service.securityPolicy"},
         {"fact": "compute instanceGroups.listInstances / NEG endpoints", "for": "passthrough forwarding_rule backends"},
@@ -209,7 +201,7 @@ class Inventory:
     def _keys(self, resource):
         data = resource["data"]
         keys = {str(native_id(resource))}
-        for field in ("id", "selfLink", "name", "GroupId", "SubnetId", "VpcId", "NetworkAclId", "RouteTableId", "InstanceId",
+        for field in ("id", "selfLink", "name", "GroupId", "SubnetId", "VpcId", "InternetGatewayId", "PrefixListId", "NetworkAclId", "RouteTableId", "InstanceId",
                       "NetworkInterfaceId", "LoadBalancerArn", "LoadBalancerName"):
             value = data.get(field) if isinstance(data, dict) else None
             if isinstance(value, str):
@@ -350,11 +342,20 @@ def _aws_sg_ports(inventory, group_ids, assessment, where):
         cache_key = ("aws_sg_ports", group["id"])
         if cache_key not in inventory.network_cache:
             inventory.network_cache[cache_key] = _aws_group_rules(group)
-        ports, rules, prefix_lists = inventory.network_cache[cache_key]
+        ports, direct_rules, prefix_lists = inventory.network_cache[cache_key]
+        rules = list(direct_rules)
         allowed = union(allowed, ports)
-        for prefix_ids in prefix_lists:
-            assessment.gap("security_group_prefix_list", f"{group_id} references prefix lists {prefix_ids}",
-                           "ec2 get_managed_prefix_list_entries")
+        for prefix_id, prefix_ports in prefix_lists:
+            prefix = inventory.get("managed_prefix_list", prefix_id)
+            entries = prefix["data"].get("Entries") if prefix else None
+            if not isinstance(entries, dict) or entries.get("collection_status") not in ("collected", "empty") or not isinstance(entries.get("items"), list):
+                assessment.gap("security_group", f"prefix list {prefix_id} entries not completely collected",
+                               "ec2:GetManagedPrefixListEntries")
+                continue
+            cidrs = [e.get("Cidr") for e in entries["items"] if isinstance(e, dict) and _internet(e.get("Cidr"))]
+            if cidrs:
+                allowed = union(allowed, prefix_ports)
+                rules.append({"ports": describe(prefix_ports), "cidrs": cidrs, "prefix_list_id": prefix_id})
         seen.append({"group_id": group_id, "internet_rules": rules})
     assessment.step("security_group", "allow" if not empty(allowed) else "block" if not any(g["layer"] == "security_group" for g in assessment.unresolved) else "unknown",
                     groups=seen, allowed=describe(allowed), at=where)
@@ -380,7 +381,8 @@ def _aws_group_rules(group):
             allowed = union(allowed, ports)
             rules.append({"ports": describe(ports), "cidrs": internet_cidrs})
         if as_list(permission.get("PrefixListIds")):
-            prefix_lists.append([p.get('PrefixListId') for p in permission['PrefixListIds'] if isinstance(p, dict)])
+            prefix_lists.extend((p.get("PrefixListId"), ports) for p in permission["PrefixListIds"]
+                                if isinstance(p, dict) and isinstance(p.get("PrefixListId"), str))
     return allowed, freeze(rules), prefix_lists
 
 
@@ -461,9 +463,48 @@ def _aws_route(inventory, subnet_id, vpc_id, assessment, where, ipv6=False):
             and r.get("State", "active") == "active" and (r.get("DestinationCidrBlock") == "0.0.0.0/0" or r.get("DestinationIpv6CidrBlock") == "::/0")]
     routes = inventory.network_cache[cache_key]
     if routes:
+        gateway_id = routes[0]["GatewayId"]
+        gateway = inventory.get("internet_gateway", gateway_id)
+        if gateway is not None:
+            attachments = as_list(gateway["data"].get("Attachments"))
+            if not any(isinstance(x, dict) and x.get("VpcId") == vpc_id and x.get("State") in (None, "available") for x in attachments):
+                assessment.step("internet_gateway", "block", reason="route target is not attached to the VPC", at=where)
+                return False
+        else:
+            assessment.gap("route", "internet gateway attachment not collected", "ec2:DescribeInternetGateways")
         assessment.step("route", "allow", route_table=native_id(table), internet_gateway=routes[0]["GatewayId"], subnet=subnet_id, at=where)
         return True
     assessment.step("route", "block", route_table=native_id(table), subnet=subnet_id, reason="no active default route to an internet gateway", at=where)
+    return False
+
+
+def _aws_vpc_bpa(inventory, subnet_id, vpc_id, assessment, where):
+    """Return False only for a proven effective regional VPC BPA ingress block."""
+    scope = assessment.resource["scope"]
+    options = [r for r in inventory.items("vpc_block_public_access_options") if r["scope"] == scope]
+    if len(options) != 1:
+        assessment.gap("route", "VPC Block Public Access options not collected", "ec2:DescribeVpcBlockPublicAccessOptions")
+        return None
+    data = options[0]["data"].get("VpcBlockPublicAccessOptions")
+    if not isinstance(data, dict) or data.get("State") not in ("default-state", "update-complete"):
+        assessment.gap("route", "VPC Block Public Access state unresolved", "ec2:DescribeVpcBlockPublicAccessOptions")
+        return None
+    mode = data.get("InternetGatewayBlockMode")
+    if mode == "off":
+        return True
+    if mode not in ("block-ingress", "block-bidirectional"):
+        assessment.gap("route", "VPC Block Public Access mode unknown", "ec2:DescribeVpcBlockPublicAccessOptions")
+        return None
+    if inventory.state("vpc_block_public_access_exclusion", scope) not in ("collected", "empty"):
+        assessment.gap("route", "VPC Block Public Access exclusions not completely collected", "ec2:DescribeVpcBlockPublicAccessExclusions")
+        return None
+    exclusions = [r["data"] for r in inventory.items("vpc_block_public_access_exclusion") if r["scope"] == scope
+                  and (r["data"].get("VpcId") == vpc_id or r["data"].get("SubnetId") == subnet_id)
+                  and r["data"].get("State") in ("create-complete", "update-complete")]
+    if any(x.get("InternetGatewayExclusionMode") == "allow-bidirectional" for x in exclusions):
+        assessment.step("vpc_public_access_block", "allow", mode=mode, exclusion="allow-bidirectional", at=where)
+        return True
+    assessment.step("vpc_public_access_block", "block", mode=mode, at=where)
     return False
 
 
@@ -480,6 +521,8 @@ def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, ro
     for subnet_id in subnet_ids:
         subnet = inventory.get("subnet", subnet_id)
         vpc = vpc_id or (subnet["data"].get("VpcId") if subnet else None)
+        if route and _aws_vpc_bpa(inventory, subnet_id, vpc, assessment, where) is False:
+            continue
         if route and _aws_route(inventory, subnet_id, vpc, assessment, where) is False:
             continue
         reachable = union(reachable, _aws_nacl(inventory, subnet_id, ports, assessment, where))
@@ -630,11 +673,18 @@ def _aws_redshift(snapshot, inventory, resource):
     port = endpoint.get("Port", 5439)
     a.step("listener", "allow", port=port)
     groups = [g.get("VpcSecurityGroupId") for g in as_list(data.get("VpcSecurityGroups")) if isinstance(g, dict)]
-    ports = intersect(pset("tcp", port, port), _aws_sg_ports(inventory, groups, a, native_id(resource)))
-    if not empty(ports):
-        a.gap("network_acl", f"subnet group {data.get('ClusterSubnetGroupName')} subnets not collected", "redshift describe_cluster_subnet_groups")
-        a.unresolved[-1]["decisive"] = False
-    a.ports = ports
+    name = data.get("ClusterSubnetGroupName")
+    group = next((r["data"] for r in inventory.items("redshift_subnet_group") if r["scope"] == resource["scope"]
+                  and r["data"].get("ClusterSubnetGroupName") == name), None)
+    if not isinstance(group, dict):
+        a.gap("inventory", "Redshift subnet group not collected", "redshift:DescribeClusterSubnetGroups")
+        return a
+    subnets = [s.get("SubnetIdentifier") for s in as_list(group.get("Subnets"))
+               if isinstance(s, dict) and s.get("SubnetIdentifier")]
+    if not subnets:
+        a.gap("inventory", "Redshift subnet group has no collected subnets", "redshift:DescribeClusterSubnetGroups")
+        return a
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, pset("tcp", port, port), native_id(resource), vpc_id=group.get("VpcId"))
     return a
 
 
@@ -833,8 +883,23 @@ def _aws_rest_api(snapshot, inventory, resource):
         a.authenticated = True
     a.ports = pset("tcp", 443, 443)
     methods = data.get("Methods", data.get("resources"))
-    if not methods:
-        a.gap("authorization", "method authorizationType/apiKeyRequired not collected", STATIC_GAPS["aws"][0]["fact"])
+    if isinstance(methods, list):
+        if not methods:
+            a.step("authorization", "block", reason="no methods configured")
+            a.ports = {}
+            return a
+        if not all(isinstance(m, dict) and isinstance(m.get("authorizationType"), str)
+                   and type(m.get("apiKeyRequired")) is bool for m in methods):
+            a.gap("authorization", "method authorization or API-key fields malformed", "apigateway:GetResources")
+            return a
+        open_methods = [m.get("httpMethod") for m in methods if m["authorizationType"] == "NONE" and not m["apiKeyRequired"]]
+        a.step("authorization", "allow" if open_methods else "block", unauthenticated_methods=open_methods,
+               authentication_required=not bool(open_methods))
+        if not open_methods:
+            a.authenticated = True
+            a.ports = {}
+    else:
+        a.gap("authorization", "method authorizationType/apiKeyRequired not collected", "apigateway:GetResources")
     return a
 
 
@@ -896,7 +961,7 @@ def _aws_http_api(snapshot, inventory, resource):
             a.authenticated = True
             a.ports = {}
     else:
-        a.gap("authorization", "route AuthorizationType not collected", STATIC_GAPS["aws"][1]["fact"])
+        a.gap("authorization", "route AuthorizationType not collected", "apigatewayv2:GetRoutes")
     return a
 
 
@@ -930,6 +995,145 @@ def _aws_snapshot_share(snapshot, inventory, resource, attribute_path, name):
         return a
     a.step("attributes", "block", restore=values)
     a.ports = {}
+    return a
+
+
+def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permission_key):
+    """Report only observed EC2 snapshot/image launch grants; missing reads stay unknown."""
+    from .trust import trusted_scopes
+    data = resource["data"]
+    a = Assessment(resource, "data_share")
+    coverage = (data.get("_coverage") or {}).get(coverage_field, {})
+    permissions = data.get(field)
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
+        a.gap("attributes", f"{coverage_field} not completely collected", f"ec2:{permission_key}")
+        return a
+    if not all(isinstance(p, dict) for p in permissions):
+        a.gap("attributes", f"{coverage_field} malformed", f"ec2:{permission_key}")
+        return a
+    public = any(p.get("Group") == "all" for p in permissions)
+    external = sorted({p["UserId"] for p in permissions if isinstance(p.get("UserId"), str)
+                       and p["UserId"] not in trusted_scopes(snapshot)["ids"]})
+    if resource["type"] == "ebs_snapshot" and public:
+        settings = [r for r in inventory.items("ec2_regional_settings") if r["scope"] == resource["scope"]]
+        state = settings[0]["data"].get("SnapshotBlockPublicAccessState") if len(settings) == 1 else None
+        if state == "block-all-sharing":
+            a.step("public_access_block", "block", state=state)
+            public = False
+        elif state not in ("block-new-sharing", "unblocked"):
+            a.gap("attributes", "EBS snapshot Block Public Access state not collected", "ec2:GetSnapshotBlockPublicAccessState")
+            return a
+        else:
+            a.step("public_access_block", "allow", state=state)
+    if public:
+        a.step("attributes", "allow", public_group="all")
+        a.data_exposure = True
+        a.ports = {}
+    elif external:
+        a.step("attributes", "allow", external_accounts=external)
+        a.kind = "external_share"
+        a.external_ids = external
+        a.explicit = "FAIL"
+    else:
+        a.step("attributes", "block", permission_count=len(permissions))
+        a.ports = {}
+    return a
+
+
+def _aws_cloudfront(snapshot, inventory, resource):
+    data = resource["data"]
+    config = data.get("Config")
+    if not isinstance(config, dict) or config.get("collection_status") != "collected":
+        a = Assessment(resource, "cdn_endpoint")
+        a.gap("inventory", "CloudFront distribution config not collected", "cloudfront:GetDistributionConfig")
+        return a
+    distribution = config.get("DistributionConfig")
+    if not isinstance(distribution, dict):
+        a = Assessment(resource, "cdn_endpoint")
+        a.gap("inventory", "CloudFront distribution config malformed", "cloudfront:GetDistributionConfig")
+        return a
+    if distribution.get("Enabled") is not True:
+        return None
+    a = Assessment(resource, "cdn_endpoint")
+    domain = data.get("DomainName")
+    if isinstance(domain, str) and domain:
+        a.addresses = [domain]
+    else:
+        a.gap("inventory", "CloudFront domain name missing", "cloudfront:ListDistributions")
+    behaviors = [distribution.get("DefaultCacheBehavior")]
+    behaviors.extend((distribution.get("CacheBehaviors") or {}).get("Items") or [])
+    if not all(isinstance(b, dict) for b in behaviors):
+        a.gap("listener", "CloudFront cache behavior missing")
+        return a
+    ports = {}
+    for behavior in behaviors:
+        policy = behavior.get("ViewerProtocolPolicy")
+        if policy in ("allow-all", "redirect-to-https", "https-only"):
+            ports = union(ports, pset("tcp", 443, 443))
+        if policy in ("allow-all", "redirect-to-https"):
+            ports = union(ports, pset("tcp", 80, 80))
+        if policy not in ("allow-all", "redirect-to-https", "https-only"):
+            a.gap("listener", "CloudFront viewer protocol policy unresolved")
+    a.ports = ports
+    a.step("listener", "allow" if ports else "block", viewer_protocol_policies=sorted({b.get("ViewerProtocolPolicy") for b in behaviors if isinstance(b.get("ViewerProtocolPolicy"), str)}))
+    a.notes.append("CloudFront viewer reachability does not establish origin reachability or authorization")
+    return a
+
+
+def _aws_app_runner(snapshot, inventory, resource):
+    data = resource["data"]
+    details = data.get("NetworkDetails")
+    a = Assessment(resource, "managed_endpoint")
+    if not isinstance(details, dict) or not isinstance(details.get("NetworkConfiguration"), dict):
+        a.gap("inventory", "App Runner DescribeService network configuration missing", "apprunner:DescribeService")
+        return a
+    ingress = details["NetworkConfiguration"].get("IngressConfiguration")
+    if not isinstance(ingress, dict):
+        a.gap("inventory", "App Runner ingress configuration malformed", "apprunner:DescribeService")
+        return a
+    public = ingress.get("IsPubliclyAccessible", True)  # AWS default when omitted.
+    if type(public) is not bool:
+        a.gap("inventory", "App Runner public ingress setting malformed", "apprunner:DescribeService")
+        return a
+    url = details.get("ServiceUrl") or data.get("ServiceUrl")
+    if public is False:
+        a.step("private_endpoint", "block", is_publicly_accessible=False)
+        a.ports = {}
+        return a
+    if not isinstance(url, str) or not url:
+        a.gap("inventory", "App Runner service URL missing", "apprunner:DescribeService")
+        return a
+    a.addresses = [url]
+    a.ports = pset("tcp", 443, 443)
+    a.step("ingress", "allow", is_publicly_accessible=True,
+           source="default" if "IsPubliclyAccessible" not in ingress else "declared")
+    a.dormant = details.get("Status", data.get("Status")) != "RUNNING"
+    return a
+
+
+def _aws_amplify(snapshot, inventory, resource):
+    data = resource["data"]
+    branches = data.get("Branches")
+    a = Assessment(resource, "managed_endpoint")
+    if not isinstance(branches, dict) or branches.get("collection_status") not in ("collected", "empty"):
+        a.gap("inventory", "Amplify branch inventory missing", "amplify:ListBranches")
+        return a
+    items = branches.get("items")
+    if not isinstance(items, list) or not all(isinstance(x, dict) for x in items):
+        a.gap("inventory", "Amplify branch inventory malformed", "amplify:ListBranches")
+        return a
+    if not items:
+        return None
+    domain = data.get("defaultDomain")
+    if not isinstance(domain, str) or not domain:
+        a.gap("inventory", "Amplify default domain missing", "amplify:ListApps")
+        return a
+    a.addresses = [domain]
+    a.ports = pset("tcp", 443, 443)
+    a.step("hosting", "allow", branch_count=len(items), default_domain=domain)
+    a.notes.append("Branch display names, deployment health and branch-level basic authentication are not collected")
+    if data.get("enableBasicAuth") is True:
+        a.authenticated = True
     return a
 
 
@@ -2563,7 +2767,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account"]
+             "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_rule", "target_proxy", "url_map", "backend_service",
              "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket", "project", "workload_identity_provider"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
@@ -2575,7 +2779,8 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
              "component_configuration", *sorted(K8S_ROUTE_TYPES)]
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
-                     "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket"},
+                     "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
+                     "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
                        "container_group", "container_app", *_AZURE_MANAGED_ENDPOINTS},
@@ -2608,7 +2813,10 @@ def assess(snapshot, resources):
                 "rds_instance": _aws_rds, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
                 "lambda_function": _aws_lambda_url, "rest_api": _aws_rest_api, "http_api": _aws_http_api, "bucket": _aws_bucket,
                 "rds_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBSnapshotAttributesResult", "DBSnapshotAttributes"), "snapshot"),
-                "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot")},
+                "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot"),
+                "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
+                "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
+                "cloudfront_distribution": _aws_cloudfront, "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
                 "sql_instance": _gcp_sql, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket},
         "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
@@ -2667,9 +2875,12 @@ def _observed(assessment, status):
         return "The collected configuration does not allow public access."
     if assessment.kind == "external_share":
         accounts = ", ".join(assessment.external_ids)
-        return f"Snapshot restore access is granted to external accounts: {accounts}."
+        noun = "AMI launch" if assessment.resource["type"] == "ec2_image" else "Snapshot restore"
+        return f"{noun} access is granted to external accounts: {accounts}."
     if assessment.data_exposure:
-        if assessment.resource["type"] in ("rds_snapshot", "rds_cluster_snapshot"):
+        if assessment.resource["type"] == "ec2_image":
+            return "AMI launch access is granted to everyone."
+        if assessment.resource["type"] in ("rds_snapshot", "rds_cluster_snapshot", "ebs_snapshot"):
             return "Snapshot restore access is granted to everyone."
         return "Public access to the stored data is allowed."
     sentence = f"{_title(assessment, status)} is allowed."
