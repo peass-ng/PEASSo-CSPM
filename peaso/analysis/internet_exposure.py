@@ -3893,6 +3893,53 @@ def _azure_disk_public_export(snapshot, inventory, resource):
     return a
 
 
+def _azure_kusto_cluster(snapshot, inventory, resource):
+    """Assess the Data Explorer public endpoint and its recorded IP allow list."""
+    props = _props(resource)
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    for field in ("uri", "dataIngestionUri"):
+        if isinstance(props.get(field), str) and props[field]:
+            a.addresses.append(props[field])
+    public = props.get("publicNetworkAccess")
+    if public == "Disabled":
+        a.step("public_network_access", "block", public_network_access=public)
+        a.ports = {}
+        return a
+    if public != "Enabled":
+        a.gap("inventory", "Kusto publicNetworkAccess is absent or unrecognized")
+        return a
+    a.step("public_network_access", "allow", public_network_access=public)
+    rules = props.get("allowedIpRangeList")
+    if not isinstance(rules, list):
+        a.gap("firewall", "Kusto allowedIpRangeList is not collected")
+        return a
+    if not rules:
+        a.step("firewall", "allow", reason="empty allow list permits all public networks")
+        a.ports = pset("tcp", 443, 443)
+    else:
+        public_rules, unresolved = [], []
+        for value in rules:
+            network = _cidr(value) if isinstance(value, str) else None
+            if network is None:
+                unresolved.append(value if isinstance(value, str) else "malformed entry")
+            elif _azure_public_remainder([network], []):
+                public_rules.append(value)
+        if public_rules:
+            a.step("firewall", "allow", public_ip_rules=public_rules)
+            a.ports = pset("tcp", 443, 443)
+            if unresolved:
+                a.notes.append("Additional Kusto service-tag or malformed allow rules remain unresolved.")
+        elif unresolved:
+            a.gap("firewall", "Kusto service tag or malformed IP rule needs its effective public address set")
+        else:
+            a.step("firewall", "block", reason="no public-source IP rule")
+            a.ports = {}
+    if a.ports and not a.addresses:
+        a.gap("inventory", "Kusto public URI is not collected")
+    return a
+
+
 def _azure_public_edge(snapshot, inventory, resource):
     """Assess the public listener from the collector's bounded route projection."""
     data = resource["data"]
@@ -4552,7 +4599,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -4568,7 +4615,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -4632,6 +4679,7 @@ def assess(snapshot, resources):
                   "synapse_workspace": _azure_synapse_workspace,
                   "disk": _azure_disk_public_export,
                   "snapshot": _azure_disk_public_export,
+                  "kusto_cluster": _azure_kusto_cluster,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,

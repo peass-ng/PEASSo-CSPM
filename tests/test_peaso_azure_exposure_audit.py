@@ -34,6 +34,19 @@ def test_compute_public_sas_export_policy(kind):
     assert decision(kind, {"networkAccessPolicy": "AllowAll"}).verdict() == "UNKNOWN"
 
 
+def test_kusto_public_endpoint_ip_allow_list():
+    base = {"publicNetworkAccess": "Enabled", "uri": "https://cluster.region.kusto.windows.net"}
+    assert decision("kusto_cluster", {**base, "allowedIpRangeList": []}).verdict() == "FAIL"
+    public = decision("kusto_cluster", {**base, "allowedIpRangeList": ["8.8.8.8/32"]})
+    assert public.verdict() == "FAIL" and public.addresses == [base["uri"]]
+    assert decision("kusto_cluster", {**base, "allowedIpRangeList": ["10.0.0.0/8"]}).verdict() == "PASS"
+    assert decision("kusto_cluster", {**base, "allowedIpRangeList": ["PowerBI"]}).verdict() == "UNKNOWN"
+    assert decision("kusto_cluster", {**base, "allowedIpRangeList": ["8.8.8.8", "PowerBI"]}).verdict() == "FAIL"
+    assert decision("kusto_cluster", {**base, "allowedIpRangeList": ["bad//"]}).verdict() == "UNKNOWN"
+    assert decision("kusto_cluster", {**base, "allowedIpRangeList": None}).verdict() == "UNKNOWN"
+    assert decision("kusto_cluster", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})
