@@ -1,6 +1,19 @@
 """One redacted finding per secret, independent of detector/check/asset."""
 from copy import deepcopy
+import re
 from .secret_scanning import merge_leaks
+
+
+def _secret_location_resource(finding):
+    """Keep the ECR evaluator's bound image identity through secret grouping."""
+    native = finding.get('native_resource_id') or finding['resource_id']
+    if finding.get('check_id') != 'aws.review.ecr_repository.package_content_secret_indicators':
+        return native
+    source = finding.get('evidence', {}).get('resource_id')
+    if (isinstance(native, str) and isinstance(source, str)
+            and re.fullmatch(re.escape(native) + r'@sha256:[0-9a-f]{64}', source)):
+        return source
+    return native
 
 
 def deduplicate_secret_findings(findings):
@@ -20,7 +33,7 @@ def deduplicate_secret_findings(findings):
         for leak in merged:
             key = (finding['provider'], leak['fingerprint'])
             row = grouped.get(key)
-            locations = [dict(loc, resource_id=finding.get('native_resource_id') or finding['resource_id'],
+            locations = [dict(loc, resource_id=_secret_location_resource(finding),
                               scope=finding['scope']) for loc in leak['locations']]
             safe = dict(leak, locations=locations)
             if row is None:
