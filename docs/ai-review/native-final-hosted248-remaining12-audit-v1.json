@@ -1,0 +1,211 @@
+{
+  "caveat": "retain_candidate means this audit found no additional future-path defect; runtime admission remains subject to root integration and replay gate.",
+  "checks": [
+    {
+      "branch_proof": "Absent RootId identifies a root stack; recorded protection is false.",
+      "check_id": "aws.c2b.cloudformation.termination_protection_root_stacks",
+      "downgrade_count": 22,
+      "evaluator_path": "peaso/checks/claude2_aws_b_devtools.py:394-405",
+      "global_decision": "retain_candidate",
+      "native_snapshot_re_evaluation_fail_count": 22,
+      "snapshot_branch_fields": [
+        "RootId",
+        "EnableTerminationProtection"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude2_aws_b_devtools.py": "6434e604a4f39fe952b97826c9b4d4e81b969e5ad6aab6196108d4d2b6918caf"
+      },
+      "staged_applicability_omitted_count": 22
+    },
+    {
+      "branch_proof": "Nested workgroup is ENABLED; detail helper accepts missing collection_status and missing encryption defaults to failure.",
+      "check_id": "aws.c2b.athena.results_encrypted_prowler",
+      "downgrade_count": 2,
+      "evaluator_path": "peaso/checks/claude2_aws_b_data.py:172-185;peaso/checks/claude2_aws_b_common.py:135-143",
+      "global_decision": "retain_ai_until_detail_status_guard",
+      "native_snapshot_re_evaluation_fail_count": 2,
+      "snapshot_branch_fields": [
+        "WorkGroup.collection_status",
+        "WorkGroup.WorkGroup.State"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude2_aws_b_common.py": "b1b238dbec0e09ced5fbe3c133982c1e8d300d6127d6fc01ba21738787a414c5",
+        "peaso/checks/claude2_aws_b_data.py": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102"
+      },
+      "staged_applicability_omitted_count": 2
+    },
+    {
+      "branch_proof": "Nested workgroup is ENABLED; detail helper accepts missing collection_status and missing setting defaults to failure.",
+      "check_id": "aws.c2b.athena.enforce_configuration_prowler",
+      "downgrade_count": 2,
+      "evaluator_path": "peaso/checks/claude2_aws_b_data.py:185-216;peaso/checks/claude2_aws_b_common.py:135-143",
+      "global_decision": "retain_ai_until_detail_status_guard",
+      "native_snapshot_re_evaluation_fail_count": 2,
+      "snapshot_branch_fields": [
+        "WorkGroup.collection_status",
+        "WorkGroup.WorkGroup.State"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude2_aws_b_common.py": "b1b238dbec0e09ced5fbe3c133982c1e8d300d6127d6fc01ba21738787a414c5",
+        "peaso/checks/claude2_aws_b_data.py": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102"
+      },
+      "staged_applicability_omitted_count": 2
+    },
+    {
+      "branch_proof": "Nested workgroup is ENABLED; detail helper accepts missing collection_status and missing setting defaults to failure.",
+      "check_id": "aws.c2b.athena.cloudwatch_metrics_prowler",
+      "downgrade_count": 3,
+      "evaluator_path": "peaso/checks/claude2_aws_b_data.py:185-216;peaso/checks/claude2_aws_b_common.py:135-143",
+      "global_decision": "retain_ai_until_detail_status_guard",
+      "native_snapshot_re_evaluation_fail_count": 3,
+      "snapshot_branch_fields": [
+        "WorkGroup.collection_status",
+        "WorkGroup.WorkGroup.State"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude2_aws_b_common.py": "b1b238dbec0e09ced5fbe3c133982c1e8d300d6127d6fc01ba21738787a414c5",
+        "peaso/checks/claude2_aws_b_data.py": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102"
+      },
+      "staged_applicability_omitted_count": 3
+    },
+    {
+      "branch_proof": "Recorded class is not exempt; optional monitoring ARN is absent.",
+      "check_id": "aws.cb.rds.instance_enhanced_monitoring_except_m1_small",
+      "downgrade_count": 4,
+      "evaluator_path": "peaso/checks/claude_aws_b_db.py:369-381",
+      "global_decision": "retain_candidate",
+      "native_snapshot_re_evaluation_fail_count": 4,
+      "snapshot_branch_fields": [
+        "DBInstanceClass"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_b_db.py": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62"
+      },
+      "staged_applicability_omitted_count": 4
+    },
+    {
+      "branch_proof": "Recorded engine is in supported set and IAM authentication is false.",
+      "check_id": "aws.cb.rds.instance_iam_auth_supported_engines",
+      "downgrade_count": 4,
+      "evaluator_path": "peaso/checks/claude_aws_b_db.py:619-632",
+      "global_decision": "retain_candidate",
+      "native_snapshot_re_evaluation_fail_count": 4,
+      "snapshot_branch_fields": [
+        "Engine",
+        "IAMDatabaseAuthenticationEnabled"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_b_db.py": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62"
+      },
+      "staged_applicability_omitted_count": 4
+    },
+    {
+      "branch_proof": "Recorded engine is non-Aurora and MultiAZ is false.",
+      "check_id": "aws.cb.rds.instance_multi_az_non_aurora",
+      "downgrade_count": 1,
+      "evaluator_path": "peaso/checks/claude_aws_b_db.py:679-690",
+      "global_decision": "retain_candidate",
+      "native_snapshot_re_evaluation_fail_count": 1,
+      "snapshot_branch_fields": [
+        "Engine",
+        "MultiAZ"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_b_db.py": "332ae9c6f5a2657a90859900d008b2813c08df6fd15f4a2a819f18fdd834ee62"
+      },
+      "staged_applicability_omitted_count": 1
+    },
+    {
+      "branch_proof": "Public zone has a collected empty logging config; evaluator does not validate child collection_status before failing.",
+      "check_id": "aws.cb.route53.public_zone_query_logging",
+      "downgrade_count": 8,
+      "evaluator_path": "peaso/checks/claude_aws_b_security.py:419-434",
+      "global_decision": "retain_ai_until_logging_status_guard",
+      "native_snapshot_re_evaluation_fail_count": 8,
+      "snapshot_branch_fields": [
+        "Config.PrivateZone",
+        "QueryLoggingConfigs.collection_status",
+        "QueryLoggingConfigs.QueryLoggingConfigs"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_b_security.py": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394"
+      },
+      "staged_applicability_omitted_count": 8
+    },
+    {
+      "branch_proof": "Documented absent-configuration marker is verified by section helper.",
+      "check_id": "aws.claude_a.s3.prowler_acl_disabled",
+      "downgrade_count": 1,
+      "evaluator_path": "peaso/checks/claude_aws_a_s3.py:63-80;peaso/checks/claude_aws_a_s3.py:538-548",
+      "global_decision": "retain_candidate",
+      "native_snapshot_re_evaluation_fail_count": 1,
+      "snapshot_branch_fields": [
+        "OwnershipControls.collection_status",
+        "OwnershipControls.absent"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_s3.py": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160"
+      },
+      "staged_applicability_omitted_count": 1
+    },
+    {
+      "branch_proof": "One default version exists, but HttpTokens is absent; evaluator lacks version-detail completeness guard and treats absence as FAIL.",
+      "check_id": "aws.claude_a.ec2.launch_template_default_imdsv2",
+      "downgrade_count": 2,
+      "evaluator_path": "peaso/checks/claude_aws_a_ec2.py:1004-1030",
+      "global_decision": "retain_ai_until_version_completeness_guard",
+      "native_snapshot_re_evaluation_fail_count": 2,
+      "snapshot_branch_fields": [
+        "Versions"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_ec2.py": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa"
+      },
+      "staged_applicability_omitted_count": 2
+    },
+    {
+      "branch_proof": "AdministratorAccess is directly attached and captured MFA list is empty; evaluator ignores MFA collection_status on future rows.",
+      "check_id": "aws.claude_a.iam.admin_user_has_mfa",
+      "downgrade_count": 1,
+      "evaluator_path": "peaso/checks/claude_aws_a_iam.py:206-209;peaso/checks/claude_aws_a_iam.py:585-595",
+      "global_decision": "retain_ai_until_mfa_status_guard",
+      "native_snapshot_re_evaluation_fail_count": 1,
+      "snapshot_branch_fields": [
+        "AttachedManagedPolicies",
+        "MFADevices.collection_status",
+        "MFADevices.items"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_iam.py": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687"
+      },
+      "staged_applicability_omitted_count": 1
+    },
+    {
+      "branch_proof": "Recorded EBS mapping has explicit DeleteOnTermination false; missing flag cannot produce this FAIL.",
+      "check_id": "aws.claude_a.ec2.instance_ebs_delete_on_termination",
+      "downgrade_count": 1,
+      "evaluator_path": "peaso/checks/claude_aws_a_ec2.py:706-719",
+      "global_decision": "retain_candidate",
+      "native_snapshot_re_evaluation_fail_count": 1,
+      "snapshot_branch_fields": [
+        "BlockDeviceMappings"
+      ],
+      "source_file_sha256": {
+        "peaso/checks/claude_aws_a_ec2.py": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa"
+      },
+      "staged_applicability_omitted_count": 1
+    }
+  ],
+  "downgraded_candidate_rows": 80,
+  "input_sha256": {
+    "arm": "8ea496909f3f62c6101b423207eef4315c354741144497b701ff5b1d7acfb94c",
+    "candidate": "ad230b971c915031ccfa44934a7308240304fa510305077f7fe56f086cc4e864",
+    "common": "00f7ea1881e72cd22cb7e57c6764a1e6cddb43fe6ce62ce667b84e0746468030",
+    "pre_ai": "4dcaa76a21c6b3bfff2b4859c1d4c763964c92c69041fe2d95702315fffde2ba",
+    "snapshot": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f"
+  },
+  "interpretation": "All 51 exact-snapshot rows support native FAIL. Hosted UNKNOWN/MANUAL reasons correspond to applicability or decisive fields omitted from staged AI inputs. Global source safety is assessed separately per check.",
+  "remaining_twelve_rows": 51,
+  "schema_version": 1,
+  "status": "inactive_source_audit"
+}
