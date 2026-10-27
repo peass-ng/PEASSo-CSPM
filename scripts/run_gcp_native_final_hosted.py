@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import time
 
 from peaso.ai.collection_coverage import index
@@ -21,7 +22,8 @@ from peaso.ai.contracts import validate_reviews
 from peaso.ai.pipeline import compact_document, findings_document, private_json, review_context
 from peaso.ai.review_groups import chunks, expand
 
-from scripts.prepare_gcp_native_final_hosted import IMAGE, MODEL, PRIVATE, ROOT, SCAN, SOURCE_FILES, sha
+from scripts.prepare_gcp_native_final_hosted import (
+    IMAGE, MODEL, PRIVATE, ROOT, SCAN, SOURCE_FILES, private_json as private_receipt, sha)
 
 
 TOKEN = Path.home() / 'peaso-work/replay/platform-codex-token.txt'
@@ -101,6 +103,29 @@ def runtime_preflight():
             ('image_id', 'architecture', 'per_reviewer_vcpu',
              'per_reviewer_memory_bytes', 'max_reviewer_slots',
              'credential_sha256', 'model_catalog_http_status')}
+
+
+def container_mount_preflight(common, plans):
+    """Exercise the pinned image and mounts with networking disabled, no runner."""
+    with tempfile.TemporaryDirectory(prefix='gcp-mount-', dir=PRIVATE) as temporary:
+        directory = Path(temporary)
+        private_json(directory / 'findings.json', document(common, plans['baseline']['initial_batches'][0]))
+        private_json(directory / 'credentials.json', {'version': 2, 'entries': []})
+        command = ['docker', 'run', '--rm', '--network', 'none', '--platform', 'linux/amd64',
+                   '--entrypoint', 'python', '--user', '0:0', '--read-only',
+                   '--mount', f'type=bind,src={directory},dst=/workspace,readonly',
+                   '--mount', f'type=bind,src={TOKEN},dst=/run/secrets/platform-codex-token,readonly',
+                   '--mount', f'type=bind,src={ARM},dst=/run/hardening_84_container_arm.py,readonly',
+                   IMAGE, '-c', "import json,pathlib; p=pathlib.Path('/workspace'); "
+                   "assert len(json.loads((p/'findings.json').read_text())['items']) > 0; "
+                   "assert (p/'credentials.json').is_file(); "
+                   "assert pathlib.Path('/run/secrets/platform-codex-token').is_file(); "
+                   "assert pathlib.Path('/run/hardening_84_container_arm.py').is_file(); "
+                   "print('mount-ok')"]
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=90)
+        if completed.returncode or completed.stdout.strip() != 'mount-ok':
+            raise ValueError('pinned no-model container mount preflight failed')
+    return True
 
 
 def stage(common, name, number, identifiers):
@@ -183,6 +208,15 @@ def main():
     documents = planned_documents(common, plans)
     runtime = runtime_preflight()
     if args.preflight:
+        mounted = container_mount_preflight(common, plans)
+        private_receipt(PRIVATE / 'gcp-hosted-runtime-preflight.json', {
+            'schema_version': 1, 'scan_id': SCAN,
+            'common_sha256': receipt['common_sha256'],
+            'plans_sha256': receipt['plans_sha256'],
+            'source_head': receipt['source_head'],
+            'documents': documents, 'runtime': runtime,
+            'no_model_container_mount_passed': mounted,
+            'hosted_model_launched': False})
         print(json.dumps({'projection': receipt['projection'],
                           'documents': {name: {key: row[key] for key in
                                         ('selected_rows', 'representatives', 'initial_batches',
@@ -190,6 +224,7 @@ def main():
                                         for name, row in documents.items()},
                           'runtime': {key: runtime[key] for key in
                                       ('image_id', 'architecture', 'max_reviewer_slots')},
+                          'no_model_container_mount_passed': mounted,
                           'hosted_model_launched': False}, sort_keys=True))
         return
     if RELEASE not in {line.strip() for line in FINDINGS.read_text().splitlines()}:

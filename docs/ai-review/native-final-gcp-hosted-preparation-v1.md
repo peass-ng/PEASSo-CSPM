@@ -9,10 +9,11 @@ records its production connector, request selection, and stage timestamps.
 `scripts/prepare_gcp_native_final_hosted.py` builds private, source-pinned
 common inputs and paired plans for the existing Linux/amd64 b09 Hardening
 reviewer image, `gpt-5.6-sol` with high thinking, six reviewer slots, and
-0.5 vCPU/2 GiB per reviewer. `scripts/run_gcp_native_final_hosted.py
---preflight` validates document IDs and hashes, image identity, credential
-mode, model catalog entitlement, and pinned runner source. These commands
-start no model. The `--launch` path additionally requires root to place the
+0.5 vCPU/2 GiB per reviewer. The runner's `--preflight` validates document
+IDs and hashes, image identity, credential mode, model catalog entitlement,
+pinned runner source, and a network-disabled Docker mount of the staged
+inputs. It records a private receipt and starts no model. The `--launch` path
+additionally requires root to place the
 exact line `ROOT_RELEASE_GCP_NATIVE_FINAL_0864235E` in
 `~/peaso-work/CODEX_FINDINGS.txt`. The release line is absent while the AWS
 production scan owns the exclusive replay slot.
