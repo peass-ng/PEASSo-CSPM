@@ -55,9 +55,10 @@
     {
       "path": "peaso/checks/k8s_ports_workloads.py",
       "reviewed_root_before_sha256": "d7690b5488231e5e56570cc3a203774facdf3123511a34822b911f3e7551d951",
-      "candidate_after_sha256": "0a0ab554c6f00eaf2967fb860bd644c96e8ac4730002a1a937175b7b5dca2ad5",
+      "candidate_after_sha256": "9eeb9a2acb68c5ea7be8ace77a540ab1a564843ec147382a8ba1d95c2e528da8",
       "changed_or_added_functions": [
-        "evaluate_predicate"
+        "evaluate_predicate",
+        "pod_spec"
       ],
       "removed_functions": []
     }

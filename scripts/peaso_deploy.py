@@ -59,6 +59,9 @@ RUNTIME_ADMISSION_INPUTS = {
 REPRODUCTION_INPUT_PATTERNS = (
     'tests/gcp_current_compute_iam_successor_20261027.py',
     'tests/gcp_current_dataflow_detector_successor_20261027.py',
+    'tests/k8s_current_metadata_detector_successor_20261027.py',
+    'tests/test_k8s_pod_level_observed_20261027.py',
+    'tests/test_aws_request_pool.py',
     'tests/test_ecr_byte_target_source_transition_20261027.py',
     'tests/test_gcp_address_group_collection.py',
     'tests/test_gcp_authz_policy_collection.py',

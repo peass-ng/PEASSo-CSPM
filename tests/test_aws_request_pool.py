@@ -228,6 +228,53 @@ def test_batch_seeding_answers_single_identifier_reads_exactly(native):
     assert single == expected and len(calls) == 2 + len(ids)
 
 
+def test_batch_prefetch_is_scan_local_single_flight_and_retries_transient_errors(native):
+    calls, handlers = native
+    started, release = threading.Event(), threading.Event()
+    attempts = 0
+
+    def batch_get_builds(params):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            started.set()
+            assert release.wait(5)
+        if attempts in (2, 3):
+            raise _error("Throttling" if attempts == 2 else "InternalError",
+                         429 if attempts == 2 else 500)
+        return {"builds": [{"id": value} for value in params["ids"]],
+                "buildsNotFound": [], "ResponseMetadata": {"HTTPStatusCode": 200}}
+
+    handlers["BatchGetBuilds"] = batch_get_builds
+    session, requests = _session(), aws.Requests({})
+    ids = ["project:1", "project:2"]
+    results = []
+
+    def seed():
+        results.append(pool.seed_batch_details(requests, session, "codebuild", REGION,
+                                               "batch_get_builds", ids))
+
+    threads = [threading.Thread(target=seed) for _ in range(2)]
+    threads[0].start()
+    assert started.wait(5)
+    threads[1].start()
+    release.set()
+    for thread in threads:
+        thread.join(5)
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(results) == 2 and len(calls) == 1
+    assert [c[2]["ids"] for c in calls] == [ids]
+
+    # A separate scan has its own cache. Neither 429 nor 5xx is retained.
+    other = aws.Requests({})
+    assert pool.seed_batch_details(other, session, "codebuild", REGION, "batch_get_builds", ids) == 0
+    assert pool.seed_batch_details(other, session, "codebuild", REGION, "batch_get_builds", ids) == 0
+    assert pool.seed_batch_details(other, session, "codebuild", REGION, "batch_get_builds", ids) == 2
+    assert len(calls) == 4
+    assert pool.seed_batch_details(other, session, "codebuild", REGION, "batch_get_builds", ids) == 0
+    assert len(calls) == 4
+
+
 def test_metadata_wrappers_share_pooled_clients():
     from peaso.collectors.aws_network_catalog import MetadataSession
     session, requests = _session(), aws.Requests({})

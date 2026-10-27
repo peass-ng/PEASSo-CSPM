@@ -31,7 +31,7 @@ DOCS = ["https://kubernetes.io/docs/concepts/security/pod-security-standards/",
         "https://kubernetes.io/docs/concepts/workloads/pods/"]
 
 
-def pod_spec(item, kind):
+def pod_spec(item, kind, *, require_containers=True):
     guard(item)
     expected_kind = {"pod": "Pod", "deployment": "Deployment", "daemonset": "DaemonSet",
         "statefulset": "StatefulSet", "replicaset": "ReplicaSet", "replicationcontroller": "ReplicationController",
@@ -41,6 +41,8 @@ def pod_spec(item, kind):
         if field in item and get(item, field, str) != expected:
             raise Unavailable("workload type conflicts with selected native inventory")
     spec = get(item, KIND_PATHS[kind], dict)
+    if not require_containers:
+        return spec, []
     rows = list(list_of_objects(get(spec, "containers", list)))
     if not rows:
         raise Unavailable("PodSpec requires at least one regular container")
@@ -80,7 +82,9 @@ def quantity(value):
 
 
 def evaluate_predicate(item, kind, predicate):
-    spec, rows = pod_spec(item, kind)
+    spec, rows = pod_spec(item, kind, require_containers=not (
+        kind == "pod" and predicate in (
+            "host_namespaces", "host_network", "pod_runtime_default_seccomp", "explicit_serviceaccount")))
     if predicate == "host_namespaces":
         observed, unavailable = {}, []
         for field in ("hostPID", "hostIPC"):
