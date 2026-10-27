@@ -26,8 +26,8 @@ from types import CodeType, FunctionType, MethodType, ModuleType
 import zipfile
 from peaso import source_attestation_mode as _attestation_mode
 
-_RECEIPT_SHA256 = "72b24fc3dc1475a4f619661b6c8e6e9de7a151889fa1257bdecf86392e04a814"
-_SELF_SHA256 = "c8cbfa0716c7649b01c2fdab71f279bf2856554aba2ea397ca81c27884aee1f0"
+_RECEIPT_SHA256 = "055fd79477100a2e603610ac31068065bd242f4d660085fdb87b3f07811c8aaa"
+_SELF_SHA256 = "1a6ab13e77cb05cfddde554ad942f5a8c2b5149733882a096801ad2423d9be54"
 _ARCHIVE_SHA256 = "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0"
 _HELPER_SHA256 = "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a"
 _BASE = "6b6ee759234d7e2dad978342838cb3af4e1fe767"
@@ -1388,10 +1388,12 @@ def _check_globals(fn: FunctionType, tree: ast.Module, compiled: CodeType, const
         elif name in constants:
             if not _same(value, constants[name]):
                 raise AdmissionError("literal global mismatch: " + name)
-        elif (module.__name__, name) == (
-                "peaso.collectors.aws_selected_configuration_secret_indicators", "_DEFERRED_ECS"):
+        elif (module.__name__, name) in {
+                ("peaso.collectors.aws_selected_configuration_secret_indicators", "_DEFERRED_ECS"),
+                ("peaso.collectors.aws_code_log_content_indicators", "_LOG_SCANNER_GATE")}:
+            expected_name = ("selected_ecs_content_phase" if name == "_DEFERRED_ECS" else "aws_log_scanner_gate")
             if (type(value) is not contextvars.ContextVar
-                    or value.name != "selected_ecs_content_phase"
+                    or value.name != expected_name
                     or contextvars.Context().run(value.get) is not None):
                 raise AdmissionError("selected ECS context binding mismatch")
         elif name in imports:
@@ -1490,6 +1492,7 @@ def trusted_definition(fn: FunctionType | MethodType, root: str | Path) -> dict:
         successor_rosters = {
             "peaso/collectors/aws_selected_configuration_secret_indicators.py": {"collect_selected", "project_response"},
             "peaso/collectors/gcp_configuration_secret_indicators.py": {"project_response"},
+            "peaso/collectors/aws_code_log_content_indicators.py": {"project_response"},
         }
         if name in successor_rosters.get(relative, ()):
             receipt, _ = _receipt()
@@ -1581,6 +1584,32 @@ def trusted_definition(fn: FunctionType | MethodType, root: str | Path) -> dict:
         for member in vars(module._DeferredEcsContent).values():
             if type(member) is FunctionType:
                 _check_globals(member, tree, compiled, constants, module, root)
+    if (relative, fn.__qualname__) == ("peaso/collectors/aws_code_log_content_indicators.py", "project_response"):
+        for helper_name in ("_enricher", "scan_logs", "scan_repository"):
+            helper = vars(module).get(helper_name)
+            helper_node = next(x for x in tree.body if isinstance(x, ast.FunctionDef) and x.name == helper_name)
+            if (type(helper) is not FunctionType or helper.__globals__ is not vars(module)
+                    or helper.__module__ != module.__name__ or helper.__qualname__ != helper_name
+                    or not _code_equal(helper.__code__, _code_from(compiled, helper_name))):
+                raise AdmissionError("log fanout helper binding changed")
+            _check_defaults(helper, helper_node, constants, helper.__code__.co_filename)
+            if helper_name == "_enricher":
+                _check_globals(helper, tree, compiled, constants, module, root)
+        callbacks = vars(module).get("ENRICHERS")
+        if type(callbacks) is not dict or set(callbacks) != {"codecommit_repository", "log_group"}:
+            raise AdmissionError("log fanout callback roster changed")
+        expected = _code_from(_code_from(compiled, "_enricher"), "enrich")
+        for key, scanner_name, parallel in (("codecommit_repository", "scan_repository", False), ("log_group", "scan_logs", True)):
+            callback = callbacks[key]
+            if (type(callback) is not FunctionType or callback.__globals__ is not vars(module)
+                    or callback.__module__ != module.__name__ or callback.__qualname__ != "_enricher.<locals>.enrich"
+                    or callback.__defaults__ is not None or callback.__kwdefaults__ is not None
+                    or not _code_equal(callback.__code__, expected)
+                    or callback.__closure__ is None or callback.__code__.co_freevars != ("parallel_logs", "scanner")
+                    or callback.__closure__[0].cell_contents is not parallel
+                    or callback.__closure__[1].cell_contents is not vars(module)[scanner_name]):
+                raise AdmissionError("log fanout callback closure changed")
+            _check_globals(callback, tree, compiled, constants, module, root)
     qualifier = fn.__qualname__
     return {
         "current": {"path": relative, "name": qualifier, "module": module.__name__, "file_sha256": row["after_sha256"], "source_sha256": hashes["after"], "ast_sha256": hashes["after_ast_sha256"]},

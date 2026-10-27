@@ -100,7 +100,20 @@ def test_real_offline_tools_merge_one_leak_across_active_revision_paths(monkeypa
     assert TOKEN not in repr(snapshot) + repr(findings)
 
 
-@pytest.mark.parametrize('mode', ['service_denied', 'tagged_revision_denied', 'multicontainer', 'source_coverage', 'changed', 'recreated'])
+def test_two_containers_with_the_same_immutable_image_share_a_complete_scan(monkeypatch, clean):
+    snapshot, binary, _ = observed(monkeypatch, 'multicontainer')
+    findings = evaluate_snapshot(snapshot, checks=[projection.CHECK_ID])['findings']
+    assert len(findings) == 1 and findings[0]['status'] == 'PASS', findings
+    paths = [path for path in findings[0]['evidence']['cloudrun_deployment_paths']
+             if path['revision'].endswith('/api-old')]
+    assert len(paths) == 2
+    assert {path['container_index'] for path in paths} == {0, 1}
+    assert all(path['association_kind'] == 'immutable_container_declaration'
+               and path['runtime_image_proven'] is False for path in paths)
+    assert len(binary.calls) == 4  # The same immutable image is read once.
+
+
+@pytest.mark.parametrize('mode', ['service_denied', 'tagged_revision_denied', 'source_coverage', 'changed', 'recreated'])
 def test_unresolved_active_paths_and_concurrent_changes_never_pass(monkeypatch, clean, mode):
     snapshot, binary, _ = observed(monkeypatch, mode)
     findings = evaluate_snapshot(snapshot, checks=[projection.CHECK_ID])['findings']

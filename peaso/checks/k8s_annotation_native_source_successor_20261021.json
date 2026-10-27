@@ -3207,6 +3207,12 @@
         "defaults": "None",
         "kwdefaults": "None"
       },
+      "_automatic_literal_group": {
+        "callable": "peaso.collectors.k8s:_automatic_literal_group",
+        "code_sha256": "501b46b202390d52057562ab9ab81e188ce873eecbebea15b0a4ef06abfc2388",
+        "defaults": "None",
+        "kwdefaults": "None"
+      },
       "_cluster_id": {
         "callable": "peaso.collectors.k8s:_cluster_id",
         "code_sha256": "9dc0dd32cc1ecff8d32162f4b0a5b2de7ea032ab657bc58f778a89d9209fadb8",
@@ -3349,7 +3355,7 @@
   "schema": "finite-k8s-annotation-successor-v1",
   "snapshot_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
   "source_epoch_archive_sha256": "3eb403fa363c559f7053060d409f60ac8c693350350423a6dc775412df4300c0",
-  "source_epoch_receipt_sha256": "72b24fc3dc1475a4f619661b6c8e6e9de7a151889fa1257bdecf86392e04a814",
-  "source_epoch_sha256": "48fa383c990bec4432b5f07f95a855c4a5da58884db2d89fa32663ddebb54efe",
-  "successor_source_sha256": "8d7870078bff59633ecbbecefc3d193bc635cf8fe2e3df89e34b402feb4fc787"
+  "source_epoch_receipt_sha256": "055fd79477100a2e603610ac31068065bd242f4d660085fdb87b3f07811c8aaa",
+  "source_epoch_sha256": "5ef088882a3505aa879df1c3289c6d6d891dd3f675a8366c38bf7e2a451421e9",
+  "successor_source_sha256": "fe6ff760efe2c832c2d6fbc5077ac46c8920660b416d93aceaf8f68a59f040ef"
 }

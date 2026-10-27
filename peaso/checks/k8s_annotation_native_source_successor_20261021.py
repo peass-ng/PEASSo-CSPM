@@ -137,6 +137,7 @@ def _source_proofs():
         raise RuntimeError('Successor predecessor reconstruction changed')
     if _sha(source_epoch.predecessor_bytes('peaso/secret_evidence.py', HELPER.read_bytes(), HELPER_SHA, ROOT)) != HELPER_SHA:
         raise RuntimeError('Successor private evidence helper changed')
+    reviewed_epoch.verify_k8s_literal_current(importlib.import_module('peaso.collectors.k8s'), ROOT)
     return raw, before
 
 

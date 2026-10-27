@@ -191,7 +191,7 @@
     "peaso/collectors/azure_acr_image_vulnerabilities_20261021.py": "477f2ff3ed212be230e41dacdf5844cc500013b7986258bae5020f4e416bdf6c",
     "peaso/collectors/azure_guest_configuration_native.py": "97ea9d2ec6462af02f1b3be1dc1c52732cf1af2ca2ba013f50470b537108ce37",
     "peaso/collectors/gcp.py": "b2376014f0346ff8534837f137aaadca7f8dd39425a784c81516cbabf6de4852",
-    "peaso/collectors/k8s.py": "7dfcf21b49a20186d5fbcb801e7679edb7e9a084b4dc90911507247928102b81",
+    "peaso/collectors/k8s.py": "e1f676f9b3bfe6e52e8c4830dc39a634125538a9b6b8523f48eb4c6465ad3774",
     "peaso/collectors/k8s_selected_registry_image_20261021.py": "840d3e5cbdb686dc15f23a7d7e9a1791e2bfab1f0d87da6d372e2ee838cf8d91",
     "peaso/gcp_private_source_successor_20261021.py": "390e229ecea6b5f79b885d641118c74d9d9856a550ee7025be358a2e7ca4b16d",
     "peaso/k8s_image_source_association_current_20261023.py": "4e1a01e25f89c4243ec5eb48f368d148a3ba249390866806189190cfe0b0d783",
@@ -209,7 +209,7 @@
       "peaso/collectors/aws_network_inventory.py": "7bb1b2471c8bb9bd5b417a236bf7ba0e075cc023cf93e8ebca4ff4ec3440523a",
       "peaso/collectors/aws_transport_native.py": "35bf63bb1d2cc222574b4ef5985da2f0eb7ef03ca8d4203d234bf7b5b9e04bfc",
       "peaso/collectors/azure_guest_configuration_native.py": "97ea9d2ec6462af02f1b3be1dc1c52732cf1af2ca2ba013f50470b537108ce37",
-      "peaso/collectors/k8s.py": "7dfcf21b49a20186d5fbcb801e7679edb7e9a084b4dc90911507247928102b81",
+      "peaso/collectors/k8s.py": "e1f676f9b3bfe6e52e8c4830dc39a634125538a9b6b8523f48eb4c6465ad3774",
       "peaso/private_reviewed_collector_successor_20261022.py": "66e2a03a4ee445fa89f7523b534ad55f11848db33c6b521a2fd2e7c5f6fcb104"
     },
     "source_commit": "2198ba6b713d31d8a7c4f0eb527c93a39c61b604"

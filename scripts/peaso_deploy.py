@@ -57,6 +57,11 @@ RUNTIME_ADMISSION_INPUTS = {
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
+    'tests/gcp_current_compute_iam_successor_20261027.py',
+    'tests/test_aws_log_group_fanout_20261027.py',
+    'tests/test_azure_graph_batch_20261026.py',
+    'tests/test_k8s_literal_cohort_20261027.py',
+    'tests/test_next_main_provider_source_admission_20261027.py',
     'tests/azure_current_native_route_successor_20261027.py',
     'tests/test_ecs_two_phase_20261027.py',
     'tests/ecs_two_phase_native_surface_fixtures_20261027.py',
