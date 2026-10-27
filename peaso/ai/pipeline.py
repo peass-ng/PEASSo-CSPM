@@ -654,6 +654,12 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         k8s_native_hardening, ai_hardening = k8s_partition(
             ai_hardening, k8s_admitted_check_ids() if 'hardening' in selected else frozenset())
         native_hardening += k8s_native_hardening
+        if report['provider'] == 'azure' and 'hardening' in selected:
+            from .native_final_azure import admitted_check_ids as admitted_azure_check_ids
+            from .native_final_azure import partition as partition_azure
+            azure_native, ai_hardening = partition_azure(
+                ai_hardening, admitted_azure_check_ids(), report.get('coverage'))
+            native_hardening.extend(azure_native)
         result['reviews']['hardening'] = native_reviews(native_hardening)
         result['native_final'] = {'hardening': [row['id'] for row in native_hardening]}
         result['duplicates'] = duplicates

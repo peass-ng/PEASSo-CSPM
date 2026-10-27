@@ -53,6 +53,9 @@ def test_missing_review_final_row_and_severity_exclude_candidate():
     pre, final = reports()
     final['findings'][0]['observations'][0]['status'] = 'UNKNOWN'
     assert run(pre, final)['per_check'][0]['published_status_change_count'] == 1
+    pre, final = reports()
+    final['findings'][0]['observations'][0]['evidence'] = {'changed': True}
+    assert run(pre, final)['per_check'][0]['published_evidence_change_count'] == 1
 
 
 @pytest.mark.parametrize('mutation', [

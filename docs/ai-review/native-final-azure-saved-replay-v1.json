@@ -1,0 +1,40 @@
+{
+  "candidate_actions_sha256": "1ddb4a546b2e1b5d6bbe794a9bc7bf110a910038a2b1231cbe6fbe154a0cf4a9",
+  "candidate_review_input_sha256": "c90ff91d0595b7bf82bec49ee536e19b05d0b028b6d718bd493064ad78308ac0",
+  "candidate_sha256": "ebc4afe73f78dc82ec62ee5013a8e63b55dd3524ba69bfdbb04253f42d925d16",
+  "final_sha256": "452f7d615cbfa23bed95b6943aefa1242e7016c62dd879dd0a62b2919f2dd1b9",
+  "hosted_model_replay": false,
+  "manifest_activated": false,
+  "original_ai_input_count": 434,
+  "per_check": [
+    {
+      "check_id": "azure.defender.standard_tier",
+      "selected_fail_count": 12
+    },
+    {
+      "check_id": "azure.disk.private_export",
+      "selected_fail_count": 5
+    },
+    {
+      "check_id": "azure.vault.no_public_network",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.vault.rbac",
+      "selected_fail_count": 2
+    }
+  ],
+  "pre_ai_sha256": "9ed2de0adc5adde4255108177745f76fe87796ad4ec3ca4d8d7febe6a44e84af",
+  "projected_hardening_public_fields_sha256": "e79ff06a546dbd457997cef7929cc6e3c429318d3dd5b862bedbb671ffbe3e26",
+  "remaining_ai_input_count": 413,
+  "remaining_ai_input_ids_sha256": "6a2f04eecd19e12238e7bec34cc0033fb8a635c884f0b9933a8633ad686009c9",
+  "saved_actions_sha256": "1ddb4a546b2e1b5d6bbe794a9bc7bf110a910038a2b1231cbe6fbe154a0cf4a9",
+  "saved_hardening_public_fields_sha256": "e79ff06a546dbd457997cef7929cc6e3c429318d3dd5b862bedbb671ffbe3e26",
+  "saved_review_and_public_finding_action_parity": true,
+  "saved_review_input_sha256": "c90ff91d0595b7bf82bec49ee536e19b05d0b028b6d718bd493064ad78308ac0",
+  "scan_id": "a79ff6f9331246bd9e4f4bf6ba6fa207",
+  "selected_check_count": 4,
+  "selected_native_fail_count": 21,
+  "snapshot_id": "sha256:08597df6a1b6f6199eab1c8018409c969bcd9eff2e81b6c2f0bb2bdf76aea301",
+  "version": 1
+}

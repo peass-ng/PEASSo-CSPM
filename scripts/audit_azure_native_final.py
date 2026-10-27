@@ -48,7 +48,8 @@ def audit(pre, final, *, pre_sha, final_sha):
             raise ValueError('invalid_native_identity')
         if ident in native:
             raise ValueError('duplicate_native_id')
-        native[ident] = (check, row.get('severity'))
+        native[ident] = (check, row.get('severity'), row.get('evidence'),
+                         row.get('evidence_summary'))
         counts[check] += 1
     final_rows = {}
     for row in _observations(final):
@@ -64,8 +65,9 @@ def audit(pre, final, *, pre_sha, final_sha):
     verdicts = defaultdict(Counter)
     severity_changes = Counter()
     status_changes = Counter()
+    evidence_changes = Counter()
     missing_final = Counter()
-    for ident, (check, severity) in native.items():
+    for ident, (check, severity, evidence, summary) in native.items():
         row = final_rows.get(ident)
         if row is None:
             missing_final[check] += 1
@@ -74,6 +76,8 @@ def audit(pre, final, *, pre_sha, final_sha):
                 severity_changes[check] += 1
             if row.get('status') != 'FAIL':
                 status_changes[check] += 1
+            if row.get('evidence') != evidence or row.get('evidence_summary') != summary:
+                evidence_changes[check] += 1
     unmatched = 0
     for row in reviews:
         if not isinstance(row, dict) or not isinstance(row.get('finding_id'), str):
@@ -96,7 +100,7 @@ def audit(pre, final, *, pre_sha, final_sha):
         disagreement = observed - verdicts[check]['FAIL']
         complete = missing == 0 and missing_final[check] == 0
         candidate = (complete and disagreement == 0 and severity_changes[check] == 0
-                     and status_changes[check] == 0)
+                     and status_changes[check] == 0 and evidence_changes[check] == 0)
         per_check.append({
             'check_id': check,
             'native_fail_count': counts[check],
@@ -107,6 +111,7 @@ def audit(pre, final, *, pre_sha, final_sha):
             'missing_final_count': missing_final[check],
             'published_severity_change_count': severity_changes[check],
             'published_status_change_count': status_changes[check],
+            'published_evidence_change_count': evidence_changes[check],
             'zero_disagreement_candidate': candidate,
         })
     return {
