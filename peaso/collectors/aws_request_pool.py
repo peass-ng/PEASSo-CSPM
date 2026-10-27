@@ -597,7 +597,12 @@ def seed_batch_details(requests, session, service, region, operation, values):
             requests.check_deadline()
             with requests._lock:
                 requests.calls += 1
-            response = native(api_name, {argument: chunk})
+            # Batch prefetch bypasses Requests.call, so share its exact native
+            # read through the same scan-local, bounded single-flight cache.
+            # The cache never retains throttles, 429s or server errors.
+            batch_args = {argument: chunk}
+            key = cache._key(client, id(root), api_name, batch_args)
+            response = cache._read(key, lambda: native(api_name, batch_args)) if key is not None else native(api_name, batch_args)
         except Exception:
             return seeded
         rows = response.get(member) if isinstance(response, dict) else None
