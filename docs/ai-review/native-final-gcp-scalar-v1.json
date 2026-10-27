@@ -1,0 +1,221 @@
+{
+  "base_commit": "f204f3a5",
+  "candidate_count": 12,
+  "checks": [
+    {
+      "api_field_path": "shieldedInstanceConfig.enableIntegrityMonitoring",
+      "check_id": "gcp.compute.integrity_monitoring",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": false,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": true,
+      "resource_kind": "instance",
+      "source_ref": "peaso/checks/gcp.py:8-19"
+    },
+    {
+      "api_field_path": "shieldedInstanceConfig.enableSecureBoot",
+      "check_id": "gcp.compute.secure_boot",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": false,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": true,
+      "resource_kind": "instance",
+      "source_ref": "peaso/checks/gcp.py:8-19"
+    },
+    {
+      "api_field_path": "shieldedInstanceConfig.enableVtpm",
+      "check_id": "gcp.compute.shielded_vtpm",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": false,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": true,
+      "resource_kind": "instance",
+      "source_ref": "peaso/checks/gcp.py:8-19"
+    },
+    {
+      "api_field_path": "databaseEncryption.state",
+      "check_id": "gcp.gke.secrets_encryption",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "str",
+      "failing_value": "DECRYPTED",
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": "ENCRYPTED",
+      "resource_kind": "gke_cluster",
+      "source_ref": "peaso/checks/gcp.py:8-19"
+    },
+    {
+      "api_field_path": "autoCreateSubnetworks",
+      "check_id": "gcp.network.custom_subnets",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": true,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": false,
+      "resource_kind": "network",
+      "source_ref": "peaso/checks/gcp.py:8-19"
+    },
+    {
+      "api_field_path": "scheduling.automaticRestart",
+      "check_id": "gcp.reviewed.compute.automatic_restart",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": false,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": true,
+      "resource_kind": "instance",
+      "source_ref": "peaso/checks/gcp_extended.py:22-41"
+    },
+    {
+      "api_field_path": "confidentialInstanceConfig.enableConfidentialCompute",
+      "check_id": "gcp.reviewed.compute.confidential_computing",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": false,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": true,
+      "resource_kind": "instance",
+      "source_ref": "peaso/checks/gcp_extended.py:22-41"
+    },
+    {
+      "api_field_path": "deletionProtection",
+      "check_id": "gcp.reviewed.compute.deletion_protection",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": false,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": true,
+      "resource_kind": "instance",
+      "source_ref": "peaso/checks/gcp_extended.py:22-41"
+    },
+    {
+      "api_field_path": "scheduling.onHostMaintenance",
+      "check_id": "gcp.reviewed.compute.maintenance_migrate",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "str",
+      "failing_value": "TERMINATE",
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": "MIGRATE",
+      "resource_kind": "instance",
+      "source_ref": "peaso/checks/gcp_extended.py:22-41"
+    },
+    {
+      "api_field_path": "logConfig.enable",
+      "check_id": "gcp.reviewed.loadbalancer.backend_logging",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": false,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": true,
+      "resource_kind": "backend_service",
+      "source_ref": "peaso/checks/gcp_extended.py:22-41"
+    },
+    {
+      "api_field_path": "settings.backupConfiguration.enabled",
+      "check_id": "gcp.sql.backups",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": false,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": true,
+      "resource_kind": "sql_instance",
+      "source_ref": "peaso/checks/gcp.py:8-19"
+    },
+    {
+      "api_field_path": "settings.ipConfiguration.ipv4Enabled",
+      "check_id": "gcp.sql.no_public_ip",
+      "evaluator_ref": "peaso/checks/facts.py:56-70",
+      "expected_type": "bool",
+      "failing_value": true,
+      "fixture_outcomes": {
+        "denied": "UNKNOWN",
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "passing_value": false,
+      "resource_kind": "sql_instance",
+      "source_ref": "peaso/checks/gcp.py:8-19"
+    }
+  ],
+  "provider": "gcp",
+  "runtime_admitted": false,
+  "saved_replay": null,
+  "schema_version": 1,
+  "source_sha256": {
+    "peaso/checks/__init__.py": "9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae",
+    "peaso/checks/facts.py": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
+    "peaso/checks/gcp.py": "2a05ef582c4527eb97cf757ec9419cb0d8eb7a61bc33be76e02c8a7721eb6bd6",
+    "peaso/checks/gcp_extended.py": "f2d535d449b2babb2d7ba61d839be491b0c83c25642b5f63e41051ffec2689ae"
+  },
+  "status": "source_proven_replay_pending"
+}
