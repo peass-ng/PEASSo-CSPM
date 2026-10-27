@@ -14,12 +14,12 @@ MANIFEST = Path(__file__).with_name('native_final_azure_allowlist.json')
 SOURCE_SCAN = 'a79ff6f9331246bd9e4f4bf6ba6fa207'
 SNAPSHOT_ID = 'sha256:08597df6a1b6f6199eab1c8018409c969bcd9eff2e81b6c2f0bb2bdf76aea301'
 BASE_COMMIT = 'f204f3a5b25991390cb6baf2572710c4da8342bd'
-SOURCE_PROOF_SHA256 = 'f3763ddac6a4821cca54e56e1eed957099b2c71903aa077edc478312757a3f00'
+SOURCE_PROOF_SHA256 = 'a1367e6ce1cecb5a87c768a52704a5be87d7cbae50f2fca45df376650c3a829c'
 SOURCE_HASHES = {
     'peaso/checks/azure.py': '616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e',
     'peaso/checks/azure_extended.py': '9c05c602d4279a46c6926b04041a9c8a4d67b3532d8677eb3ca07ee08927517a',
     'peaso/checks/facts.py': '15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926',
-    'peaso/collectors/azure.py': 'f899464d9897f9c957d83bad386c4638bbbf6b16e5471666fa05f86593fb9065',
+    'peaso/collectors/azure.py': '68cc1bfea5378023def4918d28648e04237cd0beaad12b8e5a18896344adabce',
 }
 EXPECTED = {
     'azure.defender.standard_tier': (12, 'security_pricing', ('name', 'properties.pricingTier')),
