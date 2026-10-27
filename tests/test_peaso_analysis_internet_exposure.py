@@ -184,6 +184,24 @@ def test_aws_internet_facing_alb_listener_and_sg():
     assert one(aws(*aws_network(sg_rules=rules), coll("load_balancer", [unknown], service="elbv2")), "load_balancer")["status"] == "UNKNOWN"
 
 
+def test_aws_load_balancer_narrow_public_sg_and_world_nacl():
+    narrow = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+               "IpRanges": [{"CidrIp": "8.8.8.8/32"}]}]
+    lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/web/1",
+          "Scheme": "internet-facing", "Type": "application", "DNSName": "web.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS"}]}}
+    result = one(aws(*aws_network(sg_rules=narrow), coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+    classic = {"LoadBalancerName": "web", "Scheme": "internet-facing", "DNSName": "classic.example.com",
+               "VPCId": "vpc-1", "Subnets": ["subnet-1"], "SecurityGroups": ["sg-1"],
+               "ListenerDescriptions": [{"Listener": {"LoadBalancerPort": 443, "Protocol": "HTTPS"}}]}
+    assert one(aws(*aws_network(sg_rules=narrow), coll("classic_load_balancer", [classic], service="elb")),
+               "classic_load_balancer")["status"] == "FAIL"
+    private = [{**narrow[0], "IpRanges": [{"CidrIp": "10.0.0.0/8"}]}]
+    assert one(aws(*aws_network(sg_rules=private), coll("load_balancer", [lb], service="elbv2")), "load_balancer")["status"] == "PASS"
+
+
 def test_aws_public_rds_instance():
     db = {"DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:prod", "PubliclyAccessible": True, "Engine": "postgres", "Endpoint": {"Address": "prod.x.rds.amazonaws.com", "Port": 5432},
           "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}], "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}}

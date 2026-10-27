@@ -338,7 +338,7 @@ def _status(snapshot, inventory, resource, path):
 
 # ---------------------------------------------------------------------- AWS
 
-def _aws_sg_ports(inventory, group_ids, assessment, where, family=4):
+def _aws_sg_ports(inventory, group_ids, assessment, where, family=4, narrow_public=False):
     """Union of 0.0.0.0/0 and ::/0 ingress over the attached security groups."""
     if not group_ids:
         assessment.step("security_group", "block", reason="no security groups attached", at=where)
@@ -349,9 +349,9 @@ def _aws_sg_ports(inventory, group_ids, assessment, where, family=4):
         if group is None:
             assessment.gap("security_group", f"{group_id} not in inventory ({inventory.state('security_group')})", "ec2 describe_security_groups")
             continue
-        cache_key = ("aws_sg_ports", group["id"], family)
+        cache_key = ("aws_sg_ports", group["id"], family, narrow_public)
         if cache_key not in inventory.network_cache:
-            inventory.network_cache[cache_key] = _aws_group_rules(group, family)
+            inventory.network_cache[cache_key] = _aws_group_rules(group, family, narrow_public)
         ports, direct_rules, prefix_lists = inventory.network_cache[cache_key]
         rules = list(direct_rules)
         allowed = union(allowed, ports)
@@ -363,7 +363,8 @@ def _aws_sg_ports(inventory, group_ids, assessment, where, family=4):
                                "ec2:GetManagedPrefixListEntries")
                 continue
             cidrs = [e.get("Cidr") for e in entries["items"] if isinstance(e, dict) and
-                     _internet(e.get("Cidr")) and (":" in e.get("Cidr", "")) == (family == 6)]
+                     (_public_source(e.get("Cidr")) if narrow_public else _internet(e.get("Cidr")))
+                     and (":" in e.get("Cidr", "")) == (family == 6)]
             if cidrs:
                 allowed = union(allowed, prefix_ports)
                 rules.append({"ports": describe(prefix_ports), "cidrs": cidrs, "prefix_list_id": prefix_id})
@@ -373,7 +374,7 @@ def _aws_sg_ports(inventory, group_ids, assessment, where, family=4):
     return allowed
 
 
-def _aws_group_rules(group, family=4):
+def _aws_group_rules(group, family=4, narrow_public=False):
     allowed, rules, prefix_lists = {}, [], []
     for permission in as_list(group["data"].get("IpPermissions")):
         if not isinstance(permission, dict):
@@ -387,7 +388,8 @@ def _aws_group_rules(group, family=4):
             continue
         cidrs = [r.get("CidrIp") for r in as_list(permission.get("IpRanges")) if isinstance(r, dict)] + \
                 [r.get("CidrIpv6") for r in as_list(permission.get("Ipv6Ranges")) if isinstance(r, dict)]
-        internet_cidrs = [c for c in cidrs if _internet(c) and (":" in c) == (family == 6)]
+        internet_cidrs = [c for c in cidrs if (_public_source(c) if narrow_public else _internet(c))
+                          and (":" in c) == (family == 6)]
         if internet_cidrs:
             allowed = union(allowed, ports)
             rules.append({"ports": describe(ports), "cidrs": internet_cidrs})
@@ -521,10 +523,10 @@ def _aws_vpc_bpa(inventory, subnet_id, vpc_id, assessment, where):
     return False
 
 
-def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, route=True, vpc_id=None, family=4):
+def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, route=True, vpc_id=None, family=4, narrow_public=False):
     """route -> NACL -> SG for a set of candidate subnets; returns the reachable port set."""
     if group_ids is not None:
-        ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family))
+        ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family, narrow_public))
     if empty(ports):
         return ports
     if not subnet_ids:
@@ -683,7 +685,7 @@ def _aws_elbv2(snapshot, inventory, resource):
     groups = data.get("SecurityGroups")
     subnets = [z.get("SubnetId") for z in as_list(data.get("AvailabilityZones")) if isinstance(z, dict) and z.get("SubnetId")]
     a.ports = _aws_vpc_path(inventory, a, subnets, groups if data.get("Type") == "application" or groups else None, ports,
-                            native_id(resource), route=False, vpc_id=data.get("VpcId"))
+                            native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True)
     if data.get("Type") == "network" and not groups:
         a.notes.append("NLB without security groups: target security groups govern client traffic (client IP preserved)")
     if any(g["layer"] == "listener" for g in a.unresolved) and not empty(a.ports):
@@ -704,7 +706,7 @@ def _aws_classic(snapshot, inventory, resource):
             ports = union(ports, pset("tcp", listener["LoadBalancerPort"], listener["LoadBalancerPort"]))
     a.step("listener", "allow" if not empty(ports) else "block", listeners=describe(ports))
     a.ports = _aws_vpc_path(inventory, a, as_list(data.get("Subnets")), as_list(data.get("SecurityGroups")) if data.get("VPCId") else None,
-                            ports, native_id(resource), route=False, vpc_id=data.get("VPCId"))
+                            ports, native_id(resource), route=False, vpc_id=data.get("VPCId"), narrow_public=True)
     return a
 
 
