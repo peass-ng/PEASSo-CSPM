@@ -3187,6 +3187,8 @@ def _azure_sql(snapshot, inventory, resource, rules):
         start, end = rp.get("startIpAddress"), rp.get("endIpAddress")
         if start == "0.0.0.0" and end == "0.0.0.0":
             azure = True
+            open_rules.append({"rule": rule["data"].get("name"), "source": "any Azure tenant",
+                               "start_ip": start, "end_ip": end})
         else:
             try:
                 first, last = ipaddress.IPv4Address(start), ipaddress.IPv4Address(end)
@@ -3201,8 +3203,10 @@ def _azure_sql(snapshot, inventory, resource, rules):
                    _public_ip(network.broadcast_address) for network in ranges):
                 open_rules.append({"rule": rule["data"].get("name"), "start_ip": start, "end_ip": end})
     if azure:
-        a.notes.append("'Allow Azure services' rule (0.0.0.0-0.0.0.0) admits any Azure tenant's resources")
-    a.step("firewall", "allow" if open_rules else "block", open_rules=open_rules)
+        a.notes.append("'Allow Azure services' admits resources in other Azure tenants; database authentication is separate")
+    unresolved_rules = any(gap["layer"] == "firewall" for gap in a.unresolved)
+    a.step("firewall", "allow" if open_rules else "unknown" if unresolved_rules else "block",
+           open_rules=open_rules)
     a.ports = pset("tcp", 1433, 1433) if open_rules else {}
     if open_rules and not a.addresses:
         a.gap("inventory", "SQL public endpoint FQDN is not collected")

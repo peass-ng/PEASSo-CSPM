@@ -120,7 +120,10 @@ def test_sql_firewall_public_ip_range_is_exposure_but_private_range_is_not():
 
     assert sql_decision("8.8.8.8", "8.8.8.8").verdict() == "FAIL"
     assert sql_decision("10.0.0.1", "10.0.0.9").verdict() == "PASS"
-    assert sql_decision("0.0.0.0", "0.0.0.0").verdict() == "PASS"
+    azure_services = sql_decision("0.0.0.0", "0.0.0.0")
+    assert azure_services.verdict() == "FAIL"
+    assert azure_services.path[-1]["open_rules"][0]["source"] == "any Azure tenant"
+    assert sql_decision("invalid", "8.8.8.8").verdict() == "UNKNOWN"
 
 
 def test_nsg_specific_public_source_respects_per_source_priority():
