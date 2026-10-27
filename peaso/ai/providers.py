@@ -256,7 +256,13 @@ def model_access(access):
     # Lambda intentionally has no Chack/model SDK. Read the same shipped stage
     # YAML and resolve its alias with the exact worker pin's small pure helper.
     config = yaml.safe_load(agent_config_path('hardening').read_text())['agent']
-    model = resolve_model_alias(config['primary'], provider='codex')
+    alias = config['primary']
+    # The platform default uses a Codex credential. The shared OpenAI alias
+    # can name a model unavailable to that account while the central catalog
+    # provides a separate Codex alias for the same quality tier.
+    if alias == 'OPENAI_BEST_QUALITY':
+        alias = 'CODEX_BEST_QUALITY'
+    model = resolve_model_alias(alias, provider='codex')
     return check_selection('codex', model, config.get('thinking_effort', 'high'), str(access))
 
 
