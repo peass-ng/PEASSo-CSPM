@@ -2360,6 +2360,59 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     return a
 
 
+def _azure_public_edge(snapshot, inventory, resource):
+    """Assess the public listener from the collector's bounded route projection."""
+    data = resource["data"]
+    a = Assessment(resource, "public_edge")
+    coverage = (data.get("_coverage") or {}).get("effectiveRoutes") or {}
+    if coverage.get("status") not in ("collected", "empty"):
+        a.gap("inventory", "effective Front Door/CDN routes are not resolved")
+        return a
+    routes = data.get("effectiveRoutes")
+    if not isinstance(routes, list):
+        a.gap("inventory", "effective Front Door/CDN routes are malformed")
+        return a
+    enabled = [r for r in routes if isinstance(r, dict) and r.get("enabledState") == "Enabled"]
+    if not enabled:
+        a.step("listener", "block", reason="no enabled effective route")
+        a.ports = {}
+        return a
+    a.step("listener", "allow", route_ids=[r.get("id") for r in enabled])
+    endpoints = data.get("endpoints") or []
+    domains = data.get("domains") or []
+    hosts = [entry.get("properties", {}).get("hostName") for entry in endpoints + domains
+             if isinstance(entry, dict) and isinstance(entry.get("properties"), dict)]
+    a.addresses = sorted({host for host in hosts if isinstance(host, str) and host})
+    if not a.addresses:
+        a.gap("inventory", "public edge hostname was not collected")
+    ports = {}
+    for route in enabled:
+        paths = route.get("paths")
+        if not isinstance(paths, list) or not paths:
+            a.gap("listener", "effective edge protocol paths are unavailable")
+            continue
+        for path in paths:
+            protocols = path.get("acceptedProtocols") if isinstance(path, dict) else None
+            if not isinstance(protocols, list) or any(p not in ("Http", "Https") for p in protocols):
+                a.gap("listener", "edge listener protocols are unresolved")
+                continue
+            for protocol in protocols:
+                port = 80 if protocol == "Http" else 443
+                ports = union(ports, pset("tcp", port, port))
+            if path.get("action") == "Forward":
+                a.gap("backend", "origin health and effective backend access are not observed")
+            elif path.get("action") != "Redirect":
+                a.gap("listener", "edge route action is unresolved")
+    a.ports = ports
+    if data.get("sku", {}).get("name") in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
+        policies = data.get("securityPolicies")
+        if policies:
+            a.gap("policy", "edge security policy may filter the listener")
+    if (data.get("properties") or {}).get("webApplicationFirewallPolicyLink"):
+        a.gap("policy", "classic Front Door WAF policy may filter the listener")
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -2854,7 +2907,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket", "project", "workload_identity_provider"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -2865,7 +2918,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "gke_cluster", "bucket"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -2908,6 +2961,7 @@ def assess(snapshot, resources):
                   "container_group": _azure_container_group,
                   "container_app": _azure_container_app,
                   "azure_firewall": _azure_firewall,
+                  "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,

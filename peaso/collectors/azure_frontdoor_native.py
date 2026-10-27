@@ -400,8 +400,10 @@ def _profile(reader, request, parent):
                     and p.get('deploymentStatus') == 'Succeeded' and isinstance(p.get('tlsSettings'), dict)):
                 domain['httpsState'] = 'Enabled'
         endpoints = _children(reader, request, item['id'], 'afdEndpoints', CDN_VERSION)
+        _covered(item, 'endpoints', endpoints)
         routes = [route for endpoint in endpoints for route in _children(reader, request, endpoint['id'], 'routes', CDN_VERSION)]
         policies = _children(reader, request, item['id'], 'securityPolicies', CDN_VERSION)
+        _covered(item, 'securityPolicies', policies)
         # Older versions omit authentication and tokenDestinationHeader. Their
         # absence cannot establish that authentication is missing or usable.
         groups = _children(reader, request, item['id'], 'originGroups', ORIGIN_GROUP_VERSION)
@@ -422,6 +424,7 @@ def _profile(reader, request, parent):
     if sku not in ('Standard_Microsoft', 'Standard_Akamai', 'Standard_Verizon', 'Premium_Verizon', 'Standard_ChinaCdn'):
         raise ValueError('unknown CDN generation')
     endpoints = _children(reader, request, item['id'], 'endpoints', CDN_VERSION)
+    _covered(item, 'endpoints', endpoints)
     domains = [domain for endpoint in endpoints for domain in _children(reader, request, endpoint['id'], 'customDomains', CDN_VERSION)]
     _covered(item, 'domains', domains);_covered(item, 'customDomains', domains)
     # Listener protocol is known independently of the effective origin policy.

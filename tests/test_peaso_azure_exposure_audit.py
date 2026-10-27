@@ -209,6 +209,35 @@ def test_firewall_policy_dnat_uses_collected_full_group():
     assert any(gap["layer"] == "backend" for gap in row.unresolved)
 
 
+def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncertain():
+    edge_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
+    endpoint = {"id": edge_id + "/afdEndpoints/default",
+                "properties": {"hostName": "edge.azurefd.net"}}
+    route = {"id": endpoint["id"] + "/routes/default", "enabledState": "Enabled",
+             "paths": [{"acceptedProtocols": ["Http"], "action": "Redirect"},
+                       {"acceptedProtocols": ["Https"], "action": "Forward"}]}
+
+    def edge_decision(routes, status="collected", hostname=True):
+        item = {"id": edge_id, "sku": {"name": "Standard_AzureFrontDoor"},
+                "properties": {}, "endpoints": [endpoint] if hostname else [],
+                "effectiveRoutes": routes, "securityPolicies": [],
+                "_coverage": {"effectiveRoutes": {"status": status}}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE, "service": "cdn",
+             "status": "collected", "items": [item]}])
+        return next(row for row in assess(snap, resources(snap))
+                    if row.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    candidate = edge_decision([route])
+    assert candidate.verdict() == "UNKNOWN" and candidate.ports == {"tcp": ((80, 80), (443, 443))}
+    assert candidate.addresses == ["edge.azurefd.net"]
+    assert any(gap["layer"] == "backend" for gap in candidate.unresolved)
+    assert edge_decision([{**route, "paths": [{"acceptedProtocols": ["Http"], "action": "Redirect"}]}]).verdict() == "FAIL"
+    assert edge_decision([{**route, "enabledState": "Disabled"}]).verdict() == "PASS"
+    assert edge_decision([route], status="not_collected").verdict() == "UNKNOWN"
+    assert edge_decision([route], hostname=False).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind", ["vault", "container_registry", "search_service", "servicebus_namespace"])
 def test_managed_endpoint_explicit_network_gate(kind):
     rule = {"vault": "networkAcls", "container_registry": "networkRuleSet",
