@@ -1,0 +1,318 @@
+{
+  "ai_comparison": {
+    "disagreements": null,
+    "reviewed_failures": 0,
+    "status": "unavailable"
+  },
+  "candidate_count": 24,
+  "checks": [
+    {
+      "check_id": "k8s.deployment.no_privileged",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "deployment",
+      "predicate": "no_privileged"
+    },
+    {
+      "check_id": "k8s.deployment.non_root",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "deployment",
+      "predicate": "non_root"
+    },
+    {
+      "check_id": "k8s.deployment.no_host_network",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "deployment",
+      "predicate": "no_host_network"
+    },
+    {
+      "check_id": "k8s.deployment.no_host_ports",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "deployment",
+      "predicate": "no_host_ports"
+    },
+    {
+      "check_id": "k8s.daemonset.no_privileged",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "daemonset",
+      "predicate": "no_privileged"
+    },
+    {
+      "check_id": "k8s.daemonset.non_root",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "daemonset",
+      "predicate": "non_root"
+    },
+    {
+      "check_id": "k8s.daemonset.no_host_network",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "daemonset",
+      "predicate": "no_host_network"
+    },
+    {
+      "check_id": "k8s.daemonset.no_host_ports",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "daemonset",
+      "predicate": "no_host_ports"
+    },
+    {
+      "check_id": "k8s.statefulset.no_privileged",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "statefulset",
+      "predicate": "no_privileged"
+    },
+    {
+      "check_id": "k8s.statefulset.non_root",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "statefulset",
+      "predicate": "non_root"
+    },
+    {
+      "check_id": "k8s.statefulset.no_host_network",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "statefulset",
+      "predicate": "no_host_network"
+    },
+    {
+      "check_id": "k8s.statefulset.no_host_ports",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "statefulset",
+      "predicate": "no_host_ports"
+    },
+    {
+      "check_id": "k8s.replicaset.no_privileged",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "replicaset",
+      "predicate": "no_privileged"
+    },
+    {
+      "check_id": "k8s.replicaset.non_root",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "replicaset",
+      "predicate": "non_root"
+    },
+    {
+      "check_id": "k8s.replicaset.no_host_network",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "replicaset",
+      "predicate": "no_host_network"
+    },
+    {
+      "check_id": "k8s.replicaset.no_host_ports",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "replicaset",
+      "predicate": "no_host_ports"
+    },
+    {
+      "check_id": "k8s.job.no_privileged",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "job",
+      "predicate": "no_privileged"
+    },
+    {
+      "check_id": "k8s.job.non_root",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "job",
+      "predicate": "non_root"
+    },
+    {
+      "check_id": "k8s.job.no_host_network",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "job",
+      "predicate": "no_host_network"
+    },
+    {
+      "check_id": "k8s.job.no_host_ports",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "job",
+      "predicate": "no_host_ports"
+    },
+    {
+      "check_id": "k8s.cronjob.no_privileged",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "cronjob",
+      "predicate": "no_privileged"
+    },
+    {
+      "check_id": "k8s.cronjob.non_root",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "cronjob",
+      "predicate": "non_root"
+    },
+    {
+      "check_id": "k8s.cronjob.no_host_network",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "cronjob",
+      "predicate": "no_host_network"
+    },
+    {
+      "check_id": "k8s.cronjob.no_host_ports",
+      "decision": "source_proven_pending_same_snapshot_ai_replay",
+      "fixture_statuses": {
+        "fail": "FAIL",
+        "malformed": "UNKNOWN",
+        "missing": "UNKNOWN",
+        "pass": "PASS"
+      },
+      "kind": "cronjob",
+      "predicate": "no_host_ports"
+    }
+  ],
+  "engine_replay": {
+    "check_ids": [
+      "k8s.deployment.no_privileged",
+      "k8s.deployment.non_root",
+      "k8s.deployment.no_host_network",
+      "k8s.deployment.no_host_ports"
+    ],
+    "statuses": {
+      "k8s.deployment.no_host_network": "PASS",
+      "k8s.deployment.no_host_ports": "PASS",
+      "k8s.deployment.no_privileged": "FAIL",
+      "k8s.deployment.non_root": "FAIL"
+    }
+  },
+  "fixture_case_count": 96,
+  "runtime_admission": "pending",
+  "scope": "k8s Pod-template Hardening source audit; offline synthetic replay",
+  "source_path": "peaso/checks/k8s_extended.py",
+  "source_sha256": "b03575a8b0fbdcafedae64b7b9152ef5b0d18e0ac6d85e365e8d5686ade7b898",
+  "version": 1
+}
