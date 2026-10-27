@@ -512,7 +512,7 @@ def test_explicit_disabled_content_inventory_cannot_claim_collected_or_clean(kin
 
 
 def test_native_service_coverage_and_configuration_fixture():
-    def resolve(request):
+    def resolve_fixture(request):
         url = request["url"]
         if url == 'https://cloudresourcemanager.googleapis.com/v3/projects/p-one':
             return {'name': 'projects/123456789012', 'projectId': 'p-one', 'parent': 'organizations/123'}
@@ -531,6 +531,8 @@ def test_native_service_coverage_and_configuration_fixture():
             return {'name': 'apps/p-one', 'serviceAccount': 'p-one@appspot.gserviceaccount.com'}
         if url == 'https://biglake.googleapis.com/iceberg/v1/restcatalog/extensions/projects/p-one/catalogs':
             return {'iceberg-catalogs': []}
+        if url == 'https://bigquery.googleapis.com/bigquery/v2/projects/p-one/datasets':
+            return {'datasets': []}
         if url == 'https://osconfig.googleapis.com/v1/projects/p-one/locations/global/projectFeatureSettings':
             return {'name': 'projects/p-one/locations/global/projectFeatureSettings',
                     'patchAndConfigFeatureSet': 'OSCONFIG_C'}
@@ -594,6 +596,13 @@ def test_native_service_coverage_and_configuration_fixture():
         if url.endswith("/firewallPolicies/listAssociations"):
             return {"kind": "compute#FirewallPoliciesListAssociations", "associations": []}
         return {"items": []}
+    # This all-service fixture uses a short display alias in its response
+    # table. Run the collector with a valid project ID and preserve the real
+    # request identity/HTTP receipt needed by project-scoped child APIs.
+    def resolve(request):
+        mapped = {**request, "url": request["url"].replace("p-one01", "p-one")}
+        response = resolve_fixture(mapped)
+        return json.loads(json.dumps(response).replace("p-one", "p-one01"))
     # PAB policy ownership is organization-level, so it is exercised in the
     # dedicated org-scope fixture rather than asserted as an empty project API.
     # Perimeters need project ancestry (include_inherited), tested separately.
@@ -601,18 +610,29 @@ def test_native_service_coverage_and_configuration_fixture():
     from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
     organization_network_types = {kind for kind, plan in PRIVATE_SERVICES.items() if plan.get('scope_kind') == 'organizations'}
     kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version"})
-    result, transport = snapshot(kinds, resolve, cloud_identity_customers=["Cfixture"], regions=["r"],
-        sw51_policy={'scope': 'projects/p-one', 'status': 'collected', 'approved_asset_types': ['compute.googleapis.com/Instance']})
+    transport = NativeDataFixtureTransport(resolve)
+    result = gcp.GCPCollector(connector(kinds, scopes=["projects/p-one01"], cloud_identity_customers=["Cfixture"], regions=["r"],
+        sw51_policy={'scope': 'projects/p-one01', 'status': 'collected', 'approved_asset_types': ['compute.googleapis.com/Instance']}),
+        transport=transport).collect()
+    assert validate(result) == result
     # Project identity is collected once to bind project-scoped evidence.
     assert {c["type"] for c in result["collections"]} == set(kinds) | {"project"}
-    assert collection(result, "shared_vpc")["status"] == "collected"
+    assert collection(result, "shared_vpc", "projects/p-one01")["status"] == "collected"
     assert not any(c["status"] in ("malformed", "unknown") for c in result["collections"]), [(c["type"], c.get("error")) for c in result["collections"] if c["status"] in ("malformed", "unknown")]
+    # Named empty parent inventories must resolve their dependent children,
+    # instead of turning a generic items response into unavailable evidence.
+    for kind in ("bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "bigquery_acl_mode",
+                 "bigquery_connection", "bigquery_continuous_assignment", "bigquery_transfer_config",
+                 "bigquery_row_policy_inventory", "firebase_database_rules", "firebase_rules_release",
+                 "instance_effective_firewall", "backup_target", "sql_backup_run"):
+        assert collection(result, kind, "projects/p-one01")["status"] == "empty", kind
+    assert collection(result, "sql_instance", "projects/p-one01")["status"] == "collected"
     assert {r["url"] for r in transport.requests if "workflows.googleapis.com" in r["url"]} == {
-        "https://workflows.googleapis.com/v1/projects/p-one/locations"}
-    assert collection(result, "gke_cluster")["status"] == "collected"
+        "https://workflows.googleapis.com/v1/projects/p-one01/locations"}
+    assert collection(result, "gke_cluster", "projects/p-one01")["status"] == "collected"
     assert "do-not-store" not in json.dumps(result)
-    assert collection(result, "workload_identity_provider")["items"][0]["attributeCondition"]
-    assert collection(result, "asset")["items"][0]["assetType"] == "run.googleapis.com/Service"
+    assert collection(result, "workload_identity_provider", "projects/p-one01")["items"][0]["attributeCondition"]
+    assert collection(result, "asset", "projects/p-one01")["items"][0]["assetType"] == "run.googleapis.com/Service"
     assert any("aggregated/backendServices" in r["url"] for r in transport.requests)
     assert any("aggregated/vpnTunnels" in r["url"] for r in transport.requests)
     assert any("aggregated/targetHttpsProxies" in r["url"] for r in transport.requests)
