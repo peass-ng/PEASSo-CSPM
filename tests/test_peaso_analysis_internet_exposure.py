@@ -231,10 +231,16 @@ def test_aws_amplify_hosted_branches_have_public_viewer_endpoint():
 
 
 def lambda_function(auth="NONE", policy=True):
-    statement = {"Effect": "Allow", "Principal": "*", "Action": "lambda:InvokeFunctionUrl", "Resource": "*", "Condition": {"StringEquals": {"lambda:FunctionUrlAuthType": "NONE"}}}
+    statements = [
+        {"Effect": "Allow", "Principal": "*", "Action": "lambda:InvokeFunctionUrl", "Resource": "*",
+         "Condition": {"StringEquals": {"lambda:FunctionUrlAuthType": "NONE"}}},
+        {"Effect": "Allow", "Principal": "*", "Action": "lambda:InvokeFunction", "Resource": "*",
+         "Condition": {"Bool": {"lambda:InvokedViaFunctionUrl": "true"}}},
+    ]
     return {"FunctionArn": f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:f", "FunctionName": "f",
-            "FunctionUrl": {"collection_status": "collected", "AuthType": auth, "FunctionUrl": "https://abc.lambda-url.us-east-1.on.aws/"},
-            "Policy": {"collection_status": "collected", "Policy": {"Version": "2012-10-17", "Statement": [statement]}} if policy else {"collection_status": "empty", "absent": True}}
+            "FunctionUrl": {"collection_status": "collected", "AuthType": auth, "FunctionUrl": "https://abc.lambda-url.us-east-1.on.aws/",
+                            "CreationTime": "2026-01-01T00:00:00Z"},
+            "Policy": {"collection_status": "collected", "Policy": {"Version": "2012-10-17", "Statement": statements}} if policy else {"collection_status": "empty", "absent": True}}
 
 
 def test_lambda_function_url_auth_none():
@@ -243,6 +249,28 @@ def test_lambda_function_url_auth_none():
     assert one(aws(coll("lambda_function", [lambda_function(auth="AWS_IAM")], service="lambda")), "lambda_function")["status"] == "PASS"
     denied = lambda_function() | {"Policy": {"collection_status": "denied"}}
     assert one(aws(coll("lambda_function", [denied], service="lambda")), "lambda_function")["status"] == "UNKNOWN"
+
+
+def test_lambda_function_url_requires_both_public_invocation_actions_for_new_urls():
+    base = lambda_function()
+    policy = base["Policy"]["Policy"]
+    only_url = copy.deepcopy(base)
+    only_url["Policy"]["Policy"]["Statement"] = policy["Statement"][:1]
+    assert one(aws(coll("lambda_function", [only_url], service="lambda")), "lambda_function")["status"] == "PASS"
+    legacy = copy.deepcopy(only_url)
+    legacy["FunctionUrl"]["CreationTime"] = "2024-01-01T00:00:00Z"
+    assert one(aws(coll("lambda_function", [legacy], service="lambda")), "lambda_function")["status"] == "UNKNOWN"
+    unknown = copy.deepcopy(base)
+    unknown["Policy"]["Policy"]["Statement"][1]["Condition"] = {"StringEquals": {"aws:SourceVpce": "vpce-1"}}
+    assert one(aws(coll("lambda_function", [unknown], service="lambda")), "lambda_function")["status"] == "UNKNOWN"
+    blocked = copy.deepcopy(base)
+    blocked["Policy"]["Policy"]["Statement"].append({"Effect": "Deny", "Principal": "*", "Action": "lambda:InvokeFunction",
+                                                     "Resource": "*"})
+    assert one(aws(coll("lambda_function", [blocked], service="lambda")), "lambda_function")["status"] == "PASS"
+    wildcard = copy.deepcopy(base)
+    wildcard["Policy"]["Policy"]["Statement"] = [{"Effect": "Allow", "Principal": "*",
+        "Action": "lambda:Invoke*", "Resource": "*"}]
+    assert one(aws(coll("lambda_function", [wildcard], service="lambda")), "lambda_function")["status"] == "FAIL"
 
 
 def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():

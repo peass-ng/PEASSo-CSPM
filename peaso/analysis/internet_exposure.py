@@ -790,20 +790,84 @@ def _aws_lambda_url(snapshot, inventory, resource):
         return a
     from .iam import document
     doc = document(policy["Policy"]) or {}
-    public = []
+    required = {"lambda:invokefunctionurl", "lambda:invokefunction"}
+    public, denied, uncertain = set(), set(), set()
+    function_arn = url.get("FunctionArn") or data.get("FunctionArn")
+    from fnmatch import fnmatchcase
     for statement in as_list(doc.get("Statement")):
-        if not isinstance(statement, dict) or statement.get("Effect") != "Allow":
+        if not isinstance(statement, dict) or statement.get("Effect") not in ("Allow", "Deny"):
+            continue
+        if any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain.update(required)
             continue
         principal = statement.get("Principal")
-        values = [principal] if isinstance(principal, str) else [v for x in principal.values() for v in as_list(x)] if isinstance(principal, dict) else []
+        values = [principal] if isinstance(principal, str) else as_list(principal.get("AWS")) if isinstance(principal, dict) else []
+        if "*" not in values:
+            continue
         actions = [str(x).lower() for x in as_list(statement.get("Action"))]
-        if "*" in values and any(x in ("lambda:invokefunctionurl", "lambda:*", "*", "lambda:invokefunction") for x in actions):
-            public.append(statement.get("Sid"))
-    if public:
-        a.step("policy", "allow", public_statements=public)
-    else:
-        a.step("policy", "block", reason="no public InvokeFunctionUrl statement")
+        matched = {action for action in required if any(fnmatchcase(action, pattern) for pattern in actions)}
+        if not matched:
+            continue
+        resources = as_list(statement.get("Resource"))
+        if not resources or not isinstance(function_arn, str):
+            uncertain.update(matched)
+            continue
+        if not any(isinstance(value, str) and fnmatchcase(function_arn, value) for value in resources):
+            continue
+        condition = statement.get("Condition") or {}
+        if not isinstance(condition, dict):
+            uncertain.update(matched)
+            continue
+        applicable = True
+        for operator, terms in condition.items():
+            if not isinstance(terms, dict) or operator not in ("StringEquals", "Bool"):
+                applicable = None
+                break
+            for key, value in terms.items():
+                if isinstance(value, list):
+                    value = value[0] if len(value) == 1 else None
+                if value is None:
+                    applicable = None
+                    break
+                normalized = str(value).lower()
+                if operator == "StringEquals" and key.lower() == "lambda:functionurlauthtype":
+                    if normalized != "none":
+                        applicable = False
+                elif operator == "Bool" and key.lower() == "lambda:invokedviafunctionurl":
+                    if normalized != "true":
+                        applicable = False
+                else:
+                    applicable = None
+                    break
+            if applicable is None:
+                break
+        if applicable is None:
+            uncertain.update(matched)
+        elif applicable:
+            (public if statement["Effect"] == "Allow" else denied).update(matched)
+    if denied:
+        a.step("policy", "block", reason="public URL invocation is explicitly denied", denied_actions=sorted(denied))
         a.ports = {}
+    elif uncertain:
+        a.gap("policy", "public URL policy condition or resource is not fully resolved", "lambda:GetPolicy")
+    elif public == required:
+        a.step("policy", "allow", public_actions=sorted(public))
+    else:
+        created = url.get("CreationTime")
+        try:
+            from datetime import date
+            created_date = date.fromisoformat(created[:10]) if isinstance(created, str) else None
+        except ValueError:
+            created_date = None
+        if created_date is None or created_date < date(2025, 10, 1):
+            if public:
+                a.gap("policy", "legacy Function URL may use the pre-October-2025 permission model", "lambda:GetFunctionUrlConfig")
+            else:
+                a.step("policy", "block", reason="no public URL invocation grant")
+                a.ports = {}
+        else:
+            a.step("policy", "block", reason="new Function URL requires both public invocation grants", public_actions=sorted(public))
+            a.ports = {}
     return a
 
 
