@@ -913,6 +913,32 @@ def _aws_lambda_url(snapshot, inventory, resource):
     return a
 
 
+def _aws_api_stage(snapshot_data, assessment, service):
+    """Check a cached API Gateway stage read without fetching during analysis."""
+    stages = snapshot_data.get("Stages")
+    operation = "apigateway:GetStages" if service == "rest" else "apigatewayv2:GetStages"
+    if not isinstance(stages, dict) or stages.get("collection_status") not in ("collected", "empty"):
+        assessment.gap("inventory", "API Gateway stage read unavailable", operation)
+        return None
+    rows = stages.get("items")
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        assessment.gap("inventory", "API Gateway stage list malformed", operation)
+        return None
+    active = []
+    for row in rows:
+        name = row.get("stageName") if service == "rest" else row.get("StageName")
+        deployment = row.get("deploymentId") if service == "rest" else row.get("DeploymentId")
+        auto = row.get("AutoDeploy") is True if service == "http" else False
+        if not isinstance(name, str) or not name:
+            assessment.gap("inventory", "API Gateway stage name missing", operation)
+            return None
+        if isinstance(deployment, str) and deployment or auto:
+            active.append(name)
+    assessment.step("deployment", "allow" if active else "block", stage_names=active,
+                    reason="no associated deployment or automatic deployment" if not active else "deployed stages collected")
+    return bool(active)
+
+
 def _aws_rest_api(snapshot, inventory, resource):
     data = resource["data"]
     a = Assessment(resource, "api")
@@ -956,6 +982,10 @@ def _aws_rest_api(snapshot, inventory, resource):
     a.step("route", "allow", endpoint_types=types, custom_domains=sorted(set(domains)),
            disable_execute_api_endpoint=data.get("disableExecuteApiEndpoint"),
            semantics="Configured API Gateway route; custom-domain DNS and requests were not tested")
+    stage = _aws_api_stage(data, a, "rest")
+    if stage is not True:
+        a.ports = {} if stage is False else None
+        return a
     if unresolved_domains:
         a.notes.append("Other custom-domain base-path mappings were not fully collected")
     if routing_domains:
@@ -1051,6 +1081,10 @@ def _aws_http_api(snapshot, inventory, resource):
     a.addresses.extend(f"https://{name}" for name in sorted(set(domains)) if name)
     a.step("route", "allow", protocol=data.get("ProtocolType"), custom_domains=sorted(set(domains)),
            disable_execute_api_endpoint=data.get("DisableExecuteApiEndpoint"))
+    stage = _aws_api_stage(data, a, "http")
+    if stage is not True:
+        a.ports = {} if stage is False else None
+        return a
     a.ports = pset("tcp", 443, 443)
     routes = data.get("Routes")
     if isinstance(routes, dict) and routes.get("collection_status") == "collected":

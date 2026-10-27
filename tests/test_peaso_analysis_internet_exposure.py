@@ -321,13 +321,15 @@ def test_lambda_function_url_requires_both_public_invocation_actions_for_new_url
 
 
 def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():
-    api = {"id": "a1b2", "name": "api", "endpointConfiguration": {"types": ["REGIONAL"]}}
+    api = {"id": "a1b2", "name": "api", "endpointConfiguration": {"types": ["REGIONAL"]},
+           "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
     result = one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")
     assert result["status"] == "UNKNOWN" and result["evidence"]["collector_facts_needed"]
     private = api | {"endpointConfiguration": {"types": ["PRIVATE"]}}
     assert one(aws(coll("rest_api", [private], service="apigateway")), "rest_api")["status"] == "PASS"
     http = {"ApiId": "h1", "ApiEndpoint": "https://h1.execute-api.us-east-1.amazonaws.com", "ProtocolType": "HTTP",
-            "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}]}
+            "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}],
+            "Stages": {"collection_status": "collected", "items": [{"StageName": "$default", "AutoDeploy": True}]}}
     assert one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")["status"] == "FAIL"
     http["Routes"] = [{"RouteKey": "GET /", "AuthorizationType": "JWT"}]
     assert one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")["status"] == "PASS"
@@ -335,13 +337,35 @@ def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():
 
 def test_rest_api_collected_method_authorization():
     api = {"id": "a1b2", "endpointConfiguration": {"types": ["REGIONAL"]},
-           "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}]}
+           "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
+           "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
     assert one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")["status"] == "FAIL"
     api["Methods"][0]["authorizationType"] = "AWS_IAM"
     result = one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")
     assert result["status"] == "PASS" and result["evidence"]["authenticated_endpoint"] is True
     api["Methods"][0].pop("apiKeyRequired")
     assert one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")["status"] == "UNKNOWN"
+
+
+def test_api_gateway_requires_collected_deployed_stage():
+    rest = {"id": "rest1", "endpointConfiguration": {"types": ["REGIONAL"]},
+            "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
+            "Stages": {"collection_status": "empty", "items": []}}
+    def rest_row():
+        return one(aws(coll("rest_api", [rest], service="apigateway")), "rest_api")
+    assert rest_row()["status"] == "PASS"
+    rest["Stages"] = {"collection_status": "denied"}
+    assert rest_row()["status"] == "UNKNOWN"
+    rest["Stages"] = {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}
+    assert rest_row()["status"] == "FAIL"
+    http = {"ApiId": "http1", "ApiEndpoint": "https://http1.execute-api.us-east-1.amazonaws.com", "ProtocolType": "HTTP",
+            "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}],
+            "Stages": {"collection_status": "collected", "items": [{"StageName": "$default", "AutoDeploy": False}]}}
+    def http_row():
+        return one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")
+    assert http_row()["status"] == "PASS"
+    http["Stages"]["items"][0]["AutoDeploy"] = True
+    assert http_row()["status"] == "FAIL"
 
 
 def test_public_and_external_rds_snapshots():
@@ -1126,7 +1150,8 @@ def test_stopped_instance_keeps_fail_with_lower_severity():
 def test_public_https_observation_and_action_are_specific_and_brief():
     endpoint = "https://9gi0nszlth.execute-api.ca-central-1.amazonaws.com"
     api = {"ApiId": "9gi0nszlth", "ApiEndpoint": endpoint, "ProtocolType": "HTTP",
-           "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}]}
+           "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}],
+           "Stages": {"collection_status": "collected", "items": [{"StageName": "$default", "AutoDeploy": True}]}}
     result = one(aws(coll("http_api", [api], service="apigatewayv2")), "http_api")
     assert result["status"] == "FAIL" and result["severity"] == "medium"
     assert result["evidence"]["observed"] == f"Internet access to tcp/443 at {endpoint} is allowed."
@@ -1135,7 +1160,8 @@ def test_public_https_observation_and_action_are_specific_and_brief():
 
 
 def test_missing_authorization_does_not_become_a_public_access_claim():
-    api = {"ApiId": "a", "ApiEndpoint": "https://a.example.com", "ProtocolType": "HTTP"}
+    api = {"ApiId": "a", "ApiEndpoint": "https://a.example.com", "ProtocolType": "HTTP",
+           "Stages": {"collection_status": "collected", "items": [{"StageName": "$default", "AutoDeploy": True}]}}
     result = one(aws(coll("http_api", [api], service="apigatewayv2")), "http_api")
     assert result["status"] == "UNKNOWN" and result["severity"] == "info"
     assert "could not be determined" in result["evidence"]["observed"]
