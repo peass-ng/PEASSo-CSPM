@@ -340,6 +340,10 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                 overlay["network"] = result["network"]
             if stage in {"hardening", "exposure"} and isinstance(result.get("reviews", {}).get(stage), list):
                 overlay["reviews"][stage] = result["reviews"][stage]
+            if stage == "hardening" and isinstance(result.get("native_final"), dict):
+                ids = result["native_final"].get("hardening")
+                if isinstance(ids, list) and all(isinstance(ident, str) for ident in ids):
+                    overlay["native_final"] = {"hardening": ids}
             overlay["limitations"].extend(result.get("limitations", []) if isinstance(result.get("limitations"), list) else [])
         stage_revisions = {stage: entry["data_revision"] for stage, entry in stage_rows.items()
                            if stage in completed}
@@ -1526,7 +1530,8 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         if isinstance(network, dict):
             rows = network.get("findings", [])
             network = dict(network, findings=rows[offset:offset + limit], total=len(rows))
-        return dict(value, **({"network": network} if network is not None else {}), reviews={kind: rows[offset:offset + limit] for kind, rows in reviews.items()},
+        from peaso.ai.finding_reviews import presented_reviews
+        return dict(value, **({"network": network} if network is not None else {}), reviews=presented_reviews(value, offset, limit),
                     review_totals={kind: len(rows) for kind, rows in reviews.items()}, offset=offset, limit=limit)
 
     @app.get("/api/scans/{ident}/summary")

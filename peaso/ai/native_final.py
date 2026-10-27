@@ -4,6 +4,7 @@ The committed manifest is intentionally empty. A replay-qualified revision must
 be reviewed and pinned by its exact SHA-256 before any row can bypass AI.
 """
 import hashlib
+import ast
 import json
 import os
 from pathlib import Path
@@ -28,7 +29,7 @@ def admitted_check_ids(path=MANIFEST):
         manifest = json.loads(raw)
         if (type(manifest) is not dict or set(manifest) != {
                 'version', 'source_scan_id', 'base_commit', 'replay_qualification', 'checks'}
-                or type(manifest['version']) is not int or manifest['version'] != 1
+                or type(manifest['version']) is not int or manifest['version'] != 2
                 or manifest['source_scan_id'] != SOURCE_SCAN
                 or manifest['base_commit'] != BASE_COMMIT):
             return frozenset()
@@ -44,7 +45,7 @@ def admitted_check_ids(path=MANIFEST):
         for check in checks:
             if (type(check) is not dict or set(check) != {
                     'check_id', 'prod992_disagreements', 'prod992_reviewed_failures',
-                    'audit_receipt_sha256', 'direct_api_setting_evidence'}):
+                    'audit_receipt_sha256', 'deterministic_evidence'}):
                 return frozenset()
             ident = check['check_id']
             if (not isinstance(ident, str) or not ident.startswith('aws')
@@ -54,7 +55,7 @@ def admitted_check_ids(path=MANIFEST):
                     or type(check['prod992_reviewed_failures']) is not int
                     or check['prod992_reviewed_failures'] < 1
                     or not _digest(check['audit_receipt_sha256'])
-                    or not _direct_setting(check['direct_api_setting_evidence'])):
+                    or not _deterministic_evidence(check['deterministic_evidence'])):
                 return frozenset()
             ids.add(ident)
         return frozenset(ids)
@@ -67,19 +68,105 @@ def _digest(value):
             and all(ch in '0123456789abcdef' for ch in value))
 
 
-def _direct_setting(value):
-    return (type(value) is dict and set(value) == {
-        'api', 'setting_path', 'recorded_evidence_ref'}
-        and all(isinstance(value[key], str) and value[key].strip()
-                for key in ('api', 'setting_path', 'recorded_evidence_ref')))
+def _nonempty(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _deterministic_evidence(value):
+    """Require an auditable pure operation over typed, recorded API fields.
+
+    This describes the reviewed evaluator; it is not an interpreter for
+    arbitrary predicates. Source audit must still prove the declared inputs
+    and code path actually match the check implementation.
+    """
+    if type(value) is not dict or set(value) != {
+            'source_fields', 'operation', 'scan_time', 'code_path_audit_ref'}:
+        return False
+    fields = value['source_fields']
+    if type(fields) is not list or not fields:
+        return False
+    for field in fields:
+        if (type(field) is not dict or set(field) != {
+                'api', 'field_path', 'field_type', 'source_semantics',
+                'recorded_evidence_ref'}
+                or not all(_nonempty(field[key]) for key in (
+                    'api', 'field_path', 'recorded_evidence_ref'))
+                or field['field_type'] not in {
+                    'boolean', 'number', 'timestamp', 'enum', 'list'}
+                or field['source_semantics'] not in {
+                    'recorded_api_field', 'recorded_api_timestamp'}
+                or (field['field_type'] == 'timestamp') != (
+                    field['source_semantics'] == 'recorded_api_timestamp')):
+            return False
+    operation = value['operation']
+    if type(operation) is not dict or set(operation) != {
+            'kind', 'comparison', 'threshold', 'threshold_unit'}:
+        return False
+    kind = operation['kind']
+    comparison = operation['comparison']
+    threshold = operation['threshold']
+    unit = operation['threshold_unit']
+    comparisons = {
+        'literal_comparison': {'eq', 'ne'},
+        'count_comparison': {'eq', 'ne', 'lt', 'lte', 'gt', 'gte'},
+        'list_membership': {'contains', 'not_contains', 'all', 'any'},
+        'boolean_combination': {'and', 'or'},
+        'age_comparison': {'lt', 'lte', 'gt', 'gte'},
+    }
+    if kind not in comparisons or comparison not in comparisons[kind]:
+        return False
+    if kind in {'count_comparison', 'age_comparison'}:
+        if (type(threshold) is not int or threshold < 0
+                or unit != ('days' if kind == 'age_comparison' else 'items')):
+            return False
+    elif kind == 'boolean_combination':
+        if threshold is not None or unit is not None or len(fields) < 2:
+            return False
+    elif type(threshold) not in (bool, int, str) or (
+            type(threshold) is str and (not threshold or len(threshold) > 128)) or unit is not None:
+        return False
+    scan_time = value['scan_time']
+    if kind == 'age_comparison':
+        if (type(scan_time) is not dict or set(scan_time) != {
+                'source_field', 'recorded_evidence_ref'}
+                or not all(_nonempty(scan_time[key]) for key in scan_time)
+                or not any(field['field_type'] == 'timestamp' for field in fields)):
+            return False
+    elif scan_time is not None:
+        return False
+    ref = value['code_path_audit_ref']
+    if not (type(ref) is dict and set(ref) == {
+            'path', 'symbol', 'source_sha256', 'audit_ref'}
+            and all(_nonempty(ref[key]) for key in ref)
+            and ref['path'].startswith('peaso/checks/')
+            and ref['path'].endswith('.py') and '..' not in ref['path'].split('/')
+            and _digest(ref['source_sha256'])):
+        return False
+    root = Path(__file__).resolve().parents[2]
+    source = (root / ref['path']).resolve()
+    if not source.is_relative_to(root) or not source.is_file():
+        return False
+    body = source.read_bytes()
+    if hashlib.sha256(body).hexdigest() != ref['source_sha256']:
+        return False
+    try:
+        syntax = ast.parse(body)
+    except (SyntaxError, UnicodeDecodeError):
+        return False
+    return any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and node.name == ref['symbol'] for node in ast.walk(syntax))
 
 
 def partition(rows, admitted):
     """Select only original AWS Hardening FAILs by exact check ID."""
     native, ai = [], []
     for row in rows:
+        evidence = row.get('evidence')
         if (row.get('provider') == 'aws' and row.get('category') == 'hardening'
-                and row.get('status') == 'FAIL' and row.get('check_id') in admitted):
+                and row.get('status') == 'FAIL'
+                and row.get('scanner_status', 'FAIL') == 'FAIL'
+                and not (isinstance(evidence, dict) and 'incomplete_dependencies' in evidence)
+                and row.get('check_id') in admitted):
             native.append(row)
         else:
             ai.append(row)

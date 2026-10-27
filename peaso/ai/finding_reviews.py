@@ -9,6 +9,8 @@ def review_index(result):
     index, seen = {}, set()
     if not isinstance(result, dict) or not isinstance(result.get('reviews'), dict):
         return index
+    native_final = (result.get('native_final') or {}).get('hardening', ())
+    native_ids = {ident for ident in native_final if isinstance(ident, str)} if isinstance(native_final, list) else set()
     for category in ('hardening', 'exposure'):
         rows = result['reviews'].get(category, [])
         if not isinstance(rows, list):
@@ -19,6 +21,9 @@ def review_index(result):
             except ValueError:
                 continue
             key = (category, row['finding_id'])
+            # Synthetic FAILs exist for Priorities coverage, not as AI verdicts.
+            if category == 'hardening' and row['finding_id'] in native_ids:
+                continue
             if key in seen:
                 index.pop(key, None)
                 continue
@@ -27,6 +32,17 @@ def review_index(result):
                 continue
             index[key] = row
     return index
+
+
+def presented_reviews(result, offset, limit):
+    """Label synthetic native-final rows in the AI API without changing storage."""
+    reviews = result.get('reviews', {})
+    native_final = (result.get('native_final') or {}).get('hardening', ())
+    native_ids = {ident for ident in native_final if isinstance(ident, str)} if isinstance(native_final, list) else set()
+    return {category: [dict(row, source='native_final' if category == 'hardening'
+                         and row.get('finding_id') in native_ids else 'ai')
+                       for row in rows[offset:offset + limit]]
+            for category, rows in reviews.items()}
 
 
 def _concrete_secret_observation(finding):
@@ -86,8 +102,7 @@ def apply_report_reviews(report):
     reviews = review_index(report.get('ai'))
     if not reviews:
         return report
-    native_ids = set(((report.get('ai') or {}).get('native_final') or {}).get('hardening', ()))
-    findings = [row if row.get('id') in native_ids else apply_review(row, reviews, report.get('check_meta'))
+    findings = [apply_review(row, reviews, report.get('check_meta'))
                 for row in report.get('findings', [])]
     stats = dict(report.get('stats', {}))
     if 'scanner_by_status' not in stats:
