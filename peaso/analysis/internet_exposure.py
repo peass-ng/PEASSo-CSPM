@@ -1654,14 +1654,16 @@ def _gcp_armor_decision(inventory, policy_ref):
 
 def _gcp_invoker(policy, roles):
     if not isinstance(policy, dict):
-        return None
-    public = []
+        return None, None
+    public, conditional = [], []
     for binding in as_list(policy.get("bindings")):
         if isinstance(binding, dict) and binding.get("role") in roles:
             members = [m for m in as_list(binding.get("members")) if m in ("allUsers", "allAuthenticatedUsers")]
-            if members and not binding.get("condition"):
+            if binding.get("condition"):
+                conditional.extend(members)
+            else:
                 public.extend(members)
-    return public
+    return public, conditional
 
 
 def _gcp_serverless(snapshot, inventory, resource):
@@ -1690,13 +1692,17 @@ def _gcp_serverless(snapshot, inventory, resource):
     policy = data.get("iamPolicy")
     if isinstance(policy, dict) and policy.get("collection_status") not in (None, "collected"):
         policy = None
-    public = _gcp_invoker(policy, roles)
+    public, conditional = _gcp_invoker(policy, roles)
     if public is None:
         a.gap("invoker", "invoker IAM policy not collected", "getIamPolicy")
     elif public:
         a.step("invoker", "allow", public_members=public)
         if "allUsers" not in public:
             a.authenticated = True
+    elif conditional:
+        a.step("invoker", "unknown", conditional_public_members=conditional)
+        a.gap("invoker", "public invoker grant has a request-dependent IAM condition")
+        a.ports = None
     else:
         a.step("invoker", "block", reason="no allUsers/allAuthenticatedUsers invoker; IAM authentication required")
         a.ports = {}

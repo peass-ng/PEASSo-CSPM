@@ -533,6 +533,24 @@ def test_gcp_cloud_run_invoker_and_ingress():
     assert one(gcp(gcoll("cloudrun_service", [no_policy], service="run")), "cloudrun_service")["status"] == "UNKNOWN"
 
 
+@pytest.mark.parametrize("kind,service,role", [
+    ("cloudrun_service", "run", "roles/run.invoker"),
+    ("function", "cloudfunctions", "roles/cloudfunctions.invoker"),
+])
+def test_gcp_conditional_public_invoker_is_unresolved(kind, service, role):
+    row = {"name": "projects/p1/locations/r/services/s", "uri": "https://s.run.app"} if kind == "cloudrun_service" else {
+        "name": "projects/p1/locations/r/functions/f", "serviceConfig": {"uri": "https://f.cloudfunctions.net"}}
+    row["iamPolicy"] = {"bindings": [{"role": role, "members": ["allUsers"],
+        "condition": {"expression": "request.time < timestamp('2026-11-01T00:00:00Z')"}}]}
+    result = one(gcp(gcoll(kind, [row], service=service)), kind)
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["unresolved"][0]["layer"] == "invoker"
+    assert result["evidence"]["path"][-1]["decision"] == "unknown"
+
+    row["iamPolicy"]["bindings"].append({"role": role, "members": ["allUsers"]})
+    assert one(gcp(gcoll(kind, [row], service=service)), kind)["status"] == "FAIL"
+
+
 def test_gcp_proxy_lb_cloud_armor():
     fr = {"id": "fr", "name": "fr", "selfLink": "fr", "loadBalancingScheme": "EXTERNAL_MANAGED", "IPAddress": "34.2.2.2", "IPProtocol": "TCP",
           "portRange": "443-443", "target": "https://x/targetHttpsProxies/p"}
