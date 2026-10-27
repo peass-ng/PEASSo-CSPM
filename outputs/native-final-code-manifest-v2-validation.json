@@ -1,0 +1,13 @@
+{
+  "candidate_checks": 20,
+  "candidate_sha256": "9a2d6b0dcb5b93f3ec87ce01d756178fff77ebe5c9db3fd55025afa8d904aca4",
+  "model_replay_run": false,
+  "pending_admitted": 0,
+  "production_manifest_modified": false,
+  "resolved_recorded_evidence_references": 62,
+  "schema_version": 1,
+  "sha_tamper_admitted": 0,
+  "snapshot_sha256": "3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f",
+  "temporary_qualified_admitted": 20,
+  "unresolved_recorded_evidence_references": 0
+}

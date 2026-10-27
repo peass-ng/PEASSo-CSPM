@@ -1,0 +1,929 @@
+{
+  "base_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
+  "checks": [
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.a.cloudwatch.finite_retention_365",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.a.cloudwatch.finite_retention_365",
+          "path": "peaso/checks/aws_a_cloudtrail_variants.py",
+          "source_sha256": "f48b7b74843dfc2a9dbafefe059982d6fa4bd811b65308b3016c702efcb54248",
+          "symbol": "finite_retention"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "logGroupName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=log_group].items[].logGroupName",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "retentionInDays",
+            "field_type": "number",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=log_group].items[].retentionInDays",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 56
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.a.cloudwatch.log_retention_at_least_365",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.a.cloudwatch.log_retention_at_least_365",
+          "path": "peaso/checks/aws_a_cloudwatch.py",
+          "source_sha256": "7cae38304bca4ec34d34d7604f44af5f07c084a49987c204e63988276c5b67f9",
+          "symbol": "retention"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "logGroupName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=log_group].items[].logGroupName",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "logs:DescribeLogGroups",
+            "field_path": "retentionInDays",
+            "field_type": "number",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=log_group].items[].retentionInDays",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 44
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.a.iam.active_key_age_90",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.a.iam.active_key_age_90",
+          "path": "peaso/checks/aws_a_iam_lifecycle.py",
+          "source_sha256": "264681c9227ffcfa81302d1138a29948d33583aa77736b6642552277d14f73d1",
+          "symbol": "key_age"
+        },
+        "operation": {
+          "comparison": "gte",
+          "kind": "age_comparison",
+          "threshold": 90,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_access_key].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_access_key].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:ListAccessKeys",
+            "field_path": "Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_access_key].items[].Status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:ListAccessKeys",
+            "field_path": "CreateDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_access_key].items[].CreateDate",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 20
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.b.ecs.all_readonly_roots",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.b.ecs.all_readonly_roots",
+          "path": "peaso/checks/aws_b_compute.py",
+          "source_sha256": "136f48264836bc8a8a43b495ff71af02cbdafb008358cca8d2ffa162620e3a2e",
+          "symbol": "readonly_roots"
+        },
+        "operation": {
+          "comparison": "contains",
+          "kind": "list_membership",
+          "threshold": false,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "ecs:DescribeTaskDefinition",
+            "field_path": "Definition.taskDefinition.containerDefinitions[].readonlyRootFilesystem",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=ecs_task_definition].items[].Definition.taskDefinition.containerDefinitions",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 4684
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.c2b.autoscaling.instance_types_per_az",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.c2b.autoscaling.instance_types_per_az",
+          "path": "peaso/checks/claude2_aws_b_compute.py",
+          "source_sha256": "8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed",
+          "symbol": "asg_types"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "autoscaling:DescribeAutoScalingGroups",
+            "field_path": "Instances[].AvailabilityZone",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=autoscaling_group].items[].Instances[].AvailabilityZone",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "autoscaling:DescribeAutoScalingGroups",
+            "field_path": "Instances[].InstanceType",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=autoscaling_group].items[].Instances[].InstanceType",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.c2b.cloudfront.pqc_tls",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.c2b.cloudfront.pqc_tls",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "cf_pqc"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudfront:GetDistributionConfig",
+            "field_path": "Config.DistributionConfig.ViewerCertificate.CloudFrontDefaultCertificate",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudfront_distribution].items[].Config.DistributionConfig.ViewerCertificate.CloudFrontDefaultCertificate",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudfront:GetDistributionConfig",
+            "field_path": "Config.DistributionConfig.ViewerCertificate.MinimumProtocolVersion",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudfront_distribution].items[].Config.DistributionConfig.ViewerCertificate.MinimumProtocolVersion",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 10
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.c2b.cloudfront.s3_origin_access_control",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.c2b.cloudfront.s3_origin_access_control",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "cf_oac"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "cloudfront:GetDistributionConfig",
+            "field_path": "Config.DistributionConfig.Origins.Items[].S3OriginConfig",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudfront_distribution].items[].Config.DistributionConfig.Origins.Items[].S3OriginConfig",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "cloudfront:GetDistributionConfig",
+            "field_path": "Config.DistributionConfig.Origins.Items[].OriginAccessControlId",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=cloudfront_distribution].items[].Config.DistributionConfig.Origins.Items[].OriginAccessControlId",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 3
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.c2b.elbv2.listeners_acm_certificate",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.c2b.elbv2.listeners_acm_certificate",
+          "path": "peaso/checks/claude2_aws_b_edge.py",
+          "source_sha256": "7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e",
+          "symbol": "v2_acm"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "elbv2:DescribeLoadBalancers",
+            "field_path": "Type",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Type",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "elbv2:DescribeListeners",
+            "field_path": "Listeners.items[].Certificates[].CertificateArn",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=load_balancer].items[].Listeners.items[].Certificates[].CertificateArn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 7
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.cb.secretsmanager.changed_within_365_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.cb.secretsmanager.changed_within_365_days",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 365,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=secret].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "secretsmanager:ListSecrets",
+            "field_path": "LastChangedDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[].LastChangedDate",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 17
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.cb.secretsmanager.changed_within_90_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.cb.secretsmanager.changed_within_90_days",
+          "path": "peaso/checks/claude_aws_b_security.py",
+          "source_sha256": "47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 90,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=secret].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "secretsmanager:ListSecrets",
+            "field_path": "LastChangedDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=secret].items[].LastChangedDate",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 208
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.claude_a.ec2.instance_not_older_than_180_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.claude_a.ec2.instance_not_older_than_180_days",
+          "path": "peaso/checks/claude_aws_a_ec2.py",
+          "source_sha256": "fc1c32b17876668b9b812221425b54e7664b0db554dc3ad225d8643c581b5eaa",
+          "symbol": "inst_age_compliance"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 180,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=instance].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=instance].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "ec2:DescribeInstances",
+            "field_path": "LaunchTime",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=instance].items[].LaunchTime",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 7
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.claude_a.iam.access_key_age_365",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.claude_a.iam.access_key_age_365",
+          "path": "peaso/checks/claude_aws_a_iam.py",
+          "source_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687",
+          "symbol": "access_key_age_365"
+        },
+        "operation": {
+          "comparison": "gte",
+          "kind": "age_comparison",
+          "threshold": 365,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_access_key].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_access_key].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:ListAccessKeys",
+            "field_path": "CreateDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_access_key].items[].CreateDate",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 8
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.claude_a.iam.role_used_within_60_days",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.claude_a.iam.role_used_within_60_days",
+          "path": "peaso/unused_iam_aws_activity.py",
+          "source_sha256": "6895e8c728e9f7ac38a90ef128c02e3e440d8e72ba54986a28cb1fdde0c7ac28",
+          "symbol": "evaluate"
+        },
+        "operation": {
+          "comparison": "gt",
+          "kind": "age_comparison",
+          "threshold": 60,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=iam_role].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "iam:ListRoles",
+            "field_path": "CreateDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].items[].CreateDate",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:ListRoles",
+            "field_path": "RoleLastUsed.LastUsedDate",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].items[].RoleLastUsed.LastUsedDate",
+            "source_semantics": "recorded_api_timestamp"
+          },
+          {
+            "api": "iam:ListRoles",
+            "field_path": "RoleName",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].items[].RoleName",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:ListRoles",
+            "field_path": "RoleId",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].items[].RoleId",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:ListRoles",
+            "field_path": "Arn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_role].items[].Arn",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 88
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.claude_a.iam.user_long_lived_keys_only_iam_sts",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.claude_a.iam.user_long_lived_keys_only_iam_sts",
+          "path": "peaso/checks/claude_aws_a_iam.py",
+          "source_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687",
+          "symbol": "user_temp_creds"
+        },
+        "operation": {
+          "comparison": "and",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "iam:ListAccessKeys",
+            "field_path": "AccessKeys.items",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_user].items[].AccessKeys.items",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "iam:GetServiceLastAccessedDetails",
+            "field_path": "ServicesLastAccessed[].ServiceNamespace",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=iam_user].items[].ServicesLastAccessed[].ServiceNamespace",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 14
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.claude_a.s3.prowler_cross_region_replication",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.claude_a.s3.prowler_cross_region_replication",
+          "path": "peaso/checks/claude_aws_a_s3.py",
+          "source_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+          "symbol": "prowler_replication"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "s3:GetBucketVersioning",
+            "field_path": "Versioning.Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=bucket].items[].Versioning.Status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "s3:GetBucketReplication",
+            "field_path": "Replication.ReplicationConfiguration.Rules[].Status",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=bucket].items[].Replication",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "s3:GetBucketReplication",
+            "field_path": "Replication.ReplicationConfiguration.Rules[].Destination.Bucket",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=bucket].items[].Replication",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "s3:GetBucketLocation",
+            "field_path": "Location.LocationConstraint",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=bucket].items[].Location.LocationConstraint",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 137
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws.pci.sns.delivery_status_logging",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.pci.sns.delivery_status_logging",
+          "path": "peaso/checks/compliance_new_sw07.py",
+          "source_sha256": "4485870fd117ecbfd550538718806bdaa4a612c62d5a0a1b66e0fdd65252f71a",
+          "symbol": "_sns_feedback"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "sns:ListSubscriptions",
+            "field_path": "TopicArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_subscription].items[].TopicArn",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:ListSubscriptions",
+            "field_path": "Protocol",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_subscription].items[].Protocol",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.TopicArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes.TopicArn",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.HTTPFailureFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.HTTPSuccessFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.HTTPSuccessFeedbackSampleRate",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.LambdaFailureFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.LambdaSuccessFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.LambdaSuccessFeedbackSampleRate",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.SQSFailureFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.SQSSuccessFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.SQSSuccessFeedbackSampleRate",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.ApplicationFailureFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.ApplicationSuccessFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.ApplicationSuccessFeedbackSampleRate",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.FirehoseFailureFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.FirehoseSuccessFeedbackRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "sns:GetTopicAttributes",
+            "field_path": "Attributes.Attributes.FirehoseSuccessFeedbackSampleRate",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=sns_topic].items[].Attributes.Attributes",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws_backup_failure_notification",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws_backup_failure_notification",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_backup_failure"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "backup:GetBackupVaultNotifications",
+            "field_path": "Notifications.collection_status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_vault].items[].Notifications.collection_status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "backup:GetBackupVaultNotifications",
+            "field_path": "Notifications.absent",
+            "field_type": "boolean",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_vault].items[].Notifications.absent",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "backup:GetBackupVaultNotifications",
+            "field_path": "Notifications.SNSTopicArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_vault].items[].Notifications",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "backup:GetBackupVaultNotifications",
+            "field_path": "Notifications.BackupVaultEvents",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=backup_vault].items[].Notifications",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws_fedramp_acm_all_certificates_30_day_expiry",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws_fedramp_acm_all_certificates_30_day_expiry",
+          "path": "peaso/checks/compliance_new_aws_acm_expiry.py",
+          "source_sha256": "339fcb1507f8c21a19a6f1a9f503b6aefc323e0cfb3d52757823556ee9c32a15",
+          "symbol": "fedramp_all"
+        },
+        "operation": {
+          "comparison": "lte",
+          "kind": "age_comparison",
+          "threshold": 30,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=acm_certificate].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=acm_certificate].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "acm:ListCertificates",
+            "field_path": "CertificateArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=acm_certificate].items[].CertificateArn",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "acm:DescribeCertificate",
+            "field_path": "Certificate.Certificate.Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=acm_certificate].items[].Certificate.Certificate.Status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "acm:DescribeCertificate",
+            "field_path": "Certificate.Certificate.NotAfter",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=acm_certificate].items[].Certificate.Certificate.NotAfter",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws_g6_acm_all_certificates_30_day_expiry",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws_g6_acm_all_certificates_30_day_expiry",
+          "path": "peaso/checks/compliance_new_aws_acm_expiry.py",
+          "source_sha256": "339fcb1507f8c21a19a6f1a9f503b6aefc323e0cfb3d52757823556ee9c32a15",
+          "symbol": "g6_all_calendar"
+        },
+        "operation": {
+          "comparison": "lt",
+          "kind": "age_comparison",
+          "threshold": 30,
+          "threshold_unit": "days"
+        },
+        "scan_time": {
+          "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=acm_certificate].items[]._provenance.collected_at|created_at",
+          "source_field": "collections[type=acm_certificate].items[]._provenance.collected_at or snapshot.created_at"
+        },
+        "source_fields": [
+          {
+            "api": "acm:ListCertificates",
+            "field_path": "CertificateArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=acm_certificate].items[].CertificateArn",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "acm:DescribeCertificate",
+            "field_path": "Certificate.Certificate.Status",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=acm_certificate].items[].Certificate.Certificate.Status",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "acm:DescribeCertificate",
+            "field_path": "Certificate.Certificate.NotAfter",
+            "field_type": "timestamp",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=acm_certificate].items[].Certificate.Certificate.NotAfter",
+            "source_semantics": "recorded_api_timestamp"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 4
+    },
+    {
+      "audit_receipt_sha256": "885e63bec3551463dca3ba8b1d449ba7cc7122fbfb33a0c41184fc3e6ad94fea",
+      "check_id": "aws_nist_rds_db_instance_and_cluster_enhanced_monitoring_enabled",
+      "deterministic_evidence": {
+        "code_path_audit_ref": {
+          "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws_nist_rds_db_instance_and_cluster_enhanced_monitoring_enabled",
+          "path": "peaso/checks/batch_remaining_aws.py",
+          "source_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+          "symbol": "_rds_instance"
+        },
+        "operation": {
+          "comparison": "or",
+          "kind": "boolean_combination",
+          "threshold": null,
+          "threshold_unit": null
+        },
+        "scan_time": null,
+        "source_fields": [
+          {
+            "api": "rds:DescribeDBInstances",
+            "field_path": "MonitoringInterval",
+            "field_type": "number",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_instance].items[].MonitoringInterval",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "rds:DescribeDBInstances",
+            "field_path": "MonitoringRoleArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_instance].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "rds:DescribeDBInstances",
+            "field_path": "EnhancedMonitoringResourceArn",
+            "field_type": "enum",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_instance].items[]",
+            "source_semantics": "recorded_api_field"
+          },
+          {
+            "api": "rds:DescribeDBClusters",
+            "field_path": "DBClusterMembers[].DBInstanceIdentifier",
+            "field_type": "list",
+            "recorded_evidence_ref": "sha256:3d7828c701a9457eeeb7d5aa497e1efd07a7977ccddeed498a73a2ba9dc2592f#collections[type=rds_cluster].status",
+            "source_semantics": "recorded_api_field"
+          }
+        ]
+      },
+      "prod992_disagreements": 0,
+      "prod992_reviewed_failures": 4
+    }
+  ],
+  "replay_qualification": {
+    "receipt_sha256": null,
+    "status": "pending"
+  },
+  "source_scan_id": "992d7b8cbd4340a79e41139ba1a44c1e",
+  "version": 2
+}
