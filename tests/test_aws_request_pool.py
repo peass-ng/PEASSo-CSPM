@@ -42,6 +42,43 @@ def _error(code, status):
                         "ResponseMetadata": {"HTTPStatusCode": status}}, "GetRole")
 
 
+def test_tag_compliance_504_retries_one_page_with_physical_call_accounting(native, monkeypatch):
+    calls, handlers = native
+    waits = []
+    monkeypatch.setattr(pool.time, "sleep", waits.append)
+    attempts = iter([_error("504", 504), {"ResourceTagMappingList": []}])
+
+    def get_resources(_params):
+        value = next(attempts)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    handlers["GetResources"] = get_resources
+    requests = aws.Requests({"max_calls": 2})
+    read = requests.pages(_session(), "resourcegroupstaggingapi", REGION,
+                          "get_resources", "ResourceTagMappingList",
+                          IncludeComplianceDetails=True, ExcludeCompliantResources=False,
+                          ResourcesPerPage=100)
+    assert read.status == "empty" and read.items == []
+    assert requests.calls == 2 and requests.raw_reads.gateway_retries == 1
+    assert [name for _, name, _ in calls] == ["GetResources", "GetResources"]
+    assert waits == [0.2]
+
+
+def test_tag_compliance_504_respects_scan_call_limit(native, monkeypatch):
+    calls, handlers = native
+    monkeypatch.setattr(pool.time, "sleep", lambda _: None)
+    handlers["GetResources"] = lambda _: (_ for _ in ()).throw(_error("504", 504))
+    requests = aws.Requests({"max_calls": 1})
+    read = requests.pages(_session(), "resourcegroupstaggingapi", REGION,
+                          "get_resources", "ResourceTagMappingList",
+                          IncludeComplianceDetails=True, ExcludeCompliantResources=False,
+                          ResourcesPerPage=100)
+    assert read.status == "not_collected" and read.error["code"] == "call_limit"
+    assert requests.calls == 1 and len(calls) == 1
+
+
 def test_identical_reads_share_one_native_call_within_a_scan(native):
     calls, handlers = native
     handlers["GetRole"] = lambda params: {"Role": {"RoleName": params["RoleName"]}}

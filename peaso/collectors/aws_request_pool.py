@@ -161,7 +161,7 @@ class RawReadCache:
         self._inflight = {}
         self._bytes = 0
         self.hits = self.waits = self.stored = self.evicted = self.oversized = self.seeded = 0
-        self.tls_retries = 0
+        self.tls_retries = self.gateway_retries = 0
         self.limiter = AdaptiveLimiter()
         # Load each client's CA bundle once instead of on every new TLS
         # connection (a shared-store race under concurrent handshakes).
@@ -184,16 +184,36 @@ class RawReadCache:
             # operations get a short bounded retry outside the endpoint slot;
             # ``Requests.call`` keeps its own attempt budget for API errors.
             retries = TLS_RETRY_DELAYS if operation_name.startswith(READ_PREFIXES) else ()
+            tag_compliance = (getattr(meta.service_model, "service_name", None) == "resourcegroupstaggingapi"
+                              and operation_name == "GetResources"
+                              and api_params.get("IncludeComplianceDetails") is True)
             for attempt in range(len(retries) + 1):
                 try:
                     with limiter.slot((root_id, getattr(meta, "endpoint_url", None))):
                         return original(operation_name, api_params)
                 except Exception as exc:
-                    if attempt == len(retries) or not tls_failure(exc):
+                    response = getattr(exc, "response", None)
+                    metadata = response.get("ResponseMetadata", {}) if isinstance(response, dict) else {}
+                    gateway_timeout = (tag_compliance and isinstance(metadata, dict)
+                                       and metadata.get("HTTPStatusCode") == 504)
+                    tls = tls_failure(exc)
+                    if attempt == len(retries) or not (tls or gateway_timeout):
                         raise
                 with self._lock:
-                    self.tls_retries += 1
+                    if tls:
+                        self.tls_retries += 1
+                    else:
+                        self.gateway_retries += 1
                 time.sleep(retries[attempt])
+                if gateway_timeout:
+                    owner = getattr(self, "owner", None)
+                    if owner is not None:
+                        owner.check_deadline()
+                        with owner._lock:
+                            if owner.max_calls is not None and owner.calls >= owner.max_calls:
+                                from .aws import ReadFailure
+                                raise ReadFailure("not_collected", "call_limit")
+                            owner.calls += 1
 
         def make_api_call(operation_name, api_params):
             if not _SHARED.get():
@@ -314,6 +334,7 @@ class RawReadCache:
             return {"entries": len(self._entries), "bytes": self._bytes, "hits": self.hits,
                     "waits": self.waits, "stored": self.stored, "evicted": self.evicted,
                     "oversized": self.oversized, "seeded": self.seeded, "tls_retries": self.tls_retries,
+                    "gateway_retries": self.gateway_retries,
                     "throttles": self.limiter.throttles, "limit_waits": self.limiter.waits}
 
 
@@ -349,6 +370,8 @@ def canonical_wrapper(requests, session):
     Its SDK clients are the root's pooled clients, so a wrapper job neither
     builds new botocore clients nor opens new connection pools.
     """
+    # Keep native retries within the scan's physical call and deadline budget.
+    requests.raw_reads.owner = requests
     root = wrapper_root(session)
     if root is None:
         return session
