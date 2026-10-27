@@ -546,7 +546,7 @@ class _BoundedPool:
         self.pool = pool
         self.server = urlsplit(server) if server else None
         self.allow_self_subject_access_review = False
-        self._literal_paths = ContextVar('k8s_literal_paths', default=frozenset())
+        self.literal_paths = frozenset()  # Populated only for the exact optional selected reader.
         self.selected_log_requests = frozenset()  # Exact runtime grants from the opted-in log sampler.
 
     @property
@@ -557,6 +557,8 @@ class _BoundedPool:
     def literal_paths(self, paths):
         # Grants belong to the selected reader's context, never to another
         # workload using this same credentialed transport on a worker thread.
+        if '_literal_paths' not in self.__dict__:
+            self._literal_paths = ContextVar('k8s_literal_paths', default=frozenset())
         self._literal_paths.set(frozenset(paths))
 
     def request(self, method, url, **kwargs):

@@ -3207,6 +3207,12 @@
         "defaults": "None",
         "kwdefaults": "None"
       },
+      "_automatic_literal_group": {
+        "callable": "peaso.collectors.k8s:_automatic_literal_group",
+        "code_sha256": "501b46b202390d52057562ab9ab81e188ce873eecbebea15b0a4ef06abfc2388",
+        "defaults": "None",
+        "kwdefaults": "None"
+      },
       "_cluster_id": {
         "callable": "peaso.collectors.k8s:_cluster_id",
         "code_sha256": "9dc0dd32cc1ecff8d32162f4b0a5b2de7ea032ab657bc58f778a89d9209fadb8",
