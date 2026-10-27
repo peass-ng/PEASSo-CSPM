@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build a fail-closed native-final proposal from explicit per-check proofs."""
 import argparse
+import ast
+import hashlib
 import json
 from pathlib import Path
 
@@ -44,6 +46,22 @@ def main():
                                                 for path in delegate["code_path"]]
         if proof.get("predicate_source") not in installed_paths or not proof.get("predicate"):
             raise ValueError("predicate proof does not bind to installed evaluator: " + ident)
+        if proof.get("evaluator_source_sha256") != row["evaluator_source_sha256"]:
+            raise ValueError("evaluator source digest changed: " + ident)
+        source_name, source_line = proof["predicate_source"].rsplit(":", 1)
+        source_path = (ROOT / source_name).resolve()
+        binding = proof.get("code_path_audit_ref", {})
+        if (not source_path.is_relative_to(ROOT) or not source_line.isdecimal() or
+                not source_path.is_file() or int(source_line) < 1 or
+                int(source_line) > len(source_path.read_text().splitlines()) or
+                hashlib.sha256(source_path.read_bytes()).hexdigest() != proof.get("source_file_sha256") or
+                binding.get("path") != source_name or
+                binding.get("source_sha256") != proof.get("source_file_sha256") or
+                binding.get("audit_ref") != "docs/ai-review/native-final-proofs-v3.json#" + ident or
+                not isinstance(binding.get("symbol"), str) or
+                not any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and
+                        node.name == binding["symbol"] for node in ast.walk(ast.parse(source_path.read_text())))):
+            raise ValueError("source file digest changed: " + ident)
         helpers = proof.get("helper_sources", [])
         if not isinstance(helpers, list):
             raise ValueError("invalid helper proof")

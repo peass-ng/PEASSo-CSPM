@@ -1,0 +1,28 @@
+{
+  "check_ids": [
+    "aws.a.cloudwatch.finite_retention_365",
+    "aws.a.cloudwatch.log_retention_at_least_365",
+    "aws.a.iam.active_key_age_90",
+    "aws.b.ecs.all_readonly_roots",
+    "aws.c2b.autoscaling.instance_types_per_az",
+    "aws.c2b.cloudfront.pqc_tls",
+    "aws.c2b.cloudfront.s3_origin_access_control",
+    "aws.c2b.elbv2.listeners_acm_certificate",
+    "aws.cb.secretsmanager.changed_within_365_days",
+    "aws.cb.secretsmanager.changed_within_90_days",
+    "aws.claude_a.ec2.instance_not_older_than_180_days",
+    "aws.claude_a.iam.access_key_age_365",
+    "aws.claude_a.iam.role_used_within_60_days",
+    "aws.claude_a.iam.user_long_lived_keys_only_iam_sts",
+    "aws.claude_a.s3.prowler_cross_region_replication",
+    "aws.pci.sns.delivery_status_logging",
+    "aws_backup_failure_notification",
+    "aws_fedramp_acm_all_certificates_30_day_expiry",
+    "aws_g6_acm_all_certificates_30_day_expiry",
+    "aws_nist_rds_db_instance_and_cluster_enhanced_monitoring_enabled"
+  ],
+  "independent_low_representative_receipt_included": false,
+  "proposal_version": "2026-10-27-v3",
+  "scan_id": "992d7b8cbd4340a79e41139ba1a44c1e",
+  "status": "proposal_only"
+}
