@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCOPED_SHA256 = "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889"
 SOURCE_LOW_SHA256 = "333ccb7146e02db59f14b2f8056c54bcbad266c5b55e696ced3ab5f19eb52eb3"
 HIGH_SHA256 = "9a2d6b0dcb5b93f3ec87ce01d756178fff77ebe5c9db3fd55025afa8d904aca4"
+EXPECTED_REFERENCES = {"high20": 62, "scoped64": 186}
 COLLECTION = re.compile(r"#collections\[type=([^]]+)\](.*)$")
 
 
@@ -90,6 +91,7 @@ def main():
         collections[collection["type"]].append(collection)
         rows[collection["type"]].extend(collection["items"])
     references = 0
+    references_by_proof = {"high20": 0, "scoped64": 0}
     clocks = 0
     for ident, check in by_id.items():
         proof = approved.get(ident)
@@ -124,6 +126,7 @@ def main():
             if not found:
                 raise ValueError("unresolved snapshot field: " + ident)
             references += 1
+            references_by_proof["scoped64" if proof else "high20"] += 1
         clock = det["scan_time"]
         if clock is not None:
             if (not clock["source_field"].endswith("or snapshot.created_at") or
@@ -131,6 +134,8 @@ def main():
                     not clock["recorded_evidence_ref"].endswith("|created_at")):
                 raise ValueError("captured clock reference changed: " + ident)
             clocks += 1
+    if references_by_proof != EXPECTED_REFERENCES or references != 248:
+        raise ValueError("84-ID snapshot-reference count changed")
     gate_raw = Path(args.code_gate).read_bytes()
     gate = load_gate(args.code_gate)
     pending = gate_admission(gate, candidate, checks, False)
@@ -169,6 +174,7 @@ def main():
         "candidate_checks": 84, "high_approved_checks": 20, "scoped_approved_checks": 64,
         "whole_file_source_hashes_verified": len(checks),
         "resolved_recorded_evidence_references": references,
+        "resolved_references_by_proof": references_by_proof,
         "captured_clock_references_verified": clocks,
         "pending_admitted": len(pending),
         "combined_temporary_qualified_admitted": len(combined_qualified),

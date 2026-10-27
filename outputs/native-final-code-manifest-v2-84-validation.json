@@ -52,6 +52,10 @@
   "production_manifest_modified": false,
   "replay_qualification": "pending",
   "resolved_recorded_evidence_references": 248,
+  "resolved_references_by_proof": {
+    "high20": 62,
+    "scoped64": 186
+  },
   "schema_version": 2,
   "scoped_approved_checks": 64,
   "scoped_source_proof_sha256": "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e0120889",
