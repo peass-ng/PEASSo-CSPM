@@ -3787,6 +3787,63 @@ def _azure_realtime_endpoint(snapshot, inventory, resource):
     return a
 
 
+def _azure_synapse_workspace(snapshot, inventory, resource):
+    """Workspace public SQL/development listeners and complete ARM IP rules."""
+    props = _props(resource)
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "Synapse public network access is not explicit")
+        return a
+    a.step("public_network_access", "allow", value=access)
+    endpoints = props.get("connectivityEndpoints")
+    ports = {}
+    if isinstance(endpoints, dict):
+        for name, port in (("sql", 1433), ("sqlOnDemand", 1433), ("dev", 443)):
+            host = endpoints.get(name)
+            if isinstance(host, str) and host:
+                a.addresses.append(host)
+                ports = union(ports, pset("tcp", port, port))
+    if not ports:
+        a.gap("inventory", "Synapse SQL/development endpoint hostnames are unavailable")
+    coverage = (resource["data"].get("_coverage") or {}).get("firewallRules") or {}
+    rules = resource["data"].get("firewallRules")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(rules, list):
+        a.gap("firewall", "Synapse workspace firewall rules are not fully collected")
+        a.ports = ports or None
+        return a
+    public_rules, malformed = [], False
+    for rule in rules:
+        fields = rule.get("properties") if isinstance(rule, dict) else None
+        try:
+            start = ipaddress.IPv4Address(fields["startIpAddress"])
+            end = ipaddress.IPv4Address(fields["endIpAddress"])
+            if start > end:
+                raise ValueError("reversed range")
+            if start == end == ipaddress.IPv4Address("0.0.0.0"):
+                public_rules.append({"name": rule.get("name"), "source": "any Azure tenant"})
+            elif _azure_public_remainder(ipaddress.summarize_address_range(start, end), []):
+                public_rules.append({"name": rule.get("name"), "source": str(start) + "-" + str(end)})
+        except (TypeError, KeyError, ValueError):
+            malformed = True
+    if public_rules:
+        a.step("firewall", "allow", public_rules=public_rules)
+        a.ports = ports or None
+    elif malformed:
+        a.gap("firewall", "Synapse firewall IP range is unresolved")
+        a.ports = ports or None
+    else:
+        a.step("firewall", "block", reason="no public-source workspace firewall rule")
+        a.ports = {}
+    a.notes.append("Workspace listener exposure does not establish SQL or Synapse authorization")
+    return a
+
+
 def _azure_public_edge(snapshot, inventory, resource):
     """Assess the public listener from the collector's bounded route projection."""
     data = resource["data"]
@@ -4446,7 +4503,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -4462,7 +4519,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -4523,6 +4580,7 @@ def assess(snapshot, resources):
                   "redis_cache": _azure_redis,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
+                  "synapse_workspace": _azure_synapse_workspace,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,

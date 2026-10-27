@@ -371,6 +371,31 @@ def test_realtime_service_public_request_and_ip_paths(kind):
     assert decision(kind, {**base, "networkACLs": allowed, "publicPort": None}).verdict() == "UNKNOWN"
 
 
+def test_synapse_workspace_public_sql_and_cross_tenant_firewall():
+    rid = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Synapse/workspaces/ws"
+    base = {"publicNetworkAccess": "Enabled", "connectivityEndpoints": {
+        "sql": "ws.sql.azuresynapse.net", "sqlOnDemand": "ws-ondemand.sql.azuresynapse.net",
+        "dev": "ws.dev.azuresynapse.net"}}
+
+    def evaluate(rules, status="collected", props=None):
+        snap = make_snapshot("azure", [SCOPE], [{"type": "synapse_workspace", "scope": SCOPE,
+            "service": "synapse", "status": "collected", "items": [{"id": rid,
+                "properties": props if props is not None else base, "firewallRules": rules,
+                "_coverage": {"firewallRules": {"status": status}}}]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "synapse_workspace")
+
+    public = {"name": "public", "properties": {"startIpAddress": "8.8.8.8", "endIpAddress": "8.8.8.8"}}
+    azure = {"name": "azure", "properties": {"startIpAddress": "0.0.0.0", "endIpAddress": "0.0.0.0"}}
+    row = evaluate([public])
+    assert row.verdict() == "FAIL" and row.ports == {"tcp": ((443, 443), (1433, 1433))}
+    assert evaluate([azure]).path[-1]["public_rules"][0]["source"] == "any Azure tenant"
+    assert evaluate([]).verdict() == "PASS"
+    assert evaluate([public], status="partial").verdict() == "UNKNOWN"
+    assert evaluate([{"properties": {"startIpAddress": "bad", "endIpAddress": "8.8.8.8"}}]).verdict() == "UNKNOWN"
+    assert evaluate([public], props={"publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+    assert evaluate([public], props={"publicNetworkAccess": "Enabled"}).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,port", [("mysql_flexible_server", 3306), ("postgresql_flexible_server", 5432)])
 def test_flexible_database_firewall_public_and_cross_tenant_sources(kind, port):
     rid = f"{SCOPE}/resourceGroups/rg/providers/test/{kind}/db"
