@@ -10,7 +10,7 @@ from fnmatch import fnmatchcase
 
 from peaso.analysis.common import as_list, externality, native_id, with_analysis_context
 from peaso.analysis.iam import assume_role_document, grants
-from peaso.analysis.internet_exposure import assess, describe, ports_of, Assessment, Inventory, pset, union, intersect, empty, _aws_vpc_path, _public_source, _public_ip
+from peaso.analysis.internet_exposure import assess, describe, ports_of, Assessment, Inventory, pset, union, intersect, empty, _aws_vpc_path, _aws_nacl, _public_source, _public_ip
 from peaso.analysis.trust import restrictive_conditions, aws_federated_trust, _k8s_self_info_binding
 
 LIMITATIONS = [
@@ -23,6 +23,33 @@ LIMITATIONS = [
 from peaso.principal_exposure_requirements import REQUIRED_TYPES
 
 RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+
+def _nlb_target_source_group(inventory, target_groups, lb_groups, port, vpc_id, account):
+    """An exact target SG ingress reference to an attached NLB SG."""
+    if not lb_groups or not vpc_id:
+        return None
+    lb_groups = {group_id for group_id in lb_groups if (group := inventory.get("security_group", group_id))
+                 is not None and group["data"].get("VpcId") == vpc_id}
+    if not lb_groups:
+        return None
+    for target_group in target_groups:
+        group = inventory.get("security_group", target_group)
+        if group is None or group["data"].get("VpcId") != vpc_id:
+            continue
+        for rule in as_list(group["data"].get("IpPermissions")):
+            if not isinstance(rule, dict) or str(rule.get("IpProtocol")).lower() not in ("tcp", "6", "-1"):
+                continue
+            if str(rule.get("IpProtocol")) != "-1" and not (
+                    isinstance(rule.get("FromPort"), int) and isinstance(rule.get("ToPort"), int)
+                    and rule["FromPort"] <= port <= rule["ToPort"]):
+                continue
+            for pair in as_list(rule.get("UserIdGroupPairs")):
+                if (isinstance(pair, dict) and pair.get("GroupId") in lb_groups
+                        and pair.get("UserId", account) == account
+                        and pair.get("VpcId", vpc_id) == vpc_id):
+                    return {"target_security_group": target_group, "load_balancer_security_group": pair["GroupId"]}
+    return None
 
 
 def increased(severity, signals):
@@ -514,6 +541,18 @@ def _workloads(snapshot, resources, by_type, signal):
                                 allowed = _aws_vpc_path(aws_backend_inventory, proof, [eni_data.get("SubnetId")], groups,
                                                         pset("tcp", port, port), eni_data.get("NetworkInterfaceId"),
                                                         route=False, vpc_id=eni_data.get("VpcId"))
+                                source_group = None
+                                if empty(intersect(allowed, pset("tcp", port, port))):
+                                    lb_groups = {x for x in as_list(row["data"].get("SecurityGroups")) if isinstance(x, str)}
+                                    if tg_data.get("VpcId") == row["data"].get("VpcId") == eni_data.get("VpcId"):
+                                        source_group = _nlb_target_source_group(
+                                            aws_backend_inventory, groups, lb_groups, port, eni_data.get("VpcId"),
+                                            row["scope"].split("/", 1)[0])
+                                    if source_group:
+                                        proof = Assessment(eni, "backend")
+                                        allowed = _aws_nacl(aws_backend_inventory, eni_data.get("SubnetId"),
+                                                            pset("tcp", port, port), proof,
+                                                            eni_data.get("NetworkInterfaceId"))
                                 if proof.unresolved or proof.notes or empty(intersect(allowed, pset("tcp", port, port))):
                                     continue
                                 acl_resource_id = next((step.get("acl") for step in proof.path
@@ -522,6 +561,11 @@ def _workloads(snapshot, resources, by_type, signal):
                                                    "backend_security_groups": groups,
                                                    "backend_acl": next((acl["data"].get("NetworkAclId") for acl in by_type["network_acl"]
                                                                         if acl.get("native_id") == acl_resource_id), acl_resource_id)}
+                                if source_group:
+                                    backend_network["backend_source_group"] = source_group
+                                attributes = tg_data.get("SourceAttributes")
+                                if isinstance(attributes, dict) and attributes.get("collection_status") == "collected":
+                                    backend_network["preserve_client_ip_enabled"] = attributes.get("preserve_client_ip_enabled")
                             confirmed_targets.add(task["id"])
                             backend_evidence.setdefault(task["id"], {"target_group": tg_arn,
                                 "healthy_target": {"ip": eni["data"].get("PrivateIpAddress"), "port": port},

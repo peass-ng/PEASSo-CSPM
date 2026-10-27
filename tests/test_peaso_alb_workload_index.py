@@ -174,6 +174,35 @@ def test_nlb_tcp_ip_target_requires_exact_health_and_backend_sg_nacl(backend_ope
         assert signal['backend_evidence']['backend_acl'] == 'acl-0'
 
 
+@pytest.mark.parametrize('reference,expected', [
+    ('sg-lb', 'declared'), ('sg-other', 'unknown'), (None, 'unknown')])
+def test_nlb_target_role_accepts_only_attached_lb_source_group(reference, expected):
+    snapshot = synthetic_snapshot(1)
+    facts = {c['type']: c['items'] for c in snapshot['collections']}
+    lb = facts['load_balancer'][0]
+    lb.update(Type='network', VpcId='vpc-a', SecurityGroups=['sg-lb'])
+    lb['Listeners']['items'][0]['Protocol'] = 'TCP'
+    tg = facts['target_group'][0]
+    tg.update(Protocol='TCP', VpcId='vpc-a', SourceAttributes={
+        'collection_status': 'collected', 'preserve_client_ip_enabled': True})
+    eni = facts['network_interface'][0]
+    eni.update(SubnetId='subnet-0', VpcId='vpc-a', Groups=[{'GroupId': 'sg-target'}])
+    facts['security_group'].append({'GroupId': 'sg-lb', 'VpcId': 'vpc-a', 'IpPermissions': [
+        {'IpProtocol': 'tcp', 'FromPort': 400, 'ToPort': 400,
+         'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}]})
+    facts['security_group'].append({'GroupId': 'sg-target', 'VpcId': 'vpc-a', 'IpPermissions': [
+        {'IpProtocol': 'tcp', 'FromPort': 8080, 'ToPort': 8080,
+         'UserIdGroupPairs': [{'GroupId': reference}] if reference else []}]})
+    snapshot = validate(seal(snapshot))
+    signal = project(snapshot, resources(snapshot))['arn:aws:iam::111122223333:role/task-0']['exposures'][0]
+    assert signal['state'] == expected
+    assert ('backend_evidence' in signal) == (expected == 'declared')
+    if expected == 'declared':
+        assert signal['backend_evidence']['backend_source_group'] == {
+            'target_security_group': 'sg-target', 'load_balancer_security_group': 'sg-lb'}
+        assert signal['backend_evidence']['preserve_client_ip_enabled'] is True
+
+
 @pytest.mark.parametrize('healthy,backend_open,expected', [
     (True, True, 'declared'), (False, True, 'unknown'), (True, False, 'unknown')])
 def test_classic_elb_instance_role_requires_health_and_backend_port(healthy, backend_open, expected):

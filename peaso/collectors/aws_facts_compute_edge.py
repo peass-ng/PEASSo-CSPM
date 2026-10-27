@@ -56,6 +56,7 @@ READ_ACTIONS.update({
     ("apigatewayv2", "get_api_mappings"), ("apigatewayv2", "get_integrations"),
     ("apigatewayv2", "list_routing_rules"),
     ("elb", "describe_instance_health"),
+    ("elbv2", "describe_target_group_attributes"),
     ("appsync", "get_api_cache"), ("eks", "describe_addon"), ("lambda", "get_function_configuration"),
     ("elbv2", "describe_rules"), ("logs", "describe_delivery_sources"), ("logs", "describe_deliveries"),
     ("ec2", "get_managed_prefix_list_entries"), ("ec2", "describe_image_attribute"),
@@ -585,6 +586,35 @@ def _classic_instance_health(requests, session, region, items):
     return output
 
 
+def _target_group_attributes(requests, session, region, items):
+    """Keep the NLB client source mode from one cached read per target group."""
+    output = []
+    for item in items:
+        current = copy.deepcopy(item)
+        arn = current.get("TargetGroupArn")
+        if not isinstance(arn, str) or not arn:
+            current["SourceAttributes"] = {"collection_status": "malformed"}
+            output.append(current)
+            continue
+        if current.get("Protocol") not in ("TCP", "TLS") or current.get("TargetType") != "ip":
+            output.append(current)
+            continue
+        read = requests.detail(session, "elbv2", region, "describe_target_group_attributes", TargetGroupArn=arn)
+        status = read.get("collection_status", "not_collected")
+        attributes = read.get("Attributes")
+        if status == "collected" and isinstance(attributes, list) and all(isinstance(x, dict) for x in attributes):
+            values = [x.get("Value") for x in attributes if x.get("Key") == "preserve_client_ip.enabled"]
+            if len(values) == 1 and values[0] in ("true", "false"):
+                current["SourceAttributes"] = {"collection_status": "collected",
+                                                "preserve_client_ip_enabled": values[0] == "true"}
+            else:
+                current["SourceAttributes"] = {"collection_status": "malformed"}
+        else:
+            current["SourceAttributes"] = {"collection_status": "malformed" if status == "collected" else status}
+        output.append(current)
+    return output
+
+
 def _cloudfront_log_deliveries(requests, session, region, items):
     """CloudWatch Logs v2 deliveries whose source resourceArns name the distribution."""
     home = _global_region(region)
@@ -729,5 +759,6 @@ ENRICHERS = {
     "managed_prefix_list": _prefix_list_entries,
     "load_balancer": _load_balancer_rules,
     "classic_load_balancer": _classic_instance_health,
+    "target_group": _target_group_attributes,
     "cloudfront_distribution": _cloudfront_log_deliveries,
 }
