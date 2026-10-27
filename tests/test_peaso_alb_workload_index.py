@@ -143,3 +143,32 @@ def test_shared_load_balancer_keeps_all_workload_health_pairs():
     assert actual == expected
     assert len(actual) == 30
     assert all(len(card['exposures']) == 1 and card['exposures'][0]['state'] == 'declared' for card in actual.values())
+
+
+@pytest.mark.parametrize('backend_open,healthy,expected', [
+    (True, True, 'declared'), (False, True, 'unknown'), (True, False, 'unknown')])
+def test_nlb_tcp_ip_target_requires_exact_health_and_backend_sg_nacl(backend_open, healthy, expected):
+    snapshot = synthetic_snapshot(1)
+    facts = {c['type']: c['items'] for c in snapshot['collections']}
+    lb = facts['load_balancer'][0]
+    lb['Type'] = 'network'
+    lb['SecurityGroups'] = []
+    lb['Listeners']['items'][0]['Protocol'] = 'TCP'
+    tg = facts['target_group'][0]
+    tg['Protocol'] = 'TCP'
+    if not healthy:
+        tg['TargetHealth']['TargetHealthDescriptions'][0]['TargetHealth']['State'] = 'unhealthy'
+    eni = facts['network_interface'][0]
+    eni.update(SubnetId='subnet-0', VpcId='vpc-a', Groups=[{'GroupId': 'sg-target'}])
+    facts['security_group'].append({'GroupId': 'sg-target', 'VpcId': 'vpc-a', 'IpPermissions': [
+        {'IpProtocol': 'tcp', 'FromPort': 8080, 'ToPort': 8080, 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
+    ] if backend_open else []})
+    snapshot = validate(seal(snapshot))
+    actual = project(snapshot, resources(snapshot))
+    signal = actual['arn:aws:iam::111122223333:role/task-0']['exposures'][0]
+    assert signal['state'] == expected
+    assert ('backend_evidence' in signal) == (expected == 'declared')
+    if expected == 'declared':
+        assert signal['backend_evidence']['healthy_target'] == {'ip': '10.0.0.1', 'port': 8080}
+        assert signal['backend_evidence']['backend_security_groups'] == ['sg-target']
+        assert signal['backend_evidence']['backend_acl'] == 'acl-0'

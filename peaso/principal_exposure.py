@@ -10,7 +10,7 @@ from fnmatch import fnmatchcase
 
 from peaso.analysis.common import as_list, externality, native_id, with_analysis_context
 from peaso.analysis.iam import assume_role_document, grants
-from peaso.analysis.internet_exposure import assess, describe, ports_of, Assessment, pset, union, _public_source, _public_ip
+from peaso.analysis.internet_exposure import assess, describe, ports_of, Assessment, Inventory, pset, union, intersect, empty, _aws_vpc_path, _public_source, _public_ip
 from peaso.analysis.trust import restrictive_conditions, aws_federated_trust, _k8s_self_info_binding
 
 LIMITATIONS = [
@@ -305,6 +305,7 @@ def _workloads(snapshot, resources, by_type, signal):
         k8s_workloads = K8sWorkloadIndex(snapshot, by_type, _cluster)
     from peaso.analysis.cloud_workload_index import CloudWorkloadIndex, compute_path
     cloud_workloads = CloudWorkloadIndex(by_type)
+    nlb_backend_inventory = None
     profiles = {r["data"].get("Arn"): r["data"] for r in by_type["iam_instance_profile"]}
     # IAM role inventory embeds instance profiles on some collector versions.
     for role in by_type["iam_role"]:
@@ -470,8 +471,11 @@ def _workloads(snapshot, resources, by_type, signal):
             for tg in cloud_workloads.candidates("target_group", "TargetGroupArn", forwards):
                 tg_data = tg["data"]
                 tg_arn = tg_data.get("TargetGroupArn")
-                if (row["data"].get("Type") != "application" or tg_arn not in forwards
+                lb_type = row["data"].get("Type")
+                if (lb_type not in ("application", "network") or tg_arn not in forwards
                         or tg_arn not in tgs or tg_data.get("TargetType") != "ip"):
+                    continue
+                if lb_type == "network" and tg_data.get("Protocol") not in ("TCP", "TLS"):
                     continue
                 health = tg_data.get("TargetHealth") or {}
                 if health.get("collection_status") != "collected":
@@ -493,14 +497,35 @@ def _workloads(snapshot, resources, by_type, signal):
                             continue
                         eni_ids = {detail.get("value") for attachment in task_data.get("attachments") or []
                             for detail in attachment.get("details") or [] if detail.get("name") == "networkInterfaceId"}
-                        match = next(((eni["data"].get("PrivateIpAddress"), port) for eni in cloud_workloads.candidates("network_interface", "NetworkInterfaceId", eni_ids)
+                        match = next(((eni, port) for eni in cloud_workloads.candidates("network_interface", "NetworkInterfaceId", eni_ids)
                             if eni["data"].get("NetworkInterfaceId") in eni_ids for port in ports
                             if (eni["data"].get("PrivateIpAddress"), port) in healthy_targets), None)
                         if match:
+                            eni, port = match
+                            backend_network = {}
+                            if lb_type == "network":
+                                if nlb_backend_inventory is None:
+                                    nlb_backend_inventory = Inventory(snapshot, [*by_type["subnet"], *by_type["security_group"],
+                                                                        *by_type["network_acl"]])
+                                eni_data = eni["data"]
+                                groups = [g.get("GroupId") for g in as_list(eni_data.get("Groups"))
+                                          if isinstance(g, dict) and isinstance(g.get("GroupId"), str)]
+                                proof = Assessment(eni, "backend")
+                                allowed = _aws_vpc_path(nlb_backend_inventory, proof, [eni_data.get("SubnetId")], groups,
+                                                        pset("tcp", port, port), eni_data.get("NetworkInterfaceId"),
+                                                        route=False, vpc_id=eni_data.get("VpcId"))
+                                if proof.unresolved or proof.notes or empty(intersect(allowed, pset("tcp", port, port))):
+                                    continue
+                                acl_resource_id = next((step.get("acl") for step in proof.path
+                                                        if step.get("layer") == "network_acl" and step.get("decision") == "allow"), None)
+                                backend_network = {"backend_subnet": eni_data.get("SubnetId"),
+                                                   "backend_security_groups": groups,
+                                                   "backend_acl": next((acl["data"].get("NetworkAclId") for acl in by_type["network_acl"]
+                                                                        if acl.get("native_id") == acl_resource_id), acl_resource_id)}
                             confirmed_targets.add(task["id"])
                             backend_evidence.setdefault(task["id"], {"target_group": tg_arn,
-                                "healthy_target": {"ip": match[0], "port": match[1]},
-                                "ecs_service": svc.get("serviceName"), **forwards[tg_arn]})
+                                "healthy_target": {"ip": eni["data"].get("PrivateIpAddress"), "port": port},
+                                "ecs_service": svc.get("serviceName"), **forwards[tg_arn], **backend_network})
         if provider == "aws" and row["type"] == "rest_api":
             def base_lambda_arn(value):
                 if not isinstance(value, str) or ":function:" not in value:
