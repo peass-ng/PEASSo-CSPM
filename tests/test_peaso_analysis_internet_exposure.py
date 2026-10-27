@@ -517,6 +517,30 @@ def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["foreign"]
 
 
+def test_gcp_authorized_view_with_public_reader_exposes_source_dataset():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"view": {"projectId": "p1", "datasetId": "views", "tableId": "public_view"}}]}
+    target = {"name": "projects/p1/datasets/views", "access": [
+        {"role": "READER", "specialGroup": "allUsers"}]}
+    view = {"name": "projects/p1/datasets/views/tables/public_view", "type": "VIEW",
+            "iamPolicy": {"bindings": []}}
+    def assessment(table=view):
+        snap = gcp(gcoll("bigquery_dataset", [source, target], service="bigquery"),
+                   gcoll("bigquery_table", [table] if table else [], service="bigquery"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL"
+    target["access"] = []
+    view["iamPolicy"]["bindings"] = [{"role": "roles/bigquery.dataViewer", "members": ["allUsers"]}]
+    assert assessment().verdict() == "FAIL"
+    view["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+    assert assessment(None).verdict() == "UNKNOWN"
+
+
 @pytest.mark.parametrize("kind,target_segment,detail", [
     ("target_instance", "targetInstances", {"instance": "vm-ref"}),
     ("target_pool", "targetPools", {"instances": ["vm-ref"]}),

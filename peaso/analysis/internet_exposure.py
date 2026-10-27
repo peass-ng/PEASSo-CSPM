@@ -2009,6 +2009,33 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     external_projects = sorted({project for row in delegated
                                 if isinstance(project := destination_project(row), str)
                                 and project and project != source_project})
+    public_views = []
+    for row in delegated:
+        if row["kind"] != "view":
+            continue
+        ref = row["reference"]
+        if destination_project(row) != source_project or not all(isinstance(ref.get(key), str) and ref[key]
+                for key in ("datasetId", "tableId")):
+            continue
+        view_name = f"{resource['scope']}/datasets/{ref['datasetId']}/tables/{ref['tableId']}"
+        view = inventory.get("bigquery_table", view_name)
+        if view is None or view["data"].get("type") != "VIEW":
+            continue
+        dataset_name = f"{resource['scope']}/datasets/{ref['datasetId']}"
+        target = inventory.get("bigquery_dataset", dataset_name)
+        dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
+            any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
+                ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
+                for entry in target["data"]["access"]))
+        policy = view["data"].get("iamPolicy")
+        table_public = (isinstance(policy, dict) and policy.get("collection_status") in (None, "collected") and
+            any(isinstance(binding, dict) and not binding.get("condition") and
+                binding.get("role") in ("roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.admin") and
+                any(member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members")))
+                for binding in as_list(policy.get("bindings"))))
+        if dataset_public or table_public:
+            public_views.append({"view": view_name, "dataset_public": bool(dataset_public),
+                                 "table_public": bool(table_public)})
     a.external_ids = external_projects
     if public:
         a.data_exposure = True
@@ -2020,6 +2047,10 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         a.data_exposure = True
         a.step("dataset_acl", "allow", delegated=delegated, external_projects=external_projects)
         a.notes.append("Destination readers and project ownership are not established by this grant")
+    elif public_views:
+        a.data_exposure = True
+        a.step("authorized_view", "allow", public_views=public_views,
+               semantics="Public query access to an authorized view; returned columns depend on view SQL")
     else:
         # An authorized view/routine/dataset receives source-data privileges,
         # but the destination's readers and project ownership need a join.
