@@ -1213,12 +1213,37 @@ def _aws_amplify(snapshot, inventory, resource):
     if not isinstance(domain, str) or not domain:
         a.gap("inventory", "Amplify default domain missing", "amplify:ListApps")
         return a
-    a.addresses = [domain]
+    names = [x.get("displayName") or x.get("branchName") for x in items]
+    if any(not isinstance(name, str) or not name for name in names):
+        a.gap("inventory", "Amplify branch domain prefix missing", "amplify:ListBranches")
+        return a
+    a.addresses = [f"{name}.{domain}" for name in names]
+    domains = data.get("DomainAssociations")
+    if isinstance(domains, dict) and domains.get("collection_status") in ("collected", "empty") and isinstance(domains.get("items"), list):
+        custom = []
+        for association in domains["items"]:
+            if not isinstance(association, dict) or association.get("domainStatus") != "AVAILABLE":
+                continue
+            suffix = association.get("domainName")
+            if not isinstance(suffix, str) or not suffix:
+                continue
+            for subdomain in as_list(association.get("subDomains")):
+                if not isinstance(subdomain, dict) or subdomain.get("verified") is not True:
+                    continue
+                setting = subdomain.get("subDomainSetting")
+                if not isinstance(setting, dict) or setting.get("branchName") not in [x.get("branchName") for x in items]:
+                    continue
+                prefix = setting.get("prefix")
+                if isinstance(prefix, str):
+                    custom.append(f"{prefix}.{suffix}" if prefix else suffix)
+        a.addresses.extend(custom)
+        a.step("custom_domain", "allow" if custom else "block", domains=custom)
+    else:
+        a.notes.append("Custom-domain associations were not collected; default branch domains remain known")
     a.ports = pset("tcp", 443, 443)
-    a.step("hosting", "allow", branch_count=len(items), default_domain=domain)
-    a.notes.append("Branch display names, deployment health and branch-level basic authentication are not collected")
-    if data.get("enableBasicAuth") is True:
-        a.authenticated = True
+    a.step("hosting", "allow", branch_count=len(items), default_domains=a.addresses[:len(items)])
+    a.notes.append("Deployment health is not collected; configured endpoint availability may differ")
+    a.authenticated = all(x.get("enableBasicAuth") is True or data.get("enableBasicAuth") is True for x in items)
     return a
 
 

@@ -440,10 +440,17 @@ def test_service_planes_drop_secrets(stub):
         "activeJobId": "1", "totalNumberOfJobs": "1", "enableBasicAuth": False,
         "ttl": "5", "enablePullRequestPreview": False,
         "environmentVariables": {"TOKEN": "branch-secret"}, "buildSpec": "branch-secret-build"}]}, {"appId": "a1"})
+    amp.add_response("list_domain_associations", {"domainAssociations": [{
+        "domainAssociationArn": f"arn:aws:amplify:{REGION}:{ACCOUNT}:apps/a1/domains/example.com",
+        "domainName": "example.com", "enableAutoSubDomain": False, "domainStatus": "AVAILABLE", "statusReason": "",
+        "subDomains": [{"subDomainSetting": {"prefix": "www", "branchName": "main"},
+                        "verified": True, "dnsRecord": "www CNAME target"}]}]}, {"appId": "a1"})
     read = run("amplify_app", session)
     dumped = json.dumps(read.items, default=str)
     assert read.items[0]["BackendEnvironments"]["items"][0]["environmentName"] == "dev"
     assert read.items[0]["Branches"]["items"][0]["branchName"] == "main"
+    assert read.items[0]["Branches"]["items"][0]["enableBasicAuth"] is False
+    assert read.items[0]["DomainAssociations"]["items"][0]["subDomains"][0]["subDomainSetting"]["prefix"] == "www"
     assert read.items[0]["RepositoryConnected"] is False
     assert read.items[0]["AppBuildSpecPresent"] is True
     assert read.items[0]["Branches"]["items"][0]["BranchBuildSpecPresent"] is True
@@ -463,6 +470,7 @@ def test_amplify_app_without_build_spec_does_not_claim_one(stub):
     }]})
     amp.add_response("list_backend_environments", {"backendEnvironments": []}, {"appId": "a2"})
     amp.add_response("list_branches", {"branches": []}, {"appId": "a2"})
+    amp.add_response("list_domain_associations", {"domainAssociations": []}, {"appId": "a2"})
     read = run("amplify_app", session)
     assert read.items[0]["AppBuildSpecPresent"] is False
     assert "buildSpec" not in json.dumps(read.items, default=str)

@@ -86,7 +86,7 @@ READ_ACTIONS = {
     ("imagebuilder", "list_infrastructure_configurations"), ("imagebuilder", "get_image_recipe"),
     ("sagemaker", "describe_user_profile"), ("sagemaker", "describe_cluster"), ("sagemaker", "describe_domain"),
     ("sagemaker", "describe_space"),
-    ("amplify", "list_backend_environments"), ("amplify", "list_branches"),
+    ("amplify", "list_backend_environments"), ("amplify", "list_branches"), ("amplify", "list_domain_associations"),
     ("grafana", "list_workspace_service_accounts"),
     ("quicksight", "describe_account_subscription"),
     ("gamelift", "describe_fleet_attributes"), ("gamelift", "list_compute"),
@@ -995,9 +995,18 @@ def _amplify_apps(requests, session, region, account):
         branches = requests.pages(session, "amplify", region, "list_branches", "branches",
                                   _tokens=("nextToken", "nextToken"), appId=app["appId"])
         row["Branches"] = _child(branches, [
-            {**_pick(x, ("branchArn", "branchName", "stage", "enableAutoBuild", "framework", "computeRoleArn")),
+            {**_pick(x, ("branchArn", "branchName", "displayName", "stage", "enableAutoBuild", "enableBasicAuth", "framework", "computeRoleArn")),
              "BranchBuildSpecPresent": bool(x.get("buildSpec"))}
             for x in branches.items if isinstance(x, dict)])
+        domains = requests.pages(session, "amplify", region, "list_domain_associations", "domainAssociations",
+                                 _tokens=("nextToken", "nextToken"), appId=app["appId"])
+        row["DomainAssociations"] = _child(domains, [
+            {**_pick(x, ("domainAssociationArn", "domainName", "domainStatus", "enableAutoSubDomain")),
+             "subDomains": [
+                 {"subDomainSetting": _pick(sub.get("subDomainSetting", {}), ("prefix", "branchName")),
+                  "verified": sub.get("verified")}
+                 for sub in x.get("subDomains", []) if isinstance(sub, dict)]}
+            for x in domains.items if isinstance(x, dict)])
         items.append(row)
     return _finish(items, failure)
 

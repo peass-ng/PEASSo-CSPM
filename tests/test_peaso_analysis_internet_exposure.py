@@ -249,6 +249,20 @@ def test_aws_amplify_hosted_branches_have_public_viewer_endpoint():
     assert not exposure(snapshot({"collection_status": "empty", "items": []}))
 
 
+def test_aws_amplify_branch_display_auth_and_verified_custom_domain():
+    app = {"appArn": f"arn:aws:amplify:us-east-1:{ACCOUNT}:apps/d1", "defaultDomain": "d1.amplifyapp.com",
+           "enableBasicAuth": False, "Branches": {"collection_status": "collected", "items": [
+               {"branchName": "main", "displayName": "web", "enableBasicAuth": True}]},
+           "DomainAssociations": {"collection_status": "collected", "items": [
+               {"domainName": "example.com", "domainStatus": "AVAILABLE", "subDomains": [
+                   {"subDomainSetting": {"prefix": "www", "branchName": "main"}, "verified": True},
+                   {"subDomainSetting": {"prefix": "old", "branchName": "main"}, "verified": False}]}]}}
+    result = one(aws(coll("amplify_app", [app], service="amplify")), "amplify_app")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["web.d1.amplifyapp.com", "www.example.com"]
+    assert result["evidence"]["authenticated_endpoint"] is True
+
+
 def lambda_function(auth="NONE", policy=True):
     statements = [
         {"Effect": "Allow", "Principal": "*", "Action": "lambda:InvokeFunctionUrl", "Resource": "*",
