@@ -440,7 +440,7 @@ def review_concurrency():
 
 
 def review_batches(report, inventory_by_id, entries, token, hardening, exposure, end, *, network=None,
-                   stages=None, cancel_event=None):
+                   stages=None, cancel_event=None, coalesce_rechecks=False):
     """Bounded work queue: overlap independent stages, preserve result order."""
     stages = frozenset(('hardening', 'exposure', 'network') if stages is None else stages)
     output = {stage: {} for stage in ('hardening', 'exposure') if stage in stages}
@@ -448,10 +448,11 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
     from .collection_coverage import index
     coverage = index(report.get('coverage'))
     from collections import deque
-    from .review_groups import chunks, expand, plan, stage_limit
+    from .review_groups import BATCH_SIZE, chunks, expand, plan, stage_limit
     expected = {'hardening': hardening, 'exposure': exposure}
     groups = {}
     queue = deque()
+    recheck_buffer = {'hardening': [], 'exposure': []}
     # Admit the holistic network review early; it shares the same memory
     # and concurrency limits as reviewer batches, never an extra pool.
     if network is not None and 'network' in stages:
@@ -517,7 +518,14 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
             output[stage][row['finding_id']] = row
         # A representative that was not confirmed never decides its group:
         # each remaining member gets its own review in the same bounded pool.
-        queue.extendleft((stage, part, False) for part in reversed(chunks(recheck)))
+        if coalesce_rechecks:
+            buffer = recheck_buffer[stage]
+            buffer.extend(recheck)
+            while len(buffer) >= BATCH_SIZE:
+                queue.appendleft((stage, buffer[:BATCH_SIZE], False))
+                del buffer[:BATCH_SIZE]
+        else:
+            queue.extendleft((stage, part, False) for part in reversed(chunks(recheck)))
 
     # Each section uses the existing bounded, memory-aware review pool. A
     # remaining large section can keep using both default slots after another
@@ -526,7 +534,11 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
     if slots:
         with ThreadPoolExecutor(max_workers=slots, thread_name_prefix='cspm-ai') as executor:
             pending = {}
-            while pending or queue:
+            while pending or queue or any(recheck_buffer.values()):
+                if not pending and not queue:
+                    for stage in ('hardening', 'exposure'):
+                        queue.extend((stage, part, False) for part in chunks(recheck_buffer[stage]))
+                        recheck_buffer[stage].clear()
                 # Recheck admission before starting another batch. Existing
                 # agents retain their slots; no unbounded futures queue exists.
                 capacity = min(slots, review_concurrency() + len(pending))
@@ -538,6 +550,8 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
                 done, _ = wait(pending, return_when=FIRST_COMPLETED)
                 for future in done:
                     record(pending.pop(future), future)
+    for stage in ('hardening', 'exposure'):
+        queue.extend((stage, part, False) for part in chunks(recheck_buffer[stage]))
     while queue:
         record(queue.popleft())
     return {stage: value if stage == 'network' else [value[row['id']] for row in expected[stage]]
@@ -567,7 +581,7 @@ def selected_stages(selectors, stages=None):
 
 
 def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None, context=None,
-                stages=None, reused_stages=None, cancel_event=None):
+                stages=None, reused_stages=None, cancel_event=None, early_kind_window=False):
     """Review selected independent stages, optionally reusing fenced stage outputs.
 
     A stage output is the complete public result of a single-stage invocation.
@@ -628,6 +642,9 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result['duplicates'] = duplicates
         if k8s_native_exposure:
             result['reviews']['exposure'] = native_exposure_reviews(exposure, duplicates)
+        from .progressive_kinds import review_group_signatures
+        result['review_group_signatures'] = {
+            'hardening': review_group_signatures(hardening) if 'hardening' in selected else {}}
         result['stage_inputs'] = {
             'hardening': sorted(row['id'] for row in ai_hardening),
             'exposure': sorted(row['id'] for row in exposure),
@@ -711,6 +728,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                 if not isinstance(proof, dict) or not isinstance(inputs_by_stage, dict):
                     continue
                 prior_ids = inputs_by_stage.get(stage)
+                prior_groups = prior.get('review_group_signatures', {})
+                prior_groups = (prior_groups.get(stage) if isinstance(prior_groups, dict) else None)
                 if (not isinstance(prior_ids, list) or
                         not all(isinstance(ident, str) for ident in prior_ids) or
                         len(prior_ids) != len(set(prior_ids)) or set(proof) != set(prior_ids)):
@@ -722,7 +741,11 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                     continue
                 reusable_reviews[stage] = {row['finding_id']: copy.deepcopy(row)
                     for row in checked['items'] if row['verdict'] in ('PASS', 'FAIL', 'NOT_APPLICABLE', 'EMPTY')
-                    and proof.get(row['finding_id']) == current.get(row['finding_id'])}
+                    and proof.get(row['finding_id']) == current.get(row['finding_id'])
+                    and (not prior.get('early_kind') or
+                         isinstance(prior_groups, dict) and
+                         prior_groups.get(row['finding_id']) ==
+                         result['review_group_signatures'][stage].get(row['finding_id']))}
                 if len(reusable_reviews[stage]) == len(current):
                     ordered = [reusable_reviews[stage][row['id']]
                         for row in (ai_hardening if stage == 'hardening' else exposure)]
@@ -747,6 +770,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         else:
             fresh, failed_stage = review_batches(report, inventory_by_id, entries, token,
                 missing_hardening, missing_exposure, review_end, network=network, stages=pending,
+                coalesce_rechecks=early_kind_window,
                 **({'cancel_event': cancel_event} if cancel_event is not None else {}))
         for stage in ('hardening', 'exposure'):
             if stage in fresh:

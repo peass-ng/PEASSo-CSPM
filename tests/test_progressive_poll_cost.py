@@ -114,6 +114,8 @@ def test_stage_capacity_is_revisited_without_new_artifact_read(monkeypatch):
     for stage in watcher.STAGES:
         artifacts.values['partial-report']['summary']['publication']['sections'][stage] = {
             'status': 'complete', 'data_revision': 1}
+    artifacts.values['partial-report']['summary']['publication']['sections']['exposure'].update(
+        settled_kinds=True, settled_revision=1)
     artifacts, store, _ = run(monkeypatch, artifacts=artifacts)
     assert artifacts.reads == ['partial-report']
     assert {row[0] for row in Stage.launched} == set(watcher.STAGES)
@@ -164,6 +166,49 @@ def test_last_checkpoint_ready_at_collected_handoff_starts_before_final(monkeypa
     monkeypatch.setattr(watcher, 'review_concurrency', lambda: 2)
     watcher.run_progressive(worker, 'tenant', 'scan', poll_seconds=0)
     assert final_seen == [([('network', 7, 'last-report', 'partial-snapshot')], True)]
+
+
+def test_final_handoff_keeps_stale_stage_for_finding_delta(monkeypatch):
+    artifacts, store = Artifacts(), FakeStore()
+    for stage in ('network', 'exposure'):
+        artifacts.values['partial-report']['summary']['publication']['sections'][stage] = {
+            'status': 'complete', 'data_revision': 1}
+    artifacts.values['partial-report']['summary']['publication']['sections']['exposure'].update(
+        settled_kinds=True, settled_revision=1)
+    tasks = {}
+
+    class WaitingStage:
+        def __init__(self, worker, tenant, ident, stage, revision, job, selectors):
+            self.stage = stage
+            self.process = self
+            self.stopped = False
+            self.done = False
+            tasks[stage] = self
+        def start(self): pass
+        def poll(self): return 'result-ref' if self.done else watcher._PENDING
+        def request_stop(self): self.stopped = True
+        def is_alive(self): return not (self.stopped or self.done)
+        def join(self, timeout=None): pass
+        def kill(self): self.stopped = True
+        def close(self): pass
+
+    def final(*args, stage_poll=None):
+        assert stage_poll is not None
+        job = store.job('tenant', 'scan')
+        assert not stage_poll(job)
+        assert not tasks['exposure'].stopped and not tasks['network'].stopped
+        tasks['network'].done = tasks['exposure'].done = True
+        assert stage_poll(job)
+        assert 'network' in store.stage_results('tenant', 'scan')
+        assert 'exposure' in store.stage_results('tenant', 'scan')
+        store.row['status'] = 'completed'
+
+    worker = SimpleNamespace(role='analyzer', store=store, artifacts=artifacts,
+        settings=SimpleNamespace(lease_seconds=30), run_once=final,
+        stopping=Stopper(10, lambda tick: store.row.update(status='collected') if tick == 2 else None))
+    monkeypatch.setattr(watcher, '_StageProcess', WaitingStage)
+    monkeypatch.setattr(watcher, 'review_concurrency', lambda: 2)
+    assert watcher.run_progressive(worker, 'tenant', 'scan', poll_seconds=0) == 'completed'
 
 
 @pytest.mark.parametrize('publication', [None, [], {'state': 'final', 'phase': 'completed'},

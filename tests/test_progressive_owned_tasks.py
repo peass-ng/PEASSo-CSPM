@@ -87,7 +87,7 @@ def test_advancing_revision_keeps_every_child_owned(monkeypatch, cancel):
         return {'hardening': {'status': 'complete',
                              'data_revision': int(job['partial_report'].split('-')[-1])}}
 
-    def final(*args):
+    def final(*args, stage_poll=None):
         assert finishes == [1, 3]
         assert all(task.closed for task in tasks)
         store.done = True

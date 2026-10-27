@@ -9,12 +9,13 @@ import copy
 import json
 import logging
 import multiprocessing
+import os
 import signal
 import time
 import uuid
 from pathlib import Path
 
-from peaso.ai.pipeline import review_concurrency, review_scan
+from peaso.ai.pipeline import review_concurrency, review_scan, selected_stages
 from peaso.storage import FileArtifacts, S3Artifacts
 
 
@@ -24,7 +25,20 @@ TERMINAL = {"completed", "failed", "cancelled", "timed_out", "queue_exhausted"}
 _PENDING = object()
 
 
-def _ready(job, artifacts, tenant):
+def _exposure_stable(section):
+    """Require a revision-bound kind seal before Collect-time Exposure AI.
+
+    The current section watermark counts present (kind, scope) keys but does
+    not prove that content producers have stopped revising those keys. Until
+    a collector emits this explicit seal, Exposure starts from the final
+    native checkpoint instead.
+    """
+    return (isinstance(section, dict) and section.get("status") == "complete"
+            and section.get("settled_kinds") is True
+            and section.get("settled_revision") == section.get("data_revision"))
+
+
+def _ready(job, artifacts, tenant, *, phase="collecting"):
     """Return one consistent public checkpoint and its complete sections."""
     report_ref, snapshot_ref = job.get("partial_report"), job.get("partial_snapshot")
     if not report_ref or not snapshot_ref:
@@ -38,7 +52,7 @@ def _ready(job, artifacts, tenant):
     if not isinstance(report, dict):
         return None
     publication = report.get("publication", {})
-    if publication.get("state") != "partial" or publication.get("phase") != "collecting":
+    if publication.get("state") != "partial" or publication.get("phase") != phase:
         return None
     sections = publication.get("sections", {})
     if not isinstance(sections, dict):
@@ -127,7 +141,8 @@ def _artifact_config(artifacts):
 
 
 def _stage_child(config, tenant, ident, stage, revision, report_ref, snapshot_ref,
-                 selectors, deadline, context, cancelled, connection):
+                 selectors, deadline, context, cancelled, connection, wave=None,
+                 native_final=False):
     """Run one stage in a stoppable analyzer child; send only the artifact ref."""
     signal.signal(signal.SIGTERM, lambda *_: cancelled.set())
     signal.signal(signal.SIGINT, lambda *_: cancelled.set())
@@ -136,22 +151,47 @@ def _stage_child(config, tenant, ident, stage, revision, report_ref, snapshot_re
                      if config["mode"] == "file" else
                      S3Artifacts(config["bucket"], kms_key=config.get("kms_key")))
         checkpoint = _ready({"partial_report": report_ref, "partial_snapshot": snapshot_ref},
-                            artifacts, tenant)
+                            artifacts, tenant, phase="analyzing" if native_final else "collecting")
         if cancelled.is_set() or checkpoint is None or time.time() >= deadline:
             return
         report, snapshot, sections = checkpoint
-        section = sections.get(stage, {})
-        if section.get("status") != "complete" or section.get("data_revision") != revision:
-            return
+        review_stage = stage
+        if wave is None:
+            section = sections.get(stage, {})
+            if section.get("status") != "complete" or section.get("data_revision") != revision:
+                return
+            if stage == "exposure" and not native_final and not _exposure_stable(section):
+                return
+        else:
+            from peaso.ai.progressive_kinds import candidate_kinds, full_windows, window_report
+            metadata = snapshot.get("metadata", {}).get("incremental", {})
+            if (not stage.startswith("hardening_w_") or review_stage != stage
+                    or snapshot.get("snapshot_id") != wave.get("snapshot_id")
+                    or metadata.get("sequence") != wave.get("source_revision")):
+                return
+            kinds = candidate_kinds(report, snapshot, selectors)
+            planned = full_windows(report, kinds, wave["prior_reviewed_ids"])
+            selected = planned[:len(wave["windows"])]
+            if ([key for key, _, _ in selected] != wave["windows"]
+                    or [leader for _, leaders, _ in selected for leader in leaders] != wave["leader_ids"]
+                    or set().union(*(ids for _, _, ids in selected)) != set(wave["selected_ids"])):
+                return
+            report = window_report(report, set(wave["selected_ids"]))
+            review_stage = "hardening"
         output = review_scan(report, snapshot, selectors, tenant=tenant, artifacts=artifacts,
-                             deadline=deadline, context=context, stages=(stage,),
-                             cancel_event=cancelled)
+                             deadline=deadline, context=context, stages=(review_stage,),
+                             cancel_event=cancelled,
+                             **({"early_kind_window": True} if wave is not None else {}))
         if cancelled.is_set() or time.time() >= deadline:
             return
         # Even unavailable stage responses are useful to the public overlay;
         # final analysis only reuses completed stages and can retry failures.
-        reference = artifacts.put(tenant, ident, "ai-review", {
-            "stage": stage, "data_revision": revision, "result": output})
+        document = {"stage": stage, "data_revision": revision, "result": output}
+        if wave is not None:
+            document.update(source_revision=wave["source_revision"],
+                checkpoint_snapshot_id=wave["snapshot_id"], leader_ids=wave["leader_ids"],
+                window_keys=wave["windows"])
+        reference = artifacts.put(tenant, ident, "ai-review", document)
         connection.send(reference)
     except BaseException:
         LOGGER.warning("Progressive AI stage %s could not finish", stage, exc_info=False)
@@ -162,7 +202,8 @@ def _stage_child(config, tenant, ident, stage, revision, report_ref, snapshot_re
 class _StageProcess:
     """Own one review process and a cancellation signal for its isolated invoke."""
 
-    def __init__(self, worker, tenant, ident, stage, revision, job, selectors):
+    def __init__(self, worker, tenant, ident, stage, revision, job, selectors,
+                 wave=None, native_final=False):
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe(duplex=False)
         self.pipe = parent
@@ -172,7 +213,8 @@ class _StageProcess:
             _artifact_config(worker.artifacts), tenant, ident, stage, revision,
             job["partial_report"], job["partial_snapshot"], selectors, job["deadline"],
             {"state_dir": str(worker.settings.state_dir),
-             "identity_dir": str(worker.settings.identity_dir)}, self.cancelled, child), daemon=False)
+             "identity_dir": str(worker.settings.identity_dir)}, self.cancelled, child,
+            wave, native_final), daemon=False)
 
     def start(self):
         try:
@@ -238,18 +280,62 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
     next_heartbeat = 0.0
     checkpoint_key = None
     checkpoint_sections = None
+    wave_checked_key = None
+    wave_enabled = os.getenv("PEASO_AI_PROGRESSIVE_HARDENING_WINDOWS") == "1"
+    native_checkpoint_data = None
+    native_started = set()
     try:
         max_workers = max(1, min(2, review_concurrency()))
     except (ValueError, OSError):
         max_workers = 1
-    def poll_active(job):
-        nonlocal next_heartbeat
+    def poll_active(job, native_checkpoint=None):
+        nonlocal next_heartbeat, wave_checked_key, native_checkpoint_data
+        if native_checkpoint is not None:
+            native_checkpoint_data = native_checkpoint
+        if native_checkpoint_data is not None:
+            selectors = json.loads(job["data"])
+            sections = native_checkpoint_data.get("sections")
+            refs = (native_checkpoint_data.get("report_ref"),
+                    native_checkpoint_data.get("snapshot_ref"))
+            if (job.get("status") in {"collected", "analyzing"}
+                    and selectors.get("ai_enabled", True) and isinstance(sections, dict)
+                    and all(isinstance(ref, str) and ref for ref in refs)):
+                prior_rows = worker.store.stage_results(tenant, ident)
+                for stage in ("hardening", "exposure"):
+                    # A prior reviewer, even at an older revision, may carry
+                    # per-finding results for final fingerprint comparison.
+                    # Do not pay for a second speculative native-stage task.
+                    if stage in active or stage in prior_rows:
+                        native_started.add(stage)
+                    section = sections.get(stage)
+                    revision = section.get("data_revision") if isinstance(section, dict) else None
+                    if (stage in native_started or stage in active or len(active) >= max_workers
+                            or stage not in selected_stages(selectors)
+                            or stage == "hardening" and (wave_enabled or any(
+                                key.startswith("hardening_w_") for key in prior_rows))
+                            or not isinstance(section, dict) or section.get("status") != "complete"
+                            or type(revision) is not int or revision < 0):
+                        continue
+                    if worker.store.claim_stage(tenant, ident, stage, revision,
+                                                owner, lease_seconds):
+                        native_started.add(stage)
+                        native_job = dict(job, partial_report=refs[0], partial_snapshot=refs[1])
+                        try:
+                            task = _StageProcess(worker, tenant, ident, stage, revision,
+                                native_job, selectors, native_final=True)
+                            task.start()
+                        except Exception:
+                            LOGGER.warning("Final-native AI stage %s could not start", stage, exc_info=False)
+                        else:
+                            active[stage] = (revision, task)
         for stage, (revision, task) in tuple(active.items()):
             result_ref = task.poll()
             if result_ref is _PENDING:
                 continue
             task.close()
             del active[stage]
+            if stage.startswith("hardening_w_"):
+                wave_checked_key = None
             if isinstance(result_ref, str) and job["status"] in {"collecting", "collected", "analyzing"}:
                 worker.store.finish_stage(tenant, ident, stage, revision, owner, result_ref)
         if active and time.time() >= next_heartbeat:
@@ -307,8 +393,12 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
                         # every child remains bounded, heartbeated and drained.
                         if stage in active:
                             continue
+                        if stage == "hardening" and wave_enabled:
+                            continue
                         section = checkpoint_sections.get(stage, {})
                         if not isinstance(section, dict) or section.get("status") != "complete":
+                            continue
+                        if stage == "exposure" and not _exposure_stable(section):
                             continue
                         revision = section.get("data_revision")
                         if type(revision) is int and revision >= 0 and (stage, revision) not in seen:
@@ -331,11 +421,69 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
                                 LOGGER.warning("Progressive AI stage %s could not start", stage, exc_info=False)
                                 continue
                             active[stage] = (revision, task)
+                if (wave_enabled and job["status"] == "collecting"
+                        and len(active) < max_workers and
+                        not any(stage.startswith("hardening_w_") for stage in active)
+                        and key != wave_checked_key):
+                    # Every model invocation is a full 40-representative
+                    # window. A partial tail stays with final analysis; no
+                    # extra initial model call is admitted by kind closure.
+                    wave_checked_key = key
+                    checkpoint = _ready(job, worker.artifacts, tenant)
+                    if checkpoint is not None:
+                        from peaso.ai.progressive_kinds import candidate_kinds, full_windows
+                        report, snapshot, _ = checkpoint
+                        persisted = worker.store.stage_results(tenant, ident)
+                        prior_reviewed_ids = []
+                        ordinal = 0
+                        while True:
+                            prior_key = f"hardening_w_{ordinal:04d}"
+                            prior = persisted.get(prior_key)
+                            if prior is None:
+                                break
+                            try:
+                                artifact = worker.artifacts.get(tenant, prior["result_ref"])
+                                if (artifact["stage"] != prior_key
+                                        or artifact["data_revision"] != ordinal
+                                        or artifact["result"]["status"] != "completed"):
+                                    break
+                                prior_reviewed_ids.extend(
+                                    artifact["result"]["stage_inputs"]["hardening"])
+                            except (KeyError, TypeError, ValueError, OSError):
+                                break
+                            ordinal += 1
+                        if ordinal < 20 and f"hardening_w_{ordinal:04d}" not in persisted:
+                            kinds = candidate_kinds(report, snapshot, selectors)
+                            windows = full_windows(report, kinds, prior_reviewed_ids)
+                            slots = min(12, max(1, review_concurrency()))
+                            # Three full windows amortize dynamic member
+                            # rechecks on the saved AWS scan without adding
+                            # model tasks under its observed verdicts.
+                            selected = windows[:slots] if len(windows) >= 3 and slots >= 3 else []
+                            if selected:
+                                stage = f"hardening_w_{ordinal:04d}"
+                                wave = {"windows": [window[0] for window in selected],
+                                    "leader_ids": [leader for _, leaders, _ in selected for leader in leaders],
+                                    "selected_ids": sorted(set().union(*(ids for _, _, ids in selected))),
+                                    "prior_reviewed_ids": prior_reviewed_ids,
+                                    "source_revision": snapshot["metadata"]["incremental"]["sequence"],
+                                    "snapshot_id": snapshot["snapshot_id"]}
+                                if worker.store.claim_stage(tenant, ident, stage, ordinal, owner, lease_seconds):
+                                    try:
+                                        task = _StageProcess(worker, tenant, ident, stage, ordinal,
+                                                             job, selectors, wave=wave)
+                                        task.start()
+                                    except Exception:
+                                        LOGGER.warning("Progressive Hardening window could not start", exc_info=False)
+                                    else:
+                                        active[stage] = (ordinal, task)
             if job["status"] == "collected":
-                if active:
+                if (active or (selectors.get("ai_enabled", True) and not wave_enabled
+                               and "hardening" in selected_stages(selectors))):
                     # A section may first become complete in the last paired
-                    # checkpoint. Start it before final native evaluation and
-                    # let the final revision/fingerprint checks decide reuse.
+                    # checkpoint. The same callback can launch a missing
+                    # Hardening review from the immutable native checkpoint
+                    # while other progressive stages are still settling.
                     worker.run_once(tenant, ident, stage_poll=poll_active)
                 else:
                     worker.run_once(tenant, ident)
