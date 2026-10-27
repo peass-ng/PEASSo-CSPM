@@ -18,6 +18,22 @@ def decision(kind, properties):
     return rows[0]
 
 
+@pytest.mark.parametrize("kind", ["disk", "snapshot"])
+def test_compute_public_sas_export_policy(kind):
+    allowed = decision(kind, {"publicNetworkAccess": "Enabled", "networkAccessPolicy": "AllowAll"})
+    assert allowed.verdict() == "FAIL"
+    assert allowed.kind == "disk_export" and allowed.ports == {"tcp": ((443, 443),)}
+    assert "issued SAS URI" in allowed.notes[0]
+    for props in (
+        {"publicNetworkAccess": "Enabled", "networkAccessPolicy": "DenyAll"},
+        {"publicNetworkAccess": "Enabled", "networkAccessPolicy": "AllowPrivate", "diskAccessId": "private"},
+        {"publicNetworkAccess": "Disabled", "networkAccessPolicy": "AllowAll"},
+    ):
+        assert decision(kind, props).verdict() == "PASS"
+    assert decision(kind, {"publicNetworkAccess": "Enabled"}).verdict() == "UNKNOWN"
+    assert decision(kind, {"networkAccessPolicy": "AllowAll"}).verdict() == "UNKNOWN"
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})

@@ -3865,6 +3865,34 @@ def _azure_synapse_workspace(snapshot, inventory, resource):
     return a
 
 
+def _azure_disk_public_export(snapshot, inventory, resource):
+    """Assess the public SAS export capability recorded by Compute GET/LIST."""
+    props = _props(resource)
+    a = Assessment(resource, "disk_export")
+    a.authenticated = True
+    public = props.get("publicNetworkAccess")
+    policy = props.get("networkAccessPolicy")
+    if policy == "DenyAll":
+        a.step("export_policy", "block", network_access_policy=policy)
+        a.ports = {}
+    elif policy == "AllowPrivate":
+        a.step("export_policy", "block", network_access_policy=policy,
+               disk_access_id=props.get("diskAccessId"))
+        a.ports = {}
+    elif public == "Disabled":
+        a.step("public_network_access", "block", public_network_access=public,
+               network_access_policy=policy)
+        a.ports = {}
+    elif policy == "AllowAll" and public == "Enabled":
+        a.step("export_policy", "allow", network_access_policy=policy,
+               public_network_access=public)
+        a.ports = pset("tcp", 443, 443)
+        a.notes.append("Public SAS export is permitted; an issued SAS URI or recipient is not observable in Compute GET/LIST.")
+    else:
+        a.gap("policy", "Compute publicNetworkAccess/networkAccessPolicy is absent or unrecognized")
+    return a
+
+
 def _azure_public_edge(snapshot, inventory, resource):
     """Assess the public listener from the collector's bounded route projection."""
     data = resource["data"]
@@ -4524,7 +4552,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "forwarding_r
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -4540,7 +4568,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -4602,6 +4630,8 @@ def assess(snapshot, resources):
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
+                  "disk": _azure_disk_public_export,
+                  "snapshot": _azure_disk_public_export,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
@@ -4626,6 +4656,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.kind == "disk_export":
+        return ("Public disk or snapshot SAS export permitted" if status == "FAIL" else
+                "Public disk or snapshot SAS export blocked" if status == "PASS" else
+                "Disk or snapshot SAS export policy unresolved")
     if status == "FAIL":
         if assessment.kind == "external_share":
             return "Data shared with external account"
@@ -4644,6 +4678,8 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.kind == "disk_export" and status == "FAIL":
+        return "The collected policy permits a publicly accessible SAS export; issued SAS URLs and recipients are not in Compute GET/LIST."
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":
