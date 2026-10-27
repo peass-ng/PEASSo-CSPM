@@ -3125,6 +3125,8 @@ def _azure_backend_nics(inventory, pool_ids):
 
 def _azure_lb(snapshot, inventory, resource):
     props = _props(resource)
+    backend_pools = {str(p.get("id", "")).lower(): p for p in as_list(props.get("backendAddressPools"))
+                     if isinstance(p, dict) and p.get("id")}
     fronts = {str(f.get("id", "")).lower(): f for f in as_list(props.get("frontendIPConfigurations")) if isinstance(f, dict)
               and ((f.get("properties") or {}).get("publicIPAddress") or {}).get("id")}
     if not fronts:
@@ -3138,6 +3140,7 @@ def _azure_lb(snapshot, inventory, resource):
     total = {}
     allowed_backend_nics = set()
     backend_routes = []
+    unresolved_backends = []
     rules = [("loadBalancingRules", r) for r in as_list(props.get("loadBalancingRules"))] + [("inboundNatRules", r) for r in as_list(props.get("inboundNatRules"))]
     for kind, rule in rules:
         rp = (rule or {}).get("properties") or {}
@@ -3152,6 +3155,33 @@ def _azure_lb(snapshot, inventory, resource):
             frontend_ports, backend_ports = pset(protocol, frontend, frontend), pset(protocol, backend, backend)
         pools = [x.get("id") for x in as_list(rp.get("backendAddressPools")) + as_list(rp.get("backendAddressPool")) if isinstance(x, dict)]
         nics = list(_azure_backend_nics(inventory, pools)) if pools else []
+        if pools and kind == "loadBalancingRules":
+            config_index = _azure_nic_config_index(inventory)
+            known_configs = {str(config.get("id", "")).lower() for _, config in nics}
+            for pool_id in pools:
+                pool = backend_pools.get(str(pool_id).lower())
+                if pool is None:
+                    unresolved_backends.append(f"{kind} {rule.get('name')}: backend pool {pool_id} not collected")
+                    continue
+                pool_props = pool.get("properties") or {}
+                entries = [(entry, None) for entry in as_list(pool_props.get("backendIPConfigurations"))]
+                entries += [((entry.get("properties") or {}).get("networkInterfaceIPConfiguration"), entry)
+                            for entry in as_list(pool_props.get("loadBalancerBackendAddresses")) if isinstance(entry, dict)
+                            and (entry.get("properties") or {}).get("adminState") != "Down"]
+                for ref, address_entry in entries:
+                    config_id = ref.get("id") if isinstance(ref, dict) else None
+                    if not config_id:
+                        if address_entry is not None:
+                            unresolved_backends.append(f"{kind} {rule.get('name')}: pool backend IP has no collected NIC configuration reference")
+                        continue
+                    matches = config_index[1].get(str(config_id).lower(), ()) if config_index is not None else ()
+                    if not matches:
+                        unresolved_backends.append(f"{kind} {rule.get('name')}: backend NIC configuration {config_id} not collected")
+                    for nic, config in matches:
+                        key = str(config.get("id", "")).lower()
+                        if key not in known_configs:
+                            nics.append((nic, config))
+                            known_configs.add(key)
         if kind == "inboundNatRules":
             target = (rp.get("backendIPConfiguration") or {}).get("id")
             index = _azure_nic_config_index(inventory) if target else None
@@ -3159,7 +3189,7 @@ def _azure_lb(snapshot, inventory, resource):
                     [(n, c) for n in inventory.items("nic") for c in as_list(_props(n).get("ipConfigurations"))
                      if target and str((c or {}).get("id", "")).lower() == str(target).lower()])
         if not nics:
-            a.gap("backend", f"{kind} {rule.get('name')}: backend NICs not resolved", "Microsoft.Network/networkInterfaces")
+            unresolved_backends.append(f"{kind} {rule.get('name')}: backend NICs not resolved")
             continue
         for nic, config in nics:
             cp = config.get("properties") or {}
@@ -3181,6 +3211,12 @@ def _azure_lb(snapshot, inventory, resource):
                     a.addresses.append(address)
     if allowed_backend_nics:
         a.step("backend", "allow", nic_ids=sorted(allowed_backend_nics), routes=backend_routes)
+    if unresolved_backends:
+        if not empty(total):
+            a.notes.append("Other load-balancer backend paths unresolved: " + "; ".join(unresolved_backends))
+        else:
+            a.gap("backend", "; ".join(unresolved_backends), "Microsoft.Network/loadBalancers/backendAddressPools")
+            a.explicit = "UNKNOWN"
     a.step("listener", "allow" if not empty(total) else "block", frontend_ports=describe(total))
     a.ports = total if rules else {}
     if not empty(total):

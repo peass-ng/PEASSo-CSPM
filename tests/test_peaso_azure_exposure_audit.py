@@ -68,6 +68,42 @@ def test_batch_account_independent_public_endpoint_profiles():
     assert decision("batch_account", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
 
 
+def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    lb_id, pip_id, nic_id = base + "/loadBalancers/lb", base + "/publicIPAddresses/pip", base + "/networkInterfaces/nic"
+    front_id, pool_id = lb_id + "/frontendIPConfigurations/front", lb_id + "/backendAddressPools/pool"
+    config_id, subnet_id, nsg_id = nic_id + "/ipConfigurations/primary", base + "/virtualNetworks/vnet/subnets/subnet", base + "/networkSecurityGroups/nsg"
+    rule = {"name": "http", "properties": {"frontendIPConfiguration": {"id": front_id},
+        "backendAddressPool": {"id": pool_id}, "protocol": "Tcp", "frontendPort": 443, "backendPort": 8443}}
+
+    def lb_decision(pool_props):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "load_balancer", "scope": SCOPE, "service": "network", "status": "collected", "items": [{"id": lb_id,
+                "sku": {"name": "Standard"}, "properties": {"frontendIPConfigurations": [{"id": front_id,
+                    "properties": {"publicIPAddress": {"id": pip_id}}}], "backendAddressPools": [
+                    {"id": pool_id, "properties": pool_props}], "loadBalancingRules": [rule]}}]},
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected", "items": [
+                {"id": pip_id, "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected", "items": [{"id": nic_id,
+                "properties": {"networkSecurityGroup": {"id": nsg_id}, "ipConfigurations": [{"id": config_id,
+                    "properties": {"privateIPAddress": "10.0.0.4", "subnet": {"id": subnet_id}}}]}}]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected", "items": [{"id": subnet_id,
+                "properties": {}}]},
+            {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected", "items": [{"id": nsg_id,
+                "properties": {"securityRules": [{"name": "allow", "properties": {"priority": 100,
+                    "direction": "Inbound", "access": "Allow", "protocol": "Tcp", "sourceAddressPrefix": "*",
+                    "destinationAddressPrefix": "*", "destinationPortRange": "8443"}}]}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "load_balancer")
+
+    for pool in ({"backendIPConfigurations": [{"id": config_id}]},
+                 {"loadBalancerBackendAddresses": [{"properties": {"networkInterfaceIPConfiguration": {"id": config_id}}}]}):
+        row = lb_decision(pool)
+        assert row.verdict() == "FAIL" and row.ports == {"tcp": ((443, 443),)}
+        assert row.addresses == ["8.8.8.8"]
+    assert lb_decision({"loadBalancerBackendAddresses": [{"properties": {"ipAddress": "10.0.0.4"}}]}).verdict() == "UNKNOWN"
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})
