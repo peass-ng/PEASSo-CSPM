@@ -1,0 +1,174 @@
+"""Bounded account ingress reads joined to an exact Azure Databricks workspace."""
+import json
+
+import pytest
+
+from peaso.analysis.internet_exposure import assess
+from peaso.collectors import azure_databricks_ingress_native as native
+from peaso.snapshot import make_snapshot, resources
+
+SCOPE = '/subscriptions/11111111-1111-1111-1111-111111111111'
+ACCOUNT = '33333333-3333-3333-3333-333333333333'
+RID = SCOPE + '/resourceGroups/rg/providers/Microsoft.Databricks/workspaces/one'
+BINDING = f'/api/2.0/accounts/{ACCOUNT}/workspaces/123/network'
+POLICY = f'/api/2.0/accounts/{ACCOUNT}/network-policies/default-policy'
+TOKEN = 'explicit-account-oauth'
+
+
+def approval():
+    return {'compliance_policy': {'sw33': {'status': 'collected', 'scope': SCOPE,
+            'databricksAccount': {'accountId': ACCOUNT}}}}
+
+
+@pytest.mark.parametrize('path', [
+    '/api/2.0/accounts/' + ACCOUNT + '/network-policies/../secret',
+    BINDING + '?x=1', BINDING.replace('/network', '/network/'),
+    '/api/2.0/accounts/' + ACCOUNT + '/network-policies/',
+    '/api/2.0/accounts/' + ACCOUNT + '/network-policies/..',
+    '/api/2.0/accounts/' + ACCOUNT + '/workspaces/0/network',
+])
+def test_only_fixed_account_get_paths(path):
+    with pytest.raises(ValueError):
+        native.request_policy(path, {'databricks_account_token': TOKEN})
+
+
+def test_projection_binds_ids_and_discards_rule_contents():
+    assert native.project({'workspace_id': 123, 'network_policy_id': 'default-policy', 'secret': TOKEN}, BINDING) == {
+        'workspace_id': 123, 'network_policy_id': 'default-policy'}
+    value = {'account_id': ACCOUNT, 'network_policy_id': 'default-policy', 'ingress': {'public_access': {
+        'restriction_mode': 'RESTRICTED_ACCESS', 'allow_rules': [{'label': TOKEN}], 'deny_rules': []}}}
+    projected = native.project(value, POLICY)
+    assert projected == {'account_id': ACCOUNT, 'network_policy_id': 'default-policy',
+                         'restriction_mode': 'RESTRICTED_ACCESS', 'allow_rule_count': 1, 'deny_rule_count': 0}
+    assert TOKEN not in json.dumps(projected)
+    with pytest.raises(ValueError):
+        native.project({**value, 'account_id': '44444444-4444-4444-4444-444444444444'}, POLICY)
+    with pytest.raises(ValueError):
+        native.project({'workspace_id': 456, 'network_policy_id': 'default-policy'}, BINDING)
+
+
+class Reader:
+    def __init__(self):
+        self.collections = [
+            {'type': 'databricks_workspace', 'scope': SCOPE, 'service': 'ARM', 'status': 'collected',
+             'items': [{'id': RID, 'properties': {'workspaceUrl': 'adb-123.4.azuredatabricks.net',
+                                                'publicNetworkAccess': 'Enabled'}}]},
+            {'type': 'databricks_account_workspace', 'scope': SCOPE, 'service': 'Databricks.Account',
+             'status': 'collected', 'items': [{'id': RID, 'accountId': ACCOUNT, 'workspaceId': 123}]},
+        ]
+
+    def call(self, operation, *args):
+        return operation(*args)
+
+    def run(self, jobs):
+        for kind, scope, service, fetch in jobs:
+            self.collections.append({'type': kind, 'scope': scope, 'service': service,
+                                     'status': 'collected', 'items': next(fetch())})
+
+
+class Transport:
+    def __init__(self, mode):
+        self.calls, self.mode = [], mode
+
+    def request_databricks_ingress(self, path):
+        native.endpoint(path)
+        self.calls.append(path)
+        if path == BINDING:
+            return {'workspace_id': 123, 'network_policy_id': 'default-policy'}
+        assert path == POLICY
+        return {'account_id': ACCOUNT, 'network_policy_id': 'default-policy', 'ingress': {'public_access': {
+            'restriction_mode': self.mode, 'allow_rules': [] if self.mode == 'RESTRICTED_ACCESS' else []}}}
+
+
+@pytest.mark.parametrize('mode,verdict', [('RESTRICTED_ACCESS', 'PASS'), ('FULL_ACCESS', 'UNKNOWN')])
+def test_account_policy_join_and_exposure(mode, verdict):
+    reader, transport = Reader(), Transport(mode)
+    native.collect(reader, transport, [SCOPE], {'databricks_workspace'}, approval(), {'databricks_account_token': TOKEN})
+    assert transport.calls == [BINDING, POLICY]
+    assert TOKEN not in json.dumps(reader.collections)
+    snapshot = make_snapshot('azure', [SCOPE], reader.collections)
+    row = next(row for row in assess(snapshot, resources(snapshot))
+               if row.resource['type'] == 'databricks_workspace')
+    assert row.verdict() == verdict
+
+
+def test_no_approval_no_network_request():
+    reader, transport = Reader(), Transport('FULL_ACCESS')
+    native.collect(reader, transport, [SCOPE], {'databricks_workspace'}, {}, {})
+    assert transport.calls == [] and len(reader.collections) == 2
+
+
+def test_denied_policy_read_keeps_ingress_unknown():
+    from peaso.collectors.azure import AzureReadError
+
+    class Denied(Transport):
+        def request_databricks_ingress(self, path):
+            if path == POLICY:
+                raise AzureReadError('forbidden', 403)
+            return super().request_databricks_ingress(path)
+
+    reader, transport = Reader(), Denied('FULL_ACCESS')
+    native.collect(reader, transport, [SCOPE], {'databricks_workspace'}, approval(), {'databricks_account_token': TOKEN})
+    child = reader.collections[-1]
+    assert child['items'][0]['policyStatus'] == 'denied'
+    assert 'restriction_mode' not in child['items'][0]
+    snapshot = make_snapshot('azure', [SCOPE], reader.collections)
+    row = next(row for row in assess(snapshot, resources(snapshot))
+               if row.resource['type'] == 'databricks_workspace')
+    assert row.verdict() == 'UNKNOWN'
+
+
+def test_full_ingress_and_disabled_ip_lists_prove_public_listener():
+    reader, transport = Reader(), Transport('FULL_ACCESS')
+    native.collect(reader, transport, [SCOPE], {'databricks_workspace'}, approval(), {'databricks_account_token': TOKEN})
+    reader.collections.append({'type': 'databricks_workspace_ip_policy', 'scope': SCOPE,
+        'service': 'Databricks.Workspace', 'status': 'collected', 'items': [{
+            'id': RID, 'policyStatus': 'collected', 'ipAccessListsEnabled': False, 'ipAccessLists': []}]})
+    snapshot = make_snapshot('azure', [SCOPE], reader.collections)
+    row = next(row for row in assess(snapshot, resources(snapshot))
+               if row.resource['type'] == 'databricks_workspace')
+    assert row.verdict() == 'FAIL' and row.ports == {'tcp': ((443, 443),)}
+
+
+def test_transport_uses_account_oauth_get(monkeypatch):
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, size):
+            assert size == native.MAX_RESPONSE_BYTES + 1
+            return b'{"workspace_id":123,"network_policy_id":"default-policy","private":"discard"}'
+
+    class Opener:
+        def open(self, request, timeout):
+            calls.append((request, timeout))
+            return Response()
+
+    monkeypatch.setattr(native, 'build_opener', lambda *handlers: Opener())
+    assert native.request_policy(BINDING, {'databricks_account_token': TOKEN})['workspace_id'] == 123
+    request, timeout = calls[0]
+    assert request.get_method() == 'GET' and request.full_url == native.HOST + BINDING
+    assert request.headers['Authorization'] == 'Bearer ' + TOKEN and timeout == 20
+
+
+def test_full_account_arm_join_collects_ingress(monkeypatch):
+    from tests.test_peaso_azure_databricks_native import API, capture
+
+    def request_ingress(self, path):
+        self.calls.append(native.HOST + path)
+        if path == BINDING:
+            return {'workspace_id': 123, 'network_policy_id': 'default-policy'}
+        assert path == POLICY
+        return {'account_id': ACCOUNT, 'network_policy_id': 'default-policy', 'ingress': {
+            'public_access': {'restriction_mode': 'RESTRICTED_ACCESS', 'allow_rules': []}}}
+
+    monkeypatch.setattr(API, 'request_databricks_ingress', request_ingress, raising=False)
+    snapshot, api = capture()
+    child = next(c for c in snapshot['collections'] if c['type'] == native.KIND)
+    assert child['status'] == 'collected' and child['items'][0]['allow_rule_count'] == 0
+    assert native.HOST + BINDING in api.calls and native.HOST + POLICY in api.calls

@@ -1694,6 +1694,10 @@ class AzureTransport:
         from . import azure_databricks_workspace_ip_native
         return azure_databricks_workspace_ip_native.request_policy(host, workspace_id, path, token)
 
+    def request_databricks_ingress(self, path):
+        from . import azure_databricks_ingress_native
+        return azure_databricks_ingress_native.request_policy(path, self.auth)
+
     def close(self):
         cache = getattr(self, "response_cache", None)
         if cache is not None:
@@ -2548,6 +2552,9 @@ def collect(connector, requirements=None, *, transport=None):
         metadata_only_selection = not wanted or bool(requirements and set(requirements) == {package_source.KIND})
     if "databricks_account_workspace" in wanted:
         wanted.add("databricks_workspace")
+    elif ("databricks_workspace" in wanted and auth.get("databricks_account_token")
+          and azure_databricks_native.normalize(options)):
+        wanted.add("databricks_account_workspace")
     from . import azure_disclosure_native
     wanted |= azure_disclosure_native.required_types(options)
     from . import azure_identity_intune_native
@@ -3863,6 +3870,8 @@ def collect(connector, requirements=None, *, transport=None):
         azure_aks_legacy_projection_review_20261020.collect_diagnostics(reader, request, scopes, wanted)
         azure_aks_legacy_projection_review_20261020.collect_hsm_categories(reader, request, scopes, wanted)
         azure_databricks_native.collect(reader, request, transport, scopes, wanted, options, auth)
+        from . import azure_databricks_ingress_native
+        azure_databricks_ingress_native.collect(reader, transport, scopes, wanted, options, auth)
         azure_databricks_workspace_ip_native.collect(reader, transport, scopes, wanted, auth)
         azure_devops_git_native.collect(reader, request, transport, scopes, wanted, options, auth)
         azure_devops_pipeline_native.collect(reader, request, transport, scopes, wanted, options, auth)

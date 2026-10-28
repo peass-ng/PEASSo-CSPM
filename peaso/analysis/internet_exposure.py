@@ -5483,6 +5483,18 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
     elif access == "Enabled":
         a.step("public_network_access", "allow", public_network_access=access)
         a.ports = pset("tcp", 443, 443)
+        ingress = [row['data'] for row in inventory.items('databricks_workspace_ingress_policy')
+                   if str(native_id(row)).casefold() == str(native_id(resource)).casefold()]
+        if len(ingress) != 1 or ingress[0].get('policyStatus') != 'collected':
+            a.gap('policy', 'Databricks workspace context-based ingress policy unavailable')
+        elif (ingress[0].get('restriction_mode') == 'RESTRICTED_ACCESS'
+              and ingress[0].get('allow_rule_count') == 0):
+            a.step('workspace_context_ingress', 'block', restriction_mode='RESTRICTED_ACCESS', allow_rule_count=0)
+            a.ports = {}
+        elif ingress[0].get('restriction_mode') == 'FULL_ACCESS':
+            a.step('workspace_context_ingress', 'allow', restriction_mode='FULL_ACCESS')
+        else:
+            a.gap('policy', 'Databricks context ingress rules require identity, source and destination matching')
         policies = [row for row in inventory.items('databricks_workspace_ip_policy')
                     if str(native_id(row)).casefold() == str(native_id(resource)).casefold()]
         if len(policies) != 1 or policies[0]['data'].get('policyStatus') != 'collected':
@@ -5511,7 +5523,6 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
                 else:
                     a.step('workspace_ip_access_lists', 'allow', enabled=enabled,
                            active_allow_lists=len(allow), active_block_lists=len(block))
-                    a.gap('policy', 'Databricks account context-based ingress policy unavailable')
         if not a.addresses:
             a.gap("inventory", "Databricks workspaceUrl is unavailable")
     else:

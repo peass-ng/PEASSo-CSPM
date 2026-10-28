@@ -1,7 +1,7 @@
 # Event Hubs SAS rule source proof
 
 The Azure collector SHA-256 after this change is
-`4ae95e535801cc62f2ee08015bfd6458957cf0247f40a8fb9a153b9949cf623c`.
+`485d5d6eeb1a24ca8975a919f74a6df80dbcdefb21530b795be7987697c3f99b`.
 The existing collector reads paged namespace [authorization rules](https://learn.microsoft.com/en-us/rest/api/eventhub/authorization-rules-namespaces/list-authorization-rules?view=rest-eventhub-2024-01-01)
 and paged namespace Event Hubs. The new read uses the observed Event Hub ID
 for the paged [entity authorization-rule LIST](https://learn.microsoft.com/en-us/rest/api/eventhub/event-hubs/list-authorization-rules?view=rest-eventhub-2026-01-01):
