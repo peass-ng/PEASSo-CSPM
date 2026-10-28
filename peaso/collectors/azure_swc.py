@@ -342,6 +342,48 @@ def full_detail(value, kind, version):
 
 def list_detail(value, kind):
     """Attest alert LISTs; retain action-group configuration as metadata only."""
+    if kind == "purview_account":
+        props = value.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("Purview account properties unavailable")
+        endpoints = props.get("endpoints")
+        hosts = {}
+        if isinstance(endpoints, dict):
+            for field in ("catalog", "scan", "guardian"):
+                raw = endpoints.get(field)
+                try:
+                    parsed = urlsplit(raw) if isinstance(raw, str) else None
+                    host = parsed.hostname if parsed and parsed.scheme == "https" and not parsed.username and not parsed.password and parsed.port in (None, 443) else None
+                except ValueError:
+                    host = None
+                if isinstance(host, str) and re.fullmatch(r"[a-z0-9.-]{1,253}", host.lower()):
+                    hosts[field] = host.lower()
+        connections = props.get("privateEndpointConnections")
+        safe_connections = None
+        if isinstance(connections, list):
+            safe_connections = []
+            for row in connections:
+                if not isinstance(row, dict) or not isinstance(row.get("properties"), dict):
+                    raise ValueError("Purview private connection malformed")
+                detail = row["properties"]
+                link = detail.get("privateEndpoint")
+                state = detail.get("privateLinkServiceConnectionState")
+                safe_connections.append({"privateEndpointId": link.get("id") if isinstance(link, dict) else None,
+                                         "status": state.get("status") if isinstance(state, dict) else None,
+                                         "provisioningState": detail.get("provisioningState")})
+        managed = props.get("managedResources")
+        managed_ids = {key: managed[key] for key in ("storageAccount", "eventHubNamespace")
+                       if isinstance(managed, dict) and isinstance(managed.get(key), str)
+                       and managed[key].startswith("/subscriptions/")}
+        return {**{key: value[key] for key in ("id", "name", "type", "location") if key in value},
+                "properties": {"provisioningState": props.get("provisioningState"),
+                               "publicNetworkAccess": props.get("publicNetworkAccess"),
+                               "managedResourcesPublicNetworkAccess": props.get("managedResourcesPublicNetworkAccess"),
+                               "managedEventHubState": props.get("managedEventHubState"),
+                               "endpointHosts": hosts, "managedResources": managed_ids,
+                               "privateEndpointConnections": safe_connections},
+                "_provenance": {"source_operation": "Accounts_ListBySubscription", "api_version": "2021-12-01",
+                                "read_only": True, "representation": "metadata"}}
     if kind == "monitor_workspace":
         props = value.get("properties")
         if not isinstance(props, dict):
