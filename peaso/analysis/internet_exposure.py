@@ -5417,7 +5417,18 @@ def _azure_container_app(snapshot, inventory, resource):
         fqdn = ingress.get("fqdn")
         if isinstance(fqdn, str) and fqdn:
             a.addresses.append(fqdn)
-        else:
+        if ingress.get("external") is True and transport in ("auto", "http", "http2"):
+            domains = ingress.get("customDomains")
+            if isinstance(domains, list):
+                bound_domains = sorted({domain["name"] for domain in domains
+                    if isinstance(domain, dict) and isinstance(domain.get("name"), str)
+                    and domain["name"] and domain.get("bindingType") in ("Auto", "SniEnabled")
+                    and domain["name"] not in a.addresses})
+                a.addresses.extend(bound_domains)
+                if bound_domains:
+                    a.step("custom_domains", "allow", bound_hostnames=bound_domains,
+                           source="ARM configuration.ingress.customDomains")
+        if not a.addresses:
             a.gap("inventory", "Container App public ingress FQDN is not collected")
     if (ingress.get("external") is True and transport in ("auto", "http", "http2") and environment is not None
             and runtime is not None and inventory.state("container_app_runtime", resource["scope"]) == "collected"

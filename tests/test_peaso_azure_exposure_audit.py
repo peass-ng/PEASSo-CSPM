@@ -1295,9 +1295,11 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
 
     def app_decision(env_public="Enabled", rules=None, transport="http", extra=None,
-                     allow_insecure=None):
-        ingress = {"external": True, "transport": transport, "fqdn": "app.example.azurecontainerapps.io",
+                     allow_insecure=None, fqdn="app.example.azurecontainerapps.io", domains=None):
+        ingress = {"external": True, "transport": transport, "fqdn": fqdn,
                    "ipSecurityRestrictions": rules if rules is not None else []}
+        if domains is not None:
+            ingress["customDomains"] = domains
         if allow_insecure is not None:
             ingress["allowInsecure"] = allow_insecure
         if transport == "tcp":
@@ -1333,6 +1335,12 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     assert app_decision(rules=public_allow).verdict() == "FAIL"
     assert app_decision(rules=private_allow[0]).verdict() == "UNKNOWN"
     assert app_decision(rules="").verdict() == "UNKNOWN"
+    custom = app_decision(fqdn=None, domains=[
+        {"name": "custom.example.org", "bindingType": "SniEnabled"},
+        {"name": "disabled.example.org", "bindingType": "Disabled"}])
+    assert custom.verdict() == "FAIL" and custom.addresses == ["custom.example.org"]
+    assert app_decision(fqdn=None, domains=[
+        {"name": "disabled.example.org", "bindingType": "Disabled"}]).verdict() == "UNKNOWN"
     tcp = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}])
     assert tcp.verdict() == "FAIL" and tcp.ports == {"tcp": ((8443, 8443), (9000, 9000))}
 
