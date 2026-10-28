@@ -276,7 +276,7 @@ PRESERVED_TEMPLATE_READ_ACTIONS = frozenset({("cloudformation", "list_stacks")})
 # declares this read so unsupported inventory stays explicit, but no IAM action
 # can make the unavailable SDK request run. Revisit when the runtime ships it.
 UNAVAILABLE_SDK_METADATA_OPERATIONS = frozenset({("eventbridgev2", "list_event_buses")})
-SERVICE_PREFIXES = {'elbv2': 'elasticloadbalancing', 'elb': 'elasticloadbalancing', 'docdb': 'rds', 'neptune': 'rds', 'opensearch': 'es', 's3control': 's3', 'efs': 'elasticfilesystem', 'apigatewayv2': 'apigateway', 'sso-admin': 'sso', 'accessanalyzer': 'access-analyzer', 'emr': 'elasticmapreduce', 'bedrock-agent': 'bedrock', 'sesv2': 'ses', 'stepfunctions': 'states', 'supplychain': 'scn'}
+SERVICE_PREFIXES = {'elbv2': 'elasticloadbalancing', 'elb': 'elasticloadbalancing', 'docdb': 'rds', 'neptune': 'rds', 'opensearch': 'es', 's3control': 's3', 'efs': 'elasticfilesystem', 'apigatewayv2': 'apigateway', 'sso-admin': 'sso', 'accessanalyzer': 'access-analyzer', 'emr': 'elasticmapreduce', 'bedrock-agent': 'bedrock', 'sesv2': 'ses', 'stepfunctions': 'states', 'supplychain': 'scn', 'eventbridgev2': 'events'}
 SERVICE_PREFIXES['resourcegroupstaggingapi'] = 'tag'
 SERVICE_PREFIXES['opensearchserverless'] = 'aoss'
 SERVICE_PREFIXES['cloudhsmv2'] = 'cloudhsm'
@@ -461,6 +461,15 @@ def _sdk_operation_names(service):
             'list_kx_clusters': 'ListKxClusters',
             'list_kx_environments': 'ListKxEnvironments',
         }
+    # The pinned botocore predates the Custom Event Bus client. These three
+    # exact read operations are published by the EventBridgeV2 API and map to
+    # the EventBridge `events:` IAM namespace. No other operation is admitted.
+    if service == 'eventbridgev2':
+        return {
+            'get_resource_policy': 'GetResourcePolicy',
+            'list_resource_policies': 'ListResourcePolicies',
+            'list_subscribers': 'ListSubscribers',
+        }
     import botocore.session
     from botocore import xform_name
     model = botocore.session.get_session().get_service_model(service)
@@ -570,6 +579,32 @@ EXPOSURE_METADATA_READ_REFERENCES = {
     'sns:ListEndpointsByPlatformApplication': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_sns.html',
 }
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | set(EXPOSURE_METADATA_READ_REFERENCES)
+
+# Finite read-only additions from the second exposure sweep. The EventBridgeV2
+# SDK namespace authorizes through the existing EventBridge `events:` prefix.
+# Each URL is the service's action/resource authorization table; operations
+# absent from this map still fail closed in iam_action().
+EXPOSURE_SWEEP_READ_REFERENCES = {
+    **dict.fromkeys({'events:GetResourcePolicy', 'events:ListResourcePolicies', 'events:ListSubscribers'},
+        'https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-custom-bus-access-actions.html'),
+    'gamelift:DescribeFleetPortSettings': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_gamelift.html',
+    **dict.fromkeys({'glacier:GetVaultLock', 'glacier:GetVaultNotifications', 'glacier:ListJobs'},
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_glacier.html'),
+    **dict.fromkeys({'globalaccelerator:ListCrossAccountAttachments', 'globalaccelerator:ListCustomRoutingAccelerators',
+        'globalaccelerator:ListCustomRoutingEndpointGroups', 'globalaccelerator:ListCustomRoutingListeners'},
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_globalaccelerator.html'),
+    **dict.fromkeys({'iot:DescribeDomainConfiguration', 'iot:DescribeEndpoint', 'iot:GetTopicRule',
+        'iot:ListDomainConfigurations', 'iot:ListTopicRules'},
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_iot.html'),
+    'lakeformation:GetDataLakeSettings': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_lakeformation.html',
+    'lightsail:GetDistributions': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_lightsail.html',
+    **dict.fromkeys({'rum:GetAppMonitor', 'rum:ListRumMetricsDestinations'},
+        'https://docs.aws.amazon.com/cloudwatchrum/latest/APIReference/API_Operations.html'),
+    **dict.fromkeys({'servicediscovery:ListInstances', 'servicediscovery:ListNamespaces',
+        'servicediscovery:ListServices'},
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_servicediscovery.html'),
+}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(EXPOSURE_SWEEP_READ_REFERENCES)
 
 # These endpoint-bound EC2 List reads support the client-vpn-endpoint resource.
 # Keep them outside the broad configuration statement so the customer role
@@ -713,6 +748,32 @@ DATA_REGION_METADATA_STATEMENTS = {('outposts', 'list_outposts'): {'Sid': 'Nativ
                                                    'Resource': {'Fn::Sub': 'arn:${AWS::Partition}:redshift-serverless:*:${AWS::AccountId}:recoverypoint/*'}}}
 NATIVE_METADATA_STATEMENTS.update(DATA_REGION_METADATA_STATEMENTS)
 NATIVE_METADATA_RESOURCE_REFERENCES += DATA_REGION_METADATA_RESOURCE_REFERENCES
+
+# Actions whose AWS authorization tables name a resource are kept out of the
+# account-wide inventory statement. Wildcards below are limited to the
+# customer's own account and the one documented resource type.
+EXPOSURE_SWEEP_SCOPED_READS = {
+    ('eventbridgev2', 'get_resource_policy'): ('events:GetResourcePolicy', 'arn:${AWS::Partition}:events:*:${AWS::AccountId}:event-busv2/*'),
+    ('eventbridgev2', 'list_resource_policies'): ('events:ListResourcePolicies', 'arn:${AWS::Partition}:events:*:${AWS::AccountId}:event-busv2/*'),
+    ('gamelift', 'describe_fleet_port_settings'): ('gamelift:DescribeFleetPortSettings', 'arn:${AWS::Partition}:gamelift:*:${AWS::AccountId}:fleet/*'),
+    ('glacier', 'get_vault_lock'): ('glacier:GetVaultLock', 'arn:${AWS::Partition}:glacier:*:${AWS::AccountId}:vaults/*'),
+    ('glacier', 'get_vault_notifications'): ('glacier:GetVaultNotifications', 'arn:${AWS::Partition}:glacier:*:${AWS::AccountId}:vaults/*'),
+    ('glacier', 'list_jobs'): ('glacier:ListJobs', 'arn:${AWS::Partition}:glacier:*:${AWS::AccountId}:vaults/*'),
+    ('globalaccelerator', 'list_custom_routing_endpoint_groups'): ('globalaccelerator:ListCustomRoutingEndpointGroups', 'arn:${AWS::Partition}:globalaccelerator::${AWS::AccountId}:accelerator/*/listener/*'),
+    ('globalaccelerator', 'list_custom_routing_listeners'): ('globalaccelerator:ListCustomRoutingListeners', 'arn:${AWS::Partition}:globalaccelerator::${AWS::AccountId}:accelerator/*'),
+    ('iot', 'describe_domain_configuration'): ('iot:DescribeDomainConfiguration', 'arn:${AWS::Partition}:iot:*:${AWS::AccountId}:domainconfiguration/*'),
+    ('iot', 'get_topic_rule'): ('iot:GetTopicRule', 'arn:${AWS::Partition}:iot:*:${AWS::AccountId}:rule/*'),
+    ('rum', 'get_app_monitor'): ('rum:GetAppMonitor', 'arn:${AWS::Partition}:rum:*:${AWS::AccountId}:appmonitor/*'),
+    ('rum', 'list_rum_metrics_destinations'): ('rum:ListRumMetricsDestinations', 'arn:${AWS::Partition}:rum:*:${AWS::AccountId}:appmonitor/*'),
+    ('servicediscovery', 'list_instances'): ('servicediscovery:ListInstances', 'arn:${AWS::Partition}:servicediscovery:*:${AWS::AccountId}:service/*'),
+}
+for (_service, _operation), (_action, _resource) in EXPOSURE_SWEEP_SCOPED_READS.items():
+    NATIVE_METADATA_STATEMENTS[(_service, _operation)] = {
+        'Sid': 'ExposureSweep' + _action.split(':', 1)[1] + 'Read',
+        'Effect': 'Allow', 'Action': _action,
+        'Resource': {'Fn::Sub': _resource},
+    }
+NATIVE_METADATA_RESOURCE_REFERENCES += sorted(set(EXPOSURE_SWEEP_READ_REFERENCES.values()))
 NATIVE_METADATA_ACTIONS = frozenset(action for statement in NATIVE_METADATA_STATEMENTS.values()
     for action in ([statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"]))
 
