@@ -8290,6 +8290,67 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
     return a
 
 
+def _azure_vm_scale_set(snapshot, inventory, resource):
+    """Assess assigned per-instance public IPs against their effective NIC NSGs."""
+    data = resource["data"]
+    coverage = data.get("_coverage") or {}
+    nics = data.get("vmssNetworkInterfaces")
+    public_ips = data.get("vmssPublicIPAddresses")
+    complete = all((coverage.get(field) or {}).get("status") in ("collected", "empty")
+                   for field in ("vmssNetworkInterfaces", "vmssPublicIPAddresses"))
+    if complete and isinstance(nics, list) and isinstance(public_ips, list) and not public_ips:
+        if not any((config.get("properties") or {}).get("publicIPAddress")
+                   for nic in nics for config in as_list((nic.get("properties") or {}).get("ipConfigurations"))
+                   if isinstance(config, dict)):
+            return None  # Load balancer and application gateway frontends are assessed separately.
+    a = Assessment(resource, "public_ip")
+    if not complete or not isinstance(nics, list) or not isinstance(public_ips, list):
+        a.gap("inventory", "VM scale set instance NIC or public IP list is incomplete")
+        return a
+    configs = {}
+    for nic in nics:
+        for config in as_list((nic.get("properties") or {}).get("ipConfigurations")):
+            if isinstance(config, dict) and isinstance(config.get("id"), str):
+                configs[config["id"].casefold()] = (nic, config)
+    if not public_ips:
+        a.gap("inventory", "VM scale set NIC references an assigned public IP absent from the completed IP list")
+    total = {}
+    for public in public_ips:
+        pp = public.get("properties") or {}
+        address = pp.get("ipAddress")
+        config_id = (pp.get("ipConfiguration") or {}).get("id")
+        match = configs.get(config_id.casefold()) if isinstance(config_id, str) else None
+        if not _public_ip(address) or match is None or pp.get("provisioningState") not in (None, "Succeeded"):
+            a.gap("inventory", "VM scale set public IP address or NIC binding is unresolved")
+            continue
+        nic, config = match
+        cp = config.get("properties") or {}
+        if (nic.get("properties") or {}).get("provisioningState") not in (None, "Succeeded"):
+            a.gap("inventory", "VM scale set instance NIC provisioning is unresolved")
+            continue
+        linked = (cp.get("publicIPAddress") or {}).get("id")
+        if not isinstance(linked, str) or linked.casefold() != public["id"].casefold():
+            a.gap("inventory", "VM scale set NIC does not reference the assigned public IP")
+            continue
+        a.addresses.append(address)
+        a.step("public_ip", "allow", public_ip=public["id"], address=address)
+        groups = [g.get("id") for g in as_list(cp.get("applicationSecurityGroups")) if isinstance(g, dict)]
+        allowed = _azure_nsg_path(inventory, a,
+                                  ((nic.get("properties") or {}).get("networkSecurityGroup") or {}).get("id"),
+                                  (cp.get("subnet") or {}).get("id"), dict(FULL),
+                                  cp.get("privateIPAddress"), groups,
+                                  (public.get("sku") or {}).get("name"), config.get("name"))
+        if not empty(allowed) and any(gap["layer"] == "nsg" for gap in a.unresolved):
+            a.gap("inventory", "VM scale set effective NIC or subnet NSG is unresolved")
+        if not empty(allowed) and _azure_nic_declared_route_uncertainty(
+                inventory, (cp.get("subnet") or {}).get("id"), address) == "unknown":
+            a.gap("inventory", "VM scale set public return route is unresolved")
+            allowed = {}
+        total = union(total, allowed)
+    a.ports = total
+    return a
+
+
 def _azure_nic_config_index(inventory):
     """NIC IP configurations indexed by backend pool id and by configuration id.
 
@@ -8307,10 +8368,21 @@ def _azure_nic_config_index(inventory):
     return index or None
 
 
+def _azure_all_nics(inventory):
+    yield from inventory.items("nic")
+    for scale_set in inventory.items("vm_scale_set"):
+        data = scale_set["data"]
+        if ((data.get("_coverage") or {}).get("vmssNetworkInterfaces") or {}).get("status") not in ("collected", "empty"):
+            continue
+        for nic in as_list(data.get("vmssNetworkInterfaces")):
+            yield {"provider": "azure", "type": "nic", "scope": scale_set["scope"],
+                   "id": nic["id"], "data": nic}
+
+
 def _azure_nic_config_entries(inventory):
     by_pool, by_config, by_address = {}, {}, {}
     position = 0
-    for nic in inventory.items("nic"):
+    for nic in _azure_all_nics(inventory):
         for config in as_list(_props(nic).get("ipConfigurations")):
             cp = (config or {}).get("properties") or {}
             refs = {str(x.get("id", "")).lower() for x in as_list(cp.get("loadBalancerBackendAddressPools")) + as_list(cp.get("applicationGatewayBackendAddressPools")) if isinstance(x, dict)}
@@ -8330,7 +8402,7 @@ def _azure_backend_nics(inventory, pool_ids):
     pools = {str(p).lower() for p in pool_ids}
     index = _azure_nic_config_index(inventory)
     if index is None:
-        for nic in inventory.items("nic"):
+        for nic in _azure_all_nics(inventory):
             for config in as_list(_props(nic).get("ipConfigurations")):
                 cp = (config or {}).get("properties") or {}
                 refs = {str(x.get("id", "")).lower() for x in as_list(cp.get("loadBalancerBackendAddressPools")) + as_list(cp.get("applicationGatewayBackendAddressPools")) if isinstance(x, dict)}
@@ -8388,7 +8460,9 @@ def _azure_lb(snapshot, inventory, resource):
     allowed_backend_nics = set()
     backend_routes = []
     unresolved_backends = []
-    rules = [("loadBalancingRules", r) for r in as_list(props.get("loadBalancingRules"))] + [("inboundNatRules", r) for r in as_list(props.get("inboundNatRules"))]
+    rules = ([("loadBalancingRules", r) for r in as_list(props.get("loadBalancingRules"))] +
+             [("inboundNatRules", r) for r in as_list(props.get("inboundNatRules"))] +
+             [("inboundNatPools", r) for r in as_list(props.get("inboundNatPools"))])
     for kind, rule in rules:
         rp = (rule or {}).get("properties") or {}
         front_id = str((rp.get("frontendIPConfiguration") or {}).get("id", "")).lower()
@@ -8396,7 +8470,15 @@ def _azure_lb(snapshot, inventory, resource):
             continue
         protocol = rp.get("protocol", "Tcp")
         frontend, backend = rp.get("frontendPort"), rp.get("backendPort", rp.get("frontendPort"))
-        if frontend == 0:  # HA ports
+        if kind == "inboundNatPools" or (kind == "inboundNatRules" and
+                                          rp.get("frontendPortRangeStart") is not None):
+            start, end = rp.get("frontendPortRangeStart"), rp.get("frontendPortRangeEnd")
+            if (type(start) is not int or type(end) is not int or not 1 <= start <= end <= 65535
+                    or type(backend) is not int or not 1 <= backend <= 65535):
+                unresolved_backends.append(f"{kind} {rule.get('name')}: port range is unresolved")
+                continue
+            frontend_ports, backend_ports = pset(protocol, start, end), pset(protocol, backend, backend)
+        elif frontend == 0:  # HA ports
             frontend_ports, backend_ports = pset(protocol), pset(protocol)
         else:
             frontend_ports, backend_ports = pset(protocol, frontend, frontend), pset(protocol, backend, backend)
@@ -8433,12 +8515,20 @@ def _azure_lb(snapshot, inventory, resource):
                         if key not in known_configs:
                             nics.append((nic, config))
                             known_configs.add(key)
-        if kind == "inboundNatRules":
+        if kind == "inboundNatRules" and not pools:
             target = (rp.get("backendIPConfiguration") or {}).get("id")
             index = _azure_nic_config_index(inventory) if target else None
             nics = (list(index[1].get(str(target).lower(), ())) if index is not None else
-                    [(n, c) for n in inventory.items("nic") for c in as_list(_props(n).get("ipConfigurations"))
+                    [(n, c) for n in _azure_all_nics(inventory) for c in as_list(_props(n).get("ipConfigurations"))
                      if target and str((c or {}).get("id", "")).lower() == str(target).lower()])
+        if kind == "inboundNatPools":
+            pool_id = str(rule.get("id", "")).casefold()
+            nics = [(nic, config) for nic in _azure_all_nics(inventory)
+                    for config in as_list(_props(nic).get("ipConfigurations"))
+                    if isinstance(config, dict) and pool_id and any(
+                        str(ref.get("id", "")).casefold() == pool_id
+                        for ref in as_list((config.get("properties") or {}).get("loadBalancerInboundNatPools"))
+                        if isinstance(ref, dict))]
         if not nics:
             if probed and _azure_lb_probed_backends_admin_down(backend_pools, pools):
                 a.step("backend", "block", reason="all probed IP-based backend addresses have adminState Down",
@@ -12013,7 +12103,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12097,7 +12187,7 @@ def assess(snapshot, resources):
                 "vertex_agent_sandbox": _gcp_vertex_sandbox,
                 "tpu_node": _gcp_tpu_node,
                 "vmware_external_address": _gcp_vmware_address},
-        "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
+        "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "vm_scale_set": _azure_vm_scale_set, "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
                   "app_service": lambda s, i, r: _azure_app_service(s, i, r, extra["configs"]), "aks_cluster": _azure_aks,
                   "app_service_slot": _azure_app_service_slot,
                   "storage_account": _azure_storage, "storage_container": _azure_storage_container,

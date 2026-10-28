@@ -219,7 +219,9 @@ ACTIVITY_SELECT = ("eventTimestamp,submissionTimestamp,operationName,operationId
 EMBEDDED_LISTS = {
     "container_app_environment": (("httpRouteConfigs", "httpRouteConfigs", "2026-01-01"),),
     "batch_account": (("pools", "pools", "2025-06-01"),),
-    "vm_scale_set": (("virtualMachines", "virtualMachines", "2024-07-01"),),
+    "vm_scale_set": (("virtualMachines", "virtualMachines", "2024-07-01"),
+                     ("vmssNetworkInterfaces", "networkInterfaces", "2018-10-01"),
+                     ("vmssPublicIPAddresses", "publicipaddresses", "2018-10-01")),
     "app_service": (("slots", "slots", "2023-12-01"), ("vnetConnections", "virtualNetworkConnections", "2023-12-01")),
     # Webhooks: metadata only (the invocation URI is a bearer secret and is never kept).
     "automation_account": (("variables", "variables", "2023-11-01"), ("webhooks", "webhooks", "2015-10-31")),
@@ -750,7 +752,7 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                         item.setdefault("_coverage", {})[field] = {"status": "malformed"}
                     continue
             url = ARM + rid + "/" + path + "?api-version=" + version
-            def fetch(url=url, rid=rid, field=field, item=item):
+            def fetch(url=url, rid=rid, field=field, item=item, kind=kind):
                 if field == 'longTermRetentionBackups':
                     native_path, _, _ = azure_sql_ltr_native.binding(item)
                     url = ARM + native_path + '?api-version=' + azure_sql_ltr_native.VERSION + '&databaseState=Live'
@@ -767,6 +769,27 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                 workspace_va_seen = {}
                 messaging_rule_seen = set()
                 for page in reader.pages(request, url):
+                    if kind == "vm_scale_set" and field in ("vmssNetworkInterfaces", "vmssPublicIPAddresses"):
+                        projected = []
+                        suffix = (r"/virtualMachines/[^/?#%\\\s]+/networkInterfaces/[^/?#%\\\s]+"
+                                  if field == "vmssNetworkInterfaces" else
+                                  r"/virtualMachines/[^/?#%\\\s]+/networkInterfaces/[^/?#%\\\s]+/ipConfigurations/[^/?#%\\\s]+/publicIPAddresses/[^/?#%\\\s]+")
+                        for row in page:
+                            identity = row.get("id") if isinstance(row, dict) else None
+                            props = row.get("properties") if isinstance(row, dict) else None
+                            if (not isinstance(identity, str) or re.fullmatch(re.escape(rid) + suffix, identity, re.I) is None
+                                    or not isinstance(props, dict) or identity.casefold() in backup_seen):
+                                raise ValueError("foreign, duplicate or malformed VMSS network child")
+                            backup_seen[identity.casefold()] = row
+                            if field == "vmssNetworkInterfaces":
+                                fields = ("ipConfigurations", "networkSecurityGroup", "provisioningState")
+                            else:
+                                fields = ("ipAddress", "ipConfiguration", "provisioningState", "publicIPAddressVersion")
+                            projected.append({"id": identity, "name": row.get("name"),
+                                              "properties": _metadata_only({key: props[key] for key in fields if key in props}),
+                                              **({"sku": row["sku"]} if "sku" in row else {})})
+                        yield projected
+                        continue
                     if field == "functions":
                         projected = _function_trigger_rows(page, rid)
                         for row in projected:
