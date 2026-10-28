@@ -5779,9 +5779,36 @@ def _azure_api_management(snapshot, inventory, resource):
         a.gap("inventory", "API Management gateway URL was not collected")
     a.step("public_network_access", "allow", value=access or "Enabled (service default)",
            virtual_network_type=network or "None (service default)")
+    ports = pset("tcp", 443, 443)
     if network == "External":
-        a.gap("nsg", "external VNet gateway subnet NSG and route path are not resolved")
-    a.ports = pset("tcp", 443, 443)
+        sku = (resource["data"].get("sku") or {}).get("name")
+        if sku not in ("Developer", "Premium"):
+            a.gap("nsg", "External VNet NSG semantics require a recorded classic Developer or Premium SKU")
+        network_config = props.get("virtualNetworkConfiguration")
+        subnet_id = network_config.get("subnetResourceId") if isinstance(network_config, dict) else None
+        subnet, _ = _azure_subnet(inventory, subnet_id)
+        if subnet is None:
+            a.gap("nsg", "External VNet gateway subnet is not collected", "Microsoft.Network/virtualNetworks/subnets")
+        elif sku in ("Developer", "Premium"):
+            nsg_id = ((_props(subnet).get("networkSecurityGroup") or {}).get("id"))
+            nsg = inventory.get("nsg", nsg_id) if nsg_id else None
+            # The API does not expose the gateway's private DIP. A rule aimed
+            # at a specific destination IP cannot be resolved from the subnet.
+            specific_destination = bool(nsg and any(
+                (rule.get("properties") or {}).get("access") == "Allow" and (
+                    bool((rule.get("properties") or {}).get("destinationApplicationSecurityGroups")) or any(
+                    value not in ("*", "Any", "VirtualNetwork", "0.0.0.0/0", "::/0")
+                    for value in as_list((rule.get("properties") or {}).get("destinationAddressPrefixes")) +
+                                 as_list((rule.get("properties") or {}).get("destinationAddressPrefix"))))
+                for rule in as_list(_props(nsg).get("securityRules")) if isinstance(rule, dict)))
+            ports = _azure_nsg_path(inventory, a, None, subnet_id, ports,
+                                    sku="standard", where="API Management gateway subnet")
+            if specific_destination:
+                a.blocked_by = None
+                a.gap("nsg", "destination-specific NSG allow needs the gateway's private DIP")
+            if not empty(ports) and (_props(subnet).get("routeTable") or {}).get("id"):
+                a.gap("inventory", "External VNet gateway return route through the associated route table is unresolved")
+    a.ports = ports
     a.notes.append("Gateway listener exposure does not establish anonymous API access or a healthy backend")
     return a
 

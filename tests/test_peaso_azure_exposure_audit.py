@@ -932,6 +932,42 @@ def test_api_management_public_gateway_and_network_gates():
     assert decision("api_management", {**base, "gatewayUrl": None}).verdict() == "UNKNOWN"
 
 
+def test_api_management_classic_external_vnet_subnet_nsg():
+    subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/apim"
+    nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/apim"
+    service_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.ApiManagement/service/apim"
+    props = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "External",
+             "disableGateway": False, "gatewayUrl": "https://apim.azure-api.net",
+             "virtualNetworkConfiguration": {"subnetResourceId": subnet_id}}
+
+    def assess_gateway(*, nsg=True, rule=None, route_table=False, subnet=True, sku="Developer"):
+        subnet_props = {"networkSecurityGroup": {"id": nsg_id}} if nsg else {}
+        if route_table:
+            subnet_props["routeTable"] = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/routeTables/forced"}
+        collections = [{"type": "api_management", "scope": SCOPE, "service": "apim", "status": "collected",
+                        "items": [{"id": service_id, "sku": {"name": sku}, "properties": props}]}]
+        if subnet:
+            collections.append({"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+                                "items": [{"id": subnet_id, "properties": subnet_props}]})
+        if nsg:
+            collections.append({"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
+                                "items": [{"id": nsg_id, "properties": {"securityRules": [rule] if rule else []}}]})
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "api_management")
+
+    allow = {"name": "gateway", "properties": {"priority": 100, "direction": "Inbound",
+             "access": "Allow", "protocol": "Tcp", "sourceAddressPrefix": "Internet",
+             "destinationAddressPrefix": "VirtualNetwork", "destinationPortRange": "443"}}
+    assert assess_gateway(rule=allow).verdict() == "FAIL"
+    assert assess_gateway().verdict() == "PASS"
+    assert assess_gateway(nsg=False).verdict() == "PASS"
+    assert assess_gateway(subnet=False).verdict() == "UNKNOWN"
+    assert assess_gateway(rule={**allow, "properties": {**allow["properties"],
+           "destinationAddressPrefix": "10.0.0.4/32"}}).verdict() == "UNKNOWN"
+    assert assess_gateway(rule=allow, route_table=True).verdict() == "UNKNOWN"
+    assert assess_gateway(rule=allow, sku="StandardV2").verdict() == "UNKNOWN"
+
+
 def test_redis_public_listeners_preserve_firewall_uncertainty():
     base = {"publicNetworkAccess": "Enabled", "hostName": "cache.redis.cache.windows.net",
             "sslPort": 6380, "enableNonSslPort": False}
