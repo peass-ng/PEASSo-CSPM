@@ -1924,6 +1924,36 @@ def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
     assert decision(mode="Detection", enabled="Enabled").verdict() == "UNKNOWN"
 
 
+def test_afd_unrelated_waf_policy_does_not_filter_bound_route():
+    profile = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
+    endpoint = profile + "/afdEndpoints/default"
+    unrelated = profile + "/customDomains/other"
+    waf_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoorWebApplicationFirewallPolicies/waf"
+
+    def decision(bound_ids, associations):
+        edge = {"id": profile, "sku": {"name": "Premium_AzureFrontDoor"},
+            "endpoints": [{"id": endpoint, "properties": {"hostName": "edge.azurefd.net"}}],
+            "effectiveRoutes": [{"id": endpoint + "/routes/redirect", "enabledState": "Enabled",
+                "boundHostNames": ["edge.azurefd.net"], "boundDomainIds": bound_ids,
+                "paths": [{"acceptedProtocols": ["Http"], "action": "Redirect"}]}],
+            "securityPolicies": [{"id": profile + "/securityPolicies/other",
+                "properties": {"parameters": {"type": "WebApplicationFirewall",
+                    "wafPolicy": {"id": waf_id}, "associations": associations}}}],
+            "_coverage": {"effectiveRoutes": {"status": "collected"},
+                          "securityPolicies": {"status": "collected"}}}
+        snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
+            "scope": SCOPE, "service": "cdn", "status": "collected", "items": [edge]}])
+        return next(a for a in assess(snap, resources(snap))
+                    if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    other_association = [{"domains": [{"id": unrelated}], "patternsToMatch": ["/*"]}]
+    assert decision([endpoint], other_association).verdict() == "FAIL"
+    assert decision(None, other_association).verdict() == "UNKNOWN"
+    assert decision([endpoint], [{"domains": [{"id": endpoint}],
+                                 "patternsToMatch": ["/*"]}]).verdict() == "UNKNOWN"
+    assert decision([endpoint], [{"domains": "malformed"}]).verdict() == "UNKNOWN"
+
+
 def test_classic_frontdoor_frontend_waf_link_is_joined_to_policy():
     frontdoor = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoors/edge"
     waf_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoorWebApplicationFirewallPolicies/waf"

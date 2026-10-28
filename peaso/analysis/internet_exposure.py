@@ -6321,9 +6321,29 @@ def _azure_public_edge(snapshot, inventory, resource):
         if policy_coverage.get("status") not in ("collected", "empty"):
             a.gap("policy", "edge security policy LIST is incomplete")
         if policies:
-            passive = []
+            passive, applicable = [], 0
+            bound_id_lists = [route.get("boundDomainIds") for route in enabled]
+            bound_ids_known = all(isinstance(ids, list) for ids in bound_id_lists)
+            bound_ids = {rid.casefold() for ids in bound_id_lists if isinstance(ids, list)
+                         for rid in ids if isinstance(rid, str)}
             for policy in policies:
                 params = (policy.get("properties") or {}).get("parameters") if isinstance(policy, dict) else None
+                associations = params.get("associations") if isinstance(params, dict) else None
+                if isinstance(associations, list):
+                    if (not bound_ids_known or any(not isinstance(association, dict) or
+                            not isinstance(association.get("domains"), list) or
+                            any(not isinstance(domain, dict) or not isinstance(domain.get("id"), str)
+                                for domain in association["domains"])
+                            for association in associations)):
+                        a.gap("policy", "edge security policy domain associations are unresolved")
+                        continue
+                    if not any(domain["id"].casefold() in bound_ids for association in associations
+                               for domain in association["domains"]):
+                        continue
+                elif associations is not None:
+                    a.gap("policy", "edge security policy domain associations are malformed")
+                    continue
+                applicable += 1
                 policy_id = (params.get("wafPolicy") or {}).get("id") if isinstance(params, dict) else None
                 waf = inventory.get("frontdoor_waf_policy", policy_id) if isinstance(policy_id, str) else None
                 state = _azure_frontdoor_passive_waf(waf)
@@ -6331,9 +6351,9 @@ def _azure_public_edge(snapshot, inventory, resource):
                     passive.append({"security_policy": policy.get("id"), "waf_policy": policy_id, **state})
                 else:
                     a.gap("policy", "edge security policy may filter the listener")
-            if len(passive) == len(policies) and policy_coverage.get("status") in ("collected", "empty"):
+            if len(passive) == applicable and policy_coverage.get("status") in ("collected", "empty"):
                 a.step("waf", "allow", passive_policies=passive,
-                       reason="all referenced WAF policies are passive or have no configured rules")
+                       reason="no associated WAF policy can filter the bound listener")
     if data.get("sku", {}).get("name") not in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
         for endpoint in endpoints:
             link = (endpoint.get("properties") or {}).get("webApplicationFirewallPolicyLink") if isinstance(endpoint, dict) else None
@@ -7233,7 +7253,7 @@ def _observed(assessment, status):
     if assessment.resource["type"] == "frontdoor_and_cdn_endpoint" and status == "FAIL":
         waf = next((step for step in assessment.path if step["layer"] == "waf"
                     and step["decision"] == "allow"), None)
-        if waf is not None:
+        if waf is not None and waf.get("passive_policies"):
             policy = waf["passive_policies"][0]
             host = assessment.addresses[0] if assessment.addresses else "an unobserved hostname"
             reason = ("and has explicitly empty custom and managed rule lists"

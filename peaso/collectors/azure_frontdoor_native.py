@@ -196,7 +196,7 @@ def _routes(item, family, rows):
             continue
         if props.get('patternsToMatch') != ['/*']:
             _unresolved(item, 'effectiveRoutes', 'partial_path_coverage_requires_effective_path_partition');return
-        bound_hosts = []
+        bound_hosts, bound_domain_ids = [], []
         if family == 'afd':
             rules = props.get('ruleSets', [])
             if not isinstance(rules, list) or rules:
@@ -218,6 +218,7 @@ def _routes(item, family, rows):
                 if not isinstance(host, str) or not host:
                     _unresolved(item, 'effectiveRoutes', 'route_default_hostname_unavailable');return
                 bound_hosts.append(host)
+                bound_domain_ids.append(endpoint['id'])
             domain_by_id = {entry['id'].casefold(): entry for entry in item.get('domains', [])}
             for ref in domains:
                 if ref.get('isActive') is False:
@@ -226,6 +227,7 @@ def _routes(item, family, rows):
                 if not isinstance(host, str) or not host:
                     _unresolved(item, 'effectiveRoutes', 'route_custom_hostname_unavailable');return
                 bound_hosts.append(host)
+                bound_domain_ids.append(ref['id'])
             protocols = props.get('supportedProtocols')
             forwarding = props.get('forwardingProtocol')
             redirect = props.get('httpsRedirect')
@@ -250,6 +252,7 @@ def _routes(item, family, rows):
                 if not isinstance(host, str) or not host:
                     _unresolved(item, 'effectiveRoutes', 'classic_route_hostname_unavailable');return
                 bound_hosts.append(host)
+                bound_domain_ids.append(ref['id'])
             protocols = props.get('acceptedProtocols')
             config = props.get('routeConfiguration', {})
             kind = config.get('@odata.type') if isinstance(config, dict) else None
@@ -271,6 +274,7 @@ def _routes(item, family, rows):
         effective.append({'id': row['id'], 'type': row['type'], 'enabledState': state,
                           'customOrigin': any(path['action'] == 'Forward' for path in paths), 'paths': paths,
                           'boundHostNames': sorted(set(bound_hosts)),
+                          'boundDomainIds': sorted(set(bound_domain_ids)),
                           'resolved': {field: True for field in ('routeAssociation', 'protocols', 'ruleSets', 'pathCoverage', 'originPolicy')}})
     _covered(item, 'effectiveRoutes', effective)
 
@@ -303,6 +307,7 @@ def _classic_cdn_routes(item, endpoints):
             _unresolved(item, 'effectiveRoutes', 'classic_cdn_hostname_unavailable');return
         rows.append({'id': endpoint['id'], 'type': endpoint['type'], 'enabledState': state,
                      'boundHostNames': [host] if state == 'Enabled' else [],
+                     'boundDomainIds': [endpoint['id']] if state == 'Enabled' else [],
                      'paths': [{'acceptedProtocols': protocols, 'action': 'Forward'}],
                      'resolved': {**{key: True for key in ('routeAssociation', 'protocols', 'ruleSets', 'pathCoverage')},
                                   'originPolicy': False}})
