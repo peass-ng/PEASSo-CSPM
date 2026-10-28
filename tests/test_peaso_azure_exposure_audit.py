@@ -788,8 +788,11 @@ def test_redis_public_listeners_preserve_firewall_uncertainty():
     assert non_tls.ports == {"tcp": ((6379, 6380),)}
     assert decision("redis_cache", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
     assert decision("redis_cache", {**base, "publicNetworkAccess": None}).verdict() == "UNKNOWN"
-    injected = decision("redis_cache", {**base, "subnetId": "/subscriptions/test/subnets/cache"})
-    assert any(gap["layer"] == "nsg" for gap in injected.unresolved)
+    injected = decision("redis_cache", {**base, "subnetId":
+        "/subscriptions/test/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/cache"})
+    assert injected.verdict() == "PASS" and injected.ports == {}
+    assert any(step["layer"] == "network" and step["decision"] == "block" for step in injected.path)
+    assert decision("redis_cache", {**base, "subnetId": "malformed"}).verdict() == "UNKNOWN"
 
     def with_rules(rules, status="collected"):
         item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redis/cache",
