@@ -134,7 +134,7 @@ PUBLISHED_CHECK_MODULES = frozenset(name.rsplit(".", 1)[-1] for name in sys.modu
 PUBLISHED_HISTORICAL_SUCCESSORS = {
     "azure_nsp_query_cmk_production_admission_20261020": (
         "azure_nsp_query_cmk_production_tde_successor_20261020",
-        "c335c9718dd2fdcbd9e7eabc0791b8fca29b758541ddd190e4c07f8bbc92d40c",
+        "a403c91f39128fce41181800677cd0cbe5d87fbd284bc5a5081cfc35eaec1cfa",
     ),
 }
 CHECKS_DIR = Path(__file__).resolve().parents[1] / "peaso" / "checks"

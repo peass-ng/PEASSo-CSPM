@@ -108,8 +108,11 @@ def test_native_server_vulnerability_provider_and_honest_arc_unknown(mode, expec
 
 def vpn_snapshot(mode='complete'):
     mapping = {GROUP + '/providers/Microsoft.Network/virtualNetworkGateways': {'value': [parent(GATEWAY, 'Microsoft.Network/virtualNetworkGateways', {})]}}
-    mapping[SCOPE + '/resourcegroups'] = {'value': [{'id': GROUP, 'properties': {}}]}
+    mapping[SCOPE + '/resourcegroups'] = {'value': [parent(GROUP, 'Microsoft.Resources/resourceGroups', {})]}
     props = {'virtualNetworkGateway1': {'id': GATEWAY, 'properties': {'private': 'private-marker'}},
+             'localNetworkGateway2': {'id': GROUP + '/providers/Microsoft.Network/localNetworkGateways/peer',
+                                      'properties': {'private': 'private-marker'}},
+             'connectionType': 'IPsec', 'connectionStatus': 'Connected', 'provisioningState': 'Succeeded',
              'tunnelConnectionStatus': [{'tunnel': 'a', 'connectionStatus': 'Connected'},
                                          {'tunnel': 'b', 'connectionStatus': 'Connected'}], 'sharedKey': 'private-marker'}
     if mode == 'disconnected': props['tunnelConnectionStatus'][1]['connectionStatus'] = 'Disconnected'
@@ -140,6 +143,12 @@ def test_vpn_real_tunnel_health_and_rg_roster_coverage(mode, expected):
     assert 'private-marker' not in json.dumps(snapshot)
     assert not any(c['type'] == '_native_vpn_connection_rg' for c in snapshot['collections'])
     if mode == 'complete': assert envelope(snapshot, 'virtual_network_gateway_connection')['covered_parent_ids'] == [GROUP]
+    if mode == 'complete':
+        connection = envelope(snapshot, 'virtual_network_gateway_connection')['items'][0]
+        assert connection['properties']['localNetworkGateway2'] == {
+            'id': GROUP + '/providers/Microsoft.Network/localNetworkGateways/peer'}
+        assert connection['properties']['connectionStatus'] == 'Connected'
+        assert connection['properties']['connectionType'] == 'IPsec'
 
 
 def test_native_selection_includes_complete_positive_cis_dependencies():

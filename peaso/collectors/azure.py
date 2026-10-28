@@ -2042,7 +2042,7 @@ def _metadata_only(value, secret=False):
     if not isinstance(value, dict):
         return value
     result = {key: _metadata_only(item, secret) for key, item in value.items() if not (secret and key.lower() == "value") and key.lower() not in (
-        "password", "adminpassword", "clientsecret", "accesstoken", "token",
+        "password", "adminpassword", "clientsecret", "radiusserversecret", "accesstoken", "token",
         "connectionstring", "primarykey", "secondarykey", "privatekey", "customdata",
         "userdata", "protectedsettings", "protectedsettingsfromkeyvault", "appsettings",
         "machinekey", "decryptionkey", "validationkey", "sourceuri", "accesssas",
@@ -2565,7 +2565,7 @@ def _selected(options, requirements):
     if selected.intersection(("backup_protected_item", "backup_policy")):
         selected.add("recovery_vault")
     if "virtual_network_gateway" in selected:
-        selected.add("resource_group")
+        selected.update(("resource_group", "public_ip", "virtual_network_gateway_connection"))
     if "lighthouse_assignment" in selected:
         selected.update(("resource_group", "subscription"))
     if "managed_application" in selected:

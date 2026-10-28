@@ -14,7 +14,7 @@ from peaso import secret_evidence
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / rawv2.PRIVATE_HELPER
 RECEIPT = ROOT / rawv2.RECEIPT
-RECEIPT_SHA256 = '42570f783de2565b43d808d74bea8a63b0d22bfd1c0e9c9c5d2faf462a91d81c'
+RECEIPT_SHA256 = '92fd35a845d086cd41caacb45784a9abe835caff76df9ac778fd1455d3f83136'
 
 
 @pytest.fixture

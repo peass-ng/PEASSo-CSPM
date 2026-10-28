@@ -10,11 +10,11 @@
     "_verify_runtime",
     "reviewed_inputs"
   ],
-  "gcp_receipt_sha256": "eaa704ca80764379dc69e87b560ec897484c1e0067c1d6e3871e756a2a5f2cf7",
-  "gcp_source_sha256": "0b6870bec846fdb36814cf65ab07d7d1899c85a053173cdd962bb7c88a168ac6",
+  "gcp_receipt_sha256": "94547e9ab250a24be60dba94bb7fe124707b5bd86e99fdfdcde388d2471800b5",
+  "gcp_source_sha256": "bec4d662c4c5a831baf966d1ede47248d525e7a54fcf71fcb19fe4fde03dafaf",
   "normalized_source_sha256": "03b2f79ed4ead8672c6b6d13a209b70cbdd0edcd410da069c6f5c503c326fa98",
-  "raw_receipt_sha256": "42570f783de2565b43d808d74bea8a63b0d22bfd1c0e9c9c5d2faf462a91d81c",
-  "raw_source_sha256": "6723517c7a4cf628f5ba81c78406e1afeb8f7d25d369adf8b2ba6ccc661a1e54",
+  "raw_receipt_sha256": "92fd35a845d086cd41caacb45784a9abe835caff76df9ac778fd1455d3f83136",
+  "raw_source_sha256": "24578316e3f13a36e5311a03ffcf5527aef892439d822fa6dc3055aa8afc0e62",
   "schema": "gcp-private-workbench-head3-source-successor-v1",
   "workbench_receipt_sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
 }

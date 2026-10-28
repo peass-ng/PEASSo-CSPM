@@ -11,7 +11,7 @@ from . import azure_nsp_query_cmk_runtime_review_20261020 as candidate
 from peaso.collectors import azure_nsp_query_cmk_runtime_20261020 as producer
 
 RECEIPT = 'azure_nsp_query_cmk_runtime_admission_20261020.json'
-RECEIPT_SHA256 = '4427d5d11f1767cfa74d9fc9b74dd4c65e806622648e809f17228a6023df6653'
+RECEIPT_SHA256 = '87731e1370ff9a1c2a2014de0f75f324e01c3e7e3cb27e124b0144f1bdeea66c'
 CASES_FILE = 'azure_nsp_query_cmk_runtime_cases_20261020.json'
 
 

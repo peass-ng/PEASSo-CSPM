@@ -155,7 +155,7 @@
       "qualname": "_metadata_only",
       "path": "peaso/collectors/azure.py",
       "line": 1076,
-      "sha256": "973c1f2ac54ab158b90e5486642302de4d53020d24b61792544715d9822d7f67"
+      "sha256": "bde85f817f9408e7934167be7872eeb43062a496cf4d86739a2538f63e6a22d1"
     },
     {
       "module": "peaso.collectors.azure",

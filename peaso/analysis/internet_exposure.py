@@ -9698,6 +9698,111 @@ _AZURE_MANAGED_ENDPOINTS = {
 }
 
 
+def _azure_vpn_gateway(snapshot, inventory, resource):
+    """Assess configured VPN tunnel listeners on observed gateway public IPs."""
+    a = Assessment(resource, "vpn_gateway")
+    a.authenticated = True
+    props = _props(resource)
+    if props.get("gatewayType") == "ExpressRoute":
+        a.step("listener", "block", reason="ExpressRoute gateway has no VPN tunnel listener")
+        a.ports = {}
+        return a
+    if props.get("gatewayType") != "Vpn":
+        a.gap("inventory", "VPN gateway type is unavailable")
+        return a
+    state = props.get("provisioningState")
+    if state != "Succeeded":
+        a.gap("inventory", "VPN gateway provisioning state is unresolved")
+        return a
+    configurations = props.get("ipConfigurations")
+    if not isinstance(configurations, list) or not configurations:
+        a.gap("inventory", "VPN gateway public IP configurations are unavailable")
+        return a
+    public_addresses = []
+    unresolved_ip = False
+    for config in configurations:
+        details = config.get("properties") if isinstance(config, dict) else None
+        reference = details.get("publicIPAddress") if isinstance(details, dict) else None
+        identity = reference.get("id") if isinstance(reference, dict) else None
+        pip = inventory.get("public_ip", identity) if isinstance(identity, str) else None
+        address = _props(pip).get("ipAddress") if pip else None
+        if isinstance(address, str) and address:
+            try:
+                if ipaddress.ip_address(address).is_global:
+                    public_addresses.append(address)
+                else:
+                    unresolved_ip = True
+            except ValueError:
+                unresolved_ip = True
+        else:
+            unresolved_ip = True
+    if not public_addresses:
+        a.gap("inventory", "VPN gateway public frontend address is unresolved")
+        return a
+    a.addresses = sorted(set(public_addresses))
+    if unresolved_ip:
+        a.notes.append("Another gateway public IP configuration is unresolved")
+    ports = {}
+    config = props.get("vpnClientConfiguration")
+    if isinstance(config, dict):
+        protocols = config.get("vpnClientProtocols")
+        if not isinstance(protocols, list) or not protocols:
+            a.gap("inventory", "VPN client tunnel protocol is unavailable")
+        else:
+            for protocol in protocols:
+                if protocol == "SSTP":
+                    ports.setdefault("tcp", set()).add(443)
+                elif protocol == "OpenVPN":
+                    ports.setdefault("tcp", set()).add(443)
+                elif protocol == "IkeV2":
+                    ports.setdefault("udp", set()).update((500, 4500))
+                else:
+                    a.gap("inventory", "VPN client tunnel protocol is unrecognized")
+    scope = str(native_id(resource)).split("/resourceGroups/", 1)[0]
+    connection_state = inventory.state("virtual_network_gateway_connection", scope)
+    if connection_state in ("collected", "partial"):
+        if connection_state == "partial":
+            a.gap("inventory", "VPN connection inventory is incomplete")
+        for connection in inventory.items("virtual_network_gateway_connection"):
+            details = _props(connection)
+            references = [details.get(field) for field in ("virtualNetworkGateway1", "virtualNetworkGateway2")]
+            if not any(isinstance(ref, dict) and str(ref.get("id", "")).casefold() == str(native_id(resource)).casefold()
+                       for ref in references):
+                continue
+            ports.setdefault("udp", set()).update((500, 4500))
+            status = details.get("connectionStatus")
+            if status == "Connected":
+                local = details.get("localNetworkGateway2")
+                local_id = local.get("id") if isinstance(local, dict) else None
+                if isinstance(local_id, str) and local_id:
+                    a.external_ids.append(local_id)
+                    a.step("external_tunnel", "allow", peer_resource=local_id,
+                           connection_id=str(native_id(connection)))
+                else:
+                    other = next((ref.get("id") for ref in references if isinstance(ref, dict)
+                                  and str(ref.get("id", "")).casefold() != str(native_id(resource)).casefold()), None)
+                    own = re.match(r"^/subscriptions/([^/]+)/", str(native_id(resource)), re.I)
+                    remote = re.match(r"^/subscriptions/([^/]+)/", other, re.I) if isinstance(other, str) else None
+                    if own and remote and own.group(1).casefold() != remote.group(1).casefold():
+                        a.external_ids.append(remote.group(1))
+                        a.step("external_tunnel", "allow", peer_subscription=remote.group(1),
+                               connection_id=str(native_id(connection)))
+                    elif details.get("connectionType") == "IPsec":
+                        a.gap("authorization", "connected VPN peer identity is unavailable")
+            elif status not in ("Connecting", "NotConnected", "Unknown", "Disconnected"):
+                a.gap("inventory", "VPN connection status is unavailable")
+    elif connection_state != "empty":
+        a.gap("inventory", "VPN connection inventory is unavailable")
+    if ports:
+        a.ports = {protocol: tuple((port, port) for port in sorted(values)) for protocol, values in ports.items()}
+        a.step("listener", "allow", public_ip_addresses=a.addresses, vpn_tunnel_ports=a.ports)
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    else:
+        a.gap("listener", "VPN tunnel listener state cannot be proved closed from gateway and connection inventory")
+    return a
+
+
 def _azure_analysis_server(snapshot, inventory, resource):
     """Assess the Azure Analysis Services public client endpoint from full ARM GET."""
     props = _props(resource)
@@ -12022,7 +12127,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12037,7 +12142,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "private_link_service",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "bastion_host", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12130,6 +12235,7 @@ def assess(snapshot, resources):
                   "container_app": _azure_container_app,
                   "azure_firewall": _azure_firewall,
                   "bastion_host": _azure_bastion,
+                  "virtual_network_gateway": _azure_vpn_gateway,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "analysis_server": _azure_analysis_server,
@@ -12739,6 +12845,21 @@ def _observed(assessment, status):
         return "\n".join((first, second,
             "Internet clients may reach its HTTPS endpoint if routing and identity controls admit requests.",
             "That could expose application behavior or data to outside users if the service responds."))
+    if assessment.resource["type"] == "virtual_network_gateway" and status in ("FAIL", "UNKNOWN", "PASS"):
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        if status == "PASS":
+            return "\n".join((
+                f"The virtual network gateway {name} is recorded as an ExpressRoute gateway.",
+                "It has no VPN tunnel listener in this resource configuration.",
+                "This VPN-gateway check finds no internet-facing VPN listener on the resource."))
+        addresses = ", ".join(assessment.addresses[:2]) or "no resolved public IP address"
+        ports = ", ".join(describe(assessment.ports or {})) or "no established tunnel protocol ports"
+        return "\n".join((
+            f"The Azure VPN gateway {name} has public frontend evidence: {addresses}.",
+            f"Its recorded VPN tunnel listener selection is {ports}.",
+            "Internet peers may initiate a VPN handshake when the configured listener is active; tunnel authentication still applies."
+            if status == "FAIL" else "A public VPN handshake path remains unresolved from the collected gateway and connection facts.",
+            "An authenticated peer could reach connected network resources if tunnel, route, and firewall controls allow it."))
     if assessment.kind == "vpn_gateway" and status in ("FAIL", "UNKNOWN"):
         data = assessment.resource["data"]
         name = data.get("name", native_id(assessment.resource))
