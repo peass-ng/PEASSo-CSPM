@@ -5052,8 +5052,27 @@ def _azure_firewall(snapshot, inventory, resource):
             if not isinstance(rule, dict):
                 continue
             sources = [_cidr(value) for value in as_list(rule.get("sourceAddresses"))]
-            if rule.get("sourceIpGroups"):
-                a.gap("policy", "DNAT source IP group membership is not resolved")
+            group_refs = rule.get("sourceIpGroups")
+            if group_refs is None:
+                group_refs = []
+            if not isinstance(group_refs, list):
+                a.gap("policy", "DNAT source IP group references are malformed")
+                group_refs = []
+            for group_id in group_refs:
+                if not isinstance(group_id, str) or not group_id:
+                    a.gap("policy", "DNAT source IP group reference is malformed")
+                    continue
+                group = inventory.get("ip_group", group_id)
+                if group is None:
+                    a.gap("policy", "referenced DNAT source IP group is not collected", "Microsoft.Network/ipGroups")
+                    continue
+                group_props = _props(group)
+                addresses = group_props.get("ipAddresses")
+                if (not isinstance(addresses, list) or
+                        group_props.get("provisioningState") not in (None, "Succeeded")):
+                    a.gap("policy", "DNAT source IP group membership is incomplete or not provisioned")
+                    continue
+                sources.extend(_cidr(value) for value in addresses)
             if None in sources:
                 a.gap("policy", "DNAT source address syntax is not resolved")
             if not sources or None in sources or not _azure_public_remainder(sources, []):
@@ -6382,7 +6401,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",

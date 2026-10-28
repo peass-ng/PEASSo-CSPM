@@ -890,6 +890,46 @@ def test_firewall_policy_dnat_uses_collected_full_group():
     assert any(gap["layer"] == "backend" for gap in row.unresolved)
 
 
+def test_firewall_dnat_source_ip_group_membership_uses_recorded_arm_addresses():
+    from peaso.collectors.azure import ENDPOINTS
+
+    assert ENDPOINTS["ip_group"] == ("Microsoft.Network/ipGroups", "2025-05-01")
+    public_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
+    group_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/ipGroups/sources"
+    firewall_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw"
+    rule = {"name": "web", "sourceAddresses": [], "sourceIpGroups": [group_id],
+            "destinationAddresses": ["8.8.8.8"], "destinationPorts": ["443"],
+            "protocols": ["TCP"], "translatedAddress": "10.0.0.4", "translatedPort": "8443"}
+
+    def decision(group_addresses, *, reference=group_id, state="Succeeded", direct=None):
+        current_rule = {**rule, "sourceIpGroups": [reference], "sourceAddresses": direct or []}
+        collections = [
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": public_id, "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "azure_firewall", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": firewall_id, "properties": {"ipConfigurations": [
+                 {"properties": {"publicIPAddress": {"id": public_id}}}],
+                 "natRuleCollections": [{"name": "nat", "properties": {
+                     "action": {"type": "Dnat"}, "rules": [current_rule]}}]}}]},
+            {"type": "ip_group", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [] if group_addresses is None else [{"id": group_id, "properties": {
+                 "ipAddresses": group_addresses, "provisioningState": state}}]},
+        ]
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "azure_firewall")
+
+    public = decision(["10.0.0.0/8", "1.1.1.1/32"])
+    assert public.verdict() == "UNKNOWN" and public.ports == {"tcp": ((443, 443),)}
+    assert any(gap["layer"] == "backend" for gap in public.unresolved)
+    assert decision(["10.0.0.0/8"]).verdict() == "PASS"
+    assert decision([]).verdict() == "PASS"
+    assert decision(None).verdict() == "UNKNOWN"
+    assert decision(["bad//"]).verdict() == "UNKNOWN"
+    assert decision(["10.0.0.0/8"], reference="").verdict() == "UNKNOWN"
+    assert decision(["1.1.1.1/32"], state="Updating").verdict() == "UNKNOWN"
+    assert decision(["10.0.0.0/8"], direct=["1.1.1.1/32"]).ports == {"tcp": ((443, 443),)}
+
+
 def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncertain():
     edge_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
     endpoint = {"id": edge_id + "/afdEndpoints/default",

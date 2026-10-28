@@ -88,6 +88,7 @@ ENDPOINTS = {
     "nsg": ("Microsoft.Network/networkSecurityGroups", "2023-09-01"),
     "nic": ("Microsoft.Network/networkInterfaces", "2023-09-01"),
     "route_table": ("Microsoft.Network/routeTables", "2025-07-01"),
+    "ip_group": ("Microsoft.Network/ipGroups", "2025-05-01"),
     "nat_gateway": ("Microsoft.Network/natGateways", "2023-09-01"),
     "public_ip": ("Microsoft.Network/publicIPAddresses", "2023-09-01"),
     "load_balancer": ("Microsoft.Network/loadBalancers", "2023-09-01"),
