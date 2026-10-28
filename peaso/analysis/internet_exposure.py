@@ -1259,6 +1259,27 @@ def _aws_rest_api(snapshot, inventory, resource):
     if routing_domains:
         a.notes.append("Custom domains using routing rules require separate route resolution")
     policy = data.get("policy")
+    from .iam import document
+    policy_document = document(policy) or {}
+    account, region = resource["scope"].split("/", 1)
+    api_id = native_id(resource)
+    broad_arn = re.compile(r"arn:[^:]+:execute-api:" + re.escape(region) + ":" + re.escape(account) + ":" +
+                           re.escape(api_id) + r"/\*(?:/\*/\*)?")
+    for statement in as_list(policy_document.get("Statement")):
+        if not isinstance(statement, dict) or statement.get("Effect") != "Deny" or statement.get("Condition") or any(
+                key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            continue
+        principal = statement.get("Principal")
+        principals = [principal] if isinstance(principal, str) else as_list(principal.get("AWS")) if isinstance(principal, dict) else []
+        actions = [action.casefold() for action in as_list(statement.get("Action")) if isinstance(action, str)]
+        resources = as_list(statement.get("Resource"))
+        if ("*" in principals and any(action in ("*", "execute-api:*", "execute-api:invoke") for action in actions)
+                and any(isinstance(value, str) and (value in ("*", "execute-api:/*") or broad_arn.fullmatch(value))
+                        for value in resources)):
+            a.step("policy", "block", reason="unconditional wildcard-principal Invoke Deny covers all API stages, methods and paths",
+                   denied_action="execute-api:Invoke", denied_resource_scope="all_api_routes")
+            a.ports = {}
+            return a
     if policy:
         from peaso.checks.aws_ip_policy_boundary import normalize
         from peaso.checks.facts import Unavailable
@@ -1277,8 +1298,7 @@ def _aws_rest_api(snapshot, inventory, resource):
     if public is False and restricted:
         a.step("policy", "allow", restrictive_conditions=restricted)
         a.notes.append("resource policy restricts callers by condition")
-    from .iam import document
-    policy = document(data.get("policy")) or {}
+    policy = policy_document
     conditional_denies = [statement.get("Condition") for statement in as_list(policy.get("Statement"))
         if isinstance(statement, dict) and statement.get("Effect") == "Deny" and statement.get("Condition")]
     if conditional_denies:

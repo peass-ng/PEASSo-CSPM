@@ -836,6 +836,19 @@ def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
     assert row()["status"] == "UNKNOWN"
 
 
+def test_rest_api_unconditional_global_invoke_deny_blocks_deployed_public_method():
+    api = {"id": "rest1", "endpointConfiguration": {"types": ["REGIONAL"]},
+           "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
+           "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]},
+           "policy": {"Statement": [{"Effect": "Deny", "Principal": "*", "Action": "execute-api:Invoke",
+                       "Resource": f"arn:aws:execute-api:us-east-1:{ACCOUNT}:rest1/*/*/*"}]}}
+    result = one(aws(coll("rest_api", [api], service="apigateway"), deployed_rest(api)), "rest_api")
+    assert result["status"] == "PASS" and result["evidence"]["blocked_by"] == "policy"
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "policy")["denied_resource_scope"] == "all_api_routes"
+    api["policy"]["Statement"][0]["Resource"] = "execute-api:/*"
+    assert one(aws(coll("rest_api", [api], service="apigateway"), deployed_rest(api)), "rest_api")["status"] == "PASS"
+
+
 def test_api_gateway_custom_mapping_requires_its_own_active_stage():
     rest = {"id": "rest1", "disableExecuteApiEndpoint": True, "endpointConfiguration": {"types": ["REGIONAL"]},
             "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
