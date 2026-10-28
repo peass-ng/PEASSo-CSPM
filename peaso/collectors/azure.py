@@ -77,6 +77,7 @@ from peaso.check_services import service_for
 from . import azure_network_catalog
 from . import azure_notification_hubs_native
 from . import azure_relay_native
+from . import azure_lighthouse_native
 
 ARM = "https://management.azure.com"
 GRAPH = "https://graph.microsoft.com"
@@ -1126,7 +1127,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     azure_app_settings_secret_indicators.KIND, azure_acr_image_secret_indicators.KIND, azure_acr_image_vulnerabilities_20261021.KIND, azure_selected_aks_image_20261021.KIND, azure_selected_aks_image_20261021.VULN_KIND, azure_selected_configuration_secret_indicators.KIND,
     *azure_ai_services_native.NATIVE_TYPES,
     *azure_public_edge_native.NATIVE_TYPES, *azure_storage_lifecycle_native.NATIVE_TYPES, *azure_key_rotation_evidence_native.NATIVE_TYPES, "frontdoor_and_cdn_endpoint", "afd_profile", "afd_domain", "afd_route", "afd_security_policy",
-    azure_notification_hubs_native.KIND,
+    azure_notification_hubs_native.KIND, azure_lighthouse_native.KIND,
 )
 
 # A LIST containing properties is not a full GET. These evaluators apply
@@ -2370,6 +2371,8 @@ def _selected(options, requirements):
     if selected.intersection(("backup_protected_item", "backup_policy")):
         selected.add("recovery_vault")
     if "virtual_network_gateway" in selected:
+        selected.add("resource_group")
+    if azure_lighthouse_native.KIND in selected:
         selected.add("resource_group")
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
@@ -4104,6 +4107,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_ai_services_native.collect(reader, request, scopes, wanted)
         azure_notification_hubs_native.collect(reader, request, scopes, wanted)
         azure_relay_native.collect(reader, request, scopes, wanted)
+        azure_lighthouse_native.collect(reader, request, scopes, wanted)
         azure_mongo_cluster_exposure.collect(reader, request, scopes, wanted)
         azure_disclosure_native.collect(reader, transport, scopes, options,
                                         credential_context_id, customer_context_id)

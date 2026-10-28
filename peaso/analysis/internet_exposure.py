@@ -10792,6 +10792,53 @@ def _azure_mongo_cluster(snapshot, inventory, resource):
     return a
 
 
+def _azure_lighthouse(snapshot, inventory, resource):
+    """Active Azure Lighthouse assignment to a managing tenant and its role grants."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    data = resource["data"]
+    props = data.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Lighthouse registration assignment properties missing")
+        return a
+    state = props.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed", "Canceled"):
+        a.step("assignment_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", "Ready"):
+        a.gap("inventory", "Lighthouse assignment provisioning state unresolved")
+        return a
+    coverage = (data.get("_coverage") or {}).get("registrationDefinition") or {}
+    definition = props.get("registrationDefinition")
+    if coverage.get("status") != "collected" or not isinstance(definition, dict):
+        a.gap("inventory", "Lighthouse assigned registration definition unavailable")
+        return a
+    if definition.get("provisioningState") not in ("Succeeded", "Ready"):
+        a.gap("inventory", "Lighthouse registration definition state unresolved")
+        return a
+    managed_by = definition["managedByTenantId"]
+    managee = definition["manageeTenantId"]
+    active = definition["authorizations"]
+    eligible = definition["eligibleAuthorizations"]
+    if managed_by.casefold() == managee.casefold():
+        a.step("tenant_boundary", "block", reason="managing tenant equals managed tenant")
+        return a
+    if active:
+        a.external_ids = [managed_by]
+        a.step("lighthouse_delegation", "allow", scope=data.get("scope"), managing_tenant_id=managed_by,
+               authorizations=active, eligible_authorizations=eligible)
+        a.explicit = "FAIL"
+    elif eligible:
+        a.external_ids = [managed_by]
+        a.step("lighthouse_jit_delegation", "conditional", scope=data.get("scope"), managing_tenant_id=managed_by,
+               eligible_authorizations=eligible)
+        a.explicit = "UNKNOWN"
+    else:
+        a.gap("authorization", "Lighthouse assignment has no active or eligible roles")
+    return a
+
+
 def _azure_traffic_manager(snapshot, inventory, resource):
     """Detect a public DNS referral from one collected Traffic Manager profile."""
     a = Assessment(resource, "public_dns")
@@ -11571,7 +11618,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11587,7 +11634,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -11684,6 +11731,7 @@ def assess(snapshot, resources):
                   "private_dns_link": _azure_private_dns_link,
                   "relay_namespace": _azure_relay,
                   "mongo_cluster": _azure_mongo_cluster,
+                  "lighthouse_delegation": _azure_lighthouse,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
