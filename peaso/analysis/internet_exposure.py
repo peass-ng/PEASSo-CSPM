@@ -1591,7 +1591,7 @@ def _gcp_network_internet_rules(inventory, network):
 
 
 def _gcp_terminal_hierarchy_rule(policies, interface):
-    """Resolve only a first hierarchical rule that covers every public source/port.
+    """Resolve only the first active hierarchical rule when it covers all ingress.
 
     getEffectiveFirewalls has already selected rules for this VM interface. Other
     policy matches and inter-policy precedence still require full evaluation.
@@ -1601,30 +1601,39 @@ def _gcp_terminal_hierarchy_rule(policies, interface):
     rules = policies[0].get("rules")
     if not isinstance(rules, list):
         return None
+    ingress = []
     for rule in rules:
-        if not isinstance(rule, dict) or rule.get("priority") not in (0, "0"):
+        if not isinstance(rule, dict) or (rule.get("disabled") is not None and type(rule["disabled"]) is not bool):
+            return None
+        if rule.get("disabled") is True or rule.get("direction") == "EGRESS":
             continue
-        if rule.get("disabled") or rule.get("direction") != "INGRESS" or rule.get("targetType", "INSTANCES") != "INSTANCES":
+        if rule.get("direction") != "INGRESS":
             return None
-        if rule.get("action") not in ("allow", "deny"):
+        priority = rule.get("priority")
+        if isinstance(priority, bool) or not isinstance(priority, (int, str)) or not str(priority).isdigit():
             return None
-        match = rule.get("match")
-        if not isinstance(match, dict) or set(match) - {"srcIpRanges", "layer4Configs"}:
-            return None
-        if match.get("layer4Configs") not in (None, []):
-            return None
-        sources = match.get("srcIpRanges")
-        if not isinstance(sources, list):
-            return None
-        families = set()
-        if any(isinstance(row, dict) and row.get("natIP") for row in as_list(interface.get("accessConfigs"))):
-            families.add("0.0.0.0/0")
-        if any(isinstance(row, dict) and row.get("externalIpv6") for row in as_list(interface.get("ipv6AccessConfigs"))):
-            families.add("::/0")
-        if families and families.issubset(set(sources)):
-            return rule
+        ingress.append((int(priority), rule))
+    if not ingress:
         return None
-    return None
+    priority, rule = min(ingress, key=lambda row: row[0])
+    if sum(value == priority for value, _ in ingress) != 1:
+        return None
+    if rule.get("targetType", "INSTANCES") != "INSTANCES" or rule.get("action") not in ("allow", "deny"):
+        return None
+    match = rule.get("match")
+    if not isinstance(match, dict) or set(match) - {"srcIpRanges", "layer4Configs"}:
+        return None
+    if match.get("layer4Configs") not in (None, []):
+        return None
+    sources = match.get("srcIpRanges")
+    if not isinstance(sources, list) or any(not isinstance(value, str) for value in sources):
+        return None
+    families = set()
+    if any(isinstance(row, dict) and row.get("natIP") for row in as_list(interface.get("accessConfigs"))):
+        families.add("0.0.0.0/0")
+    if any(isinstance(row, dict) and row.get("externalIpv6") for row in as_list(interface.get("ipv6AccessConfigs"))):
+        families.add("::/0")
+    return rule if families and families.issubset(set(sources)) else None
 
 
 def _gcp_firewall(inventory, instance, interface, assessment):
@@ -1656,7 +1665,7 @@ def _gcp_firewall(inventory, instance, interface, assessment):
             action = terminal["action"]
             assessment.step("effective_firewall", "allow" if action == "allow" else "block", instance=instance_id,
                             network_interface=interface.get("name"), policy=attached[0].get("name"),
-                            rule=terminal.get("ruleName"), priority=0, action=action,
+                            rule=terminal.get("ruleName"), priority=terminal["priority"], action=action,
                             source_ranges=terminal["match"]["srcIpRanges"],
                             basis="terminal hierarchical ingress rule")
             return dict(FULL) if action == "allow" else {}
@@ -3248,6 +3257,7 @@ def gcp_scheduler_oidc_target_findings(snapshot, resources):
         # even a path may be a bearer capability or customer data.
         origin_host = f"[{host.lower()}]" if ":" in host else host.lower()
         origin = f"{parsed.scheme}://{origin_host}" + (f":{port}" if port else "")
+        name = data.get("name", native_id(resource))
         evidence = {
             "observed": (
                 f"The enabled Cloud Scheduler job is configured to send an OIDC token for {token['serviceAccountEmail']} to {origin}.\n"

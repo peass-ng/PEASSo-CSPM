@@ -603,6 +603,16 @@ def gcp_instance(tags=("web",)):
         "networkInterfaces": [{"name": "nic0", "network": NET, "accessConfigs": [{"natIP": "34.1.1.1"}]}]}])
 
 
+def assert_gcp_observed_style(finding, resource_name):
+    observed = finding["evidence"]["observed"]
+    lines = observed.splitlines()
+    assert 3 <= len(lines) <= 5
+    assert lines[0].startswith("The ") and resource_name in lines[0]
+    assert all(line.endswith(".") for line in lines)
+    assert any(" may " in line or " could " in line for line in lines)
+    assert not any(word in observed.lower() for word in ("scan", "check", "test"))
+
+
 def fw(name, priority, action, ports, targets=None, sources=("0.0.0.0/0",)):
     rule = {"id": name, "name": name, "network": NET, "direction": "INGRESS", "priority": priority, "sourceRanges": list(sources),
             action: [{"IPProtocol": "tcp", "ports": ports}]}
@@ -676,6 +686,7 @@ def test_gcp_terminal_hierarchical_firewall_rule_preempts_vpc_rules():
     assert result["status"] == "PASS"
     rule["action"] = "allow"
     assert assessment()["status"] == "FAIL"
+    assert_gcp_observed_style(assessment(), "vm")
     rule["match"]["srcAddressGroups"] = ["projects/p/locations/global/addressGroups/g"]
     assert assessment()["status"] == "UNKNOWN"
     del rule["match"]["srcAddressGroups"]
@@ -689,6 +700,16 @@ def test_gcp_terminal_hierarchical_firewall_rule_preempts_vpc_rules():
     second = deepcopy(vm["items"][0]["networkInterfaces"][0])
     second["name"] = "nic1"
     vm["items"][0]["networkInterfaces"].append(second)
+    assert assessment()["status"] == "UNKNOWN"
+    assert_gcp_observed_style(assessment(), "vm")
+    vm["items"][0]["networkInterfaces"].pop()
+    rule["priority"] = 500
+    effective["firewallPolicys"][0]["rules"] += [
+        {"priority": 0, "direction": "EGRESS", "action": "allow", "match": {}},
+        {"priority": 100, "direction": "INGRESS", "disabled": True, "action": "allow", "match": {}}]
+    assert assessment()["status"] == "PASS"
+    effective["firewallPolicys"][0]["rules"].append({"priority": 200, "direction": "INGRESS", "action": "allow",
+        "match": {"srcIpRanges": ["8.8.8.0/24"], "layer4Configs": [{"ipProtocol": "tcp", "ports": ["443"]}]}})
     assert assessment()["status"] == "UNKNOWN"
 
 
@@ -704,11 +725,13 @@ def test_gcp_bigtable_direct_cross_project_reader_grant():
 
     rows = findings()
     assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], table["name"])
     assert rows[0]["evidence"]["permission"] == "bigtable.tables.readRows"
     assert rows[0]["evidence"]["direct_reader_grants"][0]["service_account_project"] == "other-project"
     assert "successful reads are not established" in rows[0]["evidence"]["semantics"]
     table["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert findings()[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(findings()[0], table["name"])
     table["iamPolicy"]["bindings"][0].pop("condition")
     table["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:reader@p1.iam.gserviceaccount.com"]
     assert findings() == []
@@ -730,6 +753,7 @@ def test_gcp_composer_airflow_web_server_network_allowlist():
 
     result = assessment()
     assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+    assert_gcp_observed_style(result, environment["name"])
     assert result["evidence"]["authenticated_endpoint"] is True
     control = environment["config"]["webServerNetworkAccessControl"] = {"allowedIpRanges": []}
     assert assessment()["status"] == "PASS"
@@ -739,6 +763,7 @@ def test_gcp_composer_airflow_web_server_network_allowlist():
     assert assessment()["status"] == "FAIL"
     control["allowedIpRanges"] = [{"value": "bad-cidr"}]
     assert assessment()["status"] == "UNKNOWN"
+    assert_gcp_observed_style(assessment(), environment["name"])
     control["allowedIpRanges"] = []
     environment["state"] = "UPDATING"
     assert assessment()["status"] == "UNKNOWN"
@@ -758,10 +783,12 @@ def test_gcp_source_repository_direct_cross_project_reader_grant():
 
     rows = findings()
     assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], repo["name"])
     assert rows[0]["evidence"]["permission"] == "source.repos.get"
     assert rows[0]["evidence"]["direct_reader_grants"][0]["service_account_project"] == "foreign-project"
     repo["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert findings()[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(findings()[0], repo["name"])
     repo["iamPolicy"]["bindings"][0].pop("condition")
     repo["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:builder@p1.iam.gserviceaccount.com"]
     assert findings() == []
@@ -787,6 +814,7 @@ def test_gcp_scheduler_oidc_http_target_declaration_keeps_uri_path_private():
 
     rows = findings()
     assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], job["name"])
     evidence = rows[0]["evidence"]
     assert evidence["target_origin"] == "https://api.example.com"
     assert evidence["service_account"] == "scheduler@p1.iam.gserviceaccount.com"
@@ -814,12 +842,14 @@ def test_gcp_artifact_registry_public_reader_grant():
 
     rows = findings()
     assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], repo["name"])
     assert not any(row["check_id"] == "analysis.gcp_public_iam" for row in
                    analyze(gcp(gcoll("artifact_repository", [repo], service="artifactregistry")))["findings"])
     assert rows[0]["evidence"]["permission"] == "artifactregistry.repositories.downloadArtifacts"
     assert "successful downloads are not established" in rows[0]["evidence"]["semantics"]
     repo["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert findings()[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(findings()[0], repo["name"])
     repo["iamPolicy"]["bindings"][0].pop("condition")
     repo["iamPolicy"]["bindings"][0]["members"] = ["allAuthenticatedUsers"]
     assert findings()[0]["status"] == "FAIL"
