@@ -750,6 +750,20 @@ def test_storage_default_firewall_action_applies_to_anonymous_container(acls, ex
         assert any(step.get("default_action") == "Allow (service default)" for step in container.path)
 
 
+def test_storage_account_open_network_requires_observed_public_endpoint_url():
+    base = {"publicNetworkAccess": "Enabled", "networkAcls": {"defaultAction": "Allow"}}
+    missing = decision("storage_account", base)
+    assert missing.verdict() == "UNKNOWN"
+    assert any(gap["reason"] == "storage public endpoint URL is not collected"
+               for gap in missing.unresolved)
+    known = decision("storage_account", {**base, "primaryEndpoints": {
+        "blob": "https://a.blob.core.windows.net/"}})
+    assert known.verdict() == "FAIL" and known.addresses == ["https://a.blob.core.windows.net/"]
+    blocked = decision("storage_account", {**base, "networkAcls": {
+        "defaultAction": "Deny", "bypass": "None"}})
+    assert blocked.verdict() == "PASS"
+
+
 def test_storage_trusted_service_bypass_is_not_an_anonymous_public_source():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
     base = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,

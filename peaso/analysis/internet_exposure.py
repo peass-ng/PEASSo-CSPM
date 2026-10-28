@@ -5030,6 +5030,8 @@ def _azure_storage(snapshot, inventory, resource):
     if any(_cidr(value).version == 6 for value in public):
         a.addresses.extend(sorted(v for v in endpoint_set["ipv6Endpoints"].values()
                                   if isinstance(v, str) and v.startswith("https://"))[:4])
+    if not a.addresses:
+        a.gap("inventory", "storage public endpoint URL is not collected")
     if not a.path:
         a.step("network_rules", "allow", default_action="Allow")
     a.ports = pset("tcp", 443, 443) if props.get("supportsHttpsTrafficOnly", True) else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
