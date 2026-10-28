@@ -96,12 +96,26 @@ def test_token_requires_string_identity_and_exact_content():
     assert a is not None and b is not None and a != b
 
 
-def test_public_state_tracks_credentials_and_private_records():
+def test_public_state_tracks_credentials_and_private_records(monkeypatch):
+    from peaso import settle_memo
+    fingerprint = settle_memo.exact_fingerprint
+    calls = []
+    def counted(value):
+        calls.append(True)
+        return fingerprint(value)
+    monkeypatch.setattr(settle_memo, 'exact_fingerprint', counted)
     capture = SimpleNamespace(records={"fp": "sealed-1"}, redactions={}, redaction_incomplete=False)
     first = public_state(("key",), capture)
     assert first == public_state(("key",), capture)
+    assert len(calls) == 1
     assert first != public_state(("other",), capture)
     capture.records["fp"] = "sealed-2"
     assert first != public_state(("key",), capture)
+    capture.records = {"fp": "sealed-1"}
+    assert first == public_state(("key",), capture)
+    capture.redactions['fp'] = {'changed'}
+    redacted = public_state(("key",), capture)
+    capture.redactions['fp'].add('again')
+    assert redacted != public_state(("key",), capture)
     capture.redaction_incomplete = True
     assert public_state(("key",), capture) is None

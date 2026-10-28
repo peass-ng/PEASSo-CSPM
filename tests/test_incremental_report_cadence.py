@@ -48,7 +48,7 @@ def test_fast_batches_are_durable_without_repeating_cumulative_reports(monkeypat
         session.close()
 
 
-def test_aws_content_tail_keeps_batches_and_publishes_one_terminal_report(monkeypatch, tmp_path):
+def test_aws_content_tail_keeps_batches_and_defers_terminal_report(monkeypatch, tmp_path):
     session, artifacts, refs, now = manual_session(monkeypatch, tmp_path)
     try:
         commit(session, 0)
@@ -61,10 +61,14 @@ def test_aws_content_tail_keeps_batches_and_publishes_one_terminal_report(monkey
         assert session._maybe_publish() is None
         assert [seq for seq, _, report in refs if report is None] == [64, 128, 192]
         assert [seq for seq, _, report in refs if report] == [64]
-        assert session.on_content_tail(False) is not None
-        assert [seq for seq, _, report in refs if report] == [64, 192]
+        assert session.on_content_tail(False) is None
+        assert session._maybe_publish() is None
+        assert [seq for seq, _, report in refs if report] == [64]
+        session.finish_collection(final_metadata={"complete": True})
+        assert [seq for seq, _, report in refs if report] == [64]
+        assert len(session.collections) == 192
         latest = artifacts.get(TENANT, refs[-1][1])
-        assert len(latest['collections']) == 192
+        assert latest['metadata']['complete'] is True
     finally:
         session.close()
 
@@ -87,9 +91,10 @@ def test_aws_content_tail_explicit_flush_and_error_cleanup(monkeypatch, tmp_path
     except RuntimeError as exc:
         assert str(exc) == 'collector cancelled'
         assert not session.content_tail_active
-        assert [seq for seq, _, report in refs if report] == [64, 128]
+        assert [seq for seq, _, report in refs if report] == [64]
     finally:
         session.close()
+    assert [seq for seq, _, report in refs if report] == [64, 128]
 
 
 def test_new_section_publishes_immediately_with_same_ready_category(monkeypatch, tmp_path):

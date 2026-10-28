@@ -86,6 +86,7 @@ class CheckpointSession:
         self.collection_revisions = {}
         self.collection_finished = False
         self.content_tail_active = False
+        self.content_tail_closed = False
         self.final_metadata = None
         self.image_targets = []
         self.global_types = set()
@@ -322,10 +323,10 @@ class CheckpointSession:
     settled = on_collection
 
     def on_content_tail(self, active):
-        """Defer routine cumulative reports during AWS automatic content reads.
+        """Keep native deltas durable without a redundant terminal report pass.
 
-        Native deltas retain their normal durability and explicit flushes still
-        publish. The terminal edge publishes the latest cumulative public view.
+        The analyzer evaluates the finished collection. Interrupted collection
+        still publishes its latest partial report through ``close``.
         """
         if self.provider != 'aws' or type(active) is not bool:
             raise ValueError('Invalid AWS content tail state')
@@ -334,9 +335,11 @@ class CheckpointSession:
                 raise RuntimeError('checkpoint publication failed') from self.error
             previous = self.content_tail_active
             self.content_tail_active = active
+            if active:
+                self.content_tail_closed = False
+            elif previous:
+                self.content_tail_closed = True
             self.wake.set()
-        if previous and not active:
-            return self._maybe_publish(force=True)
         return None
 
     def on_scope_plan(self, scopes):
@@ -504,7 +507,7 @@ class CheckpointSession:
 
         def superseded(event=None):
             if ((event is None or event.get("dynamic_total") is True)
-                    and self.collection_finished):
+                    and (self.collection_finished or self.content_tail_closed)):
                 raise _Superseded
             if previous is not None and event is not None:
                 previous(event)
@@ -520,7 +523,7 @@ class CheckpointSession:
             with self.lock:
                 if force:
                     self._flush_pending()
-                elif self.collection_finished:
+                elif self.collection_finished or self.content_tail_closed:
                     return None
                 if self.sequence == self.last_published:
                     return None
