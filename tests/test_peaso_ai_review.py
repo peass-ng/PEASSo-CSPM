@@ -118,6 +118,28 @@ def test_disabled_ai_does_not_resolve_auth_or_credentials(monkeypatch):
         ScanCreate(connector_id='x', ai_enabled='false')
 
 
+def test_priorities_skip_unobserved_network_unknowns_after_denied_inventory(environment, monkeypatch):
+    _, _, artifacts = environment
+    monkeypatch.setattr(pipeline, 'invoke_before_deadline',
+                        lambda *a, **kw: pytest.fail('no AI task is justified by denied inventory'))
+    findings = [dict(id='network-unknown', check_id='azure.network.unknown', category='network',
+                     status='UNKNOWN', provider='azure', resource_id='uncollected', scope='subscription')]
+    data = {'provider': 'azure', 'findings': findings, 'resources': [], 'graphs': {}}
+    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=artifacts)
+    assert result['status'] == 'completed'
+    assert result['network']['status'] == 'not_available'
+    assert result['actions'] == []
+    assert any('no actionable finding' in row for row in result['limitations'])
+
+
+def test_priorities_evidence_keeps_confirmed_and_observed_unknown_paths():
+    row = dict(id='path', status='UNKNOWN', category='network')
+    assert not pipeline._priorities_have_evidence({'findings': [row]}, [], None)
+    assert pipeline._priorities_have_evidence({'findings': [row]}, [], {'inventory': [{}]})
+    assert pipeline._priorities_have_evidence({'findings': [dict(row, status='FAIL')]}, [], None)
+    assert pipeline._priorities_have_evidence({'findings': [dict(row, category='privesc')]}, [], None)
+
+
 def network_fixture():
     inventory = [dict(id=ident, native_id='native-' + ident, provider='aws', scope='123456789012/us-east-1',
                       type=kind, data=data) for ident, kind, data in (

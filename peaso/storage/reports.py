@@ -6,6 +6,7 @@ import tempfile
 from collections import Counter
 from peaso.reports import render_markdown, write_markdown
 from peaso.runtime_metrics import span as _runtime_span
+from peaso.snapshot import FrozenDict, FrozenList
 
 CHUNK_BYTES = 2 * 1024 * 1024
 _SUMMARY_FIELDS = frozenset({"id", "category", "check_id", "title", "provider", "service", "resource_id",
@@ -256,6 +257,25 @@ def _shared_value(shared, owner, name, key, build):
     return value
 
 
+def _resource_section_key(snapshot, body):
+    """Key the rendered inventory to frozen facts and their mutable envelope."""
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("collections"), list):
+        return None
+    collections = snapshot["collections"]
+    if not all(type(row) is dict and type(row.get("items")) is FrozenList and
+               all(type(item) is FrozenDict for item in row["items"])
+               for row in collections):
+        return None
+    metadata = json.dumps([snapshot.get("provider"),
+                           [(row.get("type"), row.get("scope"), row.get("service")) for row in collections]],
+                          separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+    digest = hashlib.sha256()
+    digest.update(len(body).to_bytes(8, "big"))
+    digest.update(body)
+    digest.update(metadata)
+    return digest.hexdigest()
+
+
 def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=None):
     from peaso.secret_evidence import without_private_values
     with _runtime_span("publication.normalize.private"):
@@ -276,25 +296,63 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
     from peaso.engine import REPORT_SCHEMA_VERSION, expand_report
     embeddable = snapshot is not None and report.get("schema_version") == REPORT_SCHEMA_VERSION and snapshot.get("snapshot_id") == report.get("snapshot_id")
     owner = (snapshot, tenant, ident, report.get("snapshot_id"), report.get("provider"), _snapshot_shape(snapshot))
-    # Prepare this snapshot's native inventory once for Markdown, resource
-    # chunks and least privilege. It is never retained beyond this publication.
-    if embeddable:
+    # Prepare inventory only when a projection needs it. A final report can
+    # reuse all snapshot-derived artifacts without rebuilding this large view.
+    inventory = None
+    def get_inventory():
+        nonlocal inventory
+        if inventory is not None:
+            return inventory
         from peaso.snapshot import resources as snapshot_resources
         with _runtime_span("publication.inventory"):
             inventory = snapshot_resources(snapshot)
+        return inventory
     def publish_markdown():
         # The Markdown download keeps native configuration facts inline (schema 1.0 view).
-        with _runtime_span("publication.expand_native"):
-            markdown_view = expand_report(presented, snapshot, _inventory=inventory) if embeddable else presented
         stream_writer = getattr(artifacts, "put_text_file", None)
+        section = None
+        if resource_signature is not None and _shared is not None:
+            cached = _shared.get("_markdown_resource_section")
+            section = (dict(cached) if cached is not None and
+                       cached.get("resource_signature") == resource_signature and
+                       not cached["source"].closed else {})
+        cached_graphs = _shared.get("_markdown_expanded_graphs") if _shared is not None else None
+        reuse_expansion = (embeddable and section is not None and "source" in section and
+                           cached_graphs is not None and cached_graphs[0] == graph_signature)
+        with _runtime_span("publication.expand_native"):
+            if reuse_expansion:
+                # The resource section is copied verbatim below. Hydrate the
+                # changed findings without reconstructing the native inventory;
+                # graph input bytes must also match the previous expansion.
+                from peaso.engine import SCHEMA_VERSION, hydrate_frameworks
+                markdown_view = {key: value for key, value in hydrate_frameworks(presented).items()
+                                 if key != "native_data"}
+                markdown_view.update(schema_version=SCHEMA_VERSION, resources=(), graphs=cached_graphs[1])
+            else:
+                markdown_view = expand_report(presented, snapshot, _inventory=get_inventory()) if embeddable else presented
+                if embeddable and _shared is not None and graph_signature is not None and section is not None and callable(stream_writer):
+                    _shared["_markdown_expanded_graphs"] = (graph_signature, markdown_view["graphs"])
         if callable(stream_writer):
             # Keep the full native download without document-sized string/UTF-8/
             # compression copies. The owned disk file survives until durable upload.
-            with tempfile.TemporaryFile(mode="w+b") as markdown:
+            markdown = tempfile.TemporaryFile(mode="w+b")
+            try:
                 with _runtime_span("publication.markdown"):
-                    write_markdown(markdown_view, markdown)
+                    write_markdown(markdown_view, markdown, _resource_section=section)
                 del markdown_view
-                return stream_writer(tenant, ident, "markdown", markdown)
+                reference = stream_writer(tenant, ident, "markdown", markdown)
+                if section is not None and "source" not in section:
+                    section["source"] = markdown
+                    section["resource_signature"] = resource_signature
+                    previous = _shared.get("_markdown_resource_section")
+                    _shared["_markdown_resource_section"] = section
+                    if previous is not None:
+                        previous["source"].close()
+                    markdown = None
+                return reference
+            finally:
+                if markdown is not None:
+                    markdown.close()
         else:
             with _runtime_span("publication.markdown"):
                 markdown = render_markdown(markdown_view)
@@ -303,7 +361,7 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
             del markdown
             return reference
 
-    markdown_signature = None
+    markdown_signature = resource_signature = graph_signature = None
     if _shared is not None:
         # AI metadata and publication state are not rendered in Markdown. A
         # digest of every other sanitized report field prevents reuse when AI
@@ -318,6 +376,10 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
                 name = key.encode("utf-8")
                 body = json.dumps(report[key], sort_keys=True, separators=(",", ":"),
                                   ensure_ascii=False, allow_nan=False).encode()
+                if key == "resources":
+                    resource_signature = _resource_section_key(snapshot, body)
+                elif key == "graphs":
+                    graph_signature = hashlib.sha256(body).hexdigest()
                 digest.update(len(name).to_bytes(8, "big"))
                 digest.update(name)
                 digest.update(len(body).to_bytes(8, "big"))
@@ -325,7 +387,7 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
                 del body
             markdown_signature = digest.hexdigest()
         except (TypeError, ValueError, OverflowError, UnicodeError, RecursionError):
-            pass
+            resource_signature = None
     markdown_reference = (_shared_value(_shared, owner, "markdown", markdown_signature, publish_markdown)
                           if markdown_signature is not None else publish_markdown())
     manifest = {"bundle_version": 1, "report_grouping": "check-v1", "report_json": json_reference, "report_markdown": markdown_reference,
@@ -363,25 +425,37 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
         manifest["check_meta_encoding"] = report["check_meta_encoding"]
     manifest["remediation_templates"] = report.get("remediation_templates", {})
     encoded = callable(getattr(artifacts, '_put_json_bytes', None))
-    with _runtime_span("publication.chunk.findings"):
-        prepared = _prepared_findings(artifacts, tenant, ident, report.get('findings', []),
-            check_frameworks=check_frameworks, check_meta=check_meta, check_meta_encoding=report.get('check_meta_encoding'),
-            remediation_templates=report.get('remediation_templates'))
-        if not encoded:
-            # Preserve the existing detail-write order for legacy/custom stores.
-            prepared = list(prepared)
-        index = _FindingIndexWriter(artifacts, tenant, ident)
-        for group, body in _artifact_chunks(artifacts, prepared, preencoded=encoded):
-            detail = _put_chunk(artifacts, tenant, ident, "findings", group, body)
-            manifest["finding_chunks"].append({"reference": detail, "first_id": group[0]["id"], "last_id": group[-1]["id"], "count": len(group)})
-            for item in group:
-                index.add(item)
-        index.flush()
-        manifest["finding_index_chunks"] = index.chunks
-    with _runtime_span("publication.chunk.coverage"):
-        for group, body in _artifact_chunks(artifacts, report.get("coverage", [])):
-            manifest["coverage_chunks"].append(_put_chunk(artifacts, tenant, ident, "coverage", group, body))
-            manifest["coverage_chunk_counts"].append(len(group))
+    def publish_findings():
+        with _runtime_span("publication.chunk.findings"):
+            prepared = _prepared_findings(artifacts, tenant, ident, report.get('findings', []),
+                check_frameworks=check_frameworks, check_meta=check_meta, check_meta_encoding=report.get('check_meta_encoding'),
+                remediation_templates=report.get('remediation_templates'))
+            if not encoded:
+                # Preserve the existing detail-write order for legacy/custom stores.
+                prepared = list(prepared)
+            index = _FindingIndexWriter(artifacts, tenant, ident)
+            chunks = []
+            for group, body in _artifact_chunks(artifacts, prepared, preencoded=encoded):
+                detail = _put_chunk(artifacts, tenant, ident, "findings", group, body)
+                chunks.append({"reference": detail, "first_id": group[0]["id"], "last_id": group[-1]["id"], "count": len(group)})
+                for item in group:
+                    index.add(item)
+            index.flush()
+            return chunks, index.chunks
+    manifest["finding_chunks"], manifest["finding_index_chunks"] = _shared_value(
+        _shared if markdown_signature is not None else None,
+        owner, "finding_artifacts", markdown_signature, publish_findings)
+
+    def publish_coverage():
+        with _runtime_span("publication.chunk.coverage"):
+            chunks, counts = [], []
+            for group, body in _artifact_chunks(artifacts, report.get("coverage", [])):
+                chunks.append(_put_chunk(artifacts, tenant, ident, "coverage", group, body))
+                counts.append(len(group))
+            return chunks, counts
+    manifest["coverage_chunks"], manifest["coverage_chunk_counts"] = _shared_value(
+        _shared if markdown_signature is not None else None,
+        owner, "coverage_artifacts", markdown_signature, publish_coverage)
     if embeddable:
         from peaso.least_privilege import project as project_least_privilege
         # The same immutable inventory was used for Markdown above. No state
@@ -390,17 +464,18 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
             wanted = hashlib.sha256(json.dumps(sorted(str(row.get("id")) for row in report.get("resources", [])
                                                       if isinstance(row, dict))).encode()).hexdigest()
             manifest["resource_chunks"] = _shared_value(_shared, owner, "resource_chunks", wanted,
-                lambda: resource_chunks(artifacts, tenant, ident, report, snapshot, _inventory=inventory))
+                lambda: resource_chunks(artifacts, tenant, ident, report, snapshot, _inventory=get_inventory()))
         def least_privilege():
             refs = {}
             with _runtime_span("publication.projection.least_privilege"):
-                projection = project_least_privilege(report["provider"], inventory, snapshot=snapshot)
+                current_inventory = get_inventory()
+                projection = project_least_privilege(report["provider"], current_inventory, snapshot=snapshot)
                 if report['provider'] == 'aws':
                     from peaso.least_privilege_permissions import permission_input_filter
                     selected = permission_input_filter('aws', projection['items'])
                     refs['least_privilege_permission_inputs'] = artifacts.put(tenant, ident, 'least-privilege', {
                         'snapshot_id': report['snapshot_id'], 'provider': 'aws',
-                        'items': [row for row in inventory if selected(row)]})
+                        'items': [row for row in current_inventory if selected(row)]})
             refs["least_privilege"] = artifacts.put(tenant, ident, "least-privilege", projection)
             return refs
         refs = _shared_value(_shared, owner, "least_privilege", None, least_privilege)
@@ -408,16 +483,22 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
         if 'least_privilege_permission_inputs' in refs:
             manifest['least_privilege_permission_inputs'] = refs['least_privilege_permission_inputs']
         manifest["least_privilege"] = refs["least_privilege"]
-    with _runtime_span("publication.projection.graphs"):
-        for kind in ("network", "iam"):
-            graph = report.get("graphs", {}).get(kind, {"nodes": [], "edges": []})
-            manifest["graphs"][kind] = artifacts.put(tenant, ident, "graph-" + kind, graph)
-        from peaso.analysis import project_graph
-        manifest["graph_projections"] = {kind: artifacts.put(tenant, ident, "graph-" + kind, project_graph(report.get("graphs", {}).get(kind, {"nodes": [], "edges": []}), 500)) for kind in ("network", "iam")}
-        # The privesc map is already aggregated: never pass it through project_graph (it would drop aggregates).
-        privesc_graph = report.get("graphs", {}).get("privesc", {"nodes": [], "edges": []})
-        manifest["graphs"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_graph)
-        manifest["graph_projections"]["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_projection(privesc_graph, 500))
+    def publish_graphs():
+        with _runtime_span("publication.projection.graphs"):
+            graphs = {}
+            for kind in ("network", "iam"):
+                graph = report.get("graphs", {}).get(kind, {"nodes": [], "edges": []})
+                graphs[kind] = artifacts.put(tenant, ident, "graph-" + kind, graph)
+            from peaso.analysis import project_graph
+            projections = {kind: artifacts.put(tenant, ident, "graph-" + kind, project_graph(report.get("graphs", {}).get(kind, {"nodes": [], "edges": []}), 500)) for kind in ("network", "iam")}
+            # The privesc map is already aggregated: never pass it through project_graph (it would drop aggregates).
+            privesc_graph = report.get("graphs", {}).get("privesc", {"nodes": [], "edges": []})
+            graphs["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_graph)
+            projections["privesc"] = artifacts.put(tenant, ident, "graph-privesc", privesc_projection(privesc_graph, 500))
+            return graphs, projections
+    manifest["graphs"], manifest["graph_projections"] = _shared_value(
+        _shared if markdown_signature is not None else None,
+        owner, "graph_artifacts", markdown_signature, publish_graphs)
     if snapshot is not None:
         with _runtime_span("publication.projection.network_snapshot"):
             manifest["network_snapshot"] = _shared_value(_shared, owner, "network_snapshot", None,
