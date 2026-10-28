@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import resource
 import sqlite3
@@ -32,6 +33,32 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+_AUDIT_STATE = {'phase': 'argument_parse', 'output': None, 'workspace': None}
+
+
+def _receipt(path, payload):
+    """Atomically write count-only audit state in a private persistent directory."""
+    path = Path(path)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + '.tmp')
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        json.dump(payload, stream, sort_keys=True, indent=2)
+        stream.write('\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+
+
+def _checkpoint(phase, **counts):
+    _AUDIT_STATE['phase'] = phase
+    payload = {'phase': phase, 'counts': counts, 'utc_unix_seconds': time.time()}
+    output = _AUDIT_STATE['output']
+    if output is not None:
+        _receipt(str(output) + '.progress.json', payload)
+    print(json.dumps(payload, sort_keys=True), file=sys.stderr, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--snapshot', required=True)
@@ -43,10 +70,14 @@ def main():
     parser.add_argument('--saved-ai', help='Cached AI result from the exact same scan; no live call')
     parser.add_argument('--retain-workspace', help='Private directory for bounded reader measurement')
     args = parser.parse_args()
+    _AUDIT_STATE['output'] = args.output
+    _checkpoint('load_start')
     snapshot, report = load(args.snapshot), load(args.report)
     saved_ai = load(args.saved_ai) if args.saved_ai else report.get('ai', {})
     if saved_ai.get('network', {}).get('findings'):
         report = network.with_findings(report, saved_ai['network']['findings'])
+    _checkpoint('load_complete', report_findings=len(report.get('findings', [])),
+                cached_network_findings=len(saved_ai.get('network', {}).get('findings', [])))
     inventory = resources(snapshot)
     from peaso.engine import hydrate_finding
     findings = [hydrate_finding(row, report.get('check_frameworks'), report.get('check_meta'),
@@ -67,11 +98,13 @@ def main():
                 (c.category == 'network' or c.kind in NETWORK_TYPES | set(REACHABILITY_TYPES[provider]))),
             'analysis_network_checks': sorted(c['id'] for c in ANALYSIS_CHECKS if c.get('category') == 'network')}
     if args.stage == 'priorities':
+        _checkpoint('priorities_project_start', inventory_records=len(inventory))
         from peaso.least_privilege import project
         platform = {'report': report, 'inventory': inventory,
                     'snapshot_context': network.snapshot_context(snapshot),
                     'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
                     'network_review': saved_ai.get('network', {'status': 'not_saved'})}
+        _checkpoint('priorities_project_complete', inventory_records=len(inventory))
     result = {'stage': args.stage, 'baseline_revision': args.baseline,
               'snapshot_sha256': sha(args.snapshot), 'report_sha256': sha(args.report),
               'provider': report['provider'], 'snapshot_id': snapshot['snapshot_id'],
@@ -90,11 +123,14 @@ def main():
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 modules[name] = module
+        _checkpoint('baseline_modules_loaded')
         for arm in (('after',) if args.only_after else ('before', 'after')):
             builder = modules['briefing'] if arm == 'before' else briefing
             network_builder = modules['network'] if arm == 'before' else network
             with tempfile.TemporaryDirectory(prefix='ai-quality-'+arm+'-') as workspace:
                 root = Path(workspace)
+                _AUDIT_STATE['workspace'] = str(root)
+                _checkpoint(arm + '_build_start')
                 wall, cpu = time.perf_counter(), time.process_time()
                 if args.stage == 'network':
                     prepared = network_builder.prepare(report, inventory, snapshot)
@@ -107,12 +143,24 @@ def main():
                         sys.modules['peaso.ai.briefing'] = original
                 else:
                     builder.build(root, platform, [], [], private_json)
+                _checkpoint(arm + '_build_complete', files={p.name: p.stat().st_size for p in root.iterdir()})
                 metrics = {'wall_seconds': round(time.perf_counter()-wall, 3),
                            'cpu_seconds': round(time.process_time()-cpu, 3),
                            'process_peak_rss_bytes': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
                            'cloud_api_calls': 0, 'model_calls': 0,
                            'transport_file_bytes': {p.name: p.stat().st_size for p in root.iterdir()}}
+                _checkpoint(arm + '_materialize_start')
                 builder.materialize_context(root)
+                _checkpoint(arm + '_materialize_complete', sqlite_bytes=(root/'context.sqlite').stat().st_size)
+                if arm == 'after' and args.retain_workspace:
+                    import shutil
+                    target = Path(args.retain_workspace)
+                    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    _checkpoint('retain_start', sqlite_bytes=(root/'context.sqlite').stat().st_size)
+                    for name in ('context.py', 'context.sqlite', 'platform.json'):
+                        shutil.copy2(root/name, target/name)
+                    _checkpoint('retain_complete', sqlite_bytes=(target/'context.sqlite').stat().st_size)
+                _checkpoint(arm + '_verify_start', inventory_records=len(inventory), report_fields=len(report))
                 with sqlite3.connect(root/'context.sqlite') as db:
                     metrics['domain_counts'] = dict(db.execute('SELECT domain,COUNT(*) FROM records GROUP BY domain'))
                     metrics['findings_by_category_status'] = dict(Counter(
@@ -166,19 +214,29 @@ def main():
                             assert metrics['largest_fragment_bytes'] <= 128 * 1024
                         assert metrics['largest_record_bytes'] <= 128 * 1024
                 metrics['transport_total_bytes'] = sum(metrics['transport_file_bytes'].values())
+                _checkpoint(arm + '_verify_complete', transport_bytes=metrics['transport_total_bytes'],
+                            exact_inventory_records=metrics.get('exact_original_inventory_records_verified', 0))
                 assert metrics['transport_total_bytes'] < 512 * 1024 * 1024, 'workspace_transport_exceeds_cap'
-                if arm == 'after' and args.retain_workspace:
-                    import shutil
-                    target = Path(args.retain_workspace)
-                    target.mkdir(mode=0o700, parents=True, exist_ok=True)
-                    for name in ('context.py', 'context.sqlite', 'platform.json'):
-                        shutil.copy2(root/name, target/name)
                 result['measurements'][arm] = metrics
-    Path(args.output).write_text(json.dumps(result, indent=2, sort_keys=True)+'\n')
+    _receipt(args.output, result)
+    _checkpoint('complete', inventory_records=len(inventory), report_findings=len(findings))
     print(json.dumps({'stage': args.stage, 'output': args.output, 'inventory': len(inventory),
                       'findings': len(findings), 'measurements': {arm: {key: values[key] for key in
                         ('wall_seconds', 'cpu_seconds', 'process_peak_rss_bytes')} for arm, values in result['measurements'].items()}}))
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except BaseException as exc:
+        output = _AUDIT_STATE.get('output')
+        workspace = _AUDIT_STATE.get('workspace')
+        files = {}
+        if workspace and Path(workspace).exists():
+            files = {p.name: p.stat().st_size for p in Path(workspace).iterdir() if p.is_file()}
+        failure = {'phase': _AUDIT_STATE['phase'], 'exception_type': type(exc).__name__,
+                   'workspace_file_bytes': files, 'utc_unix_seconds': time.time()}
+        if output is not None:
+            _receipt(str(output) + '.failure.json', failure)
+        print(json.dumps(failure, sort_keys=True), file=sys.stderr, flush=True)
+        raise
