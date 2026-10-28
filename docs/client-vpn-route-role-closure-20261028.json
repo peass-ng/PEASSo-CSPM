@@ -47,6 +47,6 @@
     "customer_policy_api_service_and_privilege_display": "82 passed before additional exact-template assertion",
     "internet_exposure_and_collector_provider_observations": "366 passed",
     "locked_combined_release_gate": "6 passed",
-    "locked_source_attestation": "running at receipt write"
+    "locked_source_attestation": "9 passed in 44.21s"
   }
 }
