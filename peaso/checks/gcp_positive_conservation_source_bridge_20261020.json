@@ -647,7 +647,7 @@
   "normalized_sources": {
     "peaso/checks/gcp_positive_conservation_shared_source_successor_20261020.py": "4c3e9b05445f5f3ae6eb6a0d211bfb9aba9b759ea6d304643c47ce395a233edd",
     "peaso/gcp_positive_conservation_source_admission_successor_20261020.py": "fdcffb11779116f810705c8390f8b8c85082a39e4aed77cbe4ca64ff5bd82b5e",
-    "peaso/rawv2_public_source_successor_20261021.py": "d6fded8b68d07082589ca6e1ca59db025ae9d47c1e656d15c4d9515521df7c9a"
+    "peaso/rawv2_public_source_successor_20261021.py": "bce4f94211c7943b047fba97726b1760ca636a79cff060fa62c435642dde0ac6"
   },
   "schema": "gcp-positive-conservation-source-bridge-v1"
 }
