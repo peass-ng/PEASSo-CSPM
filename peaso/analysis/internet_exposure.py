@@ -4807,6 +4807,20 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
+    if kind == "servicebus_namespace":
+        local_auth = props.get("disableLocalAuth")
+        coverage = (resource["data"].get("_coverage") or {}).get("authorizationRules") or {}
+        rules = resource["data"].get("authorizationRules")
+        if local_auth is True:
+            a.step("sas_authorization", "disabled", disable_local_auth=True)
+        elif local_auth is False and coverage.get("status") in ("collected", "empty") and isinstance(rules, list):
+            a.step("sas_authorization", "conditional", disable_local_auth=False,
+                   namespace_rules=[{"name": row["name"], "rights": row["properties"]["rights"]}
+                                    for row in rules])
+            if rules:
+                a.notes.append("Namespace SAS rules grant capabilities to key holders; issued tokens and recipients are not inventoried.")
+        else:
+            a.notes.append("Namespace SAS authentication or authorization-rule inventory is incomplete.")
     if kind == "container_registry":
         anonymous = props.get("anonymousPullEnabled")
         if anonymous is True:
@@ -4817,7 +4831,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
             a.step("anonymous_pull", "authenticated_only", anonymous_pull_enabled=False)
         else:
             a.notes.append("ACR anonymous-pull setting is unavailable; authentication cannot be established from this snapshot.")
-    endpoint = next((props.get(field) for field in ("vaultUri", "hsmUri", "loginServer", "endpoint", "documentEndpoint", "fullyQualifiedDomainName")
+    endpoint = next((props.get(field) for field in ("vaultUri", "hsmUri", "loginServer", "endpoint", "documentEndpoint", "serviceBusEndpoint", "fullyQualifiedDomainName")
                      if isinstance(props.get(field), str) and props.get(field)), None)
     if endpoint:
         a.addresses.append(endpoint)

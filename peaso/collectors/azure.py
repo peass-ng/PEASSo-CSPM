@@ -217,6 +217,7 @@ EMBEDDED_LISTS = {
     "container_registry": (("replications", "replications", "2023-07-01"), ("tokens", "tokens", "2023-07-01"), ("scopeMaps", "scopeMaps", "2023-07-01"), ("cacheRules", "cacheRules", "2023-07-01")),
     "aks_cluster": (("managedNamespaces", "managedNamespaces", "2025-10-01"),),
     "eventhub_namespace": (("eventHubs", "eventhubs", "2024-01-01"), ("authorizationRules", "authorizationRules", "2024-01-01"), ("disasterRecoveryConfigs", "disasterRecoveryConfigs", "2024-01-01")),
+    "servicebus_namespace": (("authorizationRules", "AuthorizationRules", "2024-01-01"),),
     "network_watcher": (("flowLogs", "flowLogs", "2023-09-01"),),
     "mysql_flexible_server": (("configurations", "configurations", "2023-12-30"), ("firewallRules", "firewallRules", "2023-12-30"), ("administrators", "administrators", "2023-12-30")),
     "postgresql_flexible_server": (("configurations", "configurations", "2024-08-01"), ("firewallRules", "firewallRules", "2024-08-01"), ("administrators", "administrators", "2024-08-01")),
@@ -412,6 +413,22 @@ def _child_rows(rows, parent_id, field):
              "eventSubscriptions": "providers/Microsoft.EventGrid/eventSubscriptions"}
     if field in paths and any(not re.fullmatch(re.escape(parent_id + "/" + paths[field]) + r"/[^/?#]+", row["id"], re.I) for row in rows):
         raise ValueError("foreign embedded child kind")
+    if field == "authorizationRules":
+        projected, seen = [], set()
+        for row in rows:
+            properties = row.get("properties")
+            rights = properties.get("rights") if isinstance(properties, dict) else None
+            identity = row["id"].casefold()
+            if (identity in seen or not isinstance(row.get("name"), str)
+                    or row["name"].casefold() != row["id"].rsplit("/", 1)[-1].casefold()
+                    or not str(row.get("type", "")).casefold().endswith("/authorizationrules")
+                    or not isinstance(rights, list)
+                    or any(right not in ("Manage", "Send", "Listen") for right in rights)):
+                raise ValueError("malformed messaging authorization rule")
+            seen.add(identity)
+            projected.append({"id": row["id"], "name": row["name"], "type": row["type"],
+                              "parent_id": parent_id, "properties": {"rights": rights}})
+        return projected
     if field in ("localUsers", "extensions", "backupShortTermRetentionPolicies"):
         seen = set()
         allowed = {"localUsers": {"permissionScopes", "homeDirectory", "hasSshPassword", "hasSshKey", "allowAclAuthorization", "sid", "hasSharedKey"},
