@@ -138,7 +138,7 @@ def test_gcp_workload_identity_provider_condition():
             item["attributeCondition"] = condition
         return make_snapshot("gcp", ["projects/p1"], [coll("workload_identity_provider", [item], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")
     assert findings(provider(), "analysis.federated_trust")[0]["status"] == "MANUAL"
-    assert findings(provider("assertion.repository_owner == 'acme'"), "analysis.federated_trust")[0]["status"] == "PASS"
+    assert findings(provider("assertion.repository_owner == 'acme'"), "analysis.federated_trust")[0]["status"] == "MANUAL"
     assert findings(provider(issuer="https://idp.example.com"), "analysis.federated_trust")[0]["status"] == "MANUAL"
 
 
@@ -178,6 +178,9 @@ def test_gcp_wif_direct_resource_grant_and_scoped_identity():
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     policy["bindings"][0].pop("condition")
     policy["bindings"][0]["members"] = [member.replace("/p/*", "/other/*")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["oidc"]["issuerUri"] = "https://token.actions.githubusercontent.com.attacker.example"
+    policy["bindings"][0]["members"] = [member]
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
 

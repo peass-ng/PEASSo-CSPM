@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import re
+from urllib.parse import urlsplit
 
 from .common import _CONTEXT, as_list
 from .trust_domains import OwnedDomains, normalized as normalized_domains
@@ -566,7 +567,7 @@ def gcp_wif_provider(snapshot, resource):
     data = resource["data"]
     issuer = str(data.get("oidc", {}).get("issuerUri", "")) if isinstance(data.get("oidc"), dict) else ""
     condition = data.get("attributeCondition")
-    host = re.sub(r"^https?://", "", issuer).lower()
+    host = urlsplit(issuer).hostname or ""
     evidence = {"issuer": issuer or None, "aws_account": data.get("aws", {}).get("accountId") if isinstance(data.get("aws"), dict) else None,
                 "attribute_condition": condition, "attribute_mapping": copy.deepcopy(data.get("attributeMapping"))}
     name = data.get("name")
@@ -616,9 +617,9 @@ def gcp_wif_provider(snapshot, resource):
     if data.get("state") == "DELETED" or data.get("disabled") is True:
         return "MANUAL", "medium", {**evidence, "problem": "Provider is disabled or deleted, but previously issued tokens can retain resource access until expiry."}
     if condition:
-        return ("MANUAL" if grants else "PASS"), ("medium" if grants else "info"), {
-            **evidence, "semantics": "Provider attribute condition and any service-account binding conditions need CEL evaluation."}
-    if host.startswith(MULTI_TENANT_ISSUERS):
+        return "MANUAL", "medium", {
+            **evidence, "semantics": "Provider attribute condition needs CEL evaluation with a concrete token; uncollected resource grants may exist."}
+    if host in MULTI_TENANT_ISSUERS:
         if any(binding["pool_wide"] and not binding["condition"] for binding in grants):
             return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
