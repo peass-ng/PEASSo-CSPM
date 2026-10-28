@@ -1100,6 +1100,22 @@ def test_nsg_internet_destination_tag_does_not_match_private_nic_address():
     assert _nsg_allowed(nsg, address="10.0.0.4")[0] == {"tcp": ((443, 443),)}
 
 
+def test_nsg_azure_load_balancer_health_probe_tag_is_not_public_client():
+    probe = {"name": "azure-probe", "properties": {"priority": 100,
+        "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+        "sourceAddressPrefix": "AzureLoadBalancer", "destinationAddressPrefix": "*",
+        "destinationPortRange": "443"}}
+    nsg = {"data": {"properties": {"securityRules": [probe]}}}
+    allowed, matched = _nsg_allowed(nsg, address="10.0.0.4")
+    assert allowed == {} and not any(row.get("unresolved_public_source") for row in matched)
+    public = {"name": "public", "properties": {**probe["properties"], "priority": 200,
+        "sourceAddressPrefix": "8.8.8.8/32"}}
+    allowed, matched = _nsg_allowed({"data": {"properties": {"securityRules": [probe, public]}}},
+                                    address="10.0.0.4")
+    assert allowed == {"tcp": ((443, 443),)}
+    assert any(row.get("rule") == "public" for row in matched)
+
+
 def test_container_app_requires_public_environment_and_effective_ingress():
     env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"

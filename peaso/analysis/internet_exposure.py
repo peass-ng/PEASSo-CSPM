@@ -3859,6 +3859,9 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
             direct = _azure_restriction_sources(value)
             if direct:
                 networks.extend(direct)
+            elif isinstance(value, str) and value.casefold() == "azureloadbalancer":
+                # This tag is Azure's health-probe source, not client ingress.
+                continue
             elif isinstance(value, str) and service_tags is not None and service_tags.get(value.casefold()):
                 networks.extend(service_tags[value.casefold()])
             else:
