@@ -244,6 +244,7 @@ EMBEDDED_LISTS = {
     "ml_workspace": (("privateEndpointConnections", "privateEndpointConnections", "2024-04-01"),
                      ("onlineEndpoints", "onlineEndpoints", "2024-04-01")),
     "compute_gallery": (("images", "images", "2025-12-03"),),
+    "stream_analytics_job": (("streamOutputs", "outputs", "2020-03-01"),),
     "recovery_vault": (("backupPolicies", "backupPolicies", "2024-04-01"), ("backupProtectedItems", "backupProtectedItems", "2024-04-01"),
                        ("backupJobs", "backupJobs", "2024-04-01")),
     "mssql_managed_instance": (("instanceAdministrators", "administrators", "2023-08-01"),
@@ -770,6 +771,34 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                 workspace_va_seen = {}
                 messaging_rule_seen = set()
                 for page in reader.pages(request, url):
+                    if field == "streamOutputs":
+                        projected = []
+                        for row in page:
+                            identity = row.get("id") if isinstance(row, dict) else None
+                            props = row.get("properties") if isinstance(row, dict) else None
+                            source = props.get("datasource") if isinstance(props, dict) else None
+                            destination = source.get("properties") if isinstance(source, dict) else None
+                            if (not isinstance(identity, str) or re.fullmatch(
+                                    re.escape(rid + "/outputs/") + r"[^/?#%\\\s]+", identity, re.I) is None
+                                    or str(row.get("type", "")).casefold() != "microsoft.streamanalytics/streamingjobs/outputs"
+                                    or not isinstance(source, dict) or not isinstance(source.get("type"), str)
+                                    or not isinstance(destination, dict) or identity.casefold() in backup_seen):
+                                raise ValueError("duplicate, foreign or malformed Stream Analytics output")
+                            backup_seen[identity.casefold()] = row
+                            safe = {key: destination[key] for key in (
+                                "tenantId", "accountName", "accountId", "server", "database",
+                                "serviceBusNamespace", "functionAppName", "functionName",
+                                "groupId", "groupName") if isinstance(destination.get(key), str)}
+                            accounts = destination.get("storageAccounts")
+                            if isinstance(accounts, list):
+                                safe["storageAccounts"] = [{"accountName": account["accountName"]}
+                                                           for account in accounts if isinstance(account, dict)
+                                                           and isinstance(account.get("accountName"), str)]
+                            projected.append({"id": identity, "parent_id": rid,
+                                              "properties": {"datasource": {"type": source["type"],
+                                                                              "properties": safe}}})
+                        yield projected
+                        continue
                     if kind == "vm_scale_set" and field in ("vmssNetworkInterfaces", "vmssPublicIPAddresses"):
                         projected = []
                         suffix = (r"/virtualMachines/[^/?#%\\\s]+/networkInterfaces/[^/?#%\\\s]+"

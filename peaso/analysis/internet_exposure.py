@@ -11676,6 +11676,48 @@ def _azure_netapp_volume(snapshot, inventory, resource):
     return a
 
 
+def _azure_stream_analytics_job(snapshot, inventory, resource):
+    """Flag explicitly foreign output tenants; retain uncertainty for other sinks."""
+    a = Assessment(resource, "data_pipeline")
+    outputs = resource["data"].get("streamOutputs")
+    coverage = (resource["data"].get("_coverage") or {}).get("streamOutputs") or {}
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(outputs, list):
+        a.gap("inventory", "Stream Analytics output LIST is incomplete")
+        return a
+    if not outputs:
+        a.step("outputs", "block", reason="no configured output destinations")
+        a.ports = {}
+        return a
+    metadata = snapshot.get("metadata") or {}
+    owner = metadata.get("tenant_id") if metadata.get("tenant_verified") else None
+    if not owner:
+        owner = (metadata.get("subscription_tenants") or {}).get(resource["scope"])
+    foreign = []
+    unresolved = []
+    for output in outputs:
+        source = ((output.get("properties") or {}).get("datasource") or {})
+        dest = source.get("properties") or {}
+        tenant = dest.get("tenantId")
+        if isinstance(tenant, str) and tenant and isinstance(owner, str) and owner:
+            if tenant.casefold() != owner.casefold():
+                foreign.append(output["id"])
+        else:
+            unresolved.append(output["id"])
+    a.step("outputs", "allow", output_count=len(outputs),
+           destination_types=sorted({str(((o.get("properties") or {}).get("datasource") or {}).get("type"))
+                                     for o in outputs}))
+    if foreign:
+        a.external_ids = sorted(foreign)
+        a.step("foreign_tenant", "allow", output_ids=a.external_ids)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+        if _props(resource).get("jobState") != "Running":
+            a.dormant = True
+    if unresolved:
+        a.gap("inventory", "Output destination ownership or tenant is unavailable from the management API")
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -12204,7 +12246,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12219,7 +12261,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12325,6 +12367,7 @@ def assess(snapshot, resources):
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
                   "netapp_volume": _azure_netapp_volume,
+                  "stream_analytics_job": _azure_stream_analytics_job,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
