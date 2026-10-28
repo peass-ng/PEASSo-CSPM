@@ -197,6 +197,14 @@ def test_application_gateway_public_frontend_requires_observed_address():
             "destinationPortRange": "443"}}
     assert check({"first": "8.8.8.8"}, nsg_rules=[allow_destination("8.8.8.8/32")]).verdict() == "FAIL"
     assert check({"first": "8.8.8.8"}, nsg_rules=[allow_destination("9.9.9.9/32")]).verdict() == "PASS"
+    virtual_destination = allow_destination("VirtualNetwork")
+    virtual = check({"first": "8.8.8.8"}, nsg_rules=[virtual_destination])
+    assert virtual.verdict() == "UNKNOWN"
+    assert any(gap["layer"] == "nsg" for gap in virtual.unresolved)
+    assert check({"first": "8.8.8.8"}, nsg_rules=[
+        {**virtual_destination, "properties": {**virtual_destination["properties"],
+          "destinationAddressPrefixes": ["VirtualNetwork", "8.8.8.8/32"],
+          "destinationAddressPrefix": None}}]).verdict() == "FAIL"
     dual = check({"first": "8.8.8.8", "second": "9.9.9.9"}, ("first", "second"),
                  [allow_destination("9.9.9.9/32")])
     assert dual.verdict() == "FAIL" and "assigned public address 9.9.9.9" in _observed(dual, "FAIL")

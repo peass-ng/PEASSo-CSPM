@@ -3849,7 +3849,7 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
                       "protocol": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*", "destinationPortRange": "*"}})
     ordered = sorted(rules, key=lambda r: int((r.get("properties") or {}).get("priority", 4096)))
     candidates = {ipaddress.ip_address(value) for value in ("8.8.8.8", "1.1.1.1", "2606:4700:4700::1111")}
-    source_nets, unresolved_sources = {}, set()
+    source_nets, unresolved_sources, unresolved_destinations = {}, set(), set()
     for rule in ordered:
         p = rule.get("properties") or {}
         sources = as_list(p.get("sourceAddressPrefixes")) + as_list(p.get("sourceAddressPrefix"))
@@ -3888,6 +3888,9 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
             if p.get("sourceApplicationSecurityGroups") or not any(candidate in net for net in source_nets[id(rule)]):
                 continue
             destinations = as_list(p.get("destinationAddressPrefixes")) + as_list(p.get("destinationAddressPrefix"))
+            public_virtual_destination = bool(address and _public_ip(address) and
+                                              "VirtualNetwork" in destinations)
+            known_destinations = [d for d in destinations if d != "VirtualNetwork"] if public_virtual_destination else destinations
             asgs = {str(x.get("id", "")).lower() for x in as_list(p.get("destinationApplicationSecurityGroups")) if isinstance(x, dict)}
             if asgs:
                 if not asgs & {str(g).lower() for g in groups}:
@@ -3898,7 +3901,9 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
                                           (address and _cidr(d) is not None and _cidr(address) is not None and
                                            _cidr(address).subnet_of(_cidr(d)) if _cidr(d) and _cidr(address) and
                                            _cidr(d).version == _cidr(address).version else False)
-                                          for d in destinations):
+                                          for d in known_destinations):
+                if public_virtual_destination:
+                    unresolved_destinations.add(id(rule))
                 continue
             ports = {}
             for spec in as_list(p.get("destinationPortRanges")) + as_list(p.get("destinationPortRange")) or ["*"]:
@@ -3920,6 +3925,11 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
             if first_allow is None or priority <= first_allow:
                 matched.append({"rule": rule.get("name"), "priority": priority,
                                 "unresolved_public_source": True})
+        if id(rule) in unresolved_destinations:
+            priority = int((rule.get("properties") or {}).get("priority", 4096))
+            if first_allow is None or priority <= first_allow:
+                matched.append({"rule": rule.get("name"), "priority": priority,
+                                "unresolved_public_destination": True})
     return allowed, matched
 
 
@@ -3962,9 +3972,10 @@ def _azure_nsg_path(inventory, a, nic_nsg_id, subnet_id, ports, address=None, gr
         present += 1
         allowed, matched = _nsg_allowed(nsg, address, groups,
                                         _azure_service_tag_ranges(inventory, nsg["scope"]))
-        unknown_here = any(row.get("unresolved_public_source") for row in matched)
+        unknown_here = any(row.get("unresolved_public_source") or row.get("unresolved_public_destination")
+                           for row in matched)
         if unknown_here:
-            a.gap("nsg", f"{level} NSG has a rule with an unresolved source service tag or prefix")
+            a.gap("nsg", f"{level} NSG has a rule with an unresolved source service tag/prefix or public destination tag")
             unresolved_source = True
         result = intersect(result, allowed)
         if empty(result) and not unknown_here:
