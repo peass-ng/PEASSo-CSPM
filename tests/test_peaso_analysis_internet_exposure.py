@@ -132,7 +132,7 @@ def test_aws_client_vpn_managed_listener_and_inactive_state():
 
 def test_aws_vpc_endpoint_service_external_principal_permissions():
     service = {"ServiceId": "vpce-svc-1", "ServiceState": "Available",
-               "AcceptanceRequired": False, "AllowedPrincipals": ["*"]}
+               "AcceptanceRequired": False, "AllowedPrincipals": ["*"], "EndpointConnections": []}
     result = one(aws(coll("vpc_endpoint_service", [service])), "vpc_endpoint_service")
     assert result["status"] == "FAIL"
     assert result["evidence"]["path"][0]["external_principals"] == ["*"]
@@ -150,6 +150,28 @@ def test_aws_vpc_endpoint_service_external_principal_permissions():
     incomplete = copy.deepcopy(service)
     del incomplete["AllowedPrincipals"]
     assert one(aws(coll("vpc_endpoint_service", [incomplete])), "vpc_endpoint_service")["status"] == "UNKNOWN"
+
+
+def test_aws_privatelink_external_connection_survives_removed_permission():
+    service = {"ServiceId": "vpce-svc-1", "ServiceState": "Available", "AcceptanceRequired": True,
+               "AllowedPrincipals": [], "EndpointConnections": [{"ServiceId": "vpce-svc-1",
+                   "VpcEndpointId": "vpce-1", "VpcEndpointOwner": "999988887777", "VpcEndpointState": "Available"}]}
+    result = one(aws(coll("vpc_endpoint_service", [service])), "vpc_endpoint_service")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["path"][0]["active_external_connections"] == [
+        {"account": "999988887777", "endpoint": "vpce-1"}]
+
+    pending = copy.deepcopy(service)
+    pending["EndpointConnections"][0]["VpcEndpointState"] = "PendingAcceptance"
+    assert one(aws(coll("vpc_endpoint_service", [pending])), "vpc_endpoint_service")["status"] == "PASS"
+
+    missing = copy.deepcopy(service)
+    del missing["EndpointConnections"]
+    assert one(aws(coll("vpc_endpoint_service", [missing])), "vpc_endpoint_service")["status"] == "UNKNOWN"
+
+    malformed = copy.deepcopy(service)
+    malformed["EndpointConnections"][0]["VpcEndpointOwner"] = "not-an-account"
+    assert one(aws(coll("vpc_endpoint_service", [malformed])), "vpc_endpoint_service")["status"] == "UNKNOWN"
 
 
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [

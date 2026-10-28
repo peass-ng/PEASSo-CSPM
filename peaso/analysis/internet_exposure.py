@@ -1666,7 +1666,7 @@ def _aws_client_vpn_endpoint(snapshot, inventory, resource):
 
 
 def _aws_vpc_endpoint_service(snapshot, inventory, resource):
-    """Classify cross-account PrivateLink invitations from the cached allowlist."""
+    """Classify PrivateLink invitations and accepted cross-account connections."""
     from .trust import trusted_scopes
 
     data = resource["data"]
@@ -1677,12 +1677,36 @@ def _aws_vpc_endpoint_service(snapshot, inventory, resource):
     if state != "Available":
         a.gap("inventory", "VPC endpoint service state is unresolved")
         return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    connections = data.get("EndpointConnections")
+    active_foreign = []
+    connections_complete = isinstance(connections, list)
+    if connections_complete:
+        for row in connections:
+            if not isinstance(row, dict) or row.get("ServiceId") != data.get("ServiceId"):
+                connections_complete = False
+                break
+            connection_state = row.get("VpcEndpointState")
+            if connection_state == "Available":
+                owner = row.get("VpcEndpointOwner")
+                endpoint_id = row.get("VpcEndpointId")
+                if not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner) or not isinstance(endpoint_id, str):
+                    connections_complete = False
+                    break
+                if owner not in trusted:
+                    active_foreign.append({"account": owner, "endpoint": endpoint_id})
+            elif connection_state not in ("PendingAcceptance", "Pending", "Deleting", "Deleted", "Rejected", "Failed", "Expired"):
+                connections_complete = False
+                break
+    if not connections_complete:
+        a.gap("inventory", "VPC endpoint service connections are not completely collected",
+              "ec2:DescribeVpcEndpointConnections")
     principals = data.get("AllowedPrincipals")
-    if not isinstance(principals, list) or any(not isinstance(p, str) for p in principals):
+    principals_complete = isinstance(principals, list) and all(isinstance(p, str) for p in principals)
+    if not principals_complete:
         a.gap("inventory", "VPC endpoint service allowed principals are not completely collected",
               "ec2:DescribeVpcEndpointServicePermissions")
-        return a
-    trusted = trusted_scopes(snapshot)["ids"]
+        principals = []
     external = []
     unknown = []
     for principal in principals:
@@ -1695,17 +1719,21 @@ def _aws_vpc_endpoint_service(snapshot, inventory, resource):
                 external.append(principal)
         else:
             unknown.append(principal)
-    if external:
-        a.external_ids = sorted(set(external))
+    if external or active_foreign:
+        a.external_ids = sorted(set(external) | {row["account"] for row in active_foreign})
         a.explicit = "FAIL"
-        a.step("allowed_principals", "allow", external_principals=a.external_ids,
-               acceptance_required=data.get("AcceptanceRequired"))
-        a.notes.append("Allowed principals can request PrivateLink connections; manual acceptance and backend access are separate")
+        if external:
+            a.step("allowed_principals", "allow", external_principals=sorted(set(external)),
+                   acceptance_required=data.get("AcceptanceRequired"))
+            a.notes.append("Allowed principals can request PrivateLink connections; manual acceptance and backend access are separate")
+        if active_foreign:
+            a.step("endpoint_connections", "allow", active_external_connections=active_foreign)
+            a.notes.append("Available external endpoints remain connected even if their principals were removed from the allowlist")
     elif unknown:
         a.gap("inventory", "VPC endpoint service principal scope is unresolved")
-    else:
+    elif principals_complete and connections_complete:
         a.ports = {}
-        a.step("allowed_principals", "block", principal_count=len(principals))
+        a.step("external_access", "block", principal_count=len(principals), connection_count=len(connections))
     return a
 
 

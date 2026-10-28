@@ -145,6 +145,7 @@ READ_ACTIONS = {(service, operation) for service, operation, expression in SPECS
 READ_ACTIONS.update({
     ("kafka", "get_compatible_kafka_versions"),
     ("ec2", "describe_launch_template_versions"), ("ec2", "describe_instances"), ("ec2", "describe_vpc_endpoint_service_permissions"),
+    ("ec2", "describe_vpc_endpoint_connections"),
     ("network-firewall", "describe_firewall"), ("network-firewall", "describe_logging_configuration"),
     ("network-firewall", "describe_firewall_policy"), ("network-firewall", "describe_rule_group"),
     ("rds", "describe_db_instances"), ("rds", "describe_db_parameters"), ("rds", "describe_db_cluster_parameters"),
@@ -352,6 +353,16 @@ def _endpoint_services(requests, session, region, account):
     read = requests.pages(session, "ec2", region, "describe_vpc_endpoint_service_configurations", "ServiceConfigurations")
     if read.status not in _OK:
         return read
+    if not read.items:
+        return read
+    connections = requests.pages(session, "ec2", region, "describe_vpc_endpoint_connections", "VpcEndpointConnections")
+    by_service = {}
+    valid_connections = connections.status in _OK and all(
+        isinstance(row, dict) and isinstance(row.get("ServiceId"), str) for row in connections.items)
+    if valid_connections:
+        for row in connections.items:
+            by_service.setdefault(row["ServiceId"], []).append(_pick(row, (
+                "ServiceId", "VpcEndpointId", "VpcEndpointOwner", "VpcEndpointState")))
     for item in read.items:
         # DescribeVpcEndpointServiceConfigurations only returns services this
         # account owns; the API carries no Owner field.
@@ -361,6 +372,11 @@ def _endpoint_services(requests, session, region, account):
             item["AllowedPrincipals"] = principals.items
         else:
             _cover(item, "AllowedPrincipals", *(_cause(principals) if principals.status not in _OK else ("malformed", {"code": "malformed_allowed_principal"})))
+        if valid_connections:
+            item["EndpointConnections"] = by_service.get(item.get("ServiceId"), [])
+        else:
+            _cover(item, "EndpointConnections", *(_cause(connections) if connections.status not in _OK else
+                ("malformed", {"code": "malformed_endpoint_connection"})))
     return read
 
 
