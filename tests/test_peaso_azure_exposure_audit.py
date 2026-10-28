@@ -1589,6 +1589,15 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
     assert disabled_row.verdict() == "FAIL"
     assert disabled_row.addresses == ["route.example.com"]
     assert disabled_row.ports == {"tcp": ((80, 80),)}
+    auto_custom = {**disabled_custom, "properties": {**disabled_custom["properties"],
+        "customDomains": [{**disabled_custom["properties"]["customDomains"][0],
+                           "bindingType": "Auto", "certificateId": None}]}}
+    assert _child_rows([auto_custom], env_id, "httpRouteConfigs")[0]["id"] == route["id"]
+    auto_row = decision([auto_custom])[0]
+    assert auto_row.verdict() == "FAIL"
+    assert auto_row.addresses == ["route.example.com"]
+    assert auto_row.ports == {"tcp": ((80, 80),)}
+    assert any(step.get("binding_types") == ["Auto"] for step in auto_row.path)
     unbound = {**custom, "properties": {**custom["properties"],
         "customDomains": [{**custom["properties"]["customDomains"][0], "certificateId": None}]}}
     with pytest.raises(ValueError):

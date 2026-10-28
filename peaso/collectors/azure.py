@@ -345,7 +345,7 @@ def _child_rows(rows, parent_id, field):
             domains = props.get("customDomains")
             supported_domain = isinstance(domains, list) and any(
                 isinstance(domain, dict) and isinstance(domain.get("name"), str) and domain["name"]
-                and (domain.get("bindingType") == "Disabled" or
+                and (domain.get("bindingType") in ("Disabled", "Auto") or
                      (domain.get("bindingType") == "SniEnabled" and
                       isinstance(domain.get("certificateId"), str) and domain["certificateId"]))
                 for domain in domains)
