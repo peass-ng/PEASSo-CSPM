@@ -29,10 +29,20 @@ added 420.5 seconds, including a 224.6-second fourth render. Both runs still
 started content near t0 and finished the other API chains before the last
 content job.
 
-AWS content collection now defers category-only cumulative report refreshes
-after 256 durable native envelopes. A newly completed section still publishes
-immediately, including a late leaks section needed by progressive analysis.
-The threshold was crossed by about t46 in both saved streams. Bounded raw
+The eight immutable bf67 report manifests were read through the wiki profile.
+The first six are Collect publications. Reports 2 and 3 (sequences 276 and
+478) completed no new section; reports 4 and 5 first completed
+Images/Network and Least Privilege, respectively. Report 6 first completed
+Exposure/Privesc and was the terminal pass already deferred by `7fcaae4c`.
+The saved CloudWatch Markdown counter puts reports 2 and 3 at 78.196 seconds
+of additive render wall. Their S3 manifests were committed at 23:35:05 and
+23:37:39 UTC. No report bodies or secret values were printed.
+
+Selected AWS content scans now defer category-only cumulative report refreshes
+after 256 durable native envelopes, even before automatic content begins. A
+newly completed section still publishes immediately, including a late leaks
+section needed by progressive analysis. The threshold was crossed by about
+t46 in both saved streams. Bounded raw
 batches continue to commit completed envelopes; an interrupted collection
 still forces its latest partial report. Analyze builds the complete final
 report and Markdown from the same final native snapshot, so their bytes and
@@ -41,11 +51,11 @@ for category-only changes while content collection runs.
 
 **bf67-based projection:** the earlier terminal deferral removes an estimated
 218–228 seconds of post-job evaluation/checkpoint wall, putting `worker.collect`
-near t1379–1389 if job time is unchanged. Reports 2–5 carried 356.4 additive
-seconds of bf67 Markdown work before the last job, but CloudWatch does not
-record which refreshes had a new section. Some or all must remain under this
-gate, and their work overlapped collection; no further Collect wall seconds
-are credited without a paired production scan. The 30-second post-job target and
+near t1379–1389 if job time is unchanged. The verified section states identify
+reports 2 and 3 as category-only refreshes, so this gate is eligible to avoid
+78.196 additive seconds of bf67 Markdown. Those renders overlapped collection;
+no further Collect wall seconds are credited without a paired production scan.
+The 30-second post-job target and
 the ≤800-second Collect target remain unproven. bf67 has 198 incomplete
 collection statuses, so the literal zero-incomplete target is also unmet.
 

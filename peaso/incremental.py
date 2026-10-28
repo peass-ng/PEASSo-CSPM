@@ -87,6 +87,8 @@ class CheckpointSession:
         self.collection_finished = False
         self.content_tail_active = False
         self.content_tail_closed = False
+        self.aws_content_selected = (self.provider == 'aws'
+            and connector.get('options', {}).get('content_secret_scans') is True)
         self.final_metadata = None
         self.image_targets = []
         self.global_types = set()
@@ -546,13 +548,14 @@ class CheckpointSession:
                 categories.update(check["category"] for check in self.analysis_checks if check["id"] in ready_ids)
                 if "privesc" in ready_ids:
                     categories.add("privesc")
-                if (not force and self.provider == 'aws' and self.content_tail_active
+                if (not force and self.provider == 'aws'
+                        and (self.content_tail_active or self.aws_content_selected)
                         and len(self.collections) >= 256
                         and completed_sections <= self.published_sections):
-                    # The collector has already committed a large inventory
-                    # in bounded raw batches. New sections remain visible to
-                    # progressive analysis; category-only refreshes wait for
-                    # Analyze instead of rebuilding cumulative Markdown.
+                    # Selected content may start after ordinary inventory. The
+                    # large raw inventory is already durable in bounded batches;
+                    # keep new sections visible to progressive analysis while
+                    # deferring category-only cumulative Markdown to Analyze.
                     # An interrupted scan still forces its latest partial.
                     return None
                 if (not force and self.content_tail_active

@@ -1,5 +1,6 @@
 """Full batch durability and immediate sections with bounded cumulative reports."""
 import threading
+import pytest
 
 from tests.test_incremental_checkpoint import _session, SCOPE, TENANT
 
@@ -372,5 +373,93 @@ def test_large_aws_content_tail_keeps_late_sections_and_explicit_partial(monkeyp
         assert len([row for row in refs if row[2]]) == 2
         assert session.flush() is not None
         assert len([row for row in refs if row[2]]) == 3
+    finally:
+        session.close()
+
+
+def test_large_aws_content_tail_publishes_late_network_section(monkeypatch, tmp_path):
+    session, artifacts, refs, now = manual_session(monkeypatch, tmp_path)
+    session.section_dependencies['network'] = {'route'}
+    session.graph_categories.add('network')
+    try:
+        commit(session, 0)
+        assert session._maybe_publish() is not None
+        session.on_content_tail(True)
+        for start in (64, 128, 192, 256):
+            commit(session, start)
+        now[0] = 100.0
+        session.on_collection({'type': 'route', 'scope': SCOPE,
+                               'status': 'empty', 'items': []})
+        with session.lock:
+            session._flush_pending()
+        assert len(session.collections) > 256
+        assert session._maybe_publish() is not None
+        assert 'network' in session.published_sections
+        assert session._maybe_publish() is None
+        assert len([row for row in refs if row[2]]) == 2
+        latest = artifacts.get(TENANT, refs[-1][1])
+        assert latest['metadata']['incremental']['sequence'] == session.sequence
+        report = artifacts.get(TENANT, refs[-1][2])
+        assert report['publication']['sections']['network']['status'] == 'complete'
+    finally:
+        session.close()
+
+
+def test_selected_aws_content_defers_early_category_refresh_but_not_new_section(monkeypatch, tmp_path):
+    session, _, refs, now = manual_session(monkeypatch, tmp_path,
+        connector_options={'content_secret_scans': True})
+    session.section_dependencies['leaks'] = {'secret'}
+    try:
+        commit(session, 0)
+        assert session._maybe_publish() is not None
+        assert not session.content_tail_active
+        assert session.aws_content_selected
+        for start in (64, 128, 192, 256):
+            commit(session, start)
+        session.published_categories.clear()
+        now[0] = 100.0
+        assert session._maybe_publish() is None
+        assert len([row for row in refs if row[2]]) == 1
+        session.on_collection({'type': 'secret', 'scope': SCOPE,
+            'status': 'empty', 'items': []})
+        with session.lock:
+            session._flush_pending()
+        assert session._maybe_publish() is not None
+        assert 'leaks' in session.published_sections
+        assert len([row for row in refs if row[2]]) == 2
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize(('section', 'kind'), [
+    ('images', 'image'), ('network', 'route'),
+    ('least_privilege', 'iam_role'),
+])
+def test_selected_aws_content_publishes_early_progressive_section(
+        monkeypatch, tmp_path, section, kind):
+    session, artifacts, refs, now = manual_session(monkeypatch, tmp_path,
+        connector_options={'content_secret_scans': True})
+    session.section_dependencies[section] = {kind}
+    if section == 'network':
+        session.graph_categories.add('network')
+    elif section == 'least_privilege':
+        session.graph_categories.add('iam_graph')
+    try:
+        commit(session, 0)
+        assert session._maybe_publish() is not None
+        for start in (64, 128, 192, 256):
+            commit(session, start)
+        now[0] = 100.0
+        assert session._maybe_publish() is None
+        scope = SCOPE.split('/', 1)[0] + '/global' if section == 'least_privilege' else SCOPE
+        session.on_collection({'type': kind, 'scope': scope,
+            'status': 'empty', 'items': []})
+        with session.lock:
+            session._flush_pending()
+        assert session._maybe_publish() is not None
+        assert section in session.published_sections
+        assert len([row for row in refs if row[2]]) == 2
+        report = artifacts.get(TENANT, refs[-1][2])
+        assert report['publication']['sections'][section]['status'] == 'complete'
     finally:
         session.close()

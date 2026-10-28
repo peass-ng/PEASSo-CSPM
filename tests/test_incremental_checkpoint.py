@@ -68,7 +68,9 @@ def _session(monkeypatch, tmp_path, *, second=False, fail_second=False, **batch_
         if report_ref:
             published.set()
 
-    request = {"connector": {"provider": "aws", "scopes": [SCOPE]},
+    connector_options = batch_options.pop("connector_options", None)
+    request = {"connector": {"provider": "aws", "scopes": [SCOPE],
+                             "options": connector_options or {}},
                "categories": [c.category for c in checks], "checks": [c.id for c in checks]}
     session = CheckpointSession(request, on_checkpoint, public_snapshot,
                                 interval=0.02, **batch_options)
