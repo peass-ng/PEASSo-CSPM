@@ -63,6 +63,23 @@ def _project(row, rid, operation, version):
         'provisioningState', 'currentProtectionState', 'dataSourceInfo', 'policyInfo',
         'dataProtection', 'enabled', 'accessTier', 'enabledProtocols', 'shareQuota',
     ) if k in props}
+    if operation == 'Volumes_List':
+        for key in ('subnetId', 'protocolTypes'):
+            if key in props:
+                selected[key] = copy.deepcopy(props[key])
+        policy = props.get('exportPolicy')
+        if isinstance(policy, dict):
+            rules = policy.get('rules')
+            selected['exportPolicy'] = {'rules': [
+                {key: rule[key] for key in ('ruleIndex', 'allowedClients', 'nfsv3', 'nfsv41',
+                                            'unixReadOnly', 'unixReadWrite', 'kerberos5ReadOnly',
+                                            'kerberos5ReadWrite', 'kerberos5iReadOnly',
+                                            'kerberos5iReadWrite', 'kerberos5pReadOnly',
+                                            'kerberos5pReadWrite') if key in rule}
+                if isinstance(rule, dict) else rule for rule in rules]
+                if isinstance(rules, list) else rules}
+        elif 'exportPolicy' in props:
+            selected['exportPolicy'] = policy
     if isinstance(selected.get('dataSourceInfo'), dict):
         selected['dataSourceInfo'] = {k: v for k, v in selected['dataSourceInfo'].items()
             if k in ('resourceID', 'resourceType', 'datasourceType', 'objectType', 'resourceLocation')}

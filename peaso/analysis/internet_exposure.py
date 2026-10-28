@@ -11596,6 +11596,86 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
     return a
 
 
+def _azure_netapp_volume(snapshot, inventory, resource):
+    """NFS export grants over connected foreign VNets; SMB ACLs remain opaque."""
+    props = _props(resource)
+    a = Assessment(resource, "file_share")
+    protocols = props.get("protocolTypes")
+    if not isinstance(protocols, list):
+        a.gap("inventory", "NetApp volume protocols are not observed")
+        return a
+    nfs = any(str(protocol).casefold().startswith("nfs") for protocol in protocols)
+    smb = any(str(protocol).casefold() in ("cifs", "smb") for protocol in protocols)
+    if smb:
+        a.gap("authorization", "NetApp SMB users and file ACLs are data-plane state")
+    if not nfs:
+        return a if smb else None
+    policy = props.get("exportPolicy")
+    rules = policy.get("rules") if isinstance(policy, dict) else None
+    if not isinstance(rules, list):
+        a.gap("policy", "NetApp NFS export rules are not observed")
+        return a
+    broad = []
+    for rule in rules:
+        if not isinstance(rule, dict) or type(rule.get("ruleIndex")) is not int:
+            a.gap("policy", "NetApp NFS export rule order is malformed")
+            continue
+        allowed = rule.get("allowedClients")
+        if not isinstance(allowed, str):
+            a.gap("policy", "NetApp NFS allowed clients are unavailable")
+            continue
+        clients = [value.strip() for value in allowed.split(",")]
+        grants = any(rule.get(field) is True for field in (
+            "unixReadOnly", "unixReadWrite", "kerberos5ReadOnly", "kerberos5ReadWrite",
+            "kerberos5iReadOnly", "kerberos5iReadWrite", "kerberos5pReadOnly", "kerberos5pReadWrite"))
+        if not grants:
+            continue
+        if any(value in ("0.0.0.0/0", "0.0.0.0", "::/0") for value in clients):
+            broad.append(rule)
+        elif any(_cidr(value) is None for value in clients):
+            a.gap("policy", "NetApp NFS client range is malformed or hostname-based")
+    if not broad:
+        if rules:
+            a.gap("inventory", "NetApp NFS client ownership and routed networks are unresolved")
+        else:
+            a.step("export_policy", "block", reason="no NFS export rules")
+            a.ports = {}
+        return a
+    first = min((r["ruleIndex"] for r in rules if isinstance(r, dict)
+                 and type(r.get("ruleIndex")) is int), default=None)
+    if any(rule["ruleIndex"] != first for rule in broad):
+        a.gap("policy", "earlier NetApp NFS export rule may override the broad allow")
+        return a
+    subnet_id = props.get("subnetId")
+    vnet_id = re.split(r"/subnets/", subnet_id, maxsplit=1, flags=re.I)[0] if isinstance(subnet_id, str) and re.search(r"/subnets/", subnet_id, re.I) else None
+    foreign = []
+    for peering in inventory.items("vnet_peering"):
+        pid = native_id(peering)
+        fields = _props(peering)
+        remote = (fields.get("remoteVirtualNetwork") or {}).get("id")
+        if (vnet_id and isinstance(pid, str) and pid.casefold().startswith(vnet_id.casefold() + "/virtualnetworkpeerings/")
+                and fields.get("peeringState") == "Connected" and fields.get("allowVirtualNetworkAccess") is True
+                and isinstance(remote, str) and re.match(r"/subscriptions/([^/]+)/", remote, re.I)):
+            owner = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+            other = re.match(r"/subscriptions/([^/]+)/", remote, re.I)
+            if owner and other and owner.group(1).casefold() != other.group(1).casefold():
+                foreign.append(remote)
+    a.step("export_policy", "allow", broad_rule_indices=sorted({r["ruleIndex"] for r in broad}))
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("foreign_vnet_peering", "allow", remote_vnets=a.external_ids)
+        a.ports = pset("tcp", 2049, 2049)
+        if any(rule.get("nfsv3") is True for rule in broad):
+            for port in (111, 635):
+                a.ports = union(a.ports, pset("tcp", port, port))
+                a.ports = union(a.ports, pset("udp", port, port))
+            a.ports = union(a.ports, pset("udp", 2049, 2049))
+        a.explicit = "FAIL"
+    else:
+        a.gap("inventory", "Broad NFS export has no proven foreign routed client in selected VNet inventory")
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -12124,7 +12204,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12140,7 +12220,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -12244,6 +12324,7 @@ def assess(snapshot, resources):
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
+                  "netapp_volume": _azure_netapp_volume,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
