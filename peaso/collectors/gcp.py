@@ -723,6 +723,19 @@ class Transport:
             params == {"view": "FULL_VIEW", "fields": "name,serviceAccount,runtime,env,servingStatus"})
         if re.search(r"/versions/[^/]+(?::access|$)|/oauthClients/|/keys/[^/]+$", parsed.path) and not app_version_get:
             raise ReadError("unsupported", "sensitive_value_read_prohibited")
+        # A complete Service Usage inventory can require dozens of ordered
+        # pages. A quota response on one late page otherwise discards the
+        # remaining pages after the shared four retries. Give only this exact
+        # read two more 429 attempts when retries were not set by the caller.
+        # The normal Retry-After, call limit and scan deadline still apply.
+        service_usage_quota_retries = (2 if "retries" not in self.options and self.retries == 4
+            and method == "GET" and body is None and parsed.hostname == "serviceusage.googleapis.com"
+            and isinstance(scope, str) and re.fullmatch(r"projects/[A-Za-z0-9_-]+", scope)
+            and parsed.path == f"/v1/{scope}/services"
+            and isinstance(params, dict) and not isinstance(params.get("pageSize"), bool)
+            and isinstance(params.get("pageSize"), int) and 1 <= params["pageSize"] <= 200
+            and set(params) <= {"pageSize", "pageToken"} else 0)
+        quota_retry_limit = self.retries + service_usage_quota_retries
         # requests sends the same URL for absent and empty params.
         cache_key = json.dumps([method, url, params or {}, body], sort_keys=True)
         from . import gcp_prefetch
@@ -781,7 +794,8 @@ class Transport:
                     http_status=error.error.get('http_status'), reason=error.error.get('reason'))
                 reused.error.update(error.error)
                 raise reused
-            for attempt in range(self.retries + 1):
+            extra_quota_wait = 0.0
+            for attempt in range(quota_retry_limit + 1):
                 self.check_cancelled()
                 with self.lock:
                     if self.max_calls is not None and self.calls >= self.max_calls:
@@ -827,7 +841,8 @@ class Transport:
                     error = http_error(response.status_code, data)
                     throttled = response.status_code == 429 or error.error.get("reason") in (
                         "RATE_LIMIT_EXCEEDED", "RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED")
-                    if (throttled or response.status_code in (500, 502, 503, 504)) and attempt < self.retries:
+                    retry_limit = quota_retry_limit if response.status_code == 429 else self.retries
+                    if (throttled or response.status_code in (500, 502, 503, 504)) and attempt < retry_limit:
                         delay = self.backoff(attempt, response, throttled)
                         # A provider minimum must never be shortened by jitter or
                         # a local wait cap. End incomplete if the next permitted
@@ -838,6 +853,10 @@ class Transport:
                                 (self.deadline_seconds is not None and
                                  time.monotonic() - self.started + delay >= self.deadline_seconds)):
                             raise ReadError("unavailable", "retry_wait_exceeds_deadline")
+                        if service_usage_quota_retries and attempt >= self.retries:
+                            if extra_quota_wait + delay > 90:
+                                raise ReadError("unavailable", "quota_retry_wait_budget")
+                            extra_quota_wait += delay
                         self.sleep(delay)
                         continue
                     raise error
