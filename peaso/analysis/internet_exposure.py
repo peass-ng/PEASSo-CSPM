@@ -2552,9 +2552,11 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         if row["kind"] == "dataset" and isinstance(ref.get("dataset"), dict):
             ref = ref["dataset"]
         return ref.get("projectId") or ref.get("project_id")
+    from .trust import trusted_scopes
+    trusted_project_ids = trusted_scopes(snapshot)["ids"]
     external_projects = sorted({project for row in delegated
                                 if isinstance(project := destination_project(row), str)
-                                and project and project != source_project})
+                                and project and project not in trusted_project_ids})
     project_policy_row = inventory.get("iam_policy", resource["scope"])
     project_policy = project_policy_row["data"] if project_policy_row else None
     project_row = inventory.get("project", resource["scope"])

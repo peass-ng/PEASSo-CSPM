@@ -1205,6 +1205,20 @@ def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["foreign"]
 
 
+def test_gcp_authorized_resource_uses_scanned_project_id_and_number_boundary():
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"view": {"projectId": "123", "datasetId": "views", "tableId": "v"}}]}
+    project = {"name": "projects/p1", "projectId": "p1", "projectNumber": "123"}
+    result = one(gcp(gcoll("project", [project], service="cloudresourcemanager"),
+                     gcoll("bigquery_dataset", [source], service="bigquery")), "bigquery_dataset")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"].get("external_scope_ids") == []
+    source["access"][0]["view"]["projectId"] = "foreign"
+    result = one(gcp(gcoll("project", [project], service="cloudresourcemanager"),
+                     gcoll("bigquery_dataset", [source], service="bigquery")), "bigquery_dataset")
+    assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["foreign"]
+
+
 def test_gcp_authorized_view_with_public_reader_exposes_source_dataset():
     from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
     from peaso.snapshot import resources
