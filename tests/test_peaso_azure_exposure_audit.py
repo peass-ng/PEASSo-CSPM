@@ -385,6 +385,28 @@ def test_sql_firewall_public_ip_range_is_exposure_but_private_range_is_not():
     assert sql_decision("invalid", "8.8.8.8").verdict() == "UNKNOWN"
 
 
+def test_sql_missing_public_gate_and_partial_firewall_pages_stay_unknown():
+    server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
+
+    def decision(public, status, rules):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "sql_server", "scope": SCOPE, "service": "sql", "status": "collected", "items": [
+                {"id": server_id, "properties": {"publicNetworkAccess": public,
+                 "fullyQualifiedDomainName": "sql.database.windows.net"}}]},
+            {"type": "sql_firewall_rule", "scope": SCOPE, "service": "sql", "status": status, "items": [
+                {"id": server_id + "/firewallRules/" + name, "name": name,
+                 "properties": {"startIpAddress": start, "endIpAddress": end}}
+                for name, start, end in rules]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "sql_server")
+
+    private = [("private", "10.0.0.1", "10.0.0.2")]
+    public = [("public", "8.8.8.8", "8.8.8.8")]
+    assert decision(None, "collected", public).verdict() == "UNKNOWN"
+    assert decision("Enabled", "partial", private).verdict() == "UNKNOWN"
+    assert decision("Enabled", "partial", public).verdict() == "FAIL"
+    assert decision("Enabled", "collected", private).verdict() == "PASS"
+
+
 def test_nsg_specific_public_source_respects_per_source_priority():
     def rule(name, source, access, priority):
         return {"name": name, "properties": {"priority": priority, "direction": "Inbound",

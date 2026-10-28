@@ -4286,15 +4286,15 @@ def _azure_storage_container(snapshot, inventory, resource):
 
 def _azure_sql(snapshot, inventory, resource, rules):
     props = _props(resource)
-    if str(props.get("publicNetworkAccess", "")).lower() == "disabled":
+    public_access = props.get("publicNetworkAccess")
+    if str(public_access).lower() == "disabled":
         return None
     a = Assessment(resource, "database")
     a.addresses = [props.get("fullyQualifiedDomainName")] if props.get("fullyQualifiedDomainName") else []
+    if str(public_access).lower() != "enabled":
+        a.gap("inventory", "SQL publicNetworkAccess is not explicitly Enabled or Disabled")
     rid = str(resource["data"].get("id", "")).lower()
     state = inventory.state("sql_firewall_rule", resource["data"].get("id"))
-    if state.startswith("missing") and rid not in rules:
-        a.gap("firewall", f"SQL firewall rules {state}", "Microsoft.Sql/servers/firewallRules")
-        return a
     open_rules, azure = [], False
     for rule in rules.get(rid, []):
         rp = _props(rule)
@@ -4318,6 +4318,8 @@ def _azure_sql(snapshot, inventory, resource, rules):
                 open_rules.append({"rule": rule["data"].get("name"), "start_ip": start, "end_ip": end})
     if azure:
         a.notes.append("'Allow Azure services' admits resources in other Azure tenants; database authentication is separate")
+    if state not in ("collected", "empty") and not open_rules:
+        a.gap("firewall", f"SQL firewall rules {state}", "Microsoft.Sql/servers/firewallRules")
     unresolved_rules = any(gap["layer"] == "firewall" for gap in a.unresolved)
     a.step("firewall", "allow" if open_rules else "unknown" if unresolved_rules else "block",
            open_rules=open_rules)
