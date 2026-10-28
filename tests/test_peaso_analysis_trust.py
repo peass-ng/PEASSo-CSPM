@@ -2,7 +2,7 @@
 import pytest
 
 from peaso.analysis import analyze
-from peaso.analysis.trust import restrictive_conditions, trusted_scopes
+from peaso.analysis.trust import azure_federated_credential, restrictive_conditions, trusted_scopes
 from peaso.snapshot import make_snapshot, resources
 from peaso.analysis.iam import review_findings
 from peaso.analysis.internet_exposure import federated_findings
@@ -52,6 +52,24 @@ def test_collected_graph_app_federated_credential_reaches_native_exposure_review
     rows = federated_findings(snapshot, resources(snapshot))
     assert len(rows) == 1 and rows[0]["check_id"] == "analysis.federated_trust"
     assert rows[0]["evidence"]["subject"] == item["subject"]
+
+
+@pytest.mark.parametrize("issuer,value,expected", [
+    ("https://token.actions.githubusercontent.com",
+     "claims['sub'] matches 'repo:owner/project:ref:refs/heads/*' and claims['repository_id'] eq '123'", "MANUAL"),
+    ("https://token.actions.githubusercontent.com", "claims['sub'] matches 'repo:*'", "UNKNOWN"),
+    ("https://gitlab.com", "claims['sub'] matches 'project_path:owner/project:*' and claims['project_id'] eq '456'", "MANUAL"),
+    ("https://app.terraform.io", "claims['sub'] matches '*'", "FAIL"),
+    ("https://app.terraform.io", "claims['sub'] matches 'organization:*'", "FAIL"),
+    ("https://app.terraform.io", "claims['sub'] matches 'organization:owner:*'", "MANUAL"),
+    ("https://token.actions.githubusercontent.com", "claims['sub'] matches 'repo:*' or claims['repository_id'] eq '123'", "UNKNOWN"),
+])
+def test_azure_flexible_federation_expression_is_parsed_before_risk_decision(issuer, value, expected):
+    item = {"data": {"issuer": issuer, "subject": None,
+            "claimsMatchingExpression": {"languageVersion": 1, "value": value},
+            "audiences": ["api://AzureADTokenExchange"]}}
+    status, _, evidence = azure_federated_credential({}, item)
+    assert status == expected and evidence["claims_matching_expression"]["value"] == value
 
 
 def test_azure_group_role_assignment_reaches_nested_guest():

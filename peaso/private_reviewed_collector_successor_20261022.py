@@ -19,8 +19,8 @@ import zlib
 
 from . import private_secret_source_epoch_20261021 as _epoch
 
-_RECEIPT_SHA256 = "c59c63afa49c8200d04b31e1ae486097c36c156aa86fc5a0aef66e830103f8d0"
-_SELF_SHA256 = "b1fc0b85ad1e7d2555b2813f3e80048ee05a7232cafc209e76ad2a0414c64890"
+_RECEIPT_SHA256 = "c1d1c2a570ecd7b1cb2bad6d180df9f587312ed8b32c34dd43d99a9eb3281037"
+_SELF_SHA256 = "2d2014f652814fc57961217c96b0bff8b7967a3c82866a7330b49b41050211d5"
 _ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -165,9 +165,12 @@ def _verify_graph_current(root):
     compiled = compile(raw, str(path), "exec", dont_inherit=True, optimize=sys.flags.optimize)
     constants = _epoch._constants(tree, str(path))
     expected_routes = tuple(re.compile(pattern, flags) for pattern, flags in proof["routes"])
-    if (not _epoch._same(module.ROUTES, expected_routes) or type(module._MISSING) is not object):
+    expected_beta_routes = tuple(re.compile(pattern, flags) for pattern, flags in proof["beta_routes"])
+    if (not _epoch._same(module.ROUTES, expected_routes)
+            or not _epoch._same(module.BETA_ROUTES, expected_beta_routes)
+            or type(module._MISSING) is not object):
         raise _epoch.AdmissionError("reviewed Graph route/sentinel changed")
-    constants["ROUTES"], constants["_MISSING"] = expected_routes, module._MISSING
+    constants["ROUTES"], constants["BETA_ROUTES"], constants["_MISSING"] = expected_routes, expected_beta_routes, module._MISSING
     functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
     classes = {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)}
     actual_functions = {name for name, value in vars(module).items()

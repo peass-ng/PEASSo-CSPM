@@ -158,7 +158,8 @@ def test_complete_federation_findings_graph_and_principals_match_literal_scan(mo
                     props.pop('subject')
                 elif i % 3 == 2:
                     props.pop('subject')
-                    props['claimsMatchingExpression'] = {'value': "claims['sub'] matches 'repo:*'"}
+                    props['issuer'] = 'https://app.terraform.io'
+                    props['claimsMatchingExpression'] = {'languageVersion': 1, 'value': "claims['sub'] matches '*'"}
     snapshot = validate(seal(snapshot))
     inventory, before = resources(snapshot), digest(snapshot)
     monkeypatch.setattr(cloud_workload_index, 'MAX_KEYS', capacity)

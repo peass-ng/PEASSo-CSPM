@@ -1164,7 +1164,7 @@ def _validate_readonly_post(url, audience, body):
     from . import azure_graph_batch
     graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and not query and
                    (parsed.path == "/v1.0/$batch" and azure_graph_batch.valid_body(body) or
-                    parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_members_only=True)))
+                    parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_routes_only=True)))
     if not (arg or logs or policy or graph_batch):
         raise AzureReadError("cloud_mutation_prohibited")
 
@@ -3231,7 +3231,7 @@ def collect(connector, requirements=None, *, transport=None):
                 if kind == "private_dns_zone" and "private_dns_link" in wanted:
                     child_paths.append(("private_dns_link", "virtualNetworkLinks", "2020-06-01"))
                 if kind == "managed_identity" and "managed_identity_federated_credential" in wanted:
-                    child_paths.append(("managed_identity_federated_credential", "federatedIdentityCredentials", "2023-01-31"))
+                    child_paths.append(("managed_identity_federated_credential", "federatedIdentityCredentials", "2025-05-31-preview"))
                 if kind == "app_service" and "app_service_identity_detail" in wanted:
                     jobs.append(azure_appservice_identity_followup.site_identity_job(reader, request, ARM, item))
                 if kind == "app_service" and "app_service_config" in wanted:
@@ -3746,7 +3746,7 @@ def collect(connector, requirements=None, *, transport=None):
                 object_id = application.get("id")
                 if not isinstance(object_id, str) or not object_id:
                     continue
-                url = GRAPH + "/v1.0/applications/" + quote(object_id, safe="") + "/federatedIdentityCredentials?$select=id,name,issuer,subject,audiences"
+                url = GRAPH + "/beta/applications/" + quote(object_id, safe="") + "/federatedIdentityCredentials?$select=id,name,issuer,subject,audiences,claimsMatchingExpression"
                 graph_urls.append(url)
                 def credentials(url=url, object_id=object_id, app_id=application.get("appId")):
                     for page in reader.pages(graph_request, url, audience=GRAPH, next_key="@odata.nextLink"):
@@ -3754,7 +3754,17 @@ def collect(connector, requirements=None, *, transport=None):
                         for row in page:
                             if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"]:
                                 raise ValueError("malformed federated identity credential")
-                            rows.append({key: data for key, data in row.items() if key in ("name", "issuer", "subject", "audiences")} | {
+                            expression = row.get("claimsMatchingExpression")
+                            if expression is not None and (not isinstance(expression, dict)
+                                    or type(expression.get("languageVersion")) is not int
+                                    or not isinstance(expression.get("value"), str)
+                                    or len(expression["value"]) > 2048):
+                                raise ValueError("malformed federated identity expression")
+                            safe = {key: data for key, data in row.items() if key in ("name", "issuer", "subject", "audiences")}
+                            if expression is not None:
+                                safe["claimsMatchingExpression"] = {"languageVersion": expression["languageVersion"],
+                                                                     "value": expression["value"]}
+                            rows.append(safe | {
                                 "id": "applications/" + object_id + "/federatedIdentityCredentials/" + row["id"], "credentialId": row["id"],
                                 "applicationObjectId": object_id, "appId": app_id,
                                 "_provenance": {"tenant_id": tenant_scope.removeprefix("/tenants/"), "endpoint": urlsplit(url).path, "read_only": True}})

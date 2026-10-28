@@ -26,7 +26,7 @@ class FakeGraph(AzureTransport):
         pass
 
     def single(self, url):
-        parts = urlsplit(url); path = parts.path.removeprefix("/v1.0")
+        parts = urlsplit(url); path = parts.path.removeprefix("/v1.0").removeprefix("/beta")
         seg = path.strip("/").split("/")
         if path in ("/applications", "/servicePrincipals", "/groups", "/directory/administrativeUnits"):
             rows = {"/applications": self.apps, "/servicePrincipals": self.sps, "/groups": self.groups,
@@ -64,14 +64,14 @@ class FakeGraph(AzureTransport):
                 if body is not None:
                     return {"data": []}
                 return {"value": []}
-            if url == GRAPH + "/v1.0/$batch":
+            if url in (GRAPH + "/v1.0/$batch", GRAPH + "/beta/$batch"):
                 with self.lock:
                     self.batch_posts += 1; self.sub_requests += len(body["requests"])
                 out = []
                 for row in body["requests"]:
                     try:
                         out.append({"id": row["id"], "status": 200, "headers": {"Content-Type": "application/json"},
-                                    "body": json.loads(json.dumps(self.single(GRAPH + "/v1.0" + row["url"])))})
+                                    "body": json.loads(json.dumps(self.single(GRAPH + ("/beta" if url.endswith("/beta/$batch") else "/v1.0") + row["url"])))})
                     except Throttled:
                         out.append({"id": row["id"], "status": 429, "headers": {"Retry-After": "0"}, "body": {"error": {"code": "TooManyRequests"}}})
                     except AzureReadError:
@@ -138,12 +138,15 @@ def test_only_reviewed_directory_gets_may_be_batched(body):
         _validate_readonly_post(GRAPH + "/v1.0/$batch", GRAPH, body)
 
 
-def test_reviewed_batch_versions_restrict_beta_to_group_members():
+def test_reviewed_batch_versions_restrict_beta_to_group_members_and_app_credentials():
     body = {"requests": [{"id": "0", "method": "GET", "url": "/groups/g1/members?$select=id"},
                          {"id": "1", "method": "GET", "url": "/servicePrincipals/s-1/appRoleAssignments"}]}
     _validate_readonly_post(GRAPH + "/v1.0/$batch", GRAPH, body)
     beta_body = {"requests": [body["requests"][0]]}
     _validate_readonly_post(GRAPH + "/beta/$batch", GRAPH, beta_body)
+    beta_fic = {"requests": [{"id": "0", "method": "GET", "url":
+        "/applications/app1/federatedIdentityCredentials?$select=id,name,issuer,subject,audiences,claimsMatchingExpression"}]}
+    _validate_readonly_post(GRAPH + "/beta/$batch", GRAPH, beta_fic)
     for url, audience in ((GRAPH + "/beta/$batch", GRAPH), (GRAPH + "/v1.0/$batch?x=1", GRAPH),
                           (GRAPH + "/v1.0/$batch", azure.ARM)):
         with pytest.raises(AzureReadError):
