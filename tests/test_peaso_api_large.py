@@ -23,11 +23,11 @@ class SignedFiles(FileArtifacts):
 def completed_job(store, artifacts, report):
     connector = store.add_connector("alice", {"provider": "aws"}, "encrypted")
     job = store.enqueue("alice", {"connector_id": connector["id"]})
-    collector = store.claim("collector")
-    store.finish(job["id"], collector["owner"], "collected", artifacts.put("alice", job["id"], "snapshot", {}))
-    analyzer = store.claim("analyzer")
+    collector = store.claim("collector", lease_seconds=300)
+    assert store.finish(job["id"], collector["owner"], "collected", artifacts.put("alice", job["id"], "snapshot", {}))
+    analyzer = store.claim("analyzer", lease_seconds=300)
     reference = publish_report(artifacts, "alice", job["id"], report)
-    store.finish(job["id"], analyzer["owner"], "completed", reference)
+    assert store.finish(job["id"], analyzer["owner"], "completed", reference)
     return job["id"], artifacts.get("alice", reference)
 
 

@@ -494,9 +494,8 @@ export function LaunchForm({
       return setError("Select at least one assessment category or content analysis.");
     if (isSchedule && rules.some(rule => !rule.time || (rule.frequency === "weekly" && !rule.weekdays?.length)))
       return setError("Choose a time for each rule and at least one weekday for every weekly rule.");
-    const aiWorkSelected = aiPrioritiesEnabled || selected.includes("exposure") ||
-      (selected.includes("network") && aiNetworkEnabled) ||
-      hardeningCategories.some((category) => selected.includes(category.id));
+    const aiWorkSelected = aiPrioritiesEnabled ||
+      (selected.includes("network") && aiNetworkEnabled);
     mutation.mutate({
       connector_id: connector,
       ai_enabled: aiAvailable && aiEnabled && aiWorkSelected,
