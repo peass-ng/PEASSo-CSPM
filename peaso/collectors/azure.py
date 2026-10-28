@@ -130,6 +130,7 @@ ENDPOINTS = {
     "analysis_server": ("Microsoft.AnalysisServices/servers", "2017-08-01"),
     "search_service": ("Microsoft.Search/searchServices", "2023-11-01"),
     "managed_identity": ("Microsoft.ManagedIdentity/userAssignedIdentities", "2023-01-31"),
+    "managed_application": ("Microsoft.Solutions/applications", "2019-07-01"),
     "container_registry": ("Microsoft.ContainerRegistry/registries", "2023-07-01"),
     "cosmos_account": ("Microsoft.DocumentDB/databaseAccounts", "2024-05-15"),
     "purview_account": ("Microsoft.Purview/accounts", "2021-12-01"),
@@ -929,6 +930,57 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                 item[field] = read["items"] if is_list else read["items"][0]
             elif read["items"]:
                 item[field] = read["items"] if is_list else read["items"][0]
+
+
+def _collect_managed_application_jit(reader, request, parents):
+    """One credential-free JIT request LIST per resource group with JIT applications."""
+    groups = {}
+    for kind, item in parents:
+        if kind != "managed_application" or not isinstance(item.get("properties"), dict):
+            continue
+        policy = item["properties"].get("jitAccessPolicy")
+        if not isinstance(policy, dict) or policy.get("jitAccessEnabled") is not True:
+            continue
+        match = re.fullmatch(r"(.+/resourceGroups/[^/?#%\\\s]+)/providers/Microsoft\.Solutions/applications/[^/?#%\\\s]+",
+                             item["id"], re.I)
+        if not match:
+            item.setdefault("_coverage", {})["jitRequests"] = {"status": "malformed"}
+            continue
+        groups.setdefault(match.group(1), []).append(item)
+
+    def job(group):
+        url = ARM + group + "/providers/Microsoft.Solutions/jitRequests?api-version=2019-07-01"
+        def fetch():
+            seen = set()
+            for page in reader.pages(request, url):
+                projected = []
+                for row in page:
+                    rid = row.get("id") if isinstance(row, dict) else None
+                    props = row.get("properties") if isinstance(row, dict) else None
+                    if (not isinstance(rid, str) or re.fullmatch(
+                            re.escape(group + "/providers/Microsoft.Solutions/jitRequests/") + r"[^/?#%\\\s]+", rid, re.I) is None
+                            or str(row.get("type", "")).casefold() != "microsoft.solutions/jitrequests"
+                            or not isinstance(props, dict) or not isinstance(props.get("applicationResourceId"), str)
+                            or rid.casefold() in seen):
+                        raise ValueError("duplicate, foreign or malformed managed application JIT request")
+                    seen.add(rid.casefold())
+                    schedule = props.get("jitSchedulingPolicy")
+                    if schedule is not None and not isinstance(schedule, dict):
+                        raise ValueError("malformed managed application JIT schedule")
+                    projected.append({"id": rid, "properties": {
+                        **{key: props[key] for key in ("applicationResourceId", "jitRequestState",
+                                                         "publisherTenantId", "provisioningState") if key in props},
+                        "jitSchedulingPolicy": {key: schedule[key] for key in ("startTime", "duration", "type")
+                                                if key in schedule} if schedule else None}})
+                yield projected
+        return reader._read(("embedded_managedApplicationJitRequests", group, "Microsoft.Solutions", fetch))
+
+    with ThreadPoolExecutor(max_workers=reader.workers) as pool:
+        for group, result in zip(groups, pool.map(job, groups)):
+            for item in groups[group]:
+                item.setdefault("_coverage", {})["jitRequests"] = {key: result[key] for key in ("status", "error") if key in result}
+                item["jitRequests"] = [row for row in result["items"]
+                                       if row["properties"]["applicationResourceId"].casefold() == item["id"].casefold()]
 
 
 def _collect_gallery_versions(reader, request, parents):
@@ -3136,7 +3188,10 @@ def collect(connector, requirements=None, *, transport=None):
                                 if identity in seen_easm or (str(item.get("type", "")).casefold() not in ((native_type, '') if kind == 'monitor_log_profile' else (native_type,))):
                                     raise ValueError("duplicate or malformed selected Azure identity")
                                 seen_easm.add(identity)
-                            if isinstance(item.get("properties"), dict) and kind != "container_group" and kind not in FULL_GET_KINDS and kind != "stream_analytics_job":
+                            managed_app_fields = ("managedResourceGroupId", "publisherTenantId", "managementMode", "authorizations", "provisioningState")
+                            managed_app_complete = (kind != "managed_application" or all(
+                                key in item["properties"] for key in managed_app_fields)) if isinstance(item.get("properties"), dict) else False
+                            if isinstance(item.get("properties"), dict) and managed_app_complete and kind != "container_group" and kind not in FULL_GET_KINDS and kind != "stream_analytics_job":
                                 planned.append((True, bound_policy_row(azure_swc.list_detail(item, kind))))
                                 continue
                             planned.append((False, item))
@@ -3484,6 +3539,7 @@ def collect(connector, requirements=None, *, transport=None):
         if "batch_pool" not in wanted:
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
+        _collect_managed_application_jit(reader, request, embedded_parents)
         _collect_servicebus_entity_rules(reader, request, embedded_parents)
         _collect_gallery_versions(reader, request, embedded_parents)
         if "managed_hsm" in wanted:

@@ -341,6 +341,31 @@ def full_detail(value, kind, version):
 
 def list_detail(value, kind):
     """Attest alert LISTs; retain action-group configuration as metadata only."""
+    if kind == "managed_application":
+        props = value.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("managed application properties missing")
+        safe = {key: props[key] for key in (
+            "managedResourceGroupId", "publisherTenantId", "managementMode", "provisioningState")
+            if key in props}
+        if "authorizations" in props:
+            authorizations = props["authorizations"]
+            if not isinstance(authorizations, list) or any(
+                    not isinstance(row, dict) or not isinstance(row.get("principalId"), str)
+                    or not isinstance(row.get("roleDefinitionId"), str) for row in authorizations):
+                raise ValueError("managed application publisher authorizations malformed")
+            safe["authorizations"] = [{"principalId": row["principalId"],
+                                       "roleDefinitionId": row["roleDefinitionId"]} for row in authorizations]
+        if "jitAccessPolicy" in props:
+            policy = props["jitAccessPolicy"]
+            if policy is not None and not isinstance(policy, dict):
+                raise ValueError("managed application JIT policy malformed")
+            safe["jitAccessPolicy"] = {key: policy[key] for key in (
+                "jitAccessEnabled", "jitApprovalMode", "maximumJitAccessDuration") if key in policy} if policy else None
+        return {**{key: value[key] for key in ("id", "name", "type", "kind", "location") if key in value},
+                "properties": safe, "_provenance": {"source_operation": "applications/list-or-get",
+                                                    "read_only": True, "api_version": "2019-07-01",
+                                                    "representation": "metadata"}}
     if kind in ("openshift_cluster", "openshift_hcp_cluster"):
         from .azure import _metadata_only
         return _metadata_only(value)

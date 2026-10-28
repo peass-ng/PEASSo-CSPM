@@ -11718,6 +11718,69 @@ def _azure_stream_analytics_job(snapshot, inventory, resource):
     return a
 
 
+def _azure_managed_application(snapshot, inventory, resource):
+    """Publisher management grants on the managed resource group."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    props = _props(resource)
+    if not props:
+        a.gap("inventory", "managed application properties unavailable")
+        return a
+    state = props.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed", "Canceled"):
+        a.step("application_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", "Created", "Ready"):
+        a.gap("inventory", "managed application provisioning state unresolved")
+        return a
+    if props.get("managementMode") == "Unmanaged":
+        a.step("publisher_management", "block", reason="publisher management disabled")
+        return a
+    if props.get("managementMode") != "Managed":
+        a.gap("authorization", "publisher management mode unavailable")
+        return a
+    grants = props.get("authorizations")
+    if not isinstance(grants, list):
+        a.gap("authorization", "publisher authorization list unavailable")
+        grants = []
+    owner_meta = snapshot.get("metadata") or {}
+    owner = owner_meta.get("tenant_id") if owner_meta.get("tenant_verified") else None
+    if not owner:
+        owner = (owner_meta.get("subscription_tenants") or {}).get(resource["scope"])
+    publisher = props.get("publisherTenantId")
+    if not isinstance(owner, str) or not isinstance(publisher, str) or not owner or not publisher:
+        a.gap("inventory", "verified customer or publisher tenant unavailable")
+        return a
+    if owner.casefold() == publisher.casefold():
+        a.step("tenant_boundary", "block", reason="publisher tenant equals customer tenant")
+        return a
+    group = props.get("managedResourceGroupId")
+    if not isinstance(group, str) or not group:
+        a.gap("inventory", "managed resource group ID unavailable")
+        return a
+    a.external_ids = [publisher]
+    a.step("publisher_read_access", "allow", publisher_tenant_id=publisher,
+           managed_resource_group_id=group, authorizations=grants)
+    jit = props.get("jitAccessPolicy")
+    if isinstance(jit, dict) and jit.get("jitAccessEnabled") is True:
+        coverage = (resource["data"].get("_coverage") or {}).get("jitRequests") or {}
+        requests = resource["data"].get("jitRequests")
+        if coverage.get("status") not in ("collected", "empty") or not isinstance(requests, list):
+            a.gap("authorization", "managed application JIT request LIST incomplete")
+        else:
+            approved = [row for row in requests if (row.get("properties") or {}).get("jitRequestState") == "Approved"]
+            a.step("publisher_jit_requests", "conditional", approved_requests=[{
+                "id": row["id"], "schedule": (row.get("properties") or {}).get("jitSchedulingPolicy")}
+                for row in approved], total_requests=len(requests))
+            if approved:
+                a.gap("authorization", "approved JIT request schedule and effective role activation need runtime evaluation")
+    elif jit is not None and (not isinstance(jit, dict) or jit.get("jitAccessEnabled") is not False):
+        a.gap("authorization", "JIT publisher access setting unresolved")
+    a.explicit = "FAIL"
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -12246,7 +12309,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "managed_application", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12261,7 +12324,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12368,6 +12431,7 @@ def assess(snapshot, resources):
                   "redis_enterprise_cluster": _azure_redis_enterprise,
                   "netapp_volume": _azure_netapp_volume,
                   "stream_analytics_job": _azure_stream_analytics_job,
+                  "managed_application": _azure_managed_application,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
