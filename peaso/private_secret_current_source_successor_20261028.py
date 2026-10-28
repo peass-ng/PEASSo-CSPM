@@ -111,11 +111,21 @@ def unchanged_callable_projection(function: FunctionType, row: dict, root: str |
     if len(nodes) != 1 or len(old_nodes) != 1 or len(definitions) != 1:
         raise epoch.AdmissionError("finite producer function roster changed")
     node, old_node, definition = nodes[0], old_nodes[0], definitions[0]
+    current_sha = definition["after"]
+    current_ast = definition["after_ast_sha256"]
+    if relative == "peaso/collectors/aws_code_log_content_indicators.py":
+        transition = epoch._receipt()[0]["current_reviewed_files"][relative]["current_definitions"][key[1]]
+        if (transition["predecessor_sha256"] != definition["after"]
+                or transition["predecessor_ast_sha256"] != definition["after_ast_sha256"]):
+            raise epoch.AdmissionError("finite log producer transition changed")
+        current_sha = transition["current_sha256"]
+        current_ast = transition["current_ast_sha256"]
     def fragment(raw: bytes, definition_node: ast.FunctionDef) -> bytes:
         return b"".join(raw.splitlines(keepends=True)[definition_node.lineno - 1:definition_node.end_lineno])
     current_fragment = fragment(current, node)
     if (current_fragment != fragment(prior, old_node)
-            or _sha(current_fragment) != definition["after"]
+            or _sha(current_fragment) != current_sha
+            or epoch._ast_hash(node) != current_ast
             or inspect.getsource(function).encode() != current_fragment):
         raise epoch.AdmissionError("finite producer body changed")
     compiled = compile(current, str(source_path), "exec", dont_inherit=True, optimize=sys.flags.optimize)
@@ -130,8 +140,8 @@ def unchanged_callable_projection(function: FunctionType, row: dict, root: str |
                        "source_sha256": definition["before"],
                        "ast_sha256": definition["before_ast_sha256"]},
         "current": {"path": relative, "name": key[1], "module": key[0],
-                    "file_sha256": _sha(current), "source_sha256": definition["after"],
-                    "ast_sha256": definition["after_ast_sha256"]},
+                    "file_sha256": _sha(current), "source_sha256": current_sha,
+                    "ast_sha256": current_ast},
     }
     # Reuse the sealed epoch's historical-row/default projection unchanged.
     namespace = dict(vars(epoch), trusted_definition=lambda fn, base: proof if fn is function and Path(base).resolve(strict=True) == _ROOT else None)

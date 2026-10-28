@@ -1,5 +1,5 @@
 {
-  "attestor_normalized_sha256": "2d3391bd1eebdd085f8dc73d8e727ae399d28f9e3922ed8d2b056a4f5dad61a5",
+  "attestor_normalized_sha256": "925f693ab8d18a963a4e84e96fb6323eb9e1b9867af7ae5a9ab9089cba761d79",
   "current_helper_sources": {
     "peaso/collectors/azure_graph_batch.py": {
       "classes": [
