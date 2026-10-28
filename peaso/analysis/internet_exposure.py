@@ -9599,7 +9599,31 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
+    endpoint_ports = union(pset("tcp", 443, 443), pset("tcp", 5671, 5671)) if kind == "servicebus_namespace" else pset("tcp", port, port)
     if kind == "servicebus_namespace":
+        # A private endpoint can share this namespace with a foreign subscription
+        # even when the public network gate is disabled.
+        parent_id = resource["data"].get("id")
+        parent = re.match(r"/subscriptions/([^/]+)/", parent_id, re.I) if isinstance(parent_id, str) else None
+        connections = props.get("privateEndpointConnections", [])
+        if not isinstance(connections, list):
+            a.gap("inventory", "Service Bus private endpoint connections are malformed")
+        for connection in connections if isinstance(connections, list) else []:
+            details = connection.get("properties") if isinstance(connection, dict) else None
+            endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+            state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+            remote_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+            remote = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+", remote_id, re.I) if isinstance(remote_id, str) else None
+            status = state.get("status") if isinstance(state, dict) else None
+            if status == "Approved" and details.get("provisioningState") == "Succeeded" and remote and parent:
+                if remote.group(1).casefold() != parent.group(1).casefold():
+                    a.external_ids.append(remote_id)
+            elif status == "Approved" or status not in ("Pending", "Rejected", "Disconnected"):
+                a.gap("inventory", "Service Bus private endpoint approval or identity is unresolved")
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=sorted(a.external_ids))
+            a.ports = endpoint_ports
+            a.explicit = "FAIL"
         local_auth = props.get("disableLocalAuth")
         coverage = (resource["data"].get("_coverage") or {}).get("authorizationRules") or {}
         rules = resource["data"].get("authorizationRules")
@@ -9662,7 +9686,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 public = namespace_rules.get("publicNetworkAccess")
     if isinstance(public, str) and public.lower() == "disabled":
         a.step("public_network_access", "block", public_network_access=public)
-        a.ports = {}
+        a.ports = endpoint_ports if a.external_ids else {}
         if kind in ("vault", "managed_hsm"):
             acls = props.get("networkAcls")
             bypass = acls.get("bypass", "AzureServices") if isinstance(acls, dict) else None
@@ -9699,7 +9723,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 malformed = True
         if public_rules:
             a.step("firewall", "allow", public_rules=public_rules)
-            a.ports = pset("tcp", port, port)
+            a.ports = endpoint_ports
             a.explicit = None
             if not endpoint:
                 a.gap("inventory", "flexible server public hostname is not collected")
@@ -9742,7 +9766,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 a.gap("firewall", "Cosmos IP rule or network ACL bypass is unresolved"
                       if malformed or props.get("networkAclBypass") not in (None, "None")
                       else "Cosmos nonpublic IP rule requires source validation")
-        a.ports = {} if a.blocked_by == "firewall" else pset("tcp", port, port)
+        a.ports = {} if a.blocked_by == "firewall" else endpoint_ports
         if not endpoint:
             a.gap("inventory", "Cosmos public endpoint address is not collected")
         return a
@@ -9785,13 +9809,13 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 public_ips, malformed = _azure_storage_public_ip_rules(rules)
                 if public_ips:
                     a.step("firewall", "allow", default_action=action, public_ip_rules=public_ips)
-                    a.ports = pset("tcp", port, port)
+                    a.ports = endpoint_ports
                     if not endpoint:
                         a.gap("inventory", "managed public endpoint address is not collected")
                     return a
                 if malformed or rules.get("bypass", "AzureServices") != "None":
                     a.gap("firewall", "vault IP rules or trusted-service bypass need effective authorization")
-                    a.ports = pset("tcp", port, port)
+                    a.ports = endpoint_ports
                     return a
             if kind in ("container_registry", "cognitive_account",
                         "servicebus_namespace", "eventhub_namespace"):
@@ -9810,7 +9834,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                             public_ips.append(value)
                 if public_ips:
                     a.step("firewall", "allow", default_action=action, public_ip_rules=public_ips)
-                    a.ports = pset("tcp", port, port)
+                    a.ports = endpoint_ports
                     if malformed:
                         a.notes.append("Additional IP rules remain unresolved")
                     return a
@@ -9819,26 +9843,26 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                           kind == "container_registry" and props.get("networkRuleBypassOptions") not in (None, "None"))
                 if malformed or bypass:
                     a.gap("firewall", "managed endpoint IP rule or trusted-service bypass unresolved")
-                    a.ports = pset("tcp", port, port)
+                    a.ports = endpoint_ports
                     return a
                 a.step("firewall", "block", reason="no public-source IP rule", default_action=action)
                 a.ports = {}
                 return a
             if as_list(rules.get("ipRules")) or as_list(rules.get("virtualNetworkRules")):
                 a.gap("firewall", f"{rules_name} allow rules require effective source evaluation")
-                a.ports = pset("tcp", port, port)
+                a.ports = endpoint_ports
                 return a
             a.step("firewall", "block", default_action=action)
             a.ports = {}
             return a
         if action == "Allow":
             a.step("firewall", "allow", default_action=action)
-            a.ports = pset("tcp", port, port)
+            a.ports = endpoint_ports
             if not endpoint:
                 a.gap("inventory", "managed public endpoint address is not collected")
             return a
     a.gap("firewall", f"{rules_name} public ingress rules are not resolved", f"{kind} {rules_name}")
-    a.ports = pset("tcp", port, port)
+    a.ports = endpoint_ports
     return a
 
 
