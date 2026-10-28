@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import re
+from fnmatch import fnmatchcase
 from urllib.parse import urlsplit
 
 from .common import _CONTEXT, as_list

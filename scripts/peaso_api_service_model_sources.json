@@ -79,7 +79,7 @@
     "peaso/analysis/reachability.py": "6f9924f95c4af9e4329a045aa94dda4095c11a1fa48355ea531737ac37837173",
     "peaso/analysis/resource_index.py": "330d8bca86beb0d5b0bf0d298a697f08791227d541b819b480db828d04457f24",
     "peaso/analysis/subgraph.py": "28383f45f37d21165b944763d79da73c96313130a012e21e4f0d05a105dc9529",
-    "peaso/analysis/trust.py": "df393c9de0c4962e8cb224cd08ffb53fb3b8397a38683eddc42077997ea27016",
+    "peaso/analysis/trust.py": "9c50e947d7fbb1a0bd589126a7933afe9e98b28d58688e95263f3d34576079a1",
     "peaso/analysis/trust_domains.py": "781bce3736caa2349b8615aae1ac5a660eff1adc48596c3cab41aa8c14da1b22",
     "peaso/analysis/view_budget.py": "72131b0168159d48543d64af9ddbaa514e2f5871a380ed0d199831bc69521d4f",
     "peaso/attack_detection/__init__.py": "84a5818284919780b4190e240222cbf1127029dcdf7e025f8e71f18300b651e6",
@@ -1719,7 +1719,7 @@
     "peaso/server/config.py": "127529c32265a120d41ead5c8ce77623be152185ad7f26c9091d871bbc032c35",
     "peaso/server/content_selection_preflight_20261021.py": "0fe9b0ff1299408e732fd33ef8f7325a0eb87e857a18ece3b42e3c189c3041aa",
     "peaso/server/entra_attack_logs.py": "b6805b72b0ffd1b3843d6348b58321fed66ab15bcffc8d2bdc91533015e3b141",
-    "peaso/server/evidence_static.py": "8a13ac0a8b818c5c1eadc77b6f813728d6a1979381487c647acf64afe6cfcb06",
+    "peaso/server/evidence_static.py": "008091f488f2fae6b436e70afa6d7162c7421032615b9f017fe61dd85ea4714d",
     "peaso/server/finding_groups_static_20261021.py": "e1ee1fb2bd1b574b14e585fc371d2741dd788ee8981355aced1261a6c21c31e7",
     "peaso/server/finding_types_static_20261020.py": "081503b5a6275961b692f514fb1590dc46b81e1249f90e01d93e872b1ffbefce",
     "peaso/server/gcp_attack_logs.py": "78046b81fe898de2faeec19fadd5087df65bc4731f61dc8ea88ce13807ec7aef",
@@ -1789,6 +1789,7 @@
     "risk_rules/__init__.py": "536fd9c90e7ce607169a3a219358f8bdbb132fbcd79e1674d1f9ebaf1c5b0838",
     "scripts/cloud_permission_risks.py": "4c8bacaf2bf9aecbfbb123a8127c55bd2764831ed1493c305a7a5a85d526a814"
   },
+  "hotfix_federated_trust_import_review": "Live analyzer AI acceptance on deployed 2152dbe2 exited 1 with NameError: fnmatchcase in aws_federated_trust. Add the missing standard-library import only. No new SDK client, provider call, evidence predicate, AI input reduction, or Access Analyzer operation. Existing AWS OIDC/SAML trust focused tests and live acceptance gate this fix.",
   "previous_review_context": {
     "adaptive_publication_qualification": "20 focused cases and reversed-order native/publication replay preserve final bytes and raw batches; no SDK client changes",
     "ai_reference_preparation_qualification": "Only pipeline.py changes: reuse fresh per-finding references between context/document preparation; discard before hashing and credential selection. Empty provider credential selection returns no access after existing scope-row validation. Supplied-context narrowing, boundary metadata, expiry/capture fields, fingerprint bytes, model inputs and batching retain existing behavior. No retained evidence cache. Existing 30 SDK client sites and service set unchanged; no native admission receipt changes.",
@@ -1893,7 +1894,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1775,
-  "python_source_sha256": "44c1814e5adc6b1a384cf30f0ffd26f902a3e41f71503571de3246465e2fbdf5",
+  "python_source_sha256": "5f389f5b782aef2495d91f47662bf7aa7c1ccaa8dad2b54f6656c6fa5bc1f34a",
   "review_context": "Hosted production disables Hardening and Exposure model stages for all four providers. Native FAIL reviews are explicitly marked native_final in AI API and excluded from finding overlay; model_reviewed coverage remains zero for those stages. Network and Priorities model agents remain and progressive disabled stages do not launch. Three runtime Python files changed from pushed main: pipeline, progressive scheduler and review presentation; no SDK client or credential source change. 1717 Python files and 30 direct client sites across 12 used services in the reviewed 15-service allowlist. Next Exposure A/B wave adds one GCP GKE collector module and changes 12 existing Python files including generated privilege display source. Direct SDK client closure remains 30 literal sites within the existing 15-service allowlist; no new service, credential factory or dynamic client site. The Firebase App Hosting project route guard restricts previously accepted query parameters and paths; no new SDK client, service, operation or credential source. Second Exposure wave combines committed Azure A/B, AWS A/B safe subset and GCP A/B paths; collector receipt now pins their merged source bytes. Direct SDK client roster remains 30 literal sites. Analyze-native committed b4aee800 adds inventory index and report publication optimizations, scoped secret memoization, ECS privesc fact lookup indexing, and bounded S3 upload fanout. It changes no direct SDK client creation, service allowlist or credential factory; source review against merge parents c6ac4160 and 8fc73542. Rematerialization changed only generated native/API catalog bytes; display rebind changed only the loader pinned gzip digest. Check IDs and catalog source contract are validated by the materializer and display gate. Finding-detail hotfix on pushed 98b8: copied exposure_action AST exactly into native-free presentation, carried seven reviewed retired alias remediation templates in the signed materialized API catalog, refreshed four changed evidence-source hashes, and rebound privilege display. No SDK client, service, credential factory, native finding verdict, or AI stage switch changed. Direct API SDK closure remains 30 literal sites in the reviewed 15-service allowlist.",
   "source_commit": "5e87f61364b415e9886b43f1cf28bcc7a04dc0f5",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
