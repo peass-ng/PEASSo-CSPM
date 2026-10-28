@@ -161,6 +161,10 @@ def test_project_public_ui_allow_without_retaining_label():
     ({'included_ip_ranges': {'ip_ranges': ['8.8.8.8/32']}},
      [{'list_id': 'a', 'list_type': 'ALLOW', 'enabled': True, 'ip_addresses': ['8.8.8.8/32']},
       {'list_id': 'b', 'list_type': 'BLOCK', 'enabled': True, 'ip_addresses': ['8.8.8.8/32']}], 'UNKNOWN'),
+    ({'included_ip_ranges': {'ip_ranges': ['8.8.8.0/29']}},
+     [{'list_id': 'a', 'list_type': 'ALLOW', 'enabled': True, 'ip_addresses': ['8.8.8.0/29']},
+      {'list_id': 'b', 'list_type': 'BLOCK', 'enabled': True,
+       'ip_addresses': ['8.8.8.0/31', '8.8.8.4/32', '8.8.8.7/32']}], 'FAIL'),
 ])
 def test_restricted_public_ui_rule_with_ip_intersection(source, ip_lists, expected):
     class Rules(Transport):
@@ -185,6 +189,8 @@ def test_restricted_public_ui_rule_with_ip_intersection(source, ip_lists, expect
     if expected == 'FAIL':
         assert any(step.get('layer') == 'workspace_context_ingress' and step.get('decision') == 'allow'
                    for step in row.path)
+        if ip_lists and any(item.get('list_id') == 'b' for item in ip_lists):
+            assert any(step.get('public_source_ip') == '8.8.8.2' for step in row.path)
 
 
 def test_malformed_ip_list_cannot_complete_public_path():

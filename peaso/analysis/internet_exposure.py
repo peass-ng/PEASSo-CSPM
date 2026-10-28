@@ -5482,12 +5482,21 @@ def _databricks_public_witness(rules, enabled, lists):
         return None
     if any(network.version != 4 for network in (*allow, *block, *(n for _, nets in contexts for n in nets))):
         return None
-    candidates = {ipaddress.IPv4Address(value) for value in ('1.1.1.1', '8.8.8.8', '9.9.9.9', '4.2.2.2')}
-    for network in (*allow, *(network for _, networks in contexts for network in networks)):
-        start = int(network.network_address)
-        for offset in (0, min(1, network.num_addresses - 1), network.num_addresses // 2, network.num_addresses - 1):
-            candidates.add(ipaddress.IPv4Address(start + offset))
-    for address in sorted(candidates):
+    # Every access decision is constant between the endpoints of its CIDRs.
+    # Include Python's special-use IPv4 boundaries so is_global is constant
+    # within each interval too (including its narrow public exceptions).
+    boundaries = {0, 1 << 32}
+    special = getattr(ipaddress._IPv4Constants, '_private_networks', ())
+    special = (*special, getattr(ipaddress._IPv4Constants, '_public_network',
+                                ipaddress.ip_network('100.64.0.0/10')),
+               *getattr(ipaddress._IPv4Constants, '_private_networks_exceptions', ()))
+    for network in (*allow, *block, *(n for _, nets in contexts for n in nets), *special):
+        boundaries.add(int(network.network_address))
+        boundaries.add(int(network.broadcast_address) + 1)
+    for value in sorted(boundaries):
+        if value == 1 << 32:
+            continue
+        address = ipaddress.IPv4Address(value)
         if not address.is_global:
             continue
         if enabled and (any(address in network for network in block)
