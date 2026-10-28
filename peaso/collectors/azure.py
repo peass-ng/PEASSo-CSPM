@@ -1278,7 +1278,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
-    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook", "cost_export", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group",
+    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook", "cost_export", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group", "bastion_shareable_link",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -1311,7 +1311,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration"})
+                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration", "bastion_host"})
 
 
 def _canonicalize_embedded(collections):
@@ -2580,6 +2580,8 @@ def _selected(options, requirements):
         selected.update(("resource_group", "management_group"))
     if selected.intersection(("app_configuration", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group")):
         selected.update(("app_configuration", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group"))
+    if selected.intersection(("bastion_host", "bastion_shareable_link")):
+        selected.update(("bastion_host", "bastion_shareable_link", "public_ip", "vnet", "nsg"))
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -3320,6 +3322,26 @@ def collect(connector, requirements=None, *, transport=None):
                             _remaining_services_private_links(result, kind)
                             if kind in FULL_GET_KINDS:
                                 result = azure_swc.full_detail(result, kind, version)
+                            if kind == "bastion_host":
+                                bastion_props = result["properties"]
+                                result = {**result, "properties": {
+                                    key: bastion_props[key] for key in ("provisioningState", "dnsName", "enablePrivateOnlyBastion", "enableShareableLink")
+                                    if key in bastion_props}}
+                                configurations = bastion_props.get("ipConfigurations")
+                                result["properties"]["ipConfigurations"] = [
+                                    {"properties": {key: config["properties"][key]
+                                                    for key in ("publicIPAddress", "subnet", "provisioningState")
+                                                    if key in config["properties"]}}
+                                    for config in configurations
+                                    if isinstance(config, dict) and isinstance(config.get("properties"), dict)] if isinstance(configurations, list) else None
+                                acls = bastion_props.get("networkAcls")
+                                rules = acls.get("ipRules") if isinstance(acls, dict) else None
+                                if rules is not None:
+                                    result["properties"]["networkAcls"] = {"ipRules": [
+                                        {"addressPrefix": row.get("addressPrefix") if isinstance(row, dict) else None}
+                                        for row in rules]} if isinstance(rules, list) else {"ipRules": None}
+                                elif acls is not None and not isinstance(acls, dict):
+                                    result["properties"]["networkAcls"] = {"ipRules": None}
                             if kind == "app_configuration":
                                 result = _app_configuration_private_link_metadata(result)
                             if kind == "mongo_cluster":
@@ -3387,6 +3409,53 @@ def collect(connector, requirements=None, *, transport=None):
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
+        if "bastion_shareable_link" in wanted:
+            links_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "bastion_host" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for host in collection["items"]:
+                    rid = host.get("id")
+                    props = host.get("properties")
+                    if not isinstance(rid, str) or not isinstance(props, dict):
+                        continue
+                    if props.get("enableShareableLink") is not True:
+                        continue
+                    def shareable_links(rid=rid):
+                        endpoint = rid + "/getShareableLinks"
+                        url = ARM + endpoint + "?api-version=2025-05-01"
+                        seen_pages, targets = set(), set()
+                        for _ in range(100):
+                            if url in seen_pages:
+                                raise ValueError("repeated Bastion shareable-link page")
+                            seen_pages.add(url)
+                            parts = urlsplit(url)
+                            if (parts.scheme != "https" or parts.netloc.casefold() != urlsplit(ARM).netloc.casefold()
+                                    or parts.path.casefold() != endpoint.casefold() or parts.fragment or parts.username or parts.password):
+                                raise ValueError("untrusted Bastion shareable-link continuation")
+                            response = reader.call(request, url, body={"vms": []})
+                            if not isinstance(response, dict) or not isinstance(response.get("value"), list):
+                                raise ValueError("malformed Bastion shareable-link result")
+                            projected = []
+                            for row in response["value"]:
+                                vm = row.get("vm") if isinstance(row, dict) else None
+                                vm_id = vm.get("id") if isinstance(vm, dict) else None
+                                if (not isinstance(vm_id, str) or re.fullmatch(r"/subscriptions/[^?#%\\\s]+/providers/Microsoft\.Compute/(?:virtualMachines/[^/?#%\\\s]+|virtualMachineScaleSets/[^/?#%\\\s]+(?:/virtualMachines/[^/?#%\\\s]+)?)", vm_id, re.I) is None
+                                        or vm_id.casefold() in targets or not isinstance(row.get("bsl"), str) or not row["bsl"]):
+                                    raise ValueError("malformed Bastion shareable-link target")
+                                targets.add(vm_id.casefold())
+                                projected.append({"id": rid + "/shareableLinks/" + hashlib.sha256(vm_id.casefold().encode()).hexdigest()[:24],
+                                                  "properties": {"bastionId": rid, "vmId": vm_id, "active": True}})
+                            yield projected
+                            token = response.get("nextLink")
+                            if token is None:
+                                return
+                            if not isinstance(token, str) or not token:
+                                raise ValueError("malformed Bastion shareable-link continuation")
+                            url = token
+                        raise AzureReadError("page_limit")
+                    links_jobs.append(("bastion_shareable_link", rid, "Microsoft.Network", shareable_links))
+            reader.run(links_jobs)
         if "app_configuration_event_subscription" in wanted:
             event_jobs = []
             for collection in reader.collections:

@@ -9578,6 +9578,111 @@ def _azure_firewall(snapshot, inventory, resource):
     return a
 
 
+def _azure_bastion(snapshot, inventory, resource):
+    """Assess Bastion client ingress and issued third-party shareable URLs."""
+    props = _props(resource)
+    a = Assessment(resource, "bastion_client")
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "Bastion provisioning state is not succeeded")
+        return a
+    sku = (resource["data"].get("sku") or {}).get("name")
+    if sku not in ("Developer", "Basic", "Standard", "Premium"):
+        a.gap("inventory", "Bastion SKU is unavailable")
+        return a
+    private = props.get("enablePrivateOnlyBastion")
+    if private not in (None, True, False):
+        a.gap("inventory", "Bastion private-only state is malformed")
+        return a
+    if private is True:
+        a.step("private_only", "block", reason="Bastion has no public client IP")
+        a.ports = {}
+    elif sku == "Developer":
+        dns = props.get("dnsName")
+        if not isinstance(dns, str) or not dns:
+            a.gap("inventory", "Developer Bastion shared endpoint DNS is unavailable")
+            return a
+        a.addresses.append(dns)
+        acls = props.get("networkAcls")
+        rules = acls.get("ipRules") if isinstance(acls, dict) else [] if acls is None else None
+        if not isinstance(rules, list):
+            a.gap("inventory", "Developer Bastion client IP rules are unavailable")
+            return a
+        prefixes = [_cidr(row.get("addressPrefix")) if isinstance(row, dict) else None for row in rules]
+        if any(prefix is None for prefix in prefixes):
+            a.gap("inventory", "Developer Bastion client IP rule is malformed")
+            return a
+        if prefixes and not _azure_public_remainder(prefixes, []):
+            a.step("client_ip_rules", "block", reason="client IP rules exclude public internet")
+            a.ports = {}
+        else:
+            a.step("client_ip_rules", "allow", source_prefixes=[str(prefix) for prefix in prefixes])
+            a.ports = pset("tcp", 443, 443)
+    else:
+        configurations = props.get("ipConfigurations")
+        if not isinstance(configurations, list) or not configurations:
+            a.gap("inventory", "Dedicated Bastion IP configurations are unavailable")
+            return a
+        ports = {}
+        for config in configurations:
+            cp = config.get("properties") if isinstance(config, dict) else None
+            if not isinstance(cp, dict) or cp.get("provisioningState") not in (None, "Succeeded"):
+                a.gap("inventory", "Bastion IP configuration is unsettled or malformed")
+                continue
+            public_ref = cp.get("publicIPAddress")
+            public_id = public_ref.get("id") if isinstance(public_ref, dict) else None
+            if not isinstance(public_id, str):
+                a.gap("inventory", "Dedicated Bastion public IP reference is unavailable")
+                continue
+            public = inventory.get("public_ip", public_id)
+            address = _props(public).get("ipAddress") if public is not None else None
+            if not isinstance(address, str) or not _public_ip(address):
+                a.gap("inventory", "Dedicated Bastion public IP address is unavailable")
+                continue
+            subnet_ref = cp.get("subnet")
+            subnet_id = subnet_ref.get("id") if isinstance(subnet_ref, dict) else None
+            a.addresses.append(address)
+            subnet, _ = _azure_subnet(inventory, subnet_id)
+            nsg_id = ((_props(subnet).get("networkSecurityGroup") or {}).get("id")) if subnet is not None else None
+            nsg = inventory.get("nsg", nsg_id) if nsg_id else None
+            specific_destination = bool(nsg and any(
+                (rule.get("properties") or {}).get("access") == "Allow" and (
+                    bool((rule.get("properties") or {}).get("destinationApplicationSecurityGroups")) or any(
+                        value not in ("*", "Any", "VirtualNetwork", "0.0.0.0/0", "::/0")
+                        for value in as_list((rule.get("properties") or {}).get("destinationAddressPrefixes")) +
+                                     as_list((rule.get("properties") or {}).get("destinationAddressPrefix"))))
+                for rule in as_list(_props(nsg).get("securityRules")) if isinstance(rule, dict)))
+            path = _azure_nsg_path(inventory, a, None, subnet_id, pset("tcp", 443, 443),
+                                   where="Bastion client subnet")
+            if specific_destination and empty(path):
+                a.blocked_by = None
+                a.gap("nsg", "Bastion private destination IP is unavailable for destination-specific NSG allow")
+            ports = union(ports, path)
+        a.ports = ports
+        if ports:
+            a.step("bastion_client", "allow", listener_port=443)
+        elif not a.unresolved:
+            a.step("bastion_client", "block", reason="no reachable public Bastion client IP")
+    sharing = props.get("enableShareableLink")
+    if sharing is True:
+        state = inventory.state("bastion_shareable_link", native_id(resource))
+        if state not in ("collected", "empty"):
+            a.gap("inventory", "Bastion shareable-link list is unavailable")
+            a.blocked_by = None
+        else:
+            links = [row for row in inventory.items("bastion_shareable_link")
+                     if str(row.get("scope", "")).casefold() == str(native_id(resource)).casefold()]
+            if links:
+                a.data_exposure = True
+                a.external_ids = sorted(str(_props(row).get("vmId")) for row in links)
+                a.step("shareable_link", "allow", target_vm_count=len(links))
+    elif sharing not in (None, False):
+        a.gap("inventory", "Bastion shareable-link enabled state is malformed")
+    if a.data_exposure:
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    return a
+
+
 _AZURE_MANAGED_ENDPOINTS = {
     "vault": (443, "networkAcls"),
     "managed_hsm": (443, "networkAcls"),
@@ -11806,7 +11911,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11822,7 +11927,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "private_link_service",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "bastion_host", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -11913,6 +12018,7 @@ def assess(snapshot, resources):
                   "container_group": _azure_container_group,
                   "container_app": _azure_container_app,
                   "azure_firewall": _azure_firewall,
+                  "bastion_host": _azure_bastion,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "analysis_server": _azure_analysis_server,
@@ -11978,6 +12084,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "bastion_host":
+        return ("Bastion client endpoint or shareable link is exposed" if status == "FAIL" else
+                "Bastion client or shareable-link path unresolved" if status == "UNKNOWN" else
+                "Bastion has no detected public client path or shareable link")
     if assessment.resource["type"] == "app_configuration_event_subscription":
         return ("App Configuration sends events to an external destination" if status == "FAIL" else
                 "App Configuration event destination unresolved" if status == "UNKNOWN" else
@@ -12099,6 +12209,12 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "bastion_host":
+        if status == "FAIL":
+            return "Azure Bastion has a public HTTPS client path or an issued shareable URL for a VM. Target VM authentication still applies; URL tokens are not retained."
+        if status == "PASS":
+            return "The collected Bastion client path is private or excludes public clients, and no issued shareable URL was found."
+        return "Bastion public IP, subnet access, shared endpoint ACL, or shareable-link inventory is incomplete."
     if assessment.resource["type"] == "app_configuration_event_subscription":
         if status == "FAIL":
             return "An active App Configuration event subscription targets a webhook host or an Azure resource in another subscription. Event metadata may be delivered; webhook paths and tokens are not retained."
