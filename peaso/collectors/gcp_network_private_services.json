@@ -480,7 +480,11 @@
     "version": "v1"
   },
   "integration_connection": {
-    "fields": "connections(eventingRuntimeData(webhookData(id,name),status(state),webhookSubscriptions(webhookData(id,name)),eventsListenerEndpoint),destinationConfigs(destinations(serviceAttachment,host,port)),status(state,status),sslConfig(additionalVariables(boolValue,encryptionKeyValue(type)),type,useSsl),name,host,eventingConfig(sslConfig(additionalVariables(boolValue,encryptionKeyValue(type)),type,useSsl),registrationDestinationConfig(destinations(serviceAttachment,host,port)),proxyDestinationConfig(destinations(serviceAttachment,host,port)),eventsListenerIngressEndpoint),connectorVersionInfraConfig(deploymentModelMigrationState,tlsMigrationState)),nextPageToken,unreachable",
+    "fields": "connections(name),nextPageToken,unreachable",
+    "get_fields": "eventingRuntimeData(webhookData(id,name),status(state),webhookSubscriptions(webhookData(id,name)),eventsListenerEndpoint),destinationConfigs(destinations(serviceAttachment,host,port)),status(state,status),suspended,sslConfig(additionalVariables(boolValue,encryptionKeyValue(type)),type,useSsl),name,host,eventingConfig(privateConnectivityEnabled,sslConfig(additionalVariables(boolValue,encryptionKeyValue(type)),type,useSsl),registrationDestinationConfig(destinations(serviceAttachment,host,port)),proxyDestinationConfig(destinations(serviceAttachment,host,port)),eventsListenerIngressEndpoint),connectorVersionInfraConfig(deploymentModelMigrationState,tlsMigrationState)",
+    "get_parameters": {},
+    "hydrate": true,
+    "iam_policy": true,
     "key": "connections",
     "reference": "https://connectors.googleapis.com/$discovery/rest?version=v1",
     "segment": "connections",

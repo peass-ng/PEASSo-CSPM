@@ -703,6 +703,8 @@ def aws_federated_trust(snapshot, resource):
 
 def gcp_wif_provider(snapshot, resource):
     data = resource["data"]
+    if data.get("state") == "DELETED" or data.get("disabled") is True:
+        return None
     issuer = str(data.get("oidc", {}).get("issuerUri", "")) if isinstance(data.get("oidc"), dict) else ""
     condition = data.get("attributeCondition")
     def grant_unconditional(binding):
@@ -882,6 +884,99 @@ def gcp_wif_provider(snapshot, resource):
             return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
     return "MANUAL", "medium", {**evidence, "problem": "No attributeCondition; every identity of the issuer can exchange tokens"}
+
+
+def _gcp_federated_direct_bindings(snapshot, pool):
+    """Find collected resource IAM bindings for this exact federation pool."""
+    if not isinstance(pool, str) or not pool:
+        return []
+    return _cache(snapshot, ("gcp_federated_direct_bindings", pool),
+                  lambda: _scan_gcp_federated_direct_bindings(snapshot, pool))
+
+
+def _gcp_federated_service_account_bindings(snapshot, pool):
+    if not isinstance(pool, str) or not pool:
+        return []
+    prefixes = (f"principal://iam.googleapis.com/{pool}/", f"principalSet://iam.googleapis.com/{pool}/")
+    found = []
+    for account in _items(snapshot, "service_account"):
+        policy = account.get("iamPolicy")
+        if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
+            continue
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict) or binding.get("role") not in (
+                    "roles/iam.workloadIdentityUser", "roles/iam.serviceAccountTokenCreator"):
+                continue
+            members = [member for member in as_list(binding.get("members"))
+                       if isinstance(member, str) and member.startswith(prefixes)]
+            if members:
+                found.append({"service_account": account.get("name") or account.get("email"),
+                              "role": binding["role"], "members": members,
+                              "condition": copy.deepcopy(binding.get("condition")),
+                              "source_requests": (account.get("_provenance") or {}).get("source_requests", [])})
+    return found
+
+
+def _gcp_federation_pool_disabled(snapshot, pool, kind):
+    return any(item.get("name") == pool and
+               (item.get("disabled") is True or item.get("state") == "DELETED")
+               for item in _items(snapshot, kind))
+
+
+def _scan_gcp_federated_direct_bindings(snapshot, pool):
+    prefixes = (f"principal://iam.googleapis.com/{pool}/", f"principalSet://iam.googleapis.com/{pool}/")
+    found = []
+    for collection in snapshot.get("collections", []):
+        if collection.get("status") not in ("collected", "partial") or collection.get("type") == "service_account":
+            continue
+        for item in collection.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            policy = item if collection.get("type") == "iam_policy" else item.get("iamPolicy")
+            if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
+                continue
+            resource_name = item.get("name") or item.get("resource") or item.get("_resource_id") or collection.get("scope")
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or not isinstance(binding.get("role"), str):
+                    continue
+                for member in as_list(binding.get("members")):
+                    if isinstance(member, str) and member.startswith(prefixes):
+                        found.append({"resource": resource_name, "resource_type": collection.get("type"),
+                                      "role": binding["role"], "member": member,
+                                      "condition": copy.deepcopy(binding.get("condition")),
+                                      "source_requests": (item.get("_provenance") or {}).get(
+                                          "source_requests", collection.get("source_requests", []))})
+    return found
+
+
+def gcp_workforce_provider(snapshot, resource):
+    """Keep workforce federation as a bounded configured-trust UNKNOWN."""
+    data = resource["data"]
+    if data.get("state") == "DELETED" or data.get("disabled") is True:
+        return None
+    name = data.get("name")
+    pool = name.rsplit("/providers/", 1)[0] if isinstance(name, str) and "/providers/" in name else None
+    if _gcp_federation_pool_disabled(snapshot, pool, "workforce_pool"):
+        return None
+    direct = _gcp_federated_direct_bindings(snapshot, pool)
+    impersonation = _gcp_federated_service_account_bindings(snapshot, pool)
+    provider_type = next((kind for kind in ("oidc", "saml") if isinstance(data.get(kind), dict)), "unrecorded")
+    condition = data.get("attributeCondition")
+    binding = direct[0] if direct else None
+    account_binding = impersonation[0] if impersonation else None
+    observed = "\n".join((
+        f"The workforce identity provider {name or 'unrecorded'} has type {provider_type}, disabled false and attributeCondition {condition or 'unset'}.",
+        f"Its pool has {len(direct)} collected direct-resource and {len(impersonation)} service-account bindings" +
+        (f", including {binding['role']} on {binding['resource']}" if binding else
+         f", including {account_binding['role']} on {account_binding['service_account']}" if account_binding else "") + ".",
+        ("An external workforce identity may use that binding if its token, mapping and any conditions match."
+         if binding or account_binding else "Other uncollected or inherited policies may still bind identities from this pool."),
+        "That could let an outside user reach people-facing services or stored data if other access controls allow it."))
+    return "UNKNOWN", "medium" if direct or impersonation else "info", {
+        "observed": observed, "provider_type": provider_type, "attribute_condition": condition,
+        "attribute_mapping": copy.deepcopy(data.get("attributeMapping")), "direct_access_bindings": direct,
+        "service_account_bindings": impersonation,
+        "semantics": "Configured workforce federation only; token claims, CEL, effective IAM and resource responses are unresolved."}
 
 
 def azure_federated_credential(snapshot, resource):

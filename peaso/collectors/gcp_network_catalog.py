@@ -290,10 +290,10 @@ def private_service_connections(collector, scope):
 
 
 def dns_record_sets(collector, scope):
-    """Enumerate public/private record identities; read address records only.
+    """Enumerate record identities; retain bounded public routing facts only.
 
-    TXT and other arbitrary record bodies are not requested, including in the
-    transport cache. Private PSC-specific evidence keeps its existing producer.
+    TXT record bodies are not requested. HTTPS/SVCB service parameters are
+    discarded before snapshot storage. Private PSC evidence has its own reader.
     """
     base = f"https://dns.googleapis.com/dns/v1/{scope}/managedZones"
     failures = []
@@ -314,13 +314,25 @@ def dns_record_sets(collector, scope):
                         raise ReadError("malformed", "dns_network_record_identity")
                     identity = f"//dns.googleapis.com/{scope}/managedZones/{zid}/rrsets/{quote(host, safe='')}/{rtype}"
                     row = dict(record, resource=identity, managedZone=zid)
-                    if rtype not in {"A", "AAAA", "CNAME", "NS", "PTR", "MX", "SRV"}:
+                    if rtype not in {"A", "AAAA", "CNAME", "ALIAS", "NS", "PTR", "MX", "SRV", "HTTPS", "SVCB"}:
                         yield [dict(row, _coverage={"rrdatas": {"status": "not_collected", "reason": "non_address_record_body_omitted"}})], record_receipt
                         continue
                     try:
                         found = False
+                        def bounded(item):
+                            if rtype not in {"HTTPS", "SVCB"}:
+                                return item
+                            values = item.get("rrdatas")
+                            if not isinstance(values, list):
+                                return item
+                            # Service parameters can contain arbitrary values. A
+                            # priority and target name suffice for routing review.
+                            return {**item, "rrdatas": [" ".join(value.split()[:2]) if isinstance(value, str)
+                                                          else "" for value in values]}
+                        fields = ("rrsets(name,type,ttl,rrdatas,routingPolicy),nextPageToken"
+                                  if rtype in {"A", "AAAA"} else "rrsets(name,type,ttl,rrdatas),nextPageToken")
                         for details, detail_receipt in collector.pages(endpoint, scope, key="rrsets", page_size_key="maxResults",
-                                params={"name": host, "type": rtype, "fields": "rrsets(name,type,ttl,rrdatas),nextPageToken"}):
+                                params={"name": host, "type": rtype, "fields": fields}, transform=bounded):
                             if any(item.get("name") != host or item.get("type") != rtype for item in details):
                                 raise ReadError("malformed", "dns_network_record_identity_mismatch")
                             found = found or bool(details)

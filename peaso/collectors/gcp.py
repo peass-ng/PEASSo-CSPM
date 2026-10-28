@@ -958,7 +958,7 @@ SUPPORTED_TYPES = frozenset({x[0] for x in COMPUTE} | {
     "asset", "iam_policy", "iam_role", "iam_deny_policy", "project", "organization", "folder",
     "service_account", "service_account_key", "service_account_insight", "activity", "recommendation", "insight", "shared_vpc",
     "bucket", "managed_folder", "sql_instance", "gke_cluster", "kms_key_ring", "kms_key", "secret", "log_sink",
-    "workload_identity_pool", "workload_identity_provider", "workforce_pool", "workforce_provider",
+    "workload_identity_pool", "workload_identity_provider", "workforce_pool", "workforce_provider", "cloudtasks_task",
     "bigquery_dataset", "bigquery_acl_mode", "bigquery_row_policy_inventory", "bigquery_connection", "bigquery_routine_metadata", "bigquery_transfer_config", "bigquery_continuous_assignment", "artifact_repository", "containeranalysis_note", "datacatalog_taxonomy", "datacatalog_policy_tag", "biglake_catalog", "biglake_namespace", "biglake_table", "analyticshub_data_exchange", "analyticshub_listing", "agentidentity_auth_provider", "agentidentity_authorization", "cloudrun_service", "cloudrun_instance", "cloudrun_worker_pool", "function", "group", "group_membership",
     "principal_access_boundary_policy", "policy_binding", "app_engine_application", "app_engine_application_identity", "app_engine_service", "app_engine_version", "app_engine_instance", "app_engine_legacy_constraint", "workspace_user", "workspace_customer", "workspace_role",
     "workspace_role_assignment", "workspace_user_activity", "api_key_usage", "storage_hmac_key_usage", "api_key", "bigquery_table", "dataproc_cluster", "dns_managed_zone", "dns_policy",
@@ -967,7 +967,7 @@ SUPPORTED_TYPES = frozenset({x[0] for x in COMPUTE} | {
     "vpc_flow_logs_config", "policy_based_route", "firewall_policy_association", "effective_firewall", "monitoring_notification_channel", "org_policy_effective",
     "pubsub_topic", "pubsub_subscription", "pubsub_snapshot", "service_perimeter",
     "cloudbuild_trigger", "cloudbuild_default_sa", "cloudbuild_connection", "cloudbuild_repository", "developerconnect_git_repository_link", "discoveryengine_collection", "discoveryengine_data_store", "discoveryengine_engine", "cloudfunctions_location", "workflows_workflow", "workstations_cluster", "workstations_config", "workstations_workstation", "cloudtasks_queue", "storage_hmac_key", "composer_environment", "composer_image_version", "workbench_instance", "scheduler_job",
-    "domains_registration", "eventarc_message_bus", "eventarc_enrollment", "firebase_apphosting_backend", "bucket_notification", "kms_key_version", "logging_bucket", "sql_user",
+    "domains_registration", "eventarc_message_bus", "eventarc_enrollment", "eventarc_pipeline", "eventarc_trigger", "eventarc_channel", "eventarc_channel_connection", "firebase_apphosting_backend", "bucket_notification", "kms_key_version", "logging_bucket", "sql_user",
     "certificate", "cloud_asset", "target_https_proxy", "server_tls_policy", "autoscaler",
     "worker_pool", "sql_backup_run", "source_repository", "alert_policy",
     "access_transparency_entry", "audit_log", "os_inventory", "security_policy", "gcp_v4_workload_facts",
@@ -982,6 +982,9 @@ HOSTS |= frozenset({service + '.googleapis.com' for service in _NETWORK_API_SERV
 SUPPORTED_TYPES = SUPPORTED_TYPES | NETWORK_CATALOG_TYPES
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'artifact_image', 'sbom_occurrence', 'deployed_image', 'log_secret_sample', 'gcs_selected_object'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'app_engine_version_secret', 'workflow_source'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'app_engine_firewall_rule'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'app_engine_domain_mapping'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'app_engine_iap_policy'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'clouddeploy_release_source', 'cloudbuild_artifact_source', 'gcs_selected_archive', 'composer_dag_source', 'cloudbuild_log_source', 'appengine_deployment_source'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'artifact_selected_file', 'function_source_archive', 'gke_workload_literal', 'dataform_selected_file', 'dataflow_job', 'batch_job', 'dataproc_job'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'gke_exposure_service', 'gke_exposure_ingress', 'gke_exposure_pod', 'gke_exposure_node', 'gke_exposure_gateway', 'gke_exposure_gatewayclass', 'gke_exposure_httproute', 'gke_exposure_endpointslice', 'gke_exposure_multiclusteringress'}
@@ -1052,6 +1055,7 @@ DEPENDENCIES["bigquery_connection"] = {"bigquery_dataset"}
 DEPENDENCIES["bigquery_routine_metadata"] = {"bigquery_dataset"}
 DEPENDENCIES["bigquery_transfer_config"] = {"bigquery_dataset"}
 DEPENDENCIES["bigquery_continuous_assignment"] = {"bigquery_dataset"}
+DEPENDENCIES["cloudtasks_task"] = {"cloudtasks_queue"}
 DEPENDENCIES["bigtable_table"] = {"bigtable_instance"}
 DEPENDENCIES["bigtable_authorized_view"] = {"bigtable_instance", "bigtable_table"}
 DEPENDENCIES["bigtable_materialized_view"] = {"bigtable_instance"}
@@ -1109,6 +1113,7 @@ DEPENDENCIES["alloydb_instance"] = {"alloydb_cluster"}
 DEPENDENCIES["bucket_notification"] = {"bucket"}
 DEPENDENCIES["iam_role"] = {"iam_policy", "project"}
 DEPENDENCIES["app_engine_version"] = {"app_engine_service"}
+DEPENDENCIES["app_engine_iap_policy"] = {"app_engine_application", "app_engine_service", "app_engine_version", "project"}
 DEPENDENCIES["app_engine_instance"] = {"app_engine_version", "app_engine_service"}
 DEPENDENCIES["app_engine_version_secret"] = {"app_engine_version", "app_engine_service"}
 DEPENDENCIES["kms_key_version"] = {"kms_key", "kms_key_ring"}
@@ -2632,6 +2637,39 @@ class GCPCollector:
                         and exc.error.get("resource") == f"projects/{project}/locations/global/applications/{project}"):
                     raise
         add("app_engine_application", "appengine", app_engine_application)
+        def app_engine_firewall_rules():
+            # The final priority 2147483647 rule applies to both IP families.
+            # Preserve the complete paged order for the endpoint decision.
+            try:
+                yield from self.pages(
+                    f"https://appengine.googleapis.com/v1/apps/{project}/firewall/ingressRules",
+                    scope, key="ingressRules",
+                    transform=lambda rule: {field: rule[field] for field in
+                                            ("priority", "action", "sourceRange") if field in rule})
+            except ReadError as exc:
+                if not (exc.error.get("http_status") == 404
+                        and exc.error.get("resource") == f"projects/{project}/locations/global/applications/{project}"):
+                    raise
+        add("app_engine_firewall_rule", "appengine", app_engine_firewall_rules)
+        def app_engine_mapping_projection(mapping):
+            projected = {field: mapping[field] for field in ("name", "id") if field in mapping}
+            ssl = mapping.get("sslSettings")
+            if isinstance(ssl, dict):
+                projected["sslSettings"] = {
+                    **({"sslManagementType": ssl["sslManagementType"]}
+                       if "sslManagementType" in ssl else {}),
+                    "certificateConfigured": bool(ssl.get("certificateId"))}
+            return projected
+        def app_engine_domain_mappings():
+            try:
+                yield from self.pages(
+                    f"https://appengine.googleapis.com/v1/apps/{project}/domainMappings",
+                    scope, key="domainMappings", transform=app_engine_mapping_projection)
+            except ReadError as exc:
+                if not (exc.error.get("http_status") == 404
+                        and exc.error.get("resource") == f"projects/{project}/locations/global/applications/{project}"):
+                    raise
+        add("app_engine_domain_mapping", "appengine", app_engine_domain_mappings)
         if "app_engine_application_identity" in self.needed:
             def app_engine_application_identity():
                 try:
@@ -2752,7 +2790,25 @@ class GCPCollector:
                     if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].startswith(
                             f"{scope}/locations/{location}/workflows/"):
                         raise ReadError("malformed", "workflows_identity_missing")
-                    return {key: item[key] for key in ("name", "serviceAccount", "state") if key in item}
+                    from .gcp_workflow_outbound_auth import project as outbound_auth
+                    from . import gcp_additional_literal_secret_indicators as extra
+                    output = {key: item[key] for key in ("name", "serviceAccount", "state", "revisionId") if key in item}
+                    content = item.get("sourceContents")
+                    if isinstance(content, str):
+                        output["outboundAuth"] = outbound_auth(content)
+                    elif "workflow_source" in self.needed and extra.enabled(self.options, extra.WORKFLOW):
+                        # The opt-in source read owns this exact revision, so
+                        # its projected auth routes can be joined downstream.
+                        output["outboundAuth"] = {"status": "deferred", "routes": []}
+                    else:
+                        params = {"revisionId": item["revisionId"]} if isinstance(item.get("revisionId"), str) else None
+                        detail = self.hydrate({"name": item["name"]}, "workflowDetails",
+                            f"https://workflows.googleapis.com/v1/{item['name']}", scope, params=params)
+                        coverage = (detail.get("_coverage") or {}).get("workflowDetails") or {}
+                        raw = detail.get("workflowDetails")
+                        output["outboundAuth"] = outbound_auth(raw.get("sourceContents") if isinstance(raw, dict) else None)
+                        output["_coverage"] = {"outboundAuth": coverage}
+                    return output
                 return self.pages(f"https://workflows.googleapis.com/v1/{scope}/locations/{location}/workflows",
                                   scope, key="workflows", transform=project_workflow,
                                   response_validator=complete_page)
@@ -2985,8 +3041,23 @@ class GCPCollector:
                     if not isinstance(name, str) or not name.startswith(scope + "/locations/") or "/queues/" not in name:
                         raise ReadError("malformed", "cloudtasks_queue_identity_missing")
                     target = item.get("httpTarget") or {}
+                    override = target.get("uriOverride") if isinstance(target, dict) else None
+                    uri_override = ({key: override[key] for key in
+                                     ("scheme", "host", "port", "uriOverrideEnforceMode") if key in override}
+                                    if isinstance(override, dict) else None)
+                    token = next((({"kind": kind, "serviceAccountEmail": value["serviceAccountEmail"]})
+                                  for kind in ("oidcToken", "oauthToken")
+                                  if isinstance(value := target.get(kind), dict) and
+                                  isinstance(value.get("serviceAccountEmail"), str)), None)
                     projected = {"name": name, "state": item.get("state"),
                                  "hasTargetOverride": bool(target), "_representation": "full"}
+                    if uri_override is not None or token is not None:
+                        projected["httpTarget"] = {"uriOverride": uri_override, "token": token}
+                    app_override = item.get("appEngineRoutingOverride")
+                    if isinstance(app_override, dict):
+                        projected["appEngineRoutingOverride"] = {
+                            key: app_override[key] for key in ("service", "version", "instance")
+                            if isinstance(app_override.get(key), str)}
                     return self.hydrate(projected, "iamPolicy",
                         f"https://cloudtasks.googleapis.com/v2/{name}:getIamPolicy", scope,
                         method="POST", body={"options": {"requestedPolicyVersion": 3}})
@@ -3287,12 +3358,59 @@ class GCPCollector:
                             f"https://eventarc.googleapis.com/v1/{scope}/locations/{location}/{segment}",
                             scope, key=key):
                         def projected(row):
-                            fields = ("name", "messageBus", "destination") if kind == "eventarc_enrollment" else ("name",)
+                            fields = {
+                                "eventarc_enrollment": ("name", "messageBus", "destination", "celMatch"),
+                                "eventarc_pipeline": ("name",),
+                                "eventarc_trigger": ("name", "eventFilters", "serviceAccount"),
+                                "eventarc_channel": ("name", "provider", "state", "pubsubTopic"),
+                                "eventarc_channel_connection": ("name", "channel"),
+                            }.get(kind, ("name",))
                             item = {field: row[field] for field in fields if field in row}
+                            def target_facts(target):
+                                if not isinstance(target, dict):
+                                    return None
+                                facts = {field: target[field] for field in ("topic", "messageBus", "workflow", "cloudFunction")
+                                         if isinstance(target.get(field), str)}
+                                for kind, fields in (("cloudRun", ("service", "region")),
+                                                     ("gke", ("cluster", "location", "namespace", "service"))):
+                                    descriptor = target.get(kind)
+                                    if isinstance(descriptor, dict):
+                                        facts[kind] = {field: descriptor[field] for field in fields
+                                                       if isinstance(descriptor.get(field), str)}
+                                network = target.get("networkConfig")
+                                if isinstance(network, dict) and isinstance(network.get("networkAttachment"), str):
+                                    facts["networkConfig"] = {"networkAttachment": network["networkAttachment"]}
+                                endpoint = target.get("httpEndpoint")
+                                uri = endpoint.get("uri") if isinstance(endpoint, dict) else None
+                                if isinstance(uri, str):
+                                    parts = urlsplit(uri)
+                                    if parts.scheme in ("http", "https") and parts.hostname:
+                                        facts["httpEndpoint"] = {"uri": parts.scheme + "://" + parts.netloc.rsplit("@", 1)[-1]}
+                                auth = target.get("authenticationConfig")
+                                if isinstance(auth, dict):
+                                    for key in ("googleOidc", "oauthToken"):
+                                        value = auth.get(key)
+                                        if isinstance(value, dict) and isinstance(value.get("serviceAccount"), str):
+                                            facts["authenticationConfig"] = {key: {"serviceAccount": value["serviceAccount"]}}
+                                            break
+                                return facts
+                            if kind == "eventarc_pipeline" and isinstance(row.get("destinations"), list):
+                                item["destinations"] = [facts for target in row["destinations"]
+                                                         if (facts := target_facts(target)) is not None]
+                            if kind == "eventarc_trigger":
+                                if (facts := target_facts(row.get("destination"))) is not None:
+                                    item["destination"] = facts
+                                transport = row.get("transport")
+                                pubsub = transport.get("pubsub") if isinstance(transport, dict) else None
+                                if isinstance(pubsub, dict):
+                                    item["transport"] = {"pubsub": {field: pubsub[field] for field in ("topic", "subscription")
+                                                                    if isinstance(pubsub.get(field), str)}}
                             name = item.get("name")
                             if not isinstance(name, str) or not re.fullmatch(
                                     re.escape(scope) + r"/locations/" + re.escape(location)
                                     + r"/" + re.escape(segment) + r"/[^/]+", name):
+                                return item
+                            if kind != "eventarc_message_bus":
                                 return item
                             return self.hydrate(item, "iamPolicy",
                                 f"https://eventarc.googleapis.com/v1/{name}:getIamPolicy", scope,
@@ -3310,6 +3428,10 @@ class GCPCollector:
             add(kind, "eventarc", fetch)
         eventarc_resources("eventarc_message_bus", "messageBuses", "messageBuses")
         eventarc_resources("eventarc_enrollment", "enrollments", "enrollments")
+        eventarc_resources("eventarc_pipeline", "pipelines", "pipelines")
+        eventarc_resources("eventarc_trigger", "triggers", "triggers")
+        eventarc_resources("eventarc_channel", "channels", "channels")
+        eventarc_resources("eventarc_channel_connection", "channelConnections", "channelConnections")
         def firebase_apphosting_backends():
             locations = []
             yield from service_locations("firebaseapphosting", "v1")(locations)
@@ -3362,6 +3484,41 @@ class GCPCollector:
                         raise ReadError("malformed", "source_repository_identity_mismatch")
                     row = self.hydrate(repo, "iamPolicy", f"https://sourcerepo.googleapis.com/v1/{name}:getIamPolicy", scope,
                                        params={"options.requestedPolicyVersion": 3})
+                    mirror = row.get("mirrorConfig")
+                    if isinstance(mirror, dict):
+                        # External clone URLs can contain credentials or path tokens.
+                        # The exposure decision needs only the configured origin.
+                        bounded = {"configured": True, "urlPresent": isinstance(mirror.get("url"), str),
+                                   "webhookConfigured": bool(mirror.get("webhookId")),
+                                   "deployKeyConfigured": bool(mirror.get("deployKeyId"))}
+                        url = mirror.get("url")
+                        if isinstance(url, str):
+                            try:
+                                parsed = urlsplit(url)
+                                host, port = parsed.hostname, parsed.port
+                            except ValueError:
+                                host = port = None
+                                parsed = None
+                            if parsed and parsed.scheme in ("https", "http", "ssh") and host:
+                                origin_host = f"[{host.lower()}]" if ":" in host else host.lower()
+                                bounded["origin"] = f"{parsed.scheme}://{origin_host}" + (f":{port}" if port else "")
+                        row["mirrorConfig"] = bounded
+                    notifications = row.get("pubsubConfigs")
+                    if isinstance(notifications, dict):
+                        topics = []
+                        for config in notifications.values():
+                            if not isinstance(config, dict):
+                                continue
+                            topic = config.get("topic")
+                            if isinstance(topic, str) and re.fullmatch(r"projects/[^/]+/topics/[^/]+", topic):
+                                message_format = config.get("messageFormat")
+                                topics.append({"topic": topic,
+                                               "messageFormat": message_format if message_format in (
+                                                   "JSON", "PROTOBUF", "MESSAGE_FORMAT_UNSPECIFIED") else "unresolved",
+                                               "serviceAccountConfigured": bool(config.get("serviceAccountEmail"))})
+                        row["pubsubConfigs"] = {"configured": bool(notifications),
+                                                "topics": sorted(topics, key=lambda item: item["topic"]),
+                                                "unresolvedCount": len(notifications) - len(topics)}
                     row["_representation"] = "full"
                     return row
                 rows = self.parallel(policy, items)
@@ -3829,6 +3986,54 @@ class GCPCollector:
         return jobs
 
     def dependent_jobs(self):
+        if "cloudtasks_task" in self.needed:
+            def task_inventory(scope):
+                parent = self.collections.get(("cloudtasks_queue", scope))
+                if not parent or parent.get("status") not in ("collected", "empty"):
+                    raise ReadError("unavailable", "cloudtasks_queue_inventory_incomplete")
+                for queue in parent.get("items", []):
+                    name = queue.get("name") if isinstance(queue, dict) else None
+                    if not isinstance(name, str) or not re.fullmatch(
+                            re.escape(scope) + r"/locations/[a-z0-9-]+/queues/[^/]+", name):
+                        raise ReadError("malformed", "cloudtasks_task_parent_invalid")
+                    for page, request_id in self.pages(
+                            f"https://cloudtasks.googleapis.com/v2/{name}/tasks", scope,
+                            key="tasks", params={"responseView": "BASIC"}):
+                        output = []
+                        for task in page:
+                            task_name = task.get("name") if isinstance(task, dict) else None
+                            if not isinstance(task_name, str) or not re.fullmatch(
+                                    re.escape(name) + r"/tasks/[^/]+", task_name):
+                                raise ReadError("malformed", "cloudtasks_task_identity_invalid")
+                            request = task.get("httpRequest")
+                            item = {"name": task_name, "queue": name,
+                                    "dispatchCount": task.get("dispatchCount"), "_representation": "full"}
+                            if isinstance(request, dict):
+                                projected = {"httpMethod": request.get("httpMethod")}
+                                uri = request.get("url")
+                                if isinstance(uri, str):
+                                    parts = urlsplit(uri)
+                                    if parts.scheme in ("http", "https") and parts.hostname:
+                                        projected["origin"] = parts.scheme + "://" + parts.netloc.rsplit("@", 1)[-1]
+                                for kind in ("oidcToken", "oauthToken"):
+                                    token = request.get(kind)
+                                    if isinstance(token, dict) and isinstance(token.get("serviceAccountEmail"), str):
+                                        projected["token"] = {"kind": kind, "serviceAccountEmail": token["serviceAccountEmail"]}
+                                        break
+                                item["httpRequest"] = projected
+                            app_request = task.get("appEngineHttpRequest")
+                            if isinstance(app_request, dict):
+                                routing = app_request.get("appEngineRouting")
+                                item["appEngineHttpRequest"] = {
+                                    "httpMethod": app_request.get("httpMethod"),
+                                    "relativeUriPresent": isinstance(app_request.get("relativeUri"), str),
+                                    "appEngineRouting": {key: routing[key] for key in
+                                        ("service", "version", "instance") if isinstance(routing.get(key), str)}
+                                        if isinstance(routing, dict) else {}}
+                            output.append(item)
+                        yield output, request_id
+            self.run_jobs([("cloudtasks_task", scope, "cloudtasks", lambda scope=scope: task_inventory(scope))
+                           for scope in self.scopes if scope.startswith("projects/")])
         if "instance_effective_firewall" in self.needed:
             def instance_effective_firewalls(scope):
                 parent = self.collections.get(("instance", scope))
@@ -5448,6 +5653,11 @@ class GCPCollector:
                 from .gcp_iap_tunnel_policies import collection_pages as iap_policy_pages
                 self.run_jobs([("iap_tunnel_policy", scope, "iap",
                                 lambda scope=scope: iap_policy_pages(self, scope))
+                               for scope in self.scopes if scope.startswith("projects/")])
+            if "app_engine_iap_policy" in self.needed:
+                from .gcp_appengine_iap_policies import collection_pages as appengine_iap_pages
+                self.run_jobs([("app_engine_iap_policy", scope, "iap",
+                                lambda scope=scope: appengine_iap_pages(self, scope))
                                for scope in self.scopes if scope.startswith("projects/")])
             if "instance_settings" in self.needed:
                 settings_jobs = []
