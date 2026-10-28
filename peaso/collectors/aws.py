@@ -3086,6 +3086,11 @@ def collect(connector, requirements=None):
                     counts[key] += getattr(local, key)
         return plan, records, (counts, last_metadata)
 
+    def measured_automatic_scope(scope, session, identity, region, plan, spec):
+        from peaso.runtime_metrics import span as _runtime_span
+        with _runtime_span("collection.automatic_content_scope"):
+            return automatic_scope(scope, session, identity, region, plan, spec)
+
     def start_automatic(scope, session, identity, region, content_executor):
         nonlocal content_tail_started
         if not streaming_content:
@@ -3106,7 +3111,7 @@ def collect(connector, requirements=None):
                     content_tail_callback(True)
                     content_tail_started = True
                 automatic_futures[key] = content_executor.submit(
-                    automatic_scope, scope, session, identity, region, plan, spec)
+                    measured_automatic_scope, scope, session, identity, region, plan, spec)
     with capture_scope(requests), analyzer_lifecycle, ThreadPoolExecutor(max_workers=ordinary_workers, thread_name_prefix="aws-read") as pool, \
             ThreadPoolExecutor(max_workers=max(1, content_workers), thread_name_prefix="aws-content") as content_pool, \
             ThreadPoolExecutor(max_workers=activity_workers, thread_name_prefix="aws-activity") as activity_pool, \
