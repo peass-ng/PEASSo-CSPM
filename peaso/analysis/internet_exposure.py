@@ -34023,6 +34023,7 @@ def internet_findings(snapshot, resources, *, related_snapshots=()):
     output.extend(gcp_multicloud_exposure_findings(snapshot, resources))
     output.extend(gcp_sac_exposure_findings(snapshot, resources))
     output.extend(gcp_fraud_defense_exposure_findings(snapshot, resources))
+    output.extend(gcp_sovereign_partner_exposure_findings(snapshot, resources))
     output.extend(gcp_dlp_exposure_findings(snapshot, resources))
     return output
 
