@@ -178,9 +178,12 @@ def resource_chunks(artifacts, tenant, ident, report, snapshot, *, _inventory=No
     """
     from peaso.snapshot import resources
     wanted = {r["id"] for r in report.get("resources", [])}
-    items = sorted(({"id": r["id"], "native_id": r["native_id"], "type": r["type"], "scope": r["scope"], "data": r["data"]}
-                    for r in (resources(snapshot) if _inventory is None else _inventory)
-                    if r["id"] in wanted), key=lambda r: r["id"])
+    ordered = sorted((r for r in (resources(snapshot) if _inventory is None else _inventory)
+                      if r["id"] in wanted), key=lambda r: r["id"])
+    # Keep only references in the sort buffer; construct one chunk's output
+    # rows at a time instead of retaining a second full inventory of dicts.
+    items = ({"id": r["id"], "native_id": r["native_id"], "type": r["type"], "scope": r["scope"], "data": r["data"]}
+             for r in ordered)
     out = []
     for group, body in _artifact_chunks(artifacts, items):
         out.append({"reference": _put_chunk(artifacts, tenant, ident, "resources", group, body),
