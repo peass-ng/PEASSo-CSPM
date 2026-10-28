@@ -10568,6 +10568,59 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
     return a
 
 
+def _azure_data_share_recipient(snapshot, inventory, resource):
+    """Classify provider-side Data Share recipients from cached ARM lists."""
+    props = _props(resource)
+    a = Assessment(resource, "data_share")
+    a.data_exposure = True
+    if resource["type"] == "data_share_provider_subscription":
+        status = props.get("shareSubscriptionStatus")
+        if status == "Active":
+            a.step("share_subscription", "allow", status=status,
+                   consumer_tenant_name=props.get("consumerTenantName"))
+            a.gap("recipient", "consumer tenant ID and organization ownership are not supplied by this API")
+            a.unresolved[-1]["decisive"] = False
+            return a
+        if status in ("Revoked", "SourceDeleted"):
+            a.data_exposure = False
+            a.step("share_subscription", "block", status=status)
+            a.ports = {}
+            return a
+        a.data_exposure = False
+        a.gap("inventory", "provider share subscription status is pending or unrecognized")
+        return a
+    status = props.get("invitationStatus")
+    if status in ("Rejected", "Withdrawn"):
+        a.data_exposure = False
+        a.step("invitation", "block", status=status)
+        a.ports = {}
+        return a
+    if status not in ("Pending", "Accepted"):
+        a.data_exposure = False
+        a.gap("inventory", "Data Share invitation status is absent or unrecognized")
+        return a
+    target = props.get("targetActiveDirectoryId")
+    owner = (snapshot.get("metadata") or {}).get("subscription_tenants") or {}
+    subscription = str(native_id(resource)).split("/resourceGroups/", 1)[0]
+    tenant = next((value for key, value in owner.items() if str(key).casefold() == subscription.casefold()), None)
+    a.step("invitation", "allow" if status == "Accepted" else "unknown", status=status,
+           target_tenant=target, owner_tenant=tenant, target_email=props.get("targetEmail"))
+    if status == "Pending":
+        a.data_exposure = False
+        a.gap("recipient", "recipient has not accepted the invitation")
+    elif not isinstance(target, str) or not isinstance(tenant, str):
+        a.data_exposure = False
+        a.gap("recipient", "email invitation or missing verified subscription tenant cannot establish external ownership")
+    elif target.casefold() == tenant.casefold():
+        a.data_exposure = False
+        a.gap("recipient", "same-tenant recipient may still be a guest or external principal")
+    else:
+        a.external_ids = [target]
+        a.data_exposure = False
+        a.gap("recipient", "accepted invitation does not establish an active provider share subscription")
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -11096,7 +11149,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11111,7 +11164,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11217,6 +11270,8 @@ def assess(snapshot, resources):
                   "ml_workspace": _azure_ml_workspace,
                   "databricks_workspace": _azure_databricks_workspace,
                   "compute_gallery": _azure_compute_gallery,
+                  "data_share_invitation": _azure_data_share_recipient,
+                  "data_share_provider_subscription": _azure_data_share_recipient,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
@@ -11256,6 +11311,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] in ("data_share_invitation", "data_share_provider_subscription"):
+        return ("Azure Data Share recipient can receive shared data" if status == "FAIL" else
+                "Azure Data Share recipient ownership or access unresolved" if status == "UNKNOWN" else
+                "Azure Data Share recipient access inactive")
     if assessment.kind == "vpn_client_authorization":
         return "Client VPN authorizes all clients to destination network" if status == "FAIL" else "Client VPN authorization unresolved"
     if assessment.kind == "external_generic_policy_grant":
@@ -11335,6 +11394,19 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] in ("data_share_invitation", "data_share_provider_subscription"):
+        kind = assessment.resource["type"]
+        if kind == "data_share_provider_subscription":
+            return ("The provider share subscription is Active in the collected Data Share response.\n"
+                    "The recorded consumer can receive data from this share while the subscription remains active.\n"
+                    "The API supplies a consumer tenant name, not a tenant ID or proof of organizational ownership.") if status == "FAIL" else (
+                    "The provider share subscription is revoked or its source is deleted." if status == "PASS" else
+                    "The provider share subscription status is incomplete; recipient access is unresolved.")
+        if status == "PASS":
+            return "The Data Share invitation is rejected or withdrawn, so it grants no current share access."
+        return ("The Data Share invitation is pending, accepted without an observed active subscription, or its recipient tenant cannot be established.\n"
+                "The collected invitation does not prove current third-party access.\n"
+                "Acceptance and provider subscription state determine whether data can be received.")
     """A short observation, with uncertainty retained when a path is incomplete."""
     invalid_ranges = next((step.get("invalid_source_ranges") for step in assessment.path
                            if step.get("layer") == "source_ranges" and step.get("decision") == "unknown"), None)

@@ -119,6 +119,7 @@ ENDPOINTS = {
     "cognitive_account": ("Microsoft.CognitiveServices/accounts", "2024-10-01"),
     "app_configuration": ("Microsoft.AppConfiguration/configurationStores", "2024-06-01"),
     "data_factory": ("Microsoft.DataFactory/factories", "2018-06-01"),
+    "data_share_account": ("Microsoft.DataShare/accounts", "2021-08-01"),
     "devtest_lab": ("Microsoft.DevTestLab/labs", "2018-09-15"),
     "api_management": ("Microsoft.ApiManagement/service", "2024-05-01"),
     "analysis_server": ("Microsoft.AnalysisServices/servers", "2017-08-01"),
@@ -587,6 +588,35 @@ def _sql_projected_child_pages(reader, request, url, parent_id, kind, segment):
                 continue
             seen[rid.casefold()] = projected
             safe.append(projected)
+        yield safe
+
+
+def _data_share_child_pages(reader, request, url, parent_id, kind):
+    contracts = {
+        "data_share_share": ("shares", "Microsoft.DataShare/accounts/shares", ()),
+        "data_share_invitation": ("invitations", "Microsoft.DataShare/accounts/shares/invitations",
+                                  ("invitationStatus", "targetActiveDirectoryId", "targetObjectId", "targetEmail")),
+        "data_share_provider_subscription": ("providerShareSubscriptions",
+            "Microsoft.DataShare/accounts/shares/providerShareSubscriptions",
+            ("shareSubscriptionStatus", "consumerTenantName", "consumerEmail")),
+    }
+    segment, native_type, fields = contracts[kind]
+    if url != ARM + parent_id + "/" + segment + "?api-version=2021-08-01":
+        raise ValueError("Data Share child request differs from parent")
+    seen = set()
+    for page in reader.pages(request, url):
+        safe = []
+        for row in page:
+            rid = row.get("id") if isinstance(row, dict) else None
+            if (not isinstance(rid, str) or re.fullmatch(
+                    re.escape(parent_id + "/" + segment + "/") + r"[A-Za-z0-9_.-]+", rid, re.I) is None
+                    or rid.rsplit("/", 1)[-1] in (".", "..")
+                    or str(row.get("type", "")).casefold() != native_type.casefold()
+                    or rid.casefold() in seen or not isinstance(row.get("properties"), dict)):
+                raise ValueError("foreign, duplicate or malformed Data Share child")
+            seen.add(rid.casefold())
+            safe.append({"id": rid, "type": row["type"], "name": rid.rsplit("/", 1)[-1],
+                         "properties": {key: row["properties"][key] for key in fields if key in row["properties"]}})
         yield safe
 
 
@@ -1061,6 +1091,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
+    "data_share_share", "data_share_invitation", "data_share_provider_subscription",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -2917,7 +2948,7 @@ def collect(connector, requirements=None, *, transport=None):
                                 yield page
                 jobs.append(("virtual_network_gateway", scope, "Microsoft.Network", gateways))
         # Discovery supplies IDs; ARM GET provides authoritative current details.
-        child_dependencies = {"batch_pool": "batch_account", "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "secret_metadata": "vault", "dns_record": "dns_zone", "private_dns_link": "private_dns_zone", "app_service_config": "app_service", "app_service_identity_detail": "app_service", "sql_tde": "sql_server", "managed_identity_federated_credential": "managed_identity", "key_metadata": "vault", "key_rotation_policy": "vault", "key_vault_certificate_policy": "vault", "sql_vulnerability_assessment": "sql_server", "sql_encryption_protector": "sql_server", "storage_container": "storage_account", "storage_encryption_scope": "storage_account", "app_service_slot": "app_service", "automation_variable": "automation_account", "apim_native": "api_management"}
+        child_dependencies = {"batch_pool": "batch_account", "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "secret_metadata": "vault", "dns_record": "dns_zone", "private_dns_link": "private_dns_zone", "app_service_config": "app_service", "app_service_identity_detail": "app_service", "sql_tde": "sql_server", "managed_identity_federated_credential": "managed_identity", "key_metadata": "vault", "key_rotation_policy": "vault", "key_vault_certificate_policy": "vault", "sql_vulnerability_assessment": "sql_server", "sql_encryption_protector": "sql_server", "storage_container": "storage_account", "storage_encryption_scope": "storage_account", "app_service_slot": "app_service", "automation_variable": "automation_account", "apim_native": "api_management", "data_share_share": "data_share_account", "data_share_invitation": "data_share_account", "data_share_provider_subscription": "data_share_account"}
         parents = wanted.intersection(ENDPOINTS) | {parent for child, parent in child_dependencies.items() if child in wanted}
         parents |= azure_network_catalog.required_parents(wanted)
         if "diagnostic_setting" in wanted:
@@ -3185,6 +3216,8 @@ def collect(connector, requirements=None, *, transport=None):
                         jobs.append(("storage_service", child_scope, "Microsoft.Storage", storage_config))
                 if kind == "sql_server":
                     child_paths.extend((child, path, "2023-08-01") for child, path in (("sql_database", "databases"), ("sql_firewall_rule", "firewallRules"), ("sql_audit", "auditingSettings"), ("sql_security", "securityAlertPolicies")) if child in wanted)
+                if kind == "data_share_account" and wanted.intersection({"data_share_share", "data_share_invitation", "data_share_provider_subscription"}):
+                    child_paths.append(("data_share_share", "shares", "2021-08-01"))
                 if kind == "vault" and "key_metadata" in wanted:
                     def vault_keys(item=item, rid=rid):
                         origin = _bound_vault_metadata_origin(item, rid)
@@ -3291,11 +3324,32 @@ def collect(connector, requirements=None, *, transport=None):
                     # One storage collection per account, not duplicate service scopes.
                     child_scope = rid + "/" + path if child == "storage_service" else rid
                     fetch = lambda url=url: reader.pages(request, url)
+                    if child == "data_share_share":
+                        fetch = lambda url=url, rid=rid: _data_share_child_pages(reader, request, url, rid, "data_share_share")
                     if kind == "sql_server" and child in ("sql_database", "sql_firewall_rule", "sql_audit", "sql_security"):
                         fetch = lambda url=url, rid=rid, child=child, path=path: _sql_projected_child_pages(reader, request, url, rid, child, path)
                     jobs.append((child, child_scope, ENDPOINTS[kind][0].split("/")[0], fetch))
         reader.run(jobs)
         jobs = []
+        if wanted.intersection({"data_share_invitation", "data_share_provider_subscription"}):
+            for collection in reader.collections:
+                if collection["type"] != "data_share_share":
+                    continue
+                for share in collection["items"]:
+                    share_id = share.get("id") if isinstance(share, dict) else None
+                    if (not isinstance(share_id, str) or re.fullmatch(
+                            re.escape(collection["scope"]) + r"/shares/[A-Za-z0-9_.-]+", share_id, re.I) is None
+                            or str(share.get("type", "")).casefold() != "microsoft.datashare/accounts/shares"):
+                        continue
+                    for child, path in (("data_share_invitation", "invitations"),
+                                        ("data_share_provider_subscription", "providerShareSubscriptions")):
+                        if child in wanted:
+                            url = ARM + share_id + "/" + path + "?api-version=2021-08-01"
+                            jobs.append((child, share_id, "Microsoft.DataShare",
+                                         lambda url=url, share_id=share_id, child=child:
+                                         _data_share_child_pages(reader, request, url, share_id, child)))
+            reader.run(jobs)
+            jobs = []
         if options.get("_azure_app_service_runtime_checks") == ["azure.review.app_service.runtime_support_declared"]:
             from . import azure_app_service_runtime_producer_20261021
             azure_app_service_runtime_producer_20261021.collect_selected(
