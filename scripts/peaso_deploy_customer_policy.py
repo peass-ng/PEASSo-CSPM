@@ -1068,6 +1068,24 @@ def split_policy(policy):
                     documents[-2:] = [combined]
                     extra = shifted_extra
                     break
+        if policy_size(extra) > IAM_MANAGED_POLICY_LIMIT:
+            # Pack exact scoped companion statements into unused space in the
+            # ordinary read partitions. The combined Exposure reads otherwise
+            # need a ninth generated attachment, above the customer role cap.
+            remaining = list(extra["Statement"])
+            largest_first = sorted(remaining, key=lambda statement: policy_size(
+                {"Version": "2012-10-17", "Statement": [statement]}), reverse=True)
+            for document in reversed(documents):
+                for statement in largest_first:
+                    if statement not in remaining:
+                        continue
+                    candidate = {"Version": "2012-10-17", "Statement": document["Statement"] + [statement]}
+                    if policy_size(candidate) <= IAM_MANAGED_POLICY_LIMIT:
+                        document["Statement"].append(statement)
+                        remaining.remove(statement)
+                if policy_size({"Version": "2012-10-17", "Statement": remaining}) <= IAM_MANAGED_POLICY_LIMIT:
+                    break
+            extra = {"Version": "2012-10-17", "Statement": remaining}
         if policy_size(extra) > IAM_MANAGED_POLICY_LIMIT or len(documents) + 1 > IAM_MANAGED_POLICIES_PER_ROLE:
             raise ValueError("WAF association metadata exceeds existing IAM policy budgets")
         return documents + [extra]
@@ -1188,6 +1206,20 @@ def refresh(root: Path, *, read_actions=None, include_credential_report_generati
         "Description": "Collector role ARN shown by the CSPM connector setup",
     }
     role["AssumeRolePolicyDocument"]["Statement"][0]["Principal"]["AWS"] = {"Ref": "CollectorRoleArn"}
+    # Remove the redundant broad Access Analyzer attachment before deciding
+    # whether an exact API Gateway statement must move inline. The complete
+    # collector reads must already be present in the reviewed custom policy.
+    analyzer_managed = "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess"
+    if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
+        from peaso.collectors.aws import READ_ACTIONS
+        required = {iam_action(service, operation) for service, operation in READ_ACTIONS
+                    if service == "accessanalyzer"}
+        explicit = {action for document in documents for statement in document["Statement"]
+                    for action in ([statement["Action"]] if isinstance(statement["Action"], str)
+                                   else statement["Action"])}
+        if required <= explicit:
+            role["ManagedPolicyArns"] = [arn for arn in role.get("ManagedPolicyArns", [])
+                                         if arn != analyzer_managed]
     # Keep the exact scoped API Gateway statement inline if one additional
     # ordinary read partition would exceed the role's attachment quota.
     gateway_inline_name = "CspmApiGatewayConfigurationRead"
@@ -1204,20 +1236,6 @@ def refresh(root: Path, *, read_actions=None, include_credential_report_generati
     aggregate = sum(policy_size(item["PolicyDocument"]) for item in inline)
     if aggregate > IAM_INLINE_ROLE_LIMIT:
         raise ValueError("Customer role aggregate inline policies exceed 10240-character limit")
-    # The explicit reviewed policy grants every Access Analyzer collector read.
-    # The broad AWS managed policy is redundant and would exceed the default
-    # ten-attachment role quota when the new exposure reads need eight documents.
-    analyzer_managed = "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess"
-    if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
-        from peaso.collectors.aws import READ_ACTIONS
-        required = {iam_action(service, operation) for service, operation in READ_ACTIONS
-                    if service == "accessanalyzer"}
-        explicit = {action for document in documents for statement in document["Statement"]
-                    for action in ([statement["Action"]] if isinstance(statement["Action"], str)
-                                   else statement["Action"])}
-        if required <= explicit:
-            role["ManagedPolicyArns"] = [arn for arn in role.get("ManagedPolicyArns", [])
-                                         if arn != analyzer_managed]
     if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
         raise ValueError("Customer role exceeds the attached managed-policy quota")
     if inline:
