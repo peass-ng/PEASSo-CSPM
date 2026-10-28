@@ -5056,6 +5056,19 @@ def _azure_storage_perimeter_public_rules(account):
     return public, subscriptions
 
 
+def _azure_storage_perimeter_learning_fallback(account):
+    data = account["data"]
+    coverage = (data.get("_coverage") or {}).get("networkSecurityPerimeterConfigurations") or {}
+    configs = data.get("networkSecurityPerimeterConfigurations")
+    if coverage.get("status") != "collected" or not isinstance(configs, list) or len(configs) != 1:
+        return False
+    cp = configs[0].get("properties") if isinstance(configs[0], dict) else None
+    return (isinstance(cp, dict) and cp.get("provisioningState") == "Succeeded" and
+            isinstance(cp.get("resourceAssociation"), dict) and
+            cp["resourceAssociation"].get("accessMode") == "Learning" and
+            isinstance(cp.get("profile"), dict) and isinstance(cp["profile"].get("accessRules"), list))
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
@@ -5082,7 +5095,11 @@ def _azure_storage(snapshot, inventory, resource):
         return None
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
         public_rules, subscription_rules = _azure_storage_perimeter_public_rules(resource)
-        if public_rules or subscription_rules:
+        acls = props.get("networkAcls")
+        fallback_allow = (_azure_storage_perimeter_learning_fallback(resource) and
+                          (acls is None or isinstance(acls, dict) and
+                           acls.get("defaultAction", "Allow") == "Allow"))
+        if public_rules or (subscription_rules and not fallback_allow):
             a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
                    subscription_rules=subscription_rules,
                    access_modes=sorted({rule["access_mode"] for rule in public_rules + subscription_rules}),
@@ -5095,6 +5112,15 @@ def _azure_storage(snapshot, inventory, resource):
                                props.get("allowBlobPublicAccess") is not True)
             if subscription_rules and not public_rules:
                 a.notes.append("Subscription perimeter admission requires authentication; ownership is not established")
+            return a
+        if fallback_allow:
+            a.step("perimeter_learning_fallback", "allow", firewall_default_action="Allow",
+                   reason="unmatched Learning perimeter source falls back to the account firewall")
+            a.addresses = _azure_storage_endpoint_urls(props)
+            if not a.addresses:
+                a.gap("inventory", "storage public endpoint URL is not collected")
+            a.ports = pset("tcp", 443, 443)
+            a.authenticated = props.get("allowBlobPublicAccess") is not True
             return a
         a.gap("firewall", "effective Storage perimeter inbound public-source rules are unavailable or do not establish a public source")
         return a
@@ -5215,6 +5241,17 @@ def _azure_storage_container(snapshot, inventory, resource):
             a.step("network_security_perimeter", "authenticated_only",
                    subscription_rules=subscription_rules,
                    reason="subscription-based perimeter rules reject anonymous and SAS requests")
+        acls = props.get("networkAcls")
+        if (_azure_storage_perimeter_learning_fallback(account) and
+                (acls is None or isinstance(acls, dict) and acls.get("defaultAction", "Allow") == "Allow")):
+            a.step("perimeter_learning_fallback", "allow", firewall_default_action="Allow",
+                   reason="unmatched Learning perimeter source falls back to the account firewall")
+            a.addresses = _azure_storage_endpoint_urls(props, service="blob")
+            if not a.addresses:
+                a.gap("inventory", "public blob endpoint is not collected")
+            a.data_exposure = True
+            a.ports = pset("tcp", 443, 443)
+            return a
         a.gap("firewall", "effective Storage perimeter inbound public-source rules are unavailable or do not establish a public source")
         return a
     if props.get("publicNetworkAccess") is None:
@@ -7664,6 +7701,20 @@ def _observed(assessment, status):
             return (f"The storage account {name} has an effective perimeter rule admitting named Azure "
                     f"subscription {subscription} through its public endpoint.\n"
                     "This rule requires authentication; the subscription owner was not established.\n"
+                    "Data authorization, DNS delivery, and a successful request were not tested.")
+        fallback = next((step for step in assessment.path
+                         if step["layer"] == "perimeter_learning_fallback" and
+                         step["decision"] == "allow"), None)
+        if fallback is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            if assessment.resource["type"] == "storage_container":
+                return (f"The blob container {name} allows anonymous access, and its account's effective "
+                        "perimeter is in Learning mode with firewall default Allow.\n"
+                        "An unmatched public source can use the account-firewall fallback to the blob endpoint.\n"
+                        "DNS delivery, a successful anonymous read, and contents were not tested.")
+            return (f"The storage account {name} has an effective Learning-mode perimeter and firewall "
+                    "default Allow.\n"
+                    "An unmatched public source can use the account-firewall fallback to its endpoint.\n"
                     "Data authorization, DNS delivery, and a successful request were not tested.")
         ipv6_step = next((step for step in assessment.path if any(
             _cidr(value).version == 6 for value in step.get("public_ip_rules", []))), None)

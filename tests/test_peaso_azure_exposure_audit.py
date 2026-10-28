@@ -847,10 +847,10 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     azure._embed(azure._Reader({}), request, [("storage_account", ordinary)], skip=skip)
     assert calls == []
 
-    def check(configuration=config, *, status="collected"):
+    def check(configuration=config, *, status="collected", acls=None):
         account = {"id": account_id, "properties": {
             "publicNetworkAccess": "SecuredByPerimeter", "allowBlobPublicAccess": True,
-            "networkAcls": {"defaultAction": "Deny", "bypass": "None"},
+            "networkAcls": acls if acls is not None else {"defaultAction": "Deny", "bypass": "None"},
             "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}},
             "networkSecurityPerimeterConfigurations": [configuration],
             "_coverage": {"networkSecurityPerimeterConfigurations": {"status": status}}}
@@ -888,6 +888,14 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
         "resourceAssociation": {"accessMode": "Learning"}}}
     assert all(row.verdict() == "FAIL" for row in check(learning).values())
     assert check(learning)["storage_account"].path[0]["access_modes"] == ["Learning"]
+    learning_private = {**private, "properties": {**private["properties"],
+        "resourceAssociation": {"accessMode": "Learning"}}}
+    fallback = check(learning_private, acls={"defaultAction": "Allow"})
+    assert all(row.verdict() == "FAIL" for row in fallback.values())
+    assert fallback["storage_container"].data_exposure
+    assert "account-firewall fallback" in _observed(fallback["storage_container"], "FAIL")
+    assert "account-firewall fallback" in _observed(fallback["storage_account"], "FAIL")
+    assert all(row.verdict() == "UNKNOWN" for row in check(learning_private).values())
     audit = {**config, "properties": {**config["properties"],
         "resourceAssociation": {"accessMode": "Audit"}}}
     assert all(row.verdict() == "UNKNOWN" for row in check(audit).values())
@@ -904,6 +912,12 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     assert len(named_observed.splitlines()) == 3
     assert named_rows["storage_container"].verdict() == "UNKNOWN"
     assert named_rows["storage_container"].data_exposure is False
+    learning_named = {**named, "properties": {**named["properties"],
+        "resourceAssociation": {"accessMode": "Learning"}}}
+    fallback_named = check(learning_named, acls={"defaultAction": "Allow"})
+    assert fallback_named["storage_account"].verdict() == "FAIL"
+    assert fallback_named["storage_container"].verdict() == "FAIL"
+    assert fallback_named["storage_container"].data_exposure
     malformed_named = {**named, "properties": {**named["properties"], "profile": {
         "accessRules": [{"name": "partner", "properties": {"direction": "Inbound",
             "subscriptions": [{"id": "/subscriptions/not-a-uuid"}]}}]}}}
