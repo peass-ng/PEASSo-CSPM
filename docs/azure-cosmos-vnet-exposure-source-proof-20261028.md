@@ -1,0 +1,7 @@
+# Azure Cosmos DB VNet-only ingress source proof (2026-10-28)
+
+The existing Cosmos account collection includes `publicNetworkAccess`, `ipRules`, `isVirtualNetworkFilterEnabled`, `virtualNetworkRules`, `networkAclBypass`, and `networkAclBypassResourceIds` from the [database account GET schema](https://learn.microsoft.com/en-us/rest/api/cosmos-db-resource-provider/database-accounts/get?view=rest-cosmos-db-resource-provider-2024-11-15). No new cloud read is needed.
+
+[Cosmos VNet access guidance](https://learn.microsoft.com/en-us/azure/cosmos-db/how-to-configure-vnet-service-endpoint) says a VNet rule admits a named subnet through a service endpoint; that request carries the subnet identity rather than the client's public IP. A VNet-only allow list therefore blocks direct internet sources when the IP list is empty and network ACL bypass is explicitly absent. The analyzer validates every subnet resource ID before making that decision. A subnet in another subscription remains `UNKNOWN` for effective third-party access and records the cross-subscription IDs. Missing or malformed rules and bypass data remain `UNKNOWN`. [Cosmos IP firewall guidance](https://learn.microsoft.com/en-us/azure/cosmos-db/how-to-configure-firewall) documents that both IP and VNet lists determine allowed sources and that authorization is still required.
+
+Current exposure analyzer SHA-256: `1697be2169a8d5fe91442865405b27df83704981b258e2d768f6824d8b571ee6`.

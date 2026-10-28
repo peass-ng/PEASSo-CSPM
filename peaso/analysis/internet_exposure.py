@@ -4964,9 +4964,26 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         elif not ip_rules:
             vnet_rules = props.get("virtualNetworkRules")
             bypass_ids = props.get("networkAclBypassResourceIds")
-            if (props.get("isVirtualNetworkFilterEnabled") is True and vnet_rules == []
+            if (props.get("isVirtualNetworkFilterEnabled") is True and isinstance(vnet_rules, list)
                     and props.get("networkAclBypass") == "None" and bypass_ids == []):
-                a.step("firewall", "block", reason="empty IP and VNet allow lists with no network ACL bypass")
+                subnet_ids = []
+                for rule in vnet_rules:
+                    subnet_id = rule.get("id") if isinstance(rule, dict) else None
+                    if (not isinstance(subnet_id, str) or not re.fullmatch(
+                            r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/"
+                            r"virtualNetworks/[^/]+/subnets/[^/]+", subnet_id, re.IGNORECASE)):
+                        break
+                    subnet_ids.append(subnet_id)
+                if len(subnet_ids) == len(vnet_rules):
+                    a.step("firewall", "block", reason="only subnet service-endpoint sources are allowed")
+                    outside = [sid for sid in subnet_ids
+                               if sid.split("/", 3)[2].casefold() != resource["scope"].split("/", 3)[2].casefold()]
+                    if outside:
+                        a.step("vnet_acl", "conditional", cross_subscription_subnet_ids=outside)
+                        a.gap("authorization", "cross-subscription Cosmos subnet ownership and effective access are unresolved")
+                        a.explicit = "UNKNOWN"
+                else:
+                    a.gap("firewall", "Cosmos VNet subnet rule is malformed")
             else:
                 a.gap("firewall", "Cosmos VNet access list or network ACL bypass is unresolved")
         else:

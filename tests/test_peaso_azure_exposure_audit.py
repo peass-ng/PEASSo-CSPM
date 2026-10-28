@@ -915,6 +915,17 @@ def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
         "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "None",
         "networkAclBypassResourceIds": []})
     assert closed.verdict() == "PASS" and closed.ports == {}
+    own_subnet = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/s"
+    vnet_only = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [{"id": own_subnet}], "networkAclBypass": "None",
+        "networkAclBypassResourceIds": []})
+    assert vnet_only.verdict() == "PASS" and vnet_only.ports == {}
+    foreign_subnet = own_subnet.replace(SCOPE, "/subscriptions/other")
+    foreign_vnet = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [{"id": foreign_subnet}], "networkAclBypass": "None",
+        "networkAclBypassResourceIds": []})
+    assert foreign_vnet.verdict() == "UNKNOWN"
+    assert any(step.get("cross_subscription_subnet_ids") == [foreign_subnet] for step in foreign_vnet.path)
     assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
         "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "AzureServices",
         "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"
