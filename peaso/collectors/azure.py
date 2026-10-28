@@ -69,6 +69,7 @@ from . import azure_agent_identity_native
 from . import azure_containerapp_runtime
 from . import azure_containerapp_jobs
 from . import azure_mongo_cluster_metadata
+from . import azure_mongo_cluster_exposure
 from . import azure_remaining_services_1_native
 from . import azure_native_contract_closure_20261020
 from peaso.snapshot import make_snapshot
@@ -130,7 +131,7 @@ ENDPOINTS = {
     "cosmos_account": ("Microsoft.DocumentDB/databaseAccounts", "2024-05-15"),
     "purview_account": ("Microsoft.Purview/accounts", "2021-12-01"),
     "databox_job": ("Microsoft.DataBox/jobs", "2025-07-01"),
-    "mongo_cluster": ("Microsoft.DocumentDB/mongoClusters", "2025-09-01"),
+    "mongo_cluster": ("Microsoft.DocumentDB/mongoClusters", "2026-06-01"),
     "databricks_workspace": ("Microsoft.Databricks/workspaces", "2024-05-01"),
     "kusto_cluster": ("Microsoft.Kusto/clusters", "2024-04-13"),
     'vm_scale_set': ('Microsoft.Compute/virtualMachineScaleSets', '2024-07-01'),
@@ -4103,6 +4104,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_ai_services_native.collect(reader, request, scopes, wanted)
         azure_notification_hubs_native.collect(reader, request, scopes, wanted)
         azure_relay_native.collect(reader, request, scopes, wanted)
+        azure_mongo_cluster_exposure.collect(reader, request, scopes, wanted)
         azure_disclosure_native.collect(reader, transport, scopes, options,
                                         credential_context_id, customer_context_id)
         from .azure_effective_routes_native import collect as collect_effective_routes
