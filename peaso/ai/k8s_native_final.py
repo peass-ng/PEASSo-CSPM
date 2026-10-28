@@ -98,8 +98,11 @@ def admitted_check_ids(path=MANIFEST):
         return frozenset()
 
 
-def partition(rows, admitted):
+def partition(rows, admitted, coverage=None):
     """Select only original K8s Hardening FAILs with complete source evidence."""
+    from .native_final_coverage import complete_scopes
+
+    complete = complete_scopes(coverage, set(admitted) & ELIGIBLE)
     native, ai = [], []
     for row in rows:
         evidence = row.get("evidence")
@@ -109,7 +112,8 @@ def partition(rows, admitted):
                 and row.get("scanner_status", "FAIL") == "FAIL"
                 and not (isinstance(evidence, dict)
                          and "incomplete_dependencies" in evidence)
-                and row.get("check_id") in admitted):
+                and row.get("check_id") in admitted
+                and (row.get("check_id"), row.get("scope")) in complete):
             native.append(row)
         else:
             ai.append(row)

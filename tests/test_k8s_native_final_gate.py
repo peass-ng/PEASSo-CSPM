@@ -35,7 +35,11 @@ def test_disabled_pin_and_source_guard(tmp_path, monkeypatch):
 
 def test_exact_k8s_hardening_failure_selection():
     base = {"provider": "k8s", "category": "hardening",
-            "check_id": "k8s.deployment.non_root", "status": "FAIL"}
+            "check_id": "k8s.deployment.non_root", "status": "FAIL", "scope": "*"}
+    coverage = [{"level": "check", "check_id": base["check_id"],
+                 "scope": "*", "status": "evaluated"},
+                {"level": "collection", "type": "deployment",
+                 "scope": "*", "status": "collected"}]
     rows = [dict(base, id="admit"),
             dict(base, id="other", check_id="k8s.job.non_root"),
             dict(base, id="pass", status="PASS"),
@@ -43,10 +47,30 @@ def test_exact_k8s_hardening_failure_selection():
             dict(base, id="partial", evidence={"incomplete_dependencies": []}),
             dict(base, id="other_provider", provider="aws"),
             dict(base, id="other_category", category="exposure")]
-    native, ai = k8s_native_final.partition(rows, k8s_native_final.ELIGIBLE)
+    native, ai = k8s_native_final.partition(rows, k8s_native_final.ELIGIBLE, coverage)
     assert [row["id"] for row in native] == ["admit"]
     assert [row["id"] for row in ai] == [
         "other", "pass", "scanner_unknown", "partial", "other_provider", "other_category"]
+
+
+def test_partial_serviceaccount_default_never_becomes_native_final():
+    from peaso.checks.k8s_extended import serviceaccount_automount
+
+    status, evidence = serviceaccount_automount({'metadata': {'name': 'sa'}}, {})
+    assert status == 'FAIL'  # Missing flag defaults to true on a full object.
+    check_id = 'k8s.serviceaccount.disable_automount'
+    row = {'id': 'sa', 'provider': 'k8s', 'category': 'hardening',
+           'check_id': check_id, 'status': status, 'scope': '*', 'evidence': evidence}
+    coverage = [{'level': 'check', 'check_id': check_id,
+                 'scope': '*', 'status': 'evaluated'},
+                {'level': 'collection', 'type': 'serviceaccount',
+                 'scope': '*', 'status': 'partial'}]
+    assert k8s_native_final.partition([row], k8s_native_final.ELIGIBLE, coverage)[0] == []
+    coverage[1]['status'] = 'collected'
+    assert k8s_native_final.partition([row], k8s_native_final.ELIGIBLE, coverage)[0] == [row]
+    coverage[0]['status'] = 'partial'
+    assert k8s_native_final.partition([row], k8s_native_final.ELIGIBLE, coverage)[0] == []
+    assert k8s_native_final.partition([row], k8s_native_final.ELIGIBLE)[0] == []
 
 
 def test_hosted_receipt_required_for_activation(tmp_path, monkeypatch):

@@ -109,10 +109,13 @@ def _signature(evidence):
     return [[key, type(value).__name__] for key, value in sorted(evidence.items())]
 
 
-def partition(rows, admitted):
+def partition(rows, admitted, coverage=None):
     """Substitute only saved-shape GCP Hardening FAIL observations."""
+    from .native_final_coverage import complete_scopes
+
     value = _manifest(MANIFEST)
     specs = {row['check_id']: row for row in value['checks']} if value else {}
+    complete = complete_scopes(coverage, set(specs) & set(admitted))
     native, ai = [], []
     for row in rows:
         cid = row.get('check_id')
@@ -123,6 +126,7 @@ def partition(rows, admitted):
                 and row.get('category') == 'hardening'
                 and row.get('status') == 'FAIL'
                 and row.get('scanner_status', 'FAIL') == 'FAIL'
+                and (cid, row.get('scope')) in complete
                 and type(evidence) is dict
                 and 'incomplete_dependencies' not in evidence
                 and _signature(evidence) in spec['evidence_signatures']

@@ -647,12 +647,14 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             from .gcp_native_final import admitted_check_ids as gcp_admitted
             from .gcp_native_final import partition as gcp_partition
             gcp_native_hardening, ai_hardening = gcp_partition(
-                ai_hardening, gcp_admitted() if 'hardening' in selected else frozenset())
+                ai_hardening, gcp_admitted() if 'hardening' in selected else frozenset(),
+                report.get('coverage'))
             native_hardening += gcp_native_hardening
         from .k8s_native_final import admitted_check_ids as k8s_admitted_check_ids
         from .k8s_native_final import partition as k8s_partition
         k8s_native_hardening, ai_hardening = k8s_partition(
-            ai_hardening, k8s_admitted_check_ids() if 'hardening' in selected else frozenset())
+            ai_hardening, k8s_admitted_check_ids() if 'hardening' in selected else frozenset(),
+            report.get('coverage'))
         native_hardening += k8s_native_hardening
         if report['provider'] == 'azure' and 'hardening' in selected:
             from .native_final_azure import admitted_check_ids as admitted_azure_check_ids
