@@ -525,3 +525,18 @@ def test_generated_customer_role_contains_network_metadata_reads_within_iam_limi
                for action in ([statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"])}
     assert {"quicksight:ListVPCConnections", "osis:GetPipeline", "eks:DescribeFargateProfile", "route53:GetHostedZone"} <= actions
     assert not actions & {"secretsmanager:GetSecretValue", "s3:GetObject", "s3:GetObjectVersion"}
+
+
+def test_rest_custom_domain_routing_rule_read_has_scoped_customer_role_action():
+    from pathlib import Path
+    from scripts.peaso_deploy_customer_policy import build_policy, iam_action, policy_size
+    assert iam_action("apigatewayv2", "list_routing_rules") == "apigateway:ListRoutingRules"
+    path = {"Fn::Sub": "arn:${AWS::Partition}:apigateway:*:${AWS::AccountId}:/domainnames/*/routingrules/*"}
+    policy = build_policy({("apigatewayv2", "list_routing_rules")})
+    routing = next(s for s in policy["Statement"] if s["Sid"] == "NativeApiGatewayRoutingRulesRead")
+    assert routing["Action"] == "apigateway:ListRoutingRules" and routing["Resource"] == path
+    template = json.loads((Path(__file__).resolve().parents[1] / "infra/aws/customer-role.json").read_text())
+    documents = [r["Properties"]["PolicyDocument"] for r in template["Resources"].values()
+                 if r["Type"] == "AWS::IAM::ManagedPolicy"]
+    assert any(statement == routing for document in documents for statement in document["Statement"])
+    assert all(policy_size(document) <= 6144 for document in documents)
