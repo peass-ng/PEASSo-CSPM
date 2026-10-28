@@ -1,0 +1,26 @@
+{
+  "status": "pass",
+  "issues": [],
+  "requires_warning_acknowledgement": false,
+  "scope_summary": {
+    "unit": "subscriptions",
+    "total": 1,
+    "accessible": 1,
+    "blocked": 0,
+    "warning": 0,
+    "not_checked": 0
+  },
+  "scope_results": [
+    {
+      "scope": "0ce70b1c-9153-425d-8629-f576930f4377",
+      "principals": [
+        "47ddc11b-2b73-4b55-a6c0-4e4328d4ccea"
+      ],
+      "issues": [],
+      "status": "pass"
+    }
+  ],
+  "read_only": true,
+  "wall_s": 58.08,
+  "provider": "azure"
+}
