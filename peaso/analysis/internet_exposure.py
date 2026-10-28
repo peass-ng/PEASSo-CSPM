@@ -5017,13 +5017,13 @@ def _azure_storage_endpoint_urls(props, service=None):
 
 
 def _azure_storage_perimeter_public_rules(account):
-    """Known public inbound CIDRs from the Storage RP effective perimeter read."""
+    """Known inbound CIDRs and named subscriptions from effective perimeter rules."""
     data = account["data"]
     coverage = (data.get("_coverage") or {}).get("networkSecurityPerimeterConfigurations") or {}
     configs = data.get("networkSecurityPerimeterConfigurations")
     if coverage.get("status") not in ("collected", "empty") or not isinstance(configs, list):
-        return []
-    public = []
+        return [], []
+    public, subscriptions = [], []
     for config in configs:
         cp = config.get("properties") if isinstance(config, dict) else None
         if not isinstance(cp, dict) or cp.get("provisioningState") != "Succeeded":
@@ -5039,13 +5039,21 @@ def _azure_storage_perimeter_public_rules(account):
                 continue
             prefixes = rp.get("addressPrefixes")
             if not isinstance(prefixes, list):
-                continue
+                prefixes = []
             for value in prefixes:
                 network = _cidr(value)
                 if network is not None and _azure_public_remainder([network], []):
                     public.append({"configuration": config.get("id"), "rule": rule.get("name"),
                                    "source": str(network), "access_mode": association["accessMode"]})
-    return public
+            for value in as_list(rp.get("subscriptions")):
+                subscription_id = value.get("id") if isinstance(value, dict) else None
+                if isinstance(subscription_id, str) and re.fullmatch(
+                        r"/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                        subscription_id, re.I):
+                    subscriptions.append({"configuration": config.get("id"), "rule": rule.get("name"),
+                                          "subscription_id": subscription_id,
+                                          "access_mode": association["accessMode"]})
+    return public, subscriptions
 
 
 def _azure_storage(snapshot, inventory, resource):
@@ -5073,16 +5081,20 @@ def _azure_storage(snapshot, inventory, resource):
             return a
         return None
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
-        public_rules = _azure_storage_perimeter_public_rules(resource)
-        if public_rules:
+        public_rules, subscription_rules = _azure_storage_perimeter_public_rules(resource)
+        if public_rules or subscription_rules:
             a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
-                   access_modes=sorted({rule["access_mode"] for rule in public_rules}),
+                   subscription_rules=subscription_rules,
+                   access_modes=sorted({rule["access_mode"] for rule in public_rules + subscription_rules}),
                    source="Storage RP effective configuration")
             a.addresses = _azure_storage_endpoint_urls(props)
             if not a.addresses:
                 a.gap("inventory", "storage public endpoint URL is not collected")
             a.ports = pset("tcp", 443, 443)
-            a.authenticated = props.get("allowBlobPublicAccess") is not True
+            a.authenticated = ((bool(subscription_rules) and not public_rules) or
+                               props.get("allowBlobPublicAccess") is not True)
+            if subscription_rules and not public_rules:
+                a.notes.append("Subscription perimeter admission requires authentication; ownership is not established")
             return a
         a.gap("firewall", "effective Storage perimeter inbound public-source rules are unavailable or do not establish a public source")
         return a
@@ -5188,7 +5200,7 @@ def _azure_storage_container(snapshot, inventory, resource):
         a.ports = {}
         return a
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
-        public_rules = _azure_storage_perimeter_public_rules(account)
+        public_rules, subscription_rules = _azure_storage_perimeter_public_rules(account)
         if public_rules:
             a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
                    access_modes=sorted({rule["access_mode"] for rule in public_rules}),
@@ -5199,6 +5211,10 @@ def _azure_storage_container(snapshot, inventory, resource):
             a.data_exposure = True
             a.ports = pset("tcp", 443, 443)
             return a
+        if subscription_rules:
+            a.step("network_security_perimeter", "authenticated_only",
+                   subscription_rules=subscription_rules,
+                   reason="subscription-based perimeter rules reject anonymous and SAS requests")
         a.gap("firewall", "effective Storage perimeter inbound public-source rules are unavailable or do not establish a public source")
         return a
     if props.get("publicNetworkAccess") is None:

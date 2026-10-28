@@ -882,6 +882,20 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     audit = {**config, "properties": {**config["properties"],
         "resourceAssociation": {"accessMode": "Audit"}}}
     assert all(row.verdict() == "UNKNOWN" for row in check(audit).values())
+    subscription_id = "/subscriptions/11111111-2222-3333-4444-555555555555"
+    named = {**config, "properties": {**config["properties"], "profile": {
+        "accessRules": [{"name": "partner", "properties": {"direction": "Inbound",
+            "subscriptions": [{"id": subscription_id}]}}]}}}
+    named_rows = check(named)
+    assert named_rows["storage_account"].verdict() == "FAIL"
+    assert named_rows["storage_account"].authenticated is True
+    assert named_rows["storage_account"].path[0]["subscription_rules"][0]["subscription_id"] == subscription_id
+    assert named_rows["storage_container"].verdict() == "UNKNOWN"
+    assert named_rows["storage_container"].data_exposure is False
+    malformed_named = {**named, "properties": {**named["properties"], "profile": {
+        "accessRules": [{"name": "partner", "properties": {"direction": "Inbound",
+            "subscriptions": [{"id": "/subscriptions/not-a-uuid"}]}}]}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(malformed_named).values())
 
 
 def test_storage_unrecognized_public_gate_stays_unknown_for_account_and_anonymous_blob():

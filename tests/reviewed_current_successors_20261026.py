@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'reviewed_current_successors_20261026.json.gz'
-FIXTURE_SHA256 = '19478678d1d3d0c99fd7299ce379da19d12015993b100db962c37c3ea2257658'
+FIXTURE_SHA256 = '69365bd50b9a4549b00752b663c319b730469a2391cc59fd7f9947fc90cd8f83'
 
 
 def _load():
