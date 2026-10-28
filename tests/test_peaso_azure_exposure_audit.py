@@ -424,6 +424,11 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     assert app_decision(main_blocked).verdict() == "UNKNOWN"
     assert app_decision(separate, scm_hostname=False).verdict() == "UNKNOWN"
     assert app_decision({**separate, "scmIpSecurityRestrictionsDefaultAction": "invalid"}).verdict() == "UNKNOWN"
+    assert app_decision({**separate, "scmIpSecurityRestrictionsDefaultAction": ""}).verdict() == "UNKNOWN"
+    invalid_main = app_decision({**separate, "ipSecurityRestrictionsDefaultAction": ""},
+                                scm_hostname=False)
+    assert invalid_main.verdict() == "UNKNOWN"
+    assert invalid_main.path[-1]["main"]["decision"] == "unknown"
     assert app_decision(separate, public_access="Disabled").verdict() == "PASS"
     assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow"}, scm_hostname=False).verdict() == "FAIL"
 
