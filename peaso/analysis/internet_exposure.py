@@ -1347,6 +1347,76 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
     return a
 
 
+def _aws_ram_share(snapshot, inventory, resource):
+    """Assess effective RAM associations, not the allowExternalPrincipals capability flag."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    if data.get("status") in ("DELETING", "DELETED", "FAILED"):
+        return None
+    a = Assessment(resource, "external_share")
+    if data.get("status") != "ACTIVE":
+        a.gap("share", "RAM share status unresolved", "ram:GetResourceShares")
+        return a
+    associations = {}
+    for field in ("ResourceAssociations", "PrincipalAssociations"):
+        part = data.get(field)
+        if not isinstance(part, dict) or part.get("collection_status") != "collected":
+            a.gap("associations", f"RAM {field} not completely collected", "ram:GetResourceShareAssociations")
+            return a
+        rows = part.get("resourceShareAssociations")
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            a.gap("associations", f"RAM {field} malformed", "ram:GetResourceShareAssociations")
+            return a
+        if any(row.get("status") not in ("ASSOCIATED", "FAILED", "DISASSOCIATED") for row in rows):
+            a.gap("associations", f"RAM {field} has a pending association", "ram:GetResourceShareAssociations")
+            return a
+        associations[field] = sorted({row["associatedEntity"] for row in rows
+                                      if row.get("status") == "ASSOCIATED" and isinstance(row.get("associatedEntity"), str)})
+        if any(row.get("status") == "ASSOCIATED" and not isinstance(row.get("associatedEntity"), str) for row in rows):
+            a.gap("associations", f"RAM {field} identity missing", "ram:GetResourceShareAssociations")
+            return a
+    resources = associations["ResourceAssociations"]
+    if not resources:
+        a.step("associations", "block", reason="no associated resources")
+        a.ports = {}
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    principals = data["PrincipalAssociations"]["resourceShareAssociations"]
+    foreign = []
+    unresolved = []
+    for row in principals:
+        if row.get("status") != "ASSOCIATED":
+            continue
+        principal = row["associatedEntity"]
+        if row.get("external") is True:
+            foreign.append(principal)
+            continue
+        if row.get("external") is False:
+            continue
+        if principal in trusted:
+            continue
+        if re.fullmatch(r"[0-9]{12}", principal):
+            foreign.append(principal)
+            continue
+        match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):(?:role|user)/.+", principal)
+        if match:
+            if match.group(1) not in trusted:
+                foreign.append(principal)
+            continue
+        unresolved.append(principal)
+    if foreign:
+        a.step("associations", "allow", resources=resources, external_principals=sorted(set(foreign)))
+        a.external_ids = sorted(set(foreign))
+        a.explicit = "FAIL"
+    elif unresolved:
+        a.gap("associations", "RAM principal scope unresolved", "ram:GetResourceShareAssociations")
+    else:
+        a.step("associations", "block", resources=resources, principal_count=len(associations["PrincipalAssociations"]))
+        a.ports = {}
+    return a
+
+
 def _aws_cloudfront(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("Config")
@@ -5620,7 +5690,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account", "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"]
+             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "workload_identity_provider",
@@ -5639,7 +5709,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -5680,6 +5750,7 @@ def assess(snapshot, resources):
                 "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot"),
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
+                "ram_resource_share": _aws_ram_share,
                 "cloudfront_distribution": _aws_cloudfront, "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
                 "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket,

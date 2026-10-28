@@ -334,6 +334,40 @@ def test_aws_ec2_public_and_external_shares(kind, field, permission, operation):
     assert incomplete["status"] == "UNKNOWN"
 
 
+def test_aws_ram_share_requires_active_resource_and_external_principal_associations():
+    arn = f"arn:aws:ram:us-east-1:{ACCOUNT}:resource-share/share-1"
+    resource_arn = f"arn:aws:ec2:us-east-1:{ACCOUNT}:subnet/subnet-1"
+
+    def part(entities, status="collected"):
+        return {"collection_status": status, "resourceShareAssociations": entities}
+
+    def association(entity, status="ASSOCIATED", external=None):
+        row = {"associatedEntity": entity, "status": status}
+        if external is not None:
+            row["external"] = external
+        return row
+
+    def result(principals, resources=None, share_status="ACTIVE", principal_status="collected"):
+        share = {"resourceShareArn": arn, "status": share_status,
+                 "ResourceAssociations": part([association(resource_arn)] if resources is None else resources),
+                 "PrincipalAssociations": part(principals, principal_status)}
+        return one(aws(coll("ram_resource_share", [share], service="ram")), "ram_resource_share")
+
+    external = result([association("999988887777", external=True)])
+    assert external["status"] == "FAIL"
+    assert external["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert result([association("999988887777", external=True)], resources=[])["status"] == "PASS"
+    assert result([association("999988887777", "ASSOCIATING", external=True)])["status"] == "UNKNOWN"
+    assert result([association("999988887777", external=True)], principal_status="denied")["status"] == "UNKNOWN"
+    assert result([association(ACCOUNT, external=False)])["status"] == "PASS"
+    assert result([association("arn:aws:iam::999988887777:role/External")])["status"] == "FAIL"
+    assert result([association("arn:aws:organizations::111122223333:organization/o-owned")])["status"] == "UNKNOWN"
+    deleted = {"resourceShareArn": arn, "status": "DELETED",
+               "ResourceAssociations": part([association(resource_arn)]),
+               "PrincipalAssociations": part([association("999988887777", external=True)])}
+    assert not exposure(aws(coll("ram_resource_share", [deleted], service="ram")))
+
+
 def test_aws_cloudfront_enabled_viewer_endpoint_and_missing_config():
     base = {"ARN": "arn:aws:cloudfront::111122223333:distribution/D1", "Id": "D1", "DomainName": "d123.cloudfront.net"}
     config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
