@@ -66,6 +66,23 @@ def test_rest_custom_domain_routing_rules_are_cached_and_projected(sdk):
     assert projected["RoutingRules"]["items"][0]["Actions"] == [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]
 
 
+def test_rest_routing_single_header_condition_retains_shape_without_value(sdk):
+    import json
+
+    session, add = sdk
+    add("apigateway").add_response("get_base_path_mappings", {"items": []}, {"domainName": "api.example.com"})
+    add("apigatewayv2").add_response("list_routing_rules", {"RoutingRules": [{
+        "RoutingRuleId": "rule-1", "Priority": 1,
+        "Conditions": [{"MatchHeaders": {"AnyOf": [{"Header": "x-route", "ValueGlob": "candidate-value"}]}}],
+        "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]}]},
+        {"DomainName": "api.example.com"})
+    projected = edge.ENRICHERS["apigateway_domain_name"](aws.Requests({}), session, REGION, [
+        {"domainName": "api.example.com", "routingMode": "ROUTING_RULE_ONLY"}])[0]
+    rule = projected["RoutingRules"]["items"][0]
+    assert rule["ConditionCount"] == 1 and rule["SingleHeaderCondition"] is True
+    assert "Conditions" not in rule and "candidate-value" not in json.dumps(projected)
+
+
 def test_launch_configuration_pagination_strips_user_data(sdk):
     session, add = sdk
     stub = add("autoscaling")

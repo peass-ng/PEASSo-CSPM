@@ -743,6 +743,11 @@ def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
     assert result["evidence"]["public_addresses"] == ["https://api.example.com"]
     domain["RoutingRules"]["items"][0]["ConditionCount"] = 1
     assert row()["status"] == "UNKNOWN"
+    domain["RoutingRules"]["items"][0]["SingleHeaderCondition"] = True
+    result = row()
+    assert result["status"] == "FAIL"
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "routing_condition")["condition_kind"] == "single_header"
+    del domain["RoutingRules"]["items"][0]["SingleHeaderCondition"]
     domain["RoutingRules"]["items"][0]["ConditionCount"] = 0
     domain["RoutingRules"]["items"].insert(0, {"RoutingRuleId": "rule-0", "Priority": 0,
         "ConditionCount": 0, "Actions": [{"InvokeApi": {"ApiId": "other", "Stage": "prod"}}]})

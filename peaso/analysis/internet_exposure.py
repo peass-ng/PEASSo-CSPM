@@ -1201,6 +1201,13 @@ def _aws_rest_api(snapshot, inventory, resource):
                             if invoke["Stage"] in active_stage_names:
                                 domains.append(str(domain["data"].get("domainName") or native_id(domain)))
                                 reachable_stage_names.add(invoke["Stage"])
+                        elif index == 0 and rule["ConditionCount"] == 1 and rule.get("SingleHeaderCondition") is True:
+                            if invoke["Stage"] in active_stage_names:
+                                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
+                                reachable_stage_names.add(invoke["Stage"])
+                                a.step("routing_condition", "allow", domain=domain["data"].get("domainName"),
+                                       condition_kind="single_header", condition_count=1,
+                                       semantics="A client-supplied header can select this first-priority rule; no request was made")
                         elif invoke["Stage"] in active_stage_names:
                             # Header/path conditions and earlier rules require a
                             # request witness before this target can be claimed.

@@ -429,11 +429,24 @@ def _api_domain_mappings(requests, session, region, items):
             lambda row: _pick(row, ("basePath", "restApiId", "stage")))
             if isinstance(name, str) and name else {"collection_status": "malformed"})
         if "ROUTING_RULE" in str(current.get("routingMode", "")):
+            def single_header_condition(row):
+                conditions = row.get("Conditions")
+                if not isinstance(conditions, list) or len(conditions) != 1 or not isinstance(conditions[0], dict):
+                    return False
+                condition = conditions[0]
+                headers = condition.get("MatchHeaders")
+                values = headers.get("AnyOf") if isinstance(headers, dict) else None
+                return (set(condition) == {"MatchHeaders"} and isinstance(values, list) and len(values) == 1
+                        and isinstance(values[0], dict) and isinstance(values[0].get("Header"), str)
+                        and bool(values[0]["Header"]) and isinstance(values[0].get("ValueGlob"), str)
+                        and bool(values[0]["ValueGlob"]))
+
             current["RoutingRules"] = (_child(requests.pages(session, "apigatewayv2", region,
                 "list_routing_rules", "RoutingRules", DomainName=name),
                 lambda row: {"RoutingRuleId": row.get("RoutingRuleId"),
                              "Priority": row.get("Priority"),
                              "ConditionCount": len(row["Conditions"]) if isinstance(row.get("Conditions"), list) else None,
+                             "SingleHeaderCondition": single_header_condition(row),
                              "Actions": [{"InvokeApi": _pick(action["InvokeApi"], ("ApiId", "Stage"))}
                                          for action in row.get("Actions", []) if isinstance(action, dict)
                                          and isinstance(action.get("InvokeApi"), dict)]})
