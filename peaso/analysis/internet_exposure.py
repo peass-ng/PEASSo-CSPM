@@ -4191,6 +4191,27 @@ def _azure_backend_nics(inventory, pool_ids):
         yield matched[position]
 
 
+def _azure_lb_probed_backends_admin_down(backend_pools, pool_ids):
+    """Prove every address in the rule's IP-based pools excludes new flows."""
+    if not pool_ids:
+        return False
+    for pool_id in pool_ids:
+        pool = backend_pools.get(str(pool_id).lower())
+        props = pool.get("properties") if isinstance(pool, dict) else None
+        if not isinstance(props, dict) or as_list(props.get("backendIPConfigurations")):
+            return False
+        addresses = props.get("loadBalancerBackendAddresses")
+        if not isinstance(addresses, list) or not addresses:
+            return False
+        for entry in addresses:
+            ep = entry.get("properties") if isinstance(entry, dict) else None
+            if (not isinstance(ep, dict) or not isinstance(ep.get("ipAddress"), str)
+                    or not ep["ipAddress"] or ep.get("networkInterfaceIPConfiguration")
+                    or ep.get("adminState") != "Down"):
+                return False
+    return True
+
+
 def _azure_lb(snapshot, inventory, resource):
     props = _props(resource)
     backend_pools = {str(p.get("id", "")).lower(): p for p in as_list(props.get("backendAddressPools"))
@@ -4257,6 +4278,11 @@ def _azure_lb(snapshot, inventory, resource):
                     [(n, c) for n in inventory.items("nic") for c in as_list(_props(n).get("ipConfigurations"))
                      if target and str((c or {}).get("id", "")).lower() == str(target).lower()])
         if not nics:
+            if (kind == "loadBalancingRules" and isinstance(rp.get("probe"), dict) and rp["probe"].get("id")
+                    and _azure_lb_probed_backends_admin_down(backend_pools, pools)):
+                a.step("backend", "block", reason="all probed IP-based backend addresses have adminState Down",
+                       rule_name=rule.get("name"))
+                continue
             unresolved_backends.append(f"{kind} {rule.get('name')}: backend NICs not resolved")
             continue
         for nic, config in nics:

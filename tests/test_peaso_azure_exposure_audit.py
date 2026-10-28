@@ -82,12 +82,14 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
     rule = {"name": "http", "properties": {"frontendIPConfiguration": {"id": front_id},
         "backendAddressPool": {"id": pool_id}, "protocol": "Tcp", "frontendPort": 443, "backendPort": 8443}}
 
-    def lb_decision(pool_props):
+    def lb_decision(pool_props, *, probed=False):
+        lb_rule = {**rule, "properties": {**rule["properties"],
+            **({"probe": {"id": lb_id + "/probes/probe"}} if probed else {})}}
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "load_balancer", "scope": SCOPE, "service": "network", "status": "collected", "items": [{"id": lb_id,
                 "sku": {"name": "Standard"}, "properties": {"frontendIPConfigurations": [{"id": front_id,
                     "properties": {"publicIPAddress": {"id": pip_id}}}], "backendAddressPools": [
-                    {"id": pool_id, "properties": pool_props}], "loadBalancingRules": [rule]}}]},
+                    {"id": pool_id, "properties": pool_props}], "loadBalancingRules": [lb_rule]}}]},
             {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected", "items": [
                 {"id": pip_id, "properties": {"ipAddress": "8.8.8.8"}}]},
             {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected", "items": [{"id": nic_id,
@@ -108,6 +110,12 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
         assert row.verdict() == "FAIL" and row.ports == {"tcp": ((443, 443),)}
         assert row.addresses == ["8.8.8.8"]
     assert lb_decision({"loadBalancerBackendAddresses": [{"properties": {"ipAddress": "10.0.0.4"}}]}).verdict() == "UNKNOWN"
+    down = {"loadBalancerBackendAddresses": [{"properties": {"ipAddress": "10.0.0.4", "adminState": "Down"}}]}
+    assert lb_decision(down, probed=True).verdict() == "PASS"
+    assert lb_decision(down).verdict() == "UNKNOWN"
+    mixed = {"loadBalancerBackendAddresses": down["loadBalancerBackendAddresses"] + [
+        {"properties": {"ipAddress": "10.0.0.5", "adminState": "Up"}}]}
+    assert lb_decision(mixed, probed=True).verdict() == "UNKNOWN"
 
 
 @pytest.mark.parametrize("kind,field", [
