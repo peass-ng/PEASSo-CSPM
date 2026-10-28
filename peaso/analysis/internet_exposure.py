@@ -5307,6 +5307,8 @@ def _azure_container_app(snapshot, inventory, resource):
     runtime = inventory.get("container_app_runtime", resource["data"].get("id"))
     route_hosts = []
     route_default_fqdn = False
+    route_http_only = False
+    route_https = False
     route_state = None
     route_target_unresolved = False
     if ingress.get("external") is not True:
@@ -5335,6 +5337,12 @@ def _azure_container_app(snapshot, inventory, resource):
                                  and domain["name"] and domain.get("bindingType") == "SniEnabled"
                                  and isinstance(domain.get("certificateId"), str)
                                  and domain["certificateId"]]
+                http_domains = [domain["name"] for domain in as_list(route_props.get("customDomains"))
+                                if isinstance(domain, dict) and isinstance(domain.get("name"), str)
+                                and domain["name"] and domain.get("bindingType") == "Disabled"]
+                certified_domains = bool(bound_domains)
+                if not fqdn and not bound_domains:
+                    bound_domains = http_domains
                 hosts = ([fqdn] if isinstance(fqdn, str) and fqdn else []) + bound_domains
                 for rule in as_list(route_props.get("rules")):
                     for target in as_list(rule.get("targets")) if isinstance(rule, dict) else []:
@@ -5350,6 +5358,8 @@ def _azure_container_app(snapshot, inventory, resource):
                             if hosts:
                                 route_hosts.extend(hosts)
                                 route_default_fqdn |= fqdn in hosts
+                                route_http_only |= bool(not certified_domains and not fqdn and http_domains)
+                                route_https |= bool(fqdn or certified_domains)
                             else:
                                 route_target_unresolved = True
                         elif isinstance(revision, str) and revision and label is None and complete_revisions:
@@ -5357,6 +5367,8 @@ def _azure_container_app(snapshot, inventory, resource):
                             if active is True and hosts:
                                 route_hosts.extend(hosts)
                                 route_default_fqdn |= fqdn in hosts
+                                route_http_only |= bool(not certified_domains and not fqdn and http_domains)
+                                route_https |= bool(fqdn or certified_domains)
                             elif active is not False:
                                 route_target_unresolved = True
                         elif isinstance(label, str) and label and revision is None and complete_revisions:
@@ -5370,6 +5382,8 @@ def _azure_container_app(snapshot, inventory, resource):
                             if active is True and hosts:
                                 route_hosts.extend(hosts)
                                 route_default_fqdn |= fqdn in hosts
+                                route_http_only |= bool(not certified_domains and not fqdn and http_domains)
+                                route_https |= bool(fqdn or certified_domains)
                             elif active is not False:
                                 route_target_unresolved = True
                         else:
@@ -5434,8 +5448,13 @@ def _azure_container_app(snapshot, inventory, resource):
         else:
             a.gap("listener", "Container App TCP exposedPort is unavailable")
     elif transport in ("auto", "http", "http2"):
-        a.ports = (pset("tcp", 443, 443) if route_hosts and not route_default_fqdn else
-                   union(pset("tcp", 80, 80), pset("tcp", 443, 443)))
+        if route_hosts and not route_default_fqdn:
+            a.ports = union(pset("tcp", 80, 80) if route_http_only else {},
+                            pset("tcp", 443, 443) if route_https else {})
+        else:
+            a.ports = union(pset("tcp", 80, 80), pset("tcp", 443, 443))
+        if route_http_only:
+            a.step("route_custom_http", "allow", binding_type="Disabled", port=80)
         if not route_hosts or route_default_fqdn:
             insecure = ingress.get("allowInsecure")
             if insecure is not None and type(insecure) is not bool:

@@ -2,7 +2,7 @@
 
 The reviewed Azure collector changes from SHA-256
 `7f44e70205f6fb4ffbea3b787af2947871236d16e50095eb8660f6ac846d690f`
-to `ff77a0accd09019ed58202f69e9b30aa47600ca45bd8bff4fdb510ff0246afd2`.
+to `ed0b0387723c9116c61d7eb56e49da7501fef2aaee82ef7761cc4aed1334ea92`.
 Its source diff adds a slot `config/authsettingsV2` singleton read at API version
 `2025-05-01` and retains `globalValidation.excludedPaths` in the existing
 redacted authentication projection. The [Microsoft slot API](https://learn.microsoft.com/en-us/rest/api/appservice/web-apps/get-auth-settings-v-2-without-secrets-slot?view=rest-appservice-2025-05-01)

@@ -343,14 +343,15 @@ def _child_rows(rows, parent_id, field):
             props = row["properties"]
             rules = props.get("rules")
             domains = props.get("customDomains")
-            certified_domain = isinstance(domains, list) and any(
+            supported_domain = isinstance(domains, list) and any(
                 isinstance(domain, dict) and isinstance(domain.get("name"), str) and domain["name"]
-                and domain.get("bindingType") == "SniEnabled"
-                and isinstance(domain.get("certificateId"), str) and domain["certificateId"]
+                and (domain.get("bindingType") == "Disabled" or
+                     (domain.get("bindingType") == "SniEnabled" and
+                      isinstance(domain.get("certificateId"), str) and domain["certificateId"]))
                 for domain in domains)
             if (props.get("provisioningState") == "Succeeded"
                     and (not isinstance(props.get("fqdn"), str) or not props["fqdn"])
-                    and not certified_domain):
+                    and not supported_domain):
                 raise ValueError("successful Container Apps HTTP route lacks a supported hostname")
             if (not isinstance(rules, list) or any(
                     not isinstance(rule, dict) or not isinstance(rule.get("targets"), list)

@@ -1584,9 +1584,16 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
     assert custom_row.ports == {"tcp": ((443, 443),)}
     disabled_custom = {**custom, "properties": {**custom["properties"],
         "customDomains": [{**custom["properties"]["customDomains"][0], "bindingType": "Disabled"}]}}
+    assert _child_rows([disabled_custom], env_id, "httpRouteConfigs")[0]["id"] == route["id"]
+    disabled_row = decision([disabled_custom])[0]
+    assert disabled_row.verdict() == "FAIL"
+    assert disabled_row.addresses == ["route.example.com"]
+    assert disabled_row.ports == {"tcp": ((80, 80),)}
+    unbound = {**custom, "properties": {**custom["properties"],
+        "customDomains": [{**custom["properties"]["customDomains"][0], "certificateId": None}]}}
     with pytest.raises(ValueError):
-        _child_rows([disabled_custom], env_id, "httpRouteConfigs")
-    assert decision([disabled_custom])[0].verdict() == "UNKNOWN"
+        _child_rows([unbound], env_id, "httpRouteConfigs")
+    assert decision([unbound])[0].verdict() == "UNKNOWN"
     both = {**custom, "properties": {**custom["properties"], "fqdn": fqdn}}
     assert set(decision([both])[0].addresses) == {fqdn, "route.example.com"}
     assert decision([route], public="Disabled")[0].verdict() == "PASS"
