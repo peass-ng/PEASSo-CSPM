@@ -8,6 +8,8 @@ Baseline: clean `origin/main` `836a78ff52923cd8cab8ce5cf371014a8b23730f`. This i
 
 Second slice: `_aws_nacl` now accepts an exact globally routable `/32` or `/128` ingress host on an internet-facing **ALB** listener when the attached SG admits the world for that port and the same host has an egress NACL allowance for a TCP client port in `1024–65535`. Rule order and explicit Deny are applied for that host in both directions. Evidence retains the observed source IP, listener port, NACL ID and address family. This is a configuration witness for a possible client source/port pair, not proof of a completed connection. Wider source CIDRs and mismatched narrow SG/NACL sources remain open.
 
+The same exact public NACL host witness now applies to internet-facing NLBs (with or without an attached SG) and Classic ELBs in a VPC. The NLB listener's IPv6 path also accepts an exact globally routable `/128` host with same-host return allowance. A collected SG, when present, must admit the world on that listener port; an ordered ingress or egress Deny still blocks the host. This extends listener admission only, not backend delivery or application response.
+
 ## Open vector rows
 
 There are still **13 PARTIAL**, **0 MISSING**, and **1 IMPOSSIBLE-FROM-API** rows in the predecessor table. The impossible row is issued but unobserved S3 presigned URLs: configuration APIs do not enumerate already-issued URLs. The exact remaining API-observable joins are:
@@ -16,7 +18,7 @@ There are still **13 PARTIAL**, **0 MISSING**, and **1 IMPOSSIBLE-FROM-API** row
 | --- | --- | --- |
 | EC2/ENI public path | PARTIAL | Managed ENI type and attachment, appliance/Gateway Load Balancer route targets, and source-specific IPv4/IPv6 SG, NACL and route witnesses. |
 | Public IPs/EIPs | PARTIAL | NLB static IPv4/IPv6 and Global Accelerator static IPv4/IPv6 now join from cached API inventory; enabled/deployed accelerators with a collected listener yield a public frontend finding. Other services' published address associations remain; DNS answers are not an inventory association. |
-| ALB/NLB/Classic listeners | PARTIAL | Exact public NACL host with world SG is now witnessed for ALB. Wider and intersecting source-specific ACL/SG variants, NLB/Classic narrow NACL hosts, LB and target subnet ACL directions, and other target types remain. |
+| ALB/NLB/Classic listeners | PARTIAL | Exact public NACL host with world SG is now witnessed for ALB, Classic, and NLB with or without an SG, including NLB IPv6. Wider and intersecting source-specific ACL/SG variants, LB and target subnet ACL directions, and other target types remain. |
 | API Gateway REST/HTTP | PARTIAL | REST method authorization uses the stage-bound cached `GetDeployment(embed=apisummary)` MethodSnapshot. The customer-role template now grants the dedicated, scoped `apigateway:ListRoutingRules` action required for cached REST custom-domain rules. HTTP deployed route version, REST routing-rule condition satisfiability, and resource-policy action/resource/condition evaluation remain. Cached rules retain `Priority` and `ConditionCount` but omit `Conditions[]`. |
 | CloudFront origins | PARTIAL | Origin/OAC/OAI/VPC-origin association to effective S3 or custom-origin policy and backend route. |
 | RDS/Redshift/OpenSearch/EKS | PARTIAL | OpenSearch narrow API/index resource and condition semantics and collected database/EKS authentication configuration. |

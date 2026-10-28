@@ -747,11 +747,11 @@ def _aws_elbv2(snapshot, inventory, resource):
     subnets = [z.get("SubnetId") for z in as_list(data.get("AvailabilityZones")) if isinstance(z, dict) and z.get("SubnetId")]
     a.ports = _aws_vpc_path(inventory, a, subnets, groups if data.get("Type") == "application" or groups else None, ports,
                             native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True,
-                            public_host_witness=data.get("Type") == "application")
+                            public_host_witness=data.get("Type") in ("application", "network"))
     if static_ipv6:
         a.ports = union(a.ports, _aws_vpc_path(inventory, a, subnets, groups if groups else None, ports,
                                              native_id(resource), route=False, vpc_id=data.get("VpcId"),
-                                             family=6, narrow_public=True))
+                                             family=6, narrow_public=True, public_host_witness=True))
     if data.get("Type") == "network" and not groups:
         a.notes.append("NLB without security groups: target security groups govern client traffic (client IP preserved)")
     if any(g["layer"] == "listener" for g in a.unresolved) and not empty(a.ports):
@@ -772,7 +772,8 @@ def _aws_classic(snapshot, inventory, resource):
             ports = union(ports, pset("tcp", listener["LoadBalancerPort"], listener["LoadBalancerPort"]))
     a.step("listener", "allow" if not empty(ports) else "block", listeners=describe(ports))
     a.ports = _aws_vpc_path(inventory, a, as_list(data.get("Subnets")), as_list(data.get("SecurityGroups")) if data.get("VPCId") else None,
-                            ports, native_id(resource), route=False, vpc_id=data.get("VPCId"), narrow_public=True)
+                            ports, native_id(resource), route=False, vpc_id=data.get("VPCId"), narrow_public=True,
+                            public_host_witness=bool(data.get("VPCId")))
     return a
 
 

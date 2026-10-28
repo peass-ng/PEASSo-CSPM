@@ -267,6 +267,67 @@ def test_aws_alb_exact_public_nacl_host_witness_requires_same_source_and_world_s
     assert finding(rules=narrow_sg)["status"] == "PASS"
 
 
+@pytest.mark.parametrize("kind,with_sg", [("network", True), ("network", False), ("classic", True)])
+def test_aws_nlb_and_classic_exact_public_nacl_host_witness(kind, with_sg):
+    world_sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+                 "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    entries = [
+        {"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+         "CidrBlock": "8.8.8.8/32", "PortRange": {"From": 443, "To": 443}},
+        {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+         "CidrBlock": "8.8.8.8/32", "PortRange": {"From": 1024, "To": 65535}},
+    ]
+    if kind == "classic":
+        lb = {"LoadBalancerName": "host", "Scheme": "internet-facing", "DNSName": "classic.example.com",
+              "VPCId": "vpc-1", "Subnets": ["subnet-1"], "SecurityGroups": ["sg-1"],
+              "ListenerDescriptions": [{"Listener": {"LoadBalancerPort": 443, "Protocol": "HTTPS"}}]}
+        resource_kind, service = "classic_load_balancer", "elb"
+    else:
+        lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/net/host/1",
+              "Scheme": "internet-facing", "Type": "network", "DNSName": "nlb.example.com", "VpcId": "vpc-1",
+              "SecurityGroups": ["sg-1"] if with_sg else [],
+              "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+              "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "TCP"}]}}
+        resource_kind, service = "load_balancer", "elbv2"
+    def finding(acl_entries):
+        return one(aws(*aws_network(sg_rules=world_sg, nacl_entries=acl_entries),
+                       coll(resource_kind, [lb], service=service)), resource_kind)
+    allowed = finding(entries)
+    assert allowed["status"] == "FAIL" and allowed["evidence"]["exposed_ports"] == ["tcp/443"]
+    witness = next(step for step in allowed["evidence"]["path"] if step["layer"] == "network_acl_host")
+    assert witness["public_host_witnesses"] == [{"source_ip": "8.8.8.8", "ports": ["tcp/443"]}]
+    mismatched = copy.deepcopy(entries)
+    mismatched[1]["CidrBlock"] = "9.9.9.9/32"
+    assert finding(mismatched)["status"] == "PASS"
+
+
+def test_aws_nlb_exact_ipv6_nacl_host_witness():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/net/v6host/1",
+          "Scheme": "internet-facing", "Type": "network", "IpAddressType": "dualstack",
+          "DNSName": "v6host.example.com", "VpcId": "vpc-1", "SecurityGroups": ["sg-1"],
+          "AvailabilityZones": [{"SubnetId": "subnet-1", "LoadBalancerAddresses": [
+              {"IPv6Address": "2600:1f18:abcd::1"}]}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "TCP"}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+           "Ipv6Ranges": [{"CidrIpv6": "::/0"}]}]
+    entries = [
+        {"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+         "Ipv6CidrBlock": "2600:1f18:abcd::2/128", "PortRange": {"From": 443, "To": 443}},
+        {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+         "Ipv6CidrBlock": "2600:1f18:abcd::2/128", "PortRange": {"From": 1024, "To": 65535}},
+    ]
+    def finding(acl_entries):
+        return one(aws(*aws_network(sg_rules=sg, nacl_entries=acl_entries),
+                       coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    result = finding(entries)
+    assert result["status"] == "FAIL"
+    witness = next(step for step in result["evidence"]["path"] if step["layer"] == "network_acl_host")
+    assert witness["public_host_witnesses"] == [{"source_ip": "2600:1f18:abcd::2", "ports": ["tcp/443"]}]
+    mismatched = copy.deepcopy(entries)
+    mismatched[1]["Ipv6CidrBlock"] = "2600:1f18:abcd::3/128"
+    assert finding(mismatched)["status"] == "PASS"
+
+
 def test_aws_nlb_static_public_ipv4_is_in_listener_evidence():
     lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/net/web/1",
           "Scheme": "internet-facing", "Type": "network", "DNSName": "nlb.example.com", "VpcId": "vpc-1",
