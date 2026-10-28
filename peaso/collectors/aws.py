@@ -3518,6 +3518,7 @@ EXTENSION_MODULES += ("peaso.collectors.aws_ai_recheck_facts_20261020",)
 EXTENSION_MODULES += ("peaso.collectors.aws_network_inventory",)
 EXTENSION_MODULES += ("peaso.collectors.aws_wellarchitected_shares",)
 EXTENSION_MODULES += ("peaso.collectors.aws_media_legacy_exposure",)
+EXTENSION_MODULES += ("peaso.collectors.aws_quicksight_dashboard_shares",)
 for _extension in EXTENSION_MODULES:
     _load_metadata_extension(_extension)
 

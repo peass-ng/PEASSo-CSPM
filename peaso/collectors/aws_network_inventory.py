@@ -453,6 +453,119 @@ class MetadataClient:
             projected = projected_metadata(body, identity_fields=READ_IDENTITIES.get((self.service, operation), ()))
             if self.service == 'dsql' and operation == 'get_cluster' and isinstance(body, dict):
                 projected = {key: body[key] for key in ('identifier', 'arn', 'status', 'endpoint') if key in body}
+            if (self.service, operation) == ('mediaconnect', 'describe_flow') and isinstance(body, dict):
+                projected['Status'] = body.get('Status')
+                projected['Sources'] = [
+                    {key: source.get(key) for key in ('IngestIp', 'IngestPort', 'WhitelistCidr', 'VpcInterfaceName')}
+                    for source in body.get('Sources', [body.get('Source')])
+                    if isinstance(source, dict)]
+                projected['Entitlements'] = [
+                    {'EntitlementStatus': grant.get('EntitlementStatus'),
+                     'Subscribers': grant.get('Subscribers')}
+                    for grant in body.get('Entitlements', []) if isinstance(grant, dict)]
+            if (self.service, operation) == ('medialive', 'describe_input') and isinstance(body, dict):
+                projected['State'] = body.get('State')
+                projected['Type'] = body.get('Type')
+                projected['SecurityGroups'] = body.get('SecurityGroups')
+                projected['Destinations'] = [
+                    {'Ip': dest.get('Ip'), 'Port': dest.get('Port')}
+                    for dest in body.get('Destinations', []) if isinstance(dest, dict)]
+            if (self.service, operation) == ('medialive', 'list_input_security_groups') and isinstance(body, list):
+                for raw, row in zip(body, projected):
+                    if isinstance(raw, dict) and isinstance(row, dict):
+                        row['WhitelistRules'] = [rule.get('Cidr') for rule in raw.get('WhitelistRules', [])
+                                                 if isinstance(rule, dict) and isinstance(rule.get('Cidr'), str)]
+            if (self.service, operation) == ('workspaces-web', 'list_portals') and isinstance(body, list):
+                for raw, row in zip(body, projected):
+                    if not isinstance(raw, dict) or not isinstance(row, dict):
+                        continue
+                    endpoint = raw.get('portalEndpoint')
+                    if isinstance(endpoint, str) and endpoint.endswith('.workspaces-web.com'):
+                        row['PortalHost'] = endpoint.lower()
+                    for field in ('portalStatus', 'authenticationType', 'ipAccessSettingsArn'):
+                        if isinstance(raw.get(field), str):
+                            row[field] = raw[field]
+                    row['NetworkAttributes'] = [item for item in row.get('NetworkAttributes', [])
+                                                if item.get('path') != 'portalEndpoint']
+            if (self.service, operation) == ('mwaa', 'get_environment') and isinstance(body, dict):
+                from urllib.parse import urlsplit
+                mode = body.get('WebserverAccessMode')
+                if isinstance(mode, str):
+                    projected['WebserverAccessMode'] = mode
+                url = body.get('WebserverUrl')
+                if isinstance(url, str):
+                    try:
+                        parsed = urlsplit(url)
+                        if (parsed.scheme == 'https' and parsed.hostname and
+                                parsed.port in (None, 443) and not parsed.username and
+                                not parsed.password):
+                            projected['WebserverHost'] = parsed.hostname.lower()
+                    except ValueError:
+                        pass
+            if (self.service, operation) == ('mq', 'describe_shared_resources') and isinstance(projected, list):
+                # The broker share candidate needs only identity and state.
+                # Private DNS aliases and provider error text stay out of cache.
+                projected = [{key: row[key] for key in ('ResourceArn', 'Status', 'Type')
+                              if isinstance(row.get(key), str)} for row in projected if isinstance(row, dict)]
+            if (self.service == 'migration-hub-refactor-spaces' and
+                    operation in ('list_services', 'get_service')):
+                from urllib.parse import urlsplit
+                def strip_url_paths(row):
+                    if not isinstance(row, dict):
+                        return row
+                    attributes = row.get('NetworkAttributes')
+                    if not isinstance(attributes, list):
+                        return row
+                    safe = []
+                    for entry in attributes:
+                        if not isinstance(entry, dict):
+                            continue
+                        if entry.get('path') not in ('UrlEndpoint.Url', 'UrlEndpoint.HealthUrl'):
+                            safe.append(entry)
+                            continue
+                        try:
+                            url = urlsplit(entry.get('value'))
+                            if (url.scheme not in ('http', 'https') or not url.hostname or
+                                    url.username or url.password):
+                                continue
+                            host = url.hostname.lower()
+                            host = '[' + host + ']' if ':' in host else host
+                            safe.append({**entry, 'value': f'{url.scheme}://{host}' +
+                                         (f':{url.port}' if url.port else '')})
+                        except (TypeError, ValueError):
+                            continue
+                    row['NetworkAttributes'] = safe
+                    return row
+                projected = ([strip_url_paths(row) for row in projected]
+                             if isinstance(projected, list) else strip_url_paths(projected))
+            if (self.service, operation) == ('migration-hub-refactor-spaces', 'get_application') and isinstance(body, dict):
+                from urllib.parse import urlsplit
+                proxy = body.get('ApiGatewayProxy')
+                url = proxy.get('ProxyUrl') if isinstance(proxy, dict) else None
+                if isinstance(url, str):
+                    try:
+                        parsed = urlsplit(url)
+                        if (parsed.scheme == 'https' and parsed.hostname and parsed.port in (None, 443)
+                                and not parsed.username and not parsed.password):
+                            projected['ProxyHost'] = parsed.hostname.lower()
+                    except ValueError:
+                        pass
+            if (self.service, operation) == ('mailmanager', 'get_ingress_point') and isinstance(body, dict):
+                # Keep only the public DNS name and endpoint network mode; no
+                # SMTP secret, certificate or trust-store contents enter cache.
+                if isinstance(body.get('ARecord'), str):
+                    projected['ARecord'] = body['ARecord']
+                network = body.get('NetworkConfiguration')
+                if isinstance(network, dict):
+                    projected['NetworkConfiguration'] = {
+                        key: {field: value for field, value in native_part.items()
+                              if field in ('IpType', 'VpcEndpointId') and isinstance(value, str)}
+                        for key, native_part in network.items()
+                        if key in ('PublicNetworkConfiguration', 'PrivateNetworkConfiguration') and isinstance(native_part, dict)}
+            if (self.service, operation) == ('opensearchserverless', 'get_security_policy') and isinstance(body, dict):
+                # The generic network projection keeps observations, but the
+                # native policy join needs the validated rule structure too.
+                projected['NetworkPolicy'] = body['NetworkPolicy']
             if self.service == 'devicefarm' and operation == 'get_run' and isinstance(body, dict):
                 # GetRun calls this ARN appUpload, so the generic network
                 # projection omits it. Keep only a same-project upload ARN;

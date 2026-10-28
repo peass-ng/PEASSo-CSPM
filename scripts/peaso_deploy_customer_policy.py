@@ -31,6 +31,7 @@ WELLARCHITECTED_SHARE_READS = frozenset({
 # https://docs.aws.amazon.com/service-authorization/latest/reference/list_wellarchitected.html
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | WELLARCHITECTED_SHARE_READS
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | {"mediapackage:ListOriginEndpoints", "mediatailor:ListPlaybackConfigurations"}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | {"quicksight:ListDashboards", "quicksight:DescribeDashboardPermissions", "quicksight:DescribeAccountSettings"}
 # The Grafana workspace list is followed by a workspace-scoped, metadata-only
 # service-account list. It exposes role and disabled state, never token values.
 # https://docs.aws.amazon.com/service-authorization/latest/reference/list_grafana.html
