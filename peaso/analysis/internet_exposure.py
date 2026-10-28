@@ -5030,7 +5030,7 @@ def _azure_storage_perimeter_public_rules(account):
             continue
         association = cp.get("resourceAssociation")
         profile = cp.get("profile")
-        if (not isinstance(association, dict) or association.get("accessMode") != "Enforced" or
+        if (not isinstance(association, dict) or association.get("accessMode") not in ("Enforced", "Learning") or
                 not isinstance(profile, dict) or not isinstance(profile.get("accessRules"), list)):
             continue
         for rule in profile["accessRules"]:
@@ -5044,7 +5044,7 @@ def _azure_storage_perimeter_public_rules(account):
                 network = _cidr(value)
                 if network is not None and _azure_public_remainder([network], []):
                     public.append({"configuration": config.get("id"), "rule": rule.get("name"),
-                                   "source": str(network)})
+                                   "source": str(network), "access_mode": association["accessMode"]})
     return public
 
 
@@ -5076,7 +5076,8 @@ def _azure_storage(snapshot, inventory, resource):
         public_rules = _azure_storage_perimeter_public_rules(resource)
         if public_rules:
             a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
-                   access_mode="Enforced", source="Storage RP effective configuration")
+                   access_modes=sorted({rule["access_mode"] for rule in public_rules}),
+                   source="Storage RP effective configuration")
             a.addresses = _azure_storage_endpoint_urls(props)
             if not a.addresses:
                 a.gap("inventory", "storage public endpoint URL is not collected")
@@ -5190,7 +5191,8 @@ def _azure_storage_container(snapshot, inventory, resource):
         public_rules = _azure_storage_perimeter_public_rules(account)
         if public_rules:
             a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
-                   access_mode="Enforced", source="Storage RP effective configuration")
+                   access_modes=sorted({rule["access_mode"] for rule in public_rules}),
+                   source="Storage RP effective configuration")
             a.addresses = _azure_storage_endpoint_urls(props, service="blob")
             if not a.addresses:
                 a.gap("inventory", "public blob endpoint is not collected")

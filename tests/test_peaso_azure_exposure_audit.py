@@ -877,7 +877,11 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     assert all(row.verdict() == "UNKNOWN" for row in check(status="partial").values())
     learning = {**config, "properties": {**config["properties"],
         "resourceAssociation": {"accessMode": "Learning"}}}
-    assert all(row.verdict() == "UNKNOWN" for row in check(learning).values())
+    assert all(row.verdict() == "FAIL" for row in check(learning).values())
+    assert check(learning)["storage_account"].path[0]["access_modes"] == ["Learning"]
+    audit = {**config, "properties": {**config["properties"],
+        "resourceAssociation": {"accessMode": "Audit"}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(audit).values())
 
 
 def test_storage_unrecognized_public_gate_stays_unknown_for_account_and_anonymous_blob():
