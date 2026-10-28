@@ -643,7 +643,11 @@ def test_aws_cloudfront_oac_requires_observed_signing_and_exact_distribution_pol
     oac["SigningBehavior"] = "always"
     statement["Condition"]["StringEquals"]["AWS:SourceArn"] = distribution_arn.replace("D1", "D2")
     assert not any(step["layer"] == "origin_policy" for step in steps())
-    statement["Condition"]["StringEquals"]["AWS:SourceArn"] = distribution_arn
+    statement["Condition"] = {"ArnEquals": {"aws:SourceArn": distribution_arn}}
+    assert any(step["layer"] == "origin_policy" for step in steps())
+    statement["Condition"]["ArnEquals"]["aws:SourceAccount"] = ACCOUNT
+    assert not any(step["layer"] == "origin_policy" for step in steps())
+    del statement["Condition"]["ArnEquals"]["aws:SourceAccount"]
     distribution["OriginAccessControls"] = {}
     result = one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront"),
                      coll("bucket", [bucket], service="s3")), "cloudfront_distribution")

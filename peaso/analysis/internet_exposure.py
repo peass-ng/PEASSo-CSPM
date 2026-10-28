@@ -1712,7 +1712,13 @@ def _aws_cloudfront(snapshot, inventory, resource):
                     if object_arn not in as_list(statement.get("Resource")):
                         continue
                     condition = statement.get("Condition")
-                    if condition != {"StringEquals": {"AWS:SourceArn": distribution_arn}}:
+                    if not isinstance(condition, dict) or len(condition) != 1:
+                        continue
+                    operator, terms = next(iter(condition.items()))
+                    if operator not in ("StringEquals", "ArnEquals") or not isinstance(terms, dict) or len(terms) != 1:
+                        continue
+                    key, value = next(iter(terms.items()))
+                    if not isinstance(key, str) or key.casefold() != "aws:sourcearn" or value != distribution_arn:
                         continue
                     a.step("origin_policy", "allow_declaration", origin_id=origin["Id"], bucket=bucket_name,
                            principal="cloudfront.amazonaws.com", source_arn=distribution_arn,
