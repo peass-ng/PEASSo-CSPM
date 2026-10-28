@@ -1007,11 +1007,21 @@ def _aws_eks(snapshot, inventory, resource):
     if config.get("endpointPublicAccess") is not True:
         return None
     a.addresses = [cluster["cluster"].get("endpoint")] if cluster["cluster"].get("endpoint") else []
-    cidrs = as_list(config.get("publicAccessCidrs")) or ["0.0.0.0/0"]
+    cidrs = as_list(config.get("publicAccessCidrs"))
+    defaulted = not cidrs
+    if defaulted:
+        cidrs = ["0.0.0.0/0"]
+        endpoint = cluster["cluster"].get("endpoint")
+        network_config = cluster["cluster"].get("kubernetesNetworkConfig")
+        hostname = urlsplit(endpoint).hostname if isinstance(endpoint, str) else None
+        if (isinstance(network_config, dict) and network_config.get("ipFamily") == "ipv6"
+                and isinstance(hostname, str) and hostname.endswith(".api.aws")):
+            cidrs.append("::/0")
     public = [c for c in cidrs if _public_source(c)]
     if public:
         a.step("source_ranges", "allow", public_access_cidrs=public,
-               semantics="Declared public client CIDR; EKS authentication still applies")
+               source="documented_default" if defaulted else "DescribeCluster",
+               semantics="Observed or documented-default public client CIDR; EKS authentication still applies")
         a.ports = pset("tcp", 443, 443)
     else:
         a.step("source_ranges", "block", public_access_cidrs=cidrs)

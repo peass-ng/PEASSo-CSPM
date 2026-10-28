@@ -986,6 +986,22 @@ def test_eks_public_endpoint_honours_cidrs():
     assert one(aws(coll("eks_cluster", [cluster(["203.0.113.0/24"])], service="eks")), "eks_cluster")["status"] == "PASS"
 
 
+def test_eks_new_ipv6_endpoint_without_cidrs_has_dual_stack_public_default():
+    cluster = {"name": "c", "Cluster": {"cluster": {
+        "endpoint": "https://cluster.us-east-1.api.aws", "kubernetesNetworkConfig": {"ipFamily": "ipv6"},
+        "resourcesVpcConfig": {"endpointPublicAccess": True, "publicAccessCidrs": []}}}}
+    def finding():
+        return one(aws(coll("eks_cluster", [cluster], service="eks")), "eks_cluster")
+    current = finding()
+    assert current["status"] == "FAIL" and current["evidence"]["authenticated_endpoint"] is True
+    step = next(x for x in current["evidence"]["path"] if x["layer"] == "source_ranges")
+    assert step["public_access_cidrs"] == ["0.0.0.0/0", "::/0"]
+    assert step["source"] == "documented_default"
+    cluster["Cluster"]["cluster"]["endpoint"] = "https://cluster.us-east-1.eks.amazonaws.com"
+    step = next(x for x in finding()["evidence"]["path"] if x["layer"] == "source_ranges")
+    assert step["public_access_cidrs"] == ["0.0.0.0/0"]
+
+
 def test_network_graph_marks_exposed_nodes_from_internet():
     graph = analyze(aws(*aws_network(), instance()))["graphs"]["network"]
     internet = [n for n in graph["nodes"] if n["type"] == "internet"]
