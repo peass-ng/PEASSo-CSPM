@@ -545,6 +545,7 @@ class Transport:
         self.local = threading.local()
         self.sessions = []
         self.evidence = []
+        self.disabled_services = {}
         from .scan_cache import BoundedEntries, budget, DEFAULT_MAX_BYTES, DEFAULT_MAX_ENTRY_BYTES
         # Per-scan single-flight response cache, bounded by settled bytes.
         self.cache = BoundedEntries(budget(options, "response_cache_max_bytes", DEFAULT_MAX_BYTES),
@@ -733,6 +734,20 @@ class Transport:
             evidence["request"] = sanitize({k: v for k, v in body.items() if k != "pageToken"})
         response_bytes = 0
         try:
+            # ErrorInfo binds SERVICE_DISABLED to a consumer and service, not
+            # merely this URL. Reuse that explicit state across regional reads
+            # in this scan, preserving unavailable coverage and its source.
+            # A quota project's state must never be applied to a target project.
+            with self.lock:
+                disabled = self.disabled_services.get((scope, parsed.hostname))
+            if disabled is not None:
+                error, source_id = disabled
+                evidence['source_request_id'] = source_id
+                evidence['cache_basis'] = 'native_consumer_service_disabled'
+                reused = ReadError(error.status, error.error['code'],
+                    http_status=error.error.get('http_status'), reason=error.error.get('reason'))
+                reused.error.update(error.error)
+                raise reused
             for attempt in range(self.retries + 1):
                 self.check_cancelled()
                 with self.lock:
@@ -885,6 +900,14 @@ class Transport:
                 evidence["id"] = f"request-{len(self.evidence) + 1}"
                 self.evidence.append(evidence)
                 cached["id"] = evidence["id"]
+                error = cached.get('error')
+                if (error is not None and evidence['http_attempts'] > 0
+                        and error.error.get('http_status') == 403
+                        and error.error.get('reason') == 'SERVICE_DISABLED'
+                        and isinstance(scope, str) and scope.startswith('projects/')
+                        and error.error.get('consumer') == scope
+                        and error.error.get('service') == parsed.hostname):
+                    self.disabled_services.setdefault((scope, parsed.hostname), (error, evidence['id']))
                 _settle_cache_entry(self.cache, cache_key, cached, response_bytes)
             cached["event"].set()
         if "error" in cached:
