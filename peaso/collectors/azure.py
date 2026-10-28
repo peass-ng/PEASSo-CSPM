@@ -95,7 +95,7 @@ ENDPOINTS = {
     "load_balancer": ("Microsoft.Network/loadBalancers", "2023-09-01"),
     "application_gateway": ("Microsoft.Network/applicationGateways", "2023-09-01"),
     "private_endpoint": ("Microsoft.Network/privateEndpoints", "2023-09-01"),
-    "private_link_service": ("Microsoft.Network/privateLinkServices", "2023-09-01"),
+    "private_link_service": ("Microsoft.Network/privateLinkServices", "2025-05-01"),
     "private_dns_zone": ("Microsoft.Network/privateDnsZones", "2020-06-01"),
     "dns_zone": ("Microsoft.Network/dnsZones", "2018-05-01"),
     "vm": ("Microsoft.Compute/virtualMachines", "2023-09-01"),
@@ -372,6 +372,39 @@ def _managed_grafana_metadata(row):
     kept["properties"] = safe
     kept["_provenance"] = {"source_operation": "Grafana_List", "api_version": "2025-08-01", "read_only": True,
                             "representation": "listener_and_snapshot_metadata"}
+    return kept
+
+
+def _private_link_service_metadata(row):
+    """Retain only provider-side access grants from the private service GET."""
+    props = row.get("properties")
+    if not isinstance(props, dict):
+        raise ValueError("private link service properties are missing")
+    kept = {key: row[key] for key in ("id", "name", "type", "location") if key in row}
+    safe = {key: props[key] for key in ("provisioningState", "accessMode") if key in props}
+    for field in ("visibility", "autoApproval"):
+        value = props.get(field)
+        if not isinstance(value, dict) or not isinstance(value.get("subscriptions"), list) or any(
+                not isinstance(sub, str) for sub in value["subscriptions"]):
+            raise ValueError("private link service subscription list is missing or malformed")
+        safe[field] = {"subscriptions": value["subscriptions"]}
+    connections = props.get("privateEndpointConnections")
+    if not isinstance(connections, list):
+        raise ValueError("private link service connections are missing")
+    safe_connections = []
+    for connection in connections:
+        fields = connection.get("properties") if isinstance(connection, dict) else None
+        endpoint = fields.get("privateEndpoint") if isinstance(fields, dict) else None
+        state = fields.get("privateLinkServiceConnectionState") if isinstance(fields, dict) else None
+        if (not isinstance(endpoint, dict) or not isinstance(endpoint.get("id"), str)
+                or not isinstance(state, dict) or not isinstance(state.get("status"), str)):
+            raise ValueError("private link service connection is malformed")
+        safe_connections.append({"privateEndpoint": {"id": endpoint["id"]},
+                                 "status": state["status"]})
+    safe["privateEndpointConnections"] = safe_connections
+    kept["properties"] = safe
+    kept["_provenance"] = {"source_operation": "PrivateLinkServices_Get", "api_version": "2025-05-01",
+                            "read_only": True, "representation": "provider_access_metadata"}
     return kept
 
 
@@ -1261,7 +1294,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "analysis_server"})
+                            "integration_service_environment", "analysis_server", "private_link_service"})
 
 
 def _canonicalize_embedded(collections):
@@ -2361,7 +2394,8 @@ class _Reader:
                     projected = item if service == "kubernetes" else _metadata_only(
                         _managed_application_metadata(item) if kind == "managed_application" else
                         _managed_grafana_metadata(item) if kind == "managed_grafana" else
-                        _analysis_server_metadata(item) if kind == "analysis_server" else item,
+                        _analysis_server_metadata(item) if kind == "analysis_server" else
+                        _private_link_service_metadata(item) if kind == "private_link_service" else item,
                         kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
                     if kind == "app_service":
                         projected = azure_functions_runtime_native.safe_site_inventory(projected)

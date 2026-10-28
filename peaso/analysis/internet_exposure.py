@@ -10680,6 +10680,87 @@ def _azure_data_share_recipient(snapshot, inventory, resource):
     return a
 
 
+def _azure_private_link_service(snapshot, inventory, resource):
+    """Assess provider-side private access to subscriptions outside this service's own."""
+    a = Assessment(resource, "external_share")
+    props = _props(resource)
+    proof = (resource["data"].get("_provenance") or {})
+    if proof.get("source_operation") != "PrivateLinkServices_Get":
+        a.gap("inventory", "Private Link Service access settings are not from a full provider GET")
+        return a
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "Private Link Service is not in a proven succeeded state")
+        return a
+    match = re.match(r"(?i)^/subscriptions/([0-9a-f-]{36})/", str(native_id(resource)))
+    if match is None:
+        a.gap("inventory", "Private Link Service owner subscription is unavailable")
+        return a
+    own = match.group(1).casefold()
+    def grants(field):
+        value = props.get(field)
+        rows = value.get("subscriptions") if isinstance(value, dict) else None
+        if not isinstance(rows, list):
+            return None
+        return rows
+    visible, automatic = grants("visibility"), grants("autoApproval")
+    connections = props.get("privateEndpointConnections")
+    if visible is None or automatic is None or not isinstance(connections, list):
+        a.gap("inventory", "Private Link Service visibility, auto-approval, or connections are incomplete")
+        return a
+    def external_subscription(value):
+        if not isinstance(value, str):
+            return None
+        if value == "*":
+            return "*"
+        candidate = value.strip().casefold()
+        if re.fullmatch(r"[0-9a-f-]{36}", candidate):
+            return candidate if candidate != own else ""
+        return None
+    approved = []
+    unresolved = False
+    for row in connections:
+        if not isinstance(row, dict) or not isinstance(row.get("status"), str):
+            unresolved = True
+            continue
+        if row["status"].casefold() != "approved":
+            continue
+        endpoint = row.get("privateEndpoint")
+        endpoint_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+        found = re.match(r"(?i)^/subscriptions/([0-9a-f-]{36})/", endpoint_id or "")
+        if found is None:
+            unresolved = True
+            continue
+        subscription = external_subscription(found.group(1))
+        if subscription is None:
+            unresolved = True
+        elif subscription:
+            approved.append(subscription)
+    automatic_external = [external_subscription(value) for value in automatic]
+    visible_external = [external_subscription(value) for value in visible]
+    if None in automatic_external or None in visible_external:
+        unresolved = True
+    active = sorted(set(approved + [value for value in automatic_external if value]))
+    if active:
+        a.external_ids = active
+        a.data_exposure = True
+        a.step("private_access", "allow", approved_consumer_subscriptions=sorted(set(approved)),
+               auto_approved_subscriptions=sorted(set(value for value in automatic_external if value)))
+        return a
+    mode = props.get("accessMode")
+    if mode == "Default" or "*" in visible_external:
+        a.gap("authorization", "any alias holder can request a connection, subject to provider approval")
+        return a
+    if mode != "Restricted" or unresolved:
+        a.gap("inventory", "Private Link Service access mode or connection identity is unresolved")
+        return a
+    if any(visible_external):
+        a.gap("authorization", "other subscriptions can request access but no approval is observed")
+        return a
+    a.step("private_access", "block", reason="restricted to owner subscription with no external approval")
+    a.ports = {}
+    return a
+
+
 def _azure_lighthouse_assignment(snapshot, inventory, resource):
     """Detect effective delegated ARM access to a managing tenant."""
     a = Assessment(resource, "external_share")
@@ -11375,7 +11456,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11390,7 +11471,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "analysis_server",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "analysis_server", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11485,6 +11566,7 @@ def assess(snapshot, resources):
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "analysis_server": _azure_analysis_server,
+                  "private_link_service": _azure_private_link_service,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
                   "signalr_service": _azure_realtime_endpoint,
@@ -11541,6 +11623,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "private_link_service":
+        return ("Azure Private Link Service grants another subscription private access" if status == "FAIL" else
+                "Azure Private Link Service access unresolved" if status == "UNKNOWN" else
+                "Azure Private Link Service has no external subscription access")
     if assessment.resource["type"] == "managed_grafana":
         if status == "FAIL" and any(step.get("layer") == "external_snapshot" for step in assessment.path):
             return "Azure Managed Grafana snapshot is shared externally"
@@ -11638,6 +11724,14 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "private_link_service":
+        if status == "FAIL":
+            return ("The provider's Private Link Service auto-approves another subscription or has an approved "
+                    "private endpoint from it. This is private cross-subscription access; the consumer's tenant "
+                    "and application authentication are not established by this resource response.")
+        if status == "PASS":
+            return "The service restricts visibility to its owner subscription and has no external approvals."
+        return "The service's access mode, visibility, or pending connection approval does not establish effective external access."
     if assessment.resource["type"] == "managed_grafana":
         if status == "FAIL":
             if any(step.get("layer") == "external_snapshot" for step in assessment.path):
