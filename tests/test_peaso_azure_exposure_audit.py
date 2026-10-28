@@ -1567,6 +1567,37 @@ def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
     assert decision(mode="Detection", enabled="Enabled").verdict() == "UNKNOWN"
 
 
+def test_classic_frontdoor_frontend_waf_link_is_joined_to_policy():
+    frontdoor = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoors/edge"
+    waf_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoorWebApplicationFirewallPolicies/waf"
+    edge = {"id": frontdoor, "properties": {},
+            "endpoints": [{"id": frontdoor + "/frontendEndpoints/default",
+                "properties": {"hostName": "edge.azurefd.net",
+                               "webApplicationFirewallPolicyLink": {"id": waf_id}}}],
+            "effectiveRoutes": [{"id": frontdoor + "/routingRules/redirect", "enabledState": "Enabled",
+                "paths": [{"acceptedProtocols": ["Https"], "action": "Redirect"}]}],
+            "_coverage": {"effectiveRoutes": {"status": "collected"}}}
+
+    def decision(mode=None, enabled=None, include=True):
+        collections = [{"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE,
+                        "service": "cdn", "status": "collected", "items": [edge]}]
+        if include:
+            collections.append({"type": "frontdoor_waf_policy", "scope": SCOPE,
+                                "service": "network", "status": "collected", "items": [
+                                    {"id": waf_id, "properties": {"policySettings": {
+                                        "mode": mode, "enabledState": enabled}}}]})
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return next(a for a in assess(snap, resources(snap))
+                    if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    assert decision(mode="Prevention", enabled="Enabled").verdict() == "UNKNOWN"
+    assert decision(include=False).verdict() == "UNKNOWN"
+    detected = decision(mode="Detection", enabled="Enabled")
+    assert detected.verdict() == "FAIL"
+    assert "records mode Detection" in _observed(detected, "FAIL")
+    assert decision(mode="Prevention", enabled="Disabled").verdict() == "FAIL"
+
+
 def test_api_management_public_gateway_and_network_gates():
     base = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
             "disableGateway": False, "gatewayUrl": "https://gateway.azure-api.net"}

@@ -6116,8 +6116,21 @@ def _azure_public_edge(snapshot, inventory, resource):
             if len(passive) == len(policies) and policy_coverage.get("status") in ("collected", "empty"):
                 a.step("waf", "allow", passive_policies=passive,
                        reason="all referenced WAF policies are disabled or in Detection mode")
-    if (data.get("properties") or {}).get("webApplicationFirewallPolicyLink"):
-        a.gap("policy", "classic Front Door WAF policy may filter the listener")
+    if data.get("sku", {}).get("name") not in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
+        for endpoint in endpoints:
+            link = (endpoint.get("properties") or {}).get("webApplicationFirewallPolicyLink") if isinstance(endpoint, dict) else None
+            if link is None:
+                continue
+            policy_id = link.get("id") if isinstance(link, dict) else None
+            waf = inventory.get("frontdoor_waf_policy", policy_id) if isinstance(policy_id, str) else None
+            settings = _props(waf).get("policySettings") if waf is not None else None
+            if isinstance(settings, dict) and (settings.get("enabledState") == "Disabled" or
+                                               settings.get("mode") == "Detection"):
+                a.step("waf", "allow", passive_policies=[{
+                    "waf_policy": policy_id, "enabled_state": settings.get("enabledState"),
+                    "mode": settings.get("mode")}])
+            else:
+                a.gap("policy", "classic Front Door frontend WAF policy may filter the listener")
     return a
 
 
