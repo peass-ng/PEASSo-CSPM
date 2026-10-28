@@ -4880,6 +4880,17 @@ def _azure_storage_virtual_network_rules(acls):
     return allowed, unresolved
 
 
+def _azure_storage_bypass(acls):
+    """ARM NetworkRuleSet defaults the trusted-service exception to AzureServices."""
+    value = acls.get("bypass", "AzureServices")
+    if not isinstance(value, str):
+        return None
+    if value == "None":
+        return set()
+    entries = {part.strip() for part in value.split(",")}
+    return entries if entries and entries <= {"AzureServices", "Logging", "Metrics"} else None
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
@@ -4898,13 +4909,19 @@ def _azure_storage(snapshot, inventory, resource):
         public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public)
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
         subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
+        bypass = _azure_storage_bypass(acls)
         if public or instances or subnets:
             a.step("network_rules", "allow", default_action="Deny", public_ip_rules=public,
                    resource_instance_rules=instances, virtual_network_rules=subnets)
             if unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
                 a.notes.append("Other storage account network rule entries are malformed or incomplete")
-        elif unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
-            a.gap("firewall", "storage account IP, resource-instance or subnet rules are malformed or incomplete")
+        elif unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets or bypass is None:
+            a.gap("firewall", "storage account IP, resource-instance, subnet or trusted-service bypass rules are malformed or incomplete")
+            a.ports = None
+            return a
+        elif bypass:
+            a.step("trusted_service_exception", "allow", bypass=sorted(bypass), default_action="Deny")
+            a.gap("authorization", "trusted Azure service exception requires service identity and data authorization")
             a.ports = None
             return a
         else:
@@ -4964,14 +4981,17 @@ def _azure_storage_container(snapshot, inventory, resource):
         public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public, service="blob")
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
         subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
+        bypass = _azure_storage_bypass(acls)
         if public or instances or subnets:
             a.step("firewall", "allow", default_action="Deny", public_ip_rules=public,
                    resource_instance_rules=instances, virtual_network_rules=subnets)
             if unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
                 a.notes.append("Other storage account network rule entries are malformed or incomplete")
-        elif unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
-            a.gap("firewall", "storage account IP, resource-instance or subnet rules are malformed or incomplete")
+        elif unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets or bypass is None:
+            a.gap("firewall", "storage account IP, resource-instance, subnet or trusted-service bypass rules are malformed or incomplete")
         else:
+            if bypass:
+                a.step("trusted_service_exception", "authenticated_only", bypass=sorted(bypass))
             a.step("firewall", "block", default_action="Deny")
             a.ports = {}
             return a
@@ -6926,6 +6946,15 @@ def _observed(assessment, status):
                     f"permits subnet {subnet_id} through its public endpoint.\n"
                     "Requests from that subnet may reach storage if its service endpoint and the service respond.\n"
                     "Subnet ownership, data authorization, and successful access were not tested.")
+    if assessment.resource["type"] == "storage_account" and status == "UNKNOWN":
+        exception = next((step for step in assessment.path
+                          if step["layer"] == "trusted_service_exception"), None)
+        if exception is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The storage account {name} denies unmatched network sources but records "
+                    f"trusted-service bypass {', '.join(exception['bypass'])}.\n"
+                    "Those Azure services may use its public endpoint from outside the account network boundary.\n"
+                    "Service identity, data authorization, and a successful request were not observed.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":

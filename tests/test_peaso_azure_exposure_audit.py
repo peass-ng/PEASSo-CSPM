@@ -667,13 +667,45 @@ def test_storage_account_deny_default_retains_public_ip_rule_exposure():
     assert decision("storage_account", {**base, "networkAcls": {"defaultAction": "Deny",
         "ipRules": [{"value": "8.8.8.8/32", "action": "Allow"}]}}).verdict() == "FAIL"
     assert decision("storage_account", {**base, "networkAcls": {"defaultAction": "Deny",
-        "ipRules": [{"value": "10.0.0.0/8", "action": "Allow"}]}}).verdict() == "PASS"
+        "bypass": "None", "ipRules": [{"value": "10.0.0.0/8", "action": "Allow"}]}}).verdict() == "PASS"
     assert decision("storage_account", {**base, "networkAcls": {"defaultAction": "Deny",
         "ipRules": [{"value": "invalid"}]}}).verdict() == "UNKNOWN"
     assert decision("storage_account", {**base, "publicNetworkAccess": "SecuredByPerimeter",
         "networkAcls": {"defaultAction": "Allow"}}).verdict() == "UNKNOWN"
     assert decision("storage_account", {**base, "publicNetworkAccess": "SecuredByPerimeter",
         "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
+
+
+def test_storage_trusted_service_bypass_is_not_an_anonymous_public_source():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    base = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,
+            "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
+
+    def account_and_container(bypass):
+        acls = {"defaultAction": "Deny"}
+        if bypass is not None:
+            acls["bypass"] = bypass
+        account = {"id": account_id, "properties": {**base, "networkAcls": acls}}
+        container = {"id": account_id + "/blobServices/default/containers/public",
+                     "parent_id": account_id, "properties": {"publicAccess": "Blob"}}
+        snapshot = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [account]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [container]}])
+        rows = assess(snapshot, resources(snapshot))
+        return (next(row for row in rows if row.resource["type"] == "storage_account"),
+                next(row for row in rows if row.resource["type"] == "storage_container"))
+
+    account, anonymous = account_and_container("AzureServices, Logging")
+    assert account.verdict() == "UNKNOWN" and anonymous.verdict() == "PASS"
+    assert "trusted-service bypass AzureServices, Logging" in _observed(account, "UNKNOWN")
+    assert any(step["layer"] == "trusted_service_exception" and
+               step["decision"] == "authenticated_only" for step in anonymous.path)
+    assert account_and_container("None")[0].verdict() == "PASS"
+    assert account_and_container(None)[0].verdict() == "UNKNOWN"
+    assert account_and_container("unknown-service")[0].verdict() == "UNKNOWN"
+    assert account_and_container("unknown-service")[1].verdict() == "UNKNOWN"
 
 
 def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint():
@@ -689,7 +721,7 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
             {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
              "items": [{"id": account_id, "properties": {"publicNetworkAccess": "Enabled",
                  "allowBlobPublicAccess": True, "primaryEndpoints": {"blob": blob_url},
-                 "networkAcls": {"defaultAction": "Deny", "resourceAccessRules": rules,
+                 "networkAcls": {"defaultAction": "Deny", "bypass": "None", "resourceAccessRules": rules,
                                  "virtualNetworkRules": subnet_rules or []}}}]},
             {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
              "items": [container]},
@@ -732,7 +764,7 @@ def test_storage_published_ipv6_endpoint_rules_are_public_sources():
     def account_and_container(rule, *, published=True, endpoint=True, ipv6_service="blob"):
         props = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,
                  "dualStackEndpointPreference": {"publishIpv6Endpoint": published},
-                 "networkAcls": {"defaultAction": "Deny", "ipv6Rules": [rule]},
+                 "networkAcls": {"defaultAction": "Deny", "bypass": "None", "ipv6Rules": [rule]},
                  "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
         if endpoint:
             props["primaryEndpoints"]["ipv6Endpoints"] = {ipv6_service: ipv6_url}
