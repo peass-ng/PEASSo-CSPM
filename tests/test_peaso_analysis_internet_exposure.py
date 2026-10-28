@@ -5767,6 +5767,496 @@ def test_gcp_alloydb_data_api_exposes_private_ip_instance_only_when_enabled():
         assert _gcp_alloydb(None, None, resource) is None
 
 
+def test_gcp_alloydb_psc_external_consumer_allowance_stays_unknown():
+    name = "projects/p1/locations/us/clusters/c/instances/i"
+    instance = {"name": name, "networkConfig": {"enablePublicIp": False},
+                "pscInstanceConfig": {
+                    "serviceAttachmentLink": "projects/tenant-123/regions/us/serviceAttachments/a",
+                    "allowedConsumerProjects": ["111", "222"]}}
+    project = {"projectId": "p1", "projectNumber": "111"}
+
+    def rows(include_project=True):
+        collections = [gcoll("alloydb_instance", [instance], service="alloydb")]
+        if include_project:
+            collections.append(gcoll("project", [project], service="cloudresourcemanager"))
+        return [row for row in analyze(gcp(*collections))["findings"]
+                if row["check_id"] == "analysis.gcp_alloydb_psc_external_consumer"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["consumer_projects"] == ["222"]
+    assert_gcp_observed_style(findings[0], name)
+    assert "database services or data" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    assert rows(include_project=False) == []  # Numeric owner identity is unresolved.
+    instance["pscInstanceConfig"]["allowedConsumerProjects"] = ["111"]
+    assert rows() == []
+    instance["pscInstanceConfig"]["allowedConsumerProjects"] = ["222"]
+    instance["pscInstanceConfig"].pop("serviceAttachmentLink")
+    assert rows() == []
+    instance["pscInstanceConfig"]["serviceAttachmentLink"] = "projects/tenant-123/regions/us/serviceAttachments/a"
+    instance["pscInstanceConfig"]["allowedConsumerProjects"] = []
+    connections = instance["pscInstanceConfig"]["pscAutoConnections"] = [{
+        "consumerProject": "222", "consumerNetwork": "projects/p2/global/networks/consumer",
+        "ipAddress": "10.2.0.5", "status": "ACTIVE"}]
+    active = [row for row in analyze(gcp(gcoll("alloydb_instance", [instance], service="alloydb"),
+                                       gcoll("project", [project], service="cloudresourcemanager")))["findings"]
+              if row["check_id"] == "analysis.gcp_alloydb_psc_active_external_connection"]
+    assert len(active) == 1 and active[0]["status"] == "UNKNOWN"
+    assert active[0]["evidence"]["active_connections"][0]["endpoint_ip"] == "10.2.0.5"
+    assert_gcp_observed_style(active[0], name)
+    connections[0]["status"] = "CREATING"
+    assert not any(row["check_id"] == "analysis.gcp_alloydb_psc_active_external_connection"
+                   for row in analyze(gcp(gcoll("alloydb_instance", [instance], service="alloydb"),
+                                          gcoll("project", [project], service="cloudresourcemanager")))["findings"])
+
+
+def test_gcp_router_custom_bgp_advertisement_needs_effective_route_join():
+    router = {"name": "router-a", "bgpPeers": [{
+        "name": "peer-a", "peerAsn": 65002, "peerIpAddress": "169.254.0.2",
+        "enable": "TRUE", "advertiseMode": "CUSTOM",
+        "advertisedGroups": ["ALL_SUBNETS"], "advertisedIpRanges": [{"range": "10.8.0.0/16"}]}]}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("router", [router])))["findings"]
+                if row["check_id"] == "analysis.gcp_router_bgp_route_advertisement"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["exported_peers"][0]["all_subnets"] is True
+    assert_gcp_observed_style(findings[0], "router-a")
+    router["bgpPeers"][0]["enable"] = "FALSE"
+    assert rows() == []
+    router["bgpPeers"][0]["enable"] = "TRUE"
+    router["bgpPeers"][0]["advertisedGroups"] = []
+    assert len(rows()) == 1  # The explicit CIDR still advertises a route.
+    router["bgpPeers"][0]["advertisedIpRanges"] = []
+    assert rows() == []
+
+
+def test_gcp_active_interconnect_attachment_needs_bgp_and_firewall_joins():
+    attachment = {"name": "vlan-a", "type": "PARTNER", "state": "ACTIVE",
+                  "operationalStatus": "OS_ACTIVE", "adminEnabled": True,
+                  "router": "projects/p1/regions/us-central1/routers/router-a",
+                  "customerRouterIpAddress": "169.254.10.2/29", "pairingKey": "secret-pairing-key"}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("interconnect_attachment", [attachment])))["findings"]
+                if row["check_id"] == "analysis.gcp_interconnect_active_attachment"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(findings[0], "vlan-a")
+    assert "secret-pairing-key" not in str(findings[0]["evidence"])
+    attachment["operationalStatus"] = "OS_UNPROVISIONED"
+    assert rows() == []
+    attachment["operationalStatus"] = "OS_ACTIVE"
+    attachment["adminEnabled"] = False
+    assert rows() == []
+
+
+def test_gcp_active_ncc_vpc_spoke_cross_project_hub_is_unknown():
+    spoke = {"name": "projects/111/locations/global/spokes/vpc-a", "state": "ACTIVE",
+             "hub": "projects/222/locations/global/hubs/hub-b",
+             "linkedVpcNetwork": {"uri": "projects/p1/global/networks/vpc-a"}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("network_connectivity_spoke", [spoke],
+                                           service="networkconnectivity")))["findings"]
+                if row["check_id"] == "analysis.gcp_ncc_cross_project_vpc_spoke"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["hub_project"] == "222"
+    assert_gcp_observed_style(findings[0], spoke["name"])
+    spoke["state"] = "INACTIVE"
+    assert rows() == []
+    spoke["state"] = "ACTIVE"
+    spoke["hub"] = "projects/111/locations/global/hubs/hub-a"
+    assert rows() == []
+    spoke["hub"] = "projects/222/locations/global/hubs/hub-b"
+    spoke["linkedVpcNetwork"] = {}
+    assert rows() == []
+
+
+def test_gcp_redis_cluster_active_cross_project_psc_is_topology_only():
+    name = "projects/p1/locations/us-central1/clusters/cache-a"
+    connection = {"pscConnectionStatus": "PSC_CONNECTION_STATUS_ACTIVE",
+                  "connectionType": "CONNECTION_TYPE_DISCOVERY", "projectId": "consumer-p2",
+                  "network": "projects/consumer-p2/global/networks/client",
+                  "forwardingRule": "projects/consumer-p2/regions/us-central1/forwardingRules/cache",
+                  "address": "10.3.0.5", "port": 6379}
+    cluster = {"name": name, "state": "ACTIVE", "authorizationMode": "AUTH_MODE_DISABLED",
+               "transitEncryptionMode": "TRANSIT_ENCRYPTION_MODE_DISABLED",
+               "clusterEndpoints": [{"connections": [{"pscConnection": connection}]}]}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("redis_cluster", [cluster], service="redis")))["findings"]
+                if row["check_id"] == "analysis.gcp_redis_cluster_cross_project_psc"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["active_cross_project_connections"][0]["port"] == 6379
+    assert_gcp_observed_style(findings[0], name)
+    assert "cached application data" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    connection["projectId"] = "p1"
+    assert rows() == []
+    connection["projectId"] = "consumer-p2"
+    connection["pscConnectionStatus"] = "PSC_CONNECTION_STATUS_NOT_FOUND"
+    assert rows() == []
+    connection["pscConnectionStatus"] = "PSC_CONNECTION_STATUS_ACTIVE"
+    connection["network"] = "projects/other/global/networks/client"
+    assert rows() == []
+    connection["network"] = "projects/consumer-p2/global/networks/client"
+    connection.pop("port")
+    no_port = rows()
+    assert len(no_port) == 1 and no_port[0]["evidence"]["active_cross_project_connections"][0]["port"] is None
+    cluster["state"] = "UPDATING"
+    assert rows() == []
+
+
+def test_gcp_valkey_active_cross_project_psc_is_topology_only():
+    name = "projects/p1/locations/us-central1/instances/cache-b"
+    connection = {"pscConnectionStatus": "ACTIVE", "connectionType": "CONNECTION_TYPE_DISCOVERY",
+                  "projectId": "consumer-p2", "network": "projects/consumer-p2/global/networks/client",
+                  "forwardingRule": "projects/consumer-p2/regions/us-central1/forwardingRules/cache",
+                  "ipAddress": "10.4.0.5", "port": 6379}
+    instance = {"name": name, "state": "ACTIVE", "authorizationMode": "AUTH_DISABLED",
+                "transitEncryptionMode": "TRANSIT_ENCRYPTION_DISABLED",
+                "endpoints": [{"connections": [{"pscConnection": connection}]}]}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("memorystore_instance", [instance], service="memorystore")))["findings"]
+                if row["check_id"] == "analysis.gcp_valkey_cross_project_psc"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["active_cross_project_connections"][0]["address"] == "10.4.0.5"
+    assert_gcp_observed_style(findings[0], name)
+    assert "cached application data" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    connection["pscConnectionStatus"] = "NOT_FOUND"
+    assert rows() == []
+    connection["pscConnectionStatus"] = "ACTIVE"
+    connection["projectId"] = "p1"
+    assert rows() == []
+    connection["projectId"] = "consumer-p2"
+    connection["forwardingRule"] = "projects/other/regions/us-central1/forwardingRules/cache"
+    assert rows() == []
+    connection["forwardingRule"] = "projects/consumer-p2/regions/us-central1/forwardingRules/cache"
+    instance["state"] = "MIGRATING"
+    assert rows() == []
+
+
+def test_gcp_managed_kafka_public_cluster_keeps_auth_join_unknown():
+    name = "projects/111/locations/us-central1/clusters/events-a"
+    cluster = {"name": name, "state": "ACTIVE",
+               "gcpConfig": {"accessConfig": {"publicClusterConfig": {
+                   "allowedSourceIpRanges": ["8.8.8.0/24"]}}},
+               "publicClusterDetails": {"externalIpAddresses": ["34.4.4.4"]}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("managed_kafka_cluster", [cluster],
+                                           service="managedkafka")))["findings"]
+                if row["check_id"] == "analysis.gcp_managed_kafka_public_cluster"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["allowed_public_source_ranges"] == ["8.8.8.0/24"]
+    assert findings[0]["evidence"]["external_addresses"] == ["34.4.4.4"]
+    assert_gcp_observed_style(findings[0], name)
+    assert "application data" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    cluster.pop("publicClusterDetails")
+    assert rows()[0]["status"] == "UNKNOWN"
+    cluster["gcpConfig"]["accessConfig"]["publicClusterConfig"]["allowedSourceIpRanges"] = ["10.0.0.0/24"]
+    assert rows() == []
+    cluster["gcpConfig"]["accessConfig"]["publicClusterConfig"]["allowedSourceIpRanges"] = ["8.0.0.0/8"]
+    assert rows() == []
+    cluster["gcpConfig"]["accessConfig"]["publicClusterConfig"]["allowedSourceIpRanges"] = ["8.8.8.0/24"]
+    cluster["state"] = "UPDATING"
+    assert rows() == []
+
+
+def test_gcp_managed_kafka_cross_project_subnet_requires_owner_alias():
+    name = "projects/111/locations/us-central1/clusters/events-b"
+    subnet = "projects/consumer-p2/regions/us-central1/subnetworks/client"
+    cluster = {"name": name, "state": "ACTIVE", "gcpConfig": {"accessConfig": {
+        "networkConfigs": [{"subnet": subnet}]}}}
+    project = {"projectId": "p1", "projectNumber": "111"}
+
+    def rows(include_project=True):
+        collections = [gcoll("managed_kafka_cluster", [cluster], service="managedkafka")]
+        if include_project:
+            collections.append(gcoll("project", [project], service="cloudresourcemanager"))
+        return [row for row in analyze(gcp(*collections))["findings"]
+                if row["check_id"] == "analysis.gcp_managed_kafka_cross_project_subnet"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["cross_project_subnets"][0]["subnet"] == subnet
+    assert_gcp_observed_style(findings[0], name)
+    assert "application messages" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    assert rows(include_project=False) == []
+    cluster["gcpConfig"]["accessConfig"]["networkConfigs"] = [{
+        "subnet": "projects/p1/regions/us-central1/subnetworks/client"}]
+    assert rows() == []
+    cluster["gcpConfig"]["accessConfig"]["networkConfigs"] = [{
+        "subnet": "projects/consumer-p2/regions/europe-west1/subnetworks/client"}]
+    assert rows() == []
+    cluster["gcpConfig"]["accessConfig"]["networkConfigs"] = [{"subnet": subnet}]
+    cluster["state"] = "UPDATING"
+    assert rows() == []
+
+
+def test_gcp_running_batch_job_external_ip_setting_needs_vm_join():
+    name = "projects/p1/locations/us-central1/jobs/job-a"
+    job = {"name": name, "status": {"state": "RUNNING"},
+           "allocationPolicy": {"instances": [{}], "network": {"networkInterfaces": [{
+               "network": "projects/p1/global/networks/default",
+               "subnetwork": "projects/p1/regions/us-central1/subnetworks/default",
+               "noExternalIpAddress": False}]}}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("batch_network_job", [job], service="batch")))["findings"]
+                if row["check_id"] == "analysis.gcp_batch_external_ip_eligible"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["no_external_ip_address"] is False
+    assert_gcp_observed_style(findings[0], name)
+    assert "job software or data" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    job["allocationPolicy"]["instances"] = [{"instanceTemplate": "projects/p1/global/instanceTemplates/t"}]
+    assert rows() == []
+    job["allocationPolicy"]["instances"] = [{}]
+    job["allocationPolicy"]["network"]["networkInterfaces"][0]["noExternalIpAddress"] = True
+    assert rows() == []
+    job["allocationPolicy"]["network"]["networkInterfaces"][0]["noExternalIpAddress"] = False
+    job["status"]["state"] = "SUCCEEDED"
+    assert rows() == []
+
+
+def test_gcp_running_dataflow_public_worker_needs_address_and_firewall_join():
+    name = "projects/p1/locations/us-central1/jobs/job-b"
+    job = {"name": name, "currentState": "JOB_STATE_RUNNING",
+           "environment": {"workerPools": [{"network": "default",
+                                            "subnetwork": "regions/us-central1/subnetworks/default",
+                                            "ipConfiguration": "WORKER_IP_PUBLIC"}]}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("dataflow_network_job", [job], service="dataflow")))["findings"]
+                if row["check_id"] == "analysis.gcp_dataflow_public_worker"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["public_worker_pools"][0]["network"] == "default"
+    assert_gcp_observed_style(findings[0], name)
+    assert "worker software or data" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    job["environment"]["workerPools"][0]["ipConfiguration"] = "WORKER_IP_PRIVATE"
+    assert rows() == []
+    job["environment"]["workerPools"][0]["ipConfiguration"] = "WORKER_IP_PUBLIC"
+    job["currentState"] = "JOB_STATE_DONE"
+    assert rows() == []
+
+
+def test_gcp_datastream_cross_project_psc_attachment_is_topology_only():
+    name = "projects/p1/locations/us-central1/privateConnections/private-a"
+    attachment = "projects/consumer-p2/regions/us-central1/networkAttachments/client"
+    connection = {"name": name, "state": "CREATED",
+                  "pscInterfaceConfig": {"networkAttachment": attachment}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("datastream_private_connection", [connection],
+                                           service="datastream")))["findings"]
+                if row["check_id"] == "analysis.gcp_datastream_cross_project_psc"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["network_attachment"] == attachment
+    assert_gcp_observed_style(findings[0], name)
+    assert "database services" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    connection["pscInterfaceConfig"]["networkAttachment"] = "projects/p1/regions/us-central1/networkAttachments/client"
+    assert rows() == []
+    connection["pscInterfaceConfig"]["networkAttachment"] = "projects/consumer-p2/regions/europe-west1/networkAttachments/client"
+    assert rows() == []
+    connection["pscInterfaceConfig"]["networkAttachment"] = attachment
+    connection["state"] = "CREATING"
+    assert rows() == []
+
+
+def test_gcp_database_migration_cross_project_psc_attachment_is_topology_only():
+    name = "projects/p1/locations/us-central1/privateConnections/private-b"
+    attachment = "projects/consumer-p2/regions/us-central1/networkAttachments/client"
+    connection = {"name": name, "state": "CREATED",
+                  "pscInterfaceConfig": {"networkAttachment": attachment}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("migration_private_connection", [connection],
+                                           service="datamigration")))["findings"]
+                if row["check_id"] == "analysis.gcp_database_migration_cross_project_psc"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["attachment_project"] == "consumer-p2"
+    assert_gcp_observed_style(findings[0], name)
+    assert "source database services" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    connection["pscInterfaceConfig"]["networkAttachment"] = "projects/p1/regions/us-central1/networkAttachments/client"
+    assert rows() == []
+    connection["pscInterfaceConfig"]["networkAttachment"] = attachment
+    connection["state"] = "FAILED"
+    assert rows() == []
+
+
+def test_gcp_datastream_cross_project_vpc_peering_needs_route_and_profile():
+    name = "projects/p1/locations/us-central1/privateConnections/private-c"
+    vpc = "projects/consumer-p2/global/networks/client"
+    connection = {"name": name, "state": "CREATED",
+                  "vpcPeeringConfig": {"vpcName": vpc, "subnet": "10.30.0.0/29"}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("datastream_private_connection", [connection],
+                                           service="datastream")))["findings"]
+                if row["check_id"] == "analysis.gcp_datastream_cross_project_vpc_peering"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["peer_vpc"] == vpc
+    assert_gcp_observed_style(findings[0], name)
+    assert "source database services" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    connection["vpcPeeringConfig"] = {"vpc": vpc, "subnet": "10.30.0.0/29"}
+    assert len(rows()) == 1
+    connection["vpcPeeringConfig"]["vpcName"] = "projects/other/global/networks/client"
+    assert rows() == []
+    connection["vpcPeeringConfig"] = {"vpc": vpc, "subnet": "10.30.0.0/28"}
+    assert rows() == []
+    connection["vpcPeeringConfig"] = {"vpc": "projects/p1/global/networks/client", "subnet": "10.30.0.0/29"}
+    assert rows() == []
+    connection["vpcPeeringConfig"]["vpc"] = vpc
+    connection["state"] = "CREATING"
+    assert rows() == []
+
+
+def test_gcp_database_migration_cross_project_vpc_peering_needs_route_and_job():
+    name = "projects/p1/locations/us-central1/privateConnections/private-d"
+    vpc = "projects/consumer-p2/global/networks/client"
+    connection = {"name": name, "state": "CREATED",
+                  "vpcPeeringConfig": {"vpcName": vpc, "subnet": "10.31.0.0/29"}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("migration_private_connection", [connection],
+                                           service="datamigration")))["findings"]
+                if row["check_id"] == "analysis.gcp_database_migration_cross_project_vpc_peering"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["peer_vpc"] == vpc
+    assert_gcp_observed_style(findings[0], name)
+    assert "source database services" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    connection["vpcPeeringConfig"]["subnet"] = "bad"
+    assert rows() == []
+    connection["vpcPeeringConfig"]["subnet"] = "10.31.0.0/29"
+    connection["vpcPeeringConfig"]["vpcName"] = "projects/p1/global/networks/client"
+    assert rows() == []
+    connection["vpcPeeringConfig"]["vpcName"] = vpc
+    connection["state"] = "FAILED"
+    assert rows() == []
+
+
+def test_gcp_public_nat_is_outbound_configuration_only():
+    router = {"name": "router-a", "nats": [{
+        "name": "nat-a", "type": "PUBLIC", "sourceSubnetworkIpRangesToNat": "ALL_SUBNETWORKS_ALL_IP_RANGES",
+        "natIpAllocateOption": "AUTO_ONLY"}]}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("router", [router])))["findings"]
+                if row["check_id"] == "analysis.gcp_public_nat_egress"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(findings[0], "nat-a")
+    assert "no unsolicited inbound" in findings[0]["evidence"]["semantics"]
+    router["nats"].append({"name": "nat-b", "type": "PUBLIC",
+                           "sourceSubnetworkIpRangesToNat": "LIST_OF_SUBNETWORKS",
+                           "subnetworks": [{"name": "projects/p1/regions/us/subnetworks/s"}],
+                           "natIpAllocateOption": "MANUAL_ONLY", "natIps": ["projects/p1/regions/us/addresses/a"]})
+    findings = rows()
+    assert len(findings) == 2 and len({row["id"] for row in findings}) == 2
+    router["nats"][0]["type"] = "PRIVATE"
+    assert len(rows()) == 1
+    router["nats"][1]["natIps"] = []
+    assert rows() == []
+
+
+def test_gcp_enforced_perimeter_wildcard_ingress_requires_iam_join():
+    rule = {"ingressFrom": {"identityType": "ANY_IDENTITY", "sources": [{"accessLevel": "*"}]},
+            "ingressTo": {"resources": ["*"], "operations": [{"serviceName": "*"}]}}
+    perimeter = {"name": "accessPolicies/123/servicePerimeters/p", "perimeterType": "PERIMETER_TYPE_REGULAR",
+                 "status": {"ingressPolicies": [rule]}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("service_perimeter", [perimeter],
+                                           service="accesscontextmanager")))["findings"]
+                if row["check_id"] == "analysis.gcp_perimeter_broad_ingress"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["enforced_rule_indexes"] == [0]
+    assert_gcp_observed_style(findings[0], perimeter["name"])
+    perimeter["status"] = {"ingressPolicies": []}
+    perimeter["spec"] = {"ingressPolicies": [rule]}
+    assert rows() == []  # Dry-run policy is not enforced.
+    perimeter["status"]["ingressPolicies"] = [rule]
+    rule["ingressFrom"]["identityType"] = "ANY_SERVICE_ACCOUNT"
+    assert rows() == []
+    rule["ingressFrom"]["identityType"] = "ANY_IDENTITY"
+    perimeter["perimeterType"] = "PERIMETER_TYPE_BRIDGE"
+    assert rows() == []
+
+
+def test_gcp_filestore_public_source_nfs_export_needs_route_join():
+    instance = {"name": "projects/p1/locations/us/instances/files", "state": "READY",
+                "networks": [{"network": "projects/p1/global/networks/vpc",
+                              "connectMode": "PRIVATE_SERVICE_ACCESS", "ipAddresses": ["10.2.0.4"]}],
+                "fileShares": [{"name": "shared", "nfsExportOptions": [
+                    {"ipRanges": ["8.8.8.0/24"], "accessMode": "READ_ONLY"}]}]}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("filestore_instance", [instance],
+                                           service="file")))["findings"]
+                if row["check_id"] == "analysis.gcp_filestore_public_nfs_export"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["public_source_exports"][0]["access_mode"] == "READ_ONLY"
+    assert_gcp_observed_style(findings[0], instance["name"])
+    instance["fileShares"][0]["nfsExportOptions"][0]["ipRanges"] = ["10.8.0.0/16"]
+    assert rows() == []
+    instance["fileShares"][0]["nfsExportOptions"][0]["ipRanges"] = ["8.8.8.0/24"]
+    instance["state"] = "CREATING"
+    assert rows() == []
+
+
+def test_gcp_netapp_nfs_export_public_client_needs_route_join():
+    volume = {"name": "projects/p1/locations/us/volumes/shared", "state": "READY",
+              "network": "projects/p1/global/networks/vpc", "protocols": ["NFSV3"],
+              "exportPolicy": {"rules": [{"allowedClients": "10.8.0.0/16, 8.8.8.0/24",
+                                          "accessType": "READ_ONLY", "nfsv3": True}]}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("netapp_volume", [volume], service="netapp")))["findings"]
+                if row["check_id"] == "analysis.gcp_netapp_public_nfs_export"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["public_source_exports"][0]["source_ranges"] == ["8.8.8.0/24"]
+    assert_gcp_observed_style(findings[0], volume["name"])
+    volume["exportPolicy"]["rules"][0]["allowedClients"] = "10.8.0.0/16"
+    assert rows() == []
+    volume["exportPolicy"]["rules"][0]["allowedClients"] = "8.8.8.0/24"
+    volume["exportPolicy"]["rules"][0]["nfsv3"] = False
+    assert rows() == []
+    volume["exportPolicy"]["rules"][0]["nfsv3"] = True
+    volume["state"] = "DISABLED"
+    assert rows() == []
+
+
 def test_gcp_public_resource_iam_is_reported_with_conditions_and_read_status():
     secret = {"name": "projects/p1/secrets/s", "iamPolicy": {"bindings": [
         {"role": "roles/secretmanager.secretAccessor", "members": ["allUsers"]}]},

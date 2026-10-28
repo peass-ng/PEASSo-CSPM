@@ -9223,6 +9223,1242 @@ def gcp_pubsub_public_grant_findings(snapshot, resources):
     return output
 
 
+def gcp_eventarc_message_bus_publish_grant_findings(snapshot, resources):
+    """Report exact direct Message Bus User grants to public or cross-project principals."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    role = "roles/eventarc.messageBusUser"
+    for resource in resources:
+        if resource["type"] != "eventarc_message_bus" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        coverage = data.get("_coverage", {}).get("iamPolicy") if isinstance(data.get("_coverage"), dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected") or
+                isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = []
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict) or binding.get("role") != role:
+                continue
+            for member in as_list(binding.get("members")):
+                if member in ("allUsers", "allAuthenticatedUsers"):
+                    grants.append({"member": member, "principal_scope": "public",
+                                   "condition": binding.get("condition"), "role": role})
+        grants.extend({**grant, "principal_scope": "cross_project_service_account"}
+                      for grant in _gcp_cross_project_sa_grants(policy, project, role))
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        chosen = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
+        first = (f"The Eventarc message bus {name} directly grants {role} to {chosen['member']}."
+                 if unconditional else
+                 f"The Eventarc message bus {name} conditionally grants {role} to {chosen['member']}.")
+        observed = "\n".join((
+            first,
+            "That role includes eventarc.messageBuses.publish on the recorded bus.",
+            "The principal may publish events if IAM conditions and other controls permit it.",
+            "Those events could affect people or services that consume this bus."))
+        evidence = {
+            "observed": observed,
+            "direct_publish_grants": grants,
+            "permission": "eventarc.messageBuses.publish",
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct permission declaration; IAM denies, project ownership, enrollment routing, event delivery and consumer behavior are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_eventarc_message_bus_publish_grant",
+                              "Public or cross-project Eventarc message bus publish grant",
+                              "high" if unconditional else "info", evidence,
+                              status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
+def gcp_eventarc_cross_project_enrollment_findings(snapshot, resources):
+    """Record configured cross-project bus-to-pipeline links without delivery claims."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "eventarc_enrollment" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        bus, destination = data.get("messageBus"), data.get("destination")
+        if not isinstance(bus, str) or not isinstance(destination, str):
+            continue
+        bus_match = re.fullmatch(r"projects/([a-z][a-z0-9-]*)/locations/[a-z0-9-]+/messageBuses/[^/?#]+", bus)
+        pipeline_match = re.fullmatch(r"projects/([a-z][a-z0-9-]*)/locations/[a-z0-9-]+/pipelines/[^/?#]+", destination)
+        if not bus_match or not pipeline_match or bus_match.group(1) == pipeline_match.group(1):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if project not in (bus_match.group(1), pipeline_match.group(1)):
+            continue
+        direction = "outbound" if project == bus_match.group(1) else "inbound"
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The Eventarc enrollment {name} names message bus {bus} and pipeline {destination}.",
+            f"Its configured {direction} route crosses from project {bus_match.group(1)} to project {pipeline_match.group(1)}.",
+            "Matching events may travel between these projects if the CEL filter, IAM and delivery path permit it.",
+            "Those events could carry data or trigger actions in the destination project."))
+        evidence = {
+            "observed": observed,
+            "message_bus": bus,
+            "destination_pipeline": destination,
+            "source_project": bus_match.group(1),
+            "destination_project": pipeline_match.group(1),
+            "direction": direction,
+            "source": source(snapshot, resource, "messageBus,destination"),
+            "risk_state": "unknown",
+            "semantics": "Configured cross-project enrollment only; CEL match, IAM, project ownership, pipeline targets, actual events and delivery are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_eventarc_cross_project_enrollment",
+                              "Cross-project Eventarc enrollment route", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_clouddeploy_external_releaser_findings(snapshot, resources):
+    """Record direct cross-project Cloud Deploy release creation grants."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    role = "roles/clouddeploy.releaser"
+    for resource in resources:
+        if resource["type"] != "clouddeploy_delivery_pipeline" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        envelope = data.get("_coverage")
+        coverage = envelope.get("iamPolicy") if isinstance(envelope, dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = _gcp_cross_project_sa_grants(policy, project, role)
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The Cloud Deploy pipeline {name} directly grants {role} to {grant['member']}."
+            if unconditional else
+            f"The Cloud Deploy pipeline {name} conditionally grants {role} to {grant['member']}.",
+            "That role includes clouddeploy.releases.create on this pipeline.",
+            "The named service account may create a release if IAM conditions and other controls permit it.",
+            "A release could change software that people use or data that the deployment handles."))
+        evidence = {
+            "observed": observed,
+            "direct_releaser_grants": grants,
+            "permission": "clouddeploy.releases.create",
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct pipeline release-creation permission declaration only; IAM denies, project ownership, release creation, rollout and target effects are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_clouddeploy_external_releaser",
+                              "Cross-project Cloud Deploy Releaser grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
+def gcp_ca_pool_external_certificate_requester_findings(snapshot, resources):
+    """Record direct cross-project CA-pool certificate-request permissions."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    role = "roles/privateca.certificateRequester"
+    for resource in resources:
+        if resource["type"] != "ca_pool" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        envelope = data.get("_coverage")
+        coverage = envelope.get("iamPolicy") if isinstance(envelope, dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = _gcp_cross_project_sa_grants(policy, project, role)
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The CA Service pool {name} directly grants {role} to {grant['member']}."
+            if unconditional else
+            f"The CA Service pool {name} conditionally grants {role} to {grant['member']}.",
+            "That role includes privateca.certificates.create on the recorded pool.",
+            "The named service account may request certificates if IAM and issuance controls permit it.",
+            "An issued certificate could affect the trust people or services place in an identity."))
+        evidence = {
+            "observed": observed,
+            "direct_requester_grants": grants,
+            "permission": "privateca.certificates.create",
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct CA-pool certificate-create permission declaration only; IAM denies, project ownership, issuance policy, active CA and actual issuance are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_ca_pool_external_certificate_requester",
+                              "Cross-project CA-pool certificate requester grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
+def gcp_iap_tunnel_external_accessor_findings(snapshot, resources):
+    """Record direct cross-project grants on an exact IAP tunnel instance."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    role = "roles/iap.tunnelResourceAccessor"
+    for resource in resources:
+        if resource["type"] != "iap_tunnel_policy" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        name = data.get("name")
+        if not isinstance(name, str) or not re.fullmatch(
+                r"projects/[^/]+/iap_tunnel/zones/[^/]+/instances/[^/]+", name):
+            continue
+        envelope = data.get("_coverage")
+        coverage = envelope.get("iamPolicy") if isinstance(envelope, dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"] or name.split("/", 2)[1] != project:
+            continue
+        grants = _gcp_cross_project_sa_grants(policy, project, role)
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        grant = (unconditional or grants)[0]
+        observed = "\n".join((
+            f"The IAP tunnel instance {name} directly grants {role} to {grant['member']}."
+            if unconditional else
+            f"The IAP tunnel instance {name} conditionally grants {role} to {grant['member']}.",
+            "That role includes iap.tunnelInstances.accessViaIAP for the recorded instance.",
+            "The named service account may request a TCP tunnel if IAM and network controls permit it.",
+            "A usable tunnel could expose software or data handled by the instance to that identity."))
+        evidence = {
+            "observed": observed,
+            "direct_tunnel_grants": grants,
+            "permission": "iap.tunnelInstances.accessViaIAP",
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct instance-level IAP permission declaration only; IAM denies, project ownership, IAP source firewall, destination port and guest listener are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_iap_tunnel_external_accessor",
+                              "Cross-project IAP tunnel-instance grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
+def gcp_alloydb_psc_external_consumer_findings(snapshot, resources):
+    """Record AlloyDB PSC consumer allowances and active automated connections."""
+    if snapshot["provider"] != "gcp":
+        return []
+    projects = {resource["scope"]: str(resource["data"]["projectNumber"])
+                for resource in resources if resource["type"] == "project" and
+                isinstance(resource.get("data"), dict) and
+                resource["data"].get("projectNumber") is not None}
+    output = []
+    for resource in resources:
+        if resource["type"] != "alloydb_instance" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        config = data.get("pscInstanceConfig")
+        attachment = config.get("serviceAttachmentLink") if isinstance(config, dict) else None
+        if not isinstance(attachment, str) or not re.fullmatch(
+                r"projects/[^/]+/regions/[^/]+/serviceAttachments/[^/]+", attachment):
+            continue
+        owner_id = resource["scope"].removeprefix("projects/")
+        owner_number = projects.get(resource["scope"])
+        if not owner_id or owner_id == resource["scope"] or not owner_number or not owner_number.isdecimal():
+            continue
+        consumers = config.get("allowedConsumerProjects")
+        external = sorted({value for value in consumers if isinstance(value, str) and
+                           value.isdecimal() and value != owner_number}) if isinstance(consumers, list) else []
+        name = data.get("name", native_id(resource))
+        if external:
+            observed = "\n".join((
+                f"The AlloyDB instance {name} has PSC allowedConsumerProjects {external} and serviceAttachmentLink {attachment}.",
+                f"Its owning project is {owner_id} with project number {owner_number}.",
+                "A consumer in a named project may create a private endpoint to this attachment if its network controls permit it.",
+                "That could let users in another project reach database services or data if identity and database access permit it."))
+            evidence = {
+                "observed": observed,
+                "consumer_projects": external,
+                "service_attachment": attachment,
+                "owner_project_id": owner_id,
+                "owner_project_number": owner_number,
+                "source": source(snapshot, resource, "pscInstanceConfig"),
+                "risk_state": "unknown",
+                "semantics": "Configured AlloyDB PSC consumer-project allowance only; endpoint existence, routes, IAM, database authentication, third-party ownership and data access are unresolved.",
+            }
+            output.append(finding(snapshot, resource, "exposure", "analysis.gcp_alloydb_psc_external_consumer",
+                                  "AlloyDB PSC consumer project access unresolved", "info", evidence,
+                                  status="UNKNOWN"))
+        connections = config.get("pscAutoConnections")
+        if not isinstance(connections, list):
+            continue
+        active = sorted((row for row in connections if isinstance(row, dict) and
+                         row.get("status") == "ACTIVE" and isinstance(row.get("consumerProject"), str) and
+                         row["consumerProject"].isdecimal() and row["consumerProject"] != owner_number and
+                         isinstance(row.get("consumerNetwork"), str) and row["consumerNetwork"]),
+                        key=lambda row: (row["consumerProject"], row["consumerNetwork"]))
+        if active:
+            targets = ", ".join(f"{row['consumerProject']} on {row['consumerNetwork']}" for row in active)
+            observed = "\n".join((
+                f"The AlloyDB instance {name} has PSC auto-connection status ACTIVE for consumer project and network {targets}.",
+                f"Its owning project is {owner_id} with number {owner_number}, and its service attachment is {attachment}.",
+                "A client in one of those consumer networks may reach a private endpoint if routes and identity controls admit it.",
+                "That could expose database services or data to users in another project if database access permits it."))
+            evidence = {
+                "observed": observed,
+                "active_connections": [{"consumer_project": row["consumerProject"],
+                                        "consumer_network": row["consumerNetwork"],
+                                        "endpoint_ip": row.get("ipAddress")} for row in active],
+                "connection_status": "ACTIVE",
+                "service_attachment": attachment,
+                "source": source(snapshot, resource, "pscInstanceConfig.pscAutoConnections"),
+                "risk_state": "unknown",
+                "semantics": "AlloyDB reports an active automated PSC connection; network routes, IAM, database authentication, third-party ownership and data access are unresolved.",
+            }
+            output.append(finding(snapshot, resource, "exposure", "analysis.gcp_alloydb_psc_active_external_connection",
+                                  "AlloyDB active PSC consumer path unresolved", "info", evidence,
+                                  status="UNKNOWN"))
+    return output
+
+
+def gcp_router_external_route_advertisement_findings(snapshot, resources):
+    """Record explicit BGP route exports without inferring remote reachability."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "router" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        peers = data.get("bgpPeers")
+        if not isinstance(peers, list):
+            continue
+        exported = []
+        for peer in peers:
+            if (not isinstance(peer, dict) or peer.get("enable") not in (None, "TRUE") or
+                    peer.get("advertiseMode") != "CUSTOM"):
+                continue
+            asn = peer.get("peerAsn")
+            if type(asn) is not int or not 0 < asn <= 4294967295 or not isinstance(peer.get("name"), str):
+                continue
+            groups = peer.get("advertisedGroups")
+            groups = groups if isinstance(groups, list) else []
+            subnet_group = "ALL_SUBNETS" in groups
+            ranges = peer.get("advertisedIpRanges")
+            ranges = ranges if isinstance(ranges, list) else []
+            cidrs = sorted({row["range"] for row in ranges if isinstance(row, dict) and
+                            isinstance(row.get("range"), str) and _cidr(row["range"]) is not None})
+            if not subnet_group and not cidrs:
+                continue
+            exported.append({"peer": peer["name"], "peer_asn": asn, "peer_ip": peer.get("peerIpAddress"),
+                             "all_subnets": subnet_group, "advertised_cidrs": cidrs})
+        if not exported:
+            continue
+        exported.sort(key=lambda row: (row["peer"], row["peer_asn"]))
+        first = exported[0]
+        name = data.get("name", native_id(resource))
+        advertised = "all VPC subnets" if first["all_subnets"] else ", ".join(first["advertised_cidrs"])
+        observed = "\n".join((
+            f"The Cloud Router {name} has enabled BGP peer {first['peer']} at ASN {first['peer_asn']} with CUSTOM advertised routes {advertised}.",
+            f"Its recorded peer IP is {first['peer_ip'] or 'unavailable'}, and {len(exported)} peer configuration(s) advertise explicit routes.",
+            "A client on a peer network may reach an advertised VPC destination if the BGP session and return routes exist.",
+            "That could expose workload services or data to users on the peer network if firewalls and identity controls admit them."))
+        evidence = {
+            "observed": observed,
+            "exported_peers": exported,
+            "source": source(snapshot, resource, "bgpPeers"),
+            "risk_state": "unknown",
+            "semantics": "Configured BGP advertisement only; session state, remote ownership, accepted routes, return path, firewall and workload access are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_router_bgp_route_advertisement",
+                              "Cloud Router BGP route-sharing path unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_interconnect_active_attachment_findings(snapshot, resources):
+    """Record a turned-up Interconnect VLAN attachment without inferring routes."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "interconnect_attachment" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        if (data.get("type") not in ("DEDICATED", "PARTNER") or data.get("state") != "ACTIVE" or
+                data.get("operationalStatus") != "OS_ACTIVE" or data.get("adminEnabled") is not True or
+                not isinstance(data.get("router"), str) or not data["router"]):
+            continue
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The Interconnect attachment {name} has type {data['type']}, state ACTIVE, operationalStatus OS_ACTIVE, and adminEnabled true.",
+            f"Its recorded Cloud Router is {data['router']}, with customer router address {data.get('customerRouterIpAddress') or 'unavailable'}.",
+            "A client on the connected network may reach a VPC destination if BGP and return routes are established.",
+            "That could expose workload services or data to users on that network if firewalls and identity controls admit them."))
+        evidence = {
+            "observed": observed,
+            "attachment_type": data["type"],
+            "attachment_state": "ACTIVE",
+            "operational_status": "OS_ACTIVE",
+            "cloud_router": data["router"],
+            "customer_router_ip": data.get("customerRouterIpAddress"),
+            "source": source(snapshot, resource, "state"),
+            "risk_state": "unknown",
+            "semantics": "Turned-up Interconnect attachment only; BGP session, accepted and return routes, remote ownership, firewall and workload access are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_interconnect_active_attachment",
+                              "Interconnect network path unresolved", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_ncc_cross_project_vpc_spoke_findings(snapshot, resources):
+    """Record an ACTIVE VPC spoke attached to another explicit hub project."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "network_connectivity_spoke" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        name, hub = data.get("name"), data.get("hub")
+        spoke_match = re.fullmatch(r"projects/(\d+)/locations/[^/]+/spokes/[^/]+", name) if isinstance(name, str) else None
+        hub_match = re.fullmatch(r"projects/([^/]+)/locations/global/hubs/[^/]+", hub) if isinstance(hub, str) else None
+        linked = data.get("linkedVpcNetwork")
+        vpc = linked.get("uri") if isinstance(linked, dict) else None
+        if (data.get("state") != "ACTIVE" or spoke_match is None or hub_match is None or
+                not isinstance(vpc, str) or not re.search(r"(?:^|/)projects/[^/]+/global/networks/[^/]+$", vpc)):
+            continue
+        spoke_project, hub_project = spoke_match.group(1), hub_match.group(1)
+        scope_project = resource["scope"].removeprefix("projects/")
+        if hub_project in (spoke_project, scope_project):
+            continue
+        observed = "\n".join((
+            f"The NCC VPC spoke {name} has state ACTIVE and hub {hub}.",
+            f"Its linked VPC is {vpc}, and the spoke project number is {spoke_project}.",
+            "A client on another hub spoke may reach this VPC if topology and exchanged routes admit the path.",
+            "That could expose workload services or data to users in the hub project if firewalls and identity controls permit it."))
+        evidence = {
+            "observed": observed,
+            "hub_project": hub_project,
+            "spoke_project_number": spoke_project,
+            "linked_vpc": vpc,
+            "hub": hub,
+            "source": source(snapshot, resource, "hub"),
+            "risk_state": "unknown",
+            "semantics": "ACTIVE cross-project NCC VPC spoke declaration only; topology, route export/import, remote ownership, firewall and workload access are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_ncc_cross_project_vpc_spoke",
+                              "NCC cross-project VPC path unresolved", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_public_nat_egress_findings(snapshot, resources):
+    """Record configured Public NAT egress, never an unsolicited inbound path."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "router" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        for nat in as_list(data.get("nats")):
+            if not isinstance(nat, dict) or nat.get("type") not in (None, "PUBLIC"):
+                continue
+            name = nat.get("name")
+            scope = nat.get("sourceSubnetworkIpRangesToNat")
+            if not isinstance(name, str) or scope not in (
+                    "ALL_SUBNETWORKS_ALL_IP_RANGES", "ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES", "LIST_OF_SUBNETWORKS"):
+                continue
+            subnetworks = [row.get("name") for row in as_list(nat.get("subnetworks"))
+                           if isinstance(row, dict) and isinstance(row.get("name"), str)]
+            if scope == "LIST_OF_SUBNETWORKS" and not subnetworks:
+                continue
+            allocation = nat.get("natIpAllocateOption")
+            nat_ips = [value for value in as_list(nat.get("natIps")) if isinstance(value, str) and value]
+            if allocation not in ("AUTO_ONLY", "MANUAL_ONLY") or allocation == "MANUAL_ONLY" and not nat_ips:
+                continue
+            router = data.get("name", native_id(resource))
+            observed = "\n".join((
+                f"The Cloud NAT {name} on router {router} has type {nat.get('type') or 'PUBLIC'} and sourceSubnetworkIpRangesToNat {scope}.",
+                f"Its natIpAllocateOption is {allocation}, with configured subnetworks {subnetworks or 'all router-network subnetworks'}.",
+                "A workload in the selected subnets may initiate outbound internet traffic if routes and egress rules admit it.",
+                "That could send workload data to outside services if software chooses an external destination."))
+            evidence = {
+                "observed": observed,
+                "nat_name": name,
+                "router": router,
+                "subnetwork_scope": scope,
+                "selected_subnetworks": subnetworks,
+                "ip_allocation": allocation,
+                "nat_ip_resources": nat_ips,
+                "source": source(snapshot, resource, "nats"),
+                "risk_state": "unknown",
+                "semantics": "Public NAT egress configuration only; no unsolicited inbound connection, workload destination, route, firewall or transmitted data is established.",
+            }
+            row = finding(snapshot, resource, "exposure", "analysis.gcp_public_nat_egress",
+                          "Cloud NAT outbound path unresolved", "info", evidence, status="UNKNOWN")
+            row["id"] = stable_id("exposure", "analysis.gcp_public_nat_egress", node_id(resource), name)
+            output.append(row)
+    return output
+
+
+def gcp_perimeter_broad_ingress_findings(snapshot, resources):
+    """Record an enforced wildcard ingress exception without inferring IAM access."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "service_perimeter" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        if data.get("perimeterType") not in (None, "PERIMETER_TYPE_REGULAR"):
+            continue
+        status = data.get("status")
+        if not isinstance(status, dict) or not isinstance(status.get("ingressPolicies"), list):
+            continue
+        matches = []
+        for index, rule in enumerate(status["ingressPolicies"]):
+            if not isinstance(rule, dict):
+                continue
+            ingress_from, ingress_to = rule.get("ingressFrom"), rule.get("ingressTo")
+            if not isinstance(ingress_from, dict) or not isinstance(ingress_to, dict):
+                continue
+            if (ingress_from.get("identityType") != "ANY_IDENTITY" or ingress_from.get("identities") or
+                    ingress_to.get("resources") != ["*"]):
+                continue
+            sources = ingress_from.get("sources")
+            operations = ingress_to.get("operations")
+            if (not isinstance(sources, list) or not any(isinstance(row, dict) and
+                    row.get("accessLevel") == "*" for row in sources) or
+                    not isinstance(operations, list) or not any(isinstance(row, dict) and
+                    row.get("serviceName") == "*" for row in operations)):
+                continue
+            matches.append(index)
+        if not matches:
+            continue
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The service perimeter {name} has enforced ingress identityType ANY_IDENTITY with source accessLevel *.",
+            f"Its status ingress rule {matches[0]} names resources * and serviceName *.",
+            "An outside identity may cross this perimeter boundary for a supported API request if other controls admit it.",
+            "That could expose protected service data to outside users if IAM also grants the requested access."))
+        evidence = {
+            "observed": observed,
+            "enforced_rule_indexes": matches,
+            "identity_type": "ANY_IDENTITY",
+            "source_access_level": "*",
+            "resource_scope": "*",
+            "service_scope": "*",
+            "source": source(snapshot, resource, "status.ingressPolicies"),
+            "risk_state": "unknown",
+            "semantics": "Enforced perimeter ingress exception only; IAM, API request, other policy controls and data access remain unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_perimeter_broad_ingress",
+                              "Broad VPC Service Controls ingress unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_filestore_public_nfs_export_findings(snapshot, resources):
+    """Record broad NFS export source settings without inferring a client route."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "filestore_instance" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        if data.get("state") != "READY":
+            continue
+        networks = [row for row in as_list(data.get("networks")) if isinstance(row, dict) and
+                    isinstance(row.get("network"), str) and row["network"]]
+        if len(networks) != 1:
+            continue
+        exports = []
+        for share in as_list(data.get("fileShares")):
+            if not isinstance(share, dict) or not isinstance(share.get("name"), str):
+                continue
+            for option in as_list(share.get("nfsExportOptions")):
+                if not isinstance(option, dict):
+                    continue
+                ranges = option.get("ipRanges")
+                if not isinstance(ranges, list):
+                    continue
+                public = sorted({value for value in ranges if isinstance(value, str) and
+                                 _cidr(value) is not None and _public_source(value)})
+                if public and option.get("accessMode") in (None, "READ_ONLY", "READ_WRITE"):
+                    exports.append({"share": share["name"], "source_ranges": public,
+                                    "access_mode": option.get("accessMode") or "READ_WRITE"})
+        if not exports:
+            continue
+        exports.sort(key=lambda row: (row["share"], row["access_mode"], row["source_ranges"]))
+        first = exports[0]
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The Filestore instance {name} has state READY and NFS share {first['share']} with export source ranges {first['source_ranges']}.",
+            f"Its accessMode is {first['access_mode']} on VPC {networks[0]['network']} using connectMode {networks[0].get('connectMode') or 'unavailable'}.",
+            "A client in a named source range may mount the share if a network route and any required authentication permit it.",
+            "That could expose files or personal data to users on a connected network if NFS access succeeds."))
+        evidence = {
+            "observed": observed,
+            "public_source_exports": exports,
+            "network": networks[0]["network"],
+            "connect_mode": networks[0].get("connectMode"),
+            "endpoint_ips": [value for value in as_list(networks[0].get("ipAddresses")) if isinstance(value, str)],
+            "source": source(snapshot, resource, "fileShares"),
+            "risk_state": "unknown",
+            "semantics": "Configured NFS export CIDR and access mode only; client route, VPN/peering, NFS authentication, file existence and successful mount are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_filestore_public_nfs_export",
+                              "Filestore cross-network NFS export unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_netapp_public_nfs_export_findings(snapshot, resources):
+    """Record NetApp NFS export client CIDRs without inferring a VPC route."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "netapp_volume" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        protocols = data.get("protocols")
+        if (data.get("state") != "READY" or not isinstance(data.get("network"), str) or
+                not isinstance(protocols, list) or not any(value in ("NFSV3", "NFSV4") for value in protocols)):
+            continue
+        policy = data.get("exportPolicy")
+        rules = policy.get("rules") if isinstance(policy, dict) else None
+        if not isinstance(rules, list):
+            continue
+        exports = []
+        for rule in rules:
+            if not isinstance(rule, dict) or rule.get("accessType") not in ("READ_ONLY", "READ_WRITE"):
+                continue
+            if rule.get("nfsv3") is not True and rule.get("nfsv4") is not True:
+                continue
+            clients = rule.get("allowedClients")
+            if not isinstance(clients, str):
+                continue
+            public = sorted({value.strip() for value in clients.split(",") if
+                             _cidr(value.strip()) is not None and _public_source(value.strip())})
+            if public:
+                exports.append({"source_ranges": public, "access_type": rule["accessType"],
+                                "nfsv3": rule.get("nfsv3") is True, "nfsv4": rule.get("nfsv4") is True})
+        if not exports:
+            continue
+        exports.sort(key=lambda row: (row["access_type"], row["source_ranges"]))
+        first = exports[0]
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The NetApp volume {name} has state READY and NFS export allowedClients {first['source_ranges']}.",
+            f"Its accessType is {first['access_type']} on VPC {data['network']} for {'NFSv3' if first['nfsv3'] else 'NFSv4'} clients.",
+            "A client in a named range may mount the volume if a private network route and NFS authentication permit it.",
+            "That could expose files or personal data to users on a connected network if a mount succeeds."))
+        evidence = {
+            "observed": observed,
+            "public_source_exports": exports,
+            "network": data["network"],
+            "source": source(snapshot, resource, "exportPolicy.rules"),
+            "risk_state": "unknown",
+            "semantics": "Configured NetApp NFS export CIDRs and mode only; cross-network route, NFS authentication, file existence and successful mount are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_netapp_public_nfs_export",
+                              "NetApp cross-network NFS export unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_memorystore_cross_project_psc_findings(snapshot, resources):
+    """Record active user-registered cache PSC endpoints in another project."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] not in ("redis_cluster", "memorystore_instance") or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        redis_cluster = resource["type"] == "redis_cluster"
+        label = "Redis Cluster" if redis_cluster else "Valkey instance"
+        segment = "clusters" if redis_cluster else "instances"
+        endpoint_field = "clusterEndpoints" if redis_cluster else "endpoints"
+        address_field = "address" if redis_cluster else "ipAddress"
+        active_status = "PSC_CONNECTION_STATUS_ACTIVE" if redis_cluster else "ACTIVE"
+        check_id = ("analysis.gcp_redis_cluster_cross_project_psc" if redis_cluster else
+                    "analysis.gcp_valkey_cross_project_psc")
+        name = data.get("name")
+        identity = re.fullmatch(rf"projects/([^/]+)/locations/[^/]+/{segment}/[^/]+", name or "")
+        if (not identity or resource["scope"] != f"projects/{identity[1]}" or
+                data.get("state") != "ACTIVE" or identity[1].isdecimal()):
+            continue
+        connections = []
+        endpoint_connections = [detail.get("pscConnection") for endpoint in as_list(data.get(endpoint_field))
+                                if isinstance(endpoint, dict)
+                                for detail in as_list(endpoint.get("connections")) if isinstance(detail, dict)]
+        for row in endpoint_connections:
+            if not isinstance(row, dict) or row.get("pscConnectionStatus") != active_status:
+                continue
+            consumer = row.get("projectId")
+            if (not isinstance(consumer, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", consumer) or
+                    consumer == identity[1]):
+                continue
+            network = row.get("network")
+            if not isinstance(network, str) or not re.fullmatch(
+                    rf"projects/{re.escape(consumer)}/global/networks/[^/]+", network):
+                continue
+            forward = row.get("forwardingRule")
+            if not isinstance(forward, str) or not re.fullmatch(
+                    rf"(?:https://(?:www\.googleapis\.com|compute\.googleapis\.com)/compute/v1/)?"
+                    rf"projects/{re.escape(consumer)}/regions/[^/]+/forwardingRules/[^/]+", forward):
+                continue
+            address, port = row.get(address_field), row.get("port")
+            try:
+                ipaddress.ip_address(address)
+            except (ValueError, TypeError):
+                continue
+            if (port is not None and (type(port) is not int or not 1 <= port <= 65535) or
+                    row.get("connectionType") not in
+                    ("CONNECTION_TYPE_DISCOVERY", "CONNECTION_TYPE_PRIMARY", "CONNECTION_TYPE_READER")):
+                continue
+            connections.append({"consumer_project": consumer, "network": network,
+                                "forwarding_rule": forward, "address": address, "port": port,
+                                "connection_type": row["connectionType"]})
+        if not connections:
+            continue
+        connections.sort(key=lambda row: (row["consumer_project"], row["network"], row["address"], row["port"] or 0))
+        first = connections[0]
+        observed = "\n".join((
+            f"The {label} {name} is ACTIVE with {first['connection_type']} PSC connection status {active_status} in consumer project {first['consumer_project']}.",
+            f"Its endpoint {first['address']} with port {first['port'] or 'unavailable'} is on network {first['network']} through forwarding rule {first['forwarding_rule']}.",
+            f"The cluster records authorizationMode {data.get('authorizationMode') or 'unavailable'} and transitEncryptionMode {data.get('transitEncryptionMode') or 'unavailable'} for this private endpoint.",
+            "Users in that consumer network may reach cached application data if routes and authorization permit access."))
+        evidence = {
+            "observed": observed,
+            "active_cross_project_connections": connections,
+            "authorization_mode": data.get("authorizationMode"),
+            "transit_encryption_mode": data.get("transitEncryptionMode"),
+            "source": source(snapshot, resource, endpoint_field),
+            "risk_state": "unknown",
+            "semantics": "Active PSC endpoint declaration only; route, consumer ownership, authorization, ACL, data contents and successful cache connection are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", check_id,
+                              f"Cross-project {label} PSC connection unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_managed_kafka_public_cluster_findings(snapshot, resources):
+    """Record active Kafka public-cluster source ranges without inferring auth."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "managed_kafka_cluster" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        if data.get("state") != "ACTIVE":
+            continue
+        gcp_config = data.get("gcpConfig")
+        access = gcp_config.get("accessConfig") if isinstance(gcp_config, dict) else None
+        public = access.get("publicClusterConfig") if isinstance(access, dict) else None
+        ranges = public.get("allowedSourceIpRanges") if isinstance(public, dict) else None
+        if not isinstance(ranges, list):
+            continue
+        admitted = sorted({value for value in ranges if isinstance(value, str) and
+                           (network := _cidr(value)) is not None and network.version == 4 and
+                           16 <= network.prefixlen <= 32 and _public_source(value)})
+        if not admitted:
+            continue
+        details = data.get("publicClusterDetails")
+        recorded_addresses = details.get("externalIpAddresses") if isinstance(details, dict) else None
+        addresses = sorted({value for value in as_list(recorded_addresses)
+                            if isinstance(value, str) and _public_ip(value)})
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The Kafka cluster {name} is ACTIVE with publicClusterConfig.allowedSourceIpRanges {admitted}.",
+            f"Its recorded external IPv4 addresses are {addresses or 'unavailable'}, with public access configured for those source ranges.",
+            "Kafka client connections require TLS and IAM SASL or mTLS authentication before topic operations.",
+            "An authorized client in a permitted range may publish or consume messages and could affect application data."))
+        evidence = {
+            "observed": observed,
+            "allowed_public_source_ranges": admitted,
+            "external_addresses": addresses,
+            "source": source(snapshot, resource, "gcpConfig.accessConfig.publicClusterConfig"),
+            "risk_state": "unknown",
+            "semantics": "Public Kafka network setting only; external endpoint allocation if absent, TLS identity, Kafka ACL, topic permission, client route and message access are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_managed_kafka_public_cluster",
+                              "Managed Kafka public-cluster access unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_managed_kafka_cross_project_subnet_findings(snapshot, resources):
+    """Record active Kafka cluster client subnets in another explicit project."""
+    if snapshot["provider"] != "gcp":
+        return []
+    project_numbers = {resource["scope"]: str(resource["data"]["projectNumber"])
+                       for resource in resources if resource["type"] == "project" and
+                       isinstance(resource.get("data"), dict) and
+                       resource["data"].get("projectNumber") is not None}
+    output = []
+    for resource in resources:
+        if resource["type"] != "managed_kafka_cluster" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        name = data.get("name")
+        identity = re.fullmatch(r"projects/([^/]+)/locations/([^/]+)/clusters/[^/]+", name or "")
+        owner = resource["scope"].removeprefix("projects/")
+        if (not identity or resource["scope"] == owner or data.get("state") != "ACTIVE" or
+                not re.fullmatch(r"[a-z][a-z0-9-]*", owner) or
+                identity[1] != project_numbers.get(resource["scope"])):
+            continue
+        gcp_config = data.get("gcpConfig")
+        access = gcp_config.get("accessConfig") if isinstance(gcp_config, dict) else None
+        network_configs = access.get("networkConfigs") if isinstance(access, dict) else None
+        if not isinstance(network_configs, list):
+            continue
+        subnets = []
+        for row in network_configs:
+            subnet = row.get("subnet") if isinstance(row, dict) else None
+            match = re.fullmatch(r"projects/([^/]+)/regions/([^/]+)/subnetworks/[^/]+", subnet or "")
+            if (match and match[2] == identity[2] and match[1] != owner and
+                    re.fullmatch(r"[a-z][a-z0-9-]*", match[1])):
+                subnets.append({"consumer_project": match[1], "subnet": subnet})
+        if not subnets:
+            continue
+        subnets.sort(key=lambda row: (row["consumer_project"], row["subnet"]))
+        first = subnets[0]
+        observed = "\n".join((
+            f"The Kafka cluster {name} is ACTIVE with networkConfigs subnet {first['subnet']} in consumer project {first['consumer_project']}.",
+            f"Its recorded owner project is {owner} with project number {identity[1]}, and {len(subnets)} different-project subnet entries are configured.",
+            "The service can provision private client endpoints in the named subnet, while client routes and topic permissions remain unresolved.",
+            "Users in that consumer network may reach Kafka services and could affect application messages if authentication and ACLs permit it."))
+        evidence = {
+            "observed": observed,
+            "cross_project_subnets": subnets,
+            "owner_project": owner,
+            "owner_project_number": identity[1],
+            "source": source(snapshot, resource, "gcpConfig.accessConfig.networkConfigs"),
+            "risk_state": "unknown",
+            "semantics": "Configured private Kafka client subnet only; project ownership, service-agent IAM, endpoint allocation, routes, Kafka authentication/ACL and message access are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_managed_kafka_cross_project_subnet",
+                              "Cross-project Managed Kafka subnet unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_batch_external_ip_eligible_findings(snapshot, resources):
+    """Record a running Batch job that permits an external VM address."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "batch_network_job" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        status = data.get("status")
+        allocation = data.get("allocationPolicy")
+        if (not isinstance(status, dict) or status.get("state") != "RUNNING" or
+                not isinstance(allocation, dict)):
+            continue
+        instances = allocation.get("instances")
+        if (not isinstance(instances, list) or len(instances) != 1 or
+                not isinstance(instances[0], dict) or instances[0].get("instanceTemplate") or
+                allocation.get("instanceTemplates")):
+            continue
+        network = allocation.get("network")
+        interfaces = network.get("networkInterfaces") if isinstance(network, dict) else None
+        if not isinstance(interfaces, list):
+            continue
+        eligible = sorted({(row["network"], row["subnetwork"]) for row in interfaces
+                           if isinstance(row, dict) and row.get("noExternalIpAddress") is False and
+                           isinstance(row.get("network"), str) and row["network"] and
+                           isinstance(row.get("subnetwork"), str) and row["subnetwork"]})
+        if not eligible:
+            continue
+        name = data.get("name", native_id(resource))
+        observed = "\n".join((
+            f"The Batch job {name} is RUNNING with allocationPolicy.network.networkInterfaces noExternalIpAddress false.",
+            f"Its recorded network and subnetwork are {eligible[0][0]} and {eligible[0][1]}, with one non-template instance policy entry.",
+            "The job setting permits an external VM address, while the allocated address and ingress firewall remain unresolved.",
+            "An outside user may reach job software or data if an external address, firewall path and listener are present."))
+        evidence = {
+            "observed": observed,
+            "eligible_interfaces": [{"network": item[0], "subnetwork": item[1]} for item in eligible],
+            "no_external_ip_address": False,
+            "source": source(snapshot, resource, "allocationPolicy.network.networkInterfaces"),
+            "risk_state": "unknown",
+            "semantics": "Batch network setting only; actual VM allocation, external address, effective firewall, listener and application response are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_batch_external_ip_eligible",
+                              "Batch VM external-IP eligibility unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_dataflow_public_worker_findings(snapshot, resources):
+    """Record active Dataflow worker pools configured for public VM IPs."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "dataflow_network_job" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        if data.get("currentState") != "JOB_STATE_RUNNING":
+            continue
+        environment = data.get("environment")
+        pools = environment.get("workerPools") if isinstance(environment, dict) else None
+        if not isinstance(pools, list):
+            continue
+        public = [{"network": pool.get("network"), "subnetwork": pool.get("subnetwork")}
+                  for pool in pools if isinstance(pool, dict) and
+                  pool.get("ipConfiguration") == "WORKER_IP_PUBLIC"]
+        if not public:
+            continue
+        public.sort(key=lambda row: (str(row["network"]), str(row["subnetwork"])))
+        name = data.get("name", native_id(resource))
+        first = public[0]
+        observed = "\n".join((
+            f"The Dataflow job {name} is JOB_STATE_RUNNING with workerPools ipConfiguration WORKER_IP_PUBLIC.",
+            f"Its public-configured worker pool records network {first['network'] or 'unavailable'} and subnetwork {first['subnetwork'] or 'unavailable'}.",
+            "The setting requests external worker VM addresses, while their allocated values and effective ingress remain unresolved.",
+            "Outside users may reach worker software or data if public addresses, firewall rules and listeners permit it."))
+        evidence = {
+            "observed": observed,
+            "public_worker_pools": public,
+            "source": source(snapshot, resource, "environment.workerPools"),
+            "risk_state": "unknown",
+            "semantics": "Dataflow worker IP configuration only; actual VM addresses, effective firewall, guest listeners and application responses are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_dataflow_public_worker",
+                              "Dataflow public worker address unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_migration_cross_project_psc_findings(snapshot, resources):
+    """Record migration private connectivity to another project's PSC attachment."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] not in ("datastream_private_connection", "migration_private_connection") or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        datastream = resource["type"] == "datastream_private_connection"
+        service_label = "Datastream" if datastream else "Database Migration Service"
+        check_id = ("analysis.gcp_datastream_cross_project_psc" if datastream else
+                    "analysis.gcp_database_migration_cross_project_psc")
+        name = data.get("name")
+        identity = re.fullmatch(r"projects/([^/]+)/locations/([^/]+)/privateConnections/[^/]+", name or "")
+        if (not identity or resource["scope"] != f"projects/{identity[1]}" or
+                identity[1].isdecimal() or data.get("state") != "CREATED"):
+            continue
+        config = data.get("pscInterfaceConfig")
+        attachment = config.get("networkAttachment") if isinstance(config, dict) else None
+        attached = re.fullmatch(r"projects/([^/]+)/regions/([^/]+)/networkAttachments/[^/]+", attachment or "")
+        if (not attached or attached[2] != identity[2] or attached[1] == identity[1] or
+                not re.fullmatch(r"[a-z][a-z0-9-]*", attached[1])):
+            continue
+        workload = "streams, profiles and credentials" if datastream else "migration jobs and credentials"
+        observed = "\n".join((
+            f"The {service_label} private connection {name} is CREATED with PSC networkAttachment {attachment}.",
+            f"Its owner project is {identity[1]}, while the recorded attachment belongs to project {attached[1]} in region {attached[2]}.",
+            "The configuration permits a private producer interface toward that network when its attachment accepts the connection.",
+            f"{service_label} users may reach source database services and could handle data there if routes, {workload} permit it."))
+        evidence = {
+            "observed": observed,
+            "network_attachment": attachment,
+            "owner_project": identity[1],
+            "attachment_project": attached[1],
+            "source": source(snapshot, resource, "pscInterfaceConfig.networkAttachment"),
+            "risk_state": "unknown",
+            "semantics": f"Created PSC interface configuration only; attachment acceptance, route, {workload}, data movement and outside ownership are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", check_id,
+                              f"Cross-project {service_label} PSC interface unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_migration_cross_project_vpc_peering_findings(snapshot, resources):
+    """Record CREATED migration peering to an explicit different-project VPC."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] not in ("datastream_private_connection", "migration_private_connection") or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        datastream = resource["type"] == "datastream_private_connection"
+        service_label = "Datastream" if datastream else "Database Migration Service"
+        check_id = ("analysis.gcp_datastream_cross_project_vpc_peering" if datastream else
+                    "analysis.gcp_database_migration_cross_project_vpc_peering")
+        name = data.get("name")
+        identity = re.fullmatch(r"projects/([^/]+)/locations/[^/]+/privateConnections/[^/]+", name or "")
+        if (not identity or resource["scope"] != f"projects/{identity[1]}" or
+                identity[1].isdecimal() or data.get("state") != "CREATED"):
+            continue
+        config = data.get("vpcPeeringConfig")
+        if not isinstance(config, dict):
+            continue
+        fields = ("vpc", "vpcName") if datastream else ("vpcName",)
+        candidates = [config.get(field) for field in fields if config.get(field)]
+        if not candidates or any(not isinstance(value, str) for value in candidates) or len(set(candidates)) != 1:
+            continue
+        vpc = candidates[0]
+        target = re.fullmatch(r"projects/([^/]+)/global/networks/[^/]+", vpc)
+        network = _cidr(config.get("subnet"))
+        if (not target or target[1] == identity[1] or
+                not re.fullmatch(r"[a-z][a-z0-9-]*", target[1]) or
+                network is None or network.version != 4 or network.prefixlen != 29):
+            continue
+        workload = "source profiles and streams" if datastream else "migration jobs and source profiles"
+        observed = "\n".join((
+            f"The {service_label} private connection {name} is CREATED with vpcPeeringConfig VPC {vpc} and subnet {config['subnet']}.",
+            f"Its owner project is {identity[1]}, while the recorded peer VPC belongs to project {target[1]}.",
+            f"The configuration establishes private peering, while destination routes and {workload} remain unresolved.",
+            f"{service_label} users may reach source database services and could handle data there if routes and credentials permit it."))
+        evidence = {
+            "observed": observed,
+            "peer_vpc": vpc,
+            "peer_project": target[1],
+            "peering_subnet": config["subnet"],
+            "source": source(snapshot, resource, "vpcPeeringConfig"),
+            "risk_state": "unknown",
+            "semantics": f"Created private peering declaration only; exchanged routes, {workload}, database credentials, data movement and outside ownership are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", check_id,
+                              f"Cross-project {service_label} VPC peering unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
+def gcp_dns_public_address_record_findings(snapshot, resources):
+    """Record public-zone address publication without claiming endpoint reachability."""
+    if snapshot["provider"] != "gcp":
+        return []
+    zones = {(resource["scope"], resource["data"].get("name")): resource["data"]
+             for resource in resources
+             if resource["type"] == "dns_managed_zone" and isinstance(resource.get("data"), dict)
+             and resource["data"].get("visibility") == "public"
+             and isinstance(resource["data"].get("name"), str)}
+    forwarding = {}
+    for resource in resources:
+        if resource["type"] != "forwarding_rule" or not isinstance(resource.get("data"), dict):
+            continue
+        detail = resource["data"]
+        address = detail.get("IPAddress")
+        if (isinstance(address, str) and _public_ip(address) and
+                detail.get("loadBalancingScheme") in ("EXTERNAL", "EXTERNAL_MANAGED")):
+            forwarding.setdefault((resource["scope"], address), []).append(resource)
+    output = []
+    for resource in resources:
+        if resource["type"] != "dns_record_set" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        if data.get("type") not in ("A", "AAAA"):
+            continue
+        zone_name = data.get("managedZone")
+        zone = zones.get((resource["scope"], zone_name))
+        if not zone:
+            continue
+        policy = data.get("routingPolicy")
+        policy_kind = None
+        targets = []
+        if isinstance(policy, dict):
+            kinds = [kind for kind in ("wrr", "geo", "primaryBackup") if isinstance(policy.get(kind), dict)]
+            if len(kinds) != 1:
+                continue
+            policy_kind = kinds[0]
+            if policy_kind == "primaryBackup":
+                primary = policy[policy_kind].get("primaryTargets")
+                backup = policy[policy_kind].get("backupGeoTargets")
+                if not isinstance(primary, dict) or not isinstance(backup, dict):
+                    continue
+                primary_ips = primary.get("externalEndpoints", [])
+                if not isinstance(primary_ips, list):
+                    continue
+                targets.extend(row for row in primary_ips if isinstance(row, str))
+                items = backup.get("items", [])
+            else:
+                items = policy[policy_kind].get("items")
+            if not isinstance(items, list) or any(not isinstance(row, dict) for row in items):
+                continue
+            if policy_kind == "wrr":
+                if not items:
+                    continue
+                weights = [row.get("weight") for row in items]
+                if any(type(weight) not in (int, float) or weight < 0 for weight in weights):
+                    continue
+                items = [row for row in items if row["weight"] > 0] if any(weights) else items
+            for item in items:
+                records = item.get("rrdatas", [])
+                checked = item.get("healthCheckedTargets", {}).get("externalEndpoints", []) if isinstance(item.get("healthCheckedTargets"), dict) else []
+                if not isinstance(records, list) or not isinstance(checked, list):
+                    continue
+                targets.extend(row for row in records + checked if isinstance(row, str))
+        elif policy is None:
+            records = data.get("rrdatas")
+            if not isinstance(records, list) or any(not isinstance(row, str) for row in records):
+                continue
+            targets = records
+        else:
+            continue
+        family = 4 if data["type"] == "A" else 6
+        addresses = sorted({row for row in targets if _public_ip(row) and ipaddress.ip_address(row).version == family})
+        if not addresses:
+            continue
+        host = data.get("name")
+        if not isinstance(host, str) or not host:
+            continue
+        zone_domain = zone.get("dnsName", "unavailable")
+        joins = [(address, forwarding[(resource["scope"], address)][0]) for address in addresses
+                 if len(forwarding.get((resource["scope"], address), [])) == 1]
+        joined = [(address, row["data"].get("selfLink") or row["data"].get("name"))
+                  for address, row in joins if isinstance(row["data"].get("selfLink") or row["data"].get("name"), str)]
+        join_detail = (f" and address {joined[0][0]} matches external forwarding rule {joined[0][1]}"
+                       if len(joined) == 1 else "")
+        observed = "\n".join((
+            f"The Cloud DNS record {host} has type {data['type']} and configured public address {', '.join(addresses)}.",
+            f"Its managed zone {zone_name} has visibility public and DNS name {zone_domain}{' with ' + policy_kind + ' routing' if policy_kind else ''}{join_detail}.",
+            "Internet clients may resolve the address if the zone is delegated and a routing-policy target is served." if policy_kind else "Internet clients may resolve the address if the zone is delegated and the record is served.",
+            "That could direct people to software or data at the address if network and access controls permit it."))
+        evidence = {
+            "observed": observed,
+            "public_addresses": addresses,
+            "record_type": data["type"],
+            "zone": zone_name,
+            "routing_policy": policy_kind,
+            "matched_forwarding_rules": [{"address": address, "resource": ref} for address, ref in joined],
+            "source": source(snapshot, resource, "routingPolicy" if policy_kind else "rrdatas"),
+            "risk_state": "unknown",
+            "semantics": "Public-zone address record declaration only; delegation, DNS response, address ownership, service binding, network/IAM controls and listener are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_dns_public_address_record",
+                              "Public Cloud DNS address record", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_domains_external_dns_configurator_findings(snapshot, resources):
+    """Record direct cross-project DNS configuration grants on registrations."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    roles = ("roles/domains.admin", "roles/domains.editor")
+    for resource in resources:
+        if resource["type"] != "domains_registration" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        envelope = data.get("_coverage")
+        coverage = envelope.get("iamPolicy") if isinstance(envelope, dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = [grant for role in roles for grant in _gcp_cross_project_sa_grants(policy, project, role)]
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
+        domain = data.get("domainName", "unavailable")
+        state = data.get("state", "unavailable")
+        observed = "\n".join((
+            f"The Cloud Domains registration {name} for {domain} in state {state} directly grants {grant['role']} to {grant['member']}."
+            if unconditional else
+            f"The Cloud Domains registration {name} for {domain} in state {state} conditionally grants {grant['role']} to {grant['member']}.",
+            "That role includes domains.registrations.configureDns on this registration.",
+            "The named service account may change DNS settings if IAM and registration controls permit it.",
+            "A DNS change could direct people toward different software or data recipients."))
+        evidence = {
+            "observed": observed,
+            "direct_dns_configurator_grants": grants,
+            "permission": "domains.registrations.configureDns",
+            "state": state,
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct registration DNS-configuration permission declaration only; IAM denies, project ownership, current DNS settings, registrar state and actual changes are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_domains_external_dns_configurator",
+                              "Cross-project Cloud Domains DNS configurator grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
+def gcp_workflows_cross_project_service_account_findings(snapshot, resources):
+    """Record a Workflow attached to an explicitly foreign-project service account."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "workflows_workflow" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        account = data.get("serviceAccount")
+        if not isinstance(account, str):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"] or project.isdigit():
+            continue
+        match = re.fullmatch(r"projects/([a-z][a-z0-9-]*|-)/serviceAccounts/([^/]+)", account)
+        identity = match.group(2) if match else account
+        email = re.fullmatch(r"[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com", identity)
+        if not email:
+            continue
+        account_project = email.group(1)
+        if match and match.group(1) not in ("-", account_project):
+            continue
+        if account_project == project:
+            continue
+        name = data.get("name", native_id(resource))
+        state = data.get("state", "unavailable")
+        observed = "\n".join((
+            f"The Workflows workflow {name} has serviceAccount {account} and state {state}.",
+            f"The attached service account names project {account_project}, different from workflow project {project}.",
+            "Workflow executions may use that identity if cross-project attachment and IAM permissions remain valid.",
+            "That could give workflow code access to data or actions granted in either project."))
+        evidence = {
+            "observed": observed,
+            "service_account": account,
+            "service_account_project": account_project,
+            "workflow_project": project,
+            "state": state,
+            "source": source(snapshot, resource, "serviceAccount"),
+            "risk_state": "unknown",
+            "semantics": "Cross-project identity attachment declaration; organization policy, service-agent permissions, effective IAM, workflow source and execution are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_workflows_cross_project_service_account",
+                              "Cross-project Workflows service-account attachment", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
 def gcp_secret_external_accessor_findings(snapshot, resources):
     """Report direct cross-project Secret Accessor grants, not secret reads."""
     if snapshot["provider"] != "gcp":
@@ -13896,6 +15132,29 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_pubsub_oidc_push_findings(snapshot, resources))
     output.extend(gcp_artifact_public_reader_findings(snapshot, resources))
     output.extend(gcp_pubsub_public_grant_findings(snapshot, resources))
+    output.extend(gcp_eventarc_message_bus_publish_grant_findings(snapshot, resources))
+    output.extend(gcp_eventarc_cross_project_enrollment_findings(snapshot, resources))
+    output.extend(gcp_clouddeploy_external_releaser_findings(snapshot, resources))
+    output.extend(gcp_ca_pool_external_certificate_requester_findings(snapshot, resources))
+    output.extend(gcp_iap_tunnel_external_accessor_findings(snapshot, resources))
+    output.extend(gcp_alloydb_psc_external_consumer_findings(snapshot, resources))
+    output.extend(gcp_router_external_route_advertisement_findings(snapshot, resources))
+    output.extend(gcp_interconnect_active_attachment_findings(snapshot, resources))
+    output.extend(gcp_ncc_cross_project_vpc_spoke_findings(snapshot, resources))
+    output.extend(gcp_public_nat_egress_findings(snapshot, resources))
+    output.extend(gcp_perimeter_broad_ingress_findings(snapshot, resources))
+    output.extend(gcp_filestore_public_nfs_export_findings(snapshot, resources))
+    output.extend(gcp_netapp_public_nfs_export_findings(snapshot, resources))
+    output.extend(gcp_memorystore_cross_project_psc_findings(snapshot, resources))
+    output.extend(gcp_managed_kafka_public_cluster_findings(snapshot, resources))
+    output.extend(gcp_managed_kafka_cross_project_subnet_findings(snapshot, resources))
+    output.extend(gcp_batch_external_ip_eligible_findings(snapshot, resources))
+    output.extend(gcp_dataflow_public_worker_findings(snapshot, resources))
+    output.extend(gcp_migration_cross_project_psc_findings(snapshot, resources))
+    output.extend(gcp_migration_cross_project_vpc_peering_findings(snapshot, resources))
+    output.extend(gcp_dns_public_address_record_findings(snapshot, resources))
+    output.extend(gcp_domains_external_dns_configurator_findings(snapshot, resources))
+    output.extend(gcp_workflows_cross_project_service_account_findings(snapshot, resources))
     output.extend(gcp_secret_external_accessor_findings(snapshot, resources))
     output.extend(gcp_kms_external_decrypter_findings(snapshot, resources))
     output.extend(gcp_logging_cross_project_sink_findings(snapshot, resources))
