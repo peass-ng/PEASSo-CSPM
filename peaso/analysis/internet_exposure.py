@@ -4846,6 +4846,42 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                                if kind == "servicebus_namespace"
                                else "Event Hub entity SAS rule inventory is incomplete.")
     if kind == "container_registry":
+        if props.get("adminUserEnabled") is True:
+            a.step("registry_admin_credentials", "conditional", admin_user_enabled=True)
+            a.notes.append("Registry admin credentials are enabled; their holders are not inventoried.")
+        token_coverage = (resource["data"].get("_coverage") or {}).get("tokens") or {}
+        map_coverage = (resource["data"].get("_coverage") or {}).get("scopeMaps") or {}
+        tokens, maps = resource["data"].get("tokens"), resource["data"].get("scopeMaps")
+        if (token_coverage.get("status") in ("collected", "empty") and isinstance(tokens, list)
+                and map_coverage.get("status") in ("collected", "empty") and isinstance(maps, list)):
+            scope_maps = {row["id"].casefold(): row for row in maps
+                          if isinstance(row, dict) and isinstance(row.get("id"), str)}
+            active_tokens, unresolved = [], False
+            for token in tokens:
+                token_props = token.get("properties") if isinstance(token, dict) else None
+                if not isinstance(token_props, dict):
+                    unresolved = True
+                    continue
+                if str(token_props.get("status", "")).casefold() == "disabled":
+                    continue
+                if str(token_props.get("status", "")).casefold() != "enabled":
+                    unresolved = True
+                    continue
+                map_id = token_props.get("scopeMapId")
+                scope_map = scope_maps.get(map_id.casefold()) if isinstance(map_id, str) else None
+                actions = (scope_map.get("properties") or {}).get("actions") if scope_map else None
+                if not isinstance(actions, list) or any(not isinstance(action, str) for action in actions):
+                    unresolved = True
+                    continue
+                active_tokens.append({"name": token.get("name"), "scope_map": map_id,
+                                      "actions": actions})
+            if active_tokens:
+                a.step("registry_tokens", "conditional", enabled_tokens=active_tokens)
+                a.notes.append("Enabled registry tokens grant their scope-map actions to valid password holders; holders and password state are not inventoried.")
+            if unresolved:
+                a.notes.append("Some registry token scope-map rights are unresolved.")
+        else:
+            a.notes.append("Registry token or scope-map inventory is incomplete.")
         anonymous = props.get("anonymousPullEnabled")
         if anonymous is True:
             a.authenticated = False
