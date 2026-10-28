@@ -36112,6 +36112,103 @@ def _title(assessment, status):
     return "Internet exposure could not be fully resolved"
 
 
+_AWS_GENERIC_OBSERVED_KINDS = {
+    "external_audit_report_delivery", "external_configuration_delivery", "external_data_delivery",
+    "external_delivery", "external_event_delivery", "external_mail_route", "external_notification",
+    "external_pipeline", "external_query_result_delivery", "external_search_result_delivery",
+    "external_sns_mobile_push", "ingestion_pipeline", "mediapackagev2_harvest_export",
+    "security_ir_notification_route", "securitylake_exception_notification", "securitylake_subscriber", "webhook",
+    "data_share", "external_cluster_access", "external_data_collaboration", "external_dax_access",
+    "external_image_distribution", "external_image_share", "external_invitation", "external_lattice_vpc",
+    "external_redshift_endpoint_authorization", "external_redshift_serverless_vpc",
+    "external_s3tables_lakeformation_grant", "marketplace_listing",
+    "opensearch_cross_cluster_connection", "opensearch_foreign_vpc_endpoint_access",
+    "public_artifacts", "public_federated_credentials", "quicksight_public_dashboard",
+    "api", "cdn_endpoint", "control_plane", "database", "directory", "function_url",
+    "managed_application_endpoint", "managed_endpoint", "managed_search_endpoint", "managed_service",
+    "managed_telemetry_ingestion", "opensearch_ui_application", "pcs_public_endpoint", "public_dns",
+    "public_gateway", "public_service_endpoint", "refactor_spaces_proxy", "refactor_spaces_url_backend",
+    "ssh_endpoint", "transfer_server", "transfer_web_app", "workspace_web_portal",
+    "aoss_public_network_policy", "eks_k8s_anonymous_rbac", "eks_k8s_frontend", "eks_k8s_host_port",
+    "eks_k8s_nodeport", "mailmanager_ingress", "mediaconnect_flow", "medialive_push_input",
+    "mediapackage_origin", "mediapackagev2_listener", "mediatailor_playback", "mq_network_connector",
+    "mq_private_resource_path", "mq_public_broker", "msk_public_brokers", "mwaa_webserver",
+    "public_game_fleet_port",
+}
+_AWS_DELIVERY_OBSERVED_KINDS = {
+    "external_audit_report_delivery", "external_configuration_delivery", "external_data_delivery",
+    "external_delivery", "external_event_delivery", "external_mail_route", "external_notification",
+    "external_pipeline", "external_query_result_delivery", "external_search_result_delivery",
+    "external_sns_mobile_push", "ingestion_pipeline", "mediapackagev2_harvest_export",
+    "security_ir_notification_route", "securitylake_exception_notification", "securitylake_subscriber", "webhook",
+}
+_AWS_SHARE_OBSERVED_KINDS = {
+    "data_share", "external_cluster_access", "external_data_collaboration", "external_dax_access",
+    "external_image_distribution", "external_image_share", "external_invitation", "external_lattice_vpc",
+    "external_redshift_endpoint_authorization", "external_redshift_serverless_vpc",
+    "external_s3tables_lakeformation_grant", "marketplace_listing",
+    "opensearch_cross_cluster_connection", "opensearch_foreign_vpc_endpoint_access",
+    "public_artifacts", "public_federated_credentials", "quicksight_public_dashboard",
+}
+
+
+def _aws_generic_observed(assessment, status):
+    """Explain an AWS path with its recorded setting and bounded possible impact."""
+    noun = assessment.resource["type"].replace("_", " ")
+    kind = assessment.kind
+    delivery = kind in _AWS_DELIVERY_OBSERVED_KINDS
+    share = kind in _AWS_SHARE_OBSERVED_KINDS
+    if status == "UNKNOWN":
+        gap = assessment.unresolved[0] if assessment.unresolved else None
+        layer = str(gap.get("layer", "access")).replace("_", " ") if gap else "access"
+        reason = str(gap.get("reason", "required value is missing")).rstrip(". ") if gap else "required value is missing"
+        path = "delivery" if delivery else "grant" if share else "network"
+        return (f"The {noun} lacks a complete {layer} value: {reason}.\n"
+                f"Its {path} path may be open if the missing value allows it.\n"
+                "That could expose data handled by this resource.")
+    if status == "PASS":
+        blocked = assessment.blocked_by or next(
+            (step.get("layer") for step in assessment.path if step.get("decision") == "block"), "access")
+        layer = str(blocked).replace("_", " ")
+        path = "delivery" if delivery else "grant" if share else "public network"
+        return (f"The {noun} has a recorded {layer} rule that blocks this path.\n"
+                f"That rule may stop the declared {path} path.\n"
+                "Data handled by this resource could remain outside this recorded path.")
+    if assessment.external_ids:
+        recipients = ", ".join(str(value) for value in assessment.external_ids[:2])
+        first = f"The {noun} names external recipient {recipients}."
+    elif assessment.endpoint:
+        first = f"The {noun} records endpoint {assessment.endpoint}."
+    elif assessment.addresses:
+        first = f"The {noun} records public address {assessment.addresses[0]}."
+    else:
+        preferred = ("destination", "recipient", "principal", "role", "public", "endpoint",
+                     "host", "address", "port", "source", "policy", "grant")
+        detail = next(((key, value) for step in assessment.path for key, value in step.items()
+                       if key not in {"layer", "decision", "reason", "semantics", "source"}
+                       and any(word in key.lower() for word in preferred)
+                       and isinstance(value, (str, int, bool)) and len(str(value)) <= 120), None)
+        if detail:
+            key, value = detail
+            first = f"The {noun} records {key.replace('_', ' ')} {str(value).lower() if isinstance(value, bool) else value}."
+        else:
+            step = assessment.path[0] if assessment.path else {}
+            layer = str(step.get("layer", kind)).replace("_", " ")
+            decision = str(step.get("decision", "configured")).replace("_", " ")
+            first = f"The {noun} records {layer} as {decision}."
+    if delivery:
+        return (first + "\n"
+                "The configured route may send records or notifications if delivery succeeds.\n"
+                "Those records could contain information about people or services.")
+    if share:
+        return (first + "\n"
+                "The named principal may use this grant if its other permissions allow it.\n"
+                "That could expose data or actions held by this resource.")
+    return (first + "\n"
+            "A client may use this path if the route, listener, and service allow traffic.\n"
+            "Requests could affect data handled by this resource.")
+
+
 def _observed(assessment, status):
     # Replace the newly prepended Azure branches through data_share in the
     # combined _observed function. Preserve every branch below this block.
@@ -37440,6 +37537,8 @@ def _observed(assessment, status):
         return ("The Operator Nexus VM has no recorded global attachment address, or its attachment list is missing.\n"
                 "Dynamic addresses and the external fabric route remain unclear.\n"
                 "A separate reachable VM service could expose its data if authentication allows it.")
+    if assessment.resource.get("provider") == "aws" and assessment.kind in _AWS_GENERIC_OBSERVED_KINDS:
+        return _aws_generic_observed(assessment, status)
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":
