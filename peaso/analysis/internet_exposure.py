@@ -11139,7 +11139,9 @@ def _azure_management_group(snapshot, inventory, resource):
         identities = [(principal, externality(snapshot, principal))]
         if props.get("principalType") == "Group":
             identities.extend((member, "external") for member in members(principal))
-            membership_scope = resource["scope"] + "/groups/" + principal
+            tenant_scope = resource["scope"] if resource["scope"].startswith("/tenants/") else (
+                "/tenants/" + str(resource["data"].get("tenantId") or (snapshot.get("metadata") or {}).get("tenant_id") or "unknown"))
+            membership_scope = tenant_scope + "/groups/" + principal
             if (inventory.state("directory_membership", membership_scope) not in ("collected", "empty")
                     or inventory.state("directory_membership") not in ("collected", "empty")):
                 uncertain.append({"assignment_id": native_id(assignment),
@@ -11170,12 +11172,45 @@ def _azure_management_group(snapshot, inventory, resource):
                 uncertain.append({"assignment_id": native_id(assignment), "principal_id": identity})
     if foreign:
         a.external_ids = sorted({record["principal_id"] for record in foreign})
-        a.step("management_group_rbac", "allow", grants=foreign)
+        a.step("subscription_rbac" if resource["type"] == "subscription" else "management_group_rbac",
+               "allow", grants=foreign)
         a.explicit = "FAIL"
     if uncertain:
         a.gap("authorization", "management-group principal, role, or condition unresolved")
     if not foreign and not uncertain:
-        a.step("management_group_rbac", "block", reason="no observed external role grant")
+        a.step("subscription_rbac" if resource["type"] == "subscription" else "management_group_rbac",
+               "block", reason="no observed external role grant")
+    return a
+
+
+def _azure_subscription(snapshot, inventory, resource):
+    """Cross-tenant managers and external RBAC grants on the subscription."""
+    a = _azure_management_group(snapshot, inventory, resource)
+    owner = resource["data"].get("tenantId")
+    managers = resource["data"].get("managedByTenants")
+    if not isinstance(owner, str) or not owner or not isinstance(managers, list):
+        a.gap("inventory", "subscription owner or managing tenants unavailable")
+        if a.explicit != "FAIL":
+            a.explicit = "UNKNOWN"
+        return a
+    foreign = []
+    for manager in managers:
+        tenant = manager.get("tenantId") if isinstance(manager, dict) else None
+        if not isinstance(tenant, str) or not tenant:
+            a.gap("inventory", "malformed managing tenant")
+            if a.explicit != "FAIL":
+                a.explicit = "UNKNOWN"
+            continue
+        if tenant.casefold() != owner.casefold():
+            foreign.append(tenant)
+    if foreign:
+        a.external_ids = sorted(set(a.external_ids) | set(foreign))
+        a.step("managed_by_tenants", "allow", managing_tenant_ids=sorted(set(foreign)))
+        a.explicit = "FAIL"
+    elif not managers:
+        a.step("managed_by_tenants", "block", reason="no delegated managing tenants")
+    if a.unresolved and a.explicit != "FAIL":
+        a.explicit = "UNKNOWN"
     return a
 
 
@@ -12472,7 +12507,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "managed_application", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12487,7 +12522,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "management_group", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12596,6 +12631,7 @@ def assess(snapshot, resources):
                   "stream_analytics_job": _azure_stream_analytics_job,
                   "managed_application": _azure_managed_application,
                   "management_group": _azure_management_group,
+                  "subscription": _azure_subscription,
                   "powerbi_capacity": _azure_powerbi_capacity,
                   "cost_export": _azure_cost_export,
                   "signalr_service": _azure_realtime_endpoint,
