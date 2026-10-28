@@ -5041,8 +5041,9 @@ def _azure_firewall(snapshot, inventory, resource):
                         if ((collection or {}).get("ruleCollectionType") == "FirewallPolicyNatRuleCollection" and
                                 str((((collection or {}).get("action") or {}).get("type", "")).lower()) == "dnat"):
                             collections.append(collection)
-            if ((policy_data.get("properties") or {}).get("basePolicy") or {}).get("id"):
-                a.gap("policy", "Firewall Policy base-policy inheritance is not resolved")
+            # Azure Firewall does not inherit NAT collections from base policies.
+            # Network/application inheritance can filter other paths, but not
+            # create an inbound DNAT rule for this policy.
     ports, matched = {}, []
     for collection in collections:
         cp = (collection or {}).get("properties") or collection or {}

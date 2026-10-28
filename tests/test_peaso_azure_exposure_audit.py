@@ -890,6 +890,27 @@ def test_firewall_policy_dnat_uses_collected_full_group():
     assert any(gap["layer"] == "backend" for gap in row.unresolved)
 
 
+def test_firewall_policy_parent_dnat_is_not_inherited():
+    policy_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/firewallPolicies/child"
+    parent_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/firewallPolicies/parent"
+    public_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
+    firewall_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw"
+    snap = make_snapshot("azure", [SCOPE], [
+        {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": public_id, "properties": {"ipAddress": "8.8.8.8"}}]},
+        {"type": "firewall_policy", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": policy_id, "properties": {"basePolicy": {"id": parent_id}},
+                    "_coverage": {"ruleCollectionGroups": {"status": "empty"}},
+                    "ruleCollectionGroups": []}]},
+        {"type": "azure_firewall", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": firewall_id, "properties": {"firewallPolicy": {"id": policy_id},
+                    "ipConfigurations": [{"properties": {"publicIPAddress": {"id": public_id}}}]}}]},
+    ])
+    row = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "azure_firewall")
+    assert row.verdict() == "PASS"
+    assert row.path[-1]["layer"] == "dnat" and row.path[-1]["decision"] == "block"
+
+
 def test_firewall_dnat_source_ip_group_membership_uses_recorded_arm_addresses():
     from peaso.collectors.azure import ENDPOINTS
 
