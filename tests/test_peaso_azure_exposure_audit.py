@@ -1713,8 +1713,11 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     assert tcp.verdict() == "FAIL" and tcp.ports == {"tcp": ((8443, 8443), (9000, 9000))}
     default_extra = app_decision(transport="tcp", extra=[{"external": True, "targetPort": 9001}])
     assert default_extra.verdict() == "FAIL" and default_extra.ports == {"tcp": ((8443, 8443), (9001, 9001))}
+    no_vnet_tcp = app_decision(transport="tcp", vnet=False)
+    assert no_vnet_tcp.verdict() == "UNKNOWN" and no_vnet_tcp.ports == {}
+    assert any("TCP ingress requires a collected VNet" in gap["reason"] for gap in no_vnet_tcp.unresolved)
     no_vnet = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}], vnet=False)
-    assert no_vnet.verdict() == "FAIL" and no_vnet.ports == {"tcp": ((8443, 8443),)}
+    assert no_vnet.verdict() == "UNKNOWN" and no_vnet.ports == {}
     assert any("without external app ingress and a recorded VNet" in note for note in no_vnet.notes)
 
 

@@ -5677,11 +5677,18 @@ def _azure_container_app(snapshot, inventory, resource):
         a.step("environment", "allow", public_network_access=ep.get("publicNetworkAccess"))
     transport = "http" if route_hosts and ingress.get("external") is not True else str(ingress.get("transport") or "auto").lower()
     if transport == "tcp":
-        port = ingress.get("exposedPort")
-        if isinstance(port, int) and 1 <= port <= 65535:
-            a.ports = pset("tcp", port, port)
+        vnet = _props(environment).get("vnetConfiguration") if environment is not None else None
+        if (ingress.get("external") is True and (not isinstance(vnet, dict) or
+                not isinstance(vnet.get("infrastructureSubnetId"), str) or
+                not vnet["infrastructureSubnetId"])):
+            a.gap("listener", "external Container App TCP ingress requires a collected VNet infrastructure subnet")
+            a.ports = {}
         else:
-            a.gap("listener", "Container App TCP exposedPort is unavailable")
+            port = ingress.get("exposedPort")
+            if isinstance(port, int) and 1 <= port <= 65535:
+                a.ports = pset("tcp", port, port)
+            else:
+                a.gap("listener", "Container App TCP exposedPort is unavailable")
     elif transport in ("auto", "http", "http2"):
         if route_hosts and not route_default_fqdn:
             a.ports = union(pset("tcp", 80, 80) if route_http_only else {},
