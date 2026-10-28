@@ -165,7 +165,7 @@ ENDPOINTS = {
     'logic_app_workflow': ('Microsoft.Logic/workflows', '2019-05-01'),
     'ml_workspace': ('Microsoft.MachineLearningServices/workspaces', '2026-03-01'),
     'mssql_managed_instance': ('Microsoft.Sql/managedInstances', '2023-08-01'),
-    'mysql_flexible_server': ('Microsoft.DBforMySQL/flexibleServers', '2023-12-30'),
+    'mysql_flexible_server': ('Microsoft.DBforMySQL/flexibleServers', '2024-12-30'),
     'postgresql_flexible_server': ('Microsoft.DBforPostgreSQL/flexibleServers', '2024-08-01'),
     'recovery_vault': ('Microsoft.RecoveryServices/vaults', '2024-04-01'),
     'policy_assignment': ('Microsoft.Authorization/policyAssignments', '2023-04-01'),
@@ -223,7 +223,8 @@ EMBEDDED_LISTS = {
     "eventhub_namespace": (("eventHubs", "eventhubs", "2024-01-01"), ("authorizationRules", "authorizationRules", "2024-01-01"), ("disasterRecoveryConfigs", "disasterRecoveryConfigs", "2024-01-01")),
     "servicebus_namespace": (("authorizationRules", "AuthorizationRules", "2024-01-01"),),
     "network_watcher": (("flowLogs", "flowLogs", "2023-09-01"),),
-    "mysql_flexible_server": (("configurations", "configurations", "2023-12-30"), ("firewallRules", "firewallRules", "2023-12-30"), ("administrators", "administrators", "2023-12-30")),
+    "mysql_flexible_server": (("configurations", "configurations", "2023-12-30"), ("firewallRules", "firewallRules", "2023-12-30"), ("administrators", "administrators", "2023-12-30"),
+                              ("privateEndpointConnections", "privateEndpointConnections", "2024-12-30")),
     "postgresql_flexible_server": (("configurations", "configurations", "2024-08-01"), ("firewallRules", "firewallRules", "2024-08-01"), ("administrators", "administrators", "2024-08-01")),
     "postgresql_single_server": (("configurations", "configurations", "2017-12-01"), ("firewallRules", "firewallRules", "2017-12-01")),
     "redis_cache": (("firewallRules", "firewallRules", "2024-11-01"),),
@@ -335,6 +336,29 @@ def _network_platform_native_identity(row, scope, kind):
 def _child_rows(rows, parent_id, field):
     if any(not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].lower().startswith(parent_id.lower() + "/") for row in rows):
         raise ValueError("malformed or foreign embedded child identity")
+    if field == "privateEndpointConnections" and "/providers/microsoft.dbformysql/flexibleservers/" in parent_id.casefold():
+        seen, safe = set(), []
+        expected_type = "Microsoft.DBforMySQL/flexibleServers/privateEndpointConnections"
+        for row in rows:
+            rid = row["id"]
+            props = row.get("properties")
+            endpoint = props.get("privateEndpoint") if isinstance(props, dict) else None
+            state = props.get("privateLinkServiceConnectionState") if isinstance(props, dict) else None
+            remote = endpoint.get("id") if isinstance(endpoint, dict) else None
+            if (re.fullmatch(re.escape(parent_id + "/privateEndpointConnections/") + r"[^/?#%\\\s]+", rid, re.I) is None
+                    or rid.casefold() in seen
+                    or "type" in row and str(row["type"]).casefold() != expected_type.casefold()
+                    or "name" in row and str(row["name"]).casefold() != rid.rsplit("/", 1)[-1].casefold()
+                    or not isinstance(props, dict)
+                    or remote is not None and (not isinstance(remote, str) or re.fullmatch(
+                        r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+", remote, re.I) is None)):
+                raise ValueError("foreign or malformed MySQL private endpoint connection")
+            seen.add(rid.casefold())
+            safe.append({"id": rid, "parent_id": parent_id,
+                         "properties": {"privateEndpoint": {"id": remote},
+                                        "privateLinkServiceConnectionState": {"status": state.get("status") if isinstance(state, dict) else None},
+                                        "provisioningState": props.get("provisioningState")}})
+        return safe
     if field == "httpRouteConfigs":
         seen = set()
         for row in rows:
@@ -701,6 +725,19 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
         for field, path, version in specs:
             if field in skip:
                 continue
+            if kind == "mysql_flexible_server" and field == "privateEndpointConnections":
+                props = item.get("properties")
+                if isinstance(props, dict) and field in props:
+                    embedded = props.pop(field)
+                    try:
+                        if not isinstance(embedded, list):
+                            raise ValueError("malformed embedded MySQL private endpoints")
+                        projected = _child_rows(embedded, rid, field)
+                        item[field] = projected
+                        item.setdefault("_coverage", {})[field] = {"status": "collected" if projected else "empty"}
+                    except ValueError:
+                        item.setdefault("_coverage", {})[field] = {"status": "malformed"}
+                    continue
             url = ARM + rid + "/" + path + "?api-version=" + version
             def fetch(url=url, rid=rid, field=field, item=item):
                 if field == 'longTermRetentionBackups':

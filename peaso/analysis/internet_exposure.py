@@ -9609,7 +9609,7 @@ def _azure_foreign_private_endpoints(data, props):
         remote_id = endpoint.get("id") if isinstance(endpoint, dict) else None
         remote = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+", remote_id, re.I) if isinstance(remote_id, str) else None
         status = state.get("status") if isinstance(state, dict) else None
-        if status == "Approved" and details.get("provisioningState") == "Succeeded" and remote and parent:
+        if status == "Approved" and details.get("provisioningState") in ("Succeeded", "Ready") and remote and parent:
             if remote.group(1).casefold() != parent.group(1).casefold():
                 external.append(remote_id)
         elif status == "Approved" or status not in ("Pending", "Rejected", "Disconnected"):
@@ -9622,14 +9622,35 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     props = _props(resource)
     kind = resource["type"]
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
+    if kind == "mysql_flexible_server":
+        configured_port = props.get("databasePort", 3306)
+        if type(configured_port) is int and 1 <= configured_port <= 65535:
+            port = configured_port
+        else:
+            port = None
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
-    endpoint_ports = union(pset("tcp", 443, 443), pset("tcp", 5671, 5671)) if kind == "servicebus_namespace" else pset("tcp", port, port)
+    endpoint_ports = (union(pset("tcp", 443, 443), pset("tcp", 5671, 5671)) if kind == "servicebus_namespace"
+                      else pset("tcp", port, port) if port is not None else {})
+    if port is None:
+        a.gap("listener", "MySQL Flexible Server databasePort is invalid")
     private_unknown = False
     if kind in ("servicebus_namespace", "search_service"):
         a.external_ids, private_unknown = _azure_foreign_private_endpoints(resource["data"], props)
         if a.external_ids:
             a.step("private_link_share", "allow", outside_private_endpoints=sorted(a.external_ids))
+            a.ports = endpoint_ports
+            a.explicit = "FAIL"
+    if kind == "mysql_flexible_server":
+        child_coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+        child = resource["data"].get("privateEndpointConnections")
+        if child_coverage.get("status") in ("collected", "empty") and isinstance(child, list):
+            a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+                resource["data"], {"privateEndpointConnections": child})
+        else:
+            private_unknown = True
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
             a.ports = endpoint_ports
             a.explicit = "FAIL"
     if kind == "servicebus_namespace":
@@ -9742,7 +9763,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
             a.gap("firewall", "flexible server firewall IP range is unresolved")
         else:
             a.step("firewall", "block", reason="no public-source firewall rule")
-            a.ports = {}
+            a.ports = endpoint_ports if a.external_ids else {}
         return a
     if kind == "cosmos_account":
         ip_rules = props.get("ipRules")
