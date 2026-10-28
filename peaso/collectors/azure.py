@@ -86,6 +86,7 @@ from . import azure_defender_automations_native
 from . import azure_external_id_extensions_native
 from . import azure_cross_tenant_policy_native
 from . import azure_easm_connections_native
+from . import azure_purview_metadata_policy_native
 from . import azure_nginx_native
 from . import azure_webpubsub_hubs_native
 
@@ -1250,7 +1251,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     azure_app_settings_secret_indicators.KIND, azure_acr_image_secret_indicators.KIND, azure_acr_image_vulnerabilities_20261021.KIND, azure_selected_aks_image_20261021.KIND, azure_selected_aks_image_20261021.VULN_KIND, azure_selected_configuration_secret_indicators.KIND,
     *azure_ai_services_native.NATIVE_TYPES,
     *azure_public_edge_native.NATIVE_TYPES, *azure_storage_lifecycle_native.NATIVE_TYPES, *azure_key_rotation_evidence_native.NATIVE_TYPES, "frontdoor_and_cdn_endpoint", "afd_profile", "afd_domain", "afd_route", "afd_security_policy",
-    azure_notification_hubs_native.KIND, azure_lighthouse_native.KIND, azure_easm_connections_native.KIND,
+    azure_notification_hubs_native.KIND, azure_lighthouse_native.KIND, azure_easm_connections_native.KIND, azure_purview_metadata_policy_native.KIND,
 )
 
 # A LIST containing properties is not a full GET. These evaluators apply
@@ -1706,6 +1707,7 @@ class AzureTransport:
         self.tenant = auth.get("tenant_id")
         self.vault_hosts = set()
         self.storage_hosts = set()
+        self.purview_hosts = set()
         self.verified_tenant = None
         from .scan_cache import RawResponseCache
         # Per-scan, per-credential single-flight cache of complete read bodies.
@@ -1738,6 +1740,13 @@ class AzureTransport:
             raise AzureReadError("untrusted_storage_endpoint")
         with self.lock:
             self.storage_hosts.add(parsed.netloc.lower())
+
+    def allow_purview(self, account):
+        if not isinstance(account, str) or re.fullmatch(r"[a-zA-Z0-9-]{3,63}", account) is None:
+            raise AzureReadError("untrusted_purview_endpoint")
+        host = account.lower() + ".purview.azure.com"
+        with self.lock:
+            self.purview_hosts.add(host)
 
     def request_xml(self, url):
         parsed = urlsplit(url)
@@ -1805,7 +1814,8 @@ class AzureTransport:
             if actual and actual not in aliases.get(expected, {expected, expected + "/"}):
                 raise AzureReadError("token_audience_mismatch", 401)
             from peaso.ai.access import bearer
-            endpoints = (["https://" + host for host in self.vault_hosts] if audience == VAULT else
+            endpoints = (["https://" + host for host in self.purview_hosts] if audience == "https://purview.azure.net" else
+                         ["https://" + host for host in self.vault_hosts] if audience == VAULT else
                          ["https://" + host for host in self.storage_hosts] if audience == STORAGE else [audience])
             bearer("azure", audience, token, context_id=self.ai_context_id, tenant_id=self.tenant,
                    expires_at=None if direct else cached.expires_on, endpoints=endpoints)
@@ -1841,6 +1851,9 @@ class AzureTransport:
             origin_allowed = (parsed.hostname or "").lower() in self.vault_hosts and parsed.port in (None, 443)
         if audience == LOGS:
             origin_allowed = (parsed.hostname or "").lower() == "api.loganalytics.azure.com" and parsed.port in (None, 443)
+        if audience == "https://purview.azure.net":
+            origin_allowed = (body is None and (parsed.hostname or "").lower() in self.purview_hosts
+                              and parsed.port in (None, 443) and parsed.path == "/policyStore/metadataPolicies")
         from .azure_network_data import is_network_audience, allowed_route
         if is_network_audience(audience):
             origin_allowed = body is None and allowed_route(url, audience)
@@ -2487,6 +2500,8 @@ def _selected(options, requirements):
         selected.add("directory_domain")
     if azure_easm_connections_native.KIND in selected:
         selected.add("easm_workspace")
+    if azure_purview_metadata_policy_native.KIND in selected:
+        selected.update(("purview_account", "directory_user", "directory_group", "directory_service_principal"))
     if selected.intersection(azure_external_id_extensions_native.KINDS):
         selected.update(azure_external_id_extensions_native.KINDS)
         selected.add("directory_domain")
@@ -3317,6 +3332,7 @@ def collect(connector, requirements=None, *, transport=None):
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
         azure_easm_connections_native.collect(reader, request, wanted)
+        azure_purview_metadata_policy_native.collect(reader, request, transport, wanted)
         for collection in reader.collections:
             if collection["type"] == "activity_log":
                 collection["queryWindow"] = {"start": start, "end": end, "endExclusive": True}

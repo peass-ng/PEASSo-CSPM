@@ -11833,6 +11833,55 @@ def _azure_purview_account(snapshot, inventory, resource):
     return a
 
 
+def _azure_purview_metadata_policy(snapshot, inventory, resource):
+    """Direct foreign principals granted classic Data Map collection roles."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    if inventory.state("directory_user") not in ("collected", "empty") or inventory.state("directory_service_principal") not in ("collected", "empty"):
+        a.gap("inventory", "Purview principal ownership inventory incomplete")
+        return a
+    roles = resource["data"].get("roles")
+    if not isinstance(roles, list):
+        a.gap("authorization", "Purview role projection missing")
+        return a
+    external = []
+    unresolved = False
+    for role in roles:
+        if not isinstance(role, dict) or not isinstance(role.get("role"), str):
+            unresolved = True
+            continue
+        role_name = role["role"]
+        if role_name not in ("purviewmetadatarole_builtin_purview-reader",
+                             "purviewmetadatarole_builtin_data-curator",
+                             "purviewmetadatarole_builtin_collection-administrator"):
+            unresolved = True
+            continue
+        if role.get("conditional"):
+            unresolved = True
+            continue
+        if role.get("groups"):
+            unresolved = True
+        for principal in role.get("ids", []):
+            classification = externality(snapshot, principal)
+            if classification == "external":
+                external.append(principal)
+            elif classification not in ("allowlisted", "provider_service"):
+                unresolved = True
+    if external:
+        a.external_ids = sorted(set(external))
+        a.step("foreign_collection_role", "allow", collection=resource["data"].get("collection"),
+               principal_ids=a.external_ids, data="catalog metadata")
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif unresolved:
+        a.gap("authorization", "Purview group, custom or unattributed role grants unresolved")
+    else:
+        a.explicit = "PASS"
+    return a
+
+
 def _azure_nginx(snapshot, inventory, resource):
     """Public NGINX frontends with ports derived from active configuration files."""
     a = Assessment(resource, "public_endpoint")
@@ -13209,7 +13258,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -13224,7 +13273,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -13354,6 +13403,7 @@ def assess(snapshot, resources):
                   "monitor_log_profile": _azure_monitor_export,
                   "monitor_workspace": _azure_monitor_workspace,
                   "purview_account": _azure_purview_account,
+                  "purview_metadata_policy": _azure_purview_metadata_policy,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
