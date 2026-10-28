@@ -3758,7 +3758,9 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
             if asgs:
                 if not asgs & {str(g).lower() for g in groups}:
                     continue
-            elif destinations and not any(d in ("*", "Any", "VirtualNetwork", "Internet") or _internet(d) or
+            elif destinations and not any(d in ("*", "Any", "VirtualNetwork") or
+                                          (isinstance(d, str) and d.casefold() == "internet" and address and _public_ip(address)) or
+                                          (_internet(d) and not (isinstance(d, str) and d.casefold() == "internet")) or
                                           (address and _cidr(d) is not None and _cidr(address) is not None and
                                            _cidr(address).subnet_of(_cidr(d)) if _cidr(d) and _cidr(address) and
                                            _cidr(d).version == _cidr(address).version else False)

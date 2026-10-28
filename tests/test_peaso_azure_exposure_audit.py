@@ -507,6 +507,18 @@ def test_nsg_unresolved_lower_priority_tag_does_not_hide_known_public_allow():
     assert not any(row.get("unresolved_public_source") for row in matched)
 
 
+def test_nsg_internet_destination_tag_does_not_match_private_nic_address():
+    rule = {"name": "internet-destination", "properties": {"priority": 100,
+        "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+        "sourceAddressPrefix": "Internet", "destinationAddressPrefix": "Internet",
+        "destinationPortRange": "443"}}
+    nsg = {"data": {"properties": {"securityRules": [rule]}}}
+    assert _nsg_allowed(nsg, address="10.0.0.4")[0] == {}
+    assert _nsg_allowed(nsg, address="8.8.8.8")[0] == {"tcp": ((443, 443),)}
+    rule["properties"]["destinationAddressPrefix"] = "0.0.0.0/0"
+    assert _nsg_allowed(nsg, address="10.0.0.4")[0] == {"tcp": ((443, 443),)}
+
+
 def test_container_app_requires_public_environment_and_effective_ingress():
     env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
