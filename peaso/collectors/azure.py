@@ -88,6 +88,7 @@ ENDPOINTS = {
     "nsg": ("Microsoft.Network/networkSecurityGroups", "2023-09-01"),
     "nic": ("Microsoft.Network/networkInterfaces", "2023-09-01"),
     "route_table": ("Microsoft.Network/routeTables", "2025-07-01"),
+    "ip_group": ("Microsoft.Network/ipGroups", "2025-05-01"),
     "nat_gateway": ("Microsoft.Network/natGateways", "2023-09-01"),
     "public_ip": ("Microsoft.Network/publicIPAddresses", "2023-09-01"),
     "load_balancer": ("Microsoft.Network/loadBalancers", "2023-09-01"),
@@ -110,7 +111,7 @@ ENDPOINTS = {
     "metric_alert": ("Microsoft.Insights/metricAlerts", "2018-03-01"),
     "scheduled_query_rule": ("Microsoft.Insights/scheduledQueryRules", "2021-08-01"),
     "action_group": ("Microsoft.Insights/actionGroups", "2023-01-01"),
-    "storage_account": ("Microsoft.Storage/storageAccounts", "2023-05-01"),
+    "storage_account": ("Microsoft.Storage/storageAccounts", "2026-06-01"),
     "sql_server": ("Microsoft.Sql/servers", "2023-08-01"),
     "aks_cluster": ("Microsoft.ContainerService/managedClusters", "2024-05-01"),
     "vault": ("Microsoft.KeyVault/vaults", "2023-07-01"),
@@ -208,6 +209,7 @@ ACTIVITY_SELECT = ("eventTimestamp,submissionTimestamp,operationName,operationId
                    "resourceProviderName,resourceGroupName,eventDataId,category,level,correlationId,subscriptionId,tenantId")
 # Parent embeds are authoritative child GET/list responses, with field coverage.
 EMBEDDED_LISTS = {
+    "container_app_environment": (("httpRouteConfigs", "httpRouteConfigs", "2026-01-01"),),
     "batch_account": (("pools", "pools", "2025-06-01"),),
     "vm_scale_set": (("virtualMachines", "virtualMachines", "2024-07-01"),),
     "app_service": (("slots", "slots", "2023-12-01"), ("vnetConnections", "virtualNetworkConnections", "2023-12-01")),
@@ -330,6 +332,28 @@ def _network_platform_native_identity(row, scope, kind):
 def _child_rows(rows, parent_id, field):
     if any(not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].lower().startswith(parent_id.lower() + "/") for row in rows):
         raise ValueError("malformed or foreign embedded child identity")
+    if field == "httpRouteConfigs":
+        seen = set()
+        for row in rows:
+            rid = row["id"]
+            if (not re.fullmatch(re.escape(parent_id + "/httpRouteConfigs/") + r"[^/?#%\\\s]+", rid, re.I)
+                    or str(row.get("type", "")).casefold() != "microsoft.app/managedenvironments/httprouteconfigs"
+                    or not isinstance(row.get("properties"), dict)
+                    or rid.casefold() in seen):
+                raise ValueError("duplicate, foreign or malformed Container Apps HTTP route")
+            props = row["properties"]
+            rules = props.get("rules")
+            if (props.get("provisioningState") == "Succeeded"
+                    and (not isinstance(props.get("fqdn"), str) or not props["fqdn"])):
+                raise ValueError("successful Container Apps HTTP route lacks its FQDN")
+            if (not isinstance(rules, list) or any(
+                    not isinstance(rule, dict) or not isinstance(rule.get("targets"), list)
+                    or any(not isinstance(target, dict)
+                           or not isinstance(target.get("containerApp"), str)
+                           for target in rule["targets"])
+                    for rule in rules)):
+                raise ValueError("malformed Container Apps HTTP route targets")
+            seen.add(rid.casefold())
     if field == "pools":
         seen, safe = set(), []
         for row in rows:
@@ -578,6 +602,47 @@ def _bind_service_diagnostic_receipt(collection, reader):
         collection.setdefault('_provenance', {}).update(proof)
 
 
+def _function_trigger_rows(rows, site_id):
+    """Keep only HTTP trigger declarations from FunctionEnvelope LIST rows."""
+    safe = []
+    expected_types = ({"microsoft.web/sites/slots/functions", "microsoft.web/sites/functions"}
+                      if "/slots/" in site_id.casefold() else {"microsoft.web/sites/functions"})
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("malformed FunctionEnvelope")
+        rid = row.get("id")
+        if (not isinstance(rid, str) or not re.fullmatch(
+                re.escape(site_id + "/functions/") + r"[^/?#%\\\s]+", rid, re.I)
+                or str(row.get("type", "")).casefold() not in expected_types):
+            raise ValueError("foreign or malformed FunctionEnvelope identity")
+        props = row.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("malformed FunctionEnvelope properties")
+        config = props.get("config")
+        bindings = config.get("bindings") if isinstance(config, dict) else None
+        complete = isinstance(bindings, list)
+        triggers = []
+        if complete:
+            for binding in bindings:
+                if not isinstance(binding, dict) or not isinstance(binding.get("type"), str):
+                    complete = False
+                    continue
+                if binding["type"].casefold() != "httptrigger":
+                    continue
+                methods = binding.get("methods")
+                if methods is not None and (not isinstance(methods, list) or
+                                            any(not isinstance(method, str) for method in methods)):
+                    complete = False
+                    methods = None
+                triggers.append({"authLevel": binding.get("authLevel") if isinstance(binding.get("authLevel"), str) else None,
+                                 "methods": methods,
+                                 "route": binding.get("route") if isinstance(binding.get("route"), str) else None})
+        safe.append({"id": rid, "type": row["type"], "name": row.get("name"),
+                     "properties": {"isDisabled": props.get("isDisabled") if type(props.get("isDisabled")) is bool else None,
+                                    "httpTriggers": triggers, "triggerConfigComplete": complete}})
+    return safe
+
+
 def _embed(reader, request, parents, diagnostics=None, skip=()):
     """Bound independent child reads; never fabricate empty on denied/partial.
 
@@ -586,9 +651,16 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
     """
     jobs = []
     diagnostics = diagnostics or {}
+    function_sites = {item["id"].casefold() for collection in reader.collections
+                      if collection["type"] == "app_service" for item in collection["items"]
+                      if isinstance(item.get("id"), str) and "functionapp" in
+                      {part.strip().casefold() for part in str(item.get("kind", "")).split(",")}}
     for kind, item in parents:
         rid = item["id"]
         specs = list(EMBEDDED_LISTS.get(kind, ()))
+        site_id = re.split(r"/slots/", rid, maxsplit=1, flags=re.I)[0] if kind == "app_service_slot" else rid
+        if kind in ("app_service", "app_service_slot") and site_id.casefold() in function_sites:
+            specs.append(("functions", "functions", "2025-05-01"))
         if kind == "container_registry" and item.get("sku", {}).get("name") != "Premium":
             specs = [spec for spec in specs if spec[0] != "replications"]
         known = diagnostics.get(rid.casefold())
@@ -627,6 +699,15 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                 backup_seen = {}
                 workspace_va_seen = {}
                 for page in reader.pages(request, url):
+                    if field == "functions":
+                        projected = _function_trigger_rows(page, rid)
+                        for row in projected:
+                            key = row["id"].casefold()
+                            if key in backup_seen:
+                                raise ValueError("duplicate function across pages")
+                            backup_seen[key] = row
+                        yield projected
+                        continue
                     if field == "workspaceVulnerabilityAssessments":
                         projected = []
                         for row in _child_rows(page, rid, field):

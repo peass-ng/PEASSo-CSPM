@@ -167,14 +167,25 @@ def _unresolved(item, field, code):
 
 def _routes(item, family, rows):
     effective = []
-    enabled = [row for row in rows if row.get('properties', {}).get('enabledState') == 'Enabled']
+    endpoints = {entry['id'].casefold(): entry for entry in item.get('endpoints', [])
+                 if isinstance(entry, dict) and isinstance(entry.get('id'), str)} if family == 'afd' else {}
+    def route_state(row):
+        state = row.get('properties', {}).get('enabledState')
+        if family == 'afd' and state == 'Enabled':
+            endpoint = endpoints.get(str(row.get('id', '')).rsplit('/', 2)[0].casefold())
+            if endpoint is None:
+                return None
+            gate = endpoint.get('properties', {}).get('enabledState')
+            return 'Disabled' if gate == 'Disabled' else 'Enabled' if gate == 'Enabled' else None
+        return state
+    enabled = [row for row in rows if route_state(row) == 'Enabled']
     # Multiple route/domain precedence needs an effective path partition. An
     # unsafe declaration hidden by a more-specific route must not become FAIL.
     if len(enabled) > 1:
         _unresolved(item, 'effectiveRoutes', 'multiple_routes_require_effective_path_partition');return
     for row in rows:
         props = row['properties']
-        state = props.get('enabledState')
+        state = route_state(row)
         if state not in ('Enabled', 'Disabled'):
             _unresolved(item, 'effectiveRoutes', 'route_state_unavailable');return
         if state == 'Disabled':
