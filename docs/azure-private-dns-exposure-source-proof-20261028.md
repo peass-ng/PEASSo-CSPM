@@ -1,0 +1,7 @@
+# Azure Private DNS link exposure source proof
+
+The existing Azure collector lists `Microsoft.Network/privateDnsZones` per selected subscription and their [`virtualNetworkLinks` children](https://learn.microsoft.com/en-us/rest/api/dns/privatedns/virtual-network-links/list?view=rest-dns-privatedns-2018-09-01) with read-only ARM calls through the per-scan cache. The selected `private_dns_link` inventory also selects its zone parent. No additional cloud call was added.
+
+Microsoft documents that [linked virtual networks can resolve every record in a private DNS zone](https://learn.microsoft.com/en-us/azure/dns/private-dns-overview/) and that [a virtual network in another subscription or tenant may be linked](https://learn.microsoft.com/en-us/azure/dns/dns-faq-private). A link is only treated as an effective outside share when ARM reports `provisioningState=Succeeded` and the link state is `Done` or `Completed` (the LIST schema and example use those respective values). The detector compares the virtual network subscription with the owning zone subscription and records the remote VNet resource ID. Registration enabled is included as evidence because it also lets the linked VNet populate records in the zone.
+
+The detector assesses resolution access to zone records. It does not claim network reachability to the records' target IP addresses; that depends on network routes and controls of the target resources.

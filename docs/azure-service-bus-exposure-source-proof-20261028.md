@@ -1,0 +1,5 @@
+# Service Bus exposure source proof
+
+The existing selected `servicebus_namespace` collector uses cached read-only ARM namespace LIST, `networkRuleSets/default` GET, namespace SAS rule LIST, queue/topic LIST, and their SAS rule LIST. It keeps authorization rights and drops returned key material. This change adds no cloud read.
+
+Microsoft documents that [Service Bus IP rules govern both HTTPS port 443 and AMQP TLS port 5671](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-ip-filtering). The native detector now reports both ports after the existing public network and firewall gates. The [namespace LIST schema](https://learn.microsoft.com/en-us/rest/api/servicebus/controlplane-stable/namespaces/list) includes approved private endpoint connections; an approved, provisioned endpoint in another subscription remains a third-party access path when public access is disabled. The detector records the foreign endpoint ID without claiming an issued SAS token's recipient, which the LIST APIs do not enumerate.

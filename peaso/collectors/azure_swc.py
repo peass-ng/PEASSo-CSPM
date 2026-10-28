@@ -4,6 +4,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import re
+from urllib.parse import urlsplit
 
 ARM = "https://management.azure.com"
 MG = "/providers/Microsoft.Management/managementGroups/"
@@ -341,17 +342,196 @@ def full_detail(value, kind, version):
 
 def list_detail(value, kind):
     """Attest alert LISTs; retain action-group configuration as metadata only."""
+    if kind == "playwright_workspace":
+        props = value.get("properties")
+        if (str(value.get("type", "")).casefold() != "microsoft.loadtestservice/playwrightworkspaces"
+                or not isinstance(props, dict)):
+            raise ValueError("Playwright workspace LIST identity or properties unavailable")
+        return {**{key: value[key] for key in ("id", "name", "type", "location") if key in value},
+                "properties": {key: props.get(key) for key in
+                               ("dataplaneUri", "localAuth", "provisioningState")},
+                "_provenance": {"source_operation": "PlaywrightWorkspaces_ListBySubscription",
+                                "api_version": "2025-09-01", "read_only": True,
+                                "representation": "metadata"}}
+    if kind == "purview_account":
+        props = value.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("Purview account properties unavailable")
+        endpoints = props.get("endpoints")
+        hosts = {}
+        if isinstance(endpoints, dict):
+            for field in ("catalog", "scan", "guardian"):
+                raw = endpoints.get(field)
+                try:
+                    parsed = urlsplit(raw) if isinstance(raw, str) else None
+                    host = parsed.hostname if parsed and parsed.scheme == "https" and not parsed.username and not parsed.password and parsed.port in (None, 443) else None
+                except ValueError:
+                    host = None
+                if isinstance(host, str) and re.fullmatch(r"[a-z0-9.-]{1,253}", host.lower()):
+                    hosts[field] = host.lower()
+        connections = props.get("privateEndpointConnections")
+        safe_connections = None
+        if isinstance(connections, list):
+            safe_connections = []
+            for row in connections:
+                if not isinstance(row, dict) or not isinstance(row.get("properties"), dict):
+                    raise ValueError("Purview private connection malformed")
+                detail = row["properties"]
+                link = detail.get("privateEndpoint")
+                state = detail.get("privateLinkServiceConnectionState")
+                safe_connections.append({"privateEndpointId": link.get("id") if isinstance(link, dict) else None,
+                                         "status": state.get("status") if isinstance(state, dict) else None,
+                                         "provisioningState": detail.get("provisioningState")})
+        managed = props.get("managedResources")
+        managed_ids = {key: managed[key] for key in ("storageAccount", "eventHubNamespace")
+                       if isinstance(managed, dict) and isinstance(managed.get(key), str)
+                       and managed[key].startswith("/subscriptions/")}
+        return {**{key: value[key] for key in ("id", "name", "type", "location") if key in value},
+                "properties": {"provisioningState": props.get("provisioningState"),
+                               "publicNetworkAccess": props.get("publicNetworkAccess"),
+                               "managedResourcesPublicNetworkAccess": props.get("managedResourcesPublicNetworkAccess"),
+                               "managedEventHubState": props.get("managedEventHubState"),
+                               "endpointHosts": hosts, "managedResources": managed_ids,
+                               "privateEndpointConnections": safe_connections},
+                "_provenance": {"source_operation": "Accounts_ListBySubscription", "api_version": "2021-12-01",
+                                "read_only": True, "representation": "metadata"}}
+    if kind == "monitor_workspace":
+        props = value.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("Monitor workspace properties unavailable")
+        metrics = props.get("metrics")
+        endpoint = metrics.get("prometheusQueryEndpoint") if isinstance(metrics, dict) else None
+        try:
+            parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+            host = parsed.hostname if parsed and parsed.scheme == "https" and not parsed.username and not parsed.password and parsed.port in (None, 443) else None
+        except ValueError:
+            host = None
+        if not isinstance(host, str) or not host.lower().endswith(".prometheus.monitor.azure.com"):
+            host = None
+        connections = props.get("privateEndpointConnections")
+        safe_connections = None
+        if isinstance(connections, list):
+            safe_connections = []
+            for row in connections:
+                if not isinstance(row, dict) or not isinstance(row.get("properties"), dict):
+                    raise ValueError("Monitor workspace private connection malformed")
+                detail = row["properties"]
+                link = detail.get("privateEndpoint")
+                state = detail.get("privateLinkServiceConnectionState")
+                safe_connections.append({"privateEndpointId": link.get("id") if isinstance(link, dict) else None,
+                                         "status": state.get("status") if isinstance(state, dict) else None,
+                                         "provisioningState": detail.get("provisioningState"),
+                                         "groupIds": detail.get("groupIds")})
+        return {**{key: value[key] for key in ("id", "name", "type", "location") if key in value},
+                "properties": {"publicNetworkAccess": props.get("publicNetworkAccess"),
+                               "provisioningState": props.get("provisioningState"),
+                               "queryEndpointHost": host,
+                               "privateEndpointConnections": safe_connections},
+                "_provenance": {"source_operation": "AzureMonitorWorkspaces_ListBySubscription",
+                                "api_version": "2025-10-03", "read_only": True,
+                                "representation": "metadata"}}
+    if kind == "powerbi_capacity":
+        props = value.get("properties")
+        administration = props.get("administration") if isinstance(props, dict) else None
+        members = administration.get("members") if isinstance(administration, dict) else None
+        if not isinstance(props, dict):
+            raise ValueError("Power BI capacity properties missing")
+        if members is not None and (not isinstance(members, list) or any(
+                not isinstance(member, str) for member in members)):
+            raise ValueError("Power BI capacity administrators malformed")
+        return {**{key: value[key] for key in ("id", "name", "type", "location") if key in value},
+                "properties": {**{key: props[key] for key in ("state", "provisioningState") if key in props},
+                               **({"administration": {"members": members}} if members is not None else {})},
+                "_provenance": {"source_operation": "capacities/list-or-get", "read_only": True,
+                                "api_version": "2021-01-01", "representation": "metadata"}}
+    if kind == "managed_application":
+        props = value.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("managed application properties missing")
+        safe = {key: props[key] for key in (
+            "managedResourceGroupId", "publisherTenantId", "managementMode", "provisioningState",
+            "applicationDefinitionId")
+            if key in props}
+        if "authorizations" in props:
+            authorizations = props["authorizations"]
+            if not isinstance(authorizations, list) or any(
+                    not isinstance(row, dict) or not isinstance(row.get("principalId"), str)
+                    or not isinstance(row.get("roleDefinitionId"), str) for row in authorizations):
+                raise ValueError("managed application publisher authorizations malformed")
+            safe["authorizations"] = [{"principalId": row["principalId"],
+                                       "roleDefinitionId": row["roleDefinitionId"]} for row in authorizations]
+        if "jitAccessPolicy" in props:
+            policy = props["jitAccessPolicy"]
+            if policy is not None and not isinstance(policy, dict):
+                raise ValueError("managed application JIT policy malformed")
+            safe["jitAccessPolicy"] = {key: policy[key] for key in (
+                "jitAccessEnabled", "jitApprovalMode", "maximumJitAccessDuration") if key in policy} if policy else None
+        return {**{key: value[key] for key in ("id", "name", "type", "kind", "location") if key in value},
+                "properties": safe, "_provenance": {"source_operation": "applications/list-or-get",
+                                                    "read_only": True, "api_version": "2019-07-01",
+                                                    "representation": "metadata"}}
+    if kind in ("openshift_cluster", "openshift_hcp_cluster"):
+        from .azure import _metadata_only
+        return _metadata_only(value)
     if kind not in ("scheduled_query_rule", "action_group"):
         return value
     source = {"scheduled_query_rule": "scheduled_query_rules_list_by_subscription",
               "action_group": "action_groups_list_by_subscription"}[kind]
     if kind == "action_group":
-        # Receiver URLs and credentials can contain bearer material. Enabled
-        # state is useful, but the reduced representation cannot prove delivery.
+        # Retain only destination metadata. Receiver URLs can contain bearer
+        # tokens in path/query and must never enter a snapshot.
         properties = value.get("properties", {})
+        receivers = []
+        complete = isinstance(properties, dict)
+        if complete:
+            for field, category, url_field in (("webhookReceivers", "webhook", "serviceUri"),
+                                               ("logicAppReceivers", "logicApp", "callbackUrl"),
+                                               ("azureFunctionReceivers", "azureFunction", "httpTriggerUrl")):
+                rows = properties.get(field, [])
+                if not isinstance(rows, list):
+                    complete = False
+                    continue
+                for row in rows:
+                    if not isinstance(row, dict):
+                        complete = False
+                        continue
+                    raw = row.get(url_field)
+                    parsed = urlsplit(raw) if isinstance(raw, str) else None
+                    host = parsed.hostname if parsed and parsed.scheme in ("http", "https") and not parsed.username and not parsed.password else None
+                    if not isinstance(host, str) or re.fullmatch(r"[a-z0-9.-]{1,253}", host.lower()) is None:
+                        host = None
+                    receivers.append({"kind": category, "host": host})
+            rows = properties.get("eventHubReceivers", [])
+            if not isinstance(rows, list):
+                complete = False
+            else:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        complete = False
+                        continue
+                    tenant, subscription = row.get("tenantId"), row.get("subscriptionId")
+                    uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+                    receivers.append({"kind": "eventHub",
+                                      "tenantId": tenant if isinstance(tenant, str) and re.fullmatch(uuid, tenant, re.I) else None,
+                                      "subscriptionId": subscription if isinstance(subscription, str) and re.fullmatch(uuid, subscription, re.I) else None})
+            rows = properties.get("emailReceivers", [])
+            if not isinstance(rows, list):
+                complete = False
+            else:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        complete = False
+                        continue
+                    address = row.get("emailAddress")
+                    domain = address.rsplit("@", 1)[-1].lower() if isinstance(address, str) and "@" in address else None
+                    if not isinstance(domain, str) or re.fullmatch(r"[a-z0-9.-]{1,253}", domain) is None:
+                        domain = None
+                    receivers.append({"kind": "email", "domain": domain})
         value = {key: data for key, data in value.items() if key in ("id", "name", "type", "location")}
         value["properties"] = {"enabled": properties["enabled"]} if isinstance(properties, dict) and "enabled" in properties else {}
-        value["_coverage"] = {"receivers": {"status": "not_collected"}}
+        value["_exposureReceivers"] = receivers
+        value["_coverage"] = {"receivers": {"status": "not_collected"},
+                              "exposureReceivers": {"status": "collected" if complete else "partial"}}
         return {**value, "_provenance": {"source_operation": source, "read_only": True,
                                          "complete_fields": ["properties.enabled"] if isinstance(value.get("properties", {}).get("enabled"), bool) else [],
                                          "native_response_complete": False}}

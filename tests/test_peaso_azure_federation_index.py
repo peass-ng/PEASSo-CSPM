@@ -158,8 +158,7 @@ def test_complete_federation_findings_graph_and_principals_match_literal_scan(mo
                     props.pop('subject')
                 elif i % 3 == 2:
                     props.pop('subject')
-                    props['issuer'] = 'https://app.terraform.io'
-                    props['claimsMatchingExpression'] = {'languageVersion': 1, 'value': "claims['sub'] matches '*'"}
+                    props['claimsMatchingExpression'] = {'value': "claims['sub'] matches 'repo:*'"}
     snapshot = validate(seal(snapshot))
     inventory, before = resources(snapshot), digest(snapshot)
     monkeypatch.setattr(cloud_workload_index, 'MAX_KEYS', capacity)
@@ -168,7 +167,9 @@ def test_complete_federation_findings_graph_and_principals_match_literal_scan(mo
     expected = run_stage(snapshot, inventory)
     assert json.dumps(actual) == json.dumps(expected)
     assert digest(snapshot) == before
-    assert {'MANUAL', 'FAIL', 'UNKNOWN'} <= {row['status'] for row in actual['findings']}
+    # These synthetic issuer URLs have no collected owned AKS counterpart;
+    # a pinned external subject is still an effective workload trust.
+    assert {'FAIL', 'UNKNOWN'} <= {row['status'] for row in actual['findings']}
 
 
 def test_fresh_projection_observes_changed_credential_targets():

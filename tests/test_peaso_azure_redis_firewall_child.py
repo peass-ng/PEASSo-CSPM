@@ -34,7 +34,8 @@ def test_redis_firewall_list_once_and_assess_public_rule():
     rule = {"id": RID + "/firewallRules/public", "name": "public", "type": "Microsoft.Cache/redis/firewallRules",
             "properties": {"startIP": "8.8.8.8", "endIP": "8.8.8.8"}}
     parent, calls = _result({"value": [rule]})
-    assert calls == ["https://management.azure.com" + RID + "/firewallRules?api-version=2024-11-01"]
+    assert calls == ["https://management.azure.com" + RID + "/firewallRules?api-version=2024-11-01",
+                     "https://management.azure.com" + RID + "/privateEndpointConnections?api-version=2024-11-01"]
     assert parent["_coverage"]["firewallRules"]["status"] == "collected"
     assert len(parent["firewallRules"]) == 1
     assert _decision(parent).verdict() == "FAIL"
@@ -42,8 +43,8 @@ def test_redis_firewall_list_once_and_assess_public_rule():
 
 def test_redis_empty_firewall_list_and_malformed_response():
     parent, calls = _result({"value": []})
-    assert len(calls) == 1 and parent["_coverage"]["firewallRules"]["status"] == "empty"
+    assert len(calls) == 2 and parent["_coverage"]["firewallRules"]["status"] == "empty"
     assert _decision(parent).verdict() == "FAIL"
     malformed, calls = _result({"not_value": []})
-    assert len(calls) == 1 and malformed["_coverage"]["firewallRules"]["status"] not in ("collected", "empty")
+    assert len(calls) == 2 and malformed["_coverage"]["firewallRules"]["status"] not in ("collected", "empty")
     assert _decision(malformed).verdict() == "UNKNOWN"

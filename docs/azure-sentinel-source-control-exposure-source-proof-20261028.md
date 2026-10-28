@@ -1,0 +1,7 @@
+# Microsoft Sentinel source-control trust
+
+The [Source Controls List API](https://learn.microsoft.com/en-us/rest/api/securityinsights/source-controls/list?view=rest-securityinsights-2025-09-01) returns read-only, paged repository connections under a Sentinel workspace. Its schema includes repository type/URL, content types, deployment service-principal tenant, and workload-identity-federation issuer/tenant. `repositoryAccess` credentials are explicitly write-only and never returned. [Sentinel repository deployment guidance](https://learn.microsoft.com/en-us/azure/sentinel/ci-cd?tabs=azure-devops) explains that a connected GitHub or Azure DevOps repository can deploy analytics rules, automation rules, hunting queries, parsers, playbooks, and workbooks.
+
+`azure_sentinel_source_control_exposure.collect` reuses the Sentinel workspace inventory when present and shares the cached onboarding read when selecting only source controls. It projects repository and issuer hostnames, tenant IDs, content types, and federation presence. Repository paths, webhook URLs, OAuth/PAT fields, descriptions, and deployment logs are discarded.
+
+`internet_exposure._azure_sentinel_source_control` reports a foreign deployment service-principal/federation tenant or an explicit GitHub Actions issuer as external deployment trust. Other connected repositories remain `UNKNOWN` because this API does not return writer identities, credential holders, or effective repository permissions.
