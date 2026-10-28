@@ -25,19 +25,6 @@ TERMINAL = {"completed", "failed", "cancelled", "timed_out", "queue_exhausted"}
 _PENDING = object()
 
 
-def _exposure_stable(section):
-    """Require a revision-bound kind seal before Collect-time Exposure AI.
-
-    The current section watermark counts present (kind, scope) keys but does
-    not prove that content producers have stopped revising those keys. Until
-    a collector emits this explicit seal, Exposure starts from the final
-    native checkpoint instead.
-    """
-    return (isinstance(section, dict) and section.get("status") == "complete"
-            and section.get("settled_kinds") is True
-            and section.get("settled_revision") == section.get("data_revision"))
-
-
 def _ready(job, artifacts, tenant, *, phase="collecting"):
     """Return one consistent public checkpoint and its complete sections."""
     report_ref, snapshot_ref = job.get("partial_report"), job.get("partial_snapshot")
@@ -141,8 +128,7 @@ def _artifact_config(artifacts):
 
 
 def _stage_child(config, tenant, ident, stage, revision, report_ref, snapshot_ref,
-                 selectors, deadline, context, cancelled, connection, wave=None,
-                 native_final=False):
+                 selectors, deadline, context, cancelled, connection):
     """Run one stage in a stoppable analyzer child; send only the artifact ref."""
     signal.signal(signal.SIGTERM, lambda *_: cancelled.set())
     signal.signal(signal.SIGINT, lambda *_: cancelled.set())
@@ -151,46 +137,22 @@ def _stage_child(config, tenant, ident, stage, revision, report_ref, snapshot_re
                      if config["mode"] == "file" else
                      S3Artifacts(config["bucket"], kms_key=config.get("kms_key")))
         checkpoint = _ready({"partial_report": report_ref, "partial_snapshot": snapshot_ref},
-                            artifacts, tenant, phase="analyzing" if native_final else "collecting")
+                            artifacts, tenant)
         if cancelled.is_set() or checkpoint is None or time.time() >= deadline:
             return
         report, snapshot, sections = checkpoint
-        review_stage = stage
-        if wave is None:
-            section = sections.get(stage, {})
-            if section.get("status") != "complete" or section.get("data_revision") != revision:
-                return
-            if stage == "exposure" and not native_final and not _exposure_stable(section):
-                return
-        else:
-            from peaso.ai.progressive_kinds import candidate_kinds, full_windows, window_report
-            metadata = snapshot.get("metadata", {}).get("incremental", {})
-            if (not stage.startswith("hardening_w_") or review_stage != stage
-                    or snapshot.get("snapshot_id") != wave.get("snapshot_id")
-                    or metadata.get("sequence") != wave.get("source_revision")):
-                return
-            kinds = candidate_kinds(report, snapshot, selectors)
-            planned = full_windows(report, kinds, wave["prior_reviewed_ids"])
-            selected = planned[:len(wave["windows"])]
-            if ([key for key, _, _ in selected] != wave["windows"]
-                    or [leader for _, leaders, _ in selected for leader in leaders] != wave["leader_ids"]
-                    or set().union(*(ids for _, _, ids in selected)) != set(wave["selected_ids"])):
-                return
-            report = window_report(report, set(wave["selected_ids"]))
-            review_stage = "hardening"
+        section = sections.get(stage, {})
+        if (stage != "network" or section.get("status") != "complete"
+                or section.get("data_revision") != revision):
+            return
         output = review_scan(report, snapshot, selectors, tenant=tenant, artifacts=artifacts,
-                             deadline=deadline, context=context, stages=(review_stage,),
-                             cancel_event=cancelled,
-                             **({"early_kind_window": True} if wave is not None else {}))
+                             deadline=deadline, context=context, stages=("network",),
+                             cancel_event=cancelled)
         if cancelled.is_set() or time.time() >= deadline:
             return
         # Even unavailable stage responses are useful to the public overlay;
         # final analysis only reuses completed stages and can retry failures.
         document = {"stage": stage, "data_revision": revision, "result": output}
-        if wave is not None:
-            document.update(source_revision=wave["source_revision"],
-                checkpoint_snapshot_id=wave["snapshot_id"], leader_ids=wave["leader_ids"],
-                window_keys=wave["windows"])
         reference = artifacts.put(tenant, ident, "ai-review", document)
         connection.send(reference)
     except BaseException:
@@ -202,8 +164,7 @@ def _stage_child(config, tenant, ident, stage, revision, report_ref, snapshot_re
 class _StageProcess:
     """Own one review process and a cancellation signal for its isolated invoke."""
 
-    def __init__(self, worker, tenant, ident, stage, revision, job, selectors,
-                 wave=None, native_final=False):
+    def __init__(self, worker, tenant, ident, stage, revision, job, selectors):
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe(duplex=False)
         self.pipe = parent
@@ -213,8 +174,7 @@ class _StageProcess:
             _artifact_config(worker.artifacts), tenant, ident, stage, revision,
             job["partial_report"], job["partial_snapshot"], selectors, job["deadline"],
             {"state_dir": str(worker.settings.state_dir),
-             "identity_dir": str(worker.settings.identity_dir)}, self.cancelled, child,
-            wave, native_final), daemon=False)
+             "identity_dir": str(worker.settings.identity_dir)}, self.cancelled, child), daemon=False)
 
     def start(self):
         try:

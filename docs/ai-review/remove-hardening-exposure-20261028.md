@@ -1,6 +1,6 @@
 # Native Hardening and Exposure finality
 
-Scans on AWS, GCP, Azure and Kubernetes now use native Hardening and Exposure verdicts as final. Network and Priorities are the only model stages. The scan selector, collection watcher, final analyzer, local runner and Fargate entry point reject or omit the removed stages. Priorities receives native FAIL findings and the Network result; native verdicts are labeled `native_final` in the AI API and do not overlay finding status.
+Scans on AWS, GCP, Azure and Kubernetes now use native Hardening and Exposure verdicts as final. Network and Priorities are the only model stages. The scan selector, collection watcher, final analyzer, local runner and Fargate entry point reject or omit the removed stages. The former reviewer batch queue is now a Network-only call; the progressive child rejects non-Network stages and has no Hardening window or Exposure final-stage dispatch. Priorities receives native FAIL findings and the Network result; native verdicts are labeled `native_final` in the AI API and do not overlay finding status.
 
 ## Saved AWS snapshot measurement
 

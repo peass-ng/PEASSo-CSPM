@@ -1061,15 +1061,15 @@ def test_available_memory_uses_container_limit_instead_of_host_ram(monkeypatch):
     assert pipeline.available_memory() == 1024**3
 
 
-def test_hosted_priorities_keep_startup_time_when_reviewers_use_their_budget(environment, monkeypatch):
+def test_hosted_priorities_keep_startup_time_when_network_uses_its_budget(environment, monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(pipeline, 'time', SimpleNamespace(monotonic=lambda: clock[0], time=time.time))
     monkeypatch.setattr(pipeline.isolation, 'remote', lambda: True)
     monkeypatch.setenv('PEASO_AI_TIMEOUT_SECONDS', '3000')
 
-    def finish_at_review_deadline(*args, network=None):
-        clock[0] = args[-1]
-        return {'hardening': [review('h1')], 'exposure': [review('e1')]}, False
+    def finish_at_network_deadline(report, entries, token, network, end):
+        clock[0] = end
+        return {'status': 'completed', 'explanation': '', 'findings': []}, False
 
     def priorities(stage, platform, entries, token, findings, reviews, timeout):
         assert stage == 'priorities'
@@ -1078,7 +1078,7 @@ def test_hosted_priorities_keep_startup_time_when_reviewers_use_their_budget(env
             raise TimeoutError('task startup and model completion exceeded admission')
         return {'actions': [], 'limitations': []}
 
-    monkeypatch.setattr(pipeline, 'review_batches', finish_at_review_deadline)
+    monkeypatch.setattr(pipeline, 'review_network', finish_at_network_deadline)
     monkeypatch.setattr(pipeline, 'invoke', priorities)
     value = pipeline.review_scan(report(), {}, {}, tenant='alice', artifacts=environment[2])
     assert value['status'] == 'completed'

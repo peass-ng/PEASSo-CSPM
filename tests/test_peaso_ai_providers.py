@@ -359,13 +359,13 @@ def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(
     monkeypatch.setattr('peaso.least_privilege.project', lambda *a, **k: {})
     monkeypatch.setattr(pipeline, 'review_concurrency', lambda: 1)
     captured = []
-    def reviews(report, inventory, entries, access, *args, **kwargs):
+    def network_review(report, entries, access, network, end):
         captured.append(access)
-        return {'network': {'status': 'completed', 'explanation': '', 'findings': []}}, False
+        return {'status': 'completed', 'explanation': '', 'findings': []}, False
     def priorities(stage, platform, entries, access, *args):
         captured.append(access)
         return {'actions': [], 'limitations': [secret]}
-    monkeypatch.setattr(pipeline, 'review_batches', reviews)
+    monkeypatch.setattr(pipeline, 'review_network', network_review)
     monkeypatch.setattr(pipeline, 'invoke_before_deadline', priorities)
     result = pipeline.review_scan({'provider': 'aws', 'findings': [], 'graphs': {}}, {}, {}, tenant='alice', artifacts=None)
     assert result['status'] == 'completed' and result['auth_source'] == 'personal'

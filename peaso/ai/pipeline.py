@@ -9,7 +9,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from concurrent.futures import CancelledError
 from urllib.parse import unquote
 
@@ -17,12 +16,8 @@ from peaso.auth.secrets import redact, secret_values
 from .crypto import AICipher
 from peaso.server.config import Settings
 from .auth import personal_token
-from .contracts import validate_actions, validate_reviews, validate_network
+from .contracts import validate_actions, validate_network
 from . import isolation
-
-
-class _SkipPriorities(Exception):
-    """Internal control flow for independent early reviewer calls."""
 
 
 def private_json(path, value):
@@ -435,127 +430,25 @@ def review_concurrency():
     return min(requested, capacity)
 
 
-def review_batches(report, inventory_by_id, entries, token, hardening, exposure, end, *, network=None,
-                   stages=None, cancel_event=None, coalesce_rechecks=False):
-    """Bounded work queue: overlap independent stages, preserve result order."""
-    stages = frozenset({'network'} if stages is None else set(stages) & {'network'})
-    output = {stage: {} for stage in ('hardening', 'exposure') if stage in stages}
-    failed = False
-    from .collection_coverage import index
-    coverage = index(report.get('coverage'))
-    from collections import deque
-    from .review_groups import BATCH_SIZE, chunks, expand, plan, stage_limit
-    expected = {'hardening': hardening, 'exposure': exposure}
-    groups = {}
-    queue = deque()
-    recheck_buffer = {'hardening': [], 'exposure': []}
-    # Admit the holistic network review early; it shares the same memory
-    # and concurrency limits as reviewer batches, never an extra pool.
-    if network is not None and 'network' in stages:
-        queue.append(('network', [], False))
-    planned = {}
-    for stage, findings in expected.items():
-        if stage in stages:
-            representatives, groups[stage] = plan(findings)
-            planned[stage] = chunks(representatives)
-    for position in range(max((len(rows) for rows in planned.values()), default=0)):
-        for stage in ('hardening', 'exposure'):
-            if position < len(planned.get(stage, ())):
-                queue.append((stage, planned[stage][position], True))
-
-    def run(stage, batch):
+def review_network(report, entries, token, network, end, *, cancel_event=None):
+    """Run the sole pre-Priorities model stage within its memory and time budget."""
+    unavailable = {'status': 'unavailable', 'explanation': '', 'findings': [],
+                   'reason': 'network_review_unavailable'}
+    if review_concurrency() <= 0:
+        return unavailable, True
+    try:
         if cancel_event is not None and cancel_event.is_set():
             raise CancelledError()
-        remaining = end - time.monotonic()
-        if remaining <= 0:
+        if end <= time.monotonic():
             raise TimeoutError()
-        if stage == 'network':
-            access = review_credentials(entries, report['provider'], [], {'resources': network['inventory']})
-            remaining = end - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError()
-            args = (stage, network, access, token, [], [], end, stage_limit('network', isolation.remote()))
-            data = (invoke_before_deadline(*args) if cancel_event is None else
-                    invoke_before_deadline(*args, cancel_event=cancel_event))
-            return validate_network(data, network)
-        context = review_context(report, inventory_by_id, batch, _coverage=coverage)
-        access = review_credentials(entries, report['provider'], batch, context)
-        remaining = end - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError()
-        args = (stage, context, access, token, batch, [], end, stage_limit(stage, isolation.remote()))
+        access = review_credentials(entries, report['provider'], [], {'resources': network['inventory']})
+        from .review_groups import stage_limit
+        args = ('network', network, access, token, [], [], end, stage_limit('network', isolation.remote()))
         data = (invoke_before_deadline(*args) if cancel_event is None else
                 invoke_before_deadline(*args, cancel_event=cancel_event))
-        return validate_reviews(data, batch)['items']
-
-    def record(task, future=None):
-        nonlocal failed
-        stage, batch, grouped = task
-        members = groups.get(stage, {}) if grouped else {}
-        try:
-            if future is None:
-                raise TimeoutError()
-            rows = future.result()
-        except Exception:
-            failed = True
-            if stage == 'network':
-                output['network'] = {'status': 'unavailable', 'explanation': '', 'findings': [],
-                    'reason': 'network_review_unavailable'}
-                return
-            rows = [{'finding_id': row['id'], 'verdict': 'UNKNOWN',
-                     'reason': 'AI review was unavailable, timed out, or returned an invalid result; the original failure could not be verified.'}
-                    for row in batch + [member for row in batch for member in members.get(row['id'], ())]]
-            members = {}
-        if stage == 'network':
-            output['network'] = dict(rows, status='completed')
-            return
-        rows, recheck = expand(rows, members)
-        for row in rows:
-            output[stage][row['finding_id']] = row
-        # A representative that was not confirmed never decides its group:
-        # each remaining member gets its own review in the same bounded pool.
-        if coalesce_rechecks:
-            buffer = recheck_buffer[stage]
-            buffer.extend(recheck)
-            while len(buffer) >= BATCH_SIZE:
-                queue.appendleft((stage, buffer[:BATCH_SIZE], False))
-                del buffer[:BATCH_SIZE]
-        else:
-            queue.extendleft((stage, part, False) for part in reversed(chunks(recheck)))
-
-    # Each section uses the existing bounded, memory-aware review pool. A
-    # remaining large section can keep using both default slots after another
-    # section finishes, rather than being forced into serial review batches.
-    slots = review_concurrency()
-    if slots:
-        with ThreadPoolExecutor(max_workers=slots, thread_name_prefix='cspm-ai') as executor:
-            pending = {}
-            while pending or queue or any(recheck_buffer.values()):
-                if not pending and not queue:
-                    for stage in ('hardening', 'exposure'):
-                        queue.extend((stage, part, False) for part in chunks(recheck_buffer[stage]))
-                        recheck_buffer[stage].clear()
-                # Recheck admission before starting another batch. Existing
-                # agents retain their slots; no unbounded futures queue exists.
-                # Local agents account for their own memory in this cgroup;
-                # hosted agents run in separate Fargate tasks, so adding their
-                # pending count back would over-admit on analyzer memory.
-                capacity = min(slots, review_concurrency() +
-                               (0 if isolation.remote() else len(pending)))
-                while queue and len(pending) < capacity and time.monotonic() < end:
-                    task = queue.popleft()
-                    pending[executor.submit(run, task[0], task[1])] = task
-                if not pending:
-                    break
-                done, _ = wait(pending, return_when=FIRST_COMPLETED)
-                for future in done:
-                    record(pending.pop(future), future)
-    for stage in ('hardening', 'exposure'):
-        queue.extend((stage, part, False) for part in chunks(recheck_buffer[stage]))
-    while queue:
-        record(queue.popleft())
-    return {stage: value if stage == 'network' else [value[row['id']] for row in expected[stage]]
-            for stage, value in output.items()}, failed
+        return dict(validate_network(data, network), status='completed'), False
+    except Exception:
+        return unavailable, True
 
 
 def selected_stages(selectors, stages=None):
@@ -577,7 +470,7 @@ def selected_stages(selectors, stages=None):
 
 
 def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None, context=None,
-                stages=None, reused_stages=None, cancel_event=None, early_kind_window=False):
+                stages=None, reused_stages=None, cancel_event=None):
     """Run remaining AI stages with native FAILs as final Priorities inputs."""
     selected = selected_stages(selectors, stages)
     result = {'version': 1, 'status': 'skipped', 'actions': [],
@@ -663,11 +556,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             try:
                 review_end = end - min(600 if isolation.remote() else 60,
                     max(0, end - time.monotonic()) * (.3 if isolation.remote() else .2))
-                fresh, failed_stage = review_batches(report,
-                    {row['id']: row for row in inventory}, entries, token, [], [], review_end,
-                    network=network, stages={'network'},
-                    **({'cancel_event': cancel_event} if cancel_event is not None else {}))
-                result['network'] = fresh.get('network')
+                result['network'], failed_stage = review_network(report, entries, token, network,
+                    review_end, **({'cancel_event': cancel_event} if cancel_event is not None else {}))
             except Exception:
                 failed_stage = True
         result['network'] = result.get('network') or {
