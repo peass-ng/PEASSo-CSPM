@@ -1755,6 +1755,7 @@ def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncerta
     endpoint = {"id": edge_id + "/afdEndpoints/default",
                 "properties": {"hostName": "edge.azurefd.net"}}
     route = {"id": endpoint["id"] + "/routes/default", "enabledState": "Enabled",
+             "boundHostNames": ["edge.azurefd.net"],
              "paths": [{"acceptedProtocols": ["Http"], "action": "Redirect"},
                        {"acceptedProtocols": ["Https"], "action": "Forward"}]}
 
@@ -1778,6 +1779,9 @@ def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncerta
     assert edge_decision([{**route, "enabledState": "Disabled"}]).verdict() == "PASS"
     assert edge_decision([route], status="not_collected").verdict() == "UNKNOWN"
     assert edge_decision([route], hostname=False).verdict() == "UNKNOWN"
+    old_projection = {**route, "boundHostNames": None,
+                      "paths": [{"acceptedProtocols": ["Http"], "action": "Redirect"}]}
+    assert edge_decision([old_projection]).verdict() == "UNKNOWN"
 
 
 def test_afd_disabled_endpoint_blocks_enabled_child_route():
@@ -1795,7 +1799,9 @@ def test_afd_disabled_endpoint_blocks_enabled_child_route():
     def projected(endpoint_state):
         item = {"id": profile, "sku": {"name": "Standard_AzureFrontDoor"}, "properties": {},
                 "endpoints": [{"id": endpoint_id, "properties": {
-                    "hostName": "edge.azurefd.net", "enabledState": endpoint_state}}],
+                    "hostName": "edge.azurefd.net", "enabledState": endpoint_state}},
+                    {"id": profile + "/afdEndpoints/unbound", "properties": {
+                    "hostName": "unbound.azurefd.net", "enabledState": "Enabled"}}],
                 "originGroups": [{"id": group_id}], "domains": [], "securityPolicies": []}
         _routes(item, "afd", [route])
         snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
@@ -1805,7 +1811,9 @@ def test_afd_disabled_endpoint_blocks_enabled_child_route():
 
     blocked = projected("Disabled")
     assert blocked.verdict() == "PASS" and blocked.ports == {}
-    assert projected("Enabled").verdict() == "UNKNOWN"  # Origin access still unresolved.
+    enabled = projected("Enabled")
+    assert enabled.verdict() == "UNKNOWN"  # Origin access still unresolved.
+    assert enabled.addresses == ["edge.azurefd.net"]
     assert projected(None).verdict() == "UNKNOWN"
 
 
@@ -1822,7 +1830,9 @@ def test_classic_frontdoor_disabled_parent_blocks_enabled_routing_rule():
 
     def projected(parent_state):
         item = {"id": frontdoor, "properties": {"enabledState": parent_state},
-                "domains": [{"id": domain, "properties": {"hostName": "edge.azurefd.net"}}],
+                "domains": [{"id": domain, "properties": {"hostName": "edge.azurefd.net"}},
+                            {"id": frontdoor + "/frontendEndpoints/unbound",
+                             "properties": {"hostName": "unbound.azurefd.net"}}],
                 "endpoints": [{"id": domain, "properties": {"hostName": "edge.azurefd.net"}}]}
         _routes(item, "classicFrontDoor", [rule])
         snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
@@ -1831,8 +1841,39 @@ def test_classic_frontdoor_disabled_parent_blocks_enabled_routing_rule():
                     if a.resource["type"] == "frontdoor_and_cdn_endpoint")
 
     assert projected("Disabled").verdict() == "PASS"
-    assert projected("Enabled").verdict() == "FAIL"
+    enabled = projected("Enabled")
+    assert enabled.verdict() == "FAIL" and enabled.addresses == ["edge.azurefd.net"]
     assert projected(None).verdict() == "UNKNOWN"
+
+
+def test_afd_route_hostnames_use_bound_custom_domain_only():
+    from peaso.collectors.azure_frontdoor_native import _routes
+
+    profile = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
+    endpoint = profile + "/afdEndpoints/default"
+    domain = profile + "/customDomains/bound"
+    inactive = profile + "/customDomains/inactive"
+    group = profile + "/originGroups/main"
+    route = {"id": endpoint + "/routes/redirect", "type": "Microsoft.Cdn/profiles/afdEndpoints/routes",
+             "properties": {"enabledState": "Enabled", "patternsToMatch": ["/*"],
+                "ruleSets": [], "customDomains": [{"id": domain}, {"id": inactive, "isActive": False}],
+                "linkToDefaultDomain": "Disabled", "originGroup": {"id": group},
+                "supportedProtocols": ["Http"], "forwardingProtocol": "HttpsOnly",
+                "httpsRedirect": "Enabled"}}
+    item = {"id": profile, "sku": {"name": "Standard_AzureFrontDoor"}, "properties": {},
+            "endpoints": [{"id": endpoint, "properties": {"hostName": "unbound.azurefd.net",
+                            "enabledState": "Enabled"}}],
+            "domains": [{"id": domain, "properties": {"hostName": "bound.example.org"}},
+                        {"id": inactive, "properties": {"hostName": "inactive.example.org"}}],
+            "originGroups": [{"id": group}], "securityPolicies": []}
+    _routes(item, "afd", [route])
+    item["_coverage"]["securityPolicies"] = {"status": "empty"}
+    snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
+        "scope": SCOPE, "service": "cdn", "status": "collected", "items": [item]}])
+    result = next(a for a in assess(snap, resources(snap))
+                  if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+    assert result.verdict() == "FAIL"
+    assert result.addresses == ["bound.example.org"]
 
 
 def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
@@ -1842,7 +1883,7 @@ def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
             "properties": {}, "endpoints": [{"id": profile + "/afdEndpoints/default",
                 "properties": {"hostName": "edge.azurefd.net"}}],
             "effectiveRoutes": [{"id": profile + "/afdEndpoints/default/routes/redirect",
-                "enabledState": "Enabled", "paths": [{"acceptedProtocols": ["Http"],
+                "enabledState": "Enabled", "boundHostNames": ["edge.azurefd.net"], "paths": [{"acceptedProtocols": ["Http"],
                     "action": "Redirect"}]}],
             "securityPolicies": [{"id": profile + "/securityPolicies/waf",
                 "properties": {"parameters": {"type": "WebApplicationFirewall",
@@ -1891,6 +1932,7 @@ def test_classic_frontdoor_frontend_waf_link_is_joined_to_policy():
                 "properties": {"hostName": "edge.azurefd.net",
                                "webApplicationFirewallPolicyLink": {"id": waf_id}}}],
             "effectiveRoutes": [{"id": frontdoor + "/routingRules/redirect", "enabledState": "Enabled",
+                "boundHostNames": ["edge.azurefd.net"],
                 "paths": [{"acceptedProtocols": ["Https"], "action": "Redirect"}]}],
             "_coverage": {"effectiveRoutes": {"status": "collected"}}}
 

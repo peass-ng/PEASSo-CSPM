@@ -6289,10 +6289,11 @@ def _azure_public_edge(snapshot, inventory, resource):
         return a
     a.step("listener", "allow", route_ids=[r.get("id") for r in enabled])
     endpoints = data.get("endpoints") or []
-    domains = data.get("domains") or []
-    hosts = [entry.get("properties", {}).get("hostName") for entry in endpoints + domains
-             if isinstance(entry, dict) and isinstance(entry.get("properties"), dict)]
-    a.addresses = sorted({host for host in hosts if isinstance(host, str) and host})
+    host_lists = [route.get("boundHostNames") for route in enabled]
+    if any(not isinstance(hosts, list) for hosts in host_lists):
+        a.gap("inventory", "enabled edge route has no collected bound-hostname projection")
+    a.addresses = sorted({host for hosts in host_lists if isinstance(hosts, list)
+                          for host in hosts if isinstance(host, str) and host})
     if not a.addresses:
         a.gap("inventory", "public edge hostname was not collected")
     ports = {}

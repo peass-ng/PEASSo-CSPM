@@ -1164,7 +1164,7 @@
     "peaso/collectors/azure_entra_diagnostics_native.py": "3ba791cd52c3e5b2fb78bcb12fced683402d552f8a8ff3bd13fec65fc941636f",
     "peaso/collectors/azure_entra_user_native.py": "31059a7a0c2a8da9d071445d2afad8d7f4e0f29909ff3a25cc45cb4d8fe4a2e6",
     "peaso/collectors/azure_flex_deployment_archives_20261021.py": "533877adfa6f74be08352da25cc10741593d0a09854dbfbbd6b863ed85713c16",
-    "peaso/collectors/azure_frontdoor_native.py": "963700db7edd48d63d1b84f3898e2927982ab6b4da015a4ec3a5e74216685f6a",
+    "peaso/collectors/azure_frontdoor_native.py": "52bc13854cfd7d8708307c8f72b8acd25e1042d089c712b2b4247c92810151d0",
     "peaso/collectors/azure_function_limits_native.py": "cd1b13b2fd9d7983e1846fe651507a26422f4ab9cf7dd9866cdf9c50f28fc7e9",
     "peaso/collectors/azure_function_package_integration_20261020.py": "9eb8c15ad1052795777ae95960f7c65a8062d5555e2456a9c34a9f2aa6d1e58c",
     "peaso/collectors/azure_function_package_portable_20261020.py": "54a7bb3e2a69465b3b5537cad597d8b8c537e35d16416d1f0ff81e551ece0569",

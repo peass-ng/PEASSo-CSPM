@@ -196,6 +196,7 @@ def _routes(item, family, rows):
             continue
         if props.get('patternsToMatch') != ['/*']:
             _unresolved(item, 'effectiveRoutes', 'partial_path_coverage_requires_effective_path_partition');return
+        bound_hosts = []
         if family == 'afd':
             rules = props.get('ruleSets', [])
             if not isinstance(rules, list) or rules:
@@ -211,6 +212,20 @@ def _routes(item, family, rows):
             known_domains = {r['id'].casefold() for r in item.get('domains', [])}
             if any(not isinstance(ref, dict) or not isinstance(ref.get('id'), str) or ref['id'].casefold() not in known_domains for ref in domains):
                 _unresolved(item, 'effectiveRoutes', 'route_custom_domain_unresolved');return
+            if props['linkToDefaultDomain'] == 'Enabled':
+                endpoint = endpoints.get(str(row['id']).rsplit('/', 2)[0].casefold())
+                host = (endpoint.get('properties') or {}).get('hostName') if endpoint else None
+                if not isinstance(host, str) or not host:
+                    _unresolved(item, 'effectiveRoutes', 'route_default_hostname_unavailable');return
+                bound_hosts.append(host)
+            domain_by_id = {entry['id'].casefold(): entry for entry in item.get('domains', [])}
+            for ref in domains:
+                if ref.get('isActive') is False:
+                    continue
+                host = (domain_by_id[ref['id'].casefold()].get('properties') or {}).get('hostName')
+                if not isinstance(host, str) or not host:
+                    _unresolved(item, 'effectiveRoutes', 'route_custom_hostname_unavailable');return
+                bound_hosts.append(host)
             protocols = props.get('supportedProtocols')
             forwarding = props.get('forwardingProtocol')
             redirect = props.get('httpsRedirect')
@@ -229,6 +244,12 @@ def _routes(item, family, rows):
             known_domains = {r['id'].casefold() for r in item.get('domains', [])}
             if not isinstance(refs, list) or not refs or any(not isinstance(ref, dict) or str(ref.get('id', '')).casefold() not in known_domains for ref in refs):
                 _unresolved(item, 'effectiveRoutes', 'classic_route_domain_association_unresolved');return
+            domain_by_id = {entry['id'].casefold(): entry for entry in item.get('domains', [])}
+            for ref in refs:
+                host = (domain_by_id[ref['id'].casefold()].get('properties') or {}).get('hostName')
+                if not isinstance(host, str) or not host:
+                    _unresolved(item, 'effectiveRoutes', 'classic_route_hostname_unavailable');return
+                bound_hosts.append(host)
             protocols = props.get('acceptedProtocols')
             config = props.get('routeConfiguration', {})
             kind = config.get('@odata.type') if isinstance(config, dict) else None
@@ -249,6 +270,7 @@ def _routes(item, family, rows):
         # conservatively assessed as custom origins, regardless of DNS suffix.
         effective.append({'id': row['id'], 'type': row['type'], 'enabledState': state,
                           'customOrigin': any(path['action'] == 'Forward' for path in paths), 'paths': paths,
+                          'boundHostNames': sorted(set(bound_hosts)),
                           'resolved': {field: True for field in ('routeAssociation', 'protocols', 'ruleSets', 'pathCoverage', 'originPolicy')}})
     _covered(item, 'effectiveRoutes', effective)
 
@@ -276,7 +298,11 @@ def _classic_cdn_routes(item, endpoints):
         protocols = [name for name, key in [('Http', 'isHttpAllowed'), ('Https', 'isHttpsAllowed')] if props[key]]
         if not protocols and state == 'Enabled':
             _unresolved(item, 'effectiveRoutes', 'classic_cdn_no_declared_protocol');return
+        host = props.get('hostName')
+        if state == 'Enabled' and (not isinstance(host, str) or not host):
+            _unresolved(item, 'effectiveRoutes', 'classic_cdn_hostname_unavailable');return
         rows.append({'id': endpoint['id'], 'type': endpoint['type'], 'enabledState': state,
+                     'boundHostNames': [host] if state == 'Enabled' else [],
                      'paths': [{'acceptedProtocols': protocols, 'action': 'Forward'}],
                      'resolved': {**{key: True for key in ('routeAssociation', 'protocols', 'ruleSets', 'pathCoverage')},
                                   'originPolicy': False}})
