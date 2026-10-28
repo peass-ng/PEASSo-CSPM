@@ -4773,7 +4773,8 @@ class GCPCollector:
                         if not match or network_key not in by_network:
                             raise ReadError("malformed", "effective_firewall_subnet_identity_invalid")
                         pairs.add((network_key, match.group(1)))
-                    for network_key, region in sorted(pairs):
+                    def effective_pair(pair):
+                        network_key, region = pair
                         path = (f"https://compute.googleapis.com/compute/v1/{scope}/regions/{region}"
                             "/firewallPolicies/getEffectiveFirewalls")
                         def validate_response(data):
@@ -4788,6 +4789,10 @@ class GCPCollector:
                                 "network": by_network[network_key], "region": region,
                                 "firewallPolicys": response.get("firewallPolicys", []),
                                 "effective_source_operation": "regionNetworkFirewallPolicies.getEffectiveFirewalls"}], request_id
+                    # Every region/network pair is independent. The shared
+                    # bounded stream keeps serial output/error order and uses
+                    # serial reads when an explicit resource cap is present.
+                    yield from fanout_pages(self, sorted(pairs), effective_pair)
                 add("effective_firewall", scope, "compute", regional_effective_firewalls)
         if "firestore_user_cred" in self.needed:
             for scope in [s for s in self.scopes if s.startswith("projects/")]:
