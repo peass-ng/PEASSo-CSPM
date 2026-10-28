@@ -88,6 +88,7 @@ from . import azure_cross_tenant_policy_native
 from . import azure_easm_connections_native
 from . import azure_purview_metadata_policy_native
 from . import azure_purview_unified_policy_native
+from . import azure_purview_ediscovery_native
 from . import azure_nginx_native
 from . import azure_webpubsub_hubs_native
 
@@ -1252,7 +1253,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     azure_app_settings_secret_indicators.KIND, azure_acr_image_secret_indicators.KIND, azure_acr_image_vulnerabilities_20261021.KIND, azure_selected_aks_image_20261021.KIND, azure_selected_aks_image_20261021.VULN_KIND, azure_selected_configuration_secret_indicators.KIND,
     *azure_ai_services_native.NATIVE_TYPES,
     *azure_public_edge_native.NATIVE_TYPES, *azure_storage_lifecycle_native.NATIVE_TYPES, *azure_key_rotation_evidence_native.NATIVE_TYPES, "frontdoor_and_cdn_endpoint", "afd_profile", "afd_domain", "afd_route", "afd_security_policy",
-    azure_notification_hubs_native.KIND, azure_lighthouse_native.KIND, azure_easm_connections_native.KIND, azure_purview_metadata_policy_native.KIND, azure_purview_unified_policy_native.KIND,
+    azure_notification_hubs_native.KIND, azure_lighthouse_native.KIND, azure_easm_connections_native.KIND, azure_purview_metadata_policy_native.KIND, azure_purview_unified_policy_native.KIND, *azure_purview_ediscovery_native.KINDS,
 )
 
 # A LIST containing properties is not a full GET. These evaluators apply
@@ -2507,6 +2508,8 @@ def _selected(options, requirements):
         selected.update(("purview_account", "directory_user", "directory_group", "directory_service_principal", "directory_membership"))
     if azure_purview_unified_policy_native.KIND in selected:
         selected.update(("directory_user", "directory_group", "directory_service_principal", "directory_membership"))
+    if azure_purview_ediscovery_native.MEMBERS in selected:
+        selected.update((azure_purview_ediscovery_native.CASES, "directory_user"))
     if selected.intersection(azure_external_id_extensions_native.KINDS):
         selected.update(azure_external_id_extensions_native.KINDS)
         selected.add("directory_domain")
@@ -4142,6 +4145,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_conditional_access_native.collect(reader, request, wanted, transport)
         azure_access_reviews_native.collect(reader, request, wanted, transport)
         azure_external_id_extensions_native.collect(reader, request, wanted, transport)
+        azure_purview_ediscovery_native.collect(reader, request, wanted, tenant_scope)
         azure_cross_tenant_policy_native.collect(reader, request, wanted, transport)
         azure_identity_intune_native.collect(reader, request, scopes, wanted, transport)
         if requirements is None or "directory_user" in requirements:
