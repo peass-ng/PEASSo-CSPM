@@ -46,6 +46,7 @@ from . import azure_fabric_workspace_native
 from . import azure_foundry_project_native
 from . import azure_foundry_agent_native
 from . import azure_foundry_connection_native
+from . import azure_newrelic_native
 from . import azure_powerbi_public_share_native
 from . import azure_security_correlation_native
 from . import azure_storage_blob_keys_native
@@ -1255,7 +1256,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "managed_instance_database", "managed_instance_tde", "sql_database_inventory", "sql_tde_inventory",
     azure_identity_enforcement_review_20261020.KIND, "guest_configuration_report", "azure_sw18_evidence", "mysql_postgresql_sql_server", *azure_conditional_access_native.NATIVE_TYPES,
     "devops_project", *azure_devops_pipeline_native.NATIVE_TYPES, *azure_access_reviews_native.NATIVE_TYPES, *azure_arm_metadata_native.NATIVE_TYPES, *azure_monitor_inventory_native.NATIVE_TYPES, *azure_aks_workloads_native.NATIVE_TYPES, azure_fabric_workspace_native.KIND, azure_fabric_workspace_native.ITEM_KIND, azure_fabric_workspace_native.SHARE_KIND, *azure_powerbi_public_share_native.KINDS, "azure_detection_telemetry", "entra_diagnostic_setting", *azure_storage_backup_native.NATIVE_TYPES,
-    *azure_defender_network_native.NATIVE_TYPES, *azure_adaptive_network_native.NATIVE_TYPES, *azure_entra_user_native.NATIVE_TYPES, "directory_user_group_membership", "sql_managed_instance_administrator", "intune_diagnostic_setting", azure_foundry_project_native.KIND, azure_foundry_agent_native.KIND, azure_foundry_connection_native.KIND,
+    *azure_defender_network_native.NATIVE_TYPES, *azure_adaptive_network_native.NATIVE_TYPES, *azure_entra_user_native.NATIVE_TYPES, "directory_user_group_membership", "sql_managed_instance_administrator", "intune_diagnostic_setting", azure_foundry_project_native.KIND, azure_foundry_agent_native.KIND, azure_foundry_connection_native.KIND, *azure_newrelic_native.TYPES,
     "storage_local_user", "sql_backup_short_term_policy", "eventgrid_subscription",
     *azure_vault_key_versions_native.NATIVE_TYPES, *azure_iot_policy_native.NATIVE_TYPES, *azure_function_limits_native.NATIVE_TYPES, *azure_functions_runtime_native.NATIVE_TYPES, *azure_secret_versions_native.NATIVE_TYPES, *azure_storage_recovery_metadata_native.NATIVE_TYPES, "sentinel_workspace", azure_sentinel_automation_exposure.KIND, azure_sentinel_source_control_exposure.KIND, *azure_incident_inventory_native.NATIVE_TYPES, *azure_security_correlation_native.NATIVE_TYPES, *azure_apim_diagnostic_evidence_native.NATIVE_TYPES, *azure_storage_blob_keys_native.NATIVE_TYPES, *azure_audit_storage_native.NATIVE_TYPES, "assessment_metadata",
     azure_app_settings_secret_indicators.KIND, azure_acr_image_secret_indicators.KIND, azure_acr_image_vulnerabilities_20261021.KIND, azure_selected_aks_image_20261021.KIND, azure_selected_aks_image_20261021.VULN_KIND, azure_selected_configuration_secret_indicators.KIND,
@@ -1394,7 +1395,8 @@ def _validate_readonly_post(url, audience, body):
     graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and not query and
                    (parsed.path == "/v1.0/$batch" and azure_graph_batch.valid_body(body) or
                     parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_members_only=True)))
-    if not (arg or logs or policy or graph_batch):
+    newrelic = azure_newrelic_native.monitored_route(url, body, ARM)
+    if not (arg or logs or policy or graph_batch or newrelic):
         raise AzureReadError("cloud_mutation_prohibited")
 
 
@@ -2521,6 +2523,8 @@ def _selected(options, requirements):
         selected.update((azure_foundry_project_native.KIND, "cognitive_account"))
     if azure_foundry_connection_native.KIND in selected:
         selected.update((azure_foundry_project_native.KIND, "cognitive_account"))
+    if azure_newrelic_native.RESOURCE in selected:
+        selected.add(azure_newrelic_native.MONITOR)
     if selected.intersection((azure_fabric_workspace_native.KIND, azure_fabric_workspace_native.ITEM_KIND)):
         selected.update(("directory_user", "directory_group", "directory_service_principal", "directory_membership"))
     if "security_contact" in selected:
@@ -3367,6 +3371,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_foundry_project_native.collect(reader, request, wanted, ARM)
         azure_foundry_agent_native.collect(reader, request, transport, wanted)
         azure_foundry_connection_native.collect(reader, request, transport, wanted)
+        azure_newrelic_native.collect(reader, request, scopes, wanted, ARM)
         azure_easm_connections_native.collect(reader, request, wanted)
         azure_purview_metadata_policy_native.collect(reader, request, transport, wanted)
         azure_purview_unified_policy_native.collect(reader, request, wanted, tenant_scope)
