@@ -4884,8 +4884,8 @@ def _azure_storage_resource_instance_rules(acls):
     return allowed, unresolved
 
 
-def _azure_storage_virtual_network_rules(acls):
-    """A succeeded subnet ACL can admit an Azure subnet from another tenant."""
+def _azure_storage_virtual_network_rules(acls, inventory, account):
+    """A succeeded subnet ACL needs a matching provisioned Storage endpoint."""
     rules = acls.get("virtualNetworkRules", [])
     if not isinstance(rules, list):
         return [], True
@@ -4898,7 +4898,46 @@ def _azure_storage_virtual_network_rules(acls):
                 rule.get("action", "Allow") != "Allow" or rule.get("state") != "Succeeded"):
             unresolved = True
             continue
-        allowed.append(subnet_id)
+        subnet, _ = _azure_subnet(inventory, subnet_id)
+        if subnet is None:
+            unresolved = True
+            continue
+        endpoints = _props(subnet).get("serviceEndpoints")
+        if not isinstance(endpoints, list):
+            unresolved = True
+            continue
+        policies = _props(subnet).get("serviceEndpointPolicies", [])
+        if not isinstance(policies, list) or policies:
+            # An attached policy can deny this account even when the endpoint is active.
+            unresolved = True
+            continue
+        location = str(account["data"].get("location") or _props(account).get("primaryLocation") or "").casefold()
+        active = False
+        uncertain = False
+        for endpoint in endpoints:
+            if not isinstance(endpoint, dict):
+                uncertain = True
+                continue
+            service = endpoint.get("service")
+            state = endpoint.get("provisioningState")
+            if service not in ("Microsoft.Storage", "Microsoft.Storage.Global"):
+                continue
+            if state != "Succeeded":
+                uncertain = True
+                continue
+            if service == "Microsoft.Storage.Global":
+                active = True
+            else:
+                locations = endpoint.get("locations")
+                if location and isinstance(locations, list) and any(
+                        isinstance(value, str) and value.casefold() == location for value in locations):
+                    active = True
+                else:
+                    uncertain = True
+        if active:
+            allowed.append(subnet_id)
+        elif uncertain or inventory.state("subnet", subnet["scope"]) not in ("collected", "empty"):
+            unresolved = True
     return allowed, unresolved
 
 
@@ -4955,7 +4994,7 @@ def _azure_storage(snapshot, inventory, resource):
         public, unresolved = _azure_storage_public_ip_rules(acls)
         public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public)
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
-        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
+        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls, inventory, resource)
         bypass = _azure_storage_bypass(acls)
         if public or instances or subnets:
             a.step("network_rules", "allow", default_action="Deny", public_ip_rules=public,
@@ -5035,7 +5074,7 @@ def _azure_storage_container(snapshot, inventory, resource):
         public, unresolved = _azure_storage_public_ip_rules(acls)
         public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public, service="blob")
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
-        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
+        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls, inventory, account)
         bypass = _azure_storage_bypass(acls)
         if public or subnets:
             a.step("firewall", "allow", default_action="Deny", public_ip_rules=public,
@@ -7211,11 +7250,11 @@ def _observed(assessment, status):
                 return (f"The blob container {assessment.resource['data'].get('name', native_id(assessment.resource))} "
                         f"allows anonymous access, and its account permits subnet {subnet_id} "
                         "through the public endpoint.\n"
-                        "Requests from that subnet may reach the blob endpoint if its service endpoint and service respond.\n"
+                        "The collected subnet has a provisioned Storage service endpoint and no attached endpoint policy.\n"
                         "Anonymous blob reads could expose stored data; subnet ownership and successful access were not tested.")
             return (f"The storage account {assessment.resource['data'].get('name', native_id(assessment.resource))} "
                     f"permits subnet {subnet_id} through its public endpoint.\n"
-                    "Requests from that subnet may reach storage if its service endpoint and the service respond.\n"
+                    "The collected subnet has a provisioned Storage service endpoint and no attached endpoint policy.\n"
                     "Subnet ownership, data authorization, and successful access were not tested.")
     if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
         account = assessment.resource["data"]

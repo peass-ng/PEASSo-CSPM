@@ -798,16 +798,20 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
     container = {"id": account_id + "/blobServices/default/containers/public",
                  "parent_id": account_id, "properties": {"publicAccess": "Blob"}}
 
-    def account_and_container(rules, subnet_rules=None):
-        snap = make_snapshot("azure", [SCOPE], [
+    def account_and_container(rules, subnet_rules=None, subnet_items=None):
+        collections = [
             {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
-             "items": [{"id": account_id, "properties": {"publicNetworkAccess": "Enabled",
+             "items": [{"id": account_id, "location": "westeurope", "properties": {"publicNetworkAccess": "Enabled",
                  "allowBlobPublicAccess": True, "primaryEndpoints": {"blob": blob_url},
                  "networkAcls": {"defaultAction": "Deny", "bypass": "None", "resourceAccessRules": rules,
                                  "virtualNetworkRules": subnet_rules or []}}}]},
             {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
              "items": [container]},
-        ])
+        ]
+        if subnet_items is not None:
+            collections.append({"type": "subnet", "scope": SCOPE, "service": "network",
+                                "status": "collected", "items": subnet_items})
+        snap = make_snapshot("azure", [SCOPE], collections)
         rows = assess(snap, resources(snap))
         return (next(a for a in rows if a.resource["type"] == "storage_account"),
                 next(a for a in rows if a.resource["type"] == "storage_container"))
@@ -830,14 +834,33 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
 
     foreign_subnet = "/subscriptions/foreign/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s"
     account, anonymous = account_and_container([], [{"id": foreign_subnet, "state": "Succeeded"}])
-    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
-    assert account.path[0]["virtual_network_rules"] == [foreign_subnet]
-    assert "Subnet ownership, data authorization" in _observed(account, "FAIL")
-    assert "subnet ownership and successful access" in _observed(anonymous, "FAIL")
+    assert account.verdict() == "UNKNOWN" and anonymous.verdict() == "UNKNOWN"
     mixed_account, mixed_anonymous = account_and_container([rule], [{"id": foreign_subnet,
                                                                       "state": "Succeeded"}])
-    assert mixed_account.verdict() == "FAIL" and mixed_anonymous.verdict() == "FAIL"
-    assert "permits subnet" in _observed(mixed_anonymous, "FAIL")
+    assert mixed_account.verdict() == "FAIL" and mixed_anonymous.verdict() == "UNKNOWN"
+    local_subnet = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s"
+    rule_subnet = [{"id": local_subnet, "state": "Succeeded"}]
+    active_subnet = [{"id": local_subnet, "properties": {"serviceEndpoints": [
+        {"service": "Microsoft.Storage.Global", "provisioningState": "Succeeded"}]}}]
+    account, anonymous = account_and_container([], rule_subnet, active_subnet)
+    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
+    assert account.path[0]["virtual_network_rules"] == [local_subnet]
+    assert "Subnet ownership, data authorization" in _observed(account, "FAIL")
+    assert "subnet ownership and successful access" in _observed(anonymous, "FAIL")
+    assert "provisioned Storage service endpoint" in _observed(anonymous, "FAIL")
+    blocked = account_and_container([], rule_subnet, [{"id": local_subnet,
+        "properties": {"serviceEndpoints": []}}])
+    assert [row.verdict() for row in blocked] == ["PASS", "PASS"]
+    regional = [{"id": local_subnet, "properties": {"serviceEndpoints": [
+        {"service": "Microsoft.Storage", "provisioningState": "Succeeded", "locations": ["westeurope"]}]}}]
+    assert [row.verdict() for row in account_and_container([], rule_subnet, regional)] == ["FAIL", "FAIL"]
+    wrong_region = [{"id": local_subnet, "properties": {"serviceEndpoints": [
+        {"service": "Microsoft.Storage", "provisioningState": "Succeeded", "locations": ["eastus"]}]}}]
+    assert [row.verdict() for row in account_and_container([], rule_subnet, wrong_region)] == ["UNKNOWN", "UNKNOWN"]
+    restricted = [{"id": local_subnet, "properties": {"serviceEndpoints": [
+        {"service": "Microsoft.Storage.Global", "provisioningState": "Succeeded"}],
+        "serviceEndpointPolicies": [{"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/serviceEndpointPolicies/p"}]}}]
+    assert [row.verdict() for row in account_and_container([], rule_subnet, restricted)] == ["UNKNOWN", "UNKNOWN"]
     assert account_and_container([], [{"id": foreign_subnet, "state": "Failed"}])[0].verdict() == "UNKNOWN"
     assert account_and_container([], [{"id": foreign_subnet}])[0].verdict() == "UNKNOWN"
     assert account_and_container([], [{"id": "malformed", "state": "Succeeded"}])[1].verdict() == "UNKNOWN"
