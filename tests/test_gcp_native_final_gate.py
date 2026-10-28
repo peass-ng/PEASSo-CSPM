@@ -7,7 +7,7 @@ from peaso.ai import gcp_native_final
 
 def test_pending_candidate_is_inactive_even_with_switch_and_pin(monkeypatch):
     path = gcp_native_final.MANIFEST
-    assert gcp_native_final.candidate_check_ids(path) == frozenset(gcp_native_final.CHECKS)
+    assert len(gcp_native_final.candidate_check_ids(path)) == 25
     monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_ENABLED', '1')
     monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_SHA256',
                        hashlib.sha256(path.read_bytes()).hexdigest())
@@ -27,7 +27,7 @@ def test_qualified_schema_still_requires_exact_pin_and_source(tmp_path, monkeypa
                        hashlib.sha256(path.read_bytes()).hexdigest())
     assert not gcp_native_final.admitted_check_ids(path)
     monkeypatch.setattr(gcp_native_final, 'HOSTED_RECEIPT_SHA256', 'a' * 64)
-    assert gcp_native_final.admitted_check_ids(path) == frozenset(gcp_native_final.CHECKS)
+    assert gcp_native_final.admitted_check_ids(path) == gcp_native_final.candidate_check_ids()
     path.write_bytes(path.read_bytes() + b' ')
     assert not gcp_native_final.admitted_check_ids(path)
     value['checks'][0]['saved_native_failures'] += 1
@@ -53,6 +53,6 @@ def test_partition_requires_exact_native_fail_evidence():
                                              'configured': 0}),
                 dict(base, id='f8', evidence={**base['evidence'],
                                              'incomplete_dependencies': []})]
-    native, ai = gcp_native_final.partition(variants, frozenset(gcp_native_final.CHECKS))
+    native, ai = gcp_native_final.partition(variants, gcp_native_final.candidate_check_ids())
     assert [row['id'] for row in native] == ['f1']
     assert [row['id'] for row in ai] == [f'f{number}' for number in range(2, 9)]

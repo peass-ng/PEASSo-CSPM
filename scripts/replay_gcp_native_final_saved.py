@@ -124,15 +124,21 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     candidate = gcp_native_final.candidate_check_ids()
-    if candidate != frozenset(gcp_native_final.CHECKS):
+    audit = json.loads(gcp_native_final.AUDIT.read_text())
+    if candidate != frozenset(audit['admitted_check_ids']):
         raise ValueError('GCP candidate manifest changed')
     rows = [replay(scan_id, pre, final, candidate)
             for scan_id, pre, final in args.pair]
     if len({row['scan_id'] for row in rows}) != len(rows):
         raise ValueError('duplicate scan ID')
-    receipt = {'schema_version': 1, 'provider': 'gcp',
+    receipt = {'schema_version': 2, 'provider': 'gcp',
+               'source_audit_sha256': gcp_native_final.AUDIT_SHA256,
                'manifest_sha256': hashlib.sha256(gcp_native_final.MANIFEST.read_bytes()).hexdigest(),
                'candidate_check_ids': sorted(candidate), 'scans': rows,
+               'checks': [{'check_id': check['check_id'], 'rows': check['rows'],
+                           'representatives': check['representatives'],
+                           'by_scan': check['by_scan']}
+                          for check in audit['checks'] if check['decision'] == 'admit'],
                'selected_native_failures': sum(row['selected_native_failures'] for row in rows),
                'remaining_ai_hardening_inputs': sum(row['remaining_ai_hardening_inputs'] for row in rows),
                'hosted_model_replay': False, 'runtime_admitted': False,

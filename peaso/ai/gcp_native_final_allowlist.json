@@ -1,28 +1,422 @@
 {
+  "audit_sha256": "73c3ded77b64866f99640af52281a428ed9f2fb0ef6f222503d6d6965337bfd9",
   "checks": [
     {
+      "check_id": "gcp.claude.bucket.retention_90_days",
+      "evidence_signatures": [
+        [
+          [
+            "retention_policy",
+            "NoneType"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 3,
+      "saved_native_failures": 18
+    },
+    {
+      "check_id": "gcp.claude.firewall.logging_enabled",
+      "evidence_signatures": [
+        [
+          [
+            "log_config_enable",
+            "bool"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 6,
+      "saved_native_failures": 34
+    },
+    {
+      "check_id": "gcp.claude.gke.binary_authorization",
+      "evidence_signatures": [
+        [
+          [
+            "evaluation_mode",
+            "NoneType"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
+      "saved_native_failures": 5
+    },
+    {
+      "check_id": "gcp.claude.gke.zone_redundant",
+      "evidence_signatures": [
+        [
+          [
+            "distinct_zone_count",
+            "int"
+          ],
+          [
+            "node_locations",
+            "list"
+          ],
+          [
+            "semantics",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
+      "saved_native_failures": 5
+    },
+    {
+      "check_id": "gcp.claude.instance.disks_csek",
+      "evidence_signatures": [
+        [
+          [
+            "disks_without_csek",
+            "list"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
+      "saved_native_failures": 6
+    },
+    {
+      "check_id": "gcp.claude.instance_group_manager.autohealing",
+      "evidence_signatures": [
+        [
+          [
+            "health_checks",
+            "list"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
+      "saved_native_failures": 5
+    },
+    {
+      "check_id": "gcp.claude.instance_group_manager.multiple_zones",
+      "evidence_signatures": [
+        [
+          [
+            "semantics",
+            "str"
+          ],
+          [
+            "zones",
+            "list"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
+      "saved_native_failures": 5
+    },
+    {
+      "check_id": "gcp.claude2.bigquery_dataset.default_cmek",
+      "evidence_signatures": [
+        [
+          [
+            "kms_key_name",
+            "NoneType"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 2,
+      "saved_native_failures": 29
+    },
+    {
       "check_id": "gcp.compute.secure_boot",
-      "failing_value": false,
-      "field_path": "shieldedInstanceConfig.enableSecureBoot",
+      "evidence_signatures": [
+        [
+          [
+            "configured",
+            "bool"
+          ],
+          [
+            "field",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
       "saved_native_failures": 6
     },
     {
       "check_id": "gcp.gke.secrets_encryption",
-      "failing_value": "DECRYPTED",
-      "field_path": "databaseEncryption.state",
+      "evidence_signatures": [
+        [
+          [
+            "configured",
+            "str"
+          ],
+          [
+            "field",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
       "saved_native_failures": 5
     },
     {
-      "check_id": "gcp.network.custom_subnets",
-      "failing_value": true,
-      "field_path": "autoCreateSubnetworks",
+      "check_id": "gcp.htbp.kms.destroy_window_not_shortened",
+      "evidence_signatures": [
+        [
+          [
+            "destroy_scheduled_duration",
+            "str"
+          ],
+          [
+            "semantics",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 2,
       "saved_native_failures": 6
     },
     {
-      "check_id": "gcp.reviewed.compute.deletion_protection",
-      "failing_value": false,
-      "field_path": "deletionProtection",
+      "check_id": "gcp.network.custom_subnets",
+      "evidence_signatures": [
+        [
+          [
+            "configured",
+            "bool"
+          ],
+          [
+            "field",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 6,
       "saved_native_failures": 6
+    },
+    {
+      "check_id": "gcp.ports.compute_disk_encrypted_with_csk",
+      "evidence_signatures": [
+        [
+          [
+            "csek_digest_present",
+            "bool"
+          ],
+          [
+            "semantics",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
+      "saved_native_failures": 6
+    },
+    {
+      "check_id": "gcp.ports.compute_instance_with_no_public_ip_addresses",
+      "evidence_signatures": [
+        [
+          [
+            "declared_external_addresses",
+            "list"
+          ],
+          [
+            "semantics",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 6,
+      "saved_native_failures": 6
+    },
+    {
+      "check_id": "gcp.ports.compute_network_dns_logging_scoped",
+      "evidence_signatures": [
+        [
+          [
+            "network_reference",
+            "str"
+          ],
+          [
+            "semantics",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 6,
+      "saved_native_failures": 10
+    },
+    {
+      "check_id": "gcp.ports.kubernetes_cluster_intra_node_visibility_enabled",
+      "evidence_signatures": [
+        [
+          [
+            "configured",
+            "bool"
+          ],
+          [
+            "field",
+            "str"
+          ],
+          [
+            "semantics",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
+      "saved_native_failures": 5
+    },
+    {
+      "check_id": "gcp.reviewed.compute.deletion_protection",
+      "evidence_signatures": [
+        [
+          [
+            "configured",
+            "bool"
+          ],
+          [
+            "field",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 4,
+      "saved_native_failures": 6
+    },
+    {
+      "check_id": "gcp.reviewed.network.no_default_vpc",
+      "evidence_signatures": [
+        [
+          [
+            "network_name",
+            "str"
+          ],
+          [
+            "semantics",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 6,
+      "saved_native_failures": 6
+    },
+    {
+      "check_id": "gcp.reviewed.storage.access_logging",
+      "evidence_signatures": [
+        [
+          [
+            "log_bucket",
+            "NoneType"
+          ],
+          [
+            "source",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 3,
+      "saved_native_failures": 18
+    },
+    {
+      "check_id": "gcp.reviewed.storage.lifecycle",
+      "evidence_signatures": [
+        [
+          [
+            "source",
+            "str"
+          ],
+          [
+            "valid_rule_count",
+            "int"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 3,
+      "saved_native_failures": 9
+    },
+    {
+      "check_id": "gcp.reviewed.storage.versioning",
+      "evidence_signatures": [
+        [
+          [
+            "configured",
+            "bool"
+          ],
+          [
+            "field",
+            "str"
+          ],
+          [
+            "source",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 3,
+      "saved_native_failures": 18
+    },
+    {
+      "check_id": "gcp.storage.uniform_access",
+      "evidence_signatures": [
+        [
+          [
+            "uniform_bucket_level_access",
+            "bool"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 3,
+      "saved_native_failures": 12
+    },
+    {
+      "check_id": "gcp.subnetwork.private_google_access",
+      "evidence_signatures": [
+        [
+          [
+            "configured",
+            "bool"
+          ],
+          [
+            "field",
+            "str"
+          ],
+          [
+            "network",
+            "str"
+          ],
+          [
+            "region",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 249,
+      "saved_native_failures": 249
+    },
+    {
+      "check_id": "gcp_bucket_logging_enabled_fb7cc594582a",
+      "evidence_signatures": [
+        [
+          [
+            "bucket_name",
+            "str"
+          ],
+          [
+            "log_bucket",
+            "NoneType"
+          ],
+          [
+            "semantics",
+            "str"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 3,
+      "saved_native_failures": 18
+    },
+    {
+      "check_id": "gcp_pubsub_topic_cmek",
+      "evidence_signatures": [
+        [
+          [
+            "kms_key_name",
+            "NoneType"
+          ]
+        ]
+      ],
+      "saved_initial_representatives": 3,
+      "saved_native_failures": 12
     }
   ],
   "provider": "gcp",
@@ -30,13 +424,21 @@
     "hosted_receipt_sha256": null,
     "status": "pending_hosted"
   },
-  "saved_parity_sha256": "f33b642caadd6335d96f75d871d8f73a5fd37b92909bb990eadb05e31c26da65",
-  "source_audit_sha256": "1431f5d57a308d4483de4a5c3408709e137b3e353c602f8a1d87f520dcac781f",
   "source_sha256": {
     "peaso/checks/__init__.py": "9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae",
+    "peaso/checks/claude2_gcp_services.py": "66a53c222fd1c5e58a8f02db7efb24f65e9fcdeca276007adc29b369feabcd48",
+    "peaso/checks/claude_gcp_k8s_compute.py": "071adbccfe52668da08440632d9f5d3ef4b74781a8ba8570442b02a7fdc69952",
+    "peaso/checks/claude_gcp_k8s_iam.py": "e5080847e9facfe4c70b2cb38089dc6b830b1fb74d55700ff23d359225a78a2e",
+    "peaso/checks/compliance_new_gcp.py": "56b124e95fc5fe69701bf8b155378d60ce89478364c22df4b8b93e152a602487",
+    "peaso/checks/compliance_new_gcp_storage.py": "068fed8fa3bb4d6b5fa0bef0e7d8c79b56db2a9ddeca5cc8f1190b1aa36c1f47",
     "peaso/checks/facts.py": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
     "peaso/checks/gcp.py": "2a05ef582c4527eb97cf757ec9419cb0d8eb7a61bc33be76e02c8a7721eb6bd6",
-    "peaso/checks/gcp_extended.py": "f2d535d449b2babb2d7ba61d839be491b0c83c25642b5f63e41051ffec2689ae"
+    "peaso/checks/gcp_extended.py": "f2d535d449b2babb2d7ba61d839be491b0c83c25642b5f63e41051ffec2689ae",
+    "peaso/checks/gcp_ports_compute.py": "47805cd4afa8bc54214f9ad4e3fb5f962022f3cea7112bbc252d6bca316b22d5",
+    "peaso/checks/gcp_ports_logging.py": "934a60b40e695d14753ddc9da1bec3237e6d0918f0ab4ec625128632ec33fa5d",
+    "peaso/checks/gcp_ports_relationships.py": "72b4a70549ab096bc52935ce7c36ac3a877d44a7aa203636713247cf04dbb693",
+    "peaso/checks/gcp_ports_services.py": "4d0572d9f8dc88212772031afdb125725f1f7fca37b87cb790e647d494802ab2",
+    "peaso/checks/hacktricks_bp_gcp.py": "82c87cd9815ae4064acf84174667ba418fc5f464d8fdaf7f4495a6ce303c6434"
   },
-  "version": 1
+  "version": 2
 }
