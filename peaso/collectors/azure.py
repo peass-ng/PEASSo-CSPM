@@ -42,6 +42,8 @@ from . import azure_vault_key_versions_native
 from . import azure_functions_runtime_native
 from . import azure_iot_policy_native, azure_function_limits_native, azure_sentinel_metadata_native, azure_assessment_criteria_native, azure_secret_versions_native, azure_storage_recovery_metadata_native
 from . import azure_incident_inventory_native
+from . import azure_fabric_workspace_native
+from . import azure_powerbi_public_share_native
 from . import azure_security_correlation_native
 from . import azure_storage_blob_keys_native
 from . import azure_audit_storage_native
@@ -1248,7 +1250,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "azure_resource", "resource", "backup_job", "sql_ltr_backup", "sql_restore_point",
     "managed_instance_database", "managed_instance_tde", "sql_database_inventory", "sql_tde_inventory",
     azure_identity_enforcement_review_20261020.KIND, "guest_configuration_report", "azure_sw18_evidence", "mysql_postgresql_sql_server", *azure_conditional_access_native.NATIVE_TYPES,
-    "devops_project", *azure_devops_pipeline_native.NATIVE_TYPES, *azure_access_reviews_native.NATIVE_TYPES, *azure_arm_metadata_native.NATIVE_TYPES, *azure_monitor_inventory_native.NATIVE_TYPES, *azure_aks_workloads_native.NATIVE_TYPES, "azure_detection_telemetry", "entra_diagnostic_setting", *azure_storage_backup_native.NATIVE_TYPES,
+    "devops_project", *azure_devops_pipeline_native.NATIVE_TYPES, *azure_access_reviews_native.NATIVE_TYPES, *azure_arm_metadata_native.NATIVE_TYPES, *azure_monitor_inventory_native.NATIVE_TYPES, *azure_aks_workloads_native.NATIVE_TYPES, azure_fabric_workspace_native.KIND, azure_fabric_workspace_native.ITEM_KIND, azure_fabric_workspace_native.SHARE_KIND, *azure_powerbi_public_share_native.KINDS, "azure_detection_telemetry", "entra_diagnostic_setting", *azure_storage_backup_native.NATIVE_TYPES,
     *azure_defender_network_native.NATIVE_TYPES, *azure_adaptive_network_native.NATIVE_TYPES, *azure_entra_user_native.NATIVE_TYPES, "directory_user_group_membership", "sql_managed_instance_administrator", "intune_diagnostic_setting",
     "storage_local_user", "sql_backup_short_term_policy", "eventgrid_subscription",
     *azure_vault_key_versions_native.NATIVE_TYPES, *azure_iot_policy_native.NATIVE_TYPES, *azure_function_limits_native.NATIVE_TYPES, *azure_functions_runtime_native.NATIVE_TYPES, *azure_secret_versions_native.NATIVE_TYPES, *azure_storage_recovery_metadata_native.NATIVE_TYPES, "sentinel_workspace", azure_sentinel_automation_exposure.KIND, azure_sentinel_source_control_exposure.KIND, *azure_incident_inventory_native.NATIVE_TYPES, *azure_security_correlation_native.NATIVE_TYPES, *azure_apim_diagnostic_evidence_native.NATIVE_TYPES, *azure_storage_blob_keys_native.NATIVE_TYPES, *azure_audit_storage_native.NATIVE_TYPES, "assessment_metadata",
@@ -1819,6 +1821,7 @@ class AzureTransport:
                 raise AzureReadError("token_audience_mismatch", 401)
             from peaso.ai.access import bearer
             endpoints = (["https://api.purview-service.microsoft.com"] + ["https://" + host for host in self.purview_hosts] if audience == "https://purview.azure.net" else
+                         ["https://api.powerbi.com"] if audience == azure_powerbi_public_share_native.AUDIENCE else
                          ["https://" + host for host in self.vault_hosts] if audience == VAULT else
                          ["https://" + host for host in self.storage_hosts] if audience == STORAGE else [audience])
             bearer("azure", audience, token, context_id=self.ai_context_id, tenant_id=self.tenant,
@@ -1860,6 +1863,8 @@ class AzureTransport:
             origin_allowed = (body is None and parsed.port in (None, 443) and (
                 (purview_host in self.purview_hosts and parsed.path == "/policyStore/metadataPolicies") or
                 (purview_host == "api.purview-service.microsoft.com" and parsed.path == "/datagovernance/catalog/policies")))
+        if audience == azure_powerbi_public_share_native.AUDIENCE:
+            origin_allowed = body is None and azure_powerbi_public_share_native.allowed_route(url)
         from .azure_network_data import is_network_audience, allowed_route
         if is_network_audience(audience):
             origin_allowed = body is None and allowed_route(url, audience)
@@ -2502,6 +2507,8 @@ def _selected(options, requirements):
         selected.update(("vnet", "subnet", "nsg", "directory_domain"))
     if "powerbi_capacity" in selected:
         selected.add("directory_domain")
+    if selected.intersection((azure_fabric_workspace_native.KIND, azure_fabric_workspace_native.ITEM_KIND)):
+        selected.update(("directory_user", "directory_group", "directory_service_principal", "directory_membership"))
     if "security_contact" in selected:
         selected.add("directory_domain")
     if azure_easm_connections_native.KIND in selected:
@@ -4089,7 +4096,7 @@ def collect(connector, requirements=None, *, transport=None):
             jobs, graph_urls = [], []
             # Graph v1.0 omits service-principal group members. Exposure scans
             # need the documented beta workaround to see outside SP grantees.
-            member_version = "beta" if ("role_assignment" in wanted or
+            member_version = "beta" if ("role_assignment" in wanted or wanted.intersection((azure_fabric_workspace_native.KIND, azure_fabric_workspace_native.ITEM_KIND)) or
                 wanted.intersection((azure_purview_metadata_policy_native.KIND,
                                      azure_purview_unified_policy_native.KIND))) else "v1.0"
             for c in reader.collections:
@@ -4130,6 +4137,10 @@ def collect(connector, requirements=None, *, transport=None):
         azure_sentinel_metadata_native.collect(reader, request, scopes, wanted)
         azure_sentinel_automation_exposure.collect(reader, request, wanted)
         azure_sentinel_source_control_exposure.collect(reader, request, wanted)
+        azure_fabric_workspace_native.collect(reader, request, wanted, tenant_scope)
+        azure_fabric_workspace_native.collect_items(reader, request, wanted, tenant_scope)
+        azure_fabric_workspace_native.collect_external_shares(reader, request, wanted, tenant_scope)
+        azure_powerbi_public_share_native.collect(reader, request, wanted, tenant_scope)
         azure_incident_inventory_native.collect(reader, scopes, wanted)
         azure_iot_policy_native.collect(reader, request, scopes, wanted, options)
         azure_storage_recovery_metadata_native.collect(reader, request, scopes, wanted, options)

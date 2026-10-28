@@ -11256,6 +11256,110 @@ def _azure_powerbi_capacity(snapshot, inventory, resource):
     return a
 
 
+def _azure_fabric_workspace(snapshot, inventory, resource):
+    """Fabric workspace grants to observed foreign users or applications."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    data = resource["data"]
+    grants = data.get("role_assignments")
+    if data.get("role_assignments_status") != "collected" or not isinstance(grants, list):
+        a.gap("authorization", "Fabric workspace role assignments unavailable to scan principal")
+        return a
+    if not grants:
+        a.step("workspace_roles", "block", reason="no workspace role assignments returned")
+        return a
+    from .iam import _azure_external_group_members
+    key = "azure_fabric_workspace_member_resolver"
+    if key not in inventory.network_cache:
+        all_resources = [row for rows in inventory.by_type.values() for row in rows]
+        inventory.network_cache[key] = _azure_external_group_members(snapshot, all_resources)
+    members = inventory.network_cache[key]
+    foreign = []
+    uncertain = []
+    for grant in grants:
+        kind = grant.get("principal_type") if isinstance(grant, dict) else None
+        principal = grant.get("principal_id") if isinstance(grant, dict) else None
+        role = grant.get("role") if isinstance(grant, dict) else None
+        if kind == "ServicePrincipalProfile":
+            kind = grant.get("parent_principal_type")
+            principal = grant.get("parent_principal_id")
+        if kind == "EntireTenant":
+            uncertain.append({"role": role, "reason": "all-tenant grant guest eligibility unresolved"})
+            continue
+        if not isinstance(principal, str) or not principal:
+            uncertain.append({"role": role, "reason": "principal identity unavailable"})
+            continue
+        identities = [(principal, externality(snapshot, principal))]
+        if kind == "Group":
+            identities.extend((member, "external") for member in members(principal))
+            membership_scope = resource["scope"] + "/groups/" + principal
+            if (inventory.state("directory_membership", membership_scope) not in ("collected", "empty")
+                    or inventory.state("directory_membership") not in ("collected", "empty")):
+                uncertain.append({"principal_id": principal, "reason": "group membership incomplete"})
+        for identity, classification in identities:
+            if classification == "external":
+                foreign.append({"principal_id": identity, "principal_type": kind, "role": role})
+            elif classification not in ("allowlisted", "provider_service"):
+                uncertain.append({"principal_id": identity, "reason": "principal tenant unresolved"})
+    if foreign:
+        a.external_ids = sorted({entry["principal_id"] for entry in foreign})
+        a.step("workspace_roles", "allow", foreign_grants=foreign)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    if uncertain:
+        a.gap("authorization", "Fabric workspace principal or group ownership incomplete")
+    if not foreign and not uncertain:
+        a.step("workspace_roles", "block", reason="no observed foreign workspace principal")
+    return a
+
+
+def _azure_powerbi_public_share(snapshot, inventory, resource):
+    """Configured anonymous publication or organization-wide link."""
+    a = Assessment(resource, "data_sharing")
+    a.ports = {}
+    data = resource["data"]
+    if resource["type"] == "powerbi_published_item":
+        a.step("publish_to_web", "allow", artifact_id=data.get("artifact_id"),
+               artifact_type=data.get("artifact_type"))
+        a.data_exposure = True
+        a.gap("authorization", "published-to-web API omits embed-code active or disabled status")
+        return a
+    a.authenticated = True
+    a.step("organization_link", "block", artifact_id=data.get("artifact_id"),
+           artifact_type=data.get("artifact_type"),
+           reason="organization-wide links exclude guest and external users")
+    return a
+
+
+def _azure_fabric_external_data_share(snapshot, inventory, resource):
+    """Accepted OneLake external share to a foreign tenant."""
+    a = Assessment(resource, "data_pipeline")
+    a.ports = {}
+    data = resource["data"]
+    state = data.get("status")
+    if state in ("Revoked", "InvitationExpired", "Pending"):
+        a.step("external_data_share", "block", reason="share is not active", status=state)
+        return a
+    if state != "Active":
+        a.gap("authorization", "external data share status unavailable")
+        return a
+    owner = (snapshot.get("metadata") or {}).get("tenant_id")
+    target = data.get("accepted_by_tenant_id") or data.get("recipient_tenant_id")
+    if not isinstance(owner, str) or not owner or not isinstance(target, str) or not target:
+        a.gap("authorization", "active external data share tenant ownership unavailable")
+        return a
+    if owner.casefold() != target.casefold():
+        a.external_ids = [target]
+        a.step("external_data_share", "allow", recipient_tenant_id=target,
+               item_id=data.get("item_id"), shared_path_count=data.get("shared_path_count"))
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    else:
+        a.step("external_data_share", "block", reason="recipient belongs to scanned tenant")
+    return a
+
+
 def _azure_cost_export(snapshot, inventory, resource):
     """Configured cost-data delivery to a foreign subscription or tenant."""
     a = Assessment(resource, "data_pipeline")
@@ -13446,7 +13550,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "powerbi_capacity", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -13461,7 +13565,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "management_group", "subscription", "powerbi_capacity", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -13575,6 +13679,11 @@ def assess(snapshot, resources):
                   "management_group": _azure_management_group,
                   "subscription": _azure_subscription,
                   "powerbi_capacity": _azure_powerbi_capacity,
+                  "fabric_workspace": _azure_fabric_workspace,
+                  "fabric_item": _azure_fabric_workspace,
+                  "fabric_external_data_share": _azure_fabric_external_data_share,
+                  "powerbi_published_item": _azure_powerbi_public_share,
+                  "powerbi_org_link": _azure_powerbi_public_share,
                   "cost_export": _azure_cost_export,
                   "security_contact": _azure_security_contact,
                   "defender_automation": _azure_defender_automation,
