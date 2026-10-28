@@ -3501,41 +3501,20 @@ def _azure_public_remainder(sources, prior):
     return False
 
 
-def _azure_app_service(snapshot, inventory, resource, configs):
-    props = _props(resource)
-    a = Assessment(resource, "web_app")
-    a.addresses = [h for h in as_list(props.get("defaultHostName")) if h]
-    public_access = props.get("publicNetworkAccess")
-    if str(public_access).lower() == "disabled":
-        a.step("public_network_access", "block", public_network_access="Disabled")
-        a.ports = {}
-        return a
-    if props.get("publicNetworkAccess") is None and as_list(props.get("privateEndpointConnections")):
-        a.gap("inventory", "publicNetworkAccess is unset while private endpoint connections are present; public default is unresolved")
-    if public_access is not None and str(public_access).lower() != "enabled":
-        a.gap("inventory", "App Service publicNetworkAccess value is unrecognized")
-    ports = pset("tcp", 443, 443) if props.get("httpsOnly") else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
-    a.step("public_network_access", "allow", public_network_access=props.get("publicNetworkAccess", "default(Enabled)"))
-    config = configs.get(str(resource["data"].get("id", "")).lower())
-    if config is None:
-        a.gap("access_restrictions", "site config (ipSecurityRestrictions) not collected", "Microsoft.Web/sites/config/web")
-        a.ports = ports
-        return a
-    cp = _props(config)
-    raw_restrictions = as_list(cp.get("ipSecurityRestrictions"))
+def _azure_app_restriction_decision(cp, prefix):
+    """Resolve one App Service site surface from its recorded ARM restriction fields."""
+    stem = prefix + "IpSecurityRestrictions" if prefix else "ipSecurityRestrictions"
+    raw_restrictions = as_list(cp.get(stem))
     restrictions = [r for r in raw_restrictions if isinstance(r, dict)]
-    if len(restrictions) != len(raw_restrictions):
-        a.gap("access_restrictions", "App Service restriction entry is malformed")
-    default = cp.get("ipSecurityRestrictionsDefaultAction") or ("Deny" if restrictions else "Allow")
-    if default not in ("Allow", "Deny"):
-        a.gap("access_restrictions", "App Service unmatched rule action is unrecognized")
+    unresolved = len(restrictions) != len(raw_restrictions)
+    default = cp.get(stem + "DefaultAction") or ("Deny" if raw_restrictions else "Allow")
+    unresolved |= default not in ("Allow", "Deny")
     prior, open_rules, unsupported = [], [], []
     try:
         ordered = sorted(restrictions, key=lambda r: int(r.get("priority", 65000)))
     except (TypeError, ValueError):
-        a.gap("access_restrictions", "App Service restriction priority is invalid")
-        a.ports = ports
-        return a
+        return "unknown", {"default_action": default, "restriction_count": len(raw_restrictions),
+                           "open_rules": [], "reason": "invalid restriction priority"}
     for restriction in ordered:
         sources = _azure_restriction_sources(restriction.get("ipAddress"))
         if not sources:
@@ -3553,11 +3532,58 @@ def _azure_app_service(snapshot, inventory, resource, configs):
             prior.extend(sources)
     reachable = bool(open_rules) or (default == "Allow" and _azure_public_remainder(
         _azure_restriction_sources("Any"), prior))
-    if unsupported:
-        a.gap("access_restrictions", "App Service source rule uses an unresolved service tag or VNet source")
-    a.step("access_restrictions", "allow" if reachable else "unknown" if unsupported else "block",
-           restriction_count=len(restrictions), default_action=default, open_rules=open_rules)
-    a.ports = ports if reachable else {}
+    unresolved |= bool(unsupported)
+    detail = {"restriction_count": len(raw_restrictions), "default_action": default, "open_rules": open_rules}
+    if unresolved:
+        detail["reason"] = "malformed or unsupported App Service restriction or unmatched action"
+    return ("unknown" if unresolved else "allow" if reachable else "block"), detail
+
+
+def _azure_app_service(snapshot, inventory, resource, configs):
+    props = _props(resource)
+    a = Assessment(resource, "web_app")
+    a.addresses = [h for h in as_list(props.get("defaultHostName")) if h]
+    public_access = props.get("publicNetworkAccess")
+    if str(public_access).lower() == "disabled":
+        a.step("public_network_access", "block", public_network_access="Disabled")
+        a.ports = {}
+        return a
+    if public_access is None and as_list(props.get("privateEndpointConnections")):
+        a.gap("inventory", "publicNetworkAccess is unset while private endpoint connections are present; public default is unresolved")
+    if public_access is not None and str(public_access).lower() != "enabled":
+        a.gap("inventory", "App Service publicNetworkAccess value is unrecognized")
+    ports = pset("tcp", 443, 443) if props.get("httpsOnly") else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
+    a.step("public_network_access", "allow", public_network_access=props.get("publicNetworkAccess", "default(Enabled)"))
+    config = configs.get(str(resource["data"].get("id", "")).lower())
+    if config is None:
+        a.gap("access_restrictions", "site config (main and SCM restrictions) not collected", "Microsoft.Web/sites/config/web")
+        a.ports = ports
+        return a
+    cp = _props(config)
+    main, main_detail = _azure_app_restriction_decision(cp, "")
+    if main == "block":
+        a.addresses = []
+    use_main = cp.get("scmIpSecurityRestrictionsUseMain")
+    if use_main is True:
+        scm, scm_detail = main, {**main_detail, "uses_main_rules": True}
+    elif use_main is False:
+        scm, scm_detail = _azure_app_restriction_decision(cp, "scm")
+        scm_detail["uses_main_rules"] = False
+    else:
+        scm, scm_detail = "unknown", {"reason": "scmIpSecurityRestrictionsUseMain is not recorded as a boolean"}
+    scm_hosts = [h for h in as_list(props.get("enabledHostNames"))
+                 if isinstance(h, str) and ".scm." in h.lower()]
+    if scm == "allow" and not scm_hosts:
+        scm, scm_detail = "unknown", {**scm_detail, "reason": "SCM hostname is not recorded in enabledHostNames"}
+    if scm == "allow":
+        a.addresses.extend(scm_hosts)
+    decision = ("allow" if "allow" in (main, scm) else
+                "block" if main == scm == "block" else "unknown")
+    a.step("access_restrictions", decision, main={"decision": main, **main_detail},
+           scm={"decision": scm, **scm_detail}, scm_hosts=scm_hosts)
+    if decision == "unknown":
+        a.gap("access_restrictions", "main or SCM public-site restriction decision is unresolved")
+    a.ports = ports if decision == "allow" else {}
     a.notes.append("App Service authentication (Easy Auth) settings are not collected")
     return a
 
@@ -5325,6 +5351,20 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.kind == "web_app":
+        restriction = next((step for step in assessment.path if step["layer"] == "access_restrictions"), {})
+        main = (restriction.get("main") or {}).get("decision")
+        scm = (restriction.get("scm") or {}).get("decision")
+        if status == "FAIL":
+            surface = "SCM" if scm == "allow" and main != "allow" else "main site"
+            return (f"Recorded App Service public access and {surface} restrictions permit a public-source request.\n"
+                    "The finding describes the declared default-endpoint listener.\n"
+                    "Request authentication, deployment permission, and runtime health were not tested.")
+        if status == "PASS":
+            return ("Recorded App Service public access or both site restriction sets block public-source requests.\n"
+                    "This decision concerns the default main and SCM endpoints; private endpoint traffic is separate.")
+        return ("Recorded App Service facts do not resolve public-source access to both main and SCM endpoints.\n"
+                "The missing or ambiguous field is listed in the path; no live request was sent.")
     if assessment.kind == "gallery_share":
         profile = _props(assessment.resource).get("sharingProfile")
         permission = profile.get("permissions") if isinstance(profile, dict) else None

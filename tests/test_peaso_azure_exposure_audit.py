@@ -2,7 +2,7 @@
 
 import pytest
 
-from peaso.analysis.internet_exposure import _nsg_allowed, assess
+from peaso.analysis.internet_exposure import _nsg_allowed, _observed, assess
 from peaso.snapshot import make_snapshot, resources
 
 SCOPE = "/subscriptions/test"
@@ -244,7 +244,8 @@ def test_app_service_specific_public_source_and_priority_shadowing():
                  "publicNetworkAccess": "Enabled"}}]},
             {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected", "items": [
                 {"id": site_id + "/config/web", "parent_id": site_id,
-                 "properties": {"ipSecurityRestrictions": rules, "ipSecurityRestrictionsDefaultAction": "Deny"}}]}])
+                 "properties": {"ipSecurityRestrictions": rules, "ipSecurityRestrictionsDefaultAction": "Deny",
+                                "scmIpSecurityRestrictionsUseMain": True}}]}])
         return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
 
     allow = {"name": "public-ip", "ipAddress": "8.8.8.8/32", "action": "Allow", "priority": 200}
@@ -259,7 +260,7 @@ def test_app_service_multisource_and_header_filtered_restrictions():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
 
     def app_decision(rules, default=None):
-        config = {"ipSecurityRestrictions": rules}
+        config = {"ipSecurityRestrictions": rules, "scmIpSecurityRestrictionsUseMain": True}
         if default is not None:
             config["ipSecurityRestrictionsDefaultAction"] = default
         snap = make_snapshot("azure", [SCOPE], [
@@ -280,7 +281,40 @@ def test_app_service_multisource_and_header_filtered_restrictions():
     assert app_decision([{**deny, "headers": None}, allow]).verdict() == "PASS"
     assert app_decision([{**allow, "priority": "invalid"}]).verdict() == "UNKNOWN"
     assert app_decision(["malformed"]).verdict() == "UNKNOWN"
-    assert app_decision([{"name": "any", "ipAddress": "Any", "action": "Deny"}]).path[-1]["default_action"] == "Deny"
+    assert app_decision([{"name": "any", "ipAddress": "Any", "action": "Deny"}]).path[-1]["main"]["default_action"] == "Deny"
+
+
+def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    scm_host = "app.scm.azurewebsites.net"
+
+    def app_decision(config, *, scm_hostname=True, public_access="Enabled"):
+        site = {"defaultHostName": "app.azurewebsites.net", "publicNetworkAccess": public_access,
+                "enabledHostNames": ["app.azurewebsites.net"] + ([scm_host] if scm_hostname else [])}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected", "items": [
+                {"id": site_id, "properties": site}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected", "items": [
+                {"id": site_id + "/config/web", "parent_id": site_id, "properties": config}]}])
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+
+    main_blocked = {"ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": "Deny"}
+    separate = {**main_blocked, "scmIpSecurityRestrictionsUseMain": False,
+                "scmIpSecurityRestrictions": [], "scmIpSecurityRestrictionsDefaultAction": "Allow"}
+    open_scm = app_decision(separate)
+    assert open_scm.verdict() == "FAIL"
+    assert open_scm.addresses == [scm_host]
+    assert open_scm.path[-1]["main"]["decision"] == "block"
+    assert open_scm.path[-1]["scm"]["decision"] == "allow"
+    assert "SCM restrictions permit a public-source request" in _observed(open_scm, "FAIL")
+    assert "were not tested" in _observed(open_scm, "FAIL")
+    assert app_decision({**separate, "scmIpSecurityRestrictionsDefaultAction": "Deny"}).verdict() == "PASS"
+    assert app_decision({**separate, "scmIpSecurityRestrictionsUseMain": True}).verdict() == "PASS"
+    assert app_decision(main_blocked).verdict() == "UNKNOWN"
+    assert app_decision(separate, scm_hostname=False).verdict() == "UNKNOWN"
+    assert app_decision({**separate, "scmIpSecurityRestrictionsDefaultAction": "invalid"}).verdict() == "UNKNOWN"
+    assert app_decision(separate, public_access="Disabled").verdict() == "PASS"
+    assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow"}, scm_hostname=False).verdict() == "FAIL"
 
 
 def test_anonymous_blob_requires_container_and_account_gates():
