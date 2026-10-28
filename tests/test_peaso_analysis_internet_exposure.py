@@ -2090,6 +2090,33 @@ def test_aws_public_rds_instance():
     assert missing_host["status"] == "UNKNOWN" and missing_host["evidence"]["public_addresses"] == []
 
 
+def test_rds_public_flag_and_vpc_path_control_exposure():
+    db = {"DBInstanceArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:db:semantic-restore",
+          "PubliclyAccessible": True, "DBInstanceStatus": "available", "Engine": "postgres",
+          "Endpoint": {"Address": "semantic-restore.rds.amazonaws.com", "Port": 5432},
+          "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}],
+          "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}}
+    public_rule = {"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
+                   "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}
+
+    def finding(rules):
+        return one(aws(*aws_network(sg_rules=rules),
+                       coll("rds_instance", [db], service="rds")), "rds_instance")
+
+    exposed = finding([public_rule])
+    assert exposed["status"] == "FAIL"
+    assert exposed["evidence"]["exposed_ports"] == ["tcp/5432"]
+    assert exposed["evidence"]["public_addresses"] == ["semantic-restore.rds.amazonaws.com"]
+
+    db["PubliclyAccessible"] = False
+    private_snapshot = aws(*aws_network(sg_rules=[public_rule]),
+                           coll("rds_instance", [db], service="rds"))
+    assert not any(row["resource_id"] == exposed["resource_id"]
+                   for row in exposure(private_snapshot))
+    db["PubliclyAccessible"] = True
+    assert finding([])["status"] == "PASS"
+
+
 def test_aws_multi_az_rds_cluster_writer_endpoint_uses_exact_writer_subnet():
     cluster = {"DBClusterArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:cluster:maz",
                "DBClusterIdentifier": "maz", "Engine": "postgres", "Status": "available",

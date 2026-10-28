@@ -3268,228 +3268,41 @@ def _aws_glue_dev_endpoint(snapshot, inventory, resource):
 
 def _aws_rds(snapshot, inventory, resource):
     data = resource["data"]
-    a = Assessment(resource, "api")
-    stage_read = data.get("Stages")
-    active_stage_names = ({s.get("stageName") for s in as_list(stage_read.get("items")) if isinstance(s, dict)
-                           and isinstance(s.get("deploymentId"), str) and s.get("deploymentId")}
-                          if isinstance(stage_read, dict) and stage_read.get("collection_status") in ("collected", "empty") else None)
-    reachable_stage_names = set(active_stage_names or ()) if data.get("disableExecuteApiEndpoint") is not True else set()
-    endpoint_config = data.get("endpointConfiguration")
-    types = endpoint_config.get("types") if isinstance(endpoint_config, dict) else None
-    if (not isinstance(types, list) or not types or any(value not in ("EDGE", "REGIONAL", "PRIVATE") for value in types)
-            or "PRIVATE" in types and len(types) != 1):
-        a.gap("inventory", "REST API endpoint type not collected or malformed",
-              "apigateway:GetRestApi.endpointConfiguration.types")
+    if data.get("PubliclyAccessible") is False:
+        return None
+    a = Assessment(resource, "database")
+    if data.get("PubliclyAccessible") is not True:
+        a.gap("inventory", "RDS PubliclyAccessible flag not collected", "rds:DescribeDBInstances.PubliclyAccessible")
         return a
-    if "PRIVATE" in types:
-        a.step("route", "block", endpoint_types=types, disable_execute_api_endpoint=data.get("disableExecuteApiEndpoint"))
-        a.ports = {}
+    endpoint = data.get("Endpoint") if isinstance(data.get("Endpoint"), dict) else {}
+    a.addresses = [endpoint["Address"]] if _dns_hostname(endpoint.get("Address")) else []
+    if not isinstance(data.get("DBInstanceStatus"), str) or not data["DBInstanceStatus"]:
+        a.gap("inventory", "RDS instance status not collected", "rds:DescribeDBInstances.DBInstanceStatus")
         return a
-    domains, unresolved_domains, routing_domains = [], [], []
-    for domain in inventory.items("apigateway_domain_name"):
-        if domain["scope"] != resource["scope"]:
-            continue
-        if not _dns_hostname(domain["data"].get("domainName")):
-            unresolved_domains.append(native_id(domain))
-            continue
-        domain_types = as_list((domain["data"].get("endpointConfiguration") or {}).get("types"))
-        if not domain_types:
-            unresolved_domains.append(domain["data"].get("domainName") or native_id(domain))
-            continue
-        if "PRIVATE" in domain_types:
-            continue
-        routing_mode = str(domain["data"].get("routingMode", ""))
-        if "ROUTING_RULE" in routing_mode:
-            rules = domain["data"].get("RoutingRules")
-            if not isinstance(rules, dict) or rules.get("collection_status") not in ("collected", "empty") or not isinstance(rules.get("items"), list):
-                routing_domains.append(domain["data"].get("domainName") or native_id(domain))
-                continue
-            else:
-                ordered = rules["items"]
-                valid = all(isinstance(rule, dict) and type(rule.get("Priority")) is int
-                            and 1 <= rule["Priority"] <= 1000000
-                            and type(rule.get("ConditionCount")) is int and 0 <= rule["ConditionCount"] <= 3
-                            and isinstance(rule.get("Actions"), list) and len(rule["Actions"]) == 1
-                            and isinstance(rule["Actions"][0], dict)
-                            and isinstance(rule["Actions"][0].get("InvokeApi"), dict)
-                            and isinstance(rule["Actions"][0]["InvokeApi"].get("ApiId"), str)
-                            and isinstance(rule["Actions"][0]["InvokeApi"].get("Stage"), str)
-                            for rule in ordered)
-                valid = valid and len({rule["Priority"] for rule in ordered}) == len(ordered)
-                if not valid:
-                    routing_domains.append(domain["data"].get("domainName") or native_id(domain))
-                    continue
-                catch_all = False
-                for index, rule in enumerate(sorted(ordered, key=lambda item: item["Priority"])):
-                    invoke = rule["Actions"][0]["InvokeApi"]
-                    if invoke["ApiId"] == native_id(resource):
-                        if active_stage_names is None:
-                            routing_domains.append(domain["data"].get("domainName") or native_id(domain))
-                        elif index == 0 and rule["ConditionCount"] == 0:
-                            if invoke["Stage"] in active_stage_names:
-                                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
-                                reachable_stage_names.add(invoke["Stage"])
-                        elif index == 0 and rule["ConditionCount"] == 1 and rule.get("SingleHeaderCondition") is True:
-                            if invoke["Stage"] in active_stage_names:
-                                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
-                                reachable_stage_names.add(invoke["Stage"])
-                                a.step("routing_condition", "allow", domain=domain["data"].get("domainName"),
-                                       condition_kind="single_header", condition_count=1,
-                                       semantics="A client-supplied header can select this first-priority rule; no request was made")
-                        elif (index == 0 and invoke.get("StripBasePath") is True
-                              and ((rule["ConditionCount"] == 1 and rule.get("SingleBasePathCondition") is True)
-                                   or (rule["ConditionCount"] == 2 and rule.get("HeaderAndBasePathConditions") is True))):
-                            if invoke["Stage"] in active_stage_names:
-                                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
-                                reachable_stage_names.add(invoke["Stage"])
-                                a.step("routing_condition", "allow", domain=domain["data"].get("domainName"),
-                                       condition_kind="header_and_base_path_strip" if rule["ConditionCount"] == 2 else "single_base_path_strip",
-                                       condition_count=rule["ConditionCount"],
-                                       semantics="Client-supplied base path and optional header select this first-priority rule; the base path is stripped before the deployed method; no request was made")
-                        elif invoke["Stage"] in active_stage_names:
-                            # Header/path conditions and earlier rules require a
-                            # request witness before this target can be claimed.
-                            routing_domains.append(domain["data"].get("domainName") or native_id(domain))
-                    if rule["ConditionCount"] == 0:
-                        catch_all = True
-                        break
-            if "ONLY" in routing_mode or catch_all:
-                continue
-        mappings = domain["data"].get("BasePathMappings") or {}
-        if mappings.get("collection_status") not in ("collected", "empty"):
-            unresolved_domains.append(domain["data"].get("domainName") or native_id(domain))
-            continue
-        for mapping in as_list(mappings.get("items")):
-            if not isinstance(mapping, dict) or mapping.get("restApiId") != native_id(resource):
-                continue
-            if active_stage_names is not None and mapping.get("stage") in active_stage_names:
-                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
-                reachable_stage_names.add(mapping["stage"])
-            elif active_stage_names is None or not isinstance(mapping.get("stage"), str):
-                unresolved_domains.append(domain["data"].get("domainName") or native_id(domain))
-    if data.get("disableExecuteApiEndpoint") is True and not domains:
-        a.step("route", "unresolved", endpoint_types=types, disable_execute_api_endpoint=True,
-               semantics="Live REST API flag requires a stage update before it blocks the default endpoint")
-        a.gap("inventory", "stage-applied default execute-api endpoint state not observable from collected API/stage reads",
-              "apigateway:GetStage stage-applied disableExecuteApiEndpoint (not exposed)")
-        if unresolved_domains or routing_domains or inventory.state("apigateway_domain_name", resource["scope"]) not in {"collected", "empty"}:
-            a.gap("inventory", "custom-domain routing rules are not collected" if routing_domains and not unresolved_domains
-                  else "custom-domain mappings are not fully collected",
-                  "API Gateway domain routing and base-path mappings")
-        a.explicit = "UNKNOWN"
-        a.ports = {}
+    if data["DBInstanceStatus"] not in ("available", "stopped"):
+        a.gap("inventory", "RDS instance status does not establish a currently serving database endpoint",
+              "rds:DescribeDBInstances.DBInstanceStatus")
         return a
-    if data.get("disableExecuteApiEndpoint") is not True:
-        api_id = native_id(resource)
-        region = resource["scope"].rsplit("/", 1)[-1]
-        if isinstance(api_id, str) and re.fullmatch(r"[a-z0-9]+", api_id):
-            suffix = "amazonaws.com.cn" if region.startswith("cn-") else "amazonaws.com"
-            a.addresses.append(f"https://{api_id}.execute-api.{region}.{suffix}")
-        else:
-            a.gap("inventory", "REST API identifier malformed for default invoke endpoint",
-                  "apigateway:GetRestApi.id")
-    a.addresses.extend(f"https://{name}" for name in sorted(set(domains)))
-    if data.get("disableExecuteApiEndpoint") is True:
-        a.gap("default_route", "stage-applied default execute-api endpoint block is not observed",
-              "apigateway:GetStage stage-applied disableExecuteApiEndpoint (not exposed)")
-    a.step("route", "allow", endpoint_types=types, custom_domains=sorted(set(domains)),
-           disable_execute_api_endpoint=data.get("disableExecuteApiEndpoint"),
-           semantics="Configured API Gateway route; custom-domain DNS and requests were not tested")
-    stage = _aws_api_stage(data, a, "rest")
-    if stage is not True:
-        a.ports = {} if stage is False else None
+    if not a.addresses:
+        a.gap("inventory", "RDS public endpoint DNS address not collected or malformed", "rds:DescribeDBInstances.Endpoint.Address")
         return a
-    if unresolved_domains:
-        a.notes.append("Other custom-domain base-path mappings were not fully collected")
-    if routing_domains:
-        a.notes.append("Custom domains using routing rules require separate route resolution")
-    policy = data.get("policy")
-    from .iam import document
-    policy_document = document(policy) or {}
-    account, region = resource["scope"].split("/", 1)
-    api_id = native_id(resource)
-    broad_arn = re.compile(r"arn:[^:]+:execute-api:" + re.escape(region) + ":" + re.escape(account) + ":" +
-                           re.escape(api_id) + r"/\*(?:/\*/\*)?")
-    for statement in as_list(policy_document.get("Statement")):
-        if not isinstance(statement, dict) or statement.get("Effect") != "Deny" or statement.get("Condition") or any(
-                key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
-            continue
-        principal = statement.get("Principal")
-        principals = [principal] if isinstance(principal, str) else as_list(principal.get("AWS")) if isinstance(principal, dict) else []
-        actions = [action.casefold() for action in as_list(statement.get("Action")) if isinstance(action, str)]
-        resources = as_list(statement.get("Resource"))
-        if ("*" in principals and any(action in ("*", "execute-api:*", "execute-api:invoke") for action in actions)
-                and any(isinstance(value, str) and (value in ("*", "execute-api:/*") or broad_arn.fullmatch(value))
-                        for value in resources)):
-            a.step("policy", "block", reason="unconditional wildcard-principal Invoke Deny covers all API stages, methods and paths",
-                   denied_action="execute-api:Invoke", denied_resource_scope="all_api_routes")
-            a.ports = {}
-            return a
-    if policy:
-        from peaso.checks.aws_ip_policy_boundary import normalize
-        from peaso.checks.facts import Unavailable
-        try:
-            normalized, bounded = normalize(policy)
-        except (Unavailable, ValueError, TypeError):
-            bounded = False
-        if bounded:
-            from peaso.checks.aws_resource_policy_scope import review_document
-            violations, uncertain = review_document(normalized, minimum_ipv6_prefix=1)
-            if not violations and not uncertain:
-                a.step("policy", "block", reason="Unrestricted Internet sources are denied; allowlisted clients may still connect.")
-                a.ports = {}
-                return a
-    public, restricted = _public_policy(policy)
-    if public is False and restricted:
-        a.step("policy", "allow", restrictive_conditions=restricted)
-        a.notes.append("resource policy restricts callers by condition")
-    policy = policy_document
-    conditional_denies = [statement.get("Condition") for statement in as_list(policy.get("Statement"))
-        if isinstance(statement, dict) and statement.get("Effect") == "Deny" and statement.get("Condition")]
-    if conditional_denies:
-        a.step("policy", "allow", conditional_denies=conditional_denies,
-               semantics="Caller source restrictions apply; configured custom domain may still have a public edge")
-        a.authenticated = True
-    a.ports = pset("tcp", 443, 443)
-    method_state = inventory.state("rest_api_method", resource["scope"])
-    stages = {s.get("stageName"): s.get("deploymentId") for s in as_list(stage_read.get("items"))
-              if isinstance(s, dict) and s.get("stageName") in reachable_stage_names}
-    methods, seen = [], set()
-    for item in inventory.items("rest_api_method"):
-        if item["scope"] != resource["scope"] or item["data"].get("restApiId") != native_id(resource):
-            continue
-        row = item["data"]
-        stage_arn = row.get("stageArn")
-        match = re.fullmatch(r"arn:[^:]+:apigateway:([^:]+)::/restapis/([^/]+)/stages/([^/]+)", stage_arn) if isinstance(stage_arn, str) else None
-        if not match or match.group(1) != resource["scope"].rsplit("/", 1)[-1] or match.group(2) != native_id(resource):
-            a.gap("authorization", "deployed method stage identity malformed", "apigateway:GetDeployment")
-            return a
-        stage_name = match.group(3)
-        if stage_name not in reachable_stage_names:
-            continue
-        identity = (stage_name, row.get("resourcePath"), row.get("httpMethod"))
-        if (row.get("deploymentId") != stages.get(stage_name)
-                or (row.get("_provenance") or {}).get("stage_deployment_join_verified") is not True
-                or not isinstance(row.get("resourcePath"), str) or not row["resourcePath"].startswith("/")
-                or row.get("httpMethod") not in ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "ANY")
-                or row.get("authorizationType") not in ("NONE", "AWS_IAM", "CUSTOM", "COGNITO_USER_POOLS")
-                or type(row.get("apiKeyRequired")) is not bool or identity in seen):
-            a.gap("authorization", "deployed method authorization, API key or stage join unresolved", "apigateway:GetDeployment")
-            return a
-        seen.add(identity)
-        methods.append(row)
-    open_methods = [f"{m['httpMethod']} {m['resourcePath']}@{m['stageArn'].rsplit('/', 1)[-1]}"
-                    for m in methods if m["authorizationType"] == "NONE" and not m["apiKeyRequired"]]
-    if open_methods:
-        a.step("authorization", "allow", unauthenticated_methods=sorted(open_methods), source="deployed MethodSnapshot")
-    elif method_state not in ("collected", "empty") or not methods:
-        a.gap("authorization", "deployed REST method snapshot unavailable or incomplete", "apigateway:GetDeployment")
-    else:
-        a.step("authorization", "block", authentication_required=True, source="deployed MethodSnapshot")
-        a.authenticated = True
-        a.ports = {}
-        if data.get("disableExecuteApiEndpoint") is True:
-            a.explicit = "UNKNOWN"
+    port = endpoint.get("Port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "RDS endpoint listener port not collected or malformed", "rds:DescribeDBInstances.Endpoint.Port")
+        return a
+    ports = pset("tcp", port, port)
+    a.step("listener", "allow", port=port, engine=data.get("Engine"))
+    groups = [g.get("VpcSecurityGroupId") for g in as_list(data.get("VpcSecurityGroups")) if isinstance(g, dict) and g.get("Status", "active") == "active"]
+    group = data.get("DBSubnetGroup") if isinstance(data.get("DBSubnetGroup"), dict) else {}
+    subnets = [s.get("SubnetIdentifier") for s in as_list(group.get("Subnets")) if isinstance(s, dict)]
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, ports, native_id(resource), vpc_id=group.get("VpcId"),
+                            narrow_public=True, public_host_witness=True)
+    state = data.get("DBInstanceStatus")
+    if state == "stopped":
+        a.dormant = True
+        a.notes.append("DB instance is stopped; retained endpoint configuration applies after restart")
+    elif state not in (None, "available"):
+        a.notes.append(f"DB instance status {state}")
     return a
 
 
