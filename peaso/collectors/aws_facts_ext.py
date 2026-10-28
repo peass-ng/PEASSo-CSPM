@@ -46,6 +46,7 @@ SPECS = {
     "docdb_cluster_snapshot": ("docdb", "describe_db_cluster_snapshots", "DBClusterSnapshots"),
     "neptune_cluster_snapshot": ("neptune", "describe_db_cluster_snapshots", "DBClusterSnapshots"),
     "lambda_alias": ("lambda", "list_aliases", "Aliases"),
+    "client_vpn_routing": ("ec2", "describe_client_vpn_endpoints", "ClientVpnEndpoints"),
     "lambda_event_source_mapping": ("lambda", "list_event_source_mappings", "EventSourceMappings"),
     "ecr_registry": ("ecr", "describe_registry", None),
     "eks_access_entry": ("eks", "list_access_entries", "accessEntries"),
@@ -78,6 +79,7 @@ READ_ACTIONS = {
     ("lambda", "list_functions"), ("lambda", "list_layer_versions"), ("lambda", "list_versions_by_function"), ("lambda", "get_layer_version_policy"),
     ("lambda", "get_function_url_config"), ("lambda", "get_policy"),
     ("lambda", "get_function_configuration"), ("lambda", "get_runtime_management_config"),
+    ("ec2", "describe_client_vpn_routes"), ("ec2", "describe_client_vpn_target_networks"),
     ("ecr", "get_registry_policy"), ("ecr", "describe_pull_through_cache_rules"), ("ecr", "describe_repository_creation_templates"),
     ("redshift-serverless", "list_snapshots"),
     ("docdb", "describe_db_cluster_snapshot_attributes"), ("neptune", "describe_db_cluster_snapshot_attributes"),
@@ -316,6 +318,36 @@ def _versions(requests, session, region, account):
             items.append({"id": arn, "FunctionName": name, "BaseFunctionArn": base,
                           "FunctionArn": arn, "Version": number, "Role": version.get("Role"), "Policy": policy})
     return _finish(items, failure)
+
+
+def _client_vpn_routing(requests, session, region, account):
+    endpoints = requests.pages(session, "ec2", region, "describe_client_vpn_endpoints", "ClientVpnEndpoints")
+    if endpoints.status not in OK:
+        return _finish([], _cause(endpoints))
+    rows, failure, seen = [], None, set()
+    for endpoint in endpoints.items:
+        eid = endpoint.get("ClientVpnEndpointId") if isinstance(endpoint, dict) else None
+        if not isinstance(eid, str) or not re.fullmatch(r"cvpn-endpoint-[a-z0-9]+", eid) or eid in seen:
+            failure = failure or ("malformed", {"code": "client_vpn_endpoint_identity_invalid"})
+            continue
+        seen.add(eid)
+        status = endpoint.get("Status")
+        if not isinstance(status, dict) or status.get("Code") != "available":
+            continue
+        routes = requests.pages(session, "ec2", region, "describe_client_vpn_routes", "Routes", ClientVpnEndpointId=eid)
+        targets = requests.pages(session, "ec2", region, "describe_client_vpn_target_networks", "ClientVpnTargetNetworks", ClientVpnEndpointId=eid)
+        if routes.status not in OK:
+            failure = failure or _cause(routes)
+        if targets.status not in OK:
+            failure = failure or _cause(targets)
+        rows.append({"id": eid, "ClientVpnEndpointId": eid,
+            "Routes": {"ClientVpnEndpointId": eid, **_child(routes, [_pick(item, (
+                "ClientVpnEndpointId", "DestinationCidr", "TargetSubnet", "Type", "Origin", "Status", "TransitGatewayAttachmentId"))
+                for item in routes.items])},
+            "TargetNetworks": {"ClientVpnEndpointId": eid, **_child(targets, [_pick(item, (
+                "AssociationId", "VpcId", "TargetNetworkId", "ClientVpnEndpointId", "Status", "SecurityGroups"))
+                for item in targets.items])}})
+    return _finish(rows, failure)
 
 
 def _redshiftserverless_snapshots(requests, session, region, account):
@@ -1170,6 +1202,7 @@ FETCHERS = {
     "docdb_cluster_snapshot": _cluster_snapshots("docdb"),
     "neptune_cluster_snapshot": _cluster_snapshots("neptune"),
     "lambda_alias": _aliases,
+    "client_vpn_routing": _client_vpn_routing,
     "lambda_event_source_mapping": _event_source_mappings,
     "ecr_registry": _ecr_registry,
     "eks_access_entry": _access_entries,

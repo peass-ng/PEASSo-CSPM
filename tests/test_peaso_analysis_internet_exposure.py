@@ -215,16 +215,21 @@ def test_aws_client_vpn_managed_listener_and_inactive_state():
 
 
 def test_client_vpn_all_authenticated_clients_authorization_declaration():
+    from peaso.analysis.catalog import REQUIRED_TYPES
     from peaso.finding_observation import evidence_summary
 
+    assert "client_vpn_routing" in REQUIRED_TYPES["aws"]["exposure"]
     endpoint = {"ClientVpnEndpointId": "cvpn-endpoint-1", "Status": {"Code": "available"},
                 "DnsName": "*.cvpn-endpoint-1.prod.clientvpn.us-east-1.amazonaws.com",
                 "AuthorizationRules": {"ClientVpnEndpointId": "cvpn-endpoint-1", "collection_status": "collected",
                                        "items": [{"Status": {"Code": "active"}, "AuthorizeAllGroups": True,
                                                   "DestinationCidr": "10.20.0.0/16"}]}}
 
-    def grants(row):
-        return [f for f in exposure(aws(coll("client_vpn_endpoint", [row], service="ec2")))
+    def grants(row, routing=None):
+        collections = [coll("client_vpn_endpoint", [row], service="ec2")]
+        if routing is not None:
+            collections.append(coll("client_vpn_routing", [routing], service="ec2"))
+        return [f for f in exposure(aws(*collections))
                 if f["evidence"].get("exposure_kind") == "vpn_client_authorization"]
 
     found = grants(endpoint)
@@ -232,6 +237,31 @@ def test_client_vpn_all_authenticated_clients_authorization_declaration():
     assert found[0]["evidence"]["path"][0]["destination_cidrs"] == ["10.20.0.0/16"]
     assert "Route and destination controls remain unverified" in evidence_summary(found[0])
     assert "authorization rule" in found[0]["remediation"]
+    routed = {"id": "cvpn-endpoint-1", "ClientVpnEndpointId": "cvpn-endpoint-1"}
+    routed["Routes"] = {"ClientVpnEndpointId": "cvpn-endpoint-1", "collection_status": "collected", "items": [
+        {"ClientVpnEndpointId": "cvpn-endpoint-1", "DestinationCidr": "10.20.0.0/16",
+         "TargetSubnet": "subnet-1234", "Status": {"Code": "active"}}]}
+    routed["TargetNetworks"] = {"ClientVpnEndpointId": "cvpn-endpoint-1", "collection_status": "collected", "items": [
+        {"ClientVpnEndpointId": "cvpn-endpoint-1", "TargetNetworkId": "subnet-1234",
+         "VpcId": "vpc-1234", "AssociationId": "cvpn-assoc-1234",
+         "Status": {"Code": "associated"}, "SecurityGroups": ["sg-1234"]}]}
+    joined = grants(endpoint, routed)[0]
+    assert joined["status"] == "FAIL"
+    assert joined["evidence"]["path"][1]["layer"] == "client_route"
+    assert joined["evidence"]["path"][1]["routes"][0]["vpc_id"] == "vpc-1234"
+    assert any(gap["layer"] == "destination" for gap in joined["evidence"]["unresolved"])
+    mismatched = copy.deepcopy(routed)
+    mismatched["Routes"]["items"][0]["DestinationCidr"] = "10.30.0.0/16"
+    assert all(step["layer"] != "client_route" for step in grants(endpoint, mismatched)[0]["evidence"]["path"])
+    partial_routes = copy.deepcopy(routed)
+    partial_routes["Routes"]["collection_status"] = "partial"
+    assert all(step["layer"] != "client_route" for step in grants(endpoint, partial_routes)[0]["evidence"]["path"])
+    wrong_target = copy.deepcopy(routed)
+    wrong_target["TargetNetworks"]["items"][0]["ClientVpnEndpointId"] = "cvpn-endpoint-foreign"
+    assert all(step["layer"] != "client_route" for step in grants(endpoint, wrong_target)[0]["evidence"]["path"])
+    missing_association = copy.deepcopy(routed)
+    missing_association["TargetNetworks"]["items"][0].pop("AssociationId")
+    assert all(step["layer"] != "client_route" for step in grants(endpoint, missing_association)[0]["evidence"]["path"])
     scoped = copy.deepcopy(endpoint)
     scoped["AuthorizationRules"]["items"][0]["AuthorizeAllGroups"] = False
     assert grants(scoped) == []

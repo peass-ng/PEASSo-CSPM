@@ -127,6 +127,45 @@ def test_lambda_published_versions_read_qualified_policy(stub):
     assert read.items[1]["Policy"]["absent"] is True
 
 
+def test_client_vpn_routing_reads_scoped_routes_and_associations(stub):
+    from scripts.peaso_deploy_customer_policy import iam_action
+
+    assert {("ec2", "describe_client_vpn_routes"), ("ec2", "describe_client_vpn_target_networks")} <= ext.READ_ACTIONS
+    assert iam_action("ec2", "describe_client_vpn_routes") == "ec2:DescribeClientVpnRoutes"
+    assert iam_action("ec2", "describe_client_vpn_target_networks") == "ec2:DescribeClientVpnTargetNetworks"
+    session, add = stub
+    ec2 = add("ec2")
+    endpoint = "cvpn-endpoint-1234"
+    ec2.add_response("describe_client_vpn_endpoints", {"ClientVpnEndpoints": [
+        {"ClientVpnEndpointId": endpoint, "Status": {"Code": "available"}}]}, {})
+    ec2.add_response("describe_client_vpn_routes", {"Routes": [
+        {"ClientVpnEndpointId": endpoint, "DestinationCidr": "10.0.0.0/16",
+         "TargetSubnet": "subnet-1234", "Status": {"Code": "active"}}]}, {"ClientVpnEndpointId": endpoint})
+    ec2.add_response("describe_client_vpn_target_networks", {"ClientVpnTargetNetworks": [
+        {"ClientVpnEndpointId": endpoint, "AssociationId": "cvpn-assoc-1234",
+         "TargetNetworkId": "subnet-1234", "VpcId": "vpc-1234", "Status": {"Code": "associated"},
+         "SecurityGroups": ["sg-1234"]}]}, {"ClientVpnEndpointId": endpoint})
+    read = run("client_vpn_routing", session)
+    assert read.status == "collected" and read.items[0]["id"] == endpoint
+    assert read.items[0]["Routes"]["items"][0]["TargetSubnet"] == "subnet-1234"
+    assert read.items[0]["TargetNetworks"]["items"][0]["VpcId"] == "vpc-1234"
+
+
+def test_client_vpn_routing_denied_route_stays_partial(stub):
+    session, add = stub
+    ec2 = add("ec2")
+    endpoint = "cvpn-endpoint-1234"
+    ec2.add_response("describe_client_vpn_endpoints", {"ClientVpnEndpoints": [
+        {"ClientVpnEndpointId": endpoint, "Status": {"Code": "available"}}]}, {})
+    ec2.add_client_error("describe_client_vpn_routes", "AccessDeniedException",
+                         expected_params={"ClientVpnEndpointId": endpoint})
+    ec2.add_response("describe_client_vpn_target_networks", {"ClientVpnTargetNetworks": []},
+                     {"ClientVpnEndpointId": endpoint})
+    read = run("client_vpn_routing", session)
+    assert read.status == "partial" and read.items[0]["Routes"]["collection_status"] == "denied"
+    assert read.items[0]["TargetNetworks"]["collection_status"] == "empty"
+
+
 def test_redshift_serverless_snapshot_restore_recipients_are_preserved(stub):
     session, add = stub
     arn = f"arn:aws:redshift-serverless:{REGION}:{ACCOUNT}:snapshot/11111111-2222-3333-4444-555555555555"
