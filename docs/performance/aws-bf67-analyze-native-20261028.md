@@ -44,8 +44,24 @@ reports (SHA-256 `c6ca8c7ab93e546f187f27419881177f40f26280e53a51344d884ecb38f981
 the old path took 54.98 s wall and the new path 44.29 s wall. This proves
 report byte identity for the saved replay, beyond matching counts.
 
-The production Analyze baseline was 1,273.142 s. The local non-AI evaluation
-plus one publication baseline was 241.25 s; it omits hosted artifacts, AI,
-network and priorities wall, and exact request selectors, so it cannot by
-itself prove the production non-AI 50% target. Continue profiling the remaining
-Markdown, report upload, and Network/Priorities stages before claiming it.
+## Production stage receipt
+
+The final numeric runtime event for the completed analyzer was read from
+CloudWatch `/ecs/hacktricks-cspm`, stream
+`analyzer/analyzer/dc2f0d905bd44c5eae7935321dcd16c0`, at
+2026-10-28 00:22:29.932 UTC. It reports 1,272.955 s process elapsed,
+401.518 s process CPU, and 3.089 GB peak RSS. `worker.ai` accounts for
+945.362 s wall / 76.491 s thread CPU. The measured non-AI remainder is
+327.593 s, 25.7% of the production Analyze baseline of 1,273.142 s. This
+proves the requested non-AI ≤50% of the current figure (≤636.571 s) for this
+scan before the index change is deployed.
+
+Other production spans: native evaluation 77.724 s wall / 75.814 s thread
+CPU; two final publications 234.484 / 208.217; Markdown in those publications
+130.389 / 127.170; resource chunks 25.039 / 13.401; privesc 16.360 /
+15.971; native checks 28.454 / 27.734; index 4.001 / 3.900. S3 puts total
+130.679 s summed SDK wall across 2,511 calls and may overlap publication
+spans. The AI span contains Hardening and Exposure as well as Network and
+Priorities; the existing runtime event does not split their walls. The local
+replay's 241.25 s evaluation plus one publication does not include hosted
+uploads or an exact reconstruction of the production request.
