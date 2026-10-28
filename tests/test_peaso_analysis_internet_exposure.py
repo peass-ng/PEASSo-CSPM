@@ -714,6 +714,40 @@ def test_aws_ec2_public_and_external_shares(kind, field, permission, operation):
     assert incomplete["status"] == "UNKNOWN"
 
 
+def test_ami_organization_and_ou_launch_permissions_join_account_organization():
+    from peaso.finding_observation import evidence_summary
+    from peaso.analysis.catalog import REQUIRED_TYPES
+
+    assert "aws_account_configuration" in REQUIRED_TYPES["aws"]["exposure"]
+
+    org = "o-ours123456"
+    config = coll("aws_account_configuration", [{"id": "account-configuration", "Organization": {
+        "collection_status": "collected", "OrganizationId": org, "MasterAccountId": ACCOUNT}}])
+    base = {"ImageId": "ami-1", "_coverage": {"LaunchPermissions": {"status": "collected",
+            "source_operation": "ec2:DescribeImageAttribute"}}}
+    foreign_org = "arn:aws:organizations::999988887777:organization/o-foreign1234"
+    foreign_ou = "arn:aws:organizations::999988887777:ou/o-foreign1234/ou-1234-abcdef"
+    own_org = f"arn:aws:organizations::{ACCOUNT}:organization/{org}"
+
+    def image(permissions, include_config=True):
+        return one(aws(coll("ec2_image", [{**base, "LaunchPermissions": permissions}]),
+                       *([config] if include_config else [])), "ec2_image")
+
+    for selector, arn in (("OrganizationArn", foreign_org), ("OrganizationalUnitArn", foreign_ou)):
+        finding = image([{selector: arn}])
+        assert finding["status"] == "FAIL"
+        assert finding["evidence"]["external_scope_ids"] == [arn]
+        assert "AMI launch access" in evidence_summary(finding)
+        assert "AMI launch permission" in finding["remediation"]
+        assert image([{selector: arn}], include_config=False)["status"] == "UNKNOWN"
+    assert image([{"OrganizationArn": own_org}])["status"] == "PASS"
+    wrong_management = f"arn:aws:organizations::999988887777:organization/{org}"
+    assert image([{"OrganizationArn": wrong_management}])["status"] == "UNKNOWN"
+    assert image([{"OrganizationArn": "not-an-arn"}])["status"] == "UNKNOWN"
+    mixed = image([{"Group": "all"}, {"OrganizationArn": "not-an-arn"}])
+    assert mixed["status"] == "FAIL" and mixed["evidence"]["data_exposure"] is True
+
+
 def test_aws_ram_share_requires_active_resource_and_external_principal_associations():
     arn = f"arn:aws:ram:us-east-1:{ACCOUNT}:resource-share/share-1"
     resource_arn = f"arn:aws:ec2:us-east-1:{ACCOUNT}:subnet/subnet-1"

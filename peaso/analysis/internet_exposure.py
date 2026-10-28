@@ -1492,12 +1492,52 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
     if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
         a.gap("attributes", f"{coverage_field} not completely collected", f"ec2:{permission_key}")
         return a
-    if not all(isinstance(p, dict) for p in permissions):
-        a.gap("attributes", f"{coverage_field} malformed", f"ec2:{permission_key}")
-        return a
-    public = any(p.get("Group") == "all" for p in permissions)
-    external = sorted({p["UserId"] for p in permissions if isinstance(p.get("UserId"), str)
-                       and p["UserId"] not in trusted_scopes(snapshot)["ids"]})
+    public = any(p == {"Group": "all"} for p in permissions)
+    selectors = {"UserId", "Group"} | ({"OrganizationArn", "OrganizationalUnitArn"} if resource["type"] == "ec2_image" else set())
+    if not all(isinstance(p, dict) and len(p) == 1 and next(iter(p)) in selectors and
+               isinstance(next(iter(p.values())), str) and next(iter(p.values())) for p in permissions):
+        if not public:
+            a.gap("attributes", f"{coverage_field} malformed", f"ec2:{permission_key}")
+            return a
+        a.gap("attributes", f"Additional {coverage_field} entries malformed", f"ec2:{permission_key}")
+        permissions = [{"Group": "all"}]
+    if any(("UserId" in p and not re.fullmatch(r"[0-9]{12}", p["UserId"])) or
+           ("Group" in p and p["Group"] != "all") for p in permissions):
+        if not public:
+            a.gap("attributes", f"{coverage_field} selector is unresolved", f"ec2:{permission_key}")
+            return a
+        a.gap("attributes", f"Additional {coverage_field} selectors unresolved", f"ec2:{permission_key}")
+        permissions = [{"Group": "all"}]
+    trusted = trusted_scopes(snapshot)["ids"]
+    external = {p["UserId"] for p in permissions if "UserId" in p and p["UserId"] not in trusted}
+    unresolved = False
+    if resource["type"] == "ec2_image":
+        account = str(resource.get("scope", "")).split("/", 1)[0]
+        key = ("aws_organization_id", account)
+        if key not in inventory.network_cache:
+            configs = [r["data"].get("Organization") for r in inventory.items("aws_account_configuration")
+                       if r["scope"].split("/", 1)[0] == account]
+            valid = [(c["OrganizationId"], c["MasterAccountId"]) for c in configs if isinstance(c, dict)
+                     and c.get("collection_status") == "collected" and
+                     re.fullmatch(r"o-[a-z0-9]{10,32}", str(c.get("OrganizationId", ""))) and
+                     re.fullmatch(r"[0-9]{12}", str(c.get("MasterAccountId", "")))]
+            inventory.network_cache[key] = valid[0] if len(configs) == len(valid) == 1 else None
+        own_organization = inventory.network_cache[key]
+        for permission in permissions:
+            field_name = next(iter(permission))
+            if field_name not in ("OrganizationArn", "OrganizationalUnitArn"):
+                continue
+            arn = permission[field_name]
+            pattern = (r"arn:[^:]+:organizations::([0-9]{12}):organization/(o-[a-z0-9]{10,32})" if field_name == "OrganizationArn" else
+                       r"arn:[^:]+:organizations::([0-9]{12}):ou/(o-[a-z0-9]{10,32})/ou-[a-z0-9-]+")
+            match = re.fullmatch(pattern, arn)
+            if match is None or own_organization is None:
+                unresolved = True
+            elif match.group(2) != own_organization[0]:
+                external.add(arn)
+            elif match.group(1) != own_organization[1]:
+                unresolved = True
+    external = sorted(external)
     if resource["type"] == "ebs_snapshot" and public:
         settings = [r for r in inventory.items("ec2_regional_settings") if r["scope"] == resource["scope"]]
         state = settings[0]["data"].get("SnapshotBlockPublicAccessState") if len(settings) == 1 else None
@@ -1514,10 +1554,14 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
         a.data_exposure = True
         a.ports = {}
     elif external:
-        a.step("attributes", "allow", external_accounts=external)
+        a.step("attributes", "allow", external_principals=external)
         a.kind = "external_share"
         a.external_ids = external
         a.explicit = "FAIL"
+        if unresolved:
+            a.gap("attributes", "Additional AMI organization or OU scope is unresolved")
+    elif unresolved:
+        a.gap("attributes", "AMI organization or OU sharing scope is unresolved", "organizations:DescribeOrganization")
     else:
         a.step("attributes", "block", permission_count=len(permissions))
         a.ports = {}
@@ -6911,7 +6955,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "ecr_public_repository", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
+             "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "ecr_public_repository", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
@@ -7063,7 +7107,7 @@ def _title(assessment, status):
                 "Disk or snapshot SAS export policy unresolved")
     if status == "FAIL":
         if assessment.kind == "external_share":
-            return "Data shared with external account"
+            return "Data shared with external principal" if assessment.resource["type"] == "ec2_image" else "Data shared with external account"
         if assessment.data_exposure:
             return "Data publicly accessible from the internet"
         ports = describe(assessment.ports or {})
@@ -7245,9 +7289,10 @@ def _observed(assessment, status):
             return f"Public access is blocked by {assessment.blocked_by.replace('_', ' ')}."
         return "The collected configuration does not allow public access."
     if assessment.kind == "external_share":
-        accounts = ", ".join(assessment.external_ids)
-        noun = "AMI launch" if assessment.resource["type"] == "ec2_image" else "Snapshot restore"
-        return f"{noun} access is granted to external accounts: {accounts}."
+        principals = ", ".join(assessment.external_ids)
+        if assessment.resource["type"] == "ec2_image":
+            return f"AMI launch access is granted to external principals: {principals}."
+        return f"Snapshot restore access is granted to external accounts: {principals}."
     if assessment.data_exposure:
         if assessment.resource["type"] == "ec2_image":
             return "AMI launch access is granted to everyone."

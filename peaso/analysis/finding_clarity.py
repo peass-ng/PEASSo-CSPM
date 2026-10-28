@@ -479,6 +479,9 @@ def _internet_summary(finding):
     ports=e.get('exposed_ports');addresses=e.get('public_addresses');external=e.get('external_scope_ids')
     if not _strings(ports) or not _strings(addresses):return None
     if kind=='external_share' and _strings(external) and external:
+        source=e.get('source') if isinstance(e.get('source'),dict) else {}
+        if source.get('resource_type')=='ec2_image':
+            return 'AMI launch access is declared for external principals '+_items(external)+'. They may launch the shared image; actual use and other controls were not tested.'
         return 'Snapshot restore access is declared for external accounts '+_items(external)+'. These accounts may copy the data; actual restores and other controls were not tested.'
     if e.get('data_exposure')is True:
         noun='Snapshot restore access' if kind=='data_share' and 'snapshot' in str((e.get('source') if isinstance(e.get('source'),dict) else {}).get('resource_type','')) else 'Stored-data access'

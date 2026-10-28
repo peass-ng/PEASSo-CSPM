@@ -380,6 +380,9 @@ def exposure_action(evidence, status):
             return "Review whether the route to this foreign Transit Gateway attachment is needed; remove unnecessary routes or attachments."
         return "Review whether this VPC peering route and external account connection are needed; remove unnecessary routes or peering."
     if evidence.get("exposure_kind") == "external_share" or evidence.get("external_scope_ids"):
+        source = evidence.get("source") if isinstance(evidence.get("source"), dict) else {}
+        if source.get("resource_type") == "ec2_image":
+            return "Restrict AMI launch permission to the accounts, organizations or OUs that need it."
         return "Restrict snapshot restore access to the accounts that need it."
     if evidence.get("data_exposure"):
         source = evidence.get("source") if isinstance(evidence.get("source"), dict) else {}
