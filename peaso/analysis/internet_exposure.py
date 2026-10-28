@@ -11444,6 +11444,9 @@ def _gcp_gke_nodeport_direct_node(inventory, resource, assessment):
               and row["data"].get("serviceName") == service and row["data"].get("inventoryStatus") is None
               and row["data"].get("addressType") in ("IPv4", "IPv6")]
     spec = data.get("spec") or {}
+    families = spec.get("ipFamilies")
+    if not isinstance(families, list) or not families:
+        return None
     if spec.get("externalTrafficPolicy", "Cluster") not in ("Cluster", "Local"):
         return None
     local = spec.get("externalTrafficPolicy", "Cluster") == "Local"
@@ -11462,31 +11465,38 @@ def _gcp_gke_nodeport_direct_node(inventory, resource, assessment):
         if not isinstance(port_name, str) or not (type(target) is int and 1 <= target <= 65535
                                                  or isinstance(target, str) and target):
             continue
-        ready_nodes = []
-        for endpoint_slice in slices:
-            if not any(isinstance(port, dict) and port.get("name", "") == port_name
-                       and port.get("protocol") == protocol and type(port.get("port")) is int
-                       and (type(target) is not int or port["port"] == target)
-                       for port in as_list(endpoint_slice.get("ports"))):
-                continue
-            if type(endpoint_slice.get("readyEndpointCount")) is not int or endpoint_slice["readyEndpointCount"] <= 0:
-                continue
-            ready_nodes.extend(as_list(endpoint_slice.get("readyNodeNames")))
-        if not ready_nodes:
-            continue
-        candidate_nodes = [node for node in nodes if not local or node["kubernetesName"] in ready_nodes]
         exposed_port = service_port["nodePort"]
         ports = pset(protocol, exposed_port, exposed_port) or {}
-        for node in candidate_nodes:
-            reached = _gcp_gke_direct_node(inventory, resource, assessment, ports,
-                                                node_name=node["kubernetesName"], require_host_ip=False)
-            if reached:
-                opened = union(opened, reached)
-                assessment.step("kubernetes_backend", "allow", service=service,
-                                namespace=namespace, ready_endpoints=len(ready_nodes),
-                                traffic_policy=spec.get("externalTrafficPolicy", "Cluster"),
-                                node=node["kubernetesName"],
-                                exposed_ports=describe(reached))
+        for address_type, ip_version in (("IPv4", 4), ("IPv6", 6)):
+            if address_type not in families:
+                continue
+            ready_nodes = []
+            for endpoint_slice in slices:
+                if endpoint_slice.get("addressType") != address_type or not any(
+                        isinstance(port, dict) and port.get("name", "") == port_name
+                        and port.get("protocol") == protocol and type(port.get("port")) is int
+                        and (type(target) is not int or port["port"] == target)
+                        for port in as_list(endpoint_slice.get("ports"))):
+                    continue
+                if type(endpoint_slice.get("readyEndpointCount")) is not int or endpoint_slice["readyEndpointCount"] <= 0:
+                    continue
+                ready_nodes.extend(as_list(endpoint_slice.get("readyNodeNames")))
+            observed_ready_nodes = {node["kubernetesName"] for node in nodes} & set(ready_nodes)
+            if not observed_ready_nodes:
+                continue
+            candidate_nodes = [node for node in nodes if not local or node["kubernetesName"] in observed_ready_nodes]
+            for node in candidate_nodes:
+                reached = _gcp_gke_direct_node(inventory, resource, assessment, ports,
+                                               node_name=node["kubernetesName"], require_host_ip=False,
+                                               allowed_ip_version=ip_version)
+                if reached:
+                    opened = union(opened, reached)
+                    assessment.step("kubernetes_backend", "allow", service=service,
+                                    namespace=namespace, ready_endpoints=len(observed_ready_nodes),
+                                    address_type=address_type,
+                                    traffic_policy=spec.get("externalTrafficPolicy", "Cluster"),
+                                    node=node["kubernetesName"],
+                                    exposed_ports=describe(reached))
     return opened or None
 
 
@@ -13386,18 +13396,73 @@ def gcp_default_object_acl_findings(snapshot, resources):
     if snapshot["provider"] != "gcp":
         return []
     output = []
+    buckets_by_key = {}
+    prevention_by_scope = {}
+    for row in resources:
+        detail = row.get("data")
+        if not isinstance(detail, dict):
+            continue
+        if row["type"] == "bucket":
+            buckets_by_key.setdefault((row.get("scope"), detail.get("name")), []).append(detail)
+        elif row["type"] == "org_policy_effective":
+            scope = row.get("scope")
+            if (isinstance(scope, str)
+                    and detail.get("name") == scope + "/policies/storage.publicAccessPrevention"
+                    and detail.get("constraint") == "storage.publicAccessPrevention"):
+                prevention_by_scope.setdefault(scope, []).append(detail)
+    policy_coverage = {}
+    for row in snapshot.get("collections", []):
+        if row.get("type") == "org_policy_effective":
+            policy_coverage.setdefault(row.get("scope"), []).append(row.get("status"))
     for resource in resources:
         if resource["type"] != "default_object_acl" or not isinstance(resource.get("data"), dict):
             continue
         data = resource["data"]
         if data.get("entity") not in ("allUsers", "allAuthenticatedUsers") or data.get("role") not in ("READER", "OWNER"):
             continue
-        evidence = {"observed": "The bucket's default object ACL grants public read access to future uploads.",
+        buckets = buckets_by_key.get((resource.get("scope"), data.get("bucket")), [])
+        bucket = buckets[0] if len(buckets) == 1 else {}
+        config = bucket.get("iamConfiguration")
+        prevention = config.get("publicAccessPrevention") if isinstance(config, dict) else None
+        if prevention == "inherited":
+            scope = resource.get("scope")
+            policies = prevention_by_scope.get(scope, [])
+            if policy_coverage.get(scope) == ["collected"] and len(policies) == 1:
+                rules = (policies[0].get("spec") or {}).get("rules", [])
+                if (isinstance(rules, list) and all(isinstance(rule, dict) and
+                        set(rule) == {"enforce"} and type(rule.get("enforce")) is bool for rule in rules)
+                        and len({rule["enforce"] for rule in rules}) <= 1):
+                    prevention = "enforced" if rules and rules[0]["enforce"] else "not_enforced"
+        blocked = prevention == "enforced"
+        unresolved_prevention = prevention not in ("enforced", "not_enforced")
+        ip_filter = bucket.get("ipFilter")
+        filter_state = "disabled"
+        if ip_filter is not None:
+            if not isinstance(ip_filter, dict):
+                filter_state = "unresolved"
+            elif ip_filter.get("mode") == "Enabled":
+                public_source = ip_filter.get("publicNetworkSource")
+                ranges = public_source.get("allowedIpCidrRanges", []) if isinstance(public_source, dict) else [] if public_source is None else None
+                if not isinstance(ranges, list) or any(not isinstance(value, str) or _cidr(value) is None for value in ranges):
+                    filter_state = "unresolved"
+                else:
+                    filter_state = "public_allowed" if any(_public_source(value) for value in ranges) else "public_blocked"
+            elif ip_filter.get("mode") != "Disabled":
+                filter_state = "unresolved"
+        definite = not blocked and not unresolved_prevention and filter_state in ("disabled", "public_allowed")
+        evidence = {"observed": "The bucket's default object ACL contains a public grant for future uploads.",
                     "bucket": data.get("bucket"), "principal": data["entity"], "role": data["role"],
-                    "source": source(snapshot, resource, "entity"), "risk_state": "observed_configuration",
-                    "semantics": "Future object ACL template only; existing object access and effective public access prevention are assessed separately."}
+                    "source": source(snapshot, resource, "entity"),
+                    "risk_state": "observed_configuration" if definite else "unknown",
+                    "public_access_prevention": prevention,
+                    "ip_filter_public_network": filter_state,
+                    "semantics": "Future object ACL template only; bucket-level public access prevention currently overrides this grant. Existing object access is assessed separately."
+                    if blocked else "Future object ACL template only; effective public access prevention is unresolved. Existing object access is assessed separately."
+                    if unresolved_prevention else "Future object ACL template only; bucket IP filtering blocks or has unresolved public-network access. Existing object access is assessed separately."
+                    if not definite else "Future object ACL template only; public access prevention is not enforced and bucket IP filtering permits a public-network source. Existing object access is assessed separately."}
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_public_default_object_acl",
-                              "Public default object ACL", "high", evidence, status="FAIL"))
+                              "Public default object ACL", "high" if definite else "info", evidence,
+                              status="FAIL" if definite else "UNKNOWN"))
     return output
 
 
@@ -13633,18 +13698,19 @@ def gcp_public_policy_findings(snapshot, resources):
             exact_role = ("roles/pubsub.publisher" if resource["type"] == "pubsub_topic"
                           else "roles/pubsub.subscriber")
             declarations = [row for row in declarations if row["role"] != exact_role]
-        if resource["type"] == "eventarc_message_bus":
-            declarations = [row for row in declarations if row["role"] != "roles/eventarc.messageBusUser"]
         if not declarations:
             continue
-        unconditional = [row for row in declarations if not row["condition"]]
+        unconditional = [row for row in declarations if row["condition"] is None or
+                         (isinstance(row["condition"], dict)
+                          and isinstance(row["condition"].get("expression"), str)
+                          and row["condition"]["expression"].strip() == "true")]
         status = "FAIL" if unconditional else "UNKNOWN"
         evidence = {
             "observed": ("The collected resource IAM policy grants a role to a public principal."
                          if unconditional else "The collected resource IAM policy has conditional public grants; effective access is unresolved."),
             "public_bindings": declarations, "risk_state": "observed" if unconditional else "unknown",
             "source": source(snapshot, resource, "bindings" if resource["type"] == "iam_policy" else "iamPolicy.bindings"),
-            "semantics": "Declared resource IAM grants; conditions, denies and provider guardrails are not evaluated.",
+            "semantics": "Declared resource IAM grants; only exact constant-true conditions are resolved. Denies and provider guardrails are not evaluated.",
         }
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_public_iam",
                               "Public resource IAM grant", "high" if status == "FAIL" else "info", evidence, status=status))

@@ -890,6 +890,13 @@ def gcp_wif_provider(snapshot, resource):
     if isinstance(aws_account, str) and re.fullmatch(r"[0-9]{12}", aws_account):
         allowlisted = explicit_allowlist(snapshot) if snapshot.get("provider") == "gcp" else set()
         mapping = data.get("attributeMapping")
+        aws_name = r"[A-Za-z0-9+=,.@_-]+"
+        def non_role_caller_arn(value):
+            return any(re.fullmatch(pattern, value) for pattern in (
+                rf"arn:aws:iam::{aws_account}:root",
+                rf"arn:aws:iam::{aws_account}:user/(?:{aws_name}/)*{aws_name}",
+                rf"arn:aws:sts::{aws_account}:federated-user/{aws_name}",
+            ))
         def aws_selector_reachable(member):
             if member == pool_wide:
                 return True
@@ -902,18 +909,26 @@ def gcp_wif_provider(snapshot, resource):
                 return True
             if not mapping and member.startswith(f"{principal_set}attribute.aws_role/"):
                 role = member[len(f"{principal_set}attribute.aws_role/"):]
-                # The AWS default mapping strips the session from an STS assumed-role ARN.
-                return bool(re.fullmatch(
-                    rf"arn:aws:sts::{aws_account}:assumed-role/[A-Za-z0-9+=,.@_-]+", role))
+                # The default mapping strips assumed-role sessions and preserves other caller ARNs.
+                return non_role_caller_arn(role) or bool(re.fullmatch(
+                    rf"arn:aws:sts::{aws_account}:assumed-role/{aws_name}", role))
+            if (isinstance(mapping, dict) and mapping.get("attribute.aws_role") == "assertion.arn"
+                    and isinstance(mapping.get("google.subject"), str)
+                    and member.startswith(f"{principal_set}attribute.aws_role/")):
+                role = member[len(f"{principal_set}attribute.aws_role/"):]
+                return non_role_caller_arn(role) or bool(re.fullmatch(
+                    rf"arn:aws:sts::{aws_account}:assumed-role/{aws_name}/{aws_name}", role))
             if (isinstance(mapping, dict)
                     and mapping.get("google.subject") == "assertion.arn"
                     and mapping.get("attribute.aws_role") == "assertion.arn.extract('assumed-role/{role_name}/')"
                     and member.startswith(f"{principal_set}attribute.aws_role/")):
                 role = member[len(f"{principal_set}attribute.aws_role/"):]
                 return bool(re.fullmatch(r"[A-Za-z0-9+=,.@_-]+", role))
-            if member.startswith(individual) and not mapping:
+            if (member.startswith(individual) and
+                    (not mapping or isinstance(mapping, dict) and mapping.get("google.subject") == "assertion.arn")):
                 subject = member[len(individual):]
-                return bool(re.fullmatch(rf"arn:aws:(?:iam|sts)::{aws_account}:.+", subject))
+                return non_role_caller_arn(subject) or bool(re.fullmatch(
+                    rf"arn:aws:sts::{aws_account}:assumed-role/{aws_name}/{aws_name}", subject))
             return False
         reachable_grants = [binding for binding in grants if grant_unconditional(binding)
                             and any(aws_selector_reachable(member) for member in binding["members"])]
@@ -933,6 +948,10 @@ def gcp_wif_provider(snapshot, resource):
                              re.fullmatch(r"/2\.0/workspaces/[A-Za-z0-9_-]+/pipelines-config/identity/oidc/?",
                                           issuer_path) is not None))
     if host in MULTI_TENANT_ISSUERS and not org_scoped_issuer:
+        mapping = data.get("attributeMapping")
+        subject_mapping = mapping.get("google.subject") if isinstance(mapping, dict) else None
+        if not isinstance(subject_mapping, str) or subject_mapping.strip() != "assertion.sub":
+            return "MANUAL", "medium", {**evidence, "problem": "Multi-tenant OIDC subject mapping is absent or needs CEL reachability review"}
         if any(binding["pool_wide"] and grant_unconditional(binding) for binding in grants):
             return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
