@@ -158,3 +158,40 @@ more evidence; it is not a runtime saving. Zero cloud/model calls.
 Final focused suite: **216 passed, 1 skipped**; the final original-resource
 service/reference boundary regression also passed independently. Tests use `--noconftest`; no source-attestation gate is
 run. The Access Analyzer ban was read and honored; no analyzer was created.
+
+## Agent runtime memory headroom
+
+The 2,096,496,640-byte figure above is the **local capture/builder process**
+loading the saved snapshot/report and building both arms. It is not an agent
+task measurement. Production workspace preparation runs in the collector or
+analyzer (16/8 GiB defaults in `infra/aws/variables.tf`); the separate agent
+task has 2 GiB (`infra/aws/ai_runtime.tf`).
+
+Large original fields now use lossless indexed JSON fragments of at most
+**128 KiB**. Objects/arrays retain their complete ordered keys/members. Long
+strings retain every character in 8,192-character chunks. Exact JSON Pointer
+reads select the fragment directly; they never deserialize the enclosing
+report or graph. Oversized whole-object reads give paging guidance. Arrays,
+object keys and strings remain fully pageable. Existing shell/output/turn
+limits are unchanged. The reader explicitly uses a **2 MiB SQLite cache** and
+disk-backed temporary storage; a paged materialization has a 128 KiB JSON
+budget. Large native resource/finding records receive the same treatment
+after decision/index construction, with reference-validation metadata intact.
+Source-only rows do not populate unused alias maps after graph linking.
+
+The isolated reader fixture ran in the existing worker image with networking
+disabled, a read-only mount/root, **128 MiB hard memory**, no swap, no cloud
+credentials, and no capabilities. Exact nested lookup, key pagination and a
+Unicode string read crossing chunk boundaries succeeded. A large whole-object
+read returned targeted paging guidance. Maximum process RSS was **30,638,080
+bytes**; maximum cgroup peak was **24,592,384 bytes**. This proves bounded
+reader behavior with headroom under 128 MiB; it is not an end-to-end model
+memory or quality claim. Commands and image/source hashes are recorded in
+`full-data-reader-headroom-20261028.json`.
+
+The earlier flat-format Priorities capture was superseded and stopped. The
+replacement runs the complete saved bf67 inputs against bounded storage,
+without sampling or any AWS/model call. Its receipt will include fragment
+counts/maxima, exact source comparisons and the unchanged transport cap.
+
+Bounded-storage focused suite: **218 passed, 1 skipped**; the final large-value and Unicode/chunk-boundary regressions also passed independently (2 tests).

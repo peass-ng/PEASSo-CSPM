@@ -30,6 +30,8 @@ def context(stage, root):
             inventory = []
             for ident, detail in rows('resources', True):
                 row = json.loads(detail)
+                if row == {'_exact_parts': True}:
+                    row = json.loads(db.execute('SELECT summary FROM records WHERE domain=? AND id=?', ('resources', ident)).fetchone()[0])
                 inventory.append({key: row[key] for key in ('id', 'provider', 'scope', 'native_id', 'service') if key in row})
             # Full source inventory can exceed the old projected-row ceiling.
             # The bounded SQLite transport already limits its bytes. Only index
@@ -49,6 +51,9 @@ def context(stage, root):
         findings, reviews = [], []
         for ident, detail in rows('findings', True):
             value = json.loads(detail)
+            if value == {'_exact_parts': True}:
+                summary = json.loads(db.execute('SELECT summary FROM records WHERE domain=? AND id=?', ('findings', ident)).fetchone()[0])
+                value = {'finding': summary, 'review': {'finding_id': ident, 'verdict': summary.get('verdict', summary.get('status')), 'reason': summary.get('review_reason', '')}}
             row = value['finding']
             findings.append({key: row[key] for key in ('id', 'status', 'category', 'resource_id') if key in row})
             if value.get('review'):

@@ -20,8 +20,12 @@ from peaso.snapshot import resources
 
 
 def load(path):
-    raw = Path(path).read_bytes()
-    return json.loads(gzip.decompress(raw) if raw.startswith(b'\x1f\x8b') else raw)
+    # Avoid simultaneously holding compressed bytes, expanded bytes, decoded
+    # text and the object graph. Agent readers do not run this capture loader.
+    with Path(path).open('rb') as source:
+        compressed = source.read(2) == b'\x1f\x8b'
+    with (gzip.open(path, 'rt') if compressed else Path(path).open()) as source:
+        return json.load(source)
 
 
 def sha(path):
@@ -35,6 +39,8 @@ def main():
     parser.add_argument('--stage', choices=('network', 'priorities'), required=True)
     parser.add_argument('--baseline', default='ec306486')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--only-after', action='store_true')
+    parser.add_argument('--retain-workspace', help='Private directory for bounded reader measurement')
     args = parser.parse_args()
     snapshot, report = load(args.snapshot), load(args.report)
     inventory = resources(snapshot)
@@ -78,7 +84,7 @@ def main():
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 modules[name] = module
-        for arm in ('before', 'after'):
+        for arm in (('after',) if args.only_after else ('before', 'after')):
             builder = modules['briefing'] if arm == 'before' else briefing
             network_builder = modules['network'] if arm == 'before' else network
             with tempfile.TemporaryDirectory(prefix='ai-quality-'+arm+'-') as workspace:
@@ -104,22 +110,58 @@ def main():
                 with sqlite3.connect(root/'context.sqlite') as db:
                     metrics['domain_counts'] = dict(db.execute('SELECT domain,COUNT(*) FROM records GROUP BY domain'))
                     metrics['findings_by_category_status'] = dict(Counter(
-                        f"{r['finding'].get('category')}:{r['finding'].get('status')}"
-                        for (raw,) in db.execute("SELECT detail FROM records WHERE domain='findings'") for r in [json.loads(raw)]))
+                        f"{r.get('category')}:{r.get('status')}"
+                        for (raw,) in db.execute("SELECT summary FROM records WHERE domain='findings'") for r in [json.loads(raw)]))
                     if arm == 'after':
                         domain = 'source_resources' if args.stage == 'network' else 'resources'
+                        def verify_original(domain, ident, expected):
+                            original = db.execute('SELECT detail FROM records WHERE domain=? AND id=?', (domain, ident)).fetchone()
+                            assert original is not None, 'original_missing'
+                            stored = json.loads(original[0])
+                            if stored != {'_exact_parts': True}:
+                                assert stored == expected, 'original_mismatch'
+                                return
+                            for pointer, kind, raw, count in db.execute('SELECT path,kind,value,count FROM record_parts WHERE domain=? AND id=?', (domain, ident)):
+                                value = expected
+                                components = pointer.split('/')[1:] if pointer else []
+                                # Text chunk paths use the character chunk index.
+                                for encoded in components:
+                                    key = encoded.replace('~1', '/').replace('~0', '~')
+                                    if isinstance(value, str):
+                                        value = value[int(key)*8192:(int(key)+1)*8192]
+                                    else:
+                                        value = value[int(key)] if isinstance(value, list) else value[key]
+                                if kind == 'json':
+                                    assert json.loads(raw) == value, 'fragment_mismatch'
+                                else:
+                                    assert count == len(value), 'fragment_count_mismatch'
+                                    if kind in ('object', 'array'):
+                                        keys = [row[0] for row in db.execute('SELECT key FROM record_parts WHERE domain=? AND id=? AND parent=? ORDER BY position', (domain, ident, pointer))]
+                                        assert keys == (list(value) if kind == 'object' else [str(i) for i in range(len(value))]), 'fragment_keys_mismatch'
                         for row in inventory:
-                            original = db.execute('SELECT detail FROM records WHERE domain=? AND id=?', (domain, row['id'])).fetchone()
-                            assert original is not None and json.loads(original[0]) == row, 'original_inventory_mismatch'
+                            verify_original(domain, row['id'], row)
                         for key, value in report.items():
-                            original = db.execute("SELECT detail FROM records WHERE domain='source_report' AND id=?", (key,)).fetchone()
-                            assert original is not None and json.loads(original[0]) == value, 'original_report_mismatch'
+                            verify_original('source_report', key, value)
                         metrics['exact_original_inventory_records_verified'] = len(inventory)
                         metrics['exact_original_report_fields_verified'] = len(report)
                         if args.stage == 'priorities':
                             assert metrics['findings_by_category_status'] == dict(expected_findings)
                         metrics['critical_categories_preserved'] = sorted({row.get('category') for row in findings if row.get('severity') == 'critical'})
                         metrics['verification'] = 'Every original inventory record and every report field compared by decoded exact equality; all native statuses retained. This is input coverage, not a model-output quality claim.'
+                    if arm == 'after':
+                        metrics['largest_record_bytes'] = db.execute('SELECT MAX(length(CAST(detail AS BLOB))) FROM records').fetchone()[0]
+                        if db.execute("SELECT 1 FROM sqlite_master WHERE name='record_parts'").fetchone():
+                            metrics['exact_fragment_count'], metrics['largest_fragment_bytes'] = db.execute('SELECT COUNT(*),MAX(length(CAST(value AS BLOB))) FROM record_parts').fetchone()
+                            assert metrics['largest_fragment_bytes'] <= 128 * 1024
+                        assert metrics['largest_record_bytes'] <= 128 * 1024
+                metrics['transport_total_bytes'] = sum(metrics['transport_file_bytes'].values())
+                assert metrics['transport_total_bytes'] < 256 * 1024 * 1024, 'workspace_transport_exceeds_existing_cap'
+                if arm == 'after' and args.retain_workspace:
+                    import shutil
+                    target = Path(args.retain_workspace)
+                    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    for name in ('context.py', 'context.sqlite', 'platform.json'):
+                        shutil.copy2(root/name, target/name)
                 result['measurements'][arm] = metrics
     Path(args.output).write_text(json.dumps(result, indent=2, sort_keys=True)+'\n')
     print(json.dumps({'stage': args.stage, 'output': args.output, 'inventory': len(inventory),

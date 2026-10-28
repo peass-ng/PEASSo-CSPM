@@ -4,6 +4,181 @@ import json
 import sqlite3
 
 
+# Large original source fields are stored as a tree of bounded exact JSON
+# fragments. No lookup has to load the enclosing report/graph into memory.
+PART_BYTES = 128 * 1024
+PART_MARKER = {'_exact_parts': True}
+
+
+def fits(value, remaining=PART_BYTES):
+    if isinstance(value, str):
+        return remaining - 6 * len(value) - 2
+    if isinstance(value, dict):
+        for key, item in value.items():
+            remaining = fits(str(key), remaining) - 2
+            if remaining < 0:
+                return -1
+            remaining = fits(item, remaining)
+            if remaining < 0:
+                return -1
+        return remaining - 2
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            remaining = fits(item, remaining) - 1
+            if remaining < 0:
+                return -1
+        return remaining - 2
+    return remaining - len(json.dumps(value, default=str)) - 1
+
+
+def child_path(path, key):
+    return path + '/' + str(key).replace('~', '~0').replace('/', '~1')
+
+
+def write_parts(db, domain, ident, value):
+    """Return a full small value or a marker backed by lossless bounded parts."""
+    if fits(value) >= 0:
+        return value
+    db.execute('''CREATE TABLE IF NOT EXISTS record_parts(
+        domain TEXT,id TEXT,path TEXT,parent TEXT,position INTEGER,key TEXT,
+        kind TEXT,value TEXT,count INTEGER,PRIMARY KEY(domain,id,path))''')
+    db.execute('CREATE INDEX IF NOT EXISTS part_children ON record_parts(domain,id,parent,position)')
+    pending = []
+
+    def put(path, parent, position, key, kind, item, count):
+        pending.append((domain, str(ident), path, parent, position, str(key), kind, item, count))
+        if len(pending) >= 256:
+            db.executemany('INSERT INTO record_parts VALUES(?,?,?,?,?,?,?,?,?)', pending)
+            pending.clear()
+
+    def visit(item, path='', parent=None, position=0, key=''):
+        if fits(item) >= 0:
+            put(path, parent, position, key, 'json', json.dumps(item, ensure_ascii=False, default=str, separators=(',', ':')), 0)
+        elif isinstance(item, dict):
+            put(path, parent, position, key, 'object', None, len(item))
+            for index, (name, child) in enumerate(item.items()):
+                visit(child, child_path(path, name), path, index, name)
+        elif isinstance(item, (list, tuple)):
+            put(path, parent, position, key, 'array', None, len(item))
+            for index, child in enumerate(item):
+                visit(child, child_path(path, index), path, index, index)
+        elif isinstance(item, str):
+            put(path, parent, position, key, 'text', None, len(item))
+            for index, offset in enumerate(range(0, len(item), 8192)):
+                put(child_path(path, index), path, index, index, 'json',
+                    json.dumps(item[offset:offset+8192], ensure_ascii=False, separators=(',', ':')), 0)
+        else:
+            raise ValueError('unsupported_large_source_value')
+    visit(value)
+    if pending:
+        db.executemany('INSERT INTO record_parts VALUES(?,?,?,?,?,?,?,?,?)', pending)
+    return PART_MARKER
+
+
+def part_node(db, domain, ident, path):
+    return db.execute('SELECT kind,value,count FROM record_parts WHERE domain=? AND id=? AND path=?',
+                      (domain, ident, path)).fetchone()
+
+
+def part_materialize(db, domain, ident, path, budget):
+    kind, raw, count = part_node(db, domain, ident, path)
+    if kind == 'json':
+        budget[0] -= len(raw.encode('utf-8'))
+        if budget[0] < 0:
+            raise ValueError('selected_value_too_large')
+        return json.loads(raw)
+    if kind == 'text':
+        if count * 6 > budget[0]:
+            raise ValueError('selected_value_too_large')
+        return ''.join(part_materialize(db, domain, ident, row[0], budget) for row in
+                       db.execute('SELECT path FROM record_parts WHERE domain=? AND id=? AND parent=? ORDER BY position',
+                                  (domain, ident, path)))
+    children = db.execute('SELECT path,key FROM record_parts WHERE domain=? AND id=? AND parent=? ORDER BY position',
+                          (domain, ident, path))
+    budget[0] -= 2
+    result = {} if kind == 'object' else []
+    for name, key in children:
+        budget[0] -= len(json.dumps(key, ensure_ascii=False).encode('utf-8')) + 2 if kind == 'object' else 1
+        if budget[0] < 0:
+            raise ValueError('selected_value_too_large')
+        value = part_materialize(db, domain, ident, name, budget)
+        if kind == 'object':
+            result[key] = value
+        else:
+            result.append(value)
+    return result
+
+
+def part_select(db, domain, ident, path):
+    """Resolve a pointer without materializing any enclosing object."""
+    if path and not path.startswith('/'):
+        raise ValueError('invalid_pointer')
+    current = ''
+    parts = path.split('/')[1:] if path else []
+    for index, encoded in enumerate(parts):
+        kind, raw, count = part_node(db, domain, ident, current)
+        key = encoded.replace('~1', '/').replace('~0', '~')
+        if kind == 'json':
+            value = json.loads(raw)
+            for remaining in parts[index:]:
+                key = remaining.replace('~1', '/').replace('~0', '~')
+                value = value[int(key)] if isinstance(value, list) else value[key]
+            return None, value
+        if kind == 'text':
+            raise KeyError(key)
+        if kind == 'array':
+            position = int(key)
+            if position < 0 or position >= count:
+                raise IndexError(key)
+            key = str(position)
+        current = child_path(current, key)
+        if part_node(db, domain, ident, current) is None:
+            raise KeyError(key)
+    return current, None
+
+
+def parts_get(db, domain, ident, args, limit, offset):
+    path, selected = part_select(db, domain, ident, args.path)
+    if path is None:
+        return selected_result(selected, args, limit, offset)
+    kind, raw, count = part_node(db, domain, ident, path)
+    if kind == 'json':
+        return selected_result(json.loads(raw), args, limit, offset)
+    if args.keys:
+        if kind != 'object':
+            raise ValueError('selected_value_not_object')
+        keys = db.execute('SELECT key FROM record_parts WHERE domain=? AND id=? AND parent=? ORDER BY position LIMIT ? OFFSET ?',
+                          (domain, ident, path, limit, offset))
+        return {'total': count, 'offset': offset, 'items': [row[0] for row in keys]}
+    if kind == 'array':
+        children = db.execute('SELECT path FROM record_parts WHERE domain=? AND id=? AND parent=? ORDER BY position LIMIT ? OFFSET ?',
+                              (domain, ident, path, limit, offset))
+        budget = [PART_BYTES]
+        return {'total': count, 'offset': offset,
+                'items': [part_materialize(db, domain, ident, row[0], budget) for row in children]}
+    if kind == 'text' and args.chars is not None:
+        stop = min(count, offset + min(8000, max(1, args.chars)))
+        pieces = []
+        for index in range(offset // 8192, (stop + 8191) // 8192):
+            chunk = json.loads(part_node(db, domain, ident, child_path(path, index))[1])
+            pieces.append(chunk[max(0, offset-index*8192):min(len(chunk), stop-index*8192)])
+        return {'type': 'text', 'total': count, 'offset': offset, 'text': ''.join(pieces)}
+    raise ValueError('selected_value_too_large')
+
+
+def selected_result(selected, args, limit, offset):
+    if args.keys:
+        if not isinstance(selected, dict):
+            raise ValueError('selected_value_not_object')
+        return {'total': len(selected), 'offset': offset, 'items': list(selected)[offset:offset+limit]}
+    if isinstance(selected, str) and args.chars is not None:
+        return {'type': 'text', 'total': len(selected), 'offset': offset,
+                'text': selected[offset:offset+min(8000, max(1, args.chars))]}
+    if isinstance(selected, list):
+        return {'total': len(selected), 'offset': offset, 'items': selected[offset:offset+limit]}
+    return selected
+
+
 def small(value, budget=650):
     if len(json.dumps(value, ensure_ascii=False, default=str)) <= budget:
         return value
@@ -90,6 +265,10 @@ def focus(db, domain, ident, limit):
         else:
             item['evidence'] = {'source': original.get('source'), 'target': original.get('target'),
                                 'confidence': original.get('confidence'), **fields(original.get('evidence', {}))}
+        if original == PART_MARKER:
+            item['evidence'] = {'detail_required': True,
+                'lookup': 'python context.py get ' + source_domain + ' ' + source_id,
+                'note': 'Large exact evidence is available by paginated JSON Pointer lookup.'}
         related = db.execute('''WITH refs AS (
             SELECT ? AS domain,? AS id UNION SELECT b_domain,b_id FROM links WHERE a_domain=? AND a_id=?
             UNION SELECT a_domain,a_id FROM links WHERE b_domain=? AND b_id=?)
@@ -138,6 +317,8 @@ def main():
     limit = min(20, max(1, args.limit))
     offset = max(0, args.offset)
     db = sqlite3.connect('file:context.sqlite?mode=ro', uri=True)
+    db.execute('PRAGMA cache_size=-2048')
+    db.execute('PRAGMA temp_store=FILE')
     try:
         if args.command == 'focus':
             result = focus(db, args.domain, args.id, min(3, limit))
@@ -148,8 +329,12 @@ def main():
             where = 'domain=?' + (' AND candidate=1' if args.candidates and not args.all else '')
             params = [args.domain]
             if args.query is not None:
-                where += ' AND instr(detail,?)>0'
-                params.append(args.query)
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='record_parts'").fetchone():
+                    where += ' AND (instr(detail,?)>0 OR EXISTS(SELECT 1 FROM record_parts p WHERE p.domain=records.domain AND p.id=records.id AND instr(p.value,?)>0))'
+                    params.extend((args.query, args.query))
+                else:
+                    where += ' AND instr(detail,?)>0'
+                    params.append(args.query)
             if args.type is not None:
                 where += " AND json_extract(summary,'$.type')=?"
                 params.append(args.type)
@@ -163,23 +348,18 @@ def main():
             else:
                 detail = json.loads(row[1])
                 if args.summary and not args.keys:
-                    result = {'summary': json.loads(row[0]), 'detail_keys': list(detail) if isinstance(detail, dict) else None}
+                    result = {'summary': json.loads(row[0]), 'detail_keys': None if detail == PART_MARKER else list(detail) if isinstance(detail, dict) else None}
+                elif (detail == PART_MARKER and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='record_parts'").fetchone()
+                      and part_node(db, args.domain, args.id, '') is not None):
+                    result = parts_get(db, args.domain, args.id, args, limit, offset)
                 else:
                     selected = detail
                     if args.path and not args.path.startswith('/'):
-                        raise ValueError('Use a JSON Pointer starting with /, or an empty path for the full record')
+                        raise ValueError('invalid_pointer')
                     for part in args.path.split('/')[1:] if args.path else []:
                         key = part.replace('~1', '/').replace('~0', '~')
                         selected = selected[int(key)] if isinstance(selected, list) else selected[key]
-                    if args.keys:
-                        if not isinstance(selected, dict):
-                            raise ValueError('Selected value is not an object')
-                        result = {'total': len(selected), 'offset': offset, 'items': list(selected)[offset:offset + limit]}
-                    elif isinstance(selected, str) and args.chars is not None:
-                        result = {'type': 'text', 'total': len(selected), 'offset': offset,
-                                  'text': selected[offset:offset + min(8000, max(1, args.chars))]}
-                    else:
-                        result = {'total': len(selected), 'offset': offset, 'items': selected[offset:offset + limit]} if isinstance(selected, list) else selected
+                    result = selected_result(selected, args, limit, offset)
         elif args.command == 'members':
             if args.id:
                 params = (args.domain, args.id)
@@ -223,7 +403,10 @@ def main():
             rendered = json.dumps(result)
         print(rendered)
     except (KeyError, IndexError, ValueError) as exc:
-        print(json.dumps({'error': 'invalid_path_or_value', 'kind': type(exc).__name__}))
+        if str(exc) == 'selected_value_too_large':
+            print(json.dumps({'error': 'selected_value_too_large', 'hint': 'Use --keys to page object keys, a more specific --path, a smaller --limit, or --chars 4000 for text. Every exact fragment remains available.'}))
+        else:
+            print(json.dumps({'error': 'invalid_path_or_value', 'kind': type(exc).__name__}))
     finally:
         db.close()
 

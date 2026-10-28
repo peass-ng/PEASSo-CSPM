@@ -15,7 +15,11 @@ from peaso.collectors import supported_types
 
 
 def detail(db, domain, ident):
-    return json.loads(db.execute('SELECT detail FROM records WHERE domain=? AND id=?', (domain, ident)).fetchone()[0])
+    value = json.loads(db.execute('SELECT detail FROM records WHERE domain=? AND id=?', (domain, ident)).fetchone()[0])
+    if value == {'_exact_parts': True}:
+        from peaso.ai.context_reader import part_materialize
+        return part_materialize(db, domain, ident, '', [100 * 1024 * 1024])
+    return value
 
 
 @pytest.mark.parametrize('provider', ('aws', 'gcp', 'azure', 'k8s'))
@@ -133,3 +137,63 @@ def test_unprojected_resource_can_support_valid_network_output(tmp_path, monkeyp
     monkeypatch.setattr(output_validation, 'MAX_ROWS', 0)
     local = validate_network(output, context('network', tmp_path))
     assert trusted == local
+
+
+def test_large_sources_and_long_strings_have_bounded_exact_reads(tmp_path):
+    from peaso.ai.context_reader import PART_BYTES
+    rows = [{'id': str(i), 'native': {'route': 'route-'+str(i), 'rules': list(range(100))}} for i in range(1500)]
+    text = ('é東京\\"\n' * 30000) + 'final-exact-text'
+    report = {'provider': 'aws', 'findings': [], 'large': {'rows': rows, 'text': text},
+              'literal_marker': {'_exact_parts': True}}
+    briefing.build(tmp_path, {'report': report, 'inventory': []}, [], [], private_json)
+    with sqlite3.connect(tmp_path/'context.sqlite') as db:
+        assert db.execute('SELECT MAX(length(CAST(value AS BLOB))) FROM record_parts').fetchone()[0] <= PART_BYTES
+        assert db.execute('SELECT MAX(length(CAST(detail AS BLOB))) FROM records').fetchone()[0] <= PART_BYTES
+    assert read(tmp_path, 'get', 'source_report', 'large')['error'] == 'selected_value_too_large'
+    assert read(tmp_path, 'get', 'source_report', 'literal_marker') == {'_exact_parts': True}
+    assert read(tmp_path, 'get', 'source_report', 'large', '--keys')['items'] == ['rows', 'text']
+    def local_read(*args):
+        import contextlib
+        import io
+        import os
+        from peaso.ai import context_reader
+        previous_dir, previous_argv = os.getcwd(), sys.argv
+        output = io.StringIO()
+        try:
+            os.chdir(tmp_path)
+            sys.argv = ['context.py', *args]
+            with contextlib.redirect_stdout(output):
+                context_reader.main()
+        finally:
+            os.chdir(previous_dir)
+            sys.argv = previous_argv
+        return json.loads(output.getvalue())
+    retrieved = []
+    offset = 0
+    while True:
+        page = local_read('get', 'source_report', 'large', '--path', '/rows', '--offset', str(offset), '--limit', '20')
+        retrieved.extend(page['items'])
+        if page['next_offset'] is None:
+            break
+        offset = page['next_offset']
+    assert retrieved == rows
+    chunks = [local_read('get', 'source_report', 'large', '--path', '/text', '--chars', '4000', '--offset', str(offset))['text']
+              for offset in range(0, len(text), 4000)]
+    assert ''.join(chunks) == text
+    assert read(tmp_path, 'get', 'source_report', 'large', '--path', '/rows/1499/native') == rows[-1]['native']
+    assert read(tmp_path, 'list', 'source_report', '--query', 'route-1499')['total'] == 1
+
+
+def test_large_native_records_keep_validation_metadata_and_full_evidence(tmp_path):
+    from peaso.ai.output_validation import context
+    finding = {'id': 'f', 'category': 'hardening', 'status': 'FAIL', 'severity': 'critical',
+               'check_id': 'native', 'resource_id': 'r', 'evidence': {'payload': 'x' * 200000}}
+    row = {'id': 'r', 'provider': 'aws', 'scope': 'scope', 'service': 'native',
+           'type': 'future', 'data': {'payload': 'y' * 200000}}
+    report = {'provider': 'aws', 'findings': [finding]}
+    briefing.build(tmp_path, {'report': report, 'inventory': [row]}, [], [], private_json)
+    local = context('priorities', tmp_path)
+    assert local['report']['findings'] == [{'id': 'f', 'category': 'hardening', 'status': 'FAIL', 'resource_id': 'r'}]
+    assert context('network', tmp_path)['inventory'][0]['service'] == 'native'
+    assert read(tmp_path, 'get', 'findings', 'f', '--path', '/finding/evidence/payload', '--chars', '4000')['text'] == 'x' * 4000
+    assert read(tmp_path, 'get', 'resources', 'r', '--path', '/data/payload', '--chars', '4000')['text'] == 'y' * 4000

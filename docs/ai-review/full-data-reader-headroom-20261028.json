@@ -1,0 +1,91 @@
+{
+  "image": "sha256:9d85e74975e33685f946907f386696ceb891a636d2f4adf0a218bbc33298335e",
+  "network": "none",
+  "container_memory_bytes": 134217728,
+  "swap_bytes": 0,
+  "read_only_root": true,
+  "context_reader_sha256": "3f9d9419e96b5214b1a4479b33249da562141930647a1862a86209707599b23f",
+  "exact_fragment_max_bytes": 131072,
+  "sqlite_cache_bytes": 2097152,
+  "fixture": {
+    "row_count": 1500,
+    "long_text_characters": 180000,
+    "unicode_escape_and_chunk_boundary": true
+  },
+  "queries": [
+    {
+      "query": [
+        "get",
+        "source_report",
+        "large"
+      ],
+      "cgroup_memory.max": "134217728",
+      "cgroup_memory.peak": "24592384",
+      "cpu_seconds": 0.692974,
+      "error": "selected_value_too_large",
+      "output_bytes": 190,
+      "process_peak_rss_bytes": 30015488,
+      "returned_items": 0,
+      "total": null,
+      "wall_seconds": 0.886224
+    },
+    {
+      "query": [
+        "get",
+        "source_report",
+        "large",
+        "--keys"
+      ],
+      "cgroup_memory.max": "134217728",
+      "cgroup_memory.peak": "23203840",
+      "cpu_seconds": 0.515486,
+      "error": null,
+      "output_bytes": 74,
+      "process_peak_rss_bytes": 29954048,
+      "returned_items": 2,
+      "total": 2,
+      "wall_seconds": 0.562063
+    },
+    {
+      "query": [
+        "get",
+        "source_report",
+        "large",
+        "--path",
+        "/rows/1499/native"
+      ],
+      "cgroup_memory.max": "134217728",
+      "cgroup_memory.peak": "23396352",
+      "cpu_seconds": 0.460848,
+      "error": null,
+      "output_bytes": 425,
+      "process_peak_rss_bytes": 30007296,
+      "returned_items": 0,
+      "total": null,
+      "wall_seconds": 0.507504
+    },
+    {
+      "query": [
+        "get",
+        "source_report",
+        "large",
+        "--path",
+        "/text",
+        "--chars",
+        "4000",
+        "--offset",
+        "8190"
+      ],
+      "cgroup_memory.max": "134217728",
+      "cgroup_memory.peak": "23212032",
+      "cpu_seconds": 0.212485,
+      "error": null,
+      "output_bytes": 9396,
+      "process_peak_rss_bytes": 30638080,
+      "returned_items": 0,
+      "total": 180000,
+      "wall_seconds": 0.231226
+    }
+  ],
+  "scope": "Isolated bounded-reader fixture, not a model run or the full saved snapshot. Saved snapshot coverage receipt is separate."
+}

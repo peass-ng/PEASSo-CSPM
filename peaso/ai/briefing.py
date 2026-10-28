@@ -92,7 +92,7 @@ def build(root, platform, assigned, reviews, write_json):
                 db.executemany('INSERT INTO records VALUES(?,?,?,?,?,?)', pending_records)
                 pending_records.clear()
 
-        def put(domain, ident, summary, detail, *, severity='info', candidate=False, names=(), identities=()):
+        def put(domain, ident, summary, detail, *, severity='info', candidate=False, names=(), identities=(), linkable=True):
             ident = str(ident)
             summary = {key: value if key in ('source', 'target', 'resource_id', 'native_id') else bounded(value)
                        for key, value in summary.items()}
@@ -101,6 +101,8 @@ def build(root, platform, assigned, reviews, write_json):
                                     RISK.get(severity, 4), int(candidate)))
             if len(pending_records) >= 512:
                 flush_records()
+            if not linkable:
+                return
             provider = detail.get('provider') if isinstance(detail, dict) else None
             if not provider and isinstance(detail, dict) and isinstance(detail.get('finding'), dict):
                 provider = detail['finding'].get('provider')
@@ -161,7 +163,7 @@ def build(root, platform, assigned, reviews, write_json):
             if row.get('provider', report.get('provider')) == 'gcp' and row.get('type') == 'service_account' and isinstance(email, str):
                 identities.append('serviceAccount:' + email)
             put('resources', row.get('id', str(index)),
-                {key: row[key] for key in ('native_id', 'type', 'provider', 'scope') if key in row}, row,
+                {key: row[key] for key in ('native_id', 'type', 'provider', 'scope', 'service') if key in row}, row,
                 names=(row.get('native_id'),), identities=identities)
         least = platform.get('least_privilege', {})
         for index, row in enumerate(least.get('items', [])):
@@ -256,22 +258,32 @@ def build(root, platform, assigned, reviews, write_json):
         db.commit()
         # Preserve original source fields after graph linking: large raw fields
         # need exact lookup, not another expensive reference traversal.
+        from .context_reader import write_parts
         for key, value in platform.get('source_report', report).items():
-            put('source_report', key, {'field': key}, value)
+            put('source_report', key, {'field': key}, write_parts(db, 'source_report', key, value), linkable=False)
         for key, value in platform.get('snapshot_context', {}).items():
-            put('source_snapshot', key, {'field': key}, value)
+            put('source_snapshot', key, {'field': key}, write_parts(db, 'source_snapshot', key, value), linkable=False)
         for row in platform.get('source_inventory', []):
             put('source_resources', row['id'],
-                {key: row[key] for key in ('native_id', 'type', 'provider', 'scope', 'service') if key in row}, row)
+                {key: row[key] for key in ('native_id', 'type', 'provider', 'scope', 'service') if key in row}, write_parts(db, 'source_resources', row['id'], row), linkable=False)
         if 'network_review' in platform:
             put('metadata', 'network_review', {'field': 'network_review'}, platform['network_review'])
         flush_records()
+        # Decision/link construction is complete. Bound every agent-side exact
+        # read, including unusually large native evidence/resource records.
+        for domain, ident in db.execute('SELECT domain,id FROM records WHERE length(CAST(detail AS BLOB))>?', (128 * 1024,)).fetchall():
+            raw = db.execute('SELECT detail FROM records WHERE domain=? AND id=?', (domain, ident)).fetchone()[0]
+            value = json.loads(raw)
+            stored = write_parts(db, domain, ident, value)
+            if stored is not value:
+                db.execute('UPDATE records SET detail=? WHERE domain=? AND id=?', (encode(stored), domain, ident))
         db.commit()
         resource_counts = dict(Counter(row.get('type', 'unknown') for row in platform.get('source_inventory', platform.get('inventory', []))))
         source_counts = dict(db.execute("SELECT domain,COUNT(*) FROM records WHERE domain NOT LIKE 'decision_%' GROUP BY domain ORDER BY domain"))
         overview = {'version': 2, 'scan': {key: compact(value) for key, value in scan.items()},
             'review_counts': dict(sorted(verdict_counts.items())),
             'data_index': {'domains': source_counts, 'resource_types': resource_counts,
+                'exact_fragment_bytes': 128 * 1024,
                 'report_fields': list(platform.get('source_report', report)),
                 'snapshot_fields': list(platform.get('snapshot_context', {})),
                 'lookup': "python context.py list DOMAIN --all; python context.py get DOMAIN ID --path ''; use --keys to page object keys and JSON Pointer paths for large values",
