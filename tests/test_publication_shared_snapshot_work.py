@@ -87,6 +87,7 @@ def test_final_publication_reuses_snapshot_artifacts_and_matches_uncached(tmp_pa
     native_manifest = shared_store.get(TENANT, native_ref)
     for key in ("resource_chunks", "least_privilege", "least_privilege_permission_inputs", "network_snapshot"):
         assert shared_manifest[key] == native_manifest[key]
+    assert shared_manifest["report_markdown"] == native_manifest["report_markdown"]
     assert list(shared_manifest) == list(plain_store.get(TENANT, plain_ref))
     assert normalize(shared_manifest, shared_store) == normalize(plain_store.get(TENANT, plain_ref), plain_store)
 
@@ -95,11 +96,12 @@ def test_changed_resource_set_or_snapshot_rebuilds(tmp_path, monkeypatch):
     report, snapshot = fixture()
     calls = counting(monkeypatch)
     store, shared = FileArtifacts(tmp_path), {}
-    reports.publish_report(store, TENANT, IDENT, report, snapshot, _shared=shared)
+    original = reports.publish_report(store, TENANT, IDENT, report, snapshot, _shared=shared)
     narrowed = final(report)
     narrowed["resources"] = [row for row in narrowed["resources"] if row["type"] == "bucket"]
     ref = reports.publish_report(store, TENANT, IDENT, narrowed, snapshot, _shared=shared)
     assert calls == {"chunks": 2, "least": 1, "network": 1}
+    assert store.get(TENANT, ref)["report_markdown"] != store.get(TENANT, original)["report_markdown"]
     ids = [item["id"] for chunk in normalize(store.get(TENANT, ref), store)["resource_chunks"]
            for item in chunk["reference"]["items"]]
     assert ids == sorted(row["id"] for row in narrowed["resources"])

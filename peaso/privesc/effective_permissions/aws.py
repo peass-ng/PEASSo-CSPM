@@ -16857,6 +16857,29 @@ class AwsModel(Model):
         if pid == "ecs_new_task_definition_eventbridge_schedule_ready":
             if source is None:
                 return None
+            scheduled_inventory = self.__dict__.get("_ecs_scheduled_inventory")
+            if scheduled_inventory is None:
+                rule_arns, task_families, connected_instances = set(), set(), set()
+                for scope, row in items(self.snapshot, "event_rule"):
+                    arn = row.get("Arn")
+                    if isinstance(arn, str):
+                        rule_arns.add((scope, arn))
+                marker = ":task-definition/"
+                for scope, row in items(self.snapshot, "ecs_task_definition"):
+                    arn = str(row.get("taskDefinitionArn", ""))
+                    start = arn.find(marker)
+                    if start >= 0:
+                        revision = arn.find(":", start + len(marker))
+                        if revision >= 0:
+                            task_families.add((scope, arn[:revision]))
+                for scope, row in items(self.snapshot, "ecs_container_instance"):
+                    cluster = row.get("clusterArn")
+                    if (isinstance(cluster, str) and row.get("status") == "ACTIVE"
+                            and row.get("agentConnected") is True):
+                        connected_instances.add((scope, cluster))
+                scheduled_inventory = rule_arns, task_families, connected_instances
+                self._ecs_scheduled_inventory = scheduled_inventory
+            rule_arns, task_families, connected_instances = scheduled_inventory
             partition = source.id.split(":", 2)[1] if source.id.startswith("arn:") else "aws"
             rule_status = inventory_status(self.snapshot, "event_rule")
             task_status = inventory_status(self.snapshot, "ecs_task_definition")
@@ -16893,11 +16916,8 @@ class AwsModel(Model):
                     task_arn = f"arn:{partition}:ecs:{region}:{account}:task-definition/{family}:1"
                     future_task_arn = task_arn.rsplit(":", 1)[0] + ":999999999"
                     rule_arn = f"arn:{partition}:events:{region}:{account}:rule/{family}"
-                    if (any(row.get("Arn") == rule_arn for row_scope, row in items(self.snapshot, "event_rule")
-                            if row_scope == scope and isinstance(row, dict)) or
-                            any(str(row.get("taskDefinitionArn", "")).startswith(task_arn.rsplit(":", 1)[0] + ":")
-                                for row_scope, row in items(self.snapshot, "ecs_task_definition")
-                                if row_scope == scope and isinstance(row, dict))):
+                    if ((scope, rule_arn) in rule_arns or
+                            (scope, task_arn.rsplit(":", 1)[0]) in task_families):
                         uncertain = True
                         continue
                     if not every_revision_allowed(source, "ecs:registertaskdefinition", task_arn):
@@ -16922,10 +16942,7 @@ class AwsModel(Model):
                         if cluster.get("status") != "ACTIVE" or not cluster.get("count"):
                             uncertain = True
                             continue
-                        connected = [row for row_scope, row in items(self.snapshot, "ecs_container_instance")
-                                     if row_scope == scope and row.get("clusterArn") == cluster_arn and
-                                     row.get("status") == "ACTIVE" and row.get("agentConnected") is True]
-                        if not connected:
+                        if (scope, cluster_arn) not in connected_instances:
                             uncertain = True
                             continue
                         put_target = self.check(source, {"action": "events:PutTargets",

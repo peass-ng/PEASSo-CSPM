@@ -178,9 +178,12 @@ def resource_chunks(artifacts, tenant, ident, report, snapshot, *, _inventory=No
     """
     from peaso.snapshot import resources
     wanted = {r["id"] for r in report.get("resources", [])}
-    items = sorted(({"id": r["id"], "native_id": r["native_id"], "type": r["type"], "scope": r["scope"], "data": r["data"]}
-                    for r in (resources(snapshot) if _inventory is None else _inventory)
-                    if r["id"] in wanted), key=lambda r: r["id"])
+    ordered = sorted((r for r in (resources(snapshot) if _inventory is None else _inventory)
+                      if r["id"] in wanted), key=lambda r: r["id"])
+    # Keep only references in the sort buffer; construct one chunk's output
+    # rows at a time instead of retaining a second full inventory of dicts.
+    items = ({"id": r["id"], "native_id": r["native_id"], "type": r["type"], "scope": r["scope"], "data": r["data"]}
+             for r in ordered)
     out = []
     for group, body in _artifact_chunks(artifacts, items):
         out.append({"reference": _put_chunk(artifacts, tenant, ident, "resources", group, body),
@@ -272,30 +275,59 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
     json_reference = artifacts.put(tenant, ident, "report", presented)
     from peaso.engine import REPORT_SCHEMA_VERSION, expand_report
     embeddable = snapshot is not None and report.get("schema_version") == REPORT_SCHEMA_VERSION and snapshot.get("snapshot_id") == report.get("snapshot_id")
+    owner = (snapshot, tenant, ident, report.get("snapshot_id"), report.get("provider"), _snapshot_shape(snapshot))
     # Prepare this snapshot's native inventory once for Markdown, resource
     # chunks and least privilege. It is never retained beyond this publication.
     if embeddable:
         from peaso.snapshot import resources as snapshot_resources
         with _runtime_span("publication.inventory"):
             inventory = snapshot_resources(snapshot)
-    # The Markdown download keeps native configuration facts inline (schema 1.0 view).
-    with _runtime_span("publication.expand_native"):
-        markdown_view = expand_report(presented, snapshot, _inventory=inventory) if embeddable else presented
-    stream_writer = getattr(artifacts, "put_text_file", None)
-    if callable(stream_writer):
-        # Keep the full native download without document-sized string/UTF-8/
-        # compression copies. The owned disk file survives until durable upload.
-        with tempfile.TemporaryFile(mode="w+b") as markdown:
+    def publish_markdown():
+        # The Markdown download keeps native configuration facts inline (schema 1.0 view).
+        with _runtime_span("publication.expand_native"):
+            markdown_view = expand_report(presented, snapshot, _inventory=inventory) if embeddable else presented
+        stream_writer = getattr(artifacts, "put_text_file", None)
+        if callable(stream_writer):
+            # Keep the full native download without document-sized string/UTF-8/
+            # compression copies. The owned disk file survives until durable upload.
+            with tempfile.TemporaryFile(mode="w+b") as markdown:
+                with _runtime_span("publication.markdown"):
+                    write_markdown(markdown_view, markdown)
+                del markdown_view
+                return stream_writer(tenant, ident, "markdown", markdown)
+        else:
             with _runtime_span("publication.markdown"):
-                write_markdown(markdown_view, markdown)
+                markdown = render_markdown(markdown_view)
             del markdown_view
-            markdown_reference = stream_writer(tenant, ident, "markdown", markdown)
-    else:
-        with _runtime_span("publication.markdown"):
-            markdown = render_markdown(markdown_view)
-        del markdown_view
-        markdown_reference = artifacts.put_text(tenant, ident, "markdown", markdown)
-        del markdown
+            reference = artifacts.put_text(tenant, ident, "markdown", markdown)
+            del markdown
+            return reference
+
+    markdown_signature = None
+    if _shared is not None:
+        # AI metadata and publication state are not rendered in Markdown. A
+        # digest of every other sanitized report field prevents reuse when AI
+        # adds findings or changes any rendered evidence.
+        try:
+            digest = hashlib.sha256()
+            for key in sorted(report):
+                if key in ("ai", "publication"):
+                    continue
+                if type(key) is not str:
+                    raise TypeError("report key must be a string")
+                name = key.encode("utf-8")
+                body = json.dumps(report[key], sort_keys=True, separators=(",", ":"),
+                                  ensure_ascii=False, allow_nan=False).encode()
+                digest.update(len(name).to_bytes(8, "big"))
+                digest.update(name)
+                digest.update(len(body).to_bytes(8, "big"))
+                digest.update(body)
+                del body
+            markdown_signature = digest.hexdigest()
+        except (TypeError, ValueError, OverflowError, UnicodeError, RecursionError):
+            pass
+    markdown_reference = (_shared_value(_shared, owner, "markdown", markdown_signature, publish_markdown)
+                          if markdown_signature is not None else publish_markdown())
     manifest = {"bundle_version": 1, "report_grouping": "check-v1", "report_json": json_reference, "report_markdown": markdown_reference,
                 "summary": {k: v for k, v in report.items() if k not in {"resources", "findings", "coverage", "graphs", "snapshot", "check_frameworks", "check_meta", "check_meta_encoding", "remediation_templates"}},
                 "finding_chunks": [], "finding_index_chunks": [], "coverage_chunks": [], "coverage_chunk_counts": [],
@@ -350,7 +382,6 @@ def _publish_report(artifacts, tenant, ident, report, snapshot=None, *, _shared=
         for group, body in _artifact_chunks(artifacts, report.get("coverage", [])):
             manifest["coverage_chunks"].append(_put_chunk(artifacts, tenant, ident, "coverage", group, body))
             manifest["coverage_chunk_counts"].append(len(group))
-    owner = (snapshot, tenant, ident, report.get("snapshot_id"), report.get("provider"), _snapshot_shape(snapshot))
     if embeddable:
         from peaso.least_privilege import project as project_least_privilege
         # The same immutable inventory was used for Markdown above. No state
