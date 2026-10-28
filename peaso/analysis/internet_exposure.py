@@ -1134,9 +1134,9 @@ def _aws_lambda_url(snapshot, inventory, resource):
             created_date = date.fromisoformat(created[:10]) if isinstance(created, str) else None
         except ValueError:
             created_date = None
-        if created_date is None or created_date < date(2025, 10, 1):
+        if created_date is None or created_date < date(2025, 11, 1):
             if public:
-                a.gap("policy", "legacy Function URL may use the pre-October-2025 permission model", "lambda:GetFunctionUrlConfig")
+                a.gap("policy", "Function URL creation falls before or within the undocumented October 2025 permission cutover", "lambda:GetFunctionUrlConfig")
             else:
                 a.step("policy", "block", reason="no public URL invocation grant")
                 a.ports = {}

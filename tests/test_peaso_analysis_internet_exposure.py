@@ -738,6 +738,12 @@ def test_lambda_function_url_requires_both_public_invocation_actions_for_new_url
     legacy = copy.deepcopy(only_url)
     legacy["FunctionUrl"]["CreationTime"] = "2024-01-01T00:00:00Z"
     assert one(aws(coll("lambda_function", [legacy], service="lambda")), "lambda_function")["status"] == "UNKNOWN"
+    cutover_month = copy.deepcopy(only_url)
+    cutover_month["FunctionUrl"]["CreationTime"] = "2025-10-15T00:00:00Z"
+    assert one(aws(coll("lambda_function", [cutover_month], service="lambda")), "lambda_function")["status"] == "UNKNOWN"
+    after_cutover = copy.deepcopy(only_url)
+    after_cutover["FunctionUrl"]["CreationTime"] = "2025-11-01T00:00:00Z"
+    assert one(aws(coll("lambda_function", [after_cutover], service="lambda")), "lambda_function")["status"] == "PASS"
     unknown = copy.deepcopy(base)
     unknown["Policy"]["Policy"]["Statement"][1]["Condition"] = {"StringEquals": {"aws:SourceVpce": "vpce-1"}}
     assert one(aws(coll("lambda_function", [unknown], service="lambda")), "lambda_function")["status"] == "UNKNOWN"
