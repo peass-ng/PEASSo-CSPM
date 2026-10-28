@@ -4,6 +4,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import re
+from urllib.parse import urlsplit
 
 ARM = "https://management.azure.com"
 MG = "/providers/Microsoft.Management/managementGroups/"
@@ -389,12 +390,60 @@ def list_detail(value, kind):
     source = {"scheduled_query_rule": "scheduled_query_rules_list_by_subscription",
               "action_group": "action_groups_list_by_subscription"}[kind]
     if kind == "action_group":
-        # Receiver URLs and credentials can contain bearer material. Enabled
-        # state is useful, but the reduced representation cannot prove delivery.
+        # Retain only destination metadata. Receiver URLs can contain bearer
+        # tokens in path/query and must never enter a snapshot.
         properties = value.get("properties", {})
+        receivers = []
+        complete = isinstance(properties, dict)
+        if complete:
+            for field, category, url_field in (("webhookReceivers", "webhook", "serviceUri"),
+                                               ("logicAppReceivers", "logicApp", "callbackUrl"),
+                                               ("azureFunctionReceivers", "azureFunction", "httpTriggerUrl")):
+                rows = properties.get(field, [])
+                if not isinstance(rows, list):
+                    complete = False
+                    continue
+                for row in rows:
+                    if not isinstance(row, dict):
+                        complete = False
+                        continue
+                    raw = row.get(url_field)
+                    parsed = urlsplit(raw) if isinstance(raw, str) else None
+                    host = parsed.hostname if parsed and parsed.scheme in ("http", "https") and not parsed.username and not parsed.password else None
+                    if not isinstance(host, str) or re.fullmatch(r"[a-z0-9.-]{1,253}", host.lower()) is None:
+                        host = None
+                    receivers.append({"kind": category, "host": host})
+            rows = properties.get("eventHubReceivers", [])
+            if not isinstance(rows, list):
+                complete = False
+            else:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        complete = False
+                        continue
+                    tenant, subscription = row.get("tenantId"), row.get("subscriptionId")
+                    uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+                    receivers.append({"kind": "eventHub",
+                                      "tenantId": tenant if isinstance(tenant, str) and re.fullmatch(uuid, tenant, re.I) else None,
+                                      "subscriptionId": subscription if isinstance(subscription, str) and re.fullmatch(uuid, subscription, re.I) else None})
+            rows = properties.get("emailReceivers", [])
+            if not isinstance(rows, list):
+                complete = False
+            else:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        complete = False
+                        continue
+                    address = row.get("emailAddress")
+                    domain = address.rsplit("@", 1)[-1].lower() if isinstance(address, str) and "@" in address else None
+                    if not isinstance(domain, str) or re.fullmatch(r"[a-z0-9.-]{1,253}", domain) is None:
+                        domain = None
+                    receivers.append({"kind": "email", "domain": domain})
         value = {key: data for key, data in value.items() if key in ("id", "name", "type", "location")}
         value["properties"] = {"enabled": properties["enabled"]} if isinstance(properties, dict) and "enabled" in properties else {}
-        value["_coverage"] = {"receivers": {"status": "not_collected"}}
+        value["_exposureReceivers"] = receivers
+        value["_coverage"] = {"receivers": {"status": "not_collected"},
+                              "exposureReceivers": {"status": "collected" if complete else "partial"}}
         return {**value, "_provenance": {"source_operation": source, "read_only": True,
                                          "complete_fields": ["properties.enabled"] if isinstance(value.get("properties", {}).get("enabled"), bool) else [],
                                          "native_response_complete": False}}

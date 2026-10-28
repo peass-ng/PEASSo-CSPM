@@ -11627,6 +11627,108 @@ def _azure_easm_workspace(snapshot, inventory, resource):
     return a
 
 
+def _azure_monitor_action_group(snapshot, inventory, resource):
+    """Alert receivers with a declared foreign Event Hub tenant/subscription."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("enabled") is False:
+        a.step("action_group", "block", reason="action group disabled")
+        a.explicit = "PASS"
+        return a
+    if props.get("enabled") is not True:
+        a.gap("configuration", "action group enabled state unavailable")
+        return a
+    rows = resource["data"].get("_exposureReceivers")
+    coverage = (resource["data"].get("_coverage") or {}).get("exposureReceivers") or {}
+    if not isinstance(rows, list) or coverage.get("status") != "collected":
+        a.gap("inventory", "safe receiver inventory incomplete")
+        return a
+    metadata = snapshot.get("metadata") or {}
+    owner_tenant = metadata.get("tenant_id") if metadata.get("tenant_verified") is True else None
+    source = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    foreign = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("kind") != "eventHub":
+            continue
+        tenant = row.get("tenantId")
+        subscription = row.get("subscriptionId")
+        if isinstance(tenant, str) and isinstance(owner_tenant, str) and tenant.casefold() != owner_tenant.casefold():
+            foreign.append({"tenant_id": tenant, "subscription_id": subscription})
+        elif isinstance(subscription, str) and source and subscription.casefold() != source.group(1).casefold():
+            foreign.append({"tenant_id": tenant, "subscription_id": subscription})
+    if foreign:
+        a.external_ids = sorted({str(row.get("tenant_id") or row["subscription_id"]) for row in foreign})
+        a.step("alert_delivery", "allow", foreign_event_hub_receivers=foreign)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    else:
+        a.gap("authorization", "webhook, mailbox and downstream receiver ownership unresolved")
+    return a
+
+
+def _azure_monitor_export(snapshot, inventory, resource):
+    """Diagnostic/log-profile delivery to another subscription or marketplace partner."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    kind = resource["type"]
+    if kind == "monitor_log_profile":
+        if not isinstance(props.get("categories"), list) or not isinstance(props.get("locations"), list):
+            a.gap("configuration", "log profile categories or locations unavailable")
+            return a
+        active = bool(props.get("categories")) and bool(props.get("locations"))
+        sinks = ("serviceBusRuleId", "storageAccountId")
+    else:
+        if "logs" not in props and "metrics" not in props:
+            a.gap("configuration", "diagnostic category declarations unavailable")
+            return a
+        settings = props.get("logs", [])
+        metrics = props.get("metrics", [])
+        if not isinstance(settings, list) or not isinstance(metrics, list):
+            a.gap("configuration", "diagnostic categories unavailable")
+            return a
+        active = any(isinstance(row, dict) and row.get("enabled") is True for row in settings + metrics)
+        sinks = ("eventHubAuthorizationRuleId", "serviceBusRuleId", "storageAccountId",
+                 "workspaceId", "marketplacePartnerId")
+    if not active:
+        a.step("diagnostic_delivery", "block", reason="no enabled categories")
+        a.explicit = "PASS"
+        return a
+    source = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    if source is None:
+        a.gap("inventory", "diagnostic source subscription unavailable")
+        return a
+    external = []
+    local = []
+    for field in sinks:
+        target = props.get(field)
+        if not isinstance(target, str) or not target:
+            continue
+        match = re.match(r"/subscriptions/([^/]+)(?:/|$)", target, re.I)
+        if match is None:
+            a.gap("inventory", "diagnostic destination ARM identity unavailable")
+            continue
+        if field == "marketplacePartnerId" or match.group(1).casefold() != source.group(1).casefold():
+            external.append({"kind": field, "resource_id": target})
+        else:
+            local.append(field)
+    if external:
+        a.external_ids = sorted({row["resource_id"] for row in external})
+        a.step("diagnostic_delivery", "allow", external_destinations=external)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif local:
+        a.gap("authorization", "same-subscription destination downstream readers unresolved")
+    else:
+        a.gap("configuration", "enabled diagnostics have no resolved delivery destination")
+    return a
+
+
 def _azure_nginx(snapshot, inventory, resource):
     """Public NGINX frontends with ports derived from active configuration files."""
     a = Assessment(resource, "public_endpoint")
@@ -13003,7 +13105,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -13018,7 +13120,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -13142,6 +13244,10 @@ def assess(snapshot, resources):
                   "directory_app_role_assignment": _azure_directory_consent,
                   "easm_data_connection": _azure_easm_data_connection,
                   "easm_workspace": _azure_easm_workspace,
+                  "action_group": _azure_monitor_action_group,
+                  "diagnostic_setting": _azure_monitor_export,
+                  "subscription_diagnostic_setting": _azure_monitor_export,
+                  "monitor_log_profile": _azure_monitor_export,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
