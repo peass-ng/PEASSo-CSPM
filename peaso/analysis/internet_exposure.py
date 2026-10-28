@@ -3518,7 +3518,7 @@ def gcp_kms_external_decrypter_findings(snapshot, resources):
                 "The condition has no recorded request evaluation.",
                 "A service account from another GCP project may use this key to decrypt ciphertext if other controls allow it." if unconditional else
                 "If the condition is satisfied, that service account may use this key to decrypt ciphertext.",
-                "Project ownership, IAM denies, key-version state, and actual cryptographic use remain unresolved.")),
+                "If that account also has encrypted data, its contents could become visible outside this project.")),
             "direct_decrypter_grants": grants,
             "permission": "cloudkms.cryptoKeyVersions.useToDecrypt",
             "key_purpose": data.get("purpose"),
