@@ -515,19 +515,40 @@ def aws_federated_trust(snapshot, resource):
         principal = statement.get("Principal")
         federated = as_list(principal.get("Federated")) if isinstance(principal, dict) else []
         actions = [str(a).lower() for a in as_list(statement.get("Action"))]
-        if not federated or not any(a in ("sts:assumerolewithwebidentity", "sts:*", "*") for a in actions):
+        if not federated or not any(a in ("sts:assumerolewithwebidentity", "sts:assumerolewithsaml", "sts:*", "*") for a in actions):
             continue
         conditions = list(_conditions(statement.get("Condition")))
         for provider in federated:
             issuer = _issuer(provider)
-            if "saml-provider/" in str(provider):
+            saml = "saml-provider/" in str(provider).lower()
+            if saml and not any(a in ("sts:assumerolewithsaml", "sts:*", "*") for a in actions):
+                continue
+            if not saml and not any(a in ("sts:assumerolewithwebidentity", "sts:*", "*") for a in actions):
                 continue
             prefix = issuer.lower()
             def claim(name, prefix=prefix):
                 return [(op, values) for op, key, values in conditions if key.lower() == f"{prefix}:{name}"
                         and "ifexists" not in op.lower() and POSITIVE.match(op.lower())]
             problems = []
-            if prefix == "cognito-identity.amazonaws.com":
+            if saml:
+                audience = [(op, values) for op, key, values in conditions if key.lower() == "saml:aud"
+                            and "ifexists" not in op.lower() and POSITIVE.match(op.lower())
+                            and values and all(value and not any(c in value for c in "*?${}") for value in values)]
+                if not audience:
+                    problems.append({"code": "saml_no_aud", "severity": "low",
+                                     "message": "SAML recipient is not positively pinned in the role trust"})
+                identity_claims = [(op, key, values) for op, key, values in conditions
+                                   if key.lower().startswith("saml:") and key.lower() not in
+                                   {"saml:aud", "saml:iss", "saml:doc", "saml:namequalifier"}
+                                   and "ifexists" not in op.lower() and POSITIVE.match(op.lower())
+                                   and values and all(value and value not in ("*", "?*") for value in values)]
+                if not identity_claims and not any(not key.lower().startswith("saml:") for _, key, _ in conditions):
+                    problems.append({"code": "saml_issuer_wide", "message":
+                                     "No caller-identity condition limits which SAML provider identities may assume the role"})
+                else:
+                    problems.append({"code": "saml_claim_scope", "severity": "review",
+                                     "message": "SAML claim conditions are declared; IdP assertion ownership and membership are not enumerable from IAM"})
+            elif prefix == "cognito-identity.amazonaws.com":
                 if not claim("aud"):
                     problems.append({"code": "cognito_no_aud", "message": "Any Cognito identity pool in any account can assume the role"})
                 amr = [v for _, values in claim("amr") for v in values]

@@ -104,6 +104,30 @@ def test_unattributable_principal_stays_unknown_without_scanned_account():
 
 
 GITHUB = f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"
+SAML = f"arn:aws:iam::{ACCOUNT}:saml-provider/Company"
+
+
+@pytest.mark.parametrize("condition,expected,codes", [
+    ({"StringEquals": {"SAML:aud": "https://signin.aws.amazon.com/saml"}},
+     "FAIL", {"saml_issuer_wide"}),
+    ({"StringEquals": {"SAML:aud": "https://signin.aws.amazon.com/saml", "SAML:sub": "alice@example.com"}},
+     "MANUAL", {"saml_claim_scope"}),
+    ({"StringLike": {"SAML:aud": "*", "SAML:sub": "*"}},
+     "FAIL", {"saml_no_aud", "saml_issuer_wide"}),
+])
+def test_saml_role_trust_classifies_issuer_wide_and_claim_scoped_access(condition, expected, codes):
+    statement = trust({"Federated": SAML}, condition, "sts:AssumeRoleWithSAML")
+    found = findings(aws(coll("iam_role", [role([statement])])), "analysis.federated_trust")
+    assert len(found) == 1 and found[0]["status"] == expected
+    assert {problem["code"] for review in found[0]["evidence"]["federated_trusts"]
+            for problem in review["problems"]} == codes
+
+
+def test_saml_provider_needs_matching_assume_role_action():
+    from peaso.analysis.trust import aws_federated_trust
+
+    statement = trust({"Federated": SAML}, None, "sts:AssumeRoleWithWebIdentity")
+    assert aws_federated_trust(aws(coll("iam_role", [])), {"data": role([statement])}) is None
 
 
 @pytest.mark.parametrize("condition,expected", [
