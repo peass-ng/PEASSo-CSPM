@@ -391,6 +391,17 @@ def _internet_summary(finding):
     if not isinstance(kind,str) or kind not in _EXPOSURE_KINDS:return None
     label=_EXPOSURE_KINDS[kind]
     if status=='UNKNOWN':
+        if finding.get('provider')=='k8s' and kind in ('service','ingress') and isinstance(e.get('path'),list):
+            invalid=[value for step in e['path'] if isinstance(step,dict)
+                     and step.get('layer')=='source_ranges' and step.get('decision')=='unknown'
+                     for value in step.get('invalid_source_ranges',[]) if _text(value,200)]
+            if invalid:
+                noun='Service' if kind=='service' else 'Ingress'
+                value=_items(invalid[:2])
+                return (f'The {noun} has source range {value}, which is not a valid IP range.\n'
+                        "The controller's treatment of that value is not recorded, so its public source rule is unclear.\n"
+                        'The source rule may admit public requests if the controller ignores that range.\n'
+                        f'That could expose data served through this {noun}.')
         if finding.get('provider')=='k8s' and kind=='service' and isinstance(e.get('path'),list):
             declarations=[step.get('declared_public_addresses') for step in e['path']
                           if isinstance(step,dict) and step.get('layer')=='external_ip'

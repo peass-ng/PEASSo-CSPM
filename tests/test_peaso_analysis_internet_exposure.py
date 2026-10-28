@@ -2090,9 +2090,24 @@ def svc(spec, annotations=None, status=None):
     ({"type": "LoadBalancer", "ports": [{"port": 443}], "loadBalancerSourceRanges": ["0.0.0.0/1"]}, None, "FAIL"),
     ({"type": "LoadBalancer", "ports": [{"port": 443}]}, {"service.beta.kubernetes.io/aws-load-balancer-scheme": "internal"}, "PASS"),
     ({"type": "LoadBalancer", "ports": [{"port": 443}]}, {"service.beta.kubernetes.io/load-balancer-source-ranges": "10.0.0.0/8"}, "PASS"),
+    ({"type": "LoadBalancer", "ports": [{"port": 443}]}, {"service.beta.kubernetes.io/load-balancer-source-ranges": "*"}, "FAIL"),
 ])
 def test_k8s_load_balancer_source_ranges(spec, annotations, expected):
     assert one(k8s(svc(spec, annotations)), "service")["status"] == expected
+
+
+def test_k8s_invalid_service_source_range_stays_unknown():
+    spec = {"type": "LoadBalancer", "ports": [{"port": 443}]}
+    annotations = {"service.beta.kubernetes.io/load-balancer-source-ranges": "not-a-cidr"}
+    result = one(k8s(svc(spec, annotations)), "service")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["blocked_by"] is None
+    assert result["evidence"]["path"][-1] == {"layer": "source_ranges", "decision": "unknown",
+                                             "invalid_source_ranges": ["not-a-cidr"]}
+    observed = result["evidence_summary"].splitlines()
+    assert len(observed) == 4
+    assert observed[0] == "The Service has source range not-a-cidr, which is not a valid IP range."
+    assert "may" in observed[2] and "could" in observed[3]
 
 
 def test_k8s_nodeport_depends_on_node_addresses():
@@ -2180,6 +2195,22 @@ def test_k8s_ingress_allowlist():
     assert one(k8s(coll("ingress", [ingress], scope="cluster")), "ingress")["status"] == "PASS"
     ingress["metadata"]["annotations"] = {"nginx.ingress.kubernetes.io/whitelist-source-range": "8.8.8.8/32"}
     assert one(k8s(coll("ingress", [ingress], scope="cluster")), "ingress")["status"] == "FAIL"
+
+
+def test_k8s_invalid_ingress_source_range_stays_unknown():
+    ingress = {"metadata": {"name": "i", "namespace": "apps", "annotations":
+               {"nginx.ingress.kubernetes.io/whitelist-source-range": "10.0.0.0/8, broken-cidr"}},
+               "spec": {"rules": [{"host": "x.example.com"}]},
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.9.9.9"}]}}}
+    result = one(k8s(coll("ingress", [ingress], scope="cluster")), "ingress")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["blocked_by"] is None
+    assert result["evidence"]["path"][-1] == {"layer": "source_ranges", "decision": "unknown",
+                                             "invalid_source_ranges": ["broken-cidr"]}
+    observed = result["evidence_summary"].splitlines()
+    assert len(observed) == 4
+    assert observed[0] == "The Ingress has source range broken-cidr, which is not a valid IP range."
+    assert "may" in observed[2] and "could" in observed[3]
 
 
 def test_k8s_host_port_public_node_is_reported_with_firewall_gap():
