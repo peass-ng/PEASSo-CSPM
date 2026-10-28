@@ -76,6 +76,56 @@ def test_azure_group_role_assignment_without_observed_external_member_is_not_cla
                 if row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL"]
 
 
+def test_azure_gallery_image_read_role_grant_to_external_guest():
+    sub, tenant = "/subscriptions/sub", "/tenants/home"
+    gallery = sub + "/resourceGroups/rg/providers/Microsoft.Compute/galleries/g"
+    image = gallery + "/images/base"
+    role_id = sub + "/providers/Microsoft.Authorization/roleDefinitions/reader"
+    definition = {"id": role_id, "name": "reader", "properties": {"permissions": [
+        {"actions": ["Microsoft.Compute/galleries/images/versions/read"], "notActions": []}]}}
+    def assignment(scope, principal="guest", condition=None):
+        return {"id": scope + "/providers/Microsoft.Authorization/roleAssignments/a",
+                "properties": {"scope": scope, "principalId": principal, "principalType": "User",
+                               "roleDefinitionId": role_id, "condition": condition}}
+    def scan(grants, role=definition):
+        snap = make_snapshot("azure", [sub], [
+            coll("compute_gallery", [{"id": gallery, "properties": {"sharingProfile": {"permissions": "Private"}}}], scope=sub),
+            coll("role_assignment", grants, scope=sub), coll("role_definition", [role], scope="/"),
+            coll("directory_user", [{"id": "guest", "userType": "Guest"}], scope=tenant),
+        ], metadata={"tenant_id": "home"})
+        return [row for row in review_findings(snap, resources(snap))
+                if row["check_id"] == "analysis.azure_gallery_rbac_share"]
+    found = scan([assignment(image)])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["assignment_scope"] == image.lower()
+    assert scan([assignment(image, condition="@Resource[x] StringEquals 'y'")])[0]["status"] == "MANUAL"
+    assert not scan([assignment(sub + "/resourceGroups/other")])
+    denied = {**definition, "properties": {"permissions": [{"actions": ["*"],
+        "notActions": ["Microsoft.Compute/galleries/images/versions/read"]}]}}
+    assert not scan([assignment(gallery)], role=denied)
+
+
+def test_azure_gallery_image_read_inherited_through_observed_group_member():
+    sub, tenant = "/subscriptions/sub", "/tenants/home"
+    gallery = sub + "/resourceGroups/rg/providers/Microsoft.Compute/galleries/g"
+    role_id = sub + "/providers/Microsoft.Authorization/roleDefinitions/reader"
+    snap = make_snapshot("azure", [sub], [
+        coll("compute_gallery", [{"id": gallery, "properties": {"sharingProfile": {"permissions": "Private"}}}], scope=sub),
+        coll("role_assignment", [{"id": "assignment", "properties": {"scope": gallery,
+            "principalId": "group", "principalType": "Group", "roleDefinitionId": role_id}}], scope=sub),
+        coll("role_definition", [{"id": role_id, "name": "reader", "properties": {"permissions": [
+            {"actions": ["Microsoft.Compute/galleries/*/read"], "notActions": []}]}}], scope="/"),
+        coll("directory_group", [{"id": "group"}], scope=tenant),
+        coll("directory_user", [{"id": "guest", "userType": "Guest"}], scope=tenant),
+        coll("directory_membership", [{"id": "guest"}], scope=tenant + "/groups/group"),
+    ], metadata={"tenant_id": "home"})
+    found = [row for row in review_findings(snap, resources(snap))
+             if row["check_id"] == "analysis.azure_gallery_rbac_share"]
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["via_group"] == "group"
+    assert found[0]["evidence"]["membership_source"]
+
+
 def test_scanned_account_and_org_members_are_trusted_by_default():
     snapshot = aws(coll("iam_role", [role([trust({"AWS": f"arn:aws:iam::{ACCOUNT}:root"})])]))
     assert principal(snapshot) is None
