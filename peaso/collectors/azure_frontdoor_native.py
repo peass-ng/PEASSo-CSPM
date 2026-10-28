@@ -171,6 +171,9 @@ def _routes(item, family, rows):
                  if isinstance(entry, dict) and isinstance(entry.get('id'), str)} if family == 'afd' else {}
     def route_state(row):
         state = row.get('properties', {}).get('enabledState')
+        if family == 'classicFrontDoor' and state == 'Enabled':
+            gate = item.get('properties', {}).get('enabledState')
+            return 'Disabled' if gate == 'Disabled' else 'Enabled' if gate == 'Enabled' else None
         if family == 'afd' and state == 'Enabled':
             endpoint = endpoints.get(str(row.get('id', '')).rsplit('/', 2)[0].casefold())
             if endpoint is None:

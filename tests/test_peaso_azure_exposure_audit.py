@@ -1503,6 +1503,32 @@ def test_afd_disabled_endpoint_blocks_enabled_child_route():
     assert projected(None).verdict() == "UNKNOWN"
 
 
+def test_classic_frontdoor_disabled_parent_blocks_enabled_routing_rule():
+    from peaso.collectors.azure_frontdoor_native import _routes
+
+    frontdoor = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoors/edge"
+    domain = frontdoor + "/frontendEndpoints/default"
+    rule = {"id": frontdoor + "/routingRules/all", "type": "Microsoft.Network/frontDoors/routingRules",
+            "properties": {"enabledState": "Enabled", "patternsToMatch": ["/*"],
+                "frontendEndpoints": [{"id": domain}], "acceptedProtocols": ["Https"],
+                "routeConfiguration": {"@odata.type": "#Microsoft.Azure.FrontDoor.Models.FrontdoorRedirectConfiguration",
+                                       "redirectProtocol": "HttpsOnly"}}}
+
+    def projected(parent_state):
+        item = {"id": frontdoor, "properties": {"enabledState": parent_state},
+                "domains": [{"id": domain, "properties": {"hostName": "edge.azurefd.net"}}],
+                "endpoints": [{"id": domain, "properties": {"hostName": "edge.azurefd.net"}}]}
+        _routes(item, "classicFrontDoor", [rule])
+        snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
+            "scope": SCOPE, "service": "cdn", "status": "collected", "items": [item]}])
+        return next(a for a in assess(snap, resources(snap))
+                    if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    assert projected("Disabled").verdict() == "PASS"
+    assert projected("Enabled").verdict() == "FAIL"
+    assert projected(None).verdict() == "UNKNOWN"
+
+
 def test_api_management_public_gateway_and_network_gates():
     base = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
             "disableGateway": False, "gatewayUrl": "https://gateway.azure-api.net"}
