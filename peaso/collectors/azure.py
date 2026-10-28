@@ -620,6 +620,36 @@ def _data_share_child_pages(reader, request, url, parent_id, kind):
         yield safe
 
 
+def _lighthouse_assignment_pages(reader, request, url, scope):
+    """Read one expanded, scoped assignment list without a definition GET."""
+    seen = set()
+    prefix = scope + "/providers/Microsoft.ManagedServices/registrationAssignments/"
+    for page in reader.pages(request, url):
+        safe = []
+        for row in page:
+            rid = row.get("id") if isinstance(row, dict) else None
+            props = row.get("properties") if isinstance(row, dict) else None
+            definition = props.get("registrationDefinition") if isinstance(props, dict) else None
+            detail = definition.get("properties") if isinstance(definition, dict) else None
+            if (not isinstance(rid, str) or re.fullmatch(re.escape(prefix) + r"[A-Za-z0-9-]+", rid, re.I) is None
+                    or str(row.get("type", "")).casefold() != "microsoft.managedservices/registrationassignments"
+                    or rid.casefold() in seen or not isinstance(props, dict)):
+                raise ValueError("foreign, duplicate or malformed Lighthouse assignment")
+            seen.add(rid.casefold())
+            if definition is not None and not isinstance(detail, dict):
+                raise ValueError("malformed expanded Lighthouse registration definition")
+            projected = {"id": rid, "name": rid.rsplit("/", 1)[-1], "type": row["type"],
+                         "properties": {"provisioningState": props.get("provisioningState"),
+                                        "registrationDefinitionId": props.get("registrationDefinitionId")}}
+            if isinstance(detail, dict):
+                projected["properties"]["registrationDefinition"] = {
+                    "properties": {key: detail[key] for key in (
+                        "managedByTenantId", "manageeTenantId", "provisioningState",
+                        "authorizations", "eligibleAuthorizations") if key in detail}}
+            safe.append(projected)
+        yield safe
+
+
 def _service_diagnostic_settings_pages(reader, request, url, parent_id):
     """The two reviewed gateway kinds reuse exact native diagnostic LIST guards."""
     if re.fullmatch(r"/subscriptions/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Network/(?:applicationGateways|loadBalancers)/[^/?#%\\\s]+", parent_id, re.I) is None:
@@ -1091,7 +1121,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
-    "data_share_share", "data_share_invitation", "data_share_provider_subscription",
+    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -2358,6 +2388,8 @@ def _selected(options, requirements):
         selected.add("recovery_vault")
     if "virtual_network_gateway" in selected:
         selected.add("resource_group")
+    if "lighthouse_assignment" in selected:
+        selected.update(("resource_group", "subscription"))
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -3331,6 +3363,28 @@ def collect(connector, requirements=None, *, transport=None):
                     jobs.append((child, child_scope, ENDPOINTS[kind][0].split("/")[0], fetch))
         reader.run(jobs)
         jobs = []
+        if "lighthouse_assignment" in wanted:
+            group_scopes = []
+            for collection in reader.collections:
+                if collection["type"] != "resource_group" or collection["status"] not in ("collected", "empty"):
+                    continue
+                for item in collection["items"]:
+                    rid = item.get("id") if isinstance(item, dict) else None
+                    if (not isinstance(rid, str) or re.fullmatch(
+                            re.escape(collection["scope"]) + r"/resourceGroups/[A-Za-z0-9_.()-]+", rid, re.I) is None
+                            or str(item.get("type", "")).casefold() != "microsoft.resources/resourcegroups"):
+                        collection["status"] = "partial"
+                        collection["error"] = {"code": "malformed_resource_group_identity"}
+                        break
+                    group_scopes.append(rid)
+            for target_scope in dict.fromkeys([*scopes, *group_scopes]):
+                url = (ARM + target_scope + "/providers/Microsoft.ManagedServices/registrationAssignments"
+                       "?api-version=2022-10-01&$expandRegistrationDefinition=true")
+                jobs.append(("lighthouse_assignment", target_scope, "Microsoft.ManagedServices",
+                             lambda url=url, target_scope=target_scope:
+                             _lighthouse_assignment_pages(reader, request, url, target_scope)))
+            reader.run(jobs)
+            jobs = []
         if wanted.intersection({"data_share_invitation", "data_share_provider_subscription"}):
             for collection in reader.collections:
                 if collection["type"] != "data_share_share":

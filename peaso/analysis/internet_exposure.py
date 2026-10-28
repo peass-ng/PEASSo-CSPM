@@ -10621,6 +10621,58 @@ def _azure_data_share_recipient(snapshot, inventory, resource):
     return a
 
 
+def _azure_lighthouse_assignment(snapshot, inventory, resource):
+    """Detect effective delegated ARM access to a managing tenant."""
+    a = Assessment(resource, "external_share")
+    props = _props(resource)
+    state = props.get("provisioningState")
+    if state != "Succeeded":
+        a.gap("inventory", "Lighthouse assignment is not in a proven succeeded state")
+        return a
+    definition = props.get("registrationDefinition")
+    detail = definition.get("properties") if isinstance(definition, dict) else None
+    if not isinstance(detail, dict) or detail.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "expanded Lighthouse registration definition is absent or not succeeded")
+        return a
+    managing = detail.get("managedByTenantId")
+    subscription = str(native_id(resource)).split("/providers/Microsoft.ManagedServices/", 1)[0].split("/resourceGroups/", 1)[0]
+    owners = (snapshot.get("metadata") or {}).get("subscription_tenants") or {}
+    owner = next((value for key, value in owners.items() if str(key).casefold() == subscription.casefold()), None)
+    managee = detail.get("manageeTenantId")
+    if not all(isinstance(value, str) and value for value in (managing, owner, managee)):
+        a.gap("inventory", "managing or managed tenant identity is unverified")
+        return a
+    if managee.casefold() != owner.casefold():
+        a.gap("inventory", "registration definition managed tenant conflicts with subscription owner")
+        return a
+    grants = detail.get("authorizations")
+    eligible = detail.get("eligibleAuthorizations")
+    if not isinstance(grants, list) or not isinstance(eligible, list):
+        a.gap("inventory", "expanded Lighthouse authorization arrays are missing")
+        return a
+    if any(not isinstance(row, dict) or not isinstance(row.get("principalId"), str)
+           or not isinstance(row.get("roleDefinitionId"), str) for row in grants + eligible):
+        a.gap("inventory", "Lighthouse authorization principal or role is malformed")
+        return a
+    if not grants and not eligible:
+        a.step("delegation", "block", reason="no authorized or eligible managing-tenant principals")
+        a.ports = {}
+        return a
+    if managing.casefold() == owner.casefold():
+        a.step("delegation", "block", reason="managing tenant matches verified subscription tenant")
+        a.ports = {}
+        return a
+    a.data_exposure = True
+    a.external_ids = [managing]
+    a.step("delegation", "allow", managing_tenant=managing, managed_tenant=owner,
+           active_roles=[row["roleDefinitionId"] for row in grants],
+           eligible_roles=[row["roleDefinitionId"] for row in eligible])
+    if not grants:
+        a.data_exposure = False
+        a.gap("activation", "only just-in-time eligible roles are recorded; activation is not observed")
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -11149,7 +11201,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11164,7 +11216,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11272,6 +11324,7 @@ def assess(snapshot, resources):
                   "compute_gallery": _azure_compute_gallery,
                   "data_share_invitation": _azure_data_share_recipient,
                   "data_share_provider_subscription": _azure_data_share_recipient,
+                  "lighthouse_assignment": _azure_lighthouse_assignment,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
@@ -11311,6 +11364,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "lighthouse_assignment":
+        return ("Azure Lighthouse grants a managing tenant access" if status == "FAIL" else
+                "Azure Lighthouse delegation unresolved" if status == "UNKNOWN" else
+                "Azure Lighthouse assignment grants no foreign access")
     if assessment.resource["type"] in ("data_share_invitation", "data_share_provider_subscription"):
         return ("Azure Data Share recipient can receive shared data" if status == "FAIL" else
                 "Azure Data Share recipient ownership or access unresolved" if status == "UNKNOWN" else
@@ -11394,6 +11451,16 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "lighthouse_assignment":
+        if status == "FAIL":
+            return ("A succeeded Lighthouse registration assignment links to a succeeded expanded definition for a different managing tenant.\n"
+                    "The definition names principals and active built-in roles at this subscription or resource-group scope.\n"
+                    "This grants delegated ARM access; actual operations and role-specific data reads were not observed.")
+        if status == "PASS":
+            return "The collected assignment has no principal grant or its managing tenant matches the verified subscription tenant."
+        return ("The Lighthouse assignment, expanded definition, tenant ownership, or just-in-time activation is incomplete.\n"
+                "The collected facts do not prove current foreign access.\n"
+                "A completed grant could delegate ARM operations at this scope.")
     if assessment.resource["type"] in ("data_share_invitation", "data_share_provider_subscription"):
         kind = assessment.resource["type"]
         if kind == "data_share_provider_subscription":
@@ -12303,6 +12370,15 @@ def coverage_findings(snapshot, resources):
                 status = collected.get((scope.split("/", 1)[0] + "/global", kind))
             if status is not None and status not in AVAILABLE:
                 gaps.append({"type": kind, "status": status})
+        if provider == "azure" and (scope, "lighthouse_assignment") in collected:
+            group_status = collected.get((scope, "resource_group"), "not_collected")
+            if group_status not in ("collected", "empty"):
+                gaps.append({"type": "resource_group", "status": group_status,
+                             "reason": "resource-group Lighthouse delegations were not fully enumerated"})
+            for (target, kind), status in collected.items():
+                if (kind == "lighthouse_assignment" and target.casefold().startswith(
+                        scope.casefold() + "/resourcegroups/") and status not in ("collected", "empty")):
+                    gaps.append({"type": kind, "scope": target, "status": status})
         if not gaps:
             continue
         placeholder = {"id": "inventory:internet_exposure", "type": "inventory", "scope": scope, "provider": provider, "service": "exposure", "data": {}}
