@@ -5392,7 +5392,7 @@ def _azure_compute_gallery(snapshot, inventory, resource):
         a.step("sharing_policy", "allow", permission=permission,
                sharing_state=status.get("aggregatedState"))
         a.explicit = "FAIL"
-        a.notes.append("Gallery policy permits community sharing; published image versions are not inventoried here.")
+        a.notes.append("Gallery policy permits community sharing; published image versions are assessed from child inventory when available.")
     elif permission == "Groups":
         groups = profile.get("groups")
         owner = str(resource.get("scope", "")).lower().removeprefix("/subscriptions/")
@@ -5423,7 +5423,7 @@ def _azure_compute_gallery(snapshot, inventory, resource):
                    recipient_subscriptions=sorted(set(other_subscriptions)),
                    recipient_tenants=sorted(set(other_tenants)))
             a.explicit = "FAIL"
-            a.notes.append("Direct sharing targets other subscriptions or tenants; published image versions are not inventoried here.")
+            a.notes.append("Direct sharing targets other subscriptions or tenants; published image versions are assessed from child inventory when available.")
         elif (tenant_recipients and not owner_tenant) or malformed:
             a.gap("authorization", "gallery tenant recipient ownership or malformed sharing group is unresolved")
         else:
@@ -5431,6 +5431,28 @@ def _azure_compute_gallery(snapshot, inventory, resource):
             a.ports = {}
     else:
         a.gap("policy", "Compute Gallery sharing permission is absent or unrecognized")
+    if permission in ("Community", "Groups"):
+        coverage = (resource["data"].get("_coverage") or {}).get("images") or {}
+        images = resource["data"].get("images")
+        if coverage.get("status") not in ("collected", "empty") or not isinstance(images, list):
+            a.notes.append("Gallery image-definition inventory is incomplete; publication is unresolved.")
+        else:
+            versions, complete = [], True
+            for image in images:
+                image_coverage = ((image.get("_coverage") or {}).get("versions") or {}) if isinstance(image, dict) else {}
+                rows = image.get("versions") if isinstance(image, dict) else None
+                if image_coverage.get("status") not in ("collected", "empty") or not isinstance(rows, list):
+                    complete = False
+                elif any(not isinstance(row, dict) or not isinstance(row.get("id"), str) for row in rows):
+                    complete = False
+                else:
+                    versions.extend(row["id"] for row in rows)
+            if versions:
+                a.notes.append("Observed gallery image versions: " + ", ".join(sorted(versions)))
+            if not complete:
+                a.notes.append("Some gallery image-version inventories are incomplete; publication is unresolved.")
+            elif not versions:
+                a.notes.append("No gallery image versions were observed in the complete child inventory.")
     return a
 
 
