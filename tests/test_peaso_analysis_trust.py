@@ -181,6 +181,26 @@ def test_gcp_wif_direct_resource_grant_and_scoped_identity():
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
 
+def test_gcp_wif_provider_and_pool_disabled_existing_token_semantics():
+    from peaso.analysis.trust import gcp_wif_provider
+    pool_name = "projects/1/locations/global/workloadIdentityPools/p"
+    provider = {"data": {"name": pool_name + "/providers/gh", "disabled": True,
+                         "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
+    member = "principalSet://iam.googleapis.com/" + pool_name + "/*"
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [member]}]}
+    pool = {"name": pool_name, "state": "ACTIVE"}
+    snapshot = {"collections": [
+        {"type": "iam_policy", "status": "collected", "items": [policy]},
+        {"type": "workload_identity_pool", "status": "collected", "items": [pool]}]}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["disabled"] = False
+    provider["data"]["state"] = "DELETED"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    pool["disabled"] = True
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "PASS" and evidence["pool_disabled"] is True
+
+
 def test_gcp_public_binding_fails_and_project_sa_is_trusted():
     policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": ["allUsers", "serviceAccount:sa@p1.iam.gserviceaccount.com"]}]}
     snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")

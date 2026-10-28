@@ -499,8 +499,6 @@ def aws_federated_trust(snapshot, resource):
 
 def gcp_wif_provider(snapshot, resource):
     data = resource["data"]
-    if data.get("state") == "DELETED" or data.get("disabled") is True:
-        return None
     issuer = str(data.get("oidc", {}).get("issuerUri", "")) if isinstance(data.get("oidc"), dict) else ""
     condition = data.get("attributeCondition")
     host = re.sub(r"^https?://", "", issuer).lower()
@@ -544,6 +542,14 @@ def gcp_wif_provider(snapshot, resource):
     evidence["service_account_bindings"] = bindings
     evidence["direct_resource_bindings"] = direct_bindings
     grants = bindings + direct_bindings
+    pools = [item for item in _items(snapshot, "workload_identity_pool") if item.get("name") == pool]
+    if len(pools) == 1:
+        evidence["pool_state"] = pools[0].get("state")
+        evidence["pool_disabled"] = pools[0].get("disabled")
+        if pools[0].get("state") == "DELETED" or pools[0].get("disabled") is True:
+            return "PASS", "info", {**evidence, "semantics": "A disabled or deleted pool blocks both token exchange and existing token access at snapshot time."}
+    if data.get("state") == "DELETED" or data.get("disabled") is True:
+        return "MANUAL", "medium", {**evidence, "problem": "Provider is disabled or deleted, but previously issued tokens can retain resource access until expiry."}
     if condition:
         return ("MANUAL" if grants else "PASS"), ("medium" if grants else "info"), {
             **evidence, "semantics": "Provider attribute condition and any service-account binding conditions need CEL evaluation."}
