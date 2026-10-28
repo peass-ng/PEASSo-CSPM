@@ -397,6 +397,25 @@ def principals(resource):
 
 def _principals(resource):
     data = resource["data"]
+    if resource["provider"] == "azure" and resource["type"] == "vault":
+        props = data.get("properties") or {}
+        if isinstance(props, dict) and (props.get("enableRbacAuthorization") is None
+                                        or props.get("enableRbacAuthorization") is False):
+            tenant = props.get("tenantId")
+            for index, policy in enumerate(as_list(props.get("accessPolicies"))):
+                if not isinstance(policy, dict) or not isinstance(tenant, str) or not tenant:
+                    continue
+                policy_tenant = policy.get("tenantId")
+                principal = policy.get("objectId")
+                permissions = policy.get("permissions")
+                if (not isinstance(policy_tenant, str) or policy_tenant.casefold() != tenant.casefold()
+                        or not isinstance(principal, str) or not isinstance(permissions, dict)
+                        or not any(isinstance(permissions.get(kind), list)
+                                   and any(isinstance(action, str) and action for action in permissions[kind])
+                                   for kind in ("keys", "secrets", "certificates", "storage"))):
+                    continue
+                yield principal, f"properties.accessPolicies[{index}].objectId", {
+                    **policy, "keyVaultAccessPolicy": True, "enableRbacAuthorization": False}, "VaultAccessPolicy"
     if resource["provider"] == "azure" and resource["type"] == "managed_hsm":
         definitions = {item["id"].casefold(): item for item in as_list(data.get("localRoleDefinitions"))
                        if isinstance(item, dict) and isinstance(item.get("id"), str)}
@@ -728,7 +747,7 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
         # Public/external principal triage (peaso.analysis.trust): unconditional public
         # or out-of-boundary principals FAIL, restrictive conditions MANUAL, unattributable UNKNOWN.
         from .trust import principal_exposure
-        declarations = [(identity, path, fact, kind, fact.get("tenantId"))
+        declarations = [(identity, path, fact, kind, None if kind == "VaultAccessPolicy" else fact.get("tenantId"))
                         for identity, path, fact, kind in principals(resource)]
         if external_group_members and resource["type"] == "role_assignment":
             props = resource["data"].get("properties") or {}
@@ -739,9 +758,9 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
                         {**props, "viaGroup": group_id, "groupPath": group_path,
                          "membershipSource": source(snapshot, membership, "id")},
                         "GroupMember", None))
-        if external_group_members and resource["type"] == "managed_hsm":
+        if external_group_members and resource["type"] in ("managed_hsm", "vault"):
             for group_id, path, grant, kind, _ in tuple(declarations):
-                if kind != "HsmLocalRoleAssignment":
+                if kind not in ("HsmLocalRoleAssignment", "VaultAccessPolicy"):
                     continue
                 for member, (group_path, membership) in external_group_members(group_id).items():
                     declarations.append((member, path,
