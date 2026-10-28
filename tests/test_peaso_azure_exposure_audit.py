@@ -1235,6 +1235,54 @@ def test_container_app_active_revision_label_routes_with_zero_app_traffic_weight
     assert len(_observed(row, "FAIL").splitlines()) == 3
 
 
+def test_container_app_internal_ingress_can_be_targeted_by_environment_http_route():
+    from peaso.collectors.azure import _child_rows
+
+    app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
+    env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
+    fqdn = "edge.example.azurecontainerapps.io"
+    route = {"id": env_id + "/httpRouteConfigs/edge",
+             "type": "Microsoft.App/managedEnvironments/httpRouteConfigs",
+             "properties": {"provisioningState": "Succeeded", "fqdn": fqdn,
+                            "rules": [{"targets": [{"containerApp": "app"}]}]}}
+    assert _child_rows([route], env_id, "httpRouteConfigs")[0]["id"] == route["id"]
+    with pytest.raises(ValueError):
+        _child_rows([{**route, "id": env_id + "/httpRouteConfigs/../foreign"}], env_id,
+                    "httpRouteConfigs")
+    with pytest.raises(ValueError):
+        _child_rows([{**route, "properties": {**route["properties"], "fqdn": None}}], env_id,
+                    "httpRouteConfigs")
+
+    def decision(routes, status="collected", public="Enabled", app_rules=None, external=False):
+        ingress = {"external": external, "transport": "http"}
+        if app_rules is not None:
+            ingress["ipSecurityRestrictions"] = app_rules
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
+             "items": [{"id": env_id, "properties": {"publicNetworkAccess": public,
+                 "vnetConfiguration": {"internal": False}},
+                 "httpRouteConfigs": routes, "_coverage": {"httpRouteConfigs": {"status": status}}}]},
+            {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
+             "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
+                 "configuration": {"ingress": ingress}, "provisioningState": "Succeeded"}}]},
+        ])
+        return [a for a in assess(snap, resources(snap)) if a.resource["type"] == "container_app"]
+
+    exposed = decision([route])[0]
+    assert exposed.verdict() == "FAIL" and fqdn in exposed.addresses
+    assert "internal ingress but an environment HTTP route" in _observed(exposed, "FAIL")
+    assert len(_observed(exposed, "FAIL").splitlines()) == 3
+    assert decision([route], public="Disabled")[0].verdict() == "PASS"
+    assert decision([]) == []
+    assert decision([], status="partial")[0].verdict() == "UNKNOWN"
+    assert decision([], external=None)[0].verdict() == "UNKNOWN"
+    other = {**route, "properties": {**route["properties"],
+                                     "rules": [{"targets": [{"containerApp": "other"}]}]}}
+    assert decision([other]) == []
+    private_rules = [{"action": "Allow", "ipAddressRange": "10.0.0.0/8"}]
+    assert decision([route], app_rules=private_rules)[0].verdict() == "UNKNOWN"
+
+
 def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     ip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
     firewall_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw"

@@ -209,6 +209,7 @@ ACTIVITY_SELECT = ("eventTimestamp,submissionTimestamp,operationName,operationId
                    "resourceProviderName,resourceGroupName,eventDataId,category,level,correlationId,subscriptionId,tenantId")
 # Parent embeds are authoritative child GET/list responses, with field coverage.
 EMBEDDED_LISTS = {
+    "container_app_environment": (("httpRouteConfigs", "httpRouteConfigs", "2026-01-01"),),
     "batch_account": (("pools", "pools", "2025-06-01"),),
     "vm_scale_set": (("virtualMachines", "virtualMachines", "2024-07-01"),),
     "app_service": (("slots", "slots", "2023-12-01"), ("vnetConnections", "virtualNetworkConnections", "2023-12-01")),
@@ -330,6 +331,28 @@ def _network_platform_native_identity(row, scope, kind):
 def _child_rows(rows, parent_id, field):
     if any(not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].lower().startswith(parent_id.lower() + "/") for row in rows):
         raise ValueError("malformed or foreign embedded child identity")
+    if field == "httpRouteConfigs":
+        seen = set()
+        for row in rows:
+            rid = row["id"]
+            if (not re.fullmatch(re.escape(parent_id + "/httpRouteConfigs/") + r"[^/?#%\\\s]+", rid, re.I)
+                    or str(row.get("type", "")).casefold() != "microsoft.app/managedenvironments/httprouteconfigs"
+                    or not isinstance(row.get("properties"), dict)
+                    or rid.casefold() in seen):
+                raise ValueError("duplicate, foreign or malformed Container Apps HTTP route")
+            props = row["properties"]
+            rules = props.get("rules")
+            if (props.get("provisioningState") == "Succeeded"
+                    and (not isinstance(props.get("fqdn"), str) or not props["fqdn"])):
+                raise ValueError("successful Container Apps HTTP route lacks its FQDN")
+            if (not isinstance(rules, list) or any(
+                    not isinstance(rule, dict) or not isinstance(rule.get("targets"), list)
+                    or any(not isinstance(target, dict)
+                           or not isinstance(target.get("containerApp"), str)
+                           for target in rule["targets"])
+                    for rule in rules)):
+                raise ValueError("malformed Container Apps HTTP route targets")
+            seen.add(rid.casefold())
     if field == "pools":
         seen, safe = set(), []
         for row in rows:

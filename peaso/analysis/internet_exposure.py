@@ -5142,9 +5142,38 @@ def _azure_container_group(snapshot, inventory, resource):
 def _azure_container_app(snapshot, inventory, resource):
     props = _props(resource)
     ingress = (props.get("configuration") or {}).get("ingress") or {}
+    env_id = props.get("environmentId") or props.get("managedEnvironmentId")
+    environment = inventory.get("container_app_environment", env_id)
+    route_hosts = []
+    route_state = None
     if ingress.get("external") is not True:
-        return None
+        if environment is not None:
+            route_state = (environment["data"].get("_coverage") or {}).get("httpRouteConfigs", {}).get("status")
+            app_name = str(resource["data"].get("id", "")).rsplit("/", 1)[-1].casefold()
+            for route in as_list(environment["data"].get("httpRouteConfigs")):
+                route_props = route.get("properties") if isinstance(route, dict) else None
+                if not isinstance(route_props, dict) or route_props.get("provisioningState") != "Succeeded":
+                    continue
+                if not any(isinstance(rule, dict) and any(
+                        isinstance(target, dict) and str(target.get("containerApp", "")).casefold() == app_name
+                        for target in as_list(rule.get("targets")))
+                        for rule in as_list(route_props.get("rules"))):
+                    continue
+                fqdn = route_props.get("fqdn")
+                if isinstance(fqdn, str) and fqdn:
+                    route_hosts.append(fqdn)
+        if ingress.get("external") is False and not route_hosts and route_state in ("collected", "empty"):
+            return None
     a = Assessment(resource, "container")
+    if ingress.get("external") is not True:
+        if not route_hosts:
+            a.gap("inventory", "Container App ingress external setting is unavailable" if
+                  ingress.get("external") is not False else
+                  "Container Apps environment HTTP route inventory is incomplete")
+            return a
+        a.addresses = sorted(set(route_hosts))
+        a.step("environment_http_route", "allow", route_fqdns=a.addresses,
+               app_ingress_external=ingress.get("external"))
     runtime = inventory.get("container_app_runtime", resource["data"].get("id"))
     runtime_status = _props(runtime).get("runningStatus") if runtime is not None else props.get("runningStatus")
     if runtime_status == "Stopped":
@@ -5171,8 +5200,6 @@ def _azure_container_app(snapshot, inventory, resource):
                    running_status=runtime_status)
             a.ports = {}
             return a
-    env_id = props.get("environmentId") or props.get("managedEnvironmentId")
-    environment = inventory.get("container_app_environment", env_id)
     if environment is None:
         a.gap("inventory", "Container Apps environment is not collected", "Microsoft.App/managedEnvironments")
     else:
@@ -5186,7 +5213,7 @@ def _azure_container_app(snapshot, inventory, resource):
         if str(ep.get("publicNetworkAccess", "")).lower() != "enabled":
             a.gap("inventory", "Container Apps environment publicNetworkAccess is not explicit")
         a.step("environment", "allow", public_network_access=ep.get("publicNetworkAccess"))
-    transport = str(ingress.get("transport") or "auto").lower()
+    transport = "http" if route_hosts and ingress.get("external") is not True else str(ingress.get("transport") or "auto").lower()
     if transport == "tcp":
         port = ingress.get("exposedPort")
         if isinstance(port, int) and 1 <= port <= 65535:
@@ -5211,6 +5238,9 @@ def _azure_container_app(snapshot, inventory, resource):
             else:
                 a.gap("listener", "Container App external additional port is unavailable")
     rules = as_list(ingress.get("ipSecurityRestrictions"))
+    if route_hosts and ingress.get("external") is not True and rules:
+        a.gap("access_restrictions", "app IP restriction behavior through environment HTTP route is unresolved")
+        rules = []
     if rules:
         actions = {r.get("action") for r in rules if isinstance(r, dict)}
         networks = [_cidr(r.get("ipAddressRange")) for r in rules if isinstance(r, dict)]
@@ -5234,12 +5264,13 @@ def _azure_container_app(snapshot, inventory, resource):
         a.step("access_restrictions", "allow", rule_count=0)
     if ingress.get("clientCertificateMode") == "Require":
         a.authenticated = True
-    fqdn = ingress.get("fqdn")
-    if isinstance(fqdn, str) and fqdn:
-        a.addresses.append(fqdn)
-    else:
-        a.gap("inventory", "Container App public ingress FQDN is not collected")
-    if (transport in ("auto", "http", "http2") and environment is not None
+    if not route_hosts:
+        fqdn = ingress.get("fqdn")
+        if isinstance(fqdn, str) and fqdn:
+            a.addresses.append(fqdn)
+        else:
+            a.gap("inventory", "Container App public ingress FQDN is not collected")
+    if (ingress.get("external") is True and transport in ("auto", "http", "http2") and environment is not None
             and runtime is not None and inventory.state("container_app_runtime", resource["scope"]) == "collected"
             and (runtime["data"].get("_provenance") or {}).get("method") == "GET+LIST"
             and (runtime["data"].get("_provenance") or {}).get("read_only") is True):
@@ -6964,6 +6995,13 @@ def _observed(assessment, status):
                 "An open path could expose workflow settings or data if IAM also grants access.")
     if assessment.resource["type"] == "container_app":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        route = next((step for step in assessment.path if step["layer"] == "environment_http_route"), None)
+        if route is not None and status in ("FAIL", "UNKNOWN"):
+            return (f"The Container App {name} has internal ingress but an environment HTTP route "
+                    f"targets it at {route['route_fqdns'][0]}.\n"
+                    "The recorded route is provisioned and the environment public network gate is evaluated.\n" +
+                    ("A public request may reach the app; successful backend response was not tested."
+                     if status == "FAIL" else "App restrictions or other path facts still leave public reachability unresolved."))
         labels = next((step for step in assessment.path
                        if step["layer"] == "revision_labels"), None)
         if status == "FAIL" and labels is not None:
