@@ -1,8 +1,9 @@
 """Metadata-only discovery for jobs, private services, transit and App Engine."""
 import re
 import json
+from itertools import count
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from .gcp import ReadError
 from .gcp_fanout import location_fanout
 
@@ -25,7 +26,6 @@ REGIONAL = {
     "managed_kafka_cluster": ("managedkafka", "v1", "clusters", "clusters"),
     "memorystore_instance": ("memorystore", "v1", "instances", "instances"),
     "vertex_endpoint": ("aiplatform", "v1", "endpoints", "endpoints"),
-    "cloudrun_worker_pool": ("run", "v2", "workerPools", "workerPools"),
     "redis_cluster": ("redis", "v1", "clusters", "clusters"),
     "netapp_storage_pool": ("netapp", "v1", "storagePools", "storagePools"),
     "netapp_volume": ("netapp", "v1", "volumes", "volumes"),
@@ -36,7 +36,7 @@ REGIONAL = {
 PRIVATE_SERVICES = json.loads(Path(__file__).with_name('gcp_network_private_services.json').read_text())
 REGIONAL.update({kind: (p['service'], p['version'], p['segment'], p['key']) for kind, p in PRIVATE_SERVICES.items()
                  if not p.get('project_wide') and not p.get('organization_scoped')})
-TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {"network_connectivity_hub", "service_networking_connection", "dataflow_network_job", "app_engine_network_version", "dns_record_set", "backend_service_health", "target_pool", "target_instance", "identityplatform_config", "firebase_rules_release", "firebase_database_rules"}
+TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {"network_connectivity_hub", "service_networking_connection", "dataflow_network_job", "app_engine_network_version", "dns_record_set", "backend_service_health", "target_pool", "target_instance", "identityplatform_config", "firebase_rules_release", "firebase_database_rules", "pubsub_topic_attachment", "pubsub_schema_iam", "containeranalysis_occurrence", "api_gateway_resource", "cloudtasks_delivery", "dialogflow_es_fulfillment", "lakehouse_resource", "apigee_route"}
 DATAFLOW_FIELDS = "id,name,location,projectId,currentState,type,environment(workerPools(network,subnetwork,ipConfiguration))"
 APPENGINE_FIELDS = "versions(id,name,servingStatus,env,network,vpcAccessConnector),nextPageToken"
 BATCH_FIELDS = "jobs(name,uid,status(state),allocationPolicy(network,location,instances(instanceTemplate))),nextPageToken,unreachable"
@@ -45,6 +45,7 @@ ROUTE_FIELDS = {kind: f"{segment}(name,selfLink,meshes,gateways,rules(action(des
 for _kind in ("mesh_http_route", "mesh_grpc_route"):
     ROUTE_FIELDS[_kind] = ROUTE_FIELDS[_kind].replace("name,selfLink,", "name,selfLink,hostnames,")
 IAM_NETWORK_SECURITY = frozenset({
+    "api_gateway",
     "network_security_address_group", "network_security_client_tls_policy",
     "network_security_authorization_policy", "ngfw_authz_policy",
     "server_tls_policy", "client_tls_policy", "authorization_policy",
@@ -144,6 +145,22 @@ def _native_child_name(row, parent, segment, collector, scope):
 
 
 def inventory_pages(collector, scope, plan, parent, root):
+    projection = {'eventarc_pipeline': _eventarc_pipeline,
+                  'agent_registry_interface': _agent_registry_interface,
+                  'agent_gateway': _agent_gateway,
+                  'vertex_agent_engine': _vertex_agent_engine,
+                  'application_integration_template': _application_integration_template,
+                  'application_integration_version': _application_integration_version,
+                  'visionai_application': _visionai_application,
+                  'visionai_cluster': lambda row: {'name': row.get('name')},
+                  'visionai_stream': _visionai_stream,
+                  'livestream_input': _livestream_input,
+                  'livestream_channel': _livestream_channel,
+                  'dataform_repository': _dataform_repository,
+                  'datastream_connection_profile': _datastream_connection_profile,
+                  'datastream_stream': _datastream_stream,
+                  'integration_connection': _integration_connection,
+                  'video_stitcher_config': _video_stitcher_config}.get(plan.get('projection'))
     parents, failures = [parent], []
     for ancestor in plan.get('parents', []):
         discovered = []
@@ -163,8 +180,25 @@ def inventory_pages(collector, scope, plan, parent, root):
     for parent_name in parents:
         try:
             for page, receipt in collector.pages(root + '/' + parent_name + '/' + plan['segment'], scope,
-                    key=plan['key'], params={'fields': plan['fields']}):
+                    key=plan['key'], params={'fields': plan['fields']},
+                    transform=projection):
                 if not plan.get('hydrate'):
+                    if plan.get('projection') == 'integration_connection':
+                        page = [dict(item, _coverage={**item.get('_coverage', {}),
+                            'network_detail': {'status': 'collected', 'source_requests': [receipt]}}) for item in page]
+                    if plan.get('iam_policy'):
+                        def policy(item):
+                            name, _ = _native_child_name(item, parent_name, plan['segment'], collector, scope)
+                            if plan.get('iam_method') == 'POST':
+                                return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                                    method='POST', body={'resource': name, 'options': {'requestedPolicyVersion': 3}})
+                            if plan.get('iam_method') == 'POST_EMPTY':
+                                return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                                    method='POST', body={}, params={'options.requestedPolicyVersion': 3})
+                            return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                                params={'options.requestedPolicyVersion': 3})
+                        parallel = getattr(collector, 'parallel', None)
+                        page = parallel(policy, page) if callable(parallel) else [policy(item) for item in page]
                     yield page, receipt
                     continue
                 yield [], receipt
@@ -177,13 +211,23 @@ def inventory_pages(collector, scope, plan, parent, root):
                         for alias_receipt in alias_receipts:
                             out.append(([], alias_receipt))
                         params = dict(plan.get('get_parameters', {}), fields=plan['get_fields'])
-                        for details, detail_receipt in collector.pages(root + '/' + name, scope, single=True, params=params):
+                        for details, detail_receipt in collector.pages(root + '/' + name, scope, single=True, params=params,
+                                transform=projection):
                             if len(details) != 1 or details[0].get('name') != name:
                                 raise ReadError('malformed', 'network_detail_identity_mismatch')
                             if plan.get('iam_policy'):
-                                details = [collector.hydrate(details[0], 'iamPolicy',
-                                    root + '/' + name + ':getIamPolicy', scope,
-                                    params={'options.requestedPolicyVersion': 3})]
+                                if plan.get('iam_method') == 'POST':
+                                    details = [collector.hydrate(details[0], 'iamPolicy',
+                                        root + '/' + name + ':getIamPolicy', scope, method='POST',
+                                        body={'resource': name, 'options': {'requestedPolicyVersion': 3}})]
+                                elif plan.get('iam_method') == 'POST_EMPTY':
+                                    details = [collector.hydrate(details[0], 'iamPolicy',
+                                        root + '/' + name + ':getIamPolicy', scope, method='POST',
+                                        body={}, params={'options.requestedPolicyVersion': 3})]
+                                else:
+                                    details = [collector.hydrate(details[0], 'iamPolicy',
+                                        root + '/' + name + ':getIamPolicy', scope,
+                                        params={'options.requestedPolicyVersion': 3})]
                             out.append((details, detail_receipt))
                     except ReadError as exc:
                         out.append(([dict(row, _coverage={'network_detail': {'status': exc.status, 'reason': 'native_metadata_get_unavailable'}})], getattr(exc, 'request_id', receipt)))
@@ -198,6 +242,327 @@ def inventory_pages(collector, scope, plan, parent, root):
             failures.append(exc)
     if failures:
         raise failures[0]
+
+
+def _visionai_application(row):
+    outputs = row.get('runtimeInfo', {}).get('globalOutputResources', [])
+    return {'name': row.get('name'), 'state': row.get('state'),
+            'outputResources': [entry.get('outputResource') for entry in outputs
+                                if isinstance(entry, dict) and isinstance(entry.get('outputResource'), str)]}
+
+
+def _agent_gateway(row):
+    card = row.get('agentGatewayCard')
+    return {'name': row.get('name'), 'agentGatewayCard':
+            {'mtlsEndpoint': card.get('mtlsEndpoint')} if isinstance(card, dict) else {}}
+
+
+def _agent_registry_interface(row):
+    origins = []
+    for interface in row.get('interfaces', []):
+        if isinstance(interface, dict) and isinstance(interface.get('url'), str):
+            try:
+                parts = urlsplit(interface['url'])
+                if parts.scheme in {'http', 'https'} and parts.hostname:
+                    origins.append(f'{parts.scheme}://{parts.hostname}' + (f':{parts.port}' if parts.port else ''))
+            except ValueError:
+                continue
+    return {'name': row.get('name'), 'origins': sorted(set(origins))}
+
+
+def _vertex_agent_engine(row):
+    spec = row.get('spec')
+    deployment = spec.get('deploymentSpec') if isinstance(spec, dict) else None
+    psc = deployment.get('pscInterfaceConfig') if isinstance(deployment, dict) else None
+    return {'name': row.get('name'), 'pscInterfaceConfig':
+            {'networkAttachment': psc.get('networkAttachment')} if isinstance(psc, dict) else {}}
+
+
+def _visionai_stream(row):
+    return {'name': row.get('name'), 'enableHlsPlayback': row.get('enableHlsPlayback'),
+            'mediaWarehouseAsset': row.get('mediaWarehouseAsset')}
+
+
+def _application_integration_template(row):
+    return {'name': row.get('name'), 'visibility': row.get('visibility'),
+            'sharedWith': [value for value in row.get('sharedWith', []) if isinstance(value, str)]}
+
+
+def _application_integration_version(row):
+    triggers = row.get('triggerConfigs', [])
+    return {'name': row.get('name'), 'state': row.get('state'),
+            'triggerTypes': sorted({trigger.get('triggerType') for trigger in triggers
+                                    if isinstance(trigger, dict) and isinstance(trigger.get('triggerType'), str)})}
+
+
+def lakehouse_resources(collector, scope):
+    """Iceberg catalog hierarchy with only identity, routing class and direct IAM."""
+    root = api_root('biglake', 'v1')
+    extension = 'https://biglake.googleapis.com/iceberg/v1/restcatalog/extensions/'
+    iceberg = 'https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/'
+
+    def pages(url, key, token_key='next-page-token', **params):
+        token, seen = None, set()
+        for page_number in count():
+            query = dict(params)
+            if token:
+                query['page-token' if key == 'iceberg-catalogs' else 'pageToken'] = token
+            value, receipt = collector.read(url, scope, params=query)
+            if not isinstance(value, dict) or not isinstance(value.get(key, []), list):
+                raise ReadError('malformed', 'malformed_lakehouse_list')
+            if value.get('unreachable'):
+                raise ReadError('unavailable', 'lakehouse_unreachable_regions')
+            yield value.get(key, []), receipt
+            token = value.get(token_key)
+            if token is None or token == '':
+                return
+            if not isinstance(token, str) or token in seen:
+                raise ReadError('malformed', 'malformed_lakehouse_pagination')
+            seen.add(token)
+            if collector.max_pages is not None and page_number + 1 >= collector.max_pages:
+                raise ReadError('unavailable', 'page_limit')
+
+    def policy(name, kind, extra=None):
+        row = {'name': name, 'resourceKind': kind, **(extra or {})}
+        return collector.hydrate(row, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                                 params={'options.requestedPolicyVersion': 3})
+
+    for catalogs, receipt in pages(extension + scope + '/catalogs', 'iceberg-catalogs',
+                                    view='CATALOG_VIEW_FULL', **{'page-size': collector.page_size}):
+        for catalog in catalogs:
+            if not isinstance(catalog, dict):
+                raise ReadError('malformed', 'malformed_lakehouse_catalog')
+            name = catalog.get('name')
+            if (not isinstance(name, str) or not name.startswith(scope + '/catalogs/') or
+                    not re.fullmatch(r'[A-Za-z0-9_.-]+', name[len(scope) + len('/catalogs/'):])):
+                raise ReadError('malformed', 'lakehouse_catalog_outside_project')
+            federation = catalog.get('federated-catalog-options') or {}
+            if not isinstance(federation, dict):
+                raise ReadError('malformed', 'malformed_lakehouse_federation')
+            provider = next((label for field, label in (
+                ('unity-catalog-info', 'Databricks'), ('glue-catalog-info', 'AWS Glue'),
+                ('snowflake-catalog-info', 'Snowflake'), ('workday-catalog-info', 'Workday'))
+                if field in federation), None)
+            extra = {'catalogType': catalog.get('catalog-type'),
+                     'credentialMode': catalog.get('credential-mode')}
+            if provider:
+                extra['federatedProvider'] = provider
+                extra['privateServiceDirectory'] = bool(federation.get('service-directory-name'))
+            yield [policy(name, 'catalog', extra)], receipt
+            for namespaces, namespace_receipt in pages(iceberg + name + '/namespaces', 'namespaces',
+                                                        pageSize=collector.page_size):
+                for namespace in namespaces:
+                    if (not isinstance(namespace, list) or len(namespace) != 1 or
+                            not isinstance(namespace[0], str) or
+                            not re.fullmatch(r'[A-Za-z0-9_.-]+', namespace[0])):
+                        raise ReadError('malformed', 'malformed_lakehouse_namespace')
+                    namespace_name = name + '/namespaces/' + namespace[0]
+                    yield [policy(namespace_name, 'namespace')], namespace_receipt
+                    for tables, table_receipt in pages(iceberg + namespace_name + '/tables', 'identifiers',
+                                                       pageSize=collector.page_size):
+                        for table in tables:
+                            if (not isinstance(table, dict) or table.get('namespace') != namespace or
+                                    not isinstance(table.get('name'), str) or
+                                    not re.fullmatch(r'[A-Za-z0-9_.-]+', table['name'])):
+                                raise ReadError('malformed', 'malformed_lakehouse_table')
+                            yield [policy(namespace_name + '/tables/' + table['name'], 'table')], table_receipt
+
+
+def _eventarc_pipeline(row):
+    projected = {"name": row.get("name"), "destinations": []}
+    destinations = row.get("destinations", [])
+    if not isinstance(destinations, list):
+        raise ReadError("malformed", "eventarc_pipeline_destinations_invalid")
+    for destination in destinations:
+        if not isinstance(destination, dict):
+            raise ReadError("malformed", "eventarc_pipeline_destination_invalid")
+        item = {key: destination[key] for key in ("workflow", "messageBus", "topic") if key in destination}
+        network = destination.get("networkConfig")
+        if isinstance(network, dict) and isinstance(network.get("networkAttachment"), str):
+            item["networkAttachment"] = network["networkAttachment"]
+        endpoint = destination.get("httpEndpoint")
+        if isinstance(endpoint, dict):
+            uri = endpoint.get("uri")
+            try:
+                parsed = urlsplit(uri) if isinstance(uri, str) else None
+                if (not parsed or parsed.scheme != "https" or not parsed.hostname
+                        or parsed.username or parsed.password or parsed.port == 0):
+                    raise ValueError("invalid endpoint")
+                item["httpOrigin"] = parsed.scheme + "://" + parsed.netloc
+            except ValueError:
+                item["httpOriginStatus"] = "malformed"
+        projected["destinations"].append(item)
+    return projected
+
+
+def _livestream_origin(uri, schemes):
+    if not isinstance(uri, str):
+        return None
+    try:
+        parsed = urlsplit(uri)
+        if parsed.scheme not in schemes or not parsed.hostname or parsed.username or parsed.password:
+            return None
+        port = parsed.port
+        if port is not None and not 1 <= port <= 65535:
+            return None
+        host = parsed.hostname
+        if ':' in host:
+            host = '[' + host + ']'
+        return parsed.scheme + '://' + host + (':' + str(port) if port else '')
+    except ValueError:
+        return None
+
+
+def _livestream_input(row):
+    rules = row.get('securityRules')
+    if rules is not None and not isinstance(rules, dict):
+        raise ReadError('malformed', 'livestream_input_security_rules_invalid')
+    ranges = rules.get('ipRanges') if isinstance(rules, dict) else None
+    if ranges is not None and (not isinstance(ranges, list) or
+                               any(not isinstance(value, str) for value in ranges)):
+        raise ReadError('malformed', 'livestream_input_ip_ranges_invalid')
+    return {'name': row.get('name'), 'type': row.get('type'),
+            'origin': _livestream_origin(row.get('uri'), {'rtmp', 'srt'}),
+            'securityRules': {'ipRanges': ranges} if isinstance(rules, dict) else None}
+
+
+def _livestream_channel(row):
+    projected = {'name': row.get('name'), 'streamingState': row.get('streamingState'),
+                 'distributions': []}
+    distributions = row.get('distributions', [])
+    if not isinstance(distributions, list):
+        raise ReadError('malformed', 'livestream_channel_distributions_invalid')
+    for distribution in distributions:
+        if not isinstance(distribution, dict):
+            raise ReadError('malformed', 'livestream_channel_distribution_invalid')
+        config = distribution.get('srtPush') or distribution.get('rtmpPush')
+        uri = config.get('uri') if isinstance(config, dict) else None
+        projected['distributions'].append({
+            'state': distribution.get('state'),
+            'origin': _livestream_origin(uri, {'rtmp', 'srt'}),
+            'protocol': 'srt' if isinstance(distribution.get('srtPush'), dict) else 'rtmp'
+            if isinstance(distribution.get('rtmpPush'), dict) else None})
+    return projected
+
+
+def _dataform_repository(row):
+    projected = {'name': row.get('name')}
+    remote = row.get('gitRemoteSettings')
+    if isinstance(remote, dict) and isinstance(remote.get('url'), str):
+        url = remote['url']
+        try:
+            parsed = urlsplit(url)
+            if parsed.scheme in {'https', 'ssh'} and parsed.hostname and not parsed.username and not parsed.password:
+                projected['gitRemoteOrigin'] = parsed.scheme + '://' + parsed.hostname
+            elif re.fullmatch(r'[^@\s]+@[^:\s]+:[^\s]+', url):
+                projected['gitRemoteOrigin'] = 'ssh://' + url.split('@', 1)[1].split(':', 1)[0]
+            else:
+                projected['gitRemoteStatus'] = 'unparsed'
+        except ValueError:
+            projected['gitRemoteStatus'] = 'unparsed'
+    if 'iamPolicy' in row:
+        projected['iamPolicy'] = row['iamPolicy']
+    return projected
+
+
+def _datastream_connection_profile(row):
+    projected = {'name': row.get('name')}
+    for key in ('oracleProfile', 'mysqlProfile', 'postgresqlProfile', 'sqlServerProfile'):
+        value = row.get(key)
+        if isinstance(value, dict):
+            projected[key] = {field: value[field] for field in ('hostname', 'port') if field in value}
+    value = row.get('gcsProfile')
+    if isinstance(value, dict):
+        projected['gcsProfile'] = {field: value[field] for field in ('bucket',) if field in value}
+    if isinstance(row.get('staticServiceIpConnectivity'), dict):
+        projected['staticServiceIpConnectivity'] = {}
+    for key, fields in (('forwardSshConnectivity', ('hostname', 'port')),
+                        ('privateConnectivity', ('privateConnection',))):
+        value = row.get(key)
+        if isinstance(value, dict):
+            projected[key] = {field: value[field] for field in fields if field in value}
+    return projected
+
+
+def _datastream_stream(row):
+    projected = {'name': row.get('name'), 'state': row.get('state')}
+    source = row.get('sourceConfig')
+    if isinstance(source, dict):
+        projected['sourceConfig'] = {field: source[field] for field in ('sourceConnectionProfile',) if field in source}
+    destination = row.get('destinationConfig')
+    if isinstance(destination, dict):
+        projected['destinationConfig'] = {field: destination[field] for field in ('destinationConnectionProfile',)
+                                          if field in destination}
+        bq = destination.get('bigqueryDestinationConfig')
+        if isinstance(bq, dict):
+            projected['destinationConfig']['bigqueryDestinationConfig'] = {
+                key: {field: bq[key][field] for field in fields if field in bq[key]}
+                for key, fields in (('sourceHierarchyDatasets', ('projectId',)), ('blmtConfig', ('bucket',)))
+                if isinstance(bq.get(key), dict)}
+    return projected
+
+
+def _integration_connection(row):
+    projected = dict(row)
+    for field, endpoint in (('eventingRuntimeData', 'eventsListenerEndpoint'),
+                            ('eventingConfig', 'eventsListenerIngressEndpoint')):
+        nested = row.get(field)
+        if not isinstance(nested, dict) or endpoint not in nested:
+            continue
+        nested = dict(nested)
+        uri = nested.pop(endpoint)
+        origin = _livestream_origin(uri, {'http', 'https'})
+        if origin:
+            nested[endpoint + 'Origin'] = origin
+        else:
+            nested[endpoint + 'Status'] = 'unparsed'
+        projected[field] = nested
+    return projected
+
+
+def _dialogflow_fulfillment(row):
+    service = row.get('genericWebService')
+    return {'name': row.get('name'), 'enabled': row.get('enabled'),
+            'webhookOrigin': _livestream_origin(service.get('uri'), {'https'})
+            if isinstance(service, dict) else None,
+            'cloudFunction': service.get('isCloudFunction') if isinstance(service, dict) else None}
+
+
+def _video_stitcher_config(row):
+    return {'name': row.get('name'), 'state': row.get('state'),
+            'sourceOrigin': _livestream_origin(row.get('sourceUri'), {'http', 'https', 'gs'}),
+            'adTagOrigin': _livestream_origin(row.get('adTagUri'), {'http', 'https'})}
+
+
+def dialogflow_es_fulfillments(collector, scope):
+    root = 'https://dialogflow.googleapis.com/v2/'
+    for agents, receipt in collector.pages(root + scope + '/agent:search', scope, key='agents',
+            params={'fields': 'agents(parent),nextPageToken'}):
+        yield [], receipt
+        for agent in agents:
+            parent = agent.get('parent')
+            if parent != scope:
+                raise ReadError('malformed', 'dialogflow_agent_parent_outside_scope')
+            name = parent + '/agent/fulfillment'
+            for rows, detail_receipt in collector.pages(root + name, scope, single=True,
+                    params={'fields': 'name,enabled,genericWebService(uri,isCloudFunction)'},
+                    transform=_dialogflow_fulfillment):
+                if len(rows) != 1 or rows[0].get('name') != name:
+                    raise ReadError('malformed', 'dialogflow_fulfillment_identity_mismatch')
+                yield [dict(rows[0], environment='draft')], detail_receipt
+            for environments, env_receipt in collector.pages(root + parent + '/agent/environments', scope,
+                    key='environments', params={'fields': 'environments(name,state,fulfillment(enabled,genericWebService(uri,isCloudFunction))),nextPageToken'}):
+                projected = []
+                for env in environments:
+                    env_name = env.get('name')
+                    if not isinstance(env_name, str) or not env_name.startswith(parent + '/agent/environments/'):
+                        raise ReadError('malformed', 'dialogflow_environment_identity_mismatch')
+                    fulfillment = env.get('fulfillment')
+                    if not isinstance(fulfillment, dict):
+                        continue
+                    projected.append(dict(_dialogflow_fulfillment(fulfillment), name=env_name,
+                                          environment=env_name, environmentState=env.get('state')))
+                yield projected, env_receipt
 
 
 def regional_pages(collector, scope, kind):
@@ -243,6 +608,69 @@ def regional_pages(collector, scope, kind):
             failures.append(exc)
     if failures:
         raise failures[0]
+
+
+def pubsub_topic_attachments(collector, scope):
+    """Read the names of subscriptions attached to each owned Pub/Sub topic."""
+    base = f"https://pubsub.googleapis.com/v1/{scope}/topics"
+    for topics, receipt in collector.pages(base, scope, key="topics"):
+        yield [], receipt
+        def attachments(topic):
+            name = topic.get("name")
+            if not isinstance(name, str) or not re.fullmatch(re.escape(scope) + r"/topics/[^/]+", name):
+                raise ReadError("malformed", "pubsub_topic_attachment_identity")
+            url = f"https://pubsub.googleapis.com/v1/{name}/subscriptions"
+            names, receipts, seen = [], [], set()
+            params = {"pageSize": min(collector.page_size, 1000)}
+            try:
+                for page in count():
+                    response, request_id = collector.read(url, scope, params=params)
+                    receipts.append(request_id)
+                    if not isinstance(response, dict) or not isinstance(response.get("subscriptions", []), list):
+                        raise ReadError("malformed", "pubsub_topic_attachment_response")
+                    values = response.get("subscriptions", [])
+                    if any(not isinstance(value, str) or not re.fullmatch(
+                            r"projects/[^/]+/subscriptions/[^/]+", value) for value in values):
+                        raise ReadError("malformed", "pubsub_topic_attachment_name")
+                    names.extend(values)
+                    token = response.get("nextPageToken")
+                    if token is None or token == "":
+                        break
+                    if not isinstance(token, str) or token in seen:
+                        raise ReadError("malformed", "pubsub_topic_attachment_page_token")
+                    if collector.max_pages is not None and page + 1 >= collector.max_pages:
+                        raise ReadError("unavailable", "page_limit")
+                    seen.add(token)
+                    params["pageToken"] = token
+            except ReadError as exc:
+                refs = [*receipts, *([exc.request_id] if getattr(exc, "request_id", None) else [])]
+                return {"name": name, "_coverage": {"attachedSubscriptions": {
+                    "status": exc.status, "error": exc.error, "source_requests": sorted(set(refs))}}}, receipt
+            return {"name": name, "attachedSubscriptions": sorted(set(names)),
+                    "_coverage": {"attachedSubscriptions": {"status": "collected", "source_requests": receipts}}}, receipt
+        parallel = getattr(collector, "parallel", None)
+        rows = parallel(attachments, topics) if callable(parallel) else [attachments(topic) for topic in topics]
+        for row, row_receipt in rows:
+            yield [row], row_receipt
+
+
+def pubsub_schema_policies(collector, scope):
+    """Search directly attached schema IAM policies without reading definitions."""
+    url = f"https://cloudasset.googleapis.com/v1/{scope}:searchAllIamPolicies"
+    for policies, receipt in collector.pages(url, scope, key="results",
+            params={"assetTypes": ["pubsub.googleapis.com/Schema"]}):
+        rows = []
+        for entry in policies:
+            resource, policy = entry.get("resource"), entry.get("policy")
+            prefix = "//pubsub.googleapis.com/"
+            if (entry.get("assetType") != "pubsub.googleapis.com/Schema" or
+                    not isinstance(resource, str) or not resource.startswith(prefix) or
+                    not re.fullmatch(r"projects/[^/]+/schemas/[^/]+", resource[len(prefix):]) or
+                    not isinstance(policy, dict) or not isinstance(policy.get("bindings", []), list)):
+                raise ReadError("malformed", "pubsub_schema_policy_search_result")
+            rows.append({"name": resource[len(prefix):], "iamPolicy": policy,
+                "_coverage": {"iamPolicy": {"status": "collected", "source_requests": [receipt]}}})
+        yield rows, receipt
 
 
 def dataflow_jobs(collector, scope):
@@ -369,6 +797,68 @@ def apigee(collector, scope, kind):
                     yield [dict(item, name=f'organizations/{name}/instances/{item["name"]}') for item in items], child_receipt
 
 
+def apigee_routes(collector, scope):
+    base = 'https://apigee.googleapis.com/v1/organizations'
+    project = scope.removeprefix('projects/')
+    for organizations, receipt in collector.pages(base, scope, key='organizations', page_size_key=None,
+            params={'fields': 'organizations(organization,projectId,projectIds)'}):
+        yield [], receipt
+        for organization in organizations:
+            if organization.get('projectId') != project and project not in organization.get('projectIds', []):
+                continue
+            org = organization.get('organization')
+            if not isinstance(org, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', org):
+                raise ReadError('malformed', 'apigee_organization_identity')
+            endpoint = base + '/' + org
+            hosts = {}
+            for groups, group_receipt in collector.pages(endpoint + '/envgroups', scope, key='environmentGroups',
+                    params={'fields': 'environmentGroups(name,hostnames,state),nextPageToken'}):
+                yield [], group_receipt
+                for group in groups:
+                    group_name = group.get('name')
+                    if not isinstance(group_name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', group_name):
+                        raise ReadError('malformed', 'apigee_envgroup_identity')
+                    if group.get('state') != 'ACTIVE':
+                        continue
+                    names = group.get('hostnames', [])
+                    if not isinstance(names, list) or any(not isinstance(x, str) or
+                            not re.fullmatch(r'[A-Za-z0-9.-]+', x) for x in names):
+                        raise ReadError('malformed', 'apigee_envgroup_hostname')
+                    for attachments, attachment_receipt in collector.pages(
+                            endpoint + '/envgroups/' + group_name + '/attachments', scope,
+                            key='environmentGroupAttachments', params={'fields': 'environmentGroupAttachments(environment),nextPageToken'}):
+                        yield [], attachment_receipt
+                        for attachment in attachments:
+                            env = attachment.get('environment')
+                            if not isinstance(env, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', env):
+                                raise ReadError('malformed', 'apigee_attachment_environment')
+                            hosts.setdefault(env, set()).update(names)
+            for deployments, deployment_receipt in collector.pages(endpoint + '/deployments', scope,
+                    key='deployments', page_size_key=None):
+                yield [], deployment_receipt
+                for deployment in deployments:
+                    env, proxy = deployment.get('environment'), deployment.get('apiProxy')
+                    if any(not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', value)
+                           for value in (env, proxy)):
+                        raise ReadError('malformed', 'apigee_deployment_identity')
+                    name = f'organizations/{org}/environments/{env}/deployments/{proxy}'
+                    for details, detail_receipt in collector.pages('https://apigee.googleapis.com/v1/' + name,
+                            scope, single=True, params={'fields': 'environment,apiProxy,revision,state,instances(deployedRoutes(envgroup,percentage))'}):
+                        detail = details[0]
+                        if detail.get('environment') != env or detail.get('apiProxy') != proxy:
+                            raise ReadError('malformed', 'apigee_deployment_detail_identity')
+                        groups = {route.get('envgroup') for instance in detail.get('instances', [])
+                                  if isinstance(instance, dict) for route in instance.get('deployedRoutes', [])
+                                  if isinstance(route, dict) and route.get('percentage', 0) > 0}
+                        row = {'name': name, 'state': detail.get('state'), 'revision': detail.get('revision'),
+                               'hostnames': sorted(hosts.get(env, set())),
+                               'deployedEnvgroups': sorted(group for group in groups if isinstance(group, str))}
+                        row = collector.hydrate(row, 'iamPolicy',
+                            'https://apigee.googleapis.com/v1/' + name + ':getIamPolicy', scope,
+                            params={'options.requestedPolicyVersion': 3})
+                        yield [row], detail_receipt
+
+
 def backend_service_health(collector, scope):
     """Read native backend health separately from the service configuration."""
     project = scope.split('/', 1)[1]
@@ -424,7 +914,148 @@ def identityplatform_config(collector, scope):
     """Read only the project sign-in controls; omit hash and provider secrets."""
     endpoint = f"https://identitytoolkit.googleapis.com/admin/v2/{scope}/config"
     yield from collector.pages(endpoint, scope, single=True,
-        params={"fields": "name,signIn(anonymous(enabled)),client(permissions(disabledUserSignup))"})
+        params={"fields": "name,signIn(anonymous(enabled),email(enabled),phoneNumber(enabled)),client(permissions(disabledUserSignup))"})
+
+
+def containeranalysis_occurrences(collector, scope):
+    """Read occurrence identities and direct IAM, omitting occurrence content."""
+    root = 'https://containeranalysis.googleapis.com/v1/'
+
+    def occurrence_pages(parent):
+        for page, receipt in collector.pages(root + parent + '/occurrences', scope,
+                key='occurrences', params={'fields': 'occurrences(name),nextPageToken'}):
+            def policy(item):
+                name, _ = _native_child_name(item, parent, 'occurrences', collector, scope)
+                projected = {'name': name, '_representation': 'full'}
+                return collector.hydrate(projected, 'iamPolicy', root + name + ':getIamPolicy', scope,
+                    method='POST', body={'options': {'requestedPolicyVersion': 3}})
+            yield collector.parallel(policy, page), receipt
+
+    yield from occurrence_pages(scope)
+    selected = collector.options.get('containeranalysis_locations', collector.options.get('regions'))
+    if selected is None:
+        selected = []
+        for page, receipt in collector.pages(
+                'https://artifactregistry.googleapis.com/v1/' + scope + '/locations', scope,
+                key='locations', params={'fields': 'locations(name,locationId),nextPageToken'}):
+            selected.extend(item.get('locationId') or item['name'].rsplit('/', 1)[-1] for item in page)
+            yield [], receipt
+    if (not isinstance(selected, list) or len(selected) > 100 or
+            any(not isinstance(value, str) or not re.fullmatch(r'[a-z0-9-]+', value)
+                for value in selected)):
+        raise ValueError('containeranalysis_locations must contain at most 100 location names')
+    failures = []
+    for _location, pages, exc in location_fanout(collector, dict.fromkeys(selected),
+            lambda location: occurrence_pages(scope + '/locations/' + location)):
+        yield from pages
+        if exc is not None:
+            failures.append(exc)
+    if failures:
+        raise failures[0]
+
+
+def api_gateway_resources(collector, scope):
+    """Read global API and API-config policies without retaining uploaded specs."""
+    root = 'https://apigateway.googleapis.com/v1/'
+    parent = scope + '/locations/global'
+    def complete(data):
+        if data.get('unreachableLocations'):
+            raise ReadError('unavailable', 'api_gateway_unreachable_locations')
+    for apis, receipt in collector.pages(root + parent + '/apis', scope,
+            key='apis', params={'fields': 'apis(name),nextPageToken,unreachableLocations'},
+            response_validator=complete):
+        def api_rows(api):
+            name, _ = _native_child_name(api, parent, 'apis', collector, scope)
+            policy = collector.hydrate({'name': name, '_representation': 'full'}, 'iamPolicy',
+                root + name + ':getIamPolicy', scope, params={'options.requestedPolicyVersion': 3})
+            return name, policy
+        resolved = collector.parallel(api_rows, apis)
+        yield [row for _, row in resolved], receipt
+        for name, _ in resolved:
+            for configs, config_receipt in collector.pages(root + name + '/configs', scope,
+                    key='apiConfigs', params={'fields': 'apiConfigs(name),nextPageToken,unreachableLocations'},
+                    response_validator=complete):
+                def config_policy(config):
+                    config_name, _ = _native_child_name(config, name, 'configs', collector, scope)
+                    return collector.hydrate({'name': config_name, '_representation': 'full'}, 'iamPolicy',
+                        root + config_name + ':getIamPolicy', scope,
+                        params={'options.requestedPolicyVersion': 3})
+                yield collector.parallel(config_policy, configs), config_receipt
+
+
+def cloudtasks_deliveries(collector, scope):
+    """List BASIC tasks and keep only queue identity, public-origin inputs, and auth mode."""
+    root = 'https://cloudtasks.googleapis.com/v2/'
+    selected = collector.options.get('cloudtasks_locations', collector.options.get('regions'))
+    if selected is None:
+        selected = []
+        for page, receipt in collector.pages(root + scope + '/locations', scope, key='locations',
+                params={'fields': 'locations(name,locationId),nextPageToken'}):
+            selected.extend(item.get('locationId') or item['name'].rsplit('/', 1)[-1] for item in page)
+            yield [], receipt
+    if (not isinstance(selected, list) or len(selected) > 100 or
+            any(not isinstance(value, str) or not re.fullmatch(r'[a-z0-9-]+', value)
+                for value in selected)):
+        raise ValueError('cloudtasks_locations must contain at most 100 location names')
+
+    def origin(url):
+        if not isinstance(url, str):
+            return None
+        try:
+            parsed = urlsplit(url)
+            if (parsed.scheme not in ('http', 'https') or not parsed.hostname or
+                    parsed.username or parsed.password or
+                    parsed.port is not None and not 1 <= parsed.port <= 65535):
+                return None
+        except ValueError:
+            return None
+        host = f'[{parsed.hostname.lower()}]' if ':' in parsed.hostname else parsed.hostname.lower()
+        return parsed.scheme + '://' + host + (f':{parsed.port}' if parsed.port else '')
+
+    def location_pages(location):
+        parent = scope + '/locations/' + location
+        for queues, receipt in collector.pages(root + parent + '/queues', scope, key='queues',
+                params={'fields': 'queues(name,state,httpTarget(uriOverride(scheme,host,port,uriOverrideEnforceMode),oidcToken(serviceAccountEmail),oauthToken(serviceAccountEmail))),nextPageToken'}):
+            for queue in queues:
+                name, _ = _native_child_name(queue, parent, 'queues', collector, scope)
+                target = queue.get('httpTarget') if isinstance(queue.get('httpTarget'), dict) else {}
+                override = target.get('uriOverride') if isinstance(target.get('uriOverride'), dict) else {}
+                host = override.get('host')
+                scheme = 'http' if override.get('scheme') == 'HTTP' else 'https'
+                port = override.get('port')
+                override_origin = origin(scheme + '://' + host + (':' + str(port) if port not in (None, '', '0') else '')) if isinstance(host, str) else None
+                auth = 'oidc' if isinstance(target.get('oidcToken'), dict) else 'oauth' if isinstance(target.get('oauthToken'), dict) else 'none'
+                if override_origin:
+                    yield [{'name': name + '/deliveryOverride', 'queue': name, 'queueState': queue.get('state'),
+                            'targetOrigin': override_origin, 'deliveryKind': 'queue_override',
+                            'overrideMode': override.get('uriOverrideEnforceMode') or 'ALWAYS',
+                            'authentication': auth, '_representation': 'full'}], receipt
+                for tasks, task_receipt in collector.pages(root + name + '/tasks', scope, key='tasks',
+                        params={'responseView': 'BASIC', 'fields': 'tasks(name,httpRequest(url,oidcToken(serviceAccountEmail),oauthToken(serviceAccountEmail))),nextPageToken'}):
+                    projected = []
+                    for task in tasks:
+                        task_name, _ = _native_child_name(task, name, 'tasks', collector, scope)
+                        request = task.get('httpRequest') if isinstance(task.get('httpRequest'), dict) else None
+                        if request is None:
+                            continue  # App Engine tasks route within the queue's project.
+                        task_origin = origin(request.get('url'))
+                        mode = override.get('uriOverrideEnforceMode') or 'ALWAYS'
+                        effective = override_origin if override_origin and mode != 'IF_NOT_EXISTS' else task_origin
+                        task_auth = (auth if auth != 'none' else
+                            'oidc' if isinstance(request.get('oidcToken'), dict) else
+                            'oauth' if isinstance(request.get('oauthToken'), dict) else 'none')
+                        projected.append({'name': task_name, 'queue': name, 'queueState': queue.get('state'),
+                            'targetOrigin': effective, 'deliveryKind': 'task', 'authentication': task_auth,
+                            '_representation': 'full'})
+                    yield projected, task_receipt
+
+    failures = []
+    for _location, pages, exc in location_fanout(collector, dict.fromkeys(selected), location_pages):
+        yield from pages
+        if exc is not None:
+            failures.append(exc)
+    if failures:
+        raise failures[0]
 
 
 def scope_jobs(collector, scope):
@@ -436,6 +1067,30 @@ def scope_jobs(collector, scope):
             and PRIVATE_SERVICES.get(kind, {}).get('scope_kind', 'projects') == scope_kind]
     if scope_kind != 'projects':
         return jobs
+    if 'containeranalysis_occurrence' in collector.needed:
+        jobs.append(('containeranalysis_occurrence', scope, 'containeranalysis',
+            lambda: containeranalysis_occurrences(collector, scope)))
+    if 'api_gateway_resource' in collector.needed:
+        jobs.append(('api_gateway_resource', scope, 'apigateway',
+            lambda: api_gateway_resources(collector, scope)))
+    if 'cloudtasks_delivery' in collector.needed:
+        jobs.append(('cloudtasks_delivery', scope, 'cloudtasks',
+            lambda: cloudtasks_deliveries(collector, scope)))
+    if 'dialogflow_es_fulfillment' in collector.needed:
+        jobs.append(('dialogflow_es_fulfillment', scope, 'dialogflow',
+            lambda: dialogflow_es_fulfillments(collector, scope)))
+    if 'lakehouse_resource' in collector.needed:
+        jobs.append(('lakehouse_resource', scope, 'biglake',
+            lambda: lakehouse_resources(collector, scope)))
+    if 'apigee_route' in collector.needed:
+        jobs.append(('apigee_route', scope, 'apigee',
+            lambda: apigee_routes(collector, scope)))
+    if 'pubsub_topic_attachment' in collector.needed:
+        jobs.append(('pubsub_topic_attachment', scope, 'pubsub',
+            lambda: pubsub_topic_attachments(collector, scope)))
+    if 'pubsub_schema_iam' in collector.needed:
+        jobs.append(('pubsub_schema_iam', scope, 'cloudasset',
+            lambda: pubsub_schema_policies(collector, scope)))
     if 'backend_service_health' in collector.needed:
         jobs.append(('backend_service_health', scope, 'compute',
             lambda: backend_service_health(collector, scope)))

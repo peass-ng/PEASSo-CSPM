@@ -25,7 +25,7 @@ import re
 from urllib.parse import urlsplit
 from peaso.snapshot import freeze
 
-from .common import RANK, _CONTEXT, as_list, finding, native_id, node, node_id, relationship, source, stable_id
+from .common import RANK, _CONTEXT, as_list, externality, finding, native_id, node, node_id, relationship, source, stable_id
 
 CHECK = "analysis.internet_exposure"
 TITLE = "Asset reachable from the internet"
@@ -13390,14 +13390,39 @@ def _gcp_blockchain_node(snapshot, inventory, resource):
         return None
     info = data.get("connectionInfo") if isinstance(data.get("connectionInfo"), dict) else {}
     endpoints = info.get("endpointInfo") if isinstance(info.get("endpointInfo"), dict) else {}
-    urls = [endpoints.get(field) for field in ("jsonRpcApiEndpoint", "websocketsApiEndpoint")]
-    urls = [value for value in urls if isinstance(value, str) and value.startswith(("https://", "wss://"))]
-    if not urls:
-        return None
+    extra = data.get("ethereumDetails") if isinstance(data.get("ethereumDetails"), dict) else {}
+    extra = extra.get("additionalEndpoints") if isinstance(extra.get("additionalEndpoints"), dict) else {}
+    fields = [(endpoints, "jsonRpcApiEndpoint", "https"),
+              (endpoints, "websocketsApiEndpoint", "wss"),
+              *[(extra, field, "https") for field in (
+                  "beaconApiEndpoint", "beaconPrometheusMetricsApiEndpoint",
+                  "executionClientPrometheusMetricsApiEndpoint")]]
+    urls = []
+    for group, field, scheme in fields:
+        value = group.get(field)
+        if not isinstance(value, str) or not value:
+            continue
+        candidate = value if "://" in value else scheme + "://" + value
+        try:
+            parsed = urlsplit(candidate)
+            valid = (parsed.scheme in {"https", "wss"} and bool(parsed.hostname) and
+                     parsed.port in (None, 443) and not parsed.username and not parsed.password and
+                     not parsed.path.strip("/") and not parsed.query and not parsed.fragment and
+                     re.fullmatch(r"[A-Za-z0-9.-]+", parsed.hostname))
+        except ValueError:
+            valid = False
+        if valid:
+            urls.append(f"{parsed.scheme}://{parsed.hostname}")
     a = Assessment(resource, "managed_endpoint")
-    a.addresses = urls
+    a.addresses = sorted(set(urls))
     a.authenticated = True
-    a.step("public_endpoint", "allow", private_service_connect=False, endpoints=urls)
+    if not urls:
+        a.gap("public_endpoint", "Blockchain node is configured for public access but no valid endpoint was recorded")
+        return a
+    if data.get("state") not in (None, "RUNNING"):
+        a.gap("node_state", "Blockchain node endpoint is not confirmed running")
+        return a
+    a.step("public_endpoint", "allow", private_service_connect=False, endpoints=a.addresses)
     a.ports = pset("tcp", 443, 443)
     return a
 
@@ -14719,7 +14744,7 @@ def gcp_scheduler_oidc_target_findings(snapshot, resources):
 
 
 def gcp_pubsub_oidc_push_findings(snapshot, resources):
-    """Surface token-bearing push configuration without asserting delivery."""
+    """Surface public push destinations, including unauthenticated delivery."""
     if snapshot["provider"] != "gcp":
         return []
     output = []
@@ -14732,10 +14757,10 @@ def gcp_pubsub_oidc_push_findings(snapshot, resources):
             continue
         endpoint = push.get("pushEndpoint")
         token = push.get("oidcToken")
-        if not isinstance(endpoint, str) or not isinstance(token, dict):
+        if not isinstance(endpoint, str):
             continue
-        account = token.get("serviceAccountEmail")
-        if not isinstance(account, str) or not account:
+        account = token.get("serviceAccountEmail") if isinstance(token, dict) else None
+        if token is not None and (not isinstance(account, str) or not account):
             continue
         try:
             parsed = urlsplit(endpoint)
@@ -14758,21 +14783,29 @@ def gcp_pubsub_oidc_push_findings(snapshot, resources):
         origin = f"{parsed.scheme}://{origin_host}" + (f":{port}" if port else "")
         name = data.get("name", native_id(resource))
         state = data.get("state")
+        observed = [f"The Pub/Sub subscription {name} has push endpoint origin {origin} and state {state or 'unrecorded'}."]
+        if account:
+            observed.extend((f"Its pushConfig.oidcToken.serviceAccountEmail is {account}.",
+                             "Pub/Sub may attach an OIDC token for that account when pushing subscription messages.",
+                             "If the recipient is outside the owner's control, its operators could receive message data and the token; ownership and delivery remain unresolved."))
+        else:
+            observed.extend(("No OIDC token is configured for this push endpoint.",
+                             "Pub/Sub can send subscription message data to the endpoint without an OIDC token.",
+                             "If the recipient is outside the owner's control, its operators could receive message data; ownership and delivery remain unresolved."))
         evidence = {
-            "observed": "\n".join((
-                f"The Pub/Sub subscription {name} has push endpoint origin {origin} and state {state or 'unrecorded'}.",
-                f"Its pushConfig.oidcToken.serviceAccountEmail is {account}.",
-                "Pub/Sub may attach an OIDC token for that account when pushing subscription messages.",
-                "If the recipient is outside the owner's control, its operators could receive message data and the token; ownership and delivery remain unresolved.")),
+            "observed": "\n".join(observed),
             "target_origin": origin,
-            "service_account": account,
             "subscription_state": state,
             "source": source(snapshot, resource, "pushConfig"),
             "risk_state": "observed",
-            "semantics": "Configured token-bearing push only; endpoint ownership, generated token, message contents, delivery and recipient use are not established.",
+            "semantics": "Configured public push only; endpoint ownership, message contents, delivery and recipient use are not established.",
         }
-        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_pubsub_oidc_push",
-                              "Pub/Sub token-bearing push endpoint", "high", evidence, status="FAIL"))
+        if account:
+            evidence["service_account"] = account
+        output.append(finding(snapshot, resource, "exposure",
+                              "analysis.gcp_pubsub_oidc_push" if account else "analysis.gcp_pubsub_public_push",
+                              "Pub/Sub token-bearing push endpoint" if account else "Pub/Sub public push endpoint",
+                              "high", evidence, status="FAIL"))
     return output
 
 
@@ -26710,6 +26743,1002 @@ def _aws_sns_platform_endpoint(snapshot, inventory, resource):
     return a
 
 
+def _gcp_developerconnect_proxy(snapshot, inventory, resource):
+    data = resource["data"]
+    config = data.get("gitProxyConfig") if resource["type"] == "developerconnect_connection" else data.get("proxyConfig")
+    if not isinstance(config, dict) or config.get("enabled") is not True:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    uri = config.get("httpProxyBaseUri")
+    try:
+        parsed = urlsplit(uri) if isinstance(uri, str) else None
+        valid = (parsed and parsed.scheme == "https" and parsed.hostname
+                 and parsed.hostname.endswith(".developerconnect.dev") and parsed.port in (None, 443)
+                 and not parsed.username and not parsed.password and not parsed.path.strip("/")
+                 and not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        a.gap("proxy_origin", "Developer Connect proxy is enabled but no valid base URI is available")
+        return a
+    a.addresses = ["https://" + parsed.hostname]
+    if data.get("disabled") is True or data.get("reconciling") is True:
+        a.gap("connection_state", "Developer Connect connection is disabled or reconciling")
+        return a
+    a.step("public_proxy", "allow", proxy_enabled=True)
+    a.ports = pset("tcp", 443, 443)
+    return a
+
+
+def _gcp_secure_source_manager(snapshot, inventory, resource):
+    data = resource["data"]
+    private = data.get("privateConfig")
+    if isinstance(private, dict) and private.get("isPrivate") is True:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    if private is not None and (not isinstance(private, dict) or private.get("isPrivate") is not False):
+        a.gap("private_config", "Secure Source Manager instance private routing state is unavailable")
+        return a
+    hosts = data.get("hostConfig")
+    if not isinstance(hosts, dict):
+        a.gap("instance_hosts", "Public Secure Source Manager instance has no collected host configuration")
+        return a
+    a.addresses = sorted({value for field in ("html", "api", "gitHttp", "gitSsh")
+                          if isinstance((value := hosts.get(field)), str) and value})
+    if not a.addresses:
+        a.gap("instance_hosts", "Public Secure Source Manager instance has no reported hostnames")
+        return a
+    if data.get("state") != "ACTIVE":
+        a.gap("instance_state", "Public Secure Source Manager instance is not confirmed active")
+        return a
+    a.step("public_instance", "allow", private_instance=False)
+    a.ports = {}
+    if any(hosts.get(field) for field in ("html", "api", "gitHttp")):
+        a.ports = union(a.ports, pset("tcp", 443, 443))
+    if hosts.get("gitSsh"):
+        a.ports = union(a.ports, pset("tcp", 22, 22))
+    return a
+
+
+def _gcp_livestream_input(snapshot, inventory, resource):
+    data = resource['data']
+    if data.get('type') not in {'RTMP_PUSH', 'SRT_PUSH'}:
+        return None
+    a = Assessment(resource, 'managed_endpoint')
+    a.addresses = [data['origin']] if isinstance(data.get('origin'), str) and data['origin'] else []
+    if not a.addresses:
+        a.gap('inventory', 'Live Stream input endpoint origin is unavailable')
+        return a
+    rules = data.get('securityRules')
+    ranges = rules.get('ipRanges') if isinstance(rules, dict) else None
+    if ranges is not None and (not isinstance(ranges, list) or
+                               any(not isinstance(value, str) or _cidr(value) is None for value in ranges)):
+        a.gap('policy', 'Live Stream input source rule is unavailable or malformed')
+        return a
+    if ranges and not any(_public_source(value) for value in ranges):
+        a.step('input_source_range', 'block', ranges=ranges)
+        return a
+    a.step('input_source_range', 'allow', ranges=ranges or ['all sources'])
+    protocol = 'udp' if data['type'] == 'SRT_PUSH' else 'tcp'
+    parsed = urlsplit(a.addresses[0])
+    port = parsed.port or (4201 if protocol == 'udp' else 1935)
+    a.ports = pset(protocol, port, port)
+    a.authenticated = True
+    a.gap('stream_identifier', 'Stream identifier possession and successful ingest are not observed')
+    return a
+
+
+def _gcp_agent_gateway(snapshot, inventory, resource):
+    data = resource['data']
+    card = data.get('agentGatewayCard')
+    if not isinstance(card, dict) or not isinstance(card.get('mtlsEndpoint'), str):
+        return None
+    a = Assessment(resource, 'application_gateway')
+    a.addresses = [card['mtlsEndpoint']]
+    a.ports = pset('tcp', 443, 443)
+    a.authenticated = True
+    a.explicit = 'UNKNOWN'
+    a.step('managed_mtls_endpoint', 'unknown', addresses=a.addresses)
+    a.gap('authorization', 'The Agent Gateway API publishes an mTLS endpoint; effective IAP agent identity policies, registry targets and successful reachability are not established by this resource.')
+    return a
+
+
+def gcp_cloud_tasks_delivery_findings(snapshot, resources):
+    """Report configured public queue overrides and queued HTTP task targets."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "cloudtasks_delivery" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        origin = data.get("targetOrigin")
+        if not isinstance(origin, str):
+            continue
+        try:
+            parsed = urlsplit(origin)
+            host, port = parsed.hostname, parsed.port
+        except ValueError:
+            continue
+        if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password:
+            continue
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if "." not in host or host.lower() == "localhost":
+                continue
+        else:
+            if not address.is_global:
+                continue
+        if port is not None and not 1 <= port <= 65535:
+            continue
+        name = data.get("name", native_id(resource))
+        kind = data.get("deliveryKind")
+        if kind not in ("task", "queue_override"):
+            continue
+        mode = data.get("overrideMode")
+        state = data.get("queueState")
+        uncertain = state != "RUNNING" or kind == "queue_override" and mode == "IF_NOT_EXISTS"
+        observed = (f"The Cloud Tasks {kind.replace('_', ' ')} {name} has public HTTP target origin {origin}.\n"
+                    f"Its queue state is {state or 'unrecorded'} and authentication mode is {data.get('authentication') or 'unrecorded'}.\n"
+                    "The target may receive task requests; recipient ownership, request content, and delivery are unverified.")
+        evidence = {"observed": observed, "target_origin": origin, "queue": data.get("queue"),
+                    "delivery_kind": kind, "queue_state": state, "authentication": data.get("authentication"),
+                    "source": source(snapshot, resource, "targetOrigin"),
+                    "risk_state": "unknown" if uncertain else "observed",
+                    "semantics": "Configured target or queued task only; request payload, recipient ownership and execution are not established."}
+        if uncertain:
+            evidence["unresolved"] = [{"layer": "dispatch", "reason":
+                "queue is not confirmed running or override only applies when a task URI component is absent"}]
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_cloud_tasks_public_delivery",
+                              "Cloud Tasks public HTTP delivery target", "info" if uncertain else "high",
+                              evidence, status="UNKNOWN" if uncertain else "FAIL"))
+    return output
+
+
+def gcp_managed_ad_sharing_findings(snapshot, resources):
+    """Report AD trust and cross-project domain peering declarations."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    seen_peerings = set()
+    for resource in resources:
+        data = resource.get("data")
+        if not isinstance(data, dict):
+            continue
+        if resource["type"] == "managed_ad_domain":
+            for trust in as_list(data.get("trusts")):
+                if not isinstance(trust, dict) or not isinstance(trust.get("targetDomainName"), str):
+                    continue
+                target = trust["targetDomainName"]
+                classification = externality(snapshot, "domain:" + target)
+                if classification == "allowlisted":
+                    continue
+                direction = trust.get("trustDirection")
+                connected = data.get("state") == "READY" and trust.get("state") == "CONNECTED"
+                broad = direction in ("INBOUND", "BIDIRECTIONAL") and trust.get("selectiveAuthentication") is False
+                confirmed = connected and broad and classification == "external"
+                evidence = {
+                    "observed": (f"Managed Microsoft AD domain {data.get('fqdn') or data.get('name')} declares a {direction or 'unspecified'} "
+                                 f"trust with {target}; trust state is {trust.get('state') or 'unrecorded'}. "
+                                 "The target domain may authenticate to domain resources when trust direction, selective authentication, and network access permit it."),
+                    "target_domain": target, "classification": classification, "trust_direction": direction,
+                    "trust_state": trust.get("state"), "selective_authentication": trust.get("selectiveAuthentication"),
+                    "source": source(snapshot, resource, "trusts"),
+                    "risk_state": "observed" if confirmed else "unknown",
+                    "semantics": "Trust declaration only; third-party ownership, network reachability, resource permissions, and successful authentication are not established.",
+                }
+                output.append(finding(snapshot, resource, "exposure", "analysis.gcp_managed_ad_external_trust",
+                                      "Managed Microsoft AD external domain trust", "high" if confirmed else "info",
+                                      evidence, status="FAIL" if confirmed else "UNKNOWN"))
+        elif resource["type"] == "managed_ad_peering":
+            domain = data.get("domainResource")
+            network = data.get("authorizedNetwork")
+            if not isinstance(domain, str) or not isinstance(network, str):
+                continue
+            domain_match = re.match(r"^projects/([^/]+)/locations/global/domains/", domain)
+            network_match = re.match(r"^projects/([^/]+)/global/networks/", network)
+            if not domain_match or not network_match or domain_match[1] == network_match[1]:
+                continue
+            key = (domain, network)
+            if key in seen_peerings:
+                continue
+            seen_peerings.add(key)
+            evidence = {
+                "observed": (f"Managed Microsoft AD domain {domain} is peered with network {network} in another project. "
+                             f"Peering state is {data.get('state') or 'unrecorded'}."),
+                "domain_resource": domain, "authorized_network": network, "peering_state": data.get("state"),
+                "source": source(snapshot, resource, "domainResource,authorizedNetwork,state"),
+                "risk_state": "unknown",
+                "semantics": "Cross-project private network connection declaration; project ownership, client permissions, and access to domain resources are not established.",
+            }
+            output.append(finding(snapshot, resource, "exposure", "analysis.gcp_managed_ad_cross_project_peering",
+                                  "Managed Microsoft AD cross-project peering", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_identity_platform_signup_findings(snapshot, resources):
+    """Report public account-creation paths, without inferring application access."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        kind = resource["type"]
+        data = resource.get("data")
+        if kind not in ("identityplatform_config", "identityplatform_tenant") or not isinstance(data, dict):
+            continue
+        if kind == "identityplatform_config":
+            sign_in = data.get("signIn") or {}
+            if not isinstance(sign_in, dict):
+                continue
+            methods = [method for method in ("anonymous", "email", "phoneNumber")
+                       if isinstance(sign_in.get(method), dict) and sign_in[method].get("enabled") is True]
+        else:
+            methods = (["anonymous"] if data.get("enableAnonymousUser") is True else [])
+            methods += (["email_password"] if data.get("allowPasswordSignup") is True else [])
+            methods += (["email_link"] if data.get("enableEmailLinkSignin") is True else [])
+        if not methods:
+            continue
+        disabled = ((data.get("client") or {}).get("permissions") or {}).get("disabledUserSignup") is True
+        inactive = kind == "identityplatform_tenant" and data.get("disableAuth") is True
+        uncertain = disabled or inactive
+        evidence = {
+            "observed": (f"Identity Platform {kind} {data.get('name', native_id(resource))} enables "
+                         f"{', '.join(methods)} sign-up methods. "
+                         "A caller can attempt to create an identity when the tenant and client permissions permit it."),
+            "signup_methods": methods, "client_signup_disabled": disabled, "tenant_auth_disabled": inactive,
+            "source": source(snapshot, resource, "signIn" if kind == "identityplatform_config" else "enableAnonymousUser,allowPasswordSignup,enableEmailLinkSignin"),
+            "risk_state": "unknown" if uncertain else "observed",
+            "semantics": "Identity creation only; an ID token does not grant application data or Google Cloud IAM access without a separate authorization rule.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_identity_platform_public_signup",
+                              "Identity Platform public account signup", "info" if uncertain else "medium",
+                              evidence, status="UNKNOWN" if uncertain else "FAIL"))
+    return output
+
+
+def gcp_developerconnect_webhook_findings(snapshot, resources):
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    providers = ("githubEnterpriseConfig", "gitlabConfig", "gitlabEnterpriseConfig",
+                 "bitbucketDataCenterConfig", "bitbucketCloudConfig")
+    for resource in resources:
+        if resource["type"] != "developerconnect_connection" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        if data.get("disabled") is True:
+            continue
+        configured = [key for key in providers if isinstance(data.get(key), dict)
+                      and isinstance(data[key].get("webhookSecretSecretVersion"), str)]
+        if not configured:
+            continue
+        status = "UNKNOWN" if data.get("reconciling") is True else "FAIL"
+        evidence = {
+            "observed": f"Developer Connect connection {data.get('name')} has external SCM webhook ingestion configured.",
+            "public_origin": "https://developerconnect.googleapis.com",
+            "provider_types": configured,
+            "source": source(snapshot, resource, "provider.webhookSecretSecretVersion"),
+            "risk_state": "observed" if status == "FAIL" else "unknown",
+            "semantics": "Public webhook API route requires the configured Secret Manager secret; its value and successful invocation were not observed.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_developerconnect_public_webhook",
+                              "Developer Connect public SCM webhook", "medium" if status == "FAIL" else "info",
+                              evidence, status=status))
+    return output
+
+
+def gcp_eventarc_pipeline_findings(snapshot, resources):
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "eventarc_pipeline" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        destinations = data.get("destinations")
+        if not isinstance(destinations, list):
+            continue
+        for destination in destinations:
+            if not isinstance(destination, dict):
+                continue
+            origin = destination.get("httpOrigin")
+            if not isinstance(origin, str) or not origin:
+                continue
+            evidence = {
+                "observed": f"Eventarc pipeline {data.get('name')} forwards events to an HTTP destination outside a verified owned-resource join.",
+                "destination_origin": origin,
+                "network_attachment": destination.get("networkAttachment"),
+                "source": source(snapshot, resource, "destinations.httpEndpoint.uri"),
+                "risk_state": "unknown",
+                "semantics": "Destination is configured; endpoint ownership, route, authentication, successful delivery and payload content are not established.",
+            }
+            output.append(finding(snapshot, resource, "exposure", "analysis.gcp_eventarc_http_delivery",
+                                  "Eventarc HTTP event delivery", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_livestream_distribution_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        if resource['type'] != 'livestream_channel' or not isinstance(resource.get('data'), dict):
+            continue
+        data = resource['data']
+        for destination in data.get('distributions', []):
+            if not isinstance(destination, dict) or not destination.get('origin'):
+                continue
+            if destination.get('state') not in {'READY', 'AWAITING_INPUT', 'DISTRIBUTING'}:
+                continue
+            evidence = {
+                'observed': f"Live Stream channel {data.get('name')} has a configured push distribution.",
+                'destination_origin': destination['origin'],
+                'protocol': destination.get('protocol'),
+                'distribution_state': destination.get('state'),
+                'source': source(snapshot, resource, 'distributions'),
+                'risk_state': 'unknown',
+                'semantics': 'Destination ownership, stream key, successful delivery, and received content are not observed.',
+            }
+            output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_livestream_push_distribution',
+                                  'Live Stream push distribution', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_dataform_remote_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        if resource['type'] != 'dataform_repository' or not isinstance(resource.get('data'), dict):
+            continue
+        data = resource['data']
+        origin = data.get('gitRemoteOrigin')
+        if not isinstance(origin, str) or not origin:
+            continue
+        evidence = {
+            'observed': f"Dataform repository {data.get('name')} is connected to a Git remote.",
+            'destination_origin': origin,
+            'source': source(snapshot, resource, 'gitRemoteSettings.url'),
+            'risk_state': 'unknown',
+            'semantics': 'Remote ownership, credentials, synchronization direction and successful transfer are not observed.',
+        }
+        output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_dataform_git_remote',
+                              'Dataform Git remote', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_datastream_sharing_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    profiles = {r['data'].get('name'): r for r in resources
+                if r['type'] == 'datastream_connection_profile' and isinstance(r.get('data'), dict)}
+    buckets = {r['data'].get('name') for r in resources
+               if r['type'] == 'bucket' and isinstance(r.get('data'), dict)}
+    output = []
+    for resource in resources:
+        if resource['type'] != 'datastream_stream' or not isinstance(resource.get('data'), dict):
+            continue
+        data = resource['data']
+        src = data.get('sourceConfig') or {}
+        dst = data.get('destinationConfig') or {}
+        if not isinstance(src, dict) or not isinstance(dst, dict):
+            continue
+        source_profile = profiles.get(src.get('sourceConnectionProfile'))
+        destination_profile = profiles.get(dst.get('destinationConnectionProfile'))
+        project = data.get('name', '').split('/')[1] if isinstance(data.get('name'), str) and data['name'].startswith('projects/') else None
+        risks = []
+        if source_profile:
+            profile = source_profile['data']
+            if 'staticServiceIpConnectivity' in profile or 'forwardSshConnectivity' in profile:
+                host = next((value.get('hostname') for key in ('oracleProfile', 'mysqlProfile',
+                            'postgresqlProfile', 'sqlServerProfile', 'forwardSshConnectivity')
+                            if isinstance((value := profile.get(key)), dict) and value.get('hostname')), None)
+                risks.append(('public_source_connection', {'source_host': host,
+                    'connectivity': 'ssh_tunnel' if 'forwardSshConnectivity' in profile else 'static_service_ip'}))
+        if destination_profile:
+            profile = destination_profile['data']
+            gcs = profile.get('gcsProfile')
+            if isinstance(gcs, dict) and gcs.get('bucket') not in buckets:
+                risks.append(('unowned_gcs_destination', {'destination_bucket': gcs.get('bucket')}))
+        bq = dst.get('bigqueryDestinationConfig')
+        if isinstance(bq, dict):
+            hierarchy = bq.get('sourceHierarchyDatasets')
+            if isinstance(hierarchy, dict) and hierarchy.get('projectId') and hierarchy['projectId'] != project:
+                risks.append(('cross_project_bigquery_destination', {'destination_project': hierarchy['projectId']}))
+            blmt = bq.get('blmtConfig')
+            if isinstance(blmt, dict) and blmt.get('bucket') not in buckets:
+                risks.append(('unowned_blmt_bucket', {'destination_bucket': blmt.get('bucket')}))
+        for reason, detail in risks:
+            evidence = {
+                'observed': f"Datastream stream {data.get('name')} has a configured {reason.replace('_', ' ')}.",
+                'stream_state': data.get('state'),
+                **detail,
+                'source': source(snapshot, resource, 'sourceConfig/destinationConfig'),
+                'risk_state': 'unknown',
+                'semantics': 'Endpoint or destination ownership, effective firewall/IAM and successful replication are not established.',
+            }
+            output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_datastream_' + reason,
+                                  'Datastream external connectivity', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_integration_connector_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        if resource['type'] != 'integration_connection' or not isinstance(resource.get('data'), dict):
+            continue
+        data = resource['data']
+        name = data.get('name')
+        project = name.split('/')[1] if isinstance(name, str) and name.startswith('projects/') else None
+        config = data.get('eventingConfig') if isinstance(data.get('eventingConfig'), dict) else {}
+        runtime = data.get('eventingRuntimeData') if isinstance(data.get('eventingRuntimeData'), dict) else {}
+        status = data.get('status') if isinstance(data.get('status'), dict) else {}
+        event_status = runtime.get('status') if isinstance(runtime.get('status'), dict) else {}
+        active = status.get('state') == 'ACTIVE'
+        event_active = event_status.get('state') == 'ACTIVE'
+        origin = runtime.get('eventsListenerEndpointOrigin')
+        if (isinstance(origin, str) and origin and active and event_active
+                and data.get('suspended') is not True and config.get('privateConnectivityEnabled') is not True):
+            evidence = {
+                'observed': f'Integration connector {name} has an active public event listener.',
+                'public_origin': origin,
+                'source': source(snapshot, resource, 'eventingRuntimeData.eventsListenerEndpoint'),
+                'risk_state': 'observed',
+                'semantics': 'Webhook authentication, successful invocation, and event payloads are not observed.',
+            }
+            output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_connector_public_event_listener',
+                                  'Integration Connector public event listener', 'medium', evidence, status='FAIL'))
+        dead_letter = config.get('deadLetterConfig') if isinstance(config, dict) else None
+        if isinstance(dead_letter, dict) and dead_letter.get('projectId') and dead_letter['projectId'] != project:
+            evidence = {
+                'observed': f'Integration connector {name} sends failed events to a Pub/Sub topic in another project.',
+                'destination_project': dead_letter['projectId'],
+                'destination_topic': dead_letter.get('topic'),
+                'source': source(snapshot, resource, 'eventingConfig.deadLetterConfig'),
+                'risk_state': 'unknown',
+                'semantics': 'Destination project ownership, topic IAM and successful event delivery are not established.',
+            }
+            output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_connector_cross_project_dead_letter',
+                                  'Integration Connector cross-project dead letter topic', 'info', evidence, status='UNKNOWN'))
+        destinations = list(data.get('destinationConfigs') or [])
+        for key in ('registrationDestinationConfig', 'proxyDestinationConfig'):
+            if isinstance(config.get(key), dict):
+                destinations.append(config[key])
+        for destination in destinations:
+            if not isinstance(destination, dict):
+                continue
+            for target in destination.get('destinations') or []:
+                if not isinstance(target, dict):
+                    continue
+                host, attachment = target.get('host'), target.get('serviceAttachment')
+                if not host and not attachment:
+                    continue
+                if isinstance(attachment, str) and project and (attachment.startswith('projects/' + project + '/')
+                        or '/projects/' + project + '/' in attachment):
+                    continue
+                evidence = {
+                    'observed': f'Integration connector {name} has a configured destination outside a verified owned-resource join.',
+                    'destination_host': host,
+                    'service_attachment': attachment,
+                    'port': target.get('port'),
+                    'source': source(snapshot, resource, 'destinationConfigs'),
+                    'risk_state': 'unknown',
+                    'semantics': 'Destination ownership, effective route, authentication and successful transfer are not established.',
+                }
+                output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_connector_external_destination',
+                                      'Integration Connector external destination', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_dialogflow_fulfillment_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        if resource['type'] != 'dialogflow_es_fulfillment' or not isinstance(resource.get('data'), dict):
+            continue
+        data = resource['data']
+        origin = data.get('webhookOrigin')
+        if not isinstance(origin, str) or not origin or data.get('enabled') is not True:
+            continue
+        state = data.get('environmentState')
+        if state == 'STOPPED':
+            continue
+        evidence = {
+            'observed': f"Dialogflow ES fulfillment {data.get('name')} sends conversation data to a configured HTTPS webhook.",
+            'destination_origin': origin,
+            'environment': data.get('environment'),
+            'environment_state': state,
+            'source': source(snapshot, resource, 'genericWebService.uri'),
+            'risk_state': 'unknown',
+            'semantics': 'Webhook ownership, invoked intents, authentication, successful delivery and payload content are not established.',
+        }
+        output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_dialogflow_fulfillment_delivery',
+                              'Dialogflow ES fulfillment delivery', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_video_stitcher_config_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    buckets = {r['data'].get('name') for r in resources
+               if r['type'] == 'bucket' and isinstance(r.get('data'), dict)}
+    for resource in resources:
+        if resource['type'] not in {'video_stitcher_live_config', 'video_stitcher_vod_config'} or not isinstance(resource.get('data'), dict):
+            continue
+        data = resource['data']
+        if data.get('state') != 'READY':
+            continue
+        for field, purpose in (('sourceOrigin', 'source_manifest'), ('adTagOrigin', 'ad_tag')):
+            origin = data.get(field)
+            if not isinstance(origin, str) or not origin:
+                continue
+            if origin.startswith('gs://') and origin[5:] in buckets:
+                continue
+            evidence = {
+                'observed': f"Video Stitcher config {data.get('name')} fetches a configured {purpose.replace('_', ' ')}.",
+                'destination_origin': origin,
+                'purpose': purpose,
+                'source': source(snapshot, resource, 'sourceUri' if field == 'sourceOrigin' else 'adTagUri'),
+                'risk_state': 'unknown',
+                'semantics': 'Destination ownership, request authentication, successful retrieval and content are not established.',
+            }
+            output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_video_stitcher_' + purpose,
+                                  'Video Stitcher external fetch', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_lakehouse_federation_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        if resource['type'] != 'lakehouse_resource' or not isinstance(resource.get('data'), dict):
+            continue
+        data = resource['data']
+        if data.get('resourceKind') != 'catalog' or not data.get('federatedProvider'):
+            continue
+        evidence = {
+            'observed': f"Lakehouse catalog {data.get('name')} is configured for {data['federatedProvider']} federation.",
+            'provider': data['federatedProvider'],
+            'private_service_directory': data.get('privateServiceDirectory'),
+            'source': source(snapshot, resource, 'federatedProvider'),
+            'risk_state': 'unknown',
+            'semantics': 'Remote account ownership, network path, source authorization, successful synchronization and data content are not established.',
+        }
+        output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_lakehouse_federated_catalog',
+                              'Lakehouse federated catalog', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_vision_ai_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        data = resource.get('data')
+        if not isinstance(data, dict):
+            continue
+        if resource['type'] == 'visionai_stream' and data.get('enableHlsPlayback') is True:
+            evidence = {
+                'observed': f"Vision AI stream {data.get('name')} has HLS playback enabled.",
+                'source': source(snapshot, resource, 'enableHlsPlayback'),
+                'risk_state': 'unknown',
+                'semantics': 'Playback requires a generated JWT; token issuance permissions, clients, expiration and successful playback are not established.',
+            }
+            output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_visionai_hls_playback',
+                                  'Vision AI HLS playback enabled', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_apigee_route_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        if resource['type'] != 'apigee_route' or not isinstance(resource.get('data'), dict):
+            continue
+        data = resource['data']
+        if data.get('state') != 'READY' or not data.get('hostnames') or not data.get('deployedEnvgroups'):
+            continue
+        evidence = {
+            'observed': f"Apigee deployment {data.get('name')} has a ready route in an attached environment group.",
+            'hostnames': data['hostnames'],
+            'source': source(snapshot, resource, 'hostnames'),
+            'risk_state': 'unknown',
+            'semantics': 'Public DNS, load balancer reachability, proxy basepath, API policy enforcement and successful requests are not established.',
+        }
+        output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_apigee_deployed_route',
+                              'Apigee deployed API route', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_application_integration_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        data = resource.get('data')
+        if not isinstance(data, dict):
+            continue
+        if resource['type'] == 'application_integration_template':
+            visibility = data.get('visibility')
+            if visibility not in {'PUBLIC', 'SHARED'}:
+                continue
+            evidence = {
+                'observed': f"Application Integration template {data.get('name')} is {visibility.lower()}.",
+                'visibility': visibility, 'shared_with': data.get('sharedWith', []),
+                'source': source(snapshot, resource, 'visibility'),
+                'risk_state': 'observed' if visibility == 'PUBLIC' else 'unknown',
+                'semantics': 'Template sharing declares access to the template bundle; recipient identity and successful download are not established for SHARED templates.',
+            }
+            output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_integration_template_share',
+                                  'Application Integration template sharing',
+                                  'high' if visibility == 'PUBLIC' else 'info', evidence,
+                                  status='FAIL' if visibility == 'PUBLIC' else 'UNKNOWN'))
+        elif (resource['type'] == 'application_integration_version' and data.get('state') == 'ACTIVE'
+              and 'API' in data.get('triggerTypes', [])):
+            evidence = {
+                'observed': f"Published integration {data.get('name')} has an API trigger.",
+                'source': source(snapshot, resource, 'triggerTypes'),
+                'risk_state': 'unknown',
+                'semantics': 'Invocation requires Google API authentication and IAM; external callers, conditions and successful execution are not established.',
+            }
+            output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_integration_api_trigger',
+                                  'Application Integration API trigger', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_agent_registry_destination_findings(snapshot, resources):
+    if snapshot['provider'] != 'gcp':
+        return []
+    output = []
+    for resource in resources:
+        if resource['type'] not in {'agent_registry_endpoint', 'agent_registry_mcp_server'}:
+            continue
+        data = resource.get('data')
+        if not isinstance(data, dict):
+            continue
+        origins = [origin for origin in data.get('origins', []) if isinstance(origin, str)
+                   and not origin.lower().endswith('.googleapis.com')]
+        if not origins:
+            continue
+        evidence = {
+            'observed': f"Agent Registry {resource['type']} {data.get('name')} declares endpoint origins.",
+            'origins': origins,
+            'source': source(snapshot, resource, 'origins'),
+            'risk_state': 'unknown',
+            'semantics': 'Registry entry alone does not prove destination ownership, gateway policy authorization, successful outbound calls, or public reachability of the target.',
+        }
+        output.append(finding(snapshot, resource, 'exposure', 'analysis.gcp_agent_registry_destination',
+                              'Agent Registry endpoint destination', 'info', evidence, status='UNKNOWN'))
+    return output
+
+
+def gcp_secure_source_manager_psc_findings(snapshot, resources):
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "secure_source_manager_instance" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        private = data.get("privateConfig")
+        if not isinstance(private, dict) or private.get("isPrivate") is not True:
+            continue
+        allowed = private.get("pscAllowedProjects")
+        if not isinstance(allowed, list) or not allowed:
+            continue
+        evidence = {
+            "observed": f"Private Secure Source Manager instance {data.get('name')} permits PSC connections from additional projects.",
+            "psc_allowed_projects": sorted({value for value in allowed if isinstance(value, str)}),
+            "source": source(snapshot, resource, "privateConfig.pscAllowedProjects"),
+            "risk_state": "unknown",
+            "semantics": "Additional PSC project allowlist is configured; endpoint creation, network reachability, IAM and repository access are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_secure_source_manager_psc_share",
+                              "Secure Source Manager cross-project PSC access", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_cloudbuild_webhook_findings(snapshot, resources):
+    """Record public trigger ingress without retaining webhook credentials or URL queries."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "cloudbuild_trigger" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        webhook = data.get("webhookConfig")
+        if not isinstance(webhook, dict) or data.get("disabled") is True:
+            continue
+        state = webhook.get("state")
+        status = "UNKNOWN" if state == "SECRET_DELETED" else "FAIL"
+        approval = data.get("approvalConfig")
+        evidence = {
+            "observed": f"Cloud Build trigger {data.get('resourceName') or data.get('name') or data.get('id')} accepts webhook requests at the public Cloud Build API origin when its configured secret is valid.",
+            "public_origin": "https://cloudbuild.googleapis.com",
+            "webhook_auth_state": state if state in ("OK", "SECRET_DELETED", "STATE_UNSPECIFIED") else "unreported",
+            "approval_required": isinstance(approval, dict) and approval.get("approvalRequired") is True,
+            "source": source(snapshot, resource, "webhookConfig"),
+            "risk_state": "observed" if status == "FAIL" else "unknown",
+            "semantics": "Public webhook route requires an API key and Secret Manager secret; neither credential nor successful build invocation was observed.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_cloudbuild_public_webhook",
+                              "Cloud Build public webhook trigger", "medium" if status == "FAIL" else "info",
+                              evidence, status=status))
+    return output
+
+
+def gcp_metastore_consumer_findings(snapshot, resources):
+    """Keep cross-project private metastore endpoints visible without inferring reachability."""
+    if snapshot["provider"] != "gcp":
+        return []
+    aliases = {}
+    for row in resources:
+        if row["type"] == "project" and isinstance(row.get("data"), dict):
+            project = row["data"]
+            names = {str(value) for value in (project.get("projectId"), project.get("projectNumber")) if value}
+            for name in names:
+                aliases[name] = names
+    output = []
+    for resource in resources:
+        if resource["type"] != "dataproc_metastore_service" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        owner = resource.get("scope", "").removeprefix("projects/")
+        owned = aliases.get(owner, {owner})
+        config = data.get("networkConfig")
+        consumers = config.get("consumers") if isinstance(config, dict) else None
+        if not isinstance(consumers, list):
+            continue
+        foreign = sorted({subnet for item in consumers if isinstance(item, dict)
+                          if isinstance((subnet := item.get("subnetwork")), str)
+                          if (match := re.fullmatch(r"projects/([^/]+)/regions/[^/]+/subnetworks/[^/]+", subnet))
+                          if match[1] not in owned})
+        if not foreign:
+            continue
+        evidence = {
+            "observed": f"Dataproc Metastore service {data.get('name')} has private endpoints in subnetworks outside its project identity.",
+            "consumer_subnetworks": foreign,
+            "source": source(snapshot, resource, "networkConfig.consumers.subnetwork"),
+            "risk_state": "unknown",
+            "semantics": "Configured private consumer endpoint only; VPC ownership, routes, firewall, IAM and metadata access are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_metastore_cross_project_consumer",
+                              "Dataproc Metastore cross-project private consumer", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_looker_sharing_findings(snapshot, resources):
+    """Report Looker Core export destinations and cross-project PSC ingress."""
+    if snapshot["provider"] != "gcp":
+        return []
+    owned_buckets = {row["data"].get("name") for row in resources
+                     if row["type"] == "bucket" and isinstance(row.get("data"), dict)}
+    output = []
+    for resource in resources:
+        if resource["type"] != "looker_instance" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        export = data.get("periodicExportConfig")
+        uri = export.get("gcsUri") if isinstance(export, dict) else None
+        if isinstance(uri, str) and re.fullmatch(r"gs://[a-z0-9][a-z0-9._-]{1,221}[a-z0-9]", uri):
+            bucket = uri[5:]
+            if bucket not in owned_buckets:
+                evidence = {
+                    "observed": f"Looker instance {data.get('name')} has a periodic export to {uri}; the destination bucket was not observed in the scanned inventory.",
+                    "destination_bucket": bucket, "source": source(snapshot, resource, "periodicExportConfig.gcsUri"),
+                    "risk_state": "unknown",
+                    "semantics": "Configured export destination only; destination ownership, bucket policy, export completion and exported content are not established.",
+                }
+                output.append(finding(snapshot, resource, "exposure", "analysis.gcp_looker_external_export",
+                                      "Looker periodic export destination outside scanned buckets", "info", evidence, status="UNKNOWN"))
+        psc = data.get("pscConfig")
+        networks = psc.get("allowedVpcs") if isinstance(psc, dict) else None
+        project = resource.get("scope", "").removeprefix("projects/")
+        if not project or not isinstance(networks, list):
+            continue
+        foreign = sorted({value for value in networks if isinstance(value, str)
+                          and (match := re.fullmatch(r"projects/([^/]+)/global/networks/[^/]+", value))
+                          and match[1] != project})
+        if foreign:
+            evidence = {
+                "observed": f"Looker instance {data.get('name')} allows private ingress from VPC networks in other projects.",
+                "allowed_vpcs": foreign, "source": source(snapshot, resource, "pscConfig.allowedVpcs"),
+                "risk_state": "unknown",
+                "semantics": "Cross-project PSC ingress declaration only; organization ownership, network route and Looker user authorization are not established.",
+            }
+            output.append(finding(snapshot, resource, "exposure", "analysis.gcp_looker_cross_project_psc",
+                                  "Looker cross-project private ingress", "info", evidence, status="UNKNOWN"))
+    return output
+
+
+def gcp_scheduler_public_http_target_findings(snapshot, resources):
+    """Surface configured public HTTP delivery without OIDC, including OAuth."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "scheduler_job" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        target = data.get("httpTarget")
+        if data.get("state") != "ENABLED" or not isinstance(target, dict) or isinstance(target.get("oidcToken"), dict):
+            continue
+        uri = target.get("uri")
+        if not isinstance(uri, str):
+            continue
+        try:
+            parsed = urlsplit(uri)
+            host, port = parsed.hostname, parsed.port
+        except ValueError:
+            continue
+        if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password:
+            continue
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if "." not in host or host.lower() == "localhost":
+                continue
+        else:
+            if not address.is_global:
+                continue
+        if port is not None and not 1 <= port <= 65535:
+            continue
+        origin_host = f"[{host.lower()}]" if ":" in host else host.lower()
+        origin = f"{parsed.scheme}://{origin_host}" + (f":{port}" if port else "")
+        token = target.get("oauthToken")
+        account = token.get("serviceAccountEmail") if isinstance(token, dict) else None
+        if token is not None and (not isinstance(account, str) or not account):
+            continue
+        name = data.get("name", native_id(resource))
+        observed = [f"The enabled Cloud Scheduler job {name} targets public HTTP origin {origin}."]
+        if account:
+            observed.extend((f"The configured OAuth token uses service account {account}.",
+                             "The target may receive that account's access token when the job runs."))
+        else:
+            observed.append("No OIDC or OAuth token is configured for the HTTP target.")
+        observed.append("The target may receive the scheduled HTTP request; ownership, request content, and delivery are unverified.")
+        evidence = {"observed": "\n".join(observed), "target_origin": origin,
+                    "http_method": target.get("httpMethod"),
+                    "authentication": "oauth" if account else "none",
+                    "source": source(snapshot, resource, "httpTarget"),
+                    "risk_state": "observed",
+                    "semantics": "Configured public HTTP target only; recipient ownership, request contents, execution and delivery are not established."}
+        if account:
+            evidence["service_account"] = account
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_scheduler_public_http_target",
+                              "Cloud Scheduler public HTTP target", "high", evidence, status="FAIL"))
+    return output
+
+
+def gcp_pubsub_cross_project_delivery_findings(snapshot, resources):
+    """Report configured cross-project message export and dead-letter targets."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    bucket_projects = {}
+    for resource in resources:
+        if resource["type"] == "bucket" and isinstance(resource.get("data"), dict):
+            bucket = resource["data"].get("name")
+            scope = resource.get("scope")
+            if isinstance(bucket, str) and isinstance(scope, str) and scope.startswith("projects/"):
+                bucket_projects[bucket] = scope.split("/", 1)[1]
+    for resource in resources:
+        data = resource.get("data")
+        if not isinstance(data, dict):
+            continue
+        kind = resource["type"]
+        if kind != "pubsub_subscription":
+            continue
+        name = data.get("name")
+        match = re.fullmatch(r"projects/([^/]+)/subscriptions/[^/]+", name) if isinstance(name, str) else None
+        if match is None:
+            continue
+        project = match.group(1)
+        if data.get("detached") is True:
+            continue
+        targets = []
+        for field, target_field, pattern in (
+                ("bigqueryConfig", "table", r"([^.]+)\.[^.]+\.[^.]+"),
+                ("bigtableConfig", "table", r"projects/([^/]+)/instances/[^/]+/tables/[^/]+"),
+                ("deadLetterPolicy", "deadLetterTopic", r"projects/([^/]+)/topics/[^/]+")):
+            config = data.get(field)
+            target = config.get(target_field) if isinstance(config, dict) else None
+            target_match = re.fullmatch(pattern, target) if isinstance(target, str) else None
+            if target_match and target_match.group(1) != project:
+                targets.append({"field": f"{field}.{target_field}", "target": target,
+                                "target_project": target_match.group(1)})
+        storage = data.get("cloudStorageConfig")
+        bucket = storage.get("bucket") if isinstance(storage, dict) else None
+        unresolved_bucket = None
+        if isinstance(bucket, str) and bucket and bucket_projects.get(bucket) != project:
+            if bucket in bucket_projects:
+                targets.append({"field": "cloudStorageConfig.bucket", "target": bucket,
+                                "target_project": bucket_projects[bucket]})
+            else:
+                unresolved_bucket = bucket
+        if not targets and not unresolved_bucket:
+            continue
+        destinations = [target["target"] for target in targets]
+        if unresolved_bucket:
+            destinations.append(unresolved_bucket)
+        status = "FAIL" if targets else "UNKNOWN"
+        evidence = {
+            "observed": (f"Pub/Sub subscription {name} configures message delivery to {', '.join(destinations)}.\n"
+                         + ("At least one destination is in another project. " if targets else "The Cloud Storage bucket owner is unresolved. ")
+                         + "Destinations can receive subscription messages when delivery succeeds; ownership and delivery were not verified."),
+            "delivery_targets": targets,
+            "unresolved_bucket": unresolved_bucket,
+            "source": source(snapshot, resource, "data"),
+            "risk_state": "observed" if targets else "unknown",
+            "semantics": "Configured export or dead-letter target; bucket ownership when not collected, IAM conditions, delivery and message contents are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_pubsub_cross_project_delivery",
+                              "Pub/Sub cross-project message delivery", "high" if targets else "info",
+                              evidence, status=status))
+    return output
+
+
+def gcp_pubsub_attached_subscription_findings(snapshot, resources):
+    """Report subscriptions in other projects attached to an owned topic."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "pubsub_topic_attachment" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        name = data.get("name")
+        match = re.fullmatch(r"projects/([^/]+)/topics/[^/]+", name) if isinstance(name, str) else None
+        if match is None:
+            continue
+        coverage = data.get("_coverage")
+        attached_coverage = coverage.get("attachedSubscriptions") if isinstance(coverage, dict) else None
+        status = attached_coverage.get("status") if isinstance(attached_coverage, dict) else None
+        if status != "collected":
+            evidence = {
+                "observed": (f"The Pub/Sub topic {name} has no complete attached-subscription inventory.\n"
+                             "A subscription in another project could receive its messages.\n"
+                             "The attachment list must be read before cross-project delivery can be ruled out."),
+                "inventory_status": status or "missing",
+                "source": source(snapshot, resource, "attachedSubscriptions"),
+                "risk_state": "unknown",
+                "semantics": "Attached subscription inventory was incomplete; no recipient or delivery is established.",
+            }
+            output.append(finding(snapshot, resource, "exposure", "analysis.gcp_pubsub_attached_subscription_unknown",
+                                  "Pub/Sub topic subscriptions unresolved", "info", evidence, status="UNKNOWN"))
+            continue
+        names = data.get("attachedSubscriptions")
+        if not isinstance(names, list):
+            continue
+        foreign = sorted({value for value in names if isinstance(value, str)
+                          and re.fullmatch(r"projects/[^/]+/subscriptions/[^/]+", value)
+                          and value.split("/", 2)[1] != match.group(1)})
+        if not foreign:
+            continue
+        evidence = {
+            "observed": (f"The Pub/Sub topic {name} has subscriptions in other projects: {', '.join(foreign)}.\n"
+                         "Those subscriptions can receive topic messages.\n"
+                         "The recipients could be third parties; ownership, delivery, and message contents were not verified."),
+            "attached_subscriptions": foreign,
+            "source": source(snapshot, resource, "attachedSubscriptions"),
+            "risk_state": "observed",
+            "semantics": "Collected attachment names; recipient ownership, delivery and message contents are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_pubsub_cross_project_subscription",
+                              "Pub/Sub topic attached to another project", "high", evidence, status="FAIL"))
+    return output
+
+
 # --------------------------------------------------------------- dispatcher
 
 AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service", "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster", "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block", "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app", "rds_cluster", "rds_cluster_endpoint", "redshiftserverless_workgroup"]
@@ -26719,7 +27748,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "dataproc_cluster", "workbench_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
              "media_cdn_service", "target_pool", "target_instance",
-             "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
+             "workstation", "workstation_cluster", "workstations_config", "workstations_workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_engine", "vertex_agent_sandbox", "agent_gateway", "agent_registry_endpoint", "agent_registry_mcp_server", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
@@ -26732,6 +27761,7 @@ GCP_TYPES.extend(['app_engine_domain_mapping', 'app_engine_firewall_rule', 'app_
 AWS_TYPES.extend(['appstream_image', 'auditmanager_framework_share', 'backup_copy_job', 'backup_plan', 'backup_vault', 'cleanrooms_table_share', 'cloud9_environment_share', 'dataexchange_data_grant', 'ds_directory_share', 'ec2_fpga_image', 'eks_access_entry', 'imagebuilder_distribution', 'lakeformation_table_grant', 'lakeformation_tag_policy_grant', 'license_manager_distributed_grant', 'network_interface_permission', 'omics_resource_share', 'quicksight_public_dashboard', 'redshift_datashare', 's3_access_grant_share', 'securitylake_subscriber_share', 'servicecatalog_portfolio', 'transit_gateway_peering_attachment', 'wellarchitected_lens_share', 'wellarchitected_profile_share', 'wellarchitected_template_share', 'wellarchitected_workload_share', 'workdocs_document_share', 'workspaces_connection_alias_share', 'workspaces_image'])
 AWS_TYPES.extend(['agentcore_gateway', 'apigatewayv2_portal', 'appconfig_configuration_profile', 'appconfig_extension_association', 'appflow_flow', 'appstream_image', 'athena_query_export', 'athena_workgroup', 'auditmanager_report_destination', 'autoscaling_group', 'backup_search_export', 'budget_notification_recipients', 'cleanrooms_collaboration_exposure', 'cloudformation_stack_instance', 'cloudmap_public_service', 'cloudsearch_domain_endpoint', 'cloudtrail', 'cloudtrail_query_export', 'codebuild_project', 'codepipeline_pipeline', 'codepipeline_webhook', 'codestar_notification_rule', 'cognito_identity_pool', 'cognito_user_pool_endpoint', 'config_aggregation_authorization', 'config_conformance_pack_delivery', 'config_delivery_channel', 'config_organization_pack_delivery', 'config_organization_rule_lambda_delivery', 'config_rule_lambda_delivery', 'datasync_task', 'dax_cluster', 'directory_service_directory', 'dms_endpoint', 'dsql_cluster', 'ecs_task_network', 'efs_replication', 'eks_access_entry', 'elastic_beanstalk_environment', 'elasticache_serverless_cache', 'eventbridge_api_destination', 'eventbridge_bus', 'eventbridge_custom_bus', 'eventbridge_pipe_exposure', 'eventbridge_rule', 'firehose_delivery_stream', 'glacier_vault_notification', 'globalaccelerator_cross_account_attachment', 'globalaccelerator_custom_routing_accelerator', 'globalaccelerator_custom_routing_listener', 'glue_dev_endpoint', 'http_api_deployed_route', 'imagebuilder_distribution', 'iot_credentials_endpoint', 'iot_data_domain', 'iot_topic_rule', 'lakeformation_permission', 'lakeformation_settings', 'oam_link', 'rum_app_monitor_endpoint', 'scheduler_schedule', 'synthetics_canary'])
 AWS_TYPES.extend(['aoss_collection', 'aoss_network_policy', 'influxdb_cluster', 'influxdb_instance', 'lattice_vpc_association', 'machinelearning_model', 'mailmanager_ingress_point', 'mailmanager_rule_route', 'marketplace_entity', 'mediapackage_origin_endpoint', 'mediapackagev2_channel_listener', 'mediapackagev2_harvest_job', 'mediatailor_playback_configuration', 'mq_broker', 'msk_cluster', 'mwaa_environment', 'neptune_graph', 'neptune_instance', 'oam_link', 'opensearch_connection', 'opensearch_ui_application', 'opensearch_vpc_endpoint_access', 'osis_endpoint_connection', 'osis_pipeline', 'osis_pipeline_endpoint', 'pcs_cluster', 'redshift_datashare', 'redshift_endpoint_authorization', 'refactor_application', 'refactor_route', 'refactor_service', 's3tables_lf_grant', 'security_ir_recipient_route', 'securitylake_exception_notification', 'securitylake_subscriber', 'sns_platform_endpoint', 'transfer_server', 'transfer_web_app', 'wellarchitected_share'])
+GCP_TYPES.extend(['api_gateway_resource', 'apigee_route', 'application_integration_template', 'application_integration_version', 'billing_account', 'cloudbuild_connection', 'cloudbuild_trigger', 'clouddeploy_custom_target_iam', 'clouddeploy_delivery_pipeline', 'clouddeploy_network_target', 'cloudrun_job', 'cloudrun_worker_pool', 'cloudtasks_delivery', 'cloudtasks_queue', 'containeranalysis_note', 'containeranalysis_occurrence', 'dataform_repository', 'dataproc_metastore_service', 'datastream_connection_profile', 'datastream_stream', 'developerconnect_account_connector', 'developerconnect_connection', 'dialogflow_es_fulfillment', 'disk', 'eventarc_enrollment', 'eventarc_message_bus', 'eventarc_pipeline', 'eventarc_trigger', 'identityplatform_config', 'identityplatform_tenant', 'image', 'infra_manager_deployment', 'integration_connection', 'knowledge_catalog_aspect_type', 'knowledge_catalog_asset', 'knowledge_catalog_entry_group', 'knowledge_catalog_entry_type', 'knowledge_catalog_lake', 'knowledge_catalog_zone', 'lakehouse_resource', 'livestream_channel', 'livestream_input', 'machine_image', 'managed_ad_domain', 'managed_ad_peering', 'managed_kafka_cluster', 'node_group', 'node_template', 'pubsub_schema_iam', 'pubsub_topic_attachment', 'resource_policy', 'scheduler_job', 'secure_source_manager_instance', 'secure_source_manager_repository', 'snapshot', 'subnetwork', 'vertex_runtime_template', 'video_stitcher_live_config', 'video_stitcher_vod_config', 'visionai_application', 'visionai_cluster', 'visionai_stream'])
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "rds_cluster", "rds_cluster_endpoint", "redshift_cluster", "redshiftserverless_workgroup",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
@@ -26740,7 +27770,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "dataproc_cluster", "workbench_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
                      "media_cdn_service",
-                     "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
+                     "workstation", "workstations_config", "workstations_workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_engine", "vertex_agent_sandbox", "agent_gateway", "agent_registry_endpoint", "agent_registry_mcp_server", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
@@ -26756,6 +27786,8 @@ EVALUATED["aws"].update(['auditmanager_framework_share', 'cleanrooms_table_share
 EVALUATED["aws"].update(['agentcore_gateway', 'apigatewayv2_portal', 'appconfig_configuration_profile', 'appconfig_extension_association', 'appflow_flow', 'appstream_image', 'athena_query_export', 'athena_workgroup', 'auditmanager_report_destination', 'autoscaling_group', 'backup_search_export', 'budget_notification_recipients', 'cleanrooms_collaboration_exposure', 'cloudformation_stack_instance', 'cloudmap_public_service', 'cloudsearch_domain_endpoint', 'cloudtrail', 'cloudtrail_query_export', 'codebuild_project', 'codepipeline_pipeline', 'codepipeline_webhook', 'codestar_notification_rule', 'cognito_identity_pool', 'cognito_user_pool_endpoint', 'config_aggregation_authorization', 'config_conformance_pack_delivery', 'config_delivery_channel', 'config_organization_pack_delivery', 'config_organization_rule_lambda_delivery', 'config_rule_lambda_delivery', 'datasync_task', 'dax_cluster', 'directory_service_directory', 'dms_endpoint', 'dsql_cluster', 'ecs_task_network', 'eks_access_entry', 'elastic_beanstalk_environment', 'elasticache_serverless_cache', 'eventbridge_bus', 'eventbridge_custom_bus', 'eventbridge_pipe_exposure', 'eventbridge_rule', 'firehose_delivery_stream', 'glacier_job_notification', 'glacier_vault_notification', 'globalaccelerator_cross_account_attachment', 'globalaccelerator_custom_routing_accelerator', 'glue_dev_endpoint', 'imagebuilder_distribution', 'iot_credentials_endpoint', 'iot_data_domain', 'iot_topic_rule', 'lakeformation_permission', 'lakeformation_settings', 'oam_link', 'rum_app_monitor_endpoint', 'scheduler_schedule', 'synthetics_canary'])
 
 EVALUATED["aws"].update(['aoss_collection', 'aoss_network_policy', 'influxdb_cluster', 'influxdb_instance', 'lattice_vpc_association', 'machinelearning_model', 'mailmanager_ingress_point', 'mailmanager_rule_route', 'marketplace_entity', 'mediapackage_origin_endpoint', 'mediapackagev2_channel_listener', 'mediapackagev2_harvest_job', 'mediatailor_playback_configuration', 'mq_broker', 'msk_cluster', 'mwaa_environment', 'neptune_graph', 'neptune_instance', 'oam_link', 'opensearch_connection', 'opensearch_ui_application', 'opensearch_vpc_endpoint_access', 'osis_endpoint_connection', 'osis_pipeline', 'osis_pipeline_endpoint', 'pcs_cluster', 'redshift_datashare', 'redshift_endpoint_authorization', 'refactor_application', 'refactor_service', 's3tables_lf_grant', 'security_ir_recipient_route', 'securitylake_exception_notification', 'securitylake_subscriber', 'sns_platform_endpoint', 'transfer_server', 'transfer_web_app', 'wellarchitected_share'])
+
+EVALUATED["gcp"].update(['api_gateway_resource', 'apigee_route', 'application_integration_template', 'application_integration_version', 'billing_account', 'cloudbuild_connection', 'cloudbuild_trigger', 'clouddeploy_custom_target_iam', 'clouddeploy_delivery_pipeline', 'clouddeploy_network_target', 'cloudrun_job', 'cloudrun_worker_pool', 'cloudtasks_delivery', 'cloudtasks_queue', 'containeranalysis_note', 'containeranalysis_occurrence', 'dataform_repository', 'dataproc_metastore_service', 'datastream_connection_profile', 'datastream_stream', 'developerconnect_account_connector', 'developerconnect_connection', 'dialogflow_es_fulfillment', 'disk', 'eventarc_enrollment', 'eventarc_message_bus', 'eventarc_pipeline', 'eventarc_trigger', 'identityplatform_config', 'identityplatform_tenant', 'image', 'infra_manager_deployment', 'integration_connection', 'knowledge_catalog_aspect_type', 'knowledge_catalog_asset', 'knowledge_catalog_entry_group', 'knowledge_catalog_entry_type', 'knowledge_catalog_lake', 'knowledge_catalog_zone', 'lakehouse_resource', 'livestream_channel', 'livestream_input', 'machine_image', 'managed_ad_domain', 'managed_ad_peering', 'managed_kafka_cluster', 'node_group', 'node_template', 'pubsub_schema_iam', 'pubsub_topic_attachment', 'resource_policy', 'scheduler_job', 'secure_source_manager_instance', 'secure_source_manager_repository', 'snapshot', 'subnetwork', 'vertex_runtime_template', 'video_stitcher_live_config', 'video_stitcher_vod_config', 'visionai_application', 'visionai_cluster', 'visionai_stream'])
 
 def assess(snapshot, resources):
     """Return [Assessment] for every asset with a public address/endpoint (cached per snapshot)."""
@@ -26894,7 +27926,11 @@ def assess(snapshot, resources):
                 "firebase_database_rules": _gcp_firebase_rules,
                 "vpn_gateway": _gcp_vpn_gateway, "vpn_tunnel": _gcp_vpn_tunnel,
                 "cloud_ftp_server": _gcp_ftp, "looker_instance": _gcp_looker, "blockchain_node": _gcp_blockchain_node,
-                "data_fusion_instance": _gcp_data_fusion, "dataproc_cluster": _gcp_dataproc_cluster,
+                "data_fusion_instance": _gcp_data_fusion, "managed_kafka_cluster": _gcp_managed_kafka,
+                "secure_source_manager_instance": _gcp_secure_source_manager, "dataproc_cluster": _gcp_dataproc_cluster,
+                "developerconnect_connection": _gcp_developerconnect_proxy,
+                "developerconnect_account_connector": _gcp_developerconnect_proxy,
+                "livestream_input": _gcp_livestream_input,
                 "workbench_instance": _gcp_workbench_instance,
                 "vertex_index_endpoint": _gcp_vertex_index,
                 "vertex_feature_online_store": _gcp_vertex_feature_store, "app_engine_application": _gcp_app_engine,
@@ -26905,6 +27941,7 @@ def assess(snapshot, resources):
                 "workstation": _gcp_workstation, "beyondcorp_connection": _gcp_beyondcorp_connection,
                 "contact_center": _gcp_contact_center, "oracle_goldengate_deployment": _gcp_oracle_goldengate,
                 "vertex_agent_sandbox": _gcp_vertex_sandbox,
+                "agent_gateway": _gcp_agent_gateway,
                 "tpu_node": _gcp_tpu_node,
                 "vmware_external_address": _gcp_vmware_address},
         "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
@@ -28004,6 +29041,8 @@ def internet_findings(snapshot, resources, *, related_snapshots=()):
     output.extend(gcp_cloudtasks_appengine_route_findings(snapshot, resources))
     output.extend(gcp_workflow_http_auth_findings(snapshot, resources))
     output.extend(gcp_pubsub_oidc_push_findings(snapshot, resources))
+    output.extend(gcp_pubsub_cross_project_delivery_findings(snapshot, resources))
+    output.extend(gcp_pubsub_attached_subscription_findings(snapshot, resources))
     output.extend(gcp_artifact_public_reader_findings(snapshot, resources))
     output.extend(gcp_pubsub_public_grant_findings(snapshot, resources))
     output.extend(gcp_eventarc_message_bus_publish_grant_findings(snapshot, resources))
@@ -28029,6 +29068,27 @@ def internet_findings(snapshot, resources, *, related_snapshots=()):
     output.extend(gcp_secure_source_manager_psc_allowance_findings(snapshot, resources))
     output.extend(gcp_apigee_psc_consumer_findings(snapshot, resources))
     output.extend(gcp_dns_public_address_record_findings(snapshot, resources))
+    output.extend(gcp_agent_registry_destination_findings(snapshot, resources))
+    output.extend(gcp_apigee_route_findings(snapshot, resources))
+    output.extend(gcp_application_integration_findings(snapshot, resources))
+    output.extend(gcp_cloud_tasks_delivery_findings(snapshot, resources))
+    output.extend(gcp_cloudbuild_webhook_findings(snapshot, resources))
+    output.extend(gcp_dataform_remote_findings(snapshot, resources))
+    output.extend(gcp_datastream_sharing_findings(snapshot, resources))
+    output.extend(gcp_developerconnect_webhook_findings(snapshot, resources))
+    output.extend(gcp_dialogflow_fulfillment_findings(snapshot, resources))
+    output.extend(gcp_eventarc_pipeline_findings(snapshot, resources))
+    output.extend(gcp_identity_platform_signup_findings(snapshot, resources))
+    output.extend(gcp_integration_connector_findings(snapshot, resources))
+    output.extend(gcp_lakehouse_federation_findings(snapshot, resources))
+    output.extend(gcp_livestream_distribution_findings(snapshot, resources))
+    output.extend(gcp_looker_sharing_findings(snapshot, resources))
+    output.extend(gcp_managed_ad_sharing_findings(snapshot, resources))
+    output.extend(gcp_metastore_consumer_findings(snapshot, resources))
+    output.extend(gcp_scheduler_public_http_target_findings(snapshot, resources))
+    output.extend(gcp_secure_source_manager_psc_findings(snapshot, resources))
+    output.extend(gcp_video_stitcher_config_findings(snapshot, resources))
+    output.extend(gcp_vision_ai_findings(snapshot, resources))
     output.extend(gcp_eventarc_route_target_findings(snapshot, resources))
     output.extend(gcp_eventarc_service_delivery_findings(snapshot, resources))
     output.extend(gcp_eventarc_partner_channel_findings(snapshot, resources))

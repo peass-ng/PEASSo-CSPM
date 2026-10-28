@@ -20,6 +20,7 @@
     "hydrate": true,
     "key": "agentGateways",
     "location_kind": "region",
+    "projection": "agent_gateway",
     "reference": "https://networkservices.googleapis.com/$discovery/rest?version=v1",
     "resource_fields": "networkConfig(egress(networkAttachment),dnsPeeringConfig(targetNetwork)),protocols,agentGatewayCard(mtlsEndpoint),name",
     "scope_kind": "projects",
@@ -190,6 +191,151 @@
     "service": "ids",
     "version": "v1"
   },
+  "managed_kafka_cluster": {
+    "fields": "clusters(name,state,gcpConfig(accessConfig(networkConfigs(subnet),publicClusterConfig(allowedSourceIpRanges))),bootstrapAddress,publicClusterDetails(externalIpAddresses)),nextPageToken,unreachable",
+    "get_fields": "name,state,gcpConfig(accessConfig(networkConfigs(subnet),publicClusterConfig(allowedSourceIpRanges))),bootstrapAddress,publicClusterDetails(externalIpAddresses)",
+    "get_parameters": {"view": "CLUSTER_VIEW_FULL"},
+    "hydrate": true,
+    "key": "clusters",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/managed-service-for-apache-kafka/docs/reference/rest/v1/projects.locations.clusters",
+    "resource_fields": "name,state,gcpConfig(accessConfig(networkConfigs(subnet),publicClusterConfig(allowedSourceIpRanges))),bootstrapAddress,publicClusterDetails(externalIpAddresses)",
+    "scope_kind": "projects",
+    "segment": "clusters",
+    "service": "managedkafka",
+    "version": "v1"
+  },
+  "dataproc_metastore_service": {
+    "fields": "services(name,state,network,endpointUri,port,artifactGcsUri,networkConfig(consumers(endpointUri,endpointLocation,subnetwork))),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "services",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/dataproc-metastore/docs/reference/rest/v1/projects.locations.services",
+    "scope_kind": "projects",
+    "segment": "services",
+    "service": "metastore",
+    "version": "v1"
+  },
+  "secure_source_manager_instance": {
+    "fields": "instances(name,state,hostConfig(html,api,gitHttp,gitSsh),privateConfig(isPrivate,pscAllowedProjects)),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "instances",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/secure-source-manager/docs/reference/rest/v1/projects.locations.instances",
+    "scope_kind": "projects",
+    "segment": "instances",
+    "service": "securesourcemanager",
+    "version": "v1"
+  },
+  "secure_source_manager_repository": {
+    "fields": "repositories(name,instance),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "repositories",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/secure-source-manager/docs/reference/rest/v1/projects.locations.repositories",
+    "scope_kind": "projects",
+    "segment": "repositories",
+    "service": "securesourcemanager",
+    "version": "v1"
+  },
+  "developerconnect_connection": {
+    "fields": "connections(name,disabled,reconciling,gitProxyConfig(enabled,httpProxyBaseUri),githubEnterpriseConfig(webhookSecretSecretVersion),gitlabConfig(webhookSecretSecretVersion),gitlabEnterpriseConfig(webhookSecretSecretVersion),bitbucketDataCenterConfig(webhookSecretSecretVersion),bitbucketCloudConfig(webhookSecretSecretVersion)),nextPageToken,unreachable",
+    "key": "connections",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/developer-connect/docs/api/reference/rest/v1/projects.locations.connections",
+    "scope_kind": "projects",
+    "segment": "connections",
+    "service": "developerconnect",
+    "version": "v1"
+  },
+  "developerconnect_account_connector": {
+    "fields": "accountConnectors(name,proxyConfig(enabled,httpProxyBaseUri)),nextPageToken,unreachable",
+    "key": "accountConnectors",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/developer-connect/docs/api/reference/rest/v1/projects.locations.accountConnectors",
+    "scope_kind": "projects",
+    "segment": "accountConnectors",
+    "service": "developerconnect",
+    "version": "v1"
+  },
+  "datastream_connection_profile": {
+    "fields": "connectionProfiles(name,oracleProfile(hostname,port),mysqlProfile(hostname,port),postgresqlProfile(hostname,port),sqlServerProfile(hostname,port),gcsProfile(bucket),staticServiceIpConnectivity,forwardSshConnectivity(hostname,port),privateConnectivity(privateConnection)),nextPageToken,unreachable",
+    "key": "connectionProfiles",
+    "location_kind": "region",
+    "projection": "datastream_connection_profile",
+    "reference": "https://docs.cloud.google.com/datastream/docs/reference/rest/v1/projects.locations.connectionProfiles",
+    "scope_kind": "projects",
+    "segment": "connectionProfiles",
+    "service": "datastream",
+    "version": "v1"
+  },
+  "datastream_stream": {
+    "fields": "streams(name,state,sourceConfig(sourceConnectionProfile),destinationConfig(destinationConnectionProfile,bigqueryDestinationConfig(singleTargetDataset(datasetId),sourceHierarchyDatasets(projectId),blmtConfig(bucket)))),nextPageToken,unreachable",
+    "key": "streams",
+    "location_kind": "region",
+    "projection": "datastream_stream",
+    "reference": "https://docs.cloud.google.com/datastream/docs/reference/rest/v1/projects.locations.streams",
+    "scope_kind": "projects",
+    "segment": "streams",
+    "service": "datastream",
+    "version": "v1"
+  },
+  "dataform_repository": {
+    "fields": "repositories(name,gitRemoteSettings(url)),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "repositories",
+    "location_kind": "region",
+    "projection": "dataform_repository",
+    "reference": "https://docs.cloud.google.com/dataform/reference/rest/v1/projects.locations.repositories",
+    "scope_kind": "projects",
+    "segment": "repositories",
+    "service": "dataform",
+    "version": "v1"
+  },
+  "video_stitcher_live_config": {
+    "fields": "liveConfigs(name,state,sourceUri,adTagUri),nextPageToken",
+    "key": "liveConfigs",
+    "location_kind": "region",
+    "projection": "video_stitcher_config",
+    "reference": "https://docs.cloud.google.com/video-stitcher/docs/reference/rest/v1/projects.locations.liveConfigs",
+    "scope_kind": "projects",
+    "segment": "liveConfigs",
+    "service": "videostitcher",
+    "version": "v1"
+  },
+  "video_stitcher_vod_config": {
+    "fields": "vodConfigs(name,state,sourceUri,adTagUri),nextPageToken",
+    "key": "vodConfigs",
+    "location_kind": "region",
+    "projection": "video_stitcher_config",
+    "reference": "https://docs.cloud.google.com/video-stitcher/docs/reference/rest/v1/projects.locations.vodConfigs",
+    "scope_kind": "projects",
+    "segment": "vodConfigs",
+    "service": "videostitcher",
+    "version": "v1"
+  },
+  "livestream_input": {
+    "fields": "inputs(name,type,uri,securityRules(ipRanges)),nextPageToken,unreachable",
+    "key": "inputs",
+    "location_kind": "region",
+    "projection": "livestream_input",
+    "reference": "https://docs.cloud.google.com/livestream/docs/reference/rest/v1/projects.locations.inputs",
+    "scope_kind": "projects",
+    "segment": "inputs",
+    "service": "livestream",
+    "version": "v1"
+  },
+  "livestream_channel": {
+    "fields": "channels(name,streamingState,distributions(state,srtPush(uri),rtmpPush(uri))),nextPageToken,unreachable",
+    "key": "channels",
+    "location_kind": "region",
+    "projection": "livestream_channel",
+    "reference": "https://docs.cloud.google.com/livestream/docs/reference/rest/v1/projects.locations.channels",
+    "scope_kind": "projects",
+    "segment": "channels",
+    "service": "livestream",
+    "version": "v1"
+  },
   "media_cdn_service": {
     "fields": "edgeCacheServices(name,ipv4Addresses,ipv6Addresses,requireTls,routing(hostRules(hosts)),edgeSecurityPolicy),nextPageToken",
     "key": "edgeCacheServices",
@@ -204,12 +350,28 @@
     "get_fields": "name,anthosCluster(membership),gke(cluster,dnsEndpoint,internalIp),executionConfigs(workerPool,privatePool(workerPool))",
     "get_parameters": {},
     "hydrate": true,
+    "iam_policy": true,
     "key": "targets",
     "location_kind": "region",
     "reference": "https://clouddeploy.googleapis.com/$discovery/rest?version=v1",
     "resource_fields": "name,anthosCluster(membership),gke(cluster,dnsEndpoint,internalIp),executionConfigs(workerPool,privatePool(workerPool))",
     "scope_kind": "projects",
     "segment": "targets",
+    "service": "clouddeploy",
+    "version": "v1"
+  },
+  "clouddeploy_custom_target_iam": {
+    "fields": "customTargetTypes(name),nextPageToken,unreachable",
+    "get_fields": "name",
+    "get_parameters": {},
+    "hydrate": true,
+    "iam_policy": true,
+    "key": "customTargetTypes",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/deploy/docs/api/reference/rest/v1/projects.locations.customTargetTypes",
+    "resource_fields": "name",
+    "scope_kind": "projects",
+    "segment": "customTargetTypes",
     "service": "clouddeploy",
     "version": "v1"
   },
@@ -264,6 +426,7 @@
   },
   "data_fusion_instance": {
     "fields": "instances(maintenanceEvents(state),serviceEndpoint,apiEndpoint,privateInstance,accelerators(state),networkConfig(privateServiceConnectConfig(unreachableCidrBlock,effectiveUnreachableCidrBlock,networkAttachment),network,connectionType),workforceIdentityServiceEndpoint,name,state),nextPageToken,unreachable",
+    "iam_policy": true,
     "key": "instances",
     "reference": "https://datafusion.googleapis.com/$discovery/rest?version=v1",
     "segment": "instances",
@@ -365,8 +528,10 @@
     "get_fields": "destinations(httpEndpoint(uri),networkConfig(networkAttachment)),name",
     "get_parameters": {},
     "hydrate": true,
+    "iam_policy": true,
     "key": "pipelines",
     "location_kind": "region",
+    "projection": "eventarc_pipeline",
     "reference": "https://eventarc.googleapis.com/$discovery/rest?version=v1",
     "resource_fields": "destinations(httpEndpoint(uri),networkConfig(networkAttachment)),name",
     "scope_kind": "projects",
@@ -375,14 +540,15 @@
     "version": "v1"
   },
   "eventarc_trigger": {
-    "fields": "triggers(destination(gke(cluster),cloudRun(region),httpEndpoint(uri),networkConfig(networkAttachment)),name),nextPageToken,unreachable",
-    "get_fields": "destination(gke(cluster),cloudRun(region),httpEndpoint(uri),networkConfig(networkAttachment)),name",
+    "fields": "triggers(name),nextPageToken,unreachable",
+    "get_fields": "name",
     "get_parameters": {},
     "hydrate": true,
+    "iam_policy": true,
     "key": "triggers",
     "location_kind": "region",
     "reference": "https://eventarc.googleapis.com/$discovery/rest?version=v1",
-    "resource_fields": "destination(gke(cluster),cloudRun(region),httpEndpoint(uri),networkConfig(networkAttachment)),name",
+    "resource_fields": "name",
     "scope_kind": "projects",
     "segment": "triggers",
     "service": "eventarc",
@@ -486,6 +652,7 @@
     "hydrate": true,
     "iam_policy": true,
     "key": "connections",
+    "projection": "integration_connection",
     "reference": "https://connectors.googleapis.com/$discovery/rest?version=v1",
     "segment": "connections",
     "service": "connectors",
@@ -513,8 +680,17 @@
     "service": "networkconnectivity",
     "version": "v1"
   },
+  "infra_manager_deployment": {
+    "fields": "deployments(name,state,artifactsGcsBucket,serviceAccount),nextPageToken",
+    "iam_policy": true,
+    "key": "deployments",
+    "reference": "https://config.googleapis.com/$discovery/rest?version=v1",
+    "segment": "deployments",
+    "service": "config",
+    "version": "v1"
+  },
   "looker_instance": {
-    "fields": "instances(consumerNetwork,customDomain(state),ingressPrivateIp,controlledEgressEnabled,pscConfig(serviceAttachments(targetServiceAttachmentUri,localFqdn,connectionStatus,localFqdns),allowedVpcs,lookerServiceAttachmentUri),egressPublicIp,encryptionConfig(kmsKeyState),privateIpEnabled,state,controlledEgressConfig(egressFqdns),publicIpEnabled,ingressPublicIp,pscEnabled,ingressIpAllowlistConfig(allowlistRules(ipRange)),name),nextPageToken,unreachable",
+    "fields": "instances(consumerNetwork,customDomain(domain,state),ingressPrivateIp,controlledEgressEnabled,pscConfig(serviceAttachments(targetServiceAttachmentUri,localFqdn,connectionStatus,localFqdns),allowedVpcs,lookerServiceAttachmentUri),egressPublicIp,encryptionConfig(kmsKeyState),privateIpEnabled,state,controlledEgressConfig(egressFqdns),periodicExportConfig(gcsUri),publicIpEnabled,ingressPublicIp,lookerUri,pscEnabled,ingressIpAllowlistConfig(enabled,allowlistRules(ipRange)),name),nextPageToken,unreachable",
     "key": "instances",
     "reference": "https://looker.googleapis.com/$discovery/rest?version=v1",
     "segment": "instances",
@@ -544,14 +720,14 @@
     "version": "v1"
   },
   "managed_ad_peering": {
-    "fields": "peerings(authorizedNetwork,state,name),nextPageToken,unreachable",
-    "get_fields": "authorizedNetwork,state,name",
+    "fields": "peerings(authorizedNetwork,domainResource,state,name),nextPageToken,unreachable",
+    "get_fields": "authorizedNetwork,domainResource,state,name",
     "get_parameters": {},
     "hydrate": true,
     "key": "peerings",
     "location_kind": "global",
     "reference": "https://managedidentities.googleapis.com/$discovery/rest?version=v1",
-    "resource_fields": "authorizedNetwork,state,name",
+    "resource_fields": "authorizedNetwork,domainResource,state,name",
     "scope_kind": "projects",
     "segment": "peerings",
     "service": "managedidentities",
@@ -1107,8 +1283,11 @@
     "get_fields": "spec(containerSpec(port),deploymentSpec(keepAliveProbe(httpGet(port)),pscInterfaceConfig(networkAttachment,dnsPeeringConfigs(targetNetwork)))),name",
     "get_parameters": {},
     "hydrate": true,
+    "iam_method": "POST_EMPTY",
+    "iam_policy": true,
     "key": "reasoningEngines",
     "location_kind": "region",
+    "projection": "vertex_agent_engine",
     "reference": "https://aiplatform.googleapis.com/$discovery/rest?version=v1",
     "resource_fields": "spec(containerSpec(port),deploymentSpec(keepAliveProbe(httpGet(port)),pscInterfaceConfig(networkAttachment,dnsPeeringConfigs(targetNetwork)))),name",
     "scope_kind": "projects",
@@ -1264,6 +1443,7 @@
   },
   "vertex_runtime_template": {
     "fields": "notebookRuntimeTemplates(networkSpec(network,enableInternetAccess,subnetwork),networkTags,name),nextPageToken",
+    "iam_policy": true,
     "get_fields": "networkSpec(network,enableInternetAccess,subnetwork),networkTags,name",
     "get_parameters": {},
     "hydrate": true,
@@ -1475,6 +1655,181 @@
     "scope_kind": "projects",
     "segment": "workstationConfigs",
     "service": "workstations",
+    "version": "v1"
+  },
+  "knowledge_catalog_aspect_type": {
+    "fields": "aspectTypes(name),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "aspectTypes",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/knowledge-catalog/docs/reference/rest/v1/projects.locations.aspectTypes",
+    "scope_kind": "projects",
+    "segment": "aspectTypes",
+    "service": "dataplex",
+    "version": "v1"
+  },
+  "knowledge_catalog_asset": {
+    "fields": "assets(name),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "assets",
+    "location_kind": "region",
+    "parents": [
+      {
+        "key": "lakes",
+        "segment": "lakes"
+      },
+      {
+        "key": "zones",
+        "segment": "zones"
+      }
+    ],
+    "reference": "https://docs.cloud.google.com/knowledge-catalog/docs/reference/rest/v1/projects.locations.lakes.zones.assets",
+    "scope_kind": "projects",
+    "segment": "assets",
+    "service": "dataplex",
+    "version": "v1"
+  },
+  "knowledge_catalog_entry_group": {
+    "fields": "entryGroups(name),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "entryGroups",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/knowledge-catalog/docs/reference/rest/v1/projects.locations.entryGroups",
+    "scope_kind": "projects",
+    "segment": "entryGroups",
+    "service": "dataplex",
+    "version": "v1"
+  },
+  "knowledge_catalog_entry_type": {
+    "fields": "entryTypes(name),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "entryTypes",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/knowledge-catalog/docs/reference/rest/v1/projects.locations.entryTypes",
+    "scope_kind": "projects",
+    "segment": "entryTypes",
+    "service": "dataplex",
+    "version": "v1"
+  },
+  "knowledge_catalog_lake": {
+    "fields": "lakes(name),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "lakes",
+    "location_kind": "region",
+    "reference": "https://docs.cloud.google.com/knowledge-catalog/docs/reference/rest/v1/projects.locations.lakes",
+    "scope_kind": "projects",
+    "segment": "lakes",
+    "service": "dataplex",
+    "version": "v1"
+  },
+  "knowledge_catalog_zone": {
+    "fields": "zones(name),nextPageToken,unreachable",
+    "iam_policy": true,
+    "key": "zones",
+    "location_kind": "region",
+    "parents": [
+      {
+        "key": "lakes",
+        "segment": "lakes"
+      }
+    ],
+    "reference": "https://docs.cloud.google.com/knowledge-catalog/docs/reference/rest/v1/projects.locations.lakes.zones",
+    "scope_kind": "projects",
+    "segment": "zones",
+    "service": "dataplex",
+    "version": "v1"
+  },
+  "visionai_application": {
+    "fields": "applications(name,state,runtimeInfo(globalOutputResources(outputResource))),nextPageToken,unreachable",
+    "key": "applications",
+    "location_kind": "region",
+    "projection": "visionai_application",
+    "reference": "https://docs.cloud.google.com/vision-ai/docs/reference/rest/v1/projects.locations.applications",
+    "scope_kind": "projects",
+    "segment": "applications",
+    "service": "visionai",
+    "version": "v1"
+  },
+  "visionai_cluster": {
+    "fields": "clusters(name),nextPageToken,unreachable",
+    "iam_method": "POST",
+    "iam_policy": true,
+    "key": "clusters",
+    "location_kind": "region",
+    "projection": "visionai_cluster",
+    "reference": "https://docs.cloud.google.com/vision-ai/docs/reference/rest/v1alpha1/projects.locations.clusters",
+    "scope_kind": "projects",
+    "segment": "clusters",
+    "service": "visionai",
+    "version": "v1alpha1"
+  },
+  "visionai_stream": {
+    "fields": "streams(name,enableHlsPlayback,mediaWarehouseAsset),nextPageToken,unreachable",
+    "iam_method": "POST",
+    "iam_policy": true,
+    "key": "streams",
+    "location_kind": "region",
+    "parents": [
+      {
+        "key": "clusters",
+        "segment": "clusters"
+      }
+    ],
+    "projection": "visionai_stream",
+    "reference": "https://docs.cloud.google.com/vision-ai/docs/reference/rest/v1alpha1/projects.locations.clusters.streams",
+    "scope_kind": "projects",
+    "segment": "streams",
+    "service": "visionai",
+    "version": "v1alpha1"
+  },
+  "application_integration_template": {
+    "fields": "templates(name,visibility,sharedWith),nextPageToken,unreachable",
+    "key": "templates",
+    "location_kind": "region",
+    "projection": "application_integration_template",
+    "reference": "https://docs.cloud.google.com/application-integration/docs/reference/rest/v1/projects.locations.templates",
+    "scope_kind": "projects",
+    "segment": "templates",
+    "service": "integrations",
+    "version": "v1"
+  },
+  "application_integration_version": {
+    "fields": "integrationVersions(name,state,triggerConfigs(triggerType,triggerId)),nextPageToken,unreachable",
+    "key": "integrationVersions",
+    "location_kind": "region",
+    "parents": [
+      {
+        "key": "integrations",
+        "segment": "integrations"
+      }
+    ],
+    "projection": "application_integration_version",
+    "reference": "https://docs.cloud.google.com/application-integration/docs/reference/rest/v1/projects.locations.integrations.versions",
+    "scope_kind": "projects",
+    "segment": "versions",
+    "service": "integrations",
+    "version": "v1"
+  },
+  "agent_registry_endpoint": {
+    "fields": "endpoints(name,interfaces(url,protocolBinding)),nextPageToken",
+    "key": "endpoints",
+    "location_kind": "region",
+    "projection": "agent_registry_interface",
+    "reference": "https://docs.cloud.google.com/agent-registry/reference/rest/v1/projects.locations.endpoints",
+    "scope_kind": "projects",
+    "segment": "endpoints",
+    "service": "agentregistry",
+    "version": "v1"
+  },
+  "agent_registry_mcp_server": {
+    "fields": "mcpServers(name,interfaces(url,protocolBinding)),nextPageToken",
+    "key": "mcpServers",
+    "location_kind": "region",
+    "projection": "agent_registry_interface",
+    "reference": "https://docs.cloud.google.com/agent-registry/reference/rest/v1/projects.locations.mcpServers",
+    "scope_kind": "projects",
+    "segment": "mcpServers",
+    "service": "agentregistry",
     "version": "v1"
   }
 }
