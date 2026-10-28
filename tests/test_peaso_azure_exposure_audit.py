@@ -1624,6 +1624,49 @@ def test_nic_finding_lists_only_frontends_with_an_admitted_path():
     assert row.ports == {"tcp": ((443, 443),)}
 
 
+def test_nic_public_path_joins_destination_asg_and_both_nsg_levels():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    nic_id = base + "/networkInterfaces/nic"
+    subnet_id = base + "/virtualNetworks/vnet/subnets/app"
+    pip_id = base + "/publicIPAddresses/pip"
+    nic_nsg_id = base + "/networkSecurityGroups/nic"
+    subnet_nsg_id = base + "/networkSecurityGroups/subnet"
+    asg_id = base + "/applicationSecurityGroups/servers"
+
+    def check(member=True, subnet_allows=True):
+        allow = {"name": "allow-public", "properties": {"priority": 100,
+            "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+            "sourceAddressPrefix": "::/0", "destinationPortRange": "443",
+            "destinationApplicationSecurityGroups": [{"id": asg_id}]}}
+        subnet_rule = {"name": "subnet-public", "properties": {"priority": 100,
+            "direction": "Inbound", "access": "Allow" if subnet_allows else "Deny",
+            "protocol": "Tcp", "sourceAddressPrefix": "::/0",
+            "destinationAddressPrefix": "*", "destinationPortRange": "443"}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "public_ip", "scope": SCOPE, "status": "collected", "items": [
+                {"id": pip_id, "sku": {"name": "Standard"}, "properties": {"ipAddress": "2606:4700::44"}}]},
+            {"type": "nic", "scope": SCOPE, "status": "collected", "items": [
+                {"id": nic_id, "properties": {"networkSecurityGroup": {"id": nic_nsg_id},
+                    "ipConfigurations": [{"name": "primary", "properties": {
+                        "privateIPAddress": "fd00::4", "subnet": {"id": subnet_id},
+                        "publicIPAddress": {"id": pip_id},
+                        "applicationSecurityGroups": [{"id": asg_id}] if member else []}}]}}]},
+            {"type": "subnet", "scope": SCOPE, "status": "collected", "items": [
+                {"id": subnet_id, "properties": {"networkSecurityGroup": {"id": subnet_nsg_id}}}]},
+            {"type": "nsg", "scope": SCOPE, "status": "collected", "items": [
+                {"id": nic_nsg_id, "properties": {"securityRules": [allow]}},
+                {"id": subnet_nsg_id, "properties": {"securityRules": [subnet_rule]}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "nic")
+
+    admitted = check()
+    assert admitted.verdict() == "FAIL"
+    assert admitted.addresses == ["2606:4700::44"]
+    assert admitted.ports == {"tcp": ((443, 443),)}
+    assert check(member=False).verdict() == "PASS"
+    assert check(subnet_allows=False).verdict() == "PASS"
+
+
 def test_nsg_joins_cached_subscription_service_tag_prefixes():
     nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
