@@ -10211,6 +10211,13 @@ def _azure_realtime_endpoint(snapshot, inventory, resource):
         a.step("listener", "allow", public_request_types=sorted(permitted_types))
     else:
         a.gap("policy", "realtime listener public request path is unresolved")
+    if resource["type"] == "web_pubsub" and inventory.state("web_pubsub_hub", native_id(resource)) in ("collected", "empty"):
+        anonymous = [str(native_id(hub)) for hub in inventory.items("web_pubsub_hub")
+                     if str(hub.get("scope", "")).casefold() == str(native_id(resource)).casefold() and
+                     _props(hub).get("anonymousConnectPolicy") == "allow"]
+        if anonymous and a.ports:
+            a.authenticated = False
+            a.step("anonymous_connect", "allow", hubs=sorted(anonymous))
     a.notes.append("Public listener does not establish a valid client or server authorization token")
     return a
 
@@ -10255,6 +10262,67 @@ def _azure_signalr_upstream(snapshot, inventory, resource):
         if hosts:
             for gap in a.unresolved:
                 gap["decisive"] = False
+    return a
+
+
+def _azure_web_pubsub_delivery(snapshot, inventory, resource):
+    """Assess per-hub HTTP handlers and Event Hub client-event listeners."""
+    a = Assessment(resource, "external_event_delivery")
+    a.ports = {}
+    service_id = str(native_id(resource))
+    source = re.match(r"^/subscriptions/([^/]+)/", service_id, re.I)
+    if source is None:
+        a.gap("inventory", "Web PubSub source subscription is unavailable")
+        return a
+    state = inventory.state("web_pubsub_hub", service_id)
+    if state == "empty":
+        a.step("hub_delivery", "same_source", reason="no configured Web PubSub hubs")
+        return a
+    if state not in ("collected", "partial"):
+        a.gap("inventory", "Web PubSub hub list is unavailable")
+        return a
+    if state == "partial":
+        a.gap("inventory", "Web PubSub hub list is incomplete")
+    hubs = [row for row in inventory.items("web_pubsub_hub")
+            if str(row.get("scope", "")).casefold() == service_id.casefold()]
+    if not hubs and state == "collected":
+        a.gap("inventory", "Web PubSub hub collection is inconsistent")
+        return a
+    foreign, hosts = [], []
+    for hub in hubs:
+        props = _props(hub)
+        handlers, namespaces = props.get("handlerHosts"), props.get("eventHubNamespaces")
+        if not isinstance(handlers, list) or not isinstance(namespaces, list):
+            a.gap("inventory", "Web PubSub hub delivery projection is malformed")
+            continue
+        hosts.extend(host for host in handlers if isinstance(host, str) and host)
+        for namespace in namespaces:
+            if not isinstance(namespace, str) or not namespace:
+                a.gap("inventory", "Web PubSub Event Hub namespace is malformed")
+                continue
+            matches = []
+            for candidate in inventory.items("eventhub_namespace"):
+                endpoint = _props(candidate).get("serviceBusEndpoint")
+                fqdn = urlsplit(endpoint).hostname if isinstance(endpoint, str) else None
+                if fqdn and fqdn.casefold() == namespace.casefold():
+                    matches.append(candidate)
+            if len(matches) != 1:
+                a.gap("authorization", "Web PubSub Event Hub namespace ownership is unavailable", namespace)
+                continue
+            match = re.match(r"^/subscriptions/([^/]+)/", str(native_id(matches[0])), re.I)
+            if match is None:
+                a.gap("authorization", "Web PubSub Event Hub owner subscription is malformed", namespace)
+            elif match.group(1).casefold() != source.group(1).casefold():
+                foreign.append(match.group(1))
+    if hosts or foreign:
+        a.data_exposure = True
+        a.external_ids = sorted(set(hosts + foreign))
+        a.step("hub_delivery", "allow", receiver_hosts=sorted(set(hosts)),
+               foreign_event_hub_subscriptions=sorted(set(foreign)))
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    elif not a.unresolved:
+        a.step("hub_delivery", "same_source", reason="no HTTP handler or foreign Event Hub listener")
     return a
 
 
@@ -12115,6 +12183,13 @@ def assess(snapshot, resources):
                 upstream = Assessment(resource, "external_event_delivery")
                 upstream.gap("inventory", f"malformed SignalR upstream fact: {type(exc).__name__}")
                 output.append(upstream)
+        if provider == "azure" and resource["type"] == "web_pubsub" and "web_pubsub_hub" in inventory.status:
+            try:
+                output.append(_azure_web_pubsub_delivery(snapshot, inventory, resource))
+            except (TypeError, AttributeError, KeyError, ValueError, IndexError) as exc:
+                delivery = Assessment(resource, "external_event_delivery")
+                delivery.gap("inventory", f"malformed Web PubSub hub fact: {type(exc).__name__}")
+                output.append(delivery)
         if provider == "aws" and resource["type"] in ("lambda_function", "lambda_alias"):
             direct = _aws_lambda_direct_invoke(snapshot, inventory, resource)
             if direct is not None:
@@ -12136,6 +12211,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "web_pubsub" and assessment.kind == "external_event_delivery":
+        return ("Web PubSub forwards client events to another destination" if status == "FAIL" else
+                "Web PubSub event delivery unresolved" if status == "UNKNOWN" else
+                "Web PubSub has no detected external event delivery")
     if assessment.resource["type"] == "signalr_service" and assessment.kind == "external_event_delivery":
         return ("SignalR sends client events to an upstream URL" if status == "FAIL" else
                 "SignalR upstream delivery unresolved" if status == "UNKNOWN" else
@@ -12265,6 +12344,12 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "web_pubsub" and assessment.kind == "external_event_delivery":
+        if status == "FAIL":
+            return "A Web PubSub hub forwards client events to an HTTP handler or Event Hub in another subscription; callback paths and tokens are not retained."
+        if status == "PASS":
+            return "The collected hubs have no HTTP handler or foreign Event Hub event listener."
+        return "Hub delivery settings or Event Hub destination ownership are incomplete."
     if assessment.resource["type"] == "signalr_service" and assessment.kind == "external_event_delivery":
         if status == "FAIL":
             return "Serverless SignalR has an HTTP upstream that can receive client events; only receiver hostnames are retained."

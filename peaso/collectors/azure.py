@@ -1278,7 +1278,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
-    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook", "cost_export", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group", "bastion_shareable_link",
+    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook", "cost_export", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group", "bastion_shareable_link", "web_pubsub_hub",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -2582,6 +2582,8 @@ def _selected(options, requirements):
         selected.update(("app_configuration", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group"))
     if selected.intersection(("bastion_host", "bastion_shareable_link")):
         selected.update(("bastion_host", "bastion_shareable_link", "public_ip", "vnet", "nsg"))
+    if selected.intersection(("web_pubsub", "web_pubsub_hub")):
+        selected.update(("web_pubsub", "web_pubsub_hub", "eventhub_namespace"))
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -3424,6 +3426,76 @@ def collect(connector, requirements=None, *, transport=None):
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
+        if "web_pubsub_hub" in wanted:
+            hub_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "web_pubsub" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for service in collection["items"]:
+                    rid = service.get("id")
+                    if not isinstance(rid, str):
+                        continue
+                    def hubs(rid=rid):
+                        endpoint = rid + "/hubs"
+                        seen = set()
+                        for page in reader.pages(request, ARM + endpoint + "?api-version=2024-03-01"):
+                            projected = []
+                            for row in page:
+                                hub_id = row.get("id") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                if (not isinstance(hub_id, str) or
+                                        re.fullmatch(re.escape(endpoint) + r"/[^/?#%\\\s]+", hub_id, re.I) is None or
+                                        hub_id.casefold() in seen or not isinstance(props, dict)):
+                                    raise ValueError("foreign or malformed Web PubSub hub")
+                                seen.add(hub_id.casefold())
+                                handlers = props.get("eventHandlers") or []
+                                listeners = props.get("eventListeners") or []
+                                if not isinstance(handlers, list) or not isinstance(listeners, list):
+                                    raise ValueError("malformed Web PubSub delivery lists")
+                                hosts, namespaces = [], []
+                                for handler in handlers:
+                                    if not isinstance(handler, dict):
+                                        raise ValueError("malformed Web PubSub event handler")
+                                    pattern, events = handler.get("userEventPattern"), handler.get("systemEvents")
+                                    if (pattern is not None and not isinstance(pattern, str)) or (events is not None and
+                                            (not isinstance(events, list) or any(not isinstance(event, str) for event in events))):
+                                        raise ValueError("malformed Web PubSub event handler filter")
+                                    if not pattern and not events:
+                                        continue
+                                    url = handler.get("urlTemplate")
+                                    parts = urlsplit(url) if isinstance(url, str) else None
+                                    if (parts is None or parts.scheme not in ("http", "https") or not parts.hostname or
+                                            parts.username or parts.password or "{" in parts.hostname or "}" in parts.hostname):
+                                        raise ValueError("malformed Web PubSub event handler URL")
+                                    hosts.append(parts.hostname)
+                                for listener in listeners:
+                                    endpoint_data = listener.get("endpoint") if isinstance(listener, dict) else None
+                                    filtering = listener.get("filter") if isinstance(listener, dict) else None
+                                    if not isinstance(endpoint_data, dict) or not isinstance(filtering, dict):
+                                        raise ValueError("malformed Web PubSub event listener")
+                                    pattern, events = filtering.get("userEventPattern"), filtering.get("systemEvents")
+                                    if (filtering.get("type") not in (None, "EventName") or
+                                            (pattern is not None and not isinstance(pattern, str)) or (events is not None and
+                                            (not isinstance(events, list) or any(not isinstance(event, str) for event in events)))):
+                                        raise ValueError("malformed Web PubSub event listener filter")
+                                    if not pattern and not events:
+                                        continue
+                                    namespace = endpoint_data.get("fullyQualifiedNamespace")
+                                    if (endpoint_data.get("type") != "EventHub" or not isinstance(namespace, str) or
+                                            not re.fullmatch(r"[A-Za-z0-9.-]+", namespace) or "." not in namespace or
+                                            not isinstance(endpoint_data.get("eventHubName"), str)):
+                                        raise ValueError("malformed Web PubSub Event Hub destination")
+                                    namespaces.append(namespace.casefold())
+                                policy = props.get("anonymousConnectPolicy", "deny")
+                                if policy not in ("allow", "deny"):
+                                    raise ValueError("malformed Web PubSub anonymous-connect policy")
+                                projected.append({"id": hub_id, "type": "Microsoft.SignalRService/WebPubSub/hubs",
+                                                  "properties": {"handlerHosts": sorted(set(hosts)),
+                                                                 "eventHubNamespaces": sorted(set(namespaces)),
+                                                                 "anonymousConnectPolicy": policy}})
+                            yield projected
+                    hub_jobs.append(("web_pubsub_hub", rid, "Microsoft.SignalRService", hubs))
+            reader.run(hub_jobs)
         if "bastion_shareable_link" in wanted:
             links_jobs = []
             for collection in reader.collections:
