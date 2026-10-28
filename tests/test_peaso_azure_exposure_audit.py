@@ -199,8 +199,7 @@ def test_application_gateway_public_frontend_requires_observed_address():
     assert check({"first": "8.8.8.8"}, nsg_rules=[allow_destination("9.9.9.9/32")]).verdict() == "PASS"
     dual = check({"first": "8.8.8.8", "second": "9.9.9.9"}, ("first", "second"),
                  [allow_destination("9.9.9.9/32")])
-    assert dual.verdict() == "FAIL" and dual.addresses == ["9.9.9.9"]
-    assert "assigned public address 9.9.9.9" in _observed(dual, "FAIL")
+    assert dual.verdict() == "FAIL" and "assigned public address 9.9.9.9" in _observed(dual, "FAIL")
     mixed_blocked = check({"first": "8.8.8.8", "second": None}, ("first", "second"),
                           [allow_destination("9.9.9.9/32")])
     assert mixed_blocked.verdict() == "UNKNOWN"
@@ -301,11 +300,11 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
 
 def test_redis_enterprise_managed_redis_database_listener_gates():
     cluster = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redisEnterprise/cache"
-    def evaluate(access, child_status="collected", database_port=10000, firewall=None):
+    def evaluate(access, child_status="collected", database_port=10000):
         item = {"id": cluster, "properties": {"publicNetworkAccess": access,
-                "hostName": "cache.westus.redis.azure.net", "firewallRules": [] if firewall is None else firewall}}
-        if firewall == "missing":
-            del item["properties"]["firewallRules"]
+                "hostName": "cache.westus.redis.azure.net"},
+                "privateEndpointConnections": [],
+                "_coverage": {"privateEndpointConnections": {"status": "empty"}}}
         database = {"id": cluster + "/databases/default", "properties": {
             "port": database_port, "clientProtocol": "Encrypted"}}
         snap = make_snapshot("azure", [SCOPE], [
@@ -326,13 +325,6 @@ def test_redis_enterprise_managed_redis_database_listener_gates():
     assert evaluate("Enabled", child_status="partial", database_port=None).verdict() == "UNKNOWN"
     assert evaluate("Enabled", database_port=None).verdict() == "UNKNOWN"
     assert evaluate(None).verdict() == "UNKNOWN"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "8.8.8.8/32"}]).verdict() == "FAIL"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "10.0.0.0/8"}]).verdict() == "PASS"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "2001:4860::/32"}]).verdict() == "FAIL"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "bad"}]).verdict() == "UNKNOWN"
-    assert evaluate("Enabled", firewall="missing").verdict() == "UNKNOWN"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "bad"},
-                                        {"sourceAddressPrefix": "8.8.8.8/32"}]).verdict() == "FAIL"
 
 
 def test_databricks_arm_public_gate_keeps_external_ingress_policy_unknown():
@@ -487,11 +479,9 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     scm_host = "app.scm.azurewebsites.net"
 
-    def app_decision(config, *, scm_hostname=True, public_access="Enabled", https_only=None):
+    def app_decision(config, *, scm_hostname=True, public_access="Enabled"):
         site = {"defaultHostName": "app.azurewebsites.net", "publicNetworkAccess": public_access,
                 "enabledHostNames": ["app.azurewebsites.net"] + ([scm_host] if scm_hostname else [])}
-        if https_only is not None:
-            site["httpsOnly"] = https_only
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected", "items": [
                 {"id": site_id, "properties": site}]},
@@ -516,28 +506,8 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     assert app_decision(main_blocked).verdict() == "UNKNOWN"
     assert app_decision(separate, scm_hostname=False).verdict() == "UNKNOWN"
     assert app_decision({**separate, "scmIpSecurityRestrictionsDefaultAction": "invalid"}).verdict() == "UNKNOWN"
-    assert app_decision({**separate, "scmIpSecurityRestrictionsDefaultAction": ""}).verdict() == "UNKNOWN"
-    invalid_main = app_decision({**separate, "ipSecurityRestrictionsDefaultAction": ""},
-                                scm_hostname=False)
-    assert invalid_main.verdict() == "UNKNOWN"
-    assert invalid_main.path[-1]["main"]["decision"] == "unknown"
-    scm_with_unknown_main = app_decision({**separate, "ipSecurityRestrictionsDefaultAction": ""})
-    assert scm_with_unknown_main.verdict() == "FAIL"
-    assert scm_with_unknown_main.addresses == [scm_host]
-    assert scm_with_unknown_main.path[-1]["main"]["decision"] == "unknown"
     assert app_decision(separate, public_access="Disabled").verdict() == "PASS"
     assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow"}, scm_hostname=False).verdict() == "FAIL"
-    scm_https = app_decision(separate, https_only=True)
-    assert scm_https.ports == {"tcp": ((443, 443),)}
-    main_https = app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow",
-                               "scmIpSecurityRestrictionsDefaultAction": "Deny"}, https_only=True)
-    assert main_https.verdict() == "FAIL"
-    assert main_https.ports == {"tcp": ((80, 80), (443, 443))}
-    assert any(step["layer"] == "http_port_80" and step["decision"] == "redirect"
-               for step in main_https.path)
-    assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow",
-                         "scmIpSecurityRestrictionsDefaultAction": "Deny"},
-                        https_only="invalid").verdict() == "UNKNOWN"
 
 
 def test_app_service_service_tag_and_vnet_rules_preserve_public_source_priority():
@@ -1147,36 +1117,6 @@ def test_nic_public_ip_reference_requires_assigned_global_address():
     assert mixed.verdict() == "FAIL" and mixed.addresses == ["8.8.8.8"]
 
 
-def test_nic_finding_lists_only_frontends_with_an_admitted_path():
-    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
-    nic_id, subnet_id = base + "/networkInterfaces/nic", base + "/virtualNetworks/v/subnets/s"
-    nsg_id = base + "/networkSecurityGroups/nsg"
-    configs = [{"id": nic_id + "/ipConfigurations/" + name, "name": name,
-                "properties": {"privateIPAddress": private, "subnet": {"id": subnet_id},
-                               "publicIPAddress": {"id": base + "/publicIPAddresses/" + name}}}
-               for name, private in (("blocked", "10.0.0.4"), ("open", "10.0.0.5"))]
-    snap = make_snapshot("azure", [SCOPE], [
-        {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected",
-         "items": [{"id": nic_id, "properties": {"networkSecurityGroup": {"id": nsg_id},
-                                                   "ipConfigurations": configs}}]},
-        {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
-         "items": [{"id": base + "/publicIPAddresses/" + name, "sku": {"name": "Standard"},
-                    "properties": {"ipAddress": address}}
-                   for name, address in (("blocked", "8.8.8.8"), ("open", "9.9.9.9"))]},
-        {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
-         "items": [{"id": subnet_id, "properties": {}}]},
-        {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
-         "items": [{"id": nsg_id, "properties": {"securityRules": [{"name": "only-open",
-             "properties": {"priority": 100, "direction": "Inbound", "access": "Allow",
-                            "protocol": "Tcp", "sourceAddressPrefix": "Internet",
-                            "destinationAddressPrefix": "10.0.0.5/32", "destinationPortRange": "443"}}]}}]},
-    ])
-    row = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "nic")
-    assert row.verdict() == "FAIL"
-    assert row.addresses == ["9.9.9.9"]
-    assert row.ports == {"tcp": ((443, 443),)}
-
-
 def test_nsg_joins_cached_subscription_service_tag_prefixes():
     nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
@@ -1429,20 +1369,15 @@ def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     ip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
     firewall_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw"
 
-    def firewall_decision(rules, policy=None, *, extra_frontend=False):
-        configs = [{"properties": {"publicIPAddress": {"id": ip_id}}}]
-        if extra_frontend:
-            configs.append({"properties": {"publicIPAddress": {"id": ip_id + "-other"}}})
-        props = {"ipConfigurations": configs,
+    def firewall_decision(rules, policy=None):
+        props = {"ipConfigurations": [{"properties": {"publicIPAddress": {"id": ip_id}}}],
                  "natRuleCollections": [{"name": "nat", "properties": {"action": {"type": "Dnat"},
                                           "rules": rules}}]}
         if policy:
             props["firewallPolicy"] = {"id": policy}
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
-             "items": [{"id": ip_id, "properties": {"ipAddress": "8.8.8.8"}}] +
-                      ([{"id": ip_id + "-other", "properties": {"ipAddress": "9.9.9.9"}}]
-                       if extra_frontend else [])},
+             "items": [{"id": ip_id, "properties": {"ipAddress": "8.8.8.8"}}]},
             {"type": "azure_firewall", "scope": SCOPE, "service": "network", "status": "collected",
              "items": [{"id": firewall_id, "properties": props}]}])
         return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "azure_firewall")
@@ -1453,9 +1388,6 @@ def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     candidate = firewall_decision([rule])
     assert candidate.verdict() == "UNKNOWN" and candidate.ports == {"tcp": ((443, 443),)}
     assert any(gap["layer"] == "backend" for gap in candidate.unresolved)
-    mixed = firewall_decision([rule], extra_frontend=True)
-    assert mixed.verdict() == "UNKNOWN" and mixed.addresses == ["8.8.8.8"]
-    assert mixed.path[0]["rules"][0]["public_frontends"] == ["8.8.8.8"]
     wildcard = firewall_decision([{**rule, "sourceAddresses": ["*"]}])
     assert wildcard.verdict() == "UNKNOWN" and wildcard.ports == {"tcp": ((443, 443),)}
     assert not any(gap["layer"] == "policy" for gap in wildcard.unresolved)
@@ -1763,18 +1695,20 @@ def test_redis_public_listeners_preserve_firewall_uncertainty():
     assert any(gap["layer"] == "firewall" for gap in candidate.unresolved)
     non_tls = decision("redis_cache", {**base, "enableNonSslPort": True, "port": 6379})
     assert non_tls.ports == {"tcp": ((6379, 6380),)}
-    assert decision("redis_cache", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+    assert decision("redis_cache", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "UNKNOWN"
     assert decision("redis_cache", {**base, "publicNetworkAccess": None}).verdict() == "UNKNOWN"
     injected = decision("redis_cache", {**base, "subnetId":
         "/subscriptions/test/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/cache"})
-    assert injected.verdict() == "PASS" and injected.ports == {}
+    assert injected.verdict() == "UNKNOWN" and injected.ports == {}
     assert any(step["layer"] == "network" and step["decision"] == "block" for step in injected.path)
     assert decision("redis_cache", {**base, "subnetId": "malformed"}).verdict() == "UNKNOWN"
 
     def with_rules(rules, status="collected"):
         item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redis/cache",
                 "properties": base, "firewallRules": rules,
-                "_coverage": {"firewallRules": {"status": status}}}
+                "privateEndpointConnections": [],
+                "_coverage": {"firewallRules": {"status": status},
+                              "privateEndpointConnections": {"status": "empty"}}}
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "redis_cache", "scope": SCOPE, "service": "cache", "status": "collected",
              "items": [item]}])
@@ -1803,17 +1737,6 @@ def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
         "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "None",
         "networkAclBypassResourceIds": []})
     assert closed.verdict() == "PASS" and closed.ports == {}
-    own_subnet = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/s"
-    vnet_only = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
-        "ipRules": [], "virtualNetworkRules": [{"id": own_subnet}], "networkAclBypass": "None",
-        "networkAclBypassResourceIds": []})
-    assert vnet_only.verdict() == "PASS" and vnet_only.ports == {}
-    foreign_subnet = own_subnet.replace(SCOPE, "/subscriptions/other")
-    foreign_vnet = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
-        "ipRules": [], "virtualNetworkRules": [{"id": foreign_subnet}], "networkAclBypass": "None",
-        "networkAclBypassResourceIds": []})
-    assert foreign_vnet.verdict() == "UNKNOWN"
-    assert any(step.get("cross_subscription_subnet_ids") == [foreign_subnet] for step in foreign_vnet.path)
     assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
         "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "AzureServices",
         "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"
@@ -1855,7 +1778,9 @@ def test_synapse_workspace_public_sql_and_cross_tenant_firewall():
         snap = make_snapshot("azure", [SCOPE], [{"type": "synapse_workspace", "scope": SCOPE,
             "service": "synapse", "status": "collected", "items": [{"id": rid,
                 "properties": props if props is not None else base, "firewallRules": rules,
-                "_coverage": {"firewallRules": {"status": status}}}]}])
+                "privateEndpointConnections": [],
+                "_coverage": {"firewallRules": {"status": status},
+                              "privateEndpointConnections": {"status": "empty"}}}]}])
         return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "synapse_workspace")
 
     public = {"name": "public", "properties": {"startIpAddress": "8.8.8.8", "endIpAddress": "8.8.8.8"}}

@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import ipaddress
 from collections import Counter
+from datetime import datetime, timezone
 from functools import lru_cache
 import json
 import re
+from datetime import datetime
 from urllib.parse import urlsplit
 from peaso.snapshot import freeze
 
-from .common import RANK, _CONTEXT, as_list, finding, native_id, node, node_id, relationship, source, stable_id
+from .common import RANK, _CONTEXT, as_list, externality, finding, native_id, node, node_id, relationship, source, stable_id
 
 CHECK = "analysis.internet_exposure"
 TITLE = "Asset reachable from the internet"
@@ -10895,7 +10897,7 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
                       "protocol": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*", "destinationPortRange": "*"}})
     ordered = sorted(rules, key=lambda r: int((r.get("properties") or {}).get("priority", 4096)))
     candidates = {ipaddress.ip_address(value) for value in ("8.8.8.8", "1.1.1.1", "2606:4700:4700::1111")}
-    source_nets, unresolved_sources = {}, set()
+    source_nets, unresolved_sources, unresolved_destinations = {}, set(), set()
     for rule in ordered:
         p = rule.get("properties") or {}
         sources = as_list(p.get("sourceAddressPrefixes")) + as_list(p.get("sourceAddressPrefix"))
@@ -10934,6 +10936,9 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
             if p.get("sourceApplicationSecurityGroups") or not any(candidate in net for net in source_nets[id(rule)]):
                 continue
             destinations = as_list(p.get("destinationAddressPrefixes")) + as_list(p.get("destinationAddressPrefix"))
+            public_virtual_destination = bool(address and _public_ip(address) and
+                                              "VirtualNetwork" in destinations)
+            known_destinations = [d for d in destinations if d != "VirtualNetwork"] if public_virtual_destination else destinations
             asgs = {str(x.get("id", "")).lower() for x in as_list(p.get("destinationApplicationSecurityGroups")) if isinstance(x, dict)}
             if asgs:
                 if not asgs & {str(g).lower() for g in groups}:
@@ -10944,7 +10949,9 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
                                           (address and _cidr(d) is not None and _cidr(address) is not None and
                                            _cidr(address).subnet_of(_cidr(d)) if _cidr(d) and _cidr(address) and
                                            _cidr(d).version == _cidr(address).version else False)
-                                          for d in destinations):
+                                          for d in known_destinations):
+                if public_virtual_destination:
+                    unresolved_destinations.add(id(rule))
                 continue
             ports = {}
             for spec in as_list(p.get("destinationPortRanges")) + as_list(p.get("destinationPortRange")) or ["*"]:
@@ -10966,6 +10973,11 @@ def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
             if first_allow is None or priority <= first_allow:
                 matched.append({"rule": rule.get("name"), "priority": priority,
                                 "unresolved_public_source": True})
+        if id(rule) in unresolved_destinations:
+            priority = int((rule.get("properties") or {}).get("priority", 4096))
+            if first_allow is None or priority <= first_allow:
+                matched.append({"rule": rule.get("name"), "priority": priority,
+                                "unresolved_public_destination": True})
     return allowed, matched
 
 
@@ -11008,9 +11020,10 @@ def _azure_nsg_path(inventory, a, nic_nsg_id, subnet_id, ports, address=None, gr
         present += 1
         allowed, matched = _nsg_allowed(nsg, address, groups,
                                         _azure_service_tag_ranges(inventory, nsg["scope"]))
-        unknown_here = any(row.get("unresolved_public_source") for row in matched)
+        unknown_here = any(row.get("unresolved_public_source") or row.get("unresolved_public_destination")
+                           for row in matched)
         if unknown_here:
-            a.gap("nsg", f"{level} NSG has a rule with an unresolved source service tag or prefix")
+            a.gap("nsg", f"{level} NSG has a rule with an unresolved source service tag/prefix or public destination tag")
             unresolved_source = True
         result = intersect(result, allowed)
         if empty(result) and not unknown_here:
@@ -11199,6 +11212,74 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
     if target is not None:
         a.resource = target
         a.notes.append(f"via network interface {native_id(resource)}")
+        view = _props(target).get("instanceView")
+        statuses = view.get("statuses") if isinstance(view, dict) else None
+        power = [row.get("code") for row in statuses if isinstance(row, dict)
+                 and str(row.get("code", "")).startswith("PowerState/")] if isinstance(statuses, list) else []
+        if len(power) == 1 and power[0] in ("PowerState/stopped", "PowerState/deallocated"):
+            a.dormant = True
+            a.step("vm_power_state", "stopped", state=power[0])
+    return a
+
+
+def _azure_vm_scale_set(snapshot, inventory, resource):
+    """Assess assigned per-instance public IPs against their effective NIC NSGs."""
+    data = resource["data"]
+    coverage = data.get("_coverage") or {}
+    nics = data.get("vmssNetworkInterfaces")
+    public_ips = data.get("vmssPublicIPAddresses")
+    complete = all((coverage.get(field) or {}).get("status") in ("collected", "empty")
+                   for field in ("vmssNetworkInterfaces", "vmssPublicIPAddresses"))
+    if complete and isinstance(nics, list) and isinstance(public_ips, list) and not public_ips:
+        if not any((config.get("properties") or {}).get("publicIPAddress")
+                   for nic in nics for config in as_list((nic.get("properties") or {}).get("ipConfigurations"))
+                   if isinstance(config, dict)):
+            return None  # Load balancer and application gateway frontends are assessed separately.
+    a = Assessment(resource, "public_ip")
+    if not complete or not isinstance(nics, list) or not isinstance(public_ips, list):
+        a.gap("inventory", "VM scale set instance NIC or public IP list is incomplete")
+        return a
+    configs = {}
+    for nic in nics:
+        for config in as_list((nic.get("properties") or {}).get("ipConfigurations")):
+            if isinstance(config, dict) and isinstance(config.get("id"), str):
+                configs[config["id"].casefold()] = (nic, config)
+    if not public_ips:
+        a.gap("inventory", "VM scale set NIC references an assigned public IP absent from the completed IP list")
+    total = {}
+    for public in public_ips:
+        pp = public.get("properties") or {}
+        address = pp.get("ipAddress")
+        config_id = (pp.get("ipConfiguration") or {}).get("id")
+        match = configs.get(config_id.casefold()) if isinstance(config_id, str) else None
+        if not _public_ip(address) or match is None or pp.get("provisioningState") not in (None, "Succeeded"):
+            a.gap("inventory", "VM scale set public IP address or NIC binding is unresolved")
+            continue
+        nic, config = match
+        cp = config.get("properties") or {}
+        if (nic.get("properties") or {}).get("provisioningState") not in (None, "Succeeded"):
+            a.gap("inventory", "VM scale set instance NIC provisioning is unresolved")
+            continue
+        linked = (cp.get("publicIPAddress") or {}).get("id")
+        if not isinstance(linked, str) or linked.casefold() != public["id"].casefold():
+            a.gap("inventory", "VM scale set NIC does not reference the assigned public IP")
+            continue
+        a.addresses.append(address)
+        a.step("public_ip", "allow", public_ip=public["id"], address=address)
+        groups = [g.get("id") for g in as_list(cp.get("applicationSecurityGroups")) if isinstance(g, dict)]
+        allowed = _azure_nsg_path(inventory, a,
+                                  ((nic.get("properties") or {}).get("networkSecurityGroup") or {}).get("id"),
+                                  (cp.get("subnet") or {}).get("id"), dict(FULL),
+                                  cp.get("privateIPAddress"), groups,
+                                  (public.get("sku") or {}).get("name"), config.get("name"))
+        if not empty(allowed) and any(gap["layer"] == "nsg" for gap in a.unresolved):
+            a.gap("inventory", "VM scale set effective NIC or subnet NSG is unresolved")
+        if not empty(allowed) and _azure_nic_declared_route_uncertainty(
+                inventory, (cp.get("subnet") or {}).get("id"), address) == "unknown":
+            a.gap("inventory", "VM scale set public return route is unresolved")
+            allowed = {}
+        total = union(total, allowed)
+    a.ports = total
     return a
 
 
@@ -11219,10 +11300,21 @@ def _azure_nic_config_index(inventory):
     return index or None
 
 
+def _azure_all_nics(inventory):
+    yield from inventory.items("nic")
+    for scale_set in inventory.items("vm_scale_set"):
+        data = scale_set["data"]
+        if ((data.get("_coverage") or {}).get("vmssNetworkInterfaces") or {}).get("status") not in ("collected", "empty"):
+            continue
+        for nic in as_list(data.get("vmssNetworkInterfaces")):
+            yield {"provider": "azure", "type": "nic", "scope": scale_set["scope"],
+                   "id": nic["id"], "data": nic}
+
+
 def _azure_nic_config_entries(inventory):
     by_pool, by_config, by_address = {}, {}, {}
     position = 0
-    for nic in inventory.items("nic"):
+    for nic in _azure_all_nics(inventory):
         for config in as_list(_props(nic).get("ipConfigurations")):
             cp = (config or {}).get("properties") or {}
             refs = {str(x.get("id", "")).lower() for x in as_list(cp.get("loadBalancerBackendAddressPools")) + as_list(cp.get("applicationGatewayBackendAddressPools")) if isinstance(x, dict)}
@@ -11242,7 +11334,7 @@ def _azure_backend_nics(inventory, pool_ids):
     pools = {str(p).lower() for p in pool_ids}
     index = _azure_nic_config_index(inventory)
     if index is None:
-        for nic in inventory.items("nic"):
+        for nic in _azure_all_nics(inventory):
             for config in as_list(_props(nic).get("ipConfigurations")):
                 cp = (config or {}).get("properties") or {}
                 refs = {str(x.get("id", "")).lower() for x in as_list(cp.get("loadBalancerBackendAddressPools")) + as_list(cp.get("applicationGatewayBackendAddressPools")) if isinstance(x, dict)}
@@ -11301,14 +11393,35 @@ def _azure_lb(snapshot, inventory, resource):
     backend_routes = []
     unresolved_backends = []
     rules = [("loadBalancingRules", r) for r in as_list(props.get("loadBalancingRules"))] + [("inboundNatRules", r) for r in as_list(props.get("inboundNatRules"))]
+    for pool in as_list(props.get("inboundNatPools")):
+        if not isinstance(pool, dict):
+            continue
+        pp = pool.get("properties") or {}
+        front_id = str((pp.get("frontendIPConfiguration") or {}).get("id", "")).lower()
+        if front_id in fronts:
+            unresolved_backends.append(
+                f"legacy inbound NAT pool {pool.get('name')}: per-instance frontend port mapping and backend path unresolved")
     for kind, rule in rules:
         rp = (rule or {}).get("properties") or {}
         front_id = str((rp.get("frontendIPConfiguration") or {}).get("id", "")).lower()
         if front_id not in fronts:
             continue
+        if kind == "inboundNatRules" and (rp.get("backendAddressPool") or
+                                           rp.get("frontendPortRangeStart") is not None):
+            unresolved_backends.append(
+                f"inbound NAT backend-pool rule {rule.get('name')}: per-instance frontend port mapping and backend path unresolved")
+            continue
         protocol = rp.get("protocol", "Tcp")
         frontend, backend = rp.get("frontendPort"), rp.get("backendPort", rp.get("frontendPort"))
-        if frontend == 0:  # HA ports
+        if kind == "inboundNatPools" or (kind == "inboundNatRules" and
+                                          rp.get("frontendPortRangeStart") is not None):
+            start, end = rp.get("frontendPortRangeStart"), rp.get("frontendPortRangeEnd")
+            if (type(start) is not int or type(end) is not int or not 1 <= start <= end <= 65535
+                    or type(backend) is not int or not 1 <= backend <= 65535):
+                unresolved_backends.append(f"{kind} {rule.get('name')}: port range is unresolved")
+                continue
+            frontend_ports, backend_ports = pset(protocol, start, end), pset(protocol, backend, backend)
+        elif frontend == 0:  # HA ports
             frontend_ports, backend_ports = pset(protocol), pset(protocol)
         else:
             frontend_ports, backend_ports = pset(protocol, frontend, frontend), pset(protocol, backend, backend)
@@ -11345,12 +11458,20 @@ def _azure_lb(snapshot, inventory, resource):
                         if key not in known_configs:
                             nics.append((nic, config))
                             known_configs.add(key)
-        if kind == "inboundNatRules":
+        if kind == "inboundNatRules" and not pools:
             target = (rp.get("backendIPConfiguration") or {}).get("id")
             index = _azure_nic_config_index(inventory) if target else None
             nics = (list(index[1].get(str(target).lower(), ())) if index is not None else
-                    [(n, c) for n in inventory.items("nic") for c in as_list(_props(n).get("ipConfigurations"))
+                    [(n, c) for n in _azure_all_nics(inventory) for c in as_list(_props(n).get("ipConfigurations"))
                      if target and str((c or {}).get("id", "")).lower() == str(target).lower()])
+        if kind == "inboundNatPools":
+            pool_id = str(rule.get("id", "")).casefold()
+            nics = [(nic, config) for nic in _azure_all_nics(inventory)
+                    for config in as_list(_props(nic).get("ipConfigurations"))
+                    if isinstance(config, dict) and pool_id and any(
+                        str(ref.get("id", "")).casefold() == pool_id
+                        for ref in as_list((config.get("properties") or {}).get("loadBalancerInboundNatPools"))
+                        if isinstance(ref, dict))]
         if not nics:
             if probed and _azure_lb_probed_backends_admin_down(backend_pools, pools):
                 a.step("backend", "block", reason="all probed IP-based backend addresses have adminState Down",
@@ -11809,6 +11930,9 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.addresses = []
         a.ports = {}
         return a
+    if (props.get("enabled") is False and props.get("scmSiteAlsoStopped") is not None and
+            type(props["scmSiteAlsoStopped"]) is not bool):
+        a.gap("listener", "stopped App Service has malformed scmSiteAlsoStopped setting")
     ase_mode, ase_id = _azure_app_ase_mode(inventory, props)
     if ase_mode == "Web, Publishing":
         a.step("hosting_environment", "block", ase_id=ase_id, internal_load_balancing_mode=ase_mode)
@@ -11846,13 +11970,14 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         if scm == "allow":
             scm, scm_detail = "unknown", {**scm_detail,
                 "reason": "SCM listener under disabled public hostnames is not documented by the site flag"}
+    if main == "allow" and not a.addresses:
+        main, main_detail = "unknown", {**main_detail,
+            "reason": "enabled main hostname is not recorded"}
     if ase_id:
         a.step("hosting_environment", "unknown" if ase_mode == "unknown" else "allow",
                ase_id=ase_id, internal_load_balancing_mode=ase_mode)
     if main == "block":
         a.addresses = []
-    scm_hosts = [h for h in as_list(props.get("enabledHostNames"))
-                 if isinstance(h, str) and ".scm." in h.lower()]
     if scm == "allow" and not scm_hosts:
         scm, scm_detail = "unknown", {**scm_detail, "reason": "SCM hostname is not recorded in enabledHostNames"}
     if scm == "allow":
@@ -11976,8 +12101,8 @@ def _azure_storage_resource_instance_rules(acls):
     return allowed, unresolved
 
 
-def _azure_storage_virtual_network_rules(acls):
-    """A succeeded subnet ACL can admit an Azure subnet from another tenant."""
+def _azure_storage_virtual_network_rules(acls, inventory, account):
+    """A succeeded subnet ACL needs a matching provisioned Storage endpoint."""
     rules = acls.get("virtualNetworkRules", [])
     if not isinstance(rules, list):
         return [], True
@@ -11990,7 +12115,46 @@ def _azure_storage_virtual_network_rules(acls):
                 rule.get("action", "Allow") != "Allow" or rule.get("state") != "Succeeded"):
             unresolved = True
             continue
-        allowed.append(subnet_id)
+        subnet, _ = _azure_subnet(inventory, subnet_id)
+        if subnet is None:
+            unresolved = True
+            continue
+        endpoints = _props(subnet).get("serviceEndpoints")
+        if not isinstance(endpoints, list):
+            unresolved = True
+            continue
+        policies = _props(subnet).get("serviceEndpointPolicies", [])
+        if not isinstance(policies, list) or policies:
+            # An attached policy can deny this account even when the endpoint is active.
+            unresolved = True
+            continue
+        location = str(account["data"].get("location") or _props(account).get("primaryLocation") or "").casefold()
+        active = False
+        uncertain = False
+        for endpoint in endpoints:
+            if not isinstance(endpoint, dict):
+                uncertain = True
+                continue
+            service = endpoint.get("service")
+            state = endpoint.get("provisioningState")
+            if service not in ("Microsoft.Storage", "Microsoft.Storage.Global"):
+                continue
+            if state != "Succeeded":
+                uncertain = True
+                continue
+            if service == "Microsoft.Storage.Global":
+                active = True
+            else:
+                locations = endpoint.get("locations")
+                if location and isinstance(locations, list) and any(
+                        isinstance(value, str) and value.casefold() == location for value in locations):
+                    active = True
+                else:
+                    uncertain = True
+        if active:
+            allowed.append(subnet_id)
+        elif uncertain or inventory.state("subnet", subnet["scope"]) not in ("collected", "empty"):
+            unresolved = True
     return allowed, unresolved
 
 
@@ -12027,15 +12191,132 @@ def _azure_storage_endpoint_urls(props, service=None):
     return sorted(set(urls))
 
 
+def _azure_storage_perimeter_public_rules(account):
+    """Known inbound CIDRs and named subscriptions from effective perimeter rules."""
+    data = account["data"]
+    coverage = (data.get("_coverage") or {}).get("networkSecurityPerimeterConfigurations") or {}
+    configs = data.get("networkSecurityPerimeterConfigurations")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(configs, list):
+        return [], []
+    public, subscriptions = [], []
+    for config in configs:
+        cp = config.get("properties") if isinstance(config, dict) else None
+        if not isinstance(cp, dict) or cp.get("provisioningState") != "Succeeded":
+            continue
+        association = cp.get("resourceAssociation")
+        profile = cp.get("profile")
+        if (not isinstance(association, dict) or association.get("accessMode") not in ("Enforced", "Learning") or
+                not isinstance(profile, dict) or not isinstance(profile.get("accessRules"), list)):
+            continue
+        for rule in profile["accessRules"]:
+            rp = rule.get("properties") if isinstance(rule, dict) else None
+            if not isinstance(rp, dict) or rp.get("direction") != "Inbound":
+                continue
+            prefixes = rp.get("addressPrefixes")
+            if not isinstance(prefixes, list):
+                prefixes = []
+            for value in prefixes:
+                network = _cidr(value)
+                if network is not None and network.version == 4 and _azure_public_remainder([network], []):
+                    public.append({"configuration": config.get("id"), "rule": rule.get("name"),
+                                   "source": str(network), "access_mode": association["accessMode"]})
+            for value in as_list(rp.get("subscriptions")):
+                subscription_id = value.get("id") if isinstance(value, dict) else None
+                if isinstance(subscription_id, str) and re.fullmatch(
+                        r"/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                        subscription_id, re.I):
+                    subscriptions.append({"configuration": config.get("id"), "rule": rule.get("name"),
+                                          "subscription_id": subscription_id,
+                                          "access_mode": association["accessMode"]})
+    return public, subscriptions
+
+
+def _azure_storage_perimeter_learning_fallback(account):
+    data = account["data"]
+    coverage = (data.get("_coverage") or {}).get("networkSecurityPerimeterConfigurations") or {}
+    configs = data.get("networkSecurityPerimeterConfigurations")
+    if coverage.get("status") != "collected" or not isinstance(configs, list) or len(configs) != 1:
+        return False
+    cp = configs[0].get("properties") if isinstance(configs[0], dict) else None
+    return (isinstance(cp, dict) and cp.get("provisioningState") == "Succeeded" and
+            isinstance(cp.get("resourceAssociation"), dict) and
+            cp["resourceAssociation"].get("accessMode") == "Learning" and
+            isinstance(cp.get("profile"), dict) and isinstance(cp["profile"].get("accessRules"), list))
+
+
+def _azure_storage_perimeter_urls(props):
+    """NSP-supported Storage data services; Files and static website differ."""
+    return sorted({url for service in ("blob", "dfs", "queue", "table")
+                   for url in _azure_storage_endpoint_urls(props, service=service)})
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
+    if props.get("publicNetworkAccess") not in (None, "Enabled", "Disabled", "SecuredByPerimeter"):
+        a.gap("inventory", "storage publicNetworkAccess value is unrecognized")
+        return a
     if str(props.get("publicNetworkAccess", "")).lower() == "disabled":
+        acls = props.get("networkAcls")
+        if acls is None:
+            acls = {}
+        if not isinstance(acls, dict):
+            a.gap("firewall", "disabled storage account network ACL object is malformed")
+            return a
+        instances, malformed_instances = _azure_storage_resource_instance_rules(acls)
+        bypass = _azure_storage_bypass(acls)
+        if instances or malformed_instances or bypass is None or bypass:
+            a.addresses = _azure_storage_perimeter_urls(props)
+            a.step("disabled_public_exception", "unknown", public_network_access="Disabled",
+                   resource_instance_rules=instances, trusted_service_bypass=sorted(bypass) if bypass else [],
+                   malformed_exception=malformed_instances or bypass is None)
+            a.gap("authorization", "disabled Storage public access can retain resource-instance or trusted-service exceptions; effective identity and data grants are not collected")
+            a.ports = pset("tcp", 443, 443) if a.addresses else None
+            return a
         return None
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
-        a.gap("firewall", "storage network security perimeter rules are not collected")
-        a.explicit = "UNKNOWN"
-    acls = props.get("networkAcls") or {}
+        public_rules, subscription_rules = _azure_storage_perimeter_public_rules(resource)
+        acls = props.get("networkAcls")
+        learning = _azure_storage_perimeter_learning_fallback(resource)
+        fallback_allow = (learning and
+                          (acls is None or isinstance(acls, dict) and
+                           acls.get("defaultAction", "Allow") == "Allow"))
+        fallback_ip_rules = []
+        if learning and isinstance(acls, dict) and acls.get("defaultAction") == "Deny":
+            firewall_rules, _ = _azure_storage_public_ip_rules(acls)
+            fallback_ip_rules = [value for value in firewall_rules if _cidr(value).version == 4]
+        if public_rules or (subscription_rules and not (fallback_allow or fallback_ip_rules)):
+            a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
+                   subscription_rules=subscription_rules,
+                   access_modes=sorted({rule["access_mode"] for rule in public_rules + subscription_rules}),
+                   source="Storage RP effective configuration")
+            a.addresses = _azure_storage_perimeter_urls(props)
+            if not a.addresses:
+                a.gap("inventory", "storage public endpoint URL is not collected")
+            a.ports = pset("tcp", 443, 443)
+            a.authenticated = ((bool(subscription_rules) and not public_rules) or
+                               props.get("allowBlobPublicAccess") is not True)
+            if subscription_rules and not public_rules:
+                a.notes.append("Subscription perimeter admission requires authentication; ownership is not established")
+            return a
+        if fallback_allow or fallback_ip_rules:
+            a.step("perimeter_learning_fallback", "allow", firewall_default_action="Allow" if fallback_allow else "Deny",
+                   public_ip_rules=fallback_ip_rules,
+                   reason="unmatched Learning perimeter source falls back to the account firewall")
+            a.addresses = _azure_storage_endpoint_urls(props)
+            if not a.addresses:
+                a.gap("inventory", "storage public endpoint URL is not collected")
+            a.ports = pset("tcp", 443, 443)
+            a.authenticated = props.get("allowBlobPublicAccess") is not True
+            return a
+        a.gap("firewall", "effective Storage perimeter inbound public-source rules are unavailable or do not establish a public source")
+        return a
+    acls = props.get("networkAcls")
+    if acls is None:
+        acls = {}
+    if not isinstance(acls, dict):
+        a.gap("firewall", "storage account network ACL object is malformed")
+        return a
     if acls.get("defaultAction", "Allow") not in ("Allow", "Deny"):
         a.gap("firewall", "storage account network ACL default action is unresolved")
         return a
@@ -12044,7 +12325,7 @@ def _azure_storage(snapshot, inventory, resource):
         public, unresolved = _azure_storage_public_ip_rules(acls)
         public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public)
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
-        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
+        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls, inventory, resource)
         bypass = _azure_storage_bypass(acls)
         if public or instances or subnets:
             a.step("network_rules", "allow", default_action="Deny", public_ip_rules=public,
@@ -12075,6 +12356,8 @@ def _azure_storage(snapshot, inventory, resource):
     if any(_cidr(value).version == 6 for value in public):
         a.addresses.extend(sorted(v for v in endpoint_set["ipv6Endpoints"].values()
                                   if isinstance(v, str) and v.startswith("https://"))[:4])
+    if not a.addresses:
+        a.gap("inventory", "storage public endpoint URL is not collected")
     if not a.path:
         a.step("network_rules", "allow", default_action="Allow")
     a.ports = pset("tcp", 443, 443) if props.get("supportsHttpsTrafficOnly", True) else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
@@ -12085,6 +12368,20 @@ def _azure_storage(snapshot, inventory, resource):
         a.authenticated = True
         a.step("anonymous_access", "authenticated_only", allow_blob_public_access=props.get("allowBlobPublicAccess"),
                shared_key_access=props.get("allowSharedKeyAccess"))
+    blob_service = inventory.get("storage_service", str(resource["data"].get("id", "")) + "/blobServices/default")
+    website = _props(blob_service).get("staticWebsite") if blob_service is not None else None
+    web_urls = _azure_storage_endpoint_urls(props, service="web")
+    web_public_rules, _ = _azure_storage_published_public_ip_rules(props, public, service="web")
+    if (isinstance(website, dict) and website.get("enabled") is True and web_urls and
+            props.get("publicNetworkAccess") != "SecuredByPerimeter" and
+            (acls.get("defaultAction", "Allow") == "Allow" or web_public_rules)):
+        a.data_exposure = True
+        a.addresses.extend(url for url in web_urls if url not in a.addresses)
+        a.step("static_website", "allow", web_endpoints=web_urls, anonymous=True,
+               source="ARM blobServices/default staticWebsite.enabled and storage web endpoints")
+        a.notes.append("Static website $web reads are anonymous even when allowBlobPublicAccess is false")
+    elif isinstance(website, dict) and website.get("enabled") is True and not web_urls:
+        a.notes.append("Static website enabled but web endpoint URL is not collected")
     return a
 
 
@@ -12102,32 +12399,79 @@ def _azure_storage_container(snapshot, inventory, resource):
         return a
     props = _props(account)
     a.step("container_acl", "allow", public_access=level)
-    if props.get("allowBlobPublicAccess") is False or str(props.get("publicNetworkAccess", "")).lower() == "disabled":
-        a.step("account_gate", "block", allow_blob_public_access=props.get("allowBlobPublicAccess"),
+    if props.get("publicNetworkAccess") not in (None, "Enabled", "Disabled", "SecuredByPerimeter"):
+        a.gap("inventory", "storage publicNetworkAccess value is unrecognized")
+        return a
+    blob_public = props.get("allowBlobPublicAccess")
+    if blob_public is not None and type(blob_public) is not bool:
+        a.gap("inventory", "account allowBlobPublicAccess value is malformed")
+        return a
+    if blob_public is not True or str(props.get("publicNetworkAccess", "")).lower() == "disabled":
+        a.step("account_gate", "block", allow_blob_public_access=(
+               blob_public if blob_public is not None else "default(False)"),
                public_network_access=props.get("publicNetworkAccess"))
         a.ports = {}
         return a
-    if props.get("allowBlobPublicAccess") is not True:
-        a.gap("inventory", "account allowBlobPublicAccess setting is unavailable")
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
-        a.gap("firewall", "storage network security perimeter rules are not collected")
-        a.explicit = "UNKNOWN"
+        public_rules, subscription_rules = _azure_storage_perimeter_public_rules(account)
+        if public_rules:
+            a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
+                   access_modes=sorted({rule["access_mode"] for rule in public_rules}),
+                   source="Storage RP effective configuration")
+            a.addresses = _azure_storage_endpoint_urls(props, service="blob")
+            if not a.addresses:
+                a.gap("inventory", "public blob endpoint is not collected")
+            a.data_exposure = True
+            a.ports = pset("tcp", 443, 443)
+            return a
+        if subscription_rules:
+            a.step("network_security_perimeter", "authenticated_only",
+                   subscription_rules=subscription_rules,
+                   reason="subscription-based perimeter rules reject anonymous and SAS requests")
+        acls = props.get("networkAcls")
+        learning = _azure_storage_perimeter_learning_fallback(account)
+        fallback_allow = learning and (acls is None or isinstance(acls, dict) and
+                                       acls.get("defaultAction", "Allow") == "Allow")
+        fallback_ip_rules = []
+        if learning and isinstance(acls, dict) and acls.get("defaultAction") == "Deny":
+            firewall_rules, _ = _azure_storage_public_ip_rules(acls)
+            fallback_ip_rules = [value for value in firewall_rules if _cidr(value).version == 4]
+        if fallback_allow or fallback_ip_rules:
+            a.step("perimeter_learning_fallback", "allow", firewall_default_action="Allow" if fallback_allow else "Deny",
+                   public_ip_rules=fallback_ip_rules,
+                   reason="unmatched Learning perimeter source falls back to the account firewall")
+            a.addresses = _azure_storage_endpoint_urls(props, service="blob")
+            if not a.addresses:
+                a.gap("inventory", "public blob endpoint is not collected")
+            a.data_exposure = True
+            a.ports = pset("tcp", 443, 443)
+            return a
+        a.gap("firewall", "effective Storage perimeter inbound public-source rules are unavailable or do not establish a public source")
+        return a
     if props.get("publicNetworkAccess") is None:
-        a.gap("inventory", "account publicNetworkAccess setting is unavailable")
+        a.step("account_gate", "allow", public_network_access="Enabled (service default)")
     acls = props.get("networkAcls")
-    if not isinstance(acls, dict) or acls.get("defaultAction") not in ("Allow", "Deny"):
-        a.gap("firewall", "account network ACL default action is unavailable")
-    elif acls["defaultAction"] == "Deny":
+    if acls is None:
+        acls = {}
+    if not isinstance(acls, dict) or acls.get("defaultAction", "Allow") not in ("Allow", "Deny"):
+        a.gap("firewall", "account network ACL default action is malformed")
+        return a
+    if acls.get("defaultAction", "Allow") == "Deny":
         public, unresolved = _azure_storage_public_ip_rules(acls)
         public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public, service="blob")
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
-        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
+        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls, inventory, account)
         bypass = _azure_storage_bypass(acls)
-        if public or instances or subnets:
+        if public or subnets:
             a.step("firewall", "allow", default_action="Deny", public_ip_rules=public,
                    resource_instance_rules=instances, virtual_network_rules=subnets)
             if unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
                 a.notes.append("Other storage account network rule entries are malformed or incomplete")
+        elif instances and not (unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets or bypass is None):
+            a.step("resource_instance_exception", "authenticated_only", resource_instance_rules=instances)
+            a.step("firewall", "block", default_action="Deny", anonymous_public_sources=0)
+            a.ports = {}
+            return a
         elif unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets or bypass is None:
             a.gap("firewall", "storage account IP, resource-instance, subnet or trusted-service bypass rules are malformed or incomplete")
         else:
@@ -12137,7 +12481,8 @@ def _azure_storage_container(snapshot, inventory, resource):
             a.ports = {}
             return a
     else:
-        a.step("firewall", "allow", default_action="Allow")
+        a.step("firewall", "allow", default_action=("Allow (service default)" if
+               "defaultAction" not in acls else "Allow"))
     endpoint_set = props.get("primaryEndpoints") or {}
     a.addresses = _azure_storage_endpoint_urls(props, service="blob")
     secondary = props.get("secondaryEndpoints")
@@ -12156,17 +12501,134 @@ def _azure_storage_container(snapshot, inventory, resource):
     return a
 
 
-def _azure_sql(snapshot, inventory, resource, rules):
+def _azure_sql_virtual_network_subnets(inventory, server):
+    """Ready server rules need a provisioned SQL endpoint in the server region."""
+    data = server["data"]
+    coverage = (data.get("_coverage") or {}).get("virtualNetworkRules") or {}
+    rules = data.get("virtualNetworkRules")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(rules, list):
+        return [], True
+    location = str(data.get("location") or "").casefold()
+    if not location and rules:
+        return [], True
+    allowed, unresolved = [], False
+    server_id = str(data.get("id", ""))
+    if len(server_id.split("/")) < 3:
+        return [], True
+    for rule in rules:
+        rp = rule.get("properties") if isinstance(rule, dict) else None
+        subnet_id = rp.get("virtualNetworkSubnetId") if isinstance(rp, dict) else None
+        if (not isinstance(rule, dict) or not isinstance(rule.get("id"), str) or
+                re.fullmatch(re.escape(server_id + "/virtualNetworkRules/") + r"[^/?#%\\\s]+",
+                             rule["id"], re.I) is None or
+                not isinstance(subnet_id, str) or
+                re.fullmatch(r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/"
+                             r"virtualNetworks/[^/]+/subnets/[^/]+", subnet_id, re.I) is None or
+                rp.get("state") != "Ready"):
+            unresolved = True
+            continue
+        # Cross-subscription rules require a shared Entra tenant. A subnet in
+        # this server's subscription has that identity; foreign ownership is
+        # not established by the two ARM resource IDs alone.
+        if subnet_id.split("/")[2].casefold() != server_id.split("/")[2].casefold():
+            unresolved = True
+            continue
+        subnet, _ = _azure_subnet(inventory, subnet_id)
+        if subnet is None or inventory.state("subnet", subnet["scope"]) != "collected":
+            unresolved = True
+            continue
+        endpoints = _props(subnet).get("serviceEndpoints")
+        if not isinstance(endpoints, list):
+            unresolved = True
+            continue
+        active = False
+        for endpoint in endpoints:
+            if not isinstance(endpoint, dict):
+                unresolved = True
+                continue
+            if endpoint.get("service") != "Microsoft.Sql":
+                continue
+            locations = endpoint.get("locations")
+            if (endpoint.get("provisioningState") == "Succeeded" and
+                    isinstance(locations, list) and location in
+                    {value.casefold() for value in locations if isinstance(value, str)}):
+                active = True
+            else:
+                unresolved = True
+        if active:
+            allowed.append(subnet_id)
+    return sorted(set(allowed)), unresolved
+
+
+def _azure_sql(snapshot, inventory, resource, rules, ipv6_rules):
     props = _props(resource)
     public_access = props.get("publicNetworkAccess")
     if str(public_access).lower() == "disabled":
-        return None
+        a = Assessment(resource, "database")
+        a.step("public_network_access", "block", value=public_access)
+        # That gate blocks public SQL, but it is not a block on Private Link.
+        a.blocked_by = None
+        connections = props.get("privateEndpointConnections")
+        coverage = (props.get("_coverage") or {}).get("privateEndpointConnections") or {}
+        if not isinstance(connections, list) or coverage.get("status") == "malformed":
+            a.gap("inventory", "SQL private endpoint connection inventory is unavailable or malformed",
+                  "Microsoft.Sql/servers GET privateEndpointConnections")
+            return a
+        approved, unresolved = [], False
+        server_id = str(resource["data"].get("id", ""))
+        for connection in connections:
+            cp = connection.get("properties") if isinstance(connection, dict) else None
+            state = cp.get("privateLinkServiceConnectionState") if isinstance(cp, dict) else None
+            endpoint = cp.get("privateEndpoint") if isinstance(cp, dict) else None
+            endpoint_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+            valid = (isinstance(connection, dict) and isinstance(connection.get("id"), str) and
+                     re.fullmatch(re.escape(server_id + "/privateEndpointConnections/") + r"[^/?#%\\\s]+",
+                                  connection["id"], re.I) is not None and
+                     isinstance(endpoint_id, str) and re.fullmatch(
+                         r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+",
+                         endpoint_id, re.I) is not None and isinstance(state, dict))
+            if not valid:
+                unresolved = True
+                continue
+            if (state.get("status") == "Approved" and cp.get("provisioningState") == "Ready"):
+                approved.append(endpoint_id)
+            elif state.get("status") not in ("Rejected", "Disconnected"):
+                unresolved = True
+        if approved:
+            a.step("private_endpoint", "unknown", approved_endpoint_ids=sorted(set(approved)))
+            a.gap("authorization", "SQL private endpoint consumer ownership, route and database login are not joined")
+            a.ports = pset("tcp", 1433, 1433)
+        elif unresolved:
+            a.gap("inventory", "SQL private endpoint connection state is incomplete")
+        else:
+            return None
+        return a
     a = Assessment(resource, "database")
     a.addresses = [props.get("fullyQualifiedDomainName")] if props.get("fullyQualifiedDomainName") else []
+    private_coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+    connections = resource["data"].get("privateEndpointConnections")
+    private_unknown = True
+    if private_coverage.get("status") in ("collected", "empty") and isinstance(connections, list):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+            resource["data"], {"privateEndpointConnections": connections})
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.explicit = "FAIL"
+        if private_unknown:
+            a.gap("private_link_share", "SQL private endpoint approval or ownership is unresolved")
+    else:
+        a.gap("private_link_share", "SQL private endpoint connections are not fully collected")
+    if str(public_access).lower() == "disabled":
+        a.step("public_network_access", "block", value=public_access)
+        a.ports = pset("tcp", 1433, 1433) if a.external_ids else {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
+        return a
     if str(public_access).lower() != "enabled":
         a.gap("inventory", "SQL publicNetworkAccess is not explicitly Enabled or Disabled")
     rid = str(resource["data"].get("id", "")).lower()
     state = inventory.state("sql_firewall_rule", resource["data"].get("id"))
+    ipv6_state = inventory.state("sql_ipv6_firewall_rule", resource["data"].get("id"))
     open_rules, azure = [], False
     for rule in rules.get(rid, []):
         rp = _props(rule)
@@ -12188,18 +12650,49 @@ def _azure_sql(snapshot, inventory, resource, rules):
             if any(network.prefixlen == 0 or _public_ip(network.network_address) or
                    _public_ip(network.broadcast_address) for network in ranges):
                 open_rules.append({"rule": rule["data"].get("name"), "start_ip": start, "end_ip": end})
+    ipv6_gate = props.get("isIPv6Enabled")
+    if ipv6_gate == "Enabled":
+        for rule in ipv6_rules.get(rid, []):
+            rp = _props(rule)
+            start, end = rp.get("startIPv6Address"), rp.get("endIPv6Address")
+            try:
+                first, last = ipaddress.IPv6Address(start), ipaddress.IPv6Address(end)
+            except (ipaddress.AddressValueError, TypeError):
+                a.gap("firewall", "SQL IPv6 firewall rule has an invalid address range")
+                continue
+            if first > last:
+                a.gap("firewall", "SQL IPv6 firewall rule start exceeds end")
+                continue
+            ranges = list(ipaddress.summarize_address_range(first, last))
+            if any(network.prefixlen == 0 or _public_ip(network.network_address) or
+                   _public_ip(network.broadcast_address) for network in ranges):
+                open_rules.append({"rule": rule["data"].get("name"), "address_family": "IPv6",
+                                   "start_ip": start, "end_ip": end})
+    elif ipv6_gate != "Disabled" and ipv6_rules.get(rid):
+        a.gap("firewall", "SQL IPv6 firewall rules exist but server IPv6 gate is not explicit")
+    virtual_subnets, virtual_unresolved = _azure_sql_virtual_network_subnets(inventory, resource)
+    if virtual_unresolved and not open_rules and not virtual_subnets:
+        a.gap("firewall", "SQL virtual-network rule or subnet service-endpoint inventory is incomplete",
+              "Microsoft.Sql/servers/virtualNetworkRules and Microsoft.Network/virtualNetworks/subnets")
     if azure:
         a.notes.append("'Allow Azure services' admits resources in other Azure tenants; database authentication is separate")
     if state not in ("collected", "empty") and not open_rules:
         a.gap("firewall", f"SQL firewall rules {state}", "Microsoft.Sql/servers/firewallRules")
-    if not open_rules:
+    if ipv6_gate == "Enabled" and ipv6_state not in ("collected", "empty") and not open_rules:
+        a.gap("firewall", f"SQL IPv6 firewall rules {ipv6_state}",
+              "Microsoft.Sql/servers/ipv6FirewallRules")
+    if not open_rules and not virtual_subnets:
         a.gap("firewall", "database-level firewall rules are not in ARM server firewall LIST",
               "SQL data-plane sys.database_firewall_rules for each database")
+    if virtual_subnets:
+        for gap in a.unresolved:
+            if gap["layer"] == "firewall":
+                gap["decisive"] = False
     unresolved_rules = any(gap["layer"] == "firewall" for gap in a.unresolved)
-    a.step("firewall", "allow" if open_rules else "unknown" if unresolved_rules else "block",
-           open_rules=open_rules)
-    a.ports = pset("tcp", 1433, 1433) if open_rules else {}
-    if open_rules and not a.addresses:
+    a.step("firewall", "allow" if open_rules or virtual_subnets else "unknown" if unresolved_rules else "block",
+           open_rules=open_rules, virtual_network_rules=virtual_subnets)
+    a.ports = pset("tcp", 1433, 1433) if open_rules or virtual_subnets else {}
+    if (open_rules or virtual_subnets) and not a.addresses:
         a.gap("inventory", "SQL public endpoint FQDN is not collected")
     return a
 
@@ -12236,37 +12729,120 @@ def _azure_container_app(snapshot, inventory, resource):
     ingress = (props.get("configuration") or {}).get("ingress") or {}
     env_id = props.get("environmentId") or props.get("managedEnvironmentId")
     environment = inventory.get("container_app_environment", env_id)
+    runtime = inventory.get("container_app_runtime", resource["data"].get("id"))
     route_hosts = []
+    route_default_fqdn = False
+    route_http_only = False
+    route_https = False
+    route_http_bindings = set()
     route_state = None
+    route_target_unresolved = False
     if ingress.get("external") is not True:
+        revisions = runtime["data"].get("revisions") if runtime is not None else None
+        complete_revisions = (runtime is not None and
+                              inventory.state("container_app_runtime", resource["scope"]) == "collected" and
+                              (runtime["data"].get("_provenance") or {}).get("method") == "GET+LIST" and
+                              (runtime["data"].get("_provenance") or {}).get("read_only") is True and
+                              isinstance(revisions, list))
+        revision_states = {str(revision["id"]).rsplit("/", 1)[-1].casefold():
+                           revision["properties"].get("active")
+                           for revision in revisions if isinstance(revision, dict) and
+                           isinstance(revision.get("id"), str) and
+                           isinstance(revision.get("properties"), dict)} if complete_revisions else {}
         if environment is not None:
             route_state = (environment["data"].get("_coverage") or {}).get("httpRouteConfigs", {}).get("status")
             app_name = str(resource["data"].get("id", "")).rsplit("/", 1)[-1].casefold()
             for route in as_list(environment["data"].get("httpRouteConfigs")):
                 route_props = route.get("properties") if isinstance(route, dict) else None
-                if not isinstance(route_props, dict) or route_props.get("provisioningState") != "Succeeded":
-                    continue
-                if not any(isinstance(rule, dict) and any(
-                        isinstance(target, dict) and str(target.get("containerApp", "")).casefold() == app_name
-                        for target in as_list(rule.get("targets")))
-                        for rule in as_list(route_props.get("rules"))):
+                if not isinstance(route_props, dict):
+                    route_target_unresolved = True
                     continue
                 fqdn = route_props.get("fqdn")
-                if isinstance(fqdn, str) and fqdn:
-                    route_hosts.append(fqdn)
-        if ingress.get("external") is False and not route_hosts and route_state in ("collected", "empty"):
+                bound_domains = [domain["name"] for domain in as_list(route_props.get("customDomains"))
+                                 if isinstance(domain, dict) and isinstance(domain.get("name"), str)
+                                 and domain["name"] and domain.get("bindingType") == "SniEnabled"
+                                 and isinstance(domain.get("certificateId"), str)
+                                 and domain["certificateId"]]
+                http_domains = [domain["name"] for domain in as_list(route_props.get("customDomains"))
+                                if isinstance(domain, dict) and isinstance(domain.get("name"), str)
+                                and domain["name"] and domain.get("bindingType") in ("Disabled", "Auto")]
+                certified_domains = bool(bound_domains)
+                if not fqdn and not bound_domains:
+                    bound_domains = http_domains
+                hosts = ([fqdn] if isinstance(fqdn, str) and fqdn else []) + bound_domains
+                for rule in as_list(route_props.get("rules")):
+                    for target in as_list(rule.get("targets")) if isinstance(rule, dict) else []:
+                        if (not isinstance(target, dict) or
+                                str(target.get("containerApp", "")).casefold() != app_name):
+                            continue
+                        if route_props.get("provisioningState") != "Succeeded":
+                            route_target_unresolved = True
+                            continue
+                        revision = target.get("revision")
+                        label = target.get("label")
+                        if revision is None and label is None:
+                            if hosts:
+                                route_hosts.extend(hosts)
+                                route_default_fqdn |= fqdn in hosts
+                                route_http_only |= bool(not certified_domains and not fqdn and http_domains)
+                                route_https |= bool(fqdn or certified_domains)
+                                if not certified_domains and not fqdn and http_domains:
+                                    route_http_bindings.update(domain.get("bindingType") for domain in
+                                        as_list(route_props.get("customDomains")) if isinstance(domain, dict)
+                                        and domain.get("name") in http_domains
+                                        and domain.get("bindingType") in ("Disabled", "Auto"))
+                            else:
+                                route_target_unresolved = True
+                        elif isinstance(revision, str) and revision and label is None and complete_revisions:
+                            active = revision_states.get(revision.rsplit("/", 1)[-1].casefold())
+                            if active is True and hosts:
+                                route_hosts.extend(hosts)
+                                route_default_fqdn |= fqdn in hosts
+                                route_http_only |= bool(not certified_domains and not fqdn and http_domains)
+                                route_https |= bool(fqdn or certified_domains)
+                                if not certified_domains and not fqdn and http_domains:
+                                    route_http_bindings.update(domain.get("bindingType") for domain in
+                                        as_list(route_props.get("customDomains")) if isinstance(domain, dict)
+                                        and domain.get("name") in http_domains
+                                        and domain.get("bindingType") in ("Disabled", "Auto"))
+                            elif active is not False:
+                                route_target_unresolved = True
+                        elif isinstance(label, str) and label and revision is None and complete_revisions:
+                            traffic = ingress.get("traffic")
+                            matches = [entry for entry in traffic if isinstance(entry, dict) and
+                                       entry.get("label") == label] if isinstance(traffic, list) else []
+                            if len(matches) != 1 or not isinstance(matches[0].get("revisionName"), str):
+                                route_target_unresolved = True
+                                continue
+                            active = revision_states.get(matches[0]["revisionName"].casefold())
+                            if active is True and hosts:
+                                route_hosts.extend(hosts)
+                                route_default_fqdn |= fqdn in hosts
+                                route_http_only |= bool(not certified_domains and not fqdn and http_domains)
+                                route_https |= bool(fqdn or certified_domains)
+                                if not certified_domains and not fqdn and http_domains:
+                                    route_http_bindings.update(domain.get("bindingType") for domain in
+                                        as_list(route_props.get("customDomains")) if isinstance(domain, dict)
+                                        and domain.get("name") in http_domains
+                                        and domain.get("bindingType") in ("Disabled", "Auto"))
+                            elif active is not False:
+                                route_target_unresolved = True
+                        else:
+                            route_target_unresolved = True
+        if (ingress.get("external") is False and not route_hosts and not route_target_unresolved and
+                route_state in ("collected", "empty")):
             return None
     a = Assessment(resource, "container")
     if ingress.get("external") is not True:
         if not route_hosts:
             a.gap("inventory", "Container App ingress external setting is unavailable" if
                   ingress.get("external") is not False else
+                  "Container Apps HTTP route target revision or label is unresolved" if route_target_unresolved else
                   "Container Apps environment HTTP route inventory is incomplete")
             return a
         a.addresses = sorted(set(route_hosts))
         a.step("environment_http_route", "allow", route_fqdns=a.addresses,
                app_ingress_external=ingress.get("external"))
-    runtime = inventory.get("container_app_runtime", resource["data"].get("id"))
     runtime_status = _props(runtime).get("runningStatus") if runtime is not None else props.get("runningStatus")
     if runtime_status == "Stopped":
         a.step("app_state", "block", running_status="Stopped")
@@ -12307,29 +12883,54 @@ def _azure_container_app(snapshot, inventory, resource):
         a.step("environment", "allow", public_network_access=ep.get("publicNetworkAccess"))
     transport = "http" if route_hosts and ingress.get("external") is not True else str(ingress.get("transport") or "auto").lower()
     if transport == "tcp":
-        port = ingress.get("exposedPort")
-        if isinstance(port, int) and 1 <= port <= 65535:
-            a.ports = pset("tcp", port, port)
+        vnet = _props(environment).get("vnetConfiguration") if environment is not None else None
+        if (ingress.get("external") is True and (not isinstance(vnet, dict) or
+                not isinstance(vnet.get("infrastructureSubnetId"), str) or
+                not vnet["infrastructureSubnetId"])):
+            a.gap("listener", "external Container App TCP ingress requires a collected VNet infrastructure subnet")
+            a.ports = {}
         else:
-            a.gap("listener", "Container App TCP exposedPort is unavailable")
+            port = ingress.get("exposedPort")
+            if isinstance(port, int) and 1 <= port <= 65535:
+                a.ports = pset("tcp", port, port)
+            else:
+                a.gap("listener", "Container App TCP exposedPort is unavailable")
     elif transport in ("auto", "http", "http2"):
-        a.ports = union(pset("tcp", 80, 80), pset("tcp", 443, 443))
-        insecure = ingress.get("allowInsecure")
-        if insecure is not None and type(insecure) is not bool:
-            a.gap("listener", "Container App allowInsecure HTTP redirect mode is unresolved")
+        if route_hosts and not route_default_fqdn:
+            a.ports = union(pset("tcp", 80, 80) if route_http_only else {},
+                            pset("tcp", 443, 443) if route_https else {})
         else:
-            a.step("http_port_80", "allow" if insecure is True else "redirect",
-                   allow_insecure=insecure if insecure is not None else False)
+            a.ports = union(pset("tcp", 80, 80), pset("tcp", 443, 443))
+        if route_http_only:
+            a.step("route_custom_http", "allow", binding_types=sorted(route_http_bindings), port=80,
+                   note="Auto HTTPS availability requires a bound certificate")
+        if not route_hosts or route_default_fqdn:
+            insecure = ingress.get("allowInsecure")
+            if insecure is not None and type(insecure) is not bool:
+                a.gap("listener", "Container App allowInsecure HTTP redirect mode is unresolved")
+            else:
+                a.step("http_port_80", "allow" if insecure is True else "redirect",
+                       allow_insecure=insecure if insecure is not None else False)
     else:
         a.gap("listener", "Container App ingress transport is unrecognized")
     for mapping in as_list(ingress.get("additionalPortMappings")):
         if isinstance(mapping, dict) and mapping.get("external") is True:
+            vnet = _props(environment).get("vnetConfiguration") if environment is not None else None
+            if (ingress.get("external") is not True or not isinstance(vnet, dict) or
+                    not isinstance(vnet.get("infrastructureSubnetId"), str) or
+                    not vnet["infrastructureSubnetId"]):
+                a.notes.append("External extra TCP mapping is not an admitted public port without external app ingress and a recorded VNet infrastructure subnet")
+                continue
             port = mapping.get("exposedPort") or mapping.get("targetPort")
             if isinstance(port, int) and 1 <= port <= 65535:
                 a.ports = union(a.ports or {}, pset("tcp", port, port))
             else:
                 a.gap("listener", "Container App external additional port is unavailable")
-    rules = as_list(ingress.get("ipSecurityRestrictions"))
+    raw_rules = ingress.get("ipSecurityRestrictions")
+    malformed_rules = raw_rules is not None and not isinstance(raw_rules, list)
+    rules = raw_rules if isinstance(raw_rules, list) else []
+    if malformed_rules:
+        a.gap("access_restrictions", "Container App IP restriction inventory is not an array")
     if route_hosts and ingress.get("external") is not True and rules:
         a.gap("access_restrictions", "app IP restriction behavior through environment HTTP route is unresolved")
         rules = []
@@ -12352,7 +12953,7 @@ def _azure_container_app(snapshot, inventory, resource):
             a.step("access_restrictions", "allow", action="Deny", rule_count=len(rules))
         else:
             a.gap("access_restrictions", "Container App IP restriction action is unrecognized")
-    else:
+    elif not malformed_rules:
         a.step("access_restrictions", "allow", rule_count=0)
     if ingress.get("clientCertificateMode") == "Require":
         a.authenticated = True
@@ -12360,7 +12961,25 @@ def _azure_container_app(snapshot, inventory, resource):
         fqdn = ingress.get("fqdn")
         if isinstance(fqdn, str) and fqdn:
             a.addresses.append(fqdn)
-        else:
+        if ingress.get("external") is True and transport in ("auto", "http", "http2"):
+            domains = ingress.get("customDomains")
+            if isinstance(domains, list):
+                unverified = [domain.get("name") for domain in domains if isinstance(domain, dict)
+                              and domain.get("bindingType") in ("Auto", "SniEnabled")
+                              and not domain.get("certificateId")]
+                if unverified:
+                    a.notes.append("App custom-domain certificate binding is not collected for: " +
+                                   ", ".join(str(name) for name in unverified if name))
+                bound_domains = sorted({domain["name"] for domain in domains
+                    if isinstance(domain, dict) and isinstance(domain.get("name"), str)
+                    and domain["name"] and domain.get("bindingType") in ("Auto", "SniEnabled")
+                    and isinstance(domain.get("certificateId"), str) and domain["certificateId"]
+                    and domain["name"] not in a.addresses})
+                a.addresses.extend(bound_domains)
+                if bound_domains:
+                    a.step("custom_domains", "allow", bound_hostnames=bound_domains,
+                           source="ARM configuration.ingress.customDomains")
+        if not a.addresses:
             a.gap("inventory", "Container App public ingress FQDN is not collected")
     if (ingress.get("external") is True and transport in ("auto", "http", "http2") and environment is not None
             and runtime is not None and inventory.state("container_app_runtime", resource["scope"]) == "collected"
@@ -12522,15 +13141,159 @@ def _azure_firewall(snapshot, inventory, resource):
         stopped = ([_azure_firewall_stopped_vm_backend(inventory, rule["translated_address"])
                     for rule in matched] if not a.unresolved else [])
         if stopped and all(stopped):
-            a.step("backend", "block", stopped_vm_backends=stopped)
-            a.ports = {}
-            return a
+            a.step("backend", "unknown", stopped_vm_candidates=stopped,
+                   reason="translated private IP does not establish the firewall's route to this NIC")
         a.gap("backend", "translated backend route, runtime and effective NSG are not resolved")
     elif frontends and not a.unresolved:
         a.step("dnat", "block", reason="no collected public-source classic DNAT rule")
     else:
         a.gap("inventory", "Firewall public frontend or policy DNAT rule inventory is unavailable")
     a.ports = ports
+    return a
+
+
+def _azure_private_transit(snapshot, inventory, resource):
+    """Name a possible third-party private path without claiming a public listener."""
+    props = _props(resource)
+    kind = resource["type"]
+    if kind == "vnet_peering":
+        remote = (props.get("remoteVirtualNetwork") or {}).get("id")
+        local = str(resource["data"].get("id", "")).lower().split("/resourcegroups/", 1)[0]
+        remote_scope = str(remote).lower().split("/resourcegroups/", 1)[0]
+        foreign = bool(remote and remote_scope != local)
+        enabled = (props.get("peeringState") == "Connected" and
+                   props.get("provisioningState") == "Succeeded" and
+                   (props.get("allowVirtualNetworkAccess") is True or
+                    props.get("allowForwardedTraffic") is True or
+                    props.get("allowGatewayTransit") is True or
+                    props.get("useRemoteGateways") is True))
+        if not foreign or not enabled:
+            return None
+        mode = "cross-subscription VNet peering"
+    elif kind == "network_connection":
+        if props.get("connectionStatus") != "Connected" or props.get("connectionType") not in (
+                "IPsec", "Vnet2Vnet", "ExpressRoute"):
+            return None
+        remote = ((props.get("localNetworkGateway2") or {}).get("id") or
+                  (props.get("virtualNetworkGateway2") or {}).get("id") or
+                  (props.get("peer") or {}).get("id"))
+        mode = f"connected {props['connectionType']} gateway connection"
+    elif kind == "hub_vpn_connection":
+        if props.get("connectionStatus") != "Connected" and not any(
+                isinstance(link, dict) and
+                (link.get("properties") or {}).get("connectionStatus") == "Connected"
+                for link in as_list(props.get("vpnLinkConnections"))):
+            return None
+        remote = (props.get("remoteVpnSite") or {}).get("id")
+        mode = "connected Virtual WAN VPN site connection"
+    else:
+        return None
+    a = Assessment(resource, "private_transit")
+    a.step("private_transit", "unknown", connection=mode, remote=remote)
+    a.gap("backend", "remote owner, effective route, target NSG and target service are not established")
+    a.explicit = "UNKNOWN"
+def _azure_bastion(snapshot, inventory, resource):
+    """Assess Bastion client ingress and issued third-party shareable URLs."""
+    props = _props(resource)
+    a = Assessment(resource, "bastion_client")
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "Bastion provisioning state is not succeeded")
+        return a
+    sku = (resource["data"].get("sku") or {}).get("name")
+    if sku not in ("Developer", "Basic", "Standard", "Premium"):
+        a.gap("inventory", "Bastion SKU is unavailable")
+        return a
+    private = props.get("enablePrivateOnlyBastion")
+    if private not in (None, True, False):
+        a.gap("inventory", "Bastion private-only state is malformed")
+        return a
+    if private is True:
+        a.step("private_only", "block", reason="Bastion has no public client IP")
+        a.ports = {}
+    elif sku == "Developer":
+        dns = props.get("dnsName")
+        if not isinstance(dns, str) or not dns:
+            a.gap("inventory", "Developer Bastion shared endpoint DNS is unavailable")
+            return a
+        a.addresses.append(dns)
+        acls = props.get("networkAcls")
+        rules = acls.get("ipRules") if isinstance(acls, dict) else [] if acls is None else None
+        if not isinstance(rules, list):
+            a.gap("inventory", "Developer Bastion client IP rules are unavailable")
+            return a
+        prefixes = [_cidr(row.get("addressPrefix")) if isinstance(row, dict) else None for row in rules]
+        if any(prefix is None for prefix in prefixes):
+            a.gap("inventory", "Developer Bastion client IP rule is malformed")
+            return a
+        if prefixes and not _azure_public_remainder(prefixes, []):
+            a.step("client_ip_rules", "block", reason="client IP rules exclude public internet")
+            a.ports = {}
+        else:
+            a.step("client_ip_rules", "allow", source_prefixes=[str(prefix) for prefix in prefixes])
+            a.ports = pset("tcp", 443, 443)
+    else:
+        configurations = props.get("ipConfigurations")
+        if not isinstance(configurations, list) or not configurations:
+            a.gap("inventory", "Dedicated Bastion IP configurations are unavailable")
+            return a
+        ports = {}
+        for config in configurations:
+            cp = config.get("properties") if isinstance(config, dict) else None
+            if not isinstance(cp, dict) or cp.get("provisioningState") not in (None, "Succeeded"):
+                a.gap("inventory", "Bastion IP configuration is unsettled or malformed")
+                continue
+            public_ref = cp.get("publicIPAddress")
+            public_id = public_ref.get("id") if isinstance(public_ref, dict) else None
+            if not isinstance(public_id, str):
+                a.gap("inventory", "Dedicated Bastion public IP reference is unavailable")
+                continue
+            public = inventory.get("public_ip", public_id)
+            address = _props(public).get("ipAddress") if public is not None else None
+            if not isinstance(address, str) or not _public_ip(address):
+                a.gap("inventory", "Dedicated Bastion public IP address is unavailable")
+                continue
+            subnet_ref = cp.get("subnet")
+            subnet_id = subnet_ref.get("id") if isinstance(subnet_ref, dict) else None
+            a.addresses.append(address)
+            subnet, _ = _azure_subnet(inventory, subnet_id)
+            nsg_id = ((_props(subnet).get("networkSecurityGroup") or {}).get("id")) if subnet is not None else None
+            nsg = inventory.get("nsg", nsg_id) if nsg_id else None
+            specific_destination = bool(nsg and any(
+                (rule.get("properties") or {}).get("access") == "Allow" and (
+                    bool((rule.get("properties") or {}).get("destinationApplicationSecurityGroups")) or any(
+                        value not in ("*", "Any", "VirtualNetwork", "0.0.0.0/0", "::/0")
+                        for value in as_list((rule.get("properties") or {}).get("destinationAddressPrefixes")) +
+                                     as_list((rule.get("properties") or {}).get("destinationAddressPrefix"))))
+                for rule in as_list(_props(nsg).get("securityRules")) if isinstance(rule, dict)))
+            path = _azure_nsg_path(inventory, a, None, subnet_id, pset("tcp", 443, 443),
+                                   where="Bastion client subnet")
+            if specific_destination and empty(path):
+                a.blocked_by = None
+                a.gap("nsg", "Bastion private destination IP is unavailable for destination-specific NSG allow")
+            ports = union(ports, path)
+        a.ports = ports
+        if ports:
+            a.step("bastion_client", "allow", listener_port=443)
+        elif not a.unresolved:
+            a.step("bastion_client", "block", reason="no reachable public Bastion client IP")
+    sharing = props.get("enableShareableLink")
+    if sharing is True:
+        state = inventory.state("bastion_shareable_link", native_id(resource))
+        if state not in ("collected", "empty"):
+            a.gap("inventory", "Bastion shareable-link list is unavailable")
+            a.blocked_by = None
+        else:
+            links = [row for row in inventory.items("bastion_shareable_link")
+                     if str(row.get("scope", "")).casefold() == str(native_id(resource)).casefold()]
+            if links:
+                a.data_exposure = True
+                a.external_ids = sorted(str(_props(row).get("vmId")) for row in links)
+                a.step("shareable_link", "allow", target_vm_count=len(links))
+    elif sharing not in (None, False):
+        a.gap("inventory", "Bastion shareable-link enabled state is malformed")
+    if a.data_exposure:
+        for gap in a.unresolved:
+            gap["decisive"] = False
     return a
 
 
@@ -12549,14 +13312,371 @@ _AZURE_MANAGED_ENDPOINTS = {
 }
 
 
+def _azure_attestation_provider(snapshot, inventory, resource):
+    """Assess the provider's documented public HTTPS attestation endpoint."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    if (resource["data"].get("_provenance") or {}).get("representation") != "full":
+        a.gap("inventory", "Attestation provider full GET is unavailable")
+        return a
+    props = _props(resource)
+    public = props.get("publicNetworkAccess")
+    if public == "Disabled":
+        a.step("public_network", "block", public_network_access=public)
+        a.ports = {}
+        return a
+    if public != "Enabled":
+        a.gap("inventory", "Attestation public network access is unresolved")
+        return a
+    if props.get("status") != "Ready":
+        a.gap("inventory", "Attestation provider readiness is unresolved")
+        return a
+    uri = props.get("attestUri")
+    try:
+        parsed = urlsplit(uri) if isinstance(uri, str) else None
+        valid_uri = (parsed is not None and parsed.scheme == "https" and
+                     bool(parsed.hostname) and parsed.username is None and
+                     parsed.password is None and parsed.port in (None, 443) and
+                     not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid_uri = False
+    if not valid_uri:
+        a.gap("inventory", "Attestation provider URI is unavailable or malformed")
+        return a
+    a.addresses = [parsed.hostname]
+    a.endpoint = uri
+    a.step("public_network", "allow", public_network_access=public)
+    a.ports = pset("tcp", 443, 443)
+    tpm_auth = props.get("tpmAttestationAuthentication")
+    if tpm_auth == "Disabled":
+        a.authenticated = False
+        a.step("tpm_authentication", "allow", authentication_requirement="disabled")
+    elif tpm_auth == "Enabled":
+        a.step("tpm_authentication", "conditional", authentication_requirement="enabled")
+    else:
+        a.notes.append("TPM attestation authentication requirement is unavailable")
+    return a
+
+
+def _azure_dns_zone(snapshot, inventory, resource):
+    """Public zones answer anonymous queries on Azure's authoritative DNS servers."""
+    a = Assessment(resource, "dns_zone")
+    if (resource["data"].get("_provenance") or {}).get("representation") != "full":
+        a.gap("inventory", "DNS zone full GET is unavailable")
+        return a
+    props = _props(resource)
+    zone_type = props.get("zoneType", "Public")
+    if zone_type == "Private":
+        a.step("listener", "block", zone_type=zone_type)
+        a.ports = {}
+        return a
+    if zone_type != "Public":
+        a.gap("inventory", "DNS zone type is unrecognized")
+        return a
+    nameservers = props.get("nameServers")
+    if (not isinstance(nameservers, list) or not nameservers or
+            any(not isinstance(host, str) or len(host) > 253 or
+                re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.?", host) is None
+                for host in nameservers)):
+        a.gap("inventory", "Public DNS zone name servers are unavailable or malformed")
+        return a
+    a.addresses = sorted(set(host.rstrip(".").lower() for host in nameservers))
+    a.step("listener", "allow", zone_type=zone_type, authoritative_nameservers=a.addresses)
+    a.ports = union(pset("udp", 53, 53), pset("tcp", 53, 53))
+    a.notes.append("Public DNS records are queryable anonymously; this does not establish that a named workload is reachable")
+    return a
+
+
+def _azure_private_dns_zone(snapshot, inventory, resource):
+    """A completed VNet link grants that network access to private zone answers."""
+    a = Assessment(resource, "external_share")
+    a.ports = {}
+    zone_id = str(native_id(resource))
+    state = inventory.status.get("private_dns_link", {}).get(zone_id)
+    if state not in ("collected", "empty"):
+        a.gap("inventory", "Private DNS zone virtual network links are unavailable")
+        return a
+    source = re.match(r"^/subscriptions/([^/]+)/", zone_id, re.I)
+    if source is None:
+        a.gap("inventory", "Private DNS zone subscription is malformed")
+        return a
+    selected = {str(scope).casefold() for scope in snapshot.get("scopes", [])}
+    links = [row for row in inventory.items("private_dns_link")
+             if str(row.get("scope", "")).casefold() == zone_id.casefold()]
+    for link in links:
+        link_id = str(native_id(link))
+        if not link_id.casefold().startswith(zone_id.casefold() + "/virtualnetworklinks/"):
+            a.gap("inventory", "Private DNS zone link identity is malformed")
+            continue
+        props = _props(link)
+        target = props.get("virtualNetwork")
+        target_id = target.get("id") if isinstance(target, dict) else None
+        match = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/virtualNetworks/[^/]+", target_id, re.I) if isinstance(target_id, str) else None
+        if match is None:
+            a.gap("inventory", "Private DNS zone linked virtual network identity is unavailable")
+            continue
+        status = props.get("virtualNetworkLinkState")
+        provisioning = props.get("provisioningState")
+        if status == "Completed" and provisioning == "Succeeded":
+            target_scope = "/subscriptions/" + match.group(1)
+            if target_scope.casefold() not in selected:
+                a.data_exposure = True
+                a.external_ids.append(match.group(1))
+                a.step("virtual_network_link", "allow", destination_subscription=match.group(1),
+                       virtual_network=target_id)
+            else:
+                a.step("virtual_network_link", "same_source", virtual_network=target_id)
+        elif status in ("InProgress", "Deleting") or provisioning in ("Creating", "Updating", "Deleting"):
+            a.gap("inventory", "Private DNS zone virtual network link is transitioning")
+        else:
+            a.gap("inventory", "Private DNS zone virtual network link state is unavailable")
+    if not links:
+        a.step("virtual_network_link", "block", reason="no linked virtual networks")
+    return a
+
+
+def _azure_vpn_gateway(snapshot, inventory, resource):
+    """Assess configured VPN tunnel listeners on observed gateway public IPs."""
+    a = Assessment(resource, "vpn_gateway")
+    a.authenticated = True
+    props = _props(resource)
+    if props.get("gatewayType") == "ExpressRoute":
+        a.step("listener", "block", reason="ExpressRoute gateway has no VPN tunnel listener")
+        a.ports = {}
+        return a
+    if props.get("gatewayType") != "Vpn":
+        a.gap("inventory", "VPN gateway type is unavailable")
+        return a
+    state = props.get("provisioningState")
+    if state != "Succeeded":
+        a.gap("inventory", "VPN gateway provisioning state is unresolved")
+        return a
+    configurations = props.get("ipConfigurations")
+    if not isinstance(configurations, list) or not configurations:
+        a.gap("inventory", "VPN gateway public IP configurations are unavailable")
+        return a
+    public_addresses = []
+    unresolved_ip = False
+    for config in configurations:
+        details = config.get("properties") if isinstance(config, dict) else None
+        reference = details.get("publicIPAddress") if isinstance(details, dict) else None
+        identity = reference.get("id") if isinstance(reference, dict) else None
+        pip = inventory.get("public_ip", identity) if isinstance(identity, str) else None
+        address = _props(pip).get("ipAddress") if pip else None
+        if isinstance(address, str) and address:
+            try:
+                if ipaddress.ip_address(address).is_global:
+                    public_addresses.append(address)
+                else:
+                    unresolved_ip = True
+            except ValueError:
+                unresolved_ip = True
+        else:
+            unresolved_ip = True
+    if not public_addresses:
+        a.gap("inventory", "VPN gateway public frontend address is unresolved")
+        return a
+    a.addresses = sorted(set(public_addresses))
+    if unresolved_ip:
+        a.notes.append("Another gateway public IP configuration is unresolved")
+    ports = {}
+    config = props.get("vpnClientConfiguration")
+    if isinstance(config, dict):
+        protocols = config.get("vpnClientProtocols")
+        if not isinstance(protocols, list) or not protocols:
+            a.gap("inventory", "VPN client tunnel protocol is unavailable")
+        else:
+            for protocol in protocols:
+                if protocol == "SSTP":
+                    ports.setdefault("tcp", set()).add(443)
+                elif protocol == "OpenVPN":
+                    ports.setdefault("tcp", set()).add(443)
+                elif protocol == "IkeV2":
+                    ports.setdefault("udp", set()).update((500, 4500))
+                else:
+                    a.gap("inventory", "VPN client tunnel protocol is unrecognized")
+    scope = str(native_id(resource)).split("/resourceGroups/", 1)[0]
+    connection_state = inventory.state("virtual_network_gateway_connection", scope)
+    if connection_state in ("collected", "partial"):
+        if connection_state == "partial":
+            a.gap("inventory", "VPN connection inventory is incomplete")
+        for connection in inventory.items("virtual_network_gateway_connection"):
+            details = _props(connection)
+            references = [details.get(field) for field in ("virtualNetworkGateway1", "virtualNetworkGateway2")]
+            if not any(isinstance(ref, dict) and str(ref.get("id", "")).casefold() == str(native_id(resource)).casefold()
+                       for ref in references):
+                continue
+            ports.setdefault("udp", set()).update((500, 4500))
+            status = details.get("connectionStatus")
+            if status == "Connected":
+                local = details.get("localNetworkGateway2")
+                local_id = local.get("id") if isinstance(local, dict) else None
+                if isinstance(local_id, str) and local_id:
+                    a.external_ids.append(local_id)
+                    a.step("external_tunnel", "allow", peer_resource=local_id,
+                           connection_id=str(native_id(connection)))
+                else:
+                    other = next((ref.get("id") for ref in references if isinstance(ref, dict)
+                                  and str(ref.get("id", "")).casefold() != str(native_id(resource)).casefold()), None)
+                    own = re.match(r"^/subscriptions/([^/]+)/", str(native_id(resource)), re.I)
+                    remote = re.match(r"^/subscriptions/([^/]+)/", other, re.I) if isinstance(other, str) else None
+                    if own and remote and own.group(1).casefold() != remote.group(1).casefold():
+                        a.external_ids.append(remote.group(1))
+                        a.step("external_tunnel", "allow", peer_subscription=remote.group(1),
+                               connection_id=str(native_id(connection)))
+                    elif details.get("connectionType") == "IPsec":
+                        a.gap("authorization", "connected VPN peer identity is unavailable")
+            elif status not in ("Connecting", "NotConnected", "Unknown", "Disconnected"):
+                a.gap("inventory", "VPN connection status is unavailable")
+    elif connection_state != "empty":
+        a.gap("inventory", "VPN connection inventory is unavailable")
+    if ports:
+        a.ports = {protocol: tuple((port, port) for port in sorted(values)) for protocol, values in ports.items()}
+        a.step("listener", "allow", public_ip_addresses=a.addresses, vpn_tunnel_ports=a.ports)
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    else:
+        a.gap("listener", "VPN tunnel listener state cannot be proved closed from gateway and connection inventory")
+    return a
+
+
+def _azure_analysis_server(snapshot, inventory, resource):
+    """Assess the Azure Analysis Services public client endpoint from full ARM GET."""
+    props = _props(resource)
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    state = props.get("state")
+    if state in ("Paused", "Suspended", "Deleting"):
+        a.step("listener", "block", server_state=state)
+        a.ports = {}
+        return a
+    if state not in ("Succeeded", "Active"):
+        a.gap("listener", "Analysis Services server running state is not established")
+        return a
+    endpoint = props.get("serverFullName")
+    if not isinstance(endpoint, str) or not endpoint.startswith(("asazure://", "aspaaseastus2://")):
+        a.gap("inventory", "Analysis Services client endpoint is not recorded")
+        return a
+    a.addresses.append(endpoint)
+    if (resource["data"].get("_provenance") or {}).get("source_operation") != "Servers_GetDetails":
+        a.gap("inventory", "Analysis Services firewall is not from full server GET")
+        return a
+    settings = props.get("ipV4FirewallSettings")
+    if settings is None:
+        # Microsoft documents firewall protection as off by default, with
+        # ipV4FirewallSettings absent until configured.
+        a.step("firewall", "allow", reason="no firewall configuration on full server detail")
+        a.ports = pset("tcp", 443, 443)
+        return a
+    if not isinstance(settings, dict) or not isinstance(settings.get("firewallRules"), list):
+        a.gap("firewall", "Analysis Services firewall rule inventory is incomplete")
+        return a
+    public_ranges, malformed = [], False
+    for rule in settings["firewallRules"]:
+        try:
+            start = ipaddress.IPv4Address(rule["rangeStart"])
+            end = ipaddress.IPv4Address(rule["rangeEnd"])
+            if start > end:
+                raise ValueError("reversed firewall range")
+            if _azure_public_remainder(ipaddress.summarize_address_range(start, end), []):
+                public_ranges.append({"start": str(start), "end": str(end)})
+        except (TypeError, KeyError, ValueError):
+            malformed = True
+    power_bi = settings.get("enablePowerBIService") is True
+    if public_ranges or power_bi:
+        a.step("firewall", "allow", public_ranges=public_ranges,
+               power_bi_service_allowed=power_bi)
+        a.ports = pset("tcp", 443, 443)
+        if malformed:
+            a.notes.append("Other firewall rules are malformed")
+    elif malformed or settings.get("enablePowerBIService") not in (True, False):
+        a.gap("firewall", "Analysis Services firewall rules or Power BI exception are unresolved")
+    else:
+        a.step("firewall", "block", reason="no public-source rule or Power BI exception")
+        a.ports = {}
+    a.notes.append("Model role membership is managed on the Analysis Services data plane")
+    return a
+def _azure_foreign_private_endpoints(data, props):
+    """Classify approved ARM private links using the owning subscription."""
+    parent_id = data.get("id")
+    parent = re.match(r"/subscriptions/([^/]+)/", parent_id, re.I) if isinstance(parent_id, str) else None
+    coverage = props.get("_coverage") or {}
+    unknown = isinstance(coverage, dict) and (coverage.get("privateEndpointConnections") or {}).get("status") == "malformed"
+    connections = props.get("privateEndpointConnections", [])
+    if not isinstance(connections, list):
+        return [], True
+    external = []
+    for connection in connections:
+        details = connection.get("properties") if isinstance(connection, dict) else None
+        endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+        state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+        remote_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+        remote = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+", remote_id, re.I) if isinstance(remote_id, str) else None
+        status = state.get("status") if isinstance(state, dict) else None
+        if status == "Approved" and details.get("provisioningState") in ("Succeeded", "Ready") and remote and parent:
+            if remote.group(1).casefold() != parent.group(1).casefold():
+                external.append(remote_id)
+        elif status == "Approved" or status not in ("Pending", "Rejected", "Disconnected"):
+            unknown = True
+    return sorted(set(external)), unknown
+
+
 def _azure_managed_endpoint(snapshot, inventory, resource):
     """Surface explicit public endpoint settings without inventing firewall joins."""
     props = _props(resource)
     kind = resource["type"]
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
+    if kind == "mysql_flexible_server":
+        configured_port = props.get("databasePort", 3306)
+        if type(configured_port) is int and 1 <= configured_port <= 65535:
+            port = configured_port
+        else:
+            port = None
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
-    if kind in ("servicebus_namespace", "eventhub_namespace"):
+    endpoint_ports = (union(pset("tcp", 443, 443), pset("tcp", 5671, 5671)) if kind == "servicebus_namespace"
+                      else pset("tcp", port, port) if port is not None else {})
+    if port is None:
+        a.gap("listener", "MySQL Flexible Server databasePort is invalid")
+    if kind == "postgresql_flexible_server":
+        config_coverage = (resource["data"].get("_coverage") or {}).get("configurations") or {}
+        configurations = resource["data"].get("configurations")
+        if config_coverage.get("status") in ("collected", "empty") and isinstance(configurations, list):
+            pgbouncer = next((row.get("properties", {}).get("value") for row in configurations
+                              if str(row.get("name", "")).casefold() == "pgbouncer.enabled"), None)
+            if isinstance(pgbouncer, str) and pgbouncer.casefold() == "true":
+                endpoint_ports = union(endpoint_ports, pset("tcp", 6432, 6432))
+                a.step("pgbouncer_listener", "allow", port=6432)
+                cluster = props.get("cluster")
+                if isinstance(cluster, dict) and type(cluster.get("clusterSize")) is int and cluster["clusterSize"] > 0:
+                    endpoint_ports = union(endpoint_ports, pset("tcp", 8432, 8432))
+                    a.step("pgbouncer_worker_listener", "allow", port=8432, cluster_size=cluster["clusterSize"])
+                elif cluster is not None:
+                    a.notes.append("Elastic cluster size is unresolved; PgBouncer worker port 8432 may be available")
+            elif pgbouncer is None:
+                a.notes.append("PgBouncer configuration was absent from the completed list")
+        else:
+            a.notes.append("PgBouncer configuration inventory is incomplete; port 6432 is unresolved")
+    private_unknown = False
+    if kind in ("servicebus_namespace", "search_service"):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(resource["data"], props)
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=sorted(a.external_ids))
+            a.ports = endpoint_ports
+            a.explicit = "FAIL"
+    if kind in ("mysql_flexible_server", "postgresql_flexible_server"):
+        child_coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+        child = resource["data"].get("privateEndpointConnections")
+        if child_coverage.get("status") in ("collected", "empty") and isinstance(child, list):
+            a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+                resource["data"], {"privateEndpointConnections": child})
+        else:
+            private_unknown = True
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.ports = endpoint_ports
+            a.explicit = "FAIL"
+    if kind == "servicebus_namespace":
         local_auth = props.get("disableLocalAuth")
         coverage = (resource["data"].get("_coverage") or {}).get("authorizationRules") or {}
         rules = resource["data"].get("authorizationRules")
@@ -12655,9 +13775,139 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
             namespace_rules = child["properties"]
             if public is None:
                 public = namespace_rules.get("publicNetworkAccess")
+    if kind == "app_configuration":
+        private_connection_unknown = inventory.state("app_configuration_private_connection", native_id(resource)) not in ("collected", "empty")
+        nsp_state = inventory.state("app_configuration_nsp", native_id(resource))
+        if nsp_state not in ("collected", "empty"):
+            a.gap("inventory", "App Configuration network security perimeter configuration list is incomplete")
+            return a
+        if nsp_state == "collected":
+            configurations = [row for row in inventory.items("app_configuration_nsp")
+                              if str(row.get("scope", "")).casefold() == str(native_id(resource)).casefold()]
+            if len(configurations) != 1:
+                a.gap("inventory", "App Configuration has ambiguous network security perimeter configurations")
+                return a
+            nsp = _props(configurations[0])
+            mode = nsp.get("accessMode")
+            if mode in ("Learning", "Audit") and isinstance(public, str) and public.casefold() == "enabled":
+                a.ports = pset("tcp", 443, 443)
+                a.step("public_network_access", "allow", public_network_access=public,
+                       reason="transition mode retains resource public access rules")
+                return a
+            if mode in ("Enforced", "Learning", "Audit") and (mode == "Enforced" or
+                    isinstance(public, str) and public.casefold() in ("disabled", "securedbyperimeter")):
+                if (nsp.get("provisioningState") != "Accepted" or nsp.get("hasProvisioningIssues") is not False
+                        or not isinstance(nsp.get("inboundRules"), list)):
+                    a.gap("inventory", "App Configuration enforced perimeter profile is not settled")
+                    return a
+                public_prefixes, external_subscriptions = [], []
+                member_unknown = False
+                own = str(native_id(resource)).split("/", 3)[2]
+                for rule in nsp["inboundRules"]:
+                    if not isinstance(rule, dict):
+                        a.gap("inventory", "App Configuration perimeter inbound rule is malformed")
+                        return a
+                    for prefix in rule.get("addressPrefixes", []):
+                        network = _cidr(prefix)
+                        if network is None:
+                            a.gap("inventory", "App Configuration perimeter IP prefix is malformed")
+                            return a
+                        if _azure_public_remainder([network], []):
+                            public_prefixes.append(prefix)
+                    for subscription in rule.get("subscriptions", []):
+                        match = re.fullmatch(r"/subscriptions/([^/]+)", subscription, re.I)
+                        if match is None:
+                            a.gap("inventory", "App Configuration perimeter subscription rule is malformed")
+                            return a
+                        if match.group(1).casefold() != own.casefold():
+                            external_subscriptions.append(match.group(1))
+                    for perimeter in rule.get("perimeterIds", []):
+                        match = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/networkSecurityPerimeters/[^/]+", perimeter, re.I)
+                        if match is None:
+                            a.gap("inventory", "App Configuration inbound perimeter identity is malformed")
+                            return a
+                        if match.group(1).casefold() != own.casefold():
+                            external_subscriptions.append(match.group(1))
+                perimeter_id = nsp.get("perimeterId")
+                if not isinstance(perimeter_id, str):
+                    member_unknown = True
+                else:
+                    membership_state = inventory.state("app_configuration_nsp_membership", perimeter_id)
+                    if membership_state not in ("collected", "empty"):
+                        member_unknown = True
+                    else:
+                        members = [row for row in inventory.items("app_configuration_nsp_membership")
+                                   if str(row.get("scope", "")).casefold() == perimeter_id.casefold()]
+                        for member in members:
+                            member_props = _props(member)
+                            protected = member_props.get("protectedResourceId")
+                            match = re.match(r"^/subscriptions/([^/]+)/", protected, re.I) if isinstance(protected, str) else None
+                            if match is None:
+                                member_unknown = True
+                            elif match.group(1).casefold() != own.casefold():
+                                if (member_props.get("provisioningState") == "Succeeded"
+                                        and member_props.get("hasProvisioningIssues") == "no"
+                                        and member_props.get("accessMode") in ("Enforced", "Learning", "Audit")):
+                                    external_subscriptions.append(match.group(1))
+                                else:
+                                    member_unknown = True
+                if public_prefixes or external_subscriptions:
+                    a.ports = pset("tcp", 443, 443)
+                    a.external_ids = sorted(set(external_subscriptions))
+                    a.step("perimeter_inbound", "allow", public_ip_rules=public_prefixes,
+                           external_subscriptions=a.external_ids)
+                elif member_unknown:
+                    a.gap("authorization", "App Configuration perimeter membership is incomplete or unresolved")
+                else:
+                    a.ports = {}
+                    a.step("perimeter_inbound", "block", reason="no public IP or foreign-subscription inbound rule")
+                    if private_connection_unknown:
+                        a.explicit = "UNKNOWN"
+                        a.gap("authorization", "App Configuration private endpoint connection inventory is incomplete")
+                if not endpoint:
+                    a.gap("inventory", "App Configuration public endpoint address is not collected")
+                return a
+            if mode not in ("Learning", "Audit"):
+                a.gap("inventory", "App Configuration perimeter association mode is unresolved")
+                return a
+            a.gap("inventory", "App Configuration transition perimeter or store public setting is unresolved")
+            return a
+        if isinstance(public, str) and public.casefold() == "securedbyperimeter":
+            a.ports = {}
+            a.step("perimeter_inbound", "block", reason="no perimeter association and public access secured by perimeter")
+            if private_connection_unknown:
+                a.explicit = "UNKNOWN"
+                a.gap("authorization", "App Configuration private endpoint connection inventory is incomplete")
+            return a
+        if isinstance(public, str) and public.casefold() == "automatic":
+            connections = props.get("privateEndpointConnections")
+            if not isinstance(connections, list) or (props.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status") == "malformed":
+                a.gap("inventory", "App Configuration private endpoint state for Automatic public access is unavailable")
+                return a
+            if not connections:
+                a.ports = pset("tcp", 443, 443)
+                a.step("public_network_access", "allow", reason="Automatic mode has no private endpoint")
+                return a
+            if any(isinstance(connection, dict) and isinstance(connection.get("properties"), dict)
+                   and connection["properties"].get("provisioningState") == "Succeeded"
+                   and (connection["properties"].get("privateLinkServiceConnectionState") or {}).get("status") == "Approved"
+                   for connection in connections):
+                a.ports = {}
+                a.step("public_network_access", "block", reason="Automatic mode has an approved private endpoint")
+                if private_connection_unknown:
+                    a.explicit = "UNKNOWN"
+                    a.gap("authorization", "App Configuration private endpoint connection inventory is incomplete")
+                return a
+            a.gap("inventory", "App Configuration private endpoint is not settled for Automatic public access")
+            return a
     if isinstance(public, str) and public.lower() == "disabled":
         a.step("public_network_access", "block", public_network_access=public)
-        a.ports = {}
+        a.ports = endpoint_ports if a.external_ids else {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
+        if kind == "app_configuration" and private_connection_unknown:
+            a.explicit = "UNKNOWN"
+            a.gap("authorization", "App Configuration private endpoint connection inventory is incomplete")
         if kind in ("vault", "managed_hsm"):
             acls = props.get("networkAcls")
             bypass = acls.get("bypass", "AzureServices") if isinstance(acls, dict) else None
@@ -12694,7 +13944,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 malformed = True
         if public_rules:
             a.step("firewall", "allow", public_rules=public_rules)
-            a.ports = pset("tcp", port, port)
+            a.ports = endpoint_ports
             a.explicit = None
             if not endpoint:
                 a.gap("inventory", "flexible server public hostname is not collected")
@@ -12702,7 +13952,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
             a.gap("firewall", "flexible server firewall IP range is unresolved")
         else:
             a.step("firewall", "block", reason="no public-source firewall rule")
-            a.ports = {}
+            a.ports = endpoint_ports if a.external_ids else {}
         return a
     if kind == "cosmos_account":
         ip_rules = props.get("ipRules")
@@ -12754,7 +14004,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 a.gap("firewall", "Cosmos IP rule or network ACL bypass is unresolved"
                       if malformed or props.get("networkAclBypass") not in (None, "None")
                       else "Cosmos nonpublic IP rule requires source validation")
-        a.ports = {} if a.blocked_by == "firewall" else pset("tcp", port, port)
+        a.ports = {} if a.blocked_by == "firewall" else endpoint_ports
         if not endpoint:
             a.gap("inventory", "Cosmos public endpoint address is not collected")
         return a
@@ -12787,6 +14037,8 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         else:
             a.step("firewall", "block", reason="no public-source IP rule")
             a.ports = {}
+            if private_unknown and not a.external_ids:
+                a.explicit = "UNKNOWN"
         return a
     # A private endpoint does not close an explicitly enabled public endpoint.
     rules = namespace_rules if kind in ("servicebus_namespace", "eventhub_namespace") else props.get(rules_name)
@@ -12797,13 +14049,13 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 public_ips, malformed = _azure_storage_public_ip_rules(rules)
                 if public_ips:
                     a.step("firewall", "allow", default_action=action, public_ip_rules=public_ips)
-                    a.ports = pset("tcp", port, port)
+                    a.ports = endpoint_ports
                     if not endpoint:
                         a.gap("inventory", "managed public endpoint address is not collected")
                     return a
                 if malformed or rules.get("bypass", "AzureServices") != "None":
                     a.gap("firewall", "vault IP rules or trusted-service bypass need effective authorization")
-                    a.ports = pset("tcp", port, port)
+                    a.ports = endpoint_ports
                     return a
             if kind in ("container_registry", "cognitive_account",
                         "servicebus_namespace", "eventhub_namespace"):
@@ -12822,7 +14074,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                             public_ips.append(value)
                 if public_ips:
                     a.step("firewall", "allow", default_action=action, public_ip_rules=public_ips)
-                    a.ports = pset("tcp", port, port)
+                    a.ports = endpoint_ports
                     if malformed:
                         a.notes.append("Additional IP rules remain unresolved")
                     return a
@@ -12831,30 +14083,34 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                           kind == "container_registry" and props.get("networkRuleBypassOptions") not in (None, "None"))
                 if malformed or bypass:
                     a.gap("firewall", "managed endpoint IP rule or trusted-service bypass unresolved")
-                    a.ports = pset("tcp", port, port)
+                    a.ports = endpoint_ports
                     return a
                 a.step("firewall", "block", reason="no public-source IP rule", default_action=action)
                 a.ports = {}
+                if private_unknown and not a.external_ids:
+                    a.explicit = "UNKNOWN"
                 return a
             if as_list(rules.get("ipRules")) or as_list(rules.get("virtualNetworkRules")):
                 a.gap("firewall", f"{rules_name} allow rules require effective source evaluation")
-                a.ports = pset("tcp", port, port)
+                a.ports = endpoint_ports
                 return a
             a.step("firewall", "block", default_action=action)
             a.ports = {}
+            if private_unknown and not a.external_ids:
+                a.explicit = "UNKNOWN"
             return a
         if action == "Allow":
             a.step("firewall", "allow", default_action=action)
-            a.ports = pset("tcp", port, port)
+            a.ports = endpoint_ports
             if not endpoint:
                 a.gap("inventory", "managed public endpoint address is not collected")
             return a
     a.gap("firewall", f"{rules_name} public ingress rules are not resolved", f"{kind} {rules_name}")
-    a.ports = pset("tcp", port, port)
+    a.ports = endpoint_ports
     return a
 
 
-def _azure_realtime_endpoint(snapshot, inventory, resource):
+def _azure_realtime_public_endpoint(snapshot, inventory, resource):
     """SignalR/Web PubSub public listener from recorded request and IP ACLs."""
     props = _props(resource)
     a = Assessment(resource, "managed_endpoint")
@@ -12931,7 +14187,255 @@ def _azure_realtime_endpoint(snapshot, inventory, resource):
         a.step("listener", "allow", public_request_types=sorted(permitted_types))
     else:
         a.gap("policy", "realtime listener public request path is unresolved")
+    if resource["type"] == "web_pubsub" and inventory.state("web_pubsub_hub", native_id(resource)) in ("collected", "empty"):
+        anonymous = [str(native_id(hub)) for hub in inventory.items("web_pubsub_hub")
+                     if str(hub.get("scope", "")).casefold() == str(native_id(resource)).casefold() and
+                     _props(hub).get("anonymousConnectPolicy") == "allow"]
+        if anonymous and a.ports:
+            a.authenticated = False
+            a.step("anonymous_connect", "allow", hubs=sorted(anonymous))
     a.notes.append("Public listener does not establish a valid client or server authorization token")
+    return a
+
+
+def _azure_signalr_upstream(snapshot, inventory, resource):
+    """SignalR Serverless sends client events to configured HTTP upstreams."""
+    a = Assessment(resource, "external_event_delivery")
+    a.ports = {}
+    props = _props(resource)
+    if (resource["data"].get("_provenance") or {}).get("representation") != "full":
+        a.gap("inventory", "SignalR upstreams require a full resource GET")
+        return a
+    flags = props.get("features")
+    if flags is None:
+        flags = props.get("featureFlags")
+    if not isinstance(flags, list):
+        a.gap("inventory", "SignalR service mode is unavailable")
+        return a
+    modes = [row.get("value") for row in flags if isinstance(row, dict) and row.get("flag") == "ServiceMode"]
+    if len(modes) > 1 or (modes and modes[0] not in ("Default", "Serverless", "Classic")):
+        a.gap("inventory", "SignalR service mode is malformed")
+        return a
+    if modes and modes[0] in ("Default", "Classic"):
+        a.step("service_mode", "block", mode=modes[0], reason="upstream hooks run only in Serverless mode")
+        return a
+    hosts = props.get("upstreamHosts")
+    complete = props.get("upstreamComplete")
+    if not isinstance(hosts, list) or complete not in (True, False):
+        a.gap("inventory", "SignalR upstream template projection is unavailable")
+        return a
+    if not modes and hosts:
+        a.gap("inventory", "SignalR service mode is unavailable for configured upstreams")
+        return a
+    if hosts:
+        a.data_exposure = True
+        a.external_ids = sorted(set(hosts))
+        a.step("upstream", "allow", receiver_hosts=a.external_ids, mode="Serverless")
+    elif complete:
+        a.step("upstream", "same_source", reason="no configured HTTP upstream template")
+    if not complete:
+        a.gap("inventory", "SignalR upstream templates contain malformed or missing URLs")
+        if hosts:
+            for gap in a.unresolved:
+                gap["decisive"] = False
+    return a
+
+
+def _azure_web_pubsub_delivery(snapshot, inventory, resource):
+    """Assess per-hub HTTP handlers and Event Hub client-event listeners."""
+    a = Assessment(resource, "external_event_delivery")
+    a.ports = {}
+    service_id = str(native_id(resource))
+    source = re.match(r"^/subscriptions/([^/]+)/", service_id, re.I)
+    if source is None:
+        a.gap("inventory", "Web PubSub source subscription is unavailable")
+        return a
+    state = inventory.state("web_pubsub_hub", service_id)
+    if state == "empty":
+        a.step("hub_delivery", "same_source", reason="no configured Web PubSub hubs")
+        return a
+    if state not in ("collected", "partial"):
+        a.gap("inventory", "Web PubSub hub list is unavailable")
+        return a
+    if state == "partial":
+        a.gap("inventory", "Web PubSub hub list is incomplete")
+    hubs = [row for row in inventory.items("web_pubsub_hub")
+            if str(row.get("scope", "")).casefold() == service_id.casefold()]
+    if not hubs and state == "collected":
+        a.gap("inventory", "Web PubSub hub collection is inconsistent")
+        return a
+    foreign, hosts = [], []
+    for hub in hubs:
+        props = _props(hub)
+        handlers, namespaces = props.get("handlerHosts"), props.get("eventHubNamespaces")
+        if not isinstance(handlers, list) or not isinstance(namespaces, list):
+            a.gap("inventory", "Web PubSub hub delivery projection is malformed")
+            continue
+        hosts.extend(host for host in handlers if isinstance(host, str) and host)
+        for namespace in namespaces:
+            if not isinstance(namespace, str) or not namespace:
+                a.gap("inventory", "Web PubSub Event Hub namespace is malformed")
+                continue
+            matches = []
+            for candidate in inventory.items("eventhub_namespace"):
+                endpoint = _props(candidate).get("serviceBusEndpoint")
+                fqdn = urlsplit(endpoint).hostname if isinstance(endpoint, str) else None
+                if fqdn and fqdn.casefold() == namespace.casefold():
+                    matches.append(candidate)
+            if len(matches) != 1:
+                a.gap("authorization", "Web PubSub Event Hub namespace ownership is unavailable", namespace)
+                continue
+            match = re.match(r"^/subscriptions/([^/]+)/", str(native_id(matches[0])), re.I)
+            if match is None:
+                a.gap("authorization", "Web PubSub Event Hub owner subscription is malformed", namespace)
+            elif match.group(1).casefold() != source.group(1).casefold():
+                foreign.append(match.group(1))
+    if hosts or foreign:
+        a.data_exposure = True
+        a.external_ids = sorted(set(hosts + foreign))
+        a.step("hub_delivery", "allow", receiver_hosts=sorted(set(hosts)),
+               foreign_event_hub_subscriptions=sorted(set(foreign)))
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    elif not a.unresolved:
+        a.step("hub_delivery", "same_source", reason="no HTTP handler or foreign Event Hub listener")
+def _azure_realtime_private_endpoint(a, resource):
+    kind = resource["type"]
+    if kind not in ("signalr_service", "web_pubsub"):
+        return a
+    public_verdict = a.verdict()
+    def unresolved_private():
+        if public_verdict in ("FAIL", "PASS"):
+            a.explicit = "FAIL" if public_verdict == "FAIL" else "UNKNOWN"
+        return a
+    data = resource["data"]
+    props = _props(resource)
+    rows = (props.get("privateEndpointConnections") if kind == "signalr_service"
+            else data.get("privateEndpointConnections"))
+    coverage = ((props.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status")
+                if kind == "signalr_service" else
+                (data.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status"))
+    acl = props.get("networkACLs")
+    if (not isinstance(rows, list) or coverage == "malformed"
+            or kind == "web_pubsub" and coverage not in ("collected", "empty")):
+        a.gap("inventory", "realtime service private endpoint connections unavailable")
+        return unresolved_private()
+    if not rows:
+        return a
+    if not isinstance(acl, dict) or acl.get("defaultAction") not in ("Allow", "Deny"):
+        a.gap("policy", "realtime service private endpoint request ACL unavailable")
+        return unresolved_private()
+    acl_rows = acl.get("privateEndpoints", [])
+    if not isinstance(acl_rows, list):
+        a.gap("policy", "realtime service private endpoint request ACL malformed")
+        return unresolved_private()
+    by_name = {}
+    valid_types = {"ClientConnection", "ServerConnection", "RESTAPI", "Trace"}
+    for entry in acl_rows:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        allow = entry.get("allow", []) if isinstance(entry, dict) else None
+        deny = entry.get("deny", []) if isinstance(entry, dict) else None
+        if (not isinstance(name, str) or not name or name.casefold() in by_name
+                or not isinstance(allow, list) or not isinstance(deny, list)
+                or any(value not in valid_types for value in allow + deny)
+                or set(allow) & set(deny)):
+            a.gap("policy", "realtime service private endpoint request ACL malformed")
+            return unresolved_private()
+        by_name[name.casefold()] = (set(allow), set(deny))
+    parent = re.match(r"/subscriptions/([^/]+)/", str(data.get("id", "")), re.I)
+    external, unknown = [], False
+    for row in rows:
+        details = row.get("properties") if isinstance(row, dict) else None
+        endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+        state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+        remote_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+        remote = (re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+",
+                               remote_id, re.I) if isinstance(remote_id, str) else None)
+        status = state.get("status") if isinstance(state, dict) else None
+        if status != "Approved":
+            if status not in ("Pending", "Rejected", "Disconnected"):
+                unknown = True
+            continue
+        connection_id = row.get("id") if isinstance(row, dict) else None
+        if (details.get("provisioningState") not in ("Succeeded", "Ready") or not remote or not parent
+                or not isinstance(connection_id, str) or re.fullmatch(
+                    re.escape(str(data.get("id", ""))) + r"/privateEndpointConnections/[^/]+", connection_id, re.I) is None):
+            unknown = True
+            continue
+        if remote.group(1).casefold() == parent.group(1).casefold():
+            continue
+        name = connection_id.rsplit("/", 1)[-1].casefold()
+        allow, deny = by_name.get(name, (set(), set()))
+        permitted = (valid_types if acl["defaultAction"] == "Allow" else set()) | allow
+        permitted -= deny
+        if permitted:
+            external.append((remote_id, sorted(permitted)))
+    if external:
+        a.external_ids = sorted({rid for rid, _ in external})
+        a.step("private_link_share", "allow", external_connections=[{"id": rid, "request_types": types}
+                                                             for rid, types in external])
+        ports = [props.get(field) for field in ("publicPort", "serverPort")]
+        valid_ports = {port for port in ports if type(port) is int and 1 <= port <= 65535}
+        if valid_ports:
+            for port in valid_ports:
+                a.ports = union(a.ports or {}, pset("tcp", port, port))
+            a.explicit = "FAIL"
+        else:
+            a.gap("listener", "realtime service private endpoint port unavailable")
+            a.explicit = "UNKNOWN"
+        if any(port is not None and port not in valid_ports for port in ports):
+            a.notes.append("Additional realtime service port is malformed")
+    elif unknown:
+        a.gap("inventory", "realtime service approved private endpoint status unresolved")
+        return unresolved_private()
+    return a
+
+
+def _azure_webpubsub_configuration(a, resource):
+    data = resource["data"]
+    coverage = data.get("_coverage") or {}
+    hubs = data.get("hubExposure")
+    links = data.get("sharedPrivateLinkExposure")
+    public_verdict = a.verdict()
+    if ((coverage.get("hubExposure") or {}).get("status") != "collected" or not isinstance(hubs, list)
+            or (coverage.get("sharedPrivateLinkExposure") or {}).get("status") != "collected" or not isinstance(links, list)):
+        a.gap("inventory", "Web PubSub hub or outbound link inventory unavailable")
+        if public_verdict == "PASS":
+            a.explicit = "UNKNOWN"
+        elif public_verdict == "FAIL":
+            a.explicit = "FAIL"
+        return a
+    anonymous = [hub["id"] for hub in hubs if hub.get("anonymousConnectPolicy") == "allow"]
+    if anonymous:
+        a.step("anonymous_hub", "conditional", hub_ids=anonymous)
+        if any(step.get("layer") == "listener" and "ClientConnection" in step.get("public_request_types", [])
+               for step in a.path):
+            a.authenticated = False
+        if any(step.get("layer") == "private_link_share" and any(
+                "ClientConnection" in connection.get("request_types", [])
+                for connection in step.get("external_connections", [])) for step in a.path):
+            a.authenticated = False
+    handlers = [{"hub": hub["id"], **handler} for hub in hubs for handler in hub.get("eventHandlers", [])
+                if handler.get("hasEventFilter")]
+    listeners = [{"hub": hub["id"], **listener} for hub in hubs for listener in hub.get("eventListeners", [])]
+    persistent_storage = [{"hub": hub["id"], "targetId": hub["persistentStorageId"]}
+                          for hub in hubs if hub.get("persistentStorageId")]
+    targets = [link for link in links if link.get("status") == "Approved"
+               and link.get("provisioningState") in ("Succeeded", "Ready")]
+    if handlers or listeners or targets or persistent_storage:
+        a.step("external_integrations", "conditional", handlers=handlers, listeners=listeners,
+               approved_shared_private_links=targets, persistent_storage=persistent_storage)
+        a.notes.append("Configured outbound destinations need an ownership and event-flow join")
+        if a.verdict() == "PASS":
+            a.explicit = "UNKNOWN"
+    return a
+
+
+def _azure_realtime_endpoint(snapshot, inventory, resource):
+    a = _azure_realtime_public_endpoint(snapshot, inventory, resource)
+    a = _azure_realtime_private_endpoint(a, resource)
+    if resource["type"] == "web_pubsub":
+        a = _azure_webpubsub_configuration(a, resource)
     return a
 
 
@@ -12940,10 +14444,25 @@ def _azure_synapse_workspace(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "database")
     a.authenticated = True
+    private_coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+    connections = resource["data"].get("privateEndpointConnections")
+    private_unknown = True
+    if private_coverage.get("status") in ("collected", "empty") and isinstance(connections, list):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+            resource["data"], {"privateEndpointConnections": connections})
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.explicit = "FAIL"
+        if private_unknown:
+            a.gap("private_link_share", "Synapse private endpoint approval or ownership is unresolved")
+    else:
+        a.gap("private_link_share", "Synapse private endpoint connections are not fully collected")
     access = props.get("publicNetworkAccess")
     if access == "Disabled":
         a.step("public_network_access", "block", value=access)
-        a.ports = {}
+        a.ports = union(pset("tcp", 443, 443), pset("tcp", 1433, 1433)) if a.external_ids else {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         return a
     if access != "Enabled":
         a.gap("inventory", "Synapse public network access is not explicit")
@@ -12963,7 +14482,7 @@ def _azure_synapse_workspace(snapshot, inventory, resource):
     rules = resource["data"].get("firewallRules")
     if coverage.get("status") not in ("collected", "empty") or not isinstance(rules, list):
         a.gap("firewall", "Synapse workspace firewall rules are not fully collected")
-        a.ports = ports or None
+        a.ports = union(ports or {}, union(pset("tcp", 443, 443), pset("tcp", 1433, 1433))) if a.external_ids else ports or None
         return a
     public_rules, malformed = [], False
     for rule in rules:
@@ -12988,6 +14507,10 @@ def _azure_synapse_workspace(snapshot, inventory, resource):
     else:
         a.step("firewall", "block", reason="no public-source workspace firewall rule")
         a.ports = {}
+    if a.external_ids:
+        a.ports = union(a.ports or {}, union(pset("tcp", 443, 443), pset("tcp", 1433, 1433)))
+    elif private_unknown and empty(a.ports or {}):
+        a.explicit = "UNKNOWN"
     a.notes.append("Workspace listener exposure does not establish SQL or Synapse authorization")
     return a
 
@@ -13468,6 +14991,25 @@ def _azure_compute_gallery(snapshot, inventory, resource):
     return a
 
 
+def _azure_frontdoor_passive_waf(waf):
+    """Only a passive policy or explicit empty rule inventory cannot filter."""
+    if waf is None:
+        return None
+    props = _props(waf)
+    settings = props.get("policySettings")
+    if not isinstance(settings, dict):
+        return None
+    enabled, mode = settings.get("enabledState"), settings.get("mode")
+    if enabled == "Disabled" or mode == "Detection":
+        return {"enabled_state": enabled, "mode": mode, "reason": "disabled or detection mode"}
+    custom, managed = props.get("customRules"), props.get("managedRules")
+    if (enabled == "Enabled" and mode == "Prevention" and
+            isinstance(custom, dict) and custom.get("rules") == [] and
+            isinstance(managed, dict) and managed.get("managedRuleSets") == []):
+        return {"enabled_state": enabled, "mode": mode, "reason": "explicitly empty custom and managed rule lists"}
+    return None
+
+
 def _azure_public_edge(snapshot, inventory, resource):
     """Assess the public listener from the collector's bounded route projection."""
     data = resource["data"]
@@ -13487,10 +15029,11 @@ def _azure_public_edge(snapshot, inventory, resource):
         return a
     a.step("listener", "allow", route_ids=[r.get("id") for r in enabled])
     endpoints = data.get("endpoints") or []
-    domains = data.get("domains") or []
-    hosts = [entry.get("properties", {}).get("hostName") for entry in endpoints + domains
-             if isinstance(entry, dict) and isinstance(entry.get("properties"), dict)]
-    a.addresses = sorted({host for host in hosts if isinstance(host, str) and host})
+    host_lists = [route.get("boundHostNames") for route in enabled]
+    if any(not isinstance(hosts, list) for hosts in host_lists):
+        a.gap("inventory", "enabled edge route has no collected bound-hostname projection")
+    a.addresses = sorted({host for hosts in host_lists if isinstance(hosts, list)
+                          for host in hosts if isinstance(host, str) and host})
     if not a.addresses:
         a.gap("inventory", "public edge hostname was not collected")
     ports = {}
@@ -13514,10 +15057,2044 @@ def _azure_public_edge(snapshot, inventory, resource):
     a.ports = ports
     if data.get("sku", {}).get("name") in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
         policies = data.get("securityPolicies")
+        policy_coverage = (data.get("_coverage") or {}).get("securityPolicies") or {}
+        if policy_coverage.get("status") not in ("collected", "empty"):
+            a.gap("policy", "edge security policy LIST is incomplete")
         if policies:
-            a.gap("policy", "edge security policy may filter the listener")
-    if (data.get("properties") or {}).get("webApplicationFirewallPolicyLink"):
-        a.gap("policy", "classic Front Door WAF policy may filter the listener")
+            passive, applicable = [], 0
+            bound_id_lists = [route.get("boundDomainIds") for route in enabled]
+            bound_ids_known = all(isinstance(ids, list) for ids in bound_id_lists)
+            bound_ids = {rid.casefold() for ids in bound_id_lists if isinstance(ids, list)
+                         for rid in ids if isinstance(rid, str)}
+            for policy in policies:
+                params = (policy.get("properties") or {}).get("parameters") if isinstance(policy, dict) else None
+                associations = params.get("associations") if isinstance(params, dict) else None
+                if isinstance(associations, list):
+                    if (not bound_ids_known or any(not isinstance(association, dict) or
+                            not isinstance(association.get("domains"), list) or
+                            any(not isinstance(domain, dict) or not isinstance(domain.get("id"), str)
+                                for domain in association["domains"])
+                            for association in associations)):
+                        a.gap("policy", "edge security policy domain associations are unresolved")
+                        continue
+                    if not any(domain["id"].casefold() in bound_ids for association in associations
+                               for domain in association["domains"]):
+                        continue
+                elif associations is not None:
+                    a.gap("policy", "edge security policy domain associations are malformed")
+                    continue
+                applicable += 1
+                policy_id = (params.get("wafPolicy") or {}).get("id") if isinstance(params, dict) else None
+                waf = inventory.get("frontdoor_waf_policy", policy_id) if isinstance(policy_id, str) else None
+                state = _azure_frontdoor_passive_waf(waf)
+                if state is not None:
+                    passive.append({"security_policy": policy.get("id"), "waf_policy": policy_id, **state})
+                else:
+                    a.gap("policy", "edge security policy may filter the listener")
+            if len(passive) == applicable and policy_coverage.get("status") in ("collected", "empty"):
+                a.step("waf", "allow", passive_policies=passive,
+                       reason="no associated WAF policy can filter the bound listener")
+    if data.get("sku", {}).get("name") not in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
+        for endpoint in endpoints:
+            link = (endpoint.get("properties") or {}).get("webApplicationFirewallPolicyLink") if isinstance(endpoint, dict) else None
+            if link is None:
+                continue
+            policy_id = link.get("id") if isinstance(link, dict) else None
+            waf = inventory.get("frontdoor_waf_policy", policy_id) if isinstance(policy_id, str) else None
+            state = _azure_frontdoor_passive_waf(waf)
+            if state is not None:
+                a.step("waf", "allow", passive_policies=[{
+                    "waf_policy": policy_id, **state}])
+            else:
+                a.gap("policy", "classic Front Door frontend WAF policy may filter the listener")
+    return a
+
+
+def _azure_apim_external_region_path(inventory, resource, location):
+    """Resolve one classic regional gateway's public HTTPS subnet path."""
+    sku = location.get("sku") or resource["data"].get("sku") or {}
+    if not isinstance(sku, dict) or sku.get("name") != "Premium":
+        return None
+    network_config = location.get("virtualNetworkConfiguration")
+    subnet_id = network_config.get("subnetResourceId") if isinstance(network_config, dict) else None
+    subnet, _ = _azure_subnet(inventory, subnet_id)
+    if subnet is None:
+        return None
+    nsg_ref = _props(subnet).get("networkSecurityGroup") or {}
+    if not isinstance(nsg_ref, dict):
+        return None
+    nsg_id = nsg_ref.get("id")
+    if nsg_ref and (not isinstance(nsg_id, str) or not nsg_id):
+        return None
+    nsg = inventory.get("nsg", nsg_id) if nsg_id else None
+    # The gateway private DIP is not returned. A specific-destination allow
+    # could match it even if a broad-source evaluation finds no open port.
+    if nsg:
+        rules = _props(nsg).get("securityRules")
+        if not isinstance(rules, list):
+            return None
+        for rule in rules:
+            props = rule.get("properties") if isinstance(rule, dict) else None
+            if not isinstance(props, dict):
+                return None
+            if props.get("access") == "Allow" and (
+                    props.get("destinationApplicationSecurityGroups") or any(
+                        value not in ("*", "Any", "VirtualNetwork", "0.0.0.0/0", "::/0")
+                        for value in as_list(props.get("destinationAddressPrefixes")) +
+                                     as_list(props.get("destinationAddressPrefix")))):
+                return None
+    evidence = Assessment(resource, "api_gateway")
+    ports = _azure_nsg_path(inventory, evidence, None, subnet_id, pset("tcp", 443, 443),
+                            sku="standard", where="API Management regional gateway subnet")
+    if evidence.unresolved:
+        return None
+    if empty(ports) and evidence.blocked_by is not None:
+        return "block"
+    route_ref = _props(subnet).get("routeTable") or {}
+    if not isinstance(route_ref, dict):
+        return None
+    if route_ref and (not isinstance(route_ref.get("id"), str) or not route_ref["id"]):
+        return None
+    if (not empty(ports) and evidence.blocked_by is None and
+            not route_ref.get("id")):
+        return "allow"
+    return None
+def _azure_notification_hub(snapshot, inventory, resource):
+    """Assess namespace public rights without exposing SAS or PNS credentials."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    data = resource["data"]
+    props = data.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Notification Hubs namespace properties missing")
+        return a
+    if props.get("enabled") is False or props.get("status") in ("Suspended", "Deleting"):
+        a.step("namespace_state", "block", status=props.get("status"), enabled=props.get("enabled"))
+        a.ports = {}
+        return a
+    connections = props.get("privateEndpointConnections")
+    private_unknown = not isinstance(connections, list)
+    parent_subscription = str(data.get("id", "")).split("/")[2:3]
+    for connection in connections if isinstance(connections, list) else []:
+        if not isinstance(connection, dict):
+            private_unknown = True
+            continue
+        state = connection.get("status")
+        remote = connection.get("privateEndpointId")
+        if state == "Approved" and connection.get("provisioningState") == "Succeeded":
+            remote_subscription = remote.split("/")[2:3] if isinstance(remote, str) else []
+            if not remote_subscription:
+                private_unknown = True
+            elif not parent_subscription or remote_subscription[0].casefold() != parent_subscription[0].casefold():
+                a.external_ids.append(remote)
+        elif state == "Approved":
+            private_unknown = True
+        elif state is None:
+            private_unknown = True
+    if a.external_ids:
+        a.step("private_link_share", "allow", outside_private_endpoints=sorted(a.external_ids))
+        a.ports = pset("tcp", 443, 443)
+        a.explicit = "FAIL"
+    public = props.get("publicNetworkAccess")
+    if public == "Disabled":
+        a.step("public_network_access", "block", public_network_access=public)
+        if not a.external_ids:
+            a.ports = {}
+            if private_unknown:
+                a.explicit = "UNKNOWN"
+        return a
+    if public != "Enabled":
+        a.gap("inventory", "Notification Hubs public network setting unresolved")
+        return a
+    endpoint = props.get("serviceBusEndpoint")
+    if isinstance(endpoint, str) and endpoint:
+        a.addresses = [endpoint]
+        a.endpoint = endpoint
+    else:
+        a.gap("inventory", "Notification Hubs service endpoint missing")
+    acls = props.get("networkAcls")
+    if not isinstance(acls, dict):
+        a.gap("firewall", "Notification Hubs network ACLs missing")
+        return a
+    public_rule = acls.get("publicNetworkRule")
+    ip_rules = acls.get("ipRules")
+    if not isinstance(public_rule, dict) or not isinstance(public_rule.get("rights"), list) or not isinstance(ip_rules, list):
+        a.gap("firewall", "Notification Hubs public and IP rules incomplete")
+        return a
+    open_rights = set(public_rule["rights"])
+    for rule in ip_rules:
+        if not isinstance(rule, dict) or not isinstance(rule.get("rights"), list):
+            a.gap("firewall", "Notification Hubs IP rule malformed")
+            return a
+        try:
+            network = ipaddress.ip_network(rule["ipMask"], strict=False)
+        except (KeyError, TypeError, ValueError):
+            a.gap("firewall", "Notification Hubs IP mask malformed")
+            return a
+        if _azure_public_remainder([network], []):
+            open_rights.update(rule["rights"])
+    if open_rights:
+        a.step("firewall", "allow", public_rights=sorted(open_rights))
+        a.ports = pset("tcp", 443, 443)
+    else:
+        a.step("firewall", "block", reason="no public Internet rights")
+        if not a.external_ids:
+            a.ports = {}
+            if private_unknown:
+                a.explicit = "UNKNOWN"
+    namespace_rules = data.get("authorizationRules")
+    hubs = data.get("hubs")
+    if not isinstance(namespace_rules, list) or not isinstance(hubs, list):
+        a.gap("inventory", "Notification Hubs SAS rule inventory incomplete")
+    else:
+        rules = [{"id": row["id"], "rights": row["rights"]} for row in namespace_rules]
+        for hub in hubs:
+            for row in hub["authorizationRules"]:
+                rules.append({"id": row["id"], "rights": row["rights"]})
+        if rules:
+            a.step("sas_authorization", "conditional", rules=rules)
+            a.notes.append("SAS rule rights are known; issued tokens and key recipients are not exposed by the list API.")
+    providers = set(props.get("pushProviders") or [])
+    if isinstance(hubs, list):
+        providers.update(name for hub in hubs if isinstance(hub, dict)
+                         for name in hub.get("pushProviders", []))
+    if providers:
+        a.step("third_party_push_provider", "configured", providers=sorted(providers))
+    return a
+
+
+def _azure_private_dns_link(snapshot, inventory, resource):
+    """A linked foreign VNet can resolve every record in a private DNS zone."""
+    a = Assessment(resource, "private_dns_share")
+    data = resource["data"]
+    props = data.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "private DNS link properties missing")
+        return a
+    state = props.get("virtualNetworkLinkState")
+    provisioning = props.get("provisioningState")
+    if state in ("Disconnected", "Deleting") or provisioning in ("Deleting", "Failed", "Canceled"):
+        a.step("private_dns_link", "block", link_state=state, provisioning_state=provisioning)
+        a.ports = {}
+        return a
+    if state not in ("Completed", "Done") or provisioning != "Succeeded":
+        a.gap("inventory", "private DNS link is not confirmed operational")
+        return a
+    remote = props.get("virtualNetwork")
+    remote_id = remote.get("id") if isinstance(remote, dict) else None
+    local_id = data.get("id")
+    match = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/virtualNetworks/[^/]+", remote_id, re.I) if isinstance(remote_id, str) else None
+    local = re.match(r"/subscriptions/([^/]+)/", local_id, re.I) if isinstance(local_id, str) else None
+    if not match or not local:
+        a.gap("inventory", "private DNS link or virtual network identity is unavailable")
+        return a
+    a.step("private_dns_link", "allow", virtual_network_id=remote_id,
+           registration_enabled=props.get("registrationEnabled") is True)
+    a.ports = {}
+    if match.group(1).casefold() != local.group(1).casefold():
+        a.external_ids = [remote_id]
+        a.explicit = "FAIL"
+    return a
+
+
+def _azure_relay(snapshot, inventory, resource):
+    """Relay public listeners, anonymous clients, SAS rights and private shares.
+
+    Listener protocols: https://learn.microsoft.com/en-us/azure/azure-relay/relay-port-settings
+    """
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    data = resource["data"]
+    exposure = data.get("relayExposure")
+    coverage = (data.get("_coverage") or {}).get("relayExposure")
+    if not isinstance(exposure, dict) or not isinstance(coverage, dict) or coverage.get("status") != "collected":
+        a.gap("inventory", "Relay exposure child inventory incomplete")
+        return a
+    props = exposure.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Relay namespace properties missing")
+        return a
+    if props.get("provisioningState") in ("Deleting", "Failed"):
+        a.step("namespace_state", "block", state=props["provisioningState"])
+        a.ports = {}
+        return a
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "Relay namespace provisioning state unresolved")
+    endpoint = props.get("serviceBusEndpoint")
+    if isinstance(endpoint, str) and endpoint.startswith("https://"):
+        a.addresses = [endpoint]
+        a.endpoint = endpoint
+    else:
+        a.gap("inventory", "Relay namespace endpoint missing")
+    connections = props.get("privateEndpointConnections")
+    private_unknown = not isinstance(connections, list)
+    parent = re.match(r"/subscriptions/([^/]+)/", str(data.get("id", "")), re.I)
+    for row in connections if isinstance(connections, list) else []:
+        remote = row.get("privateEndpointId") if isinstance(row, dict) else None
+        match = re.match(r"/subscriptions/([^/]+)/", remote, re.I) if isinstance(remote, str) else None
+        status = row.get("status") if isinstance(row, dict) else None
+        if status == "Approved" and row.get("provisioningState") == "Succeeded" and match and parent:
+            if match.group(1).casefold() != parent.group(1).casefold():
+                a.external_ids.append(remote)
+        elif status == "Approved" or status not in ("Pending", "Rejected", "Disconnected"):
+            private_unknown = True
+    if a.external_ids:
+        a.step("private_link_share", "allow", outside_private_endpoints=sorted(set(a.external_ids)))
+        a.ports = pset("tcp", 443, 443)
+        a.explicit = "FAIL"
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        if not a.external_ids:
+            a.ports = {}
+            if private_unknown:
+                a.explicit = "UNKNOWN"
+        return a
+    if access == "SecuredByPerimeter":
+        a.gap("firewall", "Relay network security perimeter access is unresolved")
+        if not a.external_ids:
+            a.explicit = "UNKNOWN"
+        return a
+    if access not in ("Enabled", None):
+        a.gap("inventory", "Relay public network setting unresolved")
+        return a
+    a.step("public_network_access", "allow", value=access or "Enabled (service default)")
+    a.ports = pset("tcp", 443, 443)
+    if private_unknown:
+        a.notes.append("Relay private endpoint inventory is incomplete; public listener remains exposed")
+    namespace_rules = exposure.get("authorizationRules")
+    hybrids = exposure.get("hybridConnections")
+    wcf = exposure.get("wcfRelays")
+    if not all(isinstance(rows, list) for rows in (namespace_rules, hybrids, wcf)):
+        a.gap("inventory", "Relay entity or SAS rule inventory incomplete")
+        return a
+    rules = [{"id": row["id"], "rights": row["rights"]} for row in namespace_rules]
+    for kind, entities in (("hybrid", hybrids), ("wcf", wcf)):
+        for entity in entities:
+            details = entity["properties"]
+            count = details.get("listenerCount")
+            if count is None:
+                a.notes.append("Relay listener count unavailable for " + entity["id"])
+            if type(count) is int and count > 0:
+                if kind == "wcf":
+                    if details.get("relayType") == "NetTcp":
+                        for port in (5671, 9352, 9353):
+                            a.ports = union(a.ports, pset("tcp", port, port))
+                    elif details.get("relayType") == "Http":
+                        for port in ((443, 9351) if details.get("requiresTransportSecurity") is True else
+                                     (80, 9350, 9351) if details.get("requiresTransportSecurity") is False else
+                                     (80, 443, 9350, 9351)):
+                            a.ports = union(a.ports, pset("tcp", port, port))
+                    else:
+                        a.notes.append("WCF relay binding protocol unresolved for " + entity["id"])
+                a.step("relay_listener", "allow", entity_id=entity["id"], listener_count=count,
+                       relay_type=details.get("relayType", "HybridConnection"))
+            if details.get("requiresClientAuthorization") is False:
+                a.authenticated = False
+                a.step("client_authorization", "allow", entity_id=entity["id"], anonymous_clients=True)
+            for rule in entity["authorizationRules"]:
+                rules.append({"id": rule["id"], "rights": rule["rights"]})
+    if rules:
+        a.step("sas_authorization", "conditional", rules=rules)
+        a.notes.append("SAS rule rights are known; issued tokens and recipients are not exposed by LIST APIs")
+    return a
+
+
+def _azure_mongo_cluster(snapshot, inventory, resource):
+    """Mongo vCore public firewall, Data API, private links and Entra data grants."""
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    data = resource["data"]
+    props = data.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Mongo cluster properties missing")
+        return a
+    name = data.get("name")
+    if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,38}[a-z0-9]", name):
+        a.gap("inventory", "Mongo cluster DNS identity unresolved")
+        return a
+    a.endpoint = name + ".mongocluster.cosmos.azure.com"
+    a.addresses = [a.endpoint]
+    api_mode = (props.get("dataApi") or {}).get("mode") if isinstance(props.get("dataApi"), dict) else None
+    ports = pset("tcp", 10260, 10260)
+    if api_mode == "Enabled":
+        ports = union(ports, pset("tcp", 443, 443))
+        a.addresses.append(name + ".data.mongocluster.cosmos.azure.com")
+        a.step("data_api", "allow", port=443)
+    elif api_mode not in (None, "Disabled"):
+        a.gap("listener", "Mongo Data API mode unresolved")
+    state = props.get("provisioningState")
+    if state in ("Deleting", "Failed"):
+        a.step("cluster_state", "block", state=state)
+        a.ports = {}
+        return a
+    if state not in ("Succeeded", None):
+        a.gap("inventory", "Mongo cluster provisioning state unresolved")
+    exposure = data.get("mongoExposure") or {}
+    coverage = data.get("_coverage") or {}
+    private_rows = exposure.get("privateEndpointConnections")
+    private_status = (coverage.get("privateEndpointConnections") or {}).get("status")
+    private_unknown = private_status != "collected" or not isinstance(private_rows, list)
+    owner = re.match(r"/subscriptions/([^/]+)/", str(data.get("id", "")), re.I)
+    for link in private_rows if isinstance(private_rows, list) else []:
+        remote = link.get("privateEndpointId") if isinstance(link, dict) else None
+        match = re.match(r"/subscriptions/([^/]+)/", remote, re.I) if isinstance(remote, str) else None
+        status = link.get("status") if isinstance(link, dict) else None
+        provisioning = link.get("provisioningState") if isinstance(link, dict) else None
+        if status == "Approved" and provisioning in (None, "Ready", "Succeeded") and match and owner:
+            if match.group(1).casefold() != owner.group(1).casefold():
+                a.external_ids.append(remote)
+        elif status == "Approved" or status not in ("Pending", "Rejected", "Disconnected"):
+            private_unknown = True
+    if a.external_ids:
+        a.external_ids = sorted(set(a.external_ids))
+        a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+        a.ports = ports
+        a.explicit = "FAIL"
+    users = exposure.get("users")
+    if (coverage.get("users") or {}).get("status") == "collected" and isinstance(users, list):
+        if users:
+            a.step("entra_data_grants", "conditional", grants=[{"id": user["id"], "principalType": user["principalType"],
+                                                                "roles": user["roles"]} for user in users])
+            a.notes.append("Mongo user IDs do not identify the principal tenant; external ownership needs an Entra directory join")
+    else:
+        a.notes.append("Mongo Entra data grants are not fully inventoried")
+    bypass = props.get("networkBypassMode")
+    if bypass == "AzureCosmosDB":
+        a.step("network_bypass", "conditional", azure_cosmos_db_service=True)
+        a.notes.append("Azure Cosmos DB service bypass is enabled; the effective service identity is not resolved")
+    public = props.get("publicNetworkAccess")
+    if public == "Disabled":
+        a.step("public_network_access", "block", value=public)
+        if not a.external_ids:
+            a.ports = {}
+            if private_unknown or bypass == "AzureCosmosDB":
+                a.explicit = "UNKNOWN"
+        return a
+    if public != "Enabled":
+        a.gap("inventory", "Mongo public network access state unresolved")
+        return a
+    a.step("public_network_access", "allow", value=public)
+    rules = exposure.get("firewallRules")
+    if (coverage.get("firewallRules") or {}).get("status") != "collected" or not isinstance(rules, list):
+        a.gap("firewall", "Mongo cluster firewall rules incomplete")
+        return a
+    public_rules, malformed = [], False
+    for rule in rules:
+        try:
+            start = ipaddress.IPv4Address(rule["startIpAddress"])
+            end = ipaddress.IPv4Address(rule["endIpAddress"])
+            if start > end:
+                raise ValueError("reversed range")
+            if start == end == ipaddress.IPv4Address("0.0.0.0"):
+                public_rules.append({"id": rule["id"], "source": "any Azure tenant"})
+            elif _azure_public_remainder(ipaddress.summarize_address_range(start, end), []):
+                public_rules.append({"id": rule["id"], "source": str(start) + "-" + str(end)})
+        except (KeyError, TypeError, ValueError):
+            malformed = True
+    if public_rules:
+        a.step("firewall", "allow", public_rules=public_rules)
+        a.ports = ports
+        if malformed:
+            a.notes.append("Additional Mongo firewall rule is malformed")
+    elif malformed:
+        a.gap("firewall", "Mongo firewall range unresolved")
+    else:
+        a.step("firewall", "block", reason="no public-source firewall rule")
+        a.ports = ports if a.external_ids else {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
+    return a
+
+
+def _azure_lighthouse(snapshot, inventory, resource):
+    """Active Azure Lighthouse assignment to a managing tenant and its role grants."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    data = resource["data"]
+    props = data.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Lighthouse registration assignment properties missing")
+        return a
+    state = props.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed", "Canceled"):
+        a.step("assignment_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", "Ready"):
+        a.gap("inventory", "Lighthouse assignment provisioning state unresolved")
+        return a
+    coverage = (data.get("_coverage") or {}).get("registrationDefinition") or {}
+    definition = props.get("registrationDefinition")
+    if coverage.get("status") != "collected" or not isinstance(definition, dict):
+        a.gap("inventory", "Lighthouse assigned registration definition unavailable")
+        return a
+    if definition.get("provisioningState") not in ("Succeeded", "Ready"):
+        a.gap("inventory", "Lighthouse registration definition state unresolved")
+        return a
+    managed_by = definition["managedByTenantId"]
+    managee = definition["manageeTenantId"]
+    active = definition["authorizations"]
+    eligible = definition["eligibleAuthorizations"]
+    if managed_by.casefold() == managee.casefold():
+        a.step("tenant_boundary", "block", reason="managing tenant equals managed tenant")
+        return a
+    if active:
+        a.external_ids = [managed_by]
+        a.step("lighthouse_delegation", "allow", scope=data.get("scope"), managing_tenant_id=managed_by,
+               authorizations=active, eligible_authorizations=eligible)
+        a.explicit = "FAIL"
+    elif eligible:
+        a.external_ids = [managed_by]
+        a.step("lighthouse_jit_delegation", "conditional", scope=data.get("scope"), managing_tenant_id=managed_by,
+               eligible_authorizations=eligible)
+        a.explicit = "UNKNOWN"
+    else:
+        a.gap("authorization", "Lighthouse assignment has no active or eligible roles")
+    return a
+
+
+def _azure_management_group(snapshot, inventory, resource):
+    """External Azure RBAC principals granted at a management-group scope."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    group_id = native_id(resource)
+    if (inventory.state("role_assignment", group_id) not in ("collected", "empty")
+            or inventory.state("role_assignment", "/") not in ("collected", "empty")):
+        a.gap("authorization", "management-group or tenant-root role assignments not completely collected")
+        return a
+    assignments = []
+    for row in inventory.items("role_assignment"):
+        props = row["data"].get("properties") or {}
+        if isinstance(props, dict) and str(props.get("scope", "")).casefold() in (str(group_id).casefold(), "/"):
+            assignments.append((row, props))
+    if not assignments:
+        a.step("role_assignments", "block", reason="no direct management-group role assignments")
+        return a
+    from .iam import _azure_external_group_members
+    key = "azure_management_group_member_resolver"
+    if key not in inventory.network_cache:
+        all_resources = [row for rows in inventory.by_type.values() for row in rows]
+        inventory.network_cache[key] = _azure_external_group_members(snapshot, all_resources)
+    members = inventory.network_cache[key]
+    foreign, uncertain = [], []
+    for assignment, props in assignments:
+        principal = props.get("principalId")
+        role_id = props.get("roleDefinitionId")
+        if not isinstance(principal, str) or not principal or not isinstance(role_id, str) or not role_id:
+            uncertain.append(str(native_id(assignment)))
+            continue
+        identities = [(principal, externality(snapshot, principal))]
+        if props.get("principalType") == "Group":
+            identities.extend((member, "external") for member in members(principal))
+            tenant_scope = resource["scope"] if resource["scope"].startswith("/tenants/") else (
+                "/tenants/" + str(resource["data"].get("tenantId") or (snapshot.get("metadata") or {}).get("tenant_id") or "unknown"))
+            membership_scope = tenant_scope + "/groups/" + principal
+            if (inventory.state("directory_membership", membership_scope) not in ("collected", "empty")
+                    or inventory.state("directory_membership") not in ("collected", "empty")):
+                uncertain.append({"assignment_id": native_id(assignment),
+                                  "reason": "group membership incomplete"})
+        definition = inventory.get("role_definition", role_id)
+        if definition is None:
+            uncertain.append(str(native_id(assignment)))
+            continue
+        permissions = (definition["data"].get("properties") or {}).get("permissions")
+        if not isinstance(permissions, list):
+            uncertain.append(str(native_id(assignment)))
+            continue
+        grants = any(isinstance(block, dict) and any(isinstance(block.get(field), list) and block[field]
+                    for field in ("actions", "dataActions")) for block in permissions)
+        if not grants:
+            continue
+        exclusions = any(isinstance(block, dict) and any(block.get(field) for field in
+                         ("notActions", "notDataActions")) for block in permissions)
+        for identity, classification in identities:
+            if classification == "external":
+                record = {"assignment_id": native_id(assignment), "principal_id": identity,
+                          "role_definition_id": role_id, "condition": props.get("condition")}
+                if props.get("condition") or exclusions:
+                    uncertain.append(record)
+                else:
+                    foreign.append(record)
+            elif classification == "unknown":
+                uncertain.append({"assignment_id": native_id(assignment), "principal_id": identity})
+    if foreign:
+        a.external_ids = sorted({record["principal_id"] for record in foreign})
+        a.step("subscription_rbac" if resource["type"] == "subscription" else "management_group_rbac",
+               "allow", grants=foreign)
+        a.explicit = "FAIL"
+    if uncertain:
+        a.gap("authorization", "management-group principal, role, or condition unresolved")
+    if not foreign and not uncertain:
+        a.step("subscription_rbac" if resource["type"] == "subscription" else "management_group_rbac",
+               "block", reason="no observed external role grant")
+    return a
+
+
+def _azure_subscription(snapshot, inventory, resource):
+    """Cross-tenant managers and external RBAC grants on the subscription."""
+    a = _azure_management_group(snapshot, inventory, resource)
+    owner = resource["data"].get("tenantId")
+    managers = resource["data"].get("managedByTenants")
+    if not isinstance(owner, str) or not owner or not isinstance(managers, list):
+        a.gap("inventory", "subscription owner or managing tenants unavailable")
+        if a.explicit != "FAIL":
+            a.explicit = "UNKNOWN"
+        return a
+    foreign = []
+    for manager in managers:
+        tenant = manager.get("tenantId") if isinstance(manager, dict) else None
+        if not isinstance(tenant, str) or not tenant:
+            a.gap("inventory", "malformed managing tenant")
+            if a.explicit != "FAIL":
+                a.explicit = "UNKNOWN"
+            continue
+        if tenant.casefold() != owner.casefold():
+            foreign.append(tenant)
+    if foreign:
+        a.external_ids = sorted(set(a.external_ids) | set(foreign))
+        a.step("managed_by_tenants", "allow", managing_tenant_ids=sorted(set(foreign)))
+        a.explicit = "FAIL"
+    elif not managers:
+        a.step("managed_by_tenants", "block", reason="no delegated managing tenants")
+    if a.unresolved and a.explicit != "FAIL":
+        a.explicit = "UNKNOWN"
+    return a
+
+
+def _azure_powerbi_capacity(snapshot, inventory, resource):
+    """Capacity-admin emails outside the tenant's verified domains."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    props = _props(resource)
+    administration = props.get("administration")
+    members = administration.get("members") if isinstance(administration, dict) else None
+    if not isinstance(members, list):
+        a.gap("authorization", "Power BI capacity administrator list unavailable")
+        return a
+    if not members:
+        a.step("capacity_administrators", "block", reason="no capacity administrators in ARM response")
+        return a
+    if inventory.state("directory_domain") not in ("collected", "empty"):
+        a.gap("inventory", "tenant domain inventory incomplete")
+        return a
+    owned = {str(row["data"].get("id", "")).casefold() for row in inventory.items("directory_domain")
+             if row["data"].get("isVerified") is True}
+    if not owned:
+        a.gap("inventory", "tenant has no verified domain evidence")
+        return a
+    foreign, unresolved = [], []
+    for member in members:
+        if not isinstance(member, str) or "@" not in member:
+            unresolved.append(str(member))
+            continue
+        domain = member.rsplit("@", 1)[-1].casefold()
+        if domain not in owned:
+            foreign.append(member)
+        else:
+            unresolved.append(member)
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("capacity_administrators", "allow", external_emails=a.external_ids)
+        a.explicit = "FAIL"
+    if unresolved:
+        a.gap("authorization", "same-domain administrator ownership or non-email identity unresolved")
+    return a
+
+
+def _azure_playwright_workspace(snapshot, inventory, resource):
+    """Authenticated public Playwright data plane, with token mode recorded."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "ready Playwright workspace state unavailable")
+        return a
+    uri = props.get("dataplaneUri")
+    try:
+        parsed = urlsplit(uri) if isinstance(uri, str) else None
+        host = parsed.hostname if parsed and parsed.scheme == "https" and not parsed.username and not parsed.password and parsed.port in (None, 443) else None
+    except ValueError:
+        host = None
+    if not isinstance(host, str) or not re.fullmatch(r"[a-z0-9.-]{1,253}", host.lower()):
+        a.gap("listener", "Playwright workspace data-plane HTTPS URI unavailable")
+        return a
+    a.addresses = [host.lower()]
+    a.ports = pset("tcp", 443, 443)
+    a.step("public_data_plane", "allow", endpoint_host=host.lower(), authentication="Microsoft Entra or service token")
+    mode = props.get("localAuth")
+    if mode in ("Enabled", "Disabled"):
+        a.step("service_tokens", "allow" if mode == "Enabled" else "block", setting=mode)
+    else:
+        a.gap("authorization", "service access token mode unavailable")
+    a.explicit = "FAIL"
+    return a
+
+
+def _azure_foundry_project(snapshot, inventory, resource):
+    """Project endpoint exposure inherited from its Foundry account policy."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    parent_id = resource["data"].get("parent_id")
+    accounts = [row for row in inventory.items("cognitive_account")
+                if isinstance(parent_id, str) and row["data"].get("id", "").casefold() == parent_id.casefold()]
+    if len(accounts) != 1:
+        a.gap("inventory", "Foundry parent account unavailable or ambiguous")
+        return a
+    parent = accounts[0]
+    parent_props = _props(parent)
+    if (str(parent["data"].get("kind", "")).casefold() != "aiservices"
+            or parent_props.get("provisioningState") != "Succeeded"
+            or _props(resource).get("provisioningState") != "Succeeded"):
+        a.gap("inventory", "ready Foundry account or project state unavailable")
+        return a
+    hosts = _props(resource).get("endpointHosts")
+    if not isinstance(hosts, list):
+        a.gap("listener", "Foundry project endpoint inventory unavailable")
+        return a
+    connections = parent_props.get("privateEndpointConnections")
+    if isinstance(connections, list):
+        foreign, unresolved_links = _azure_foreign_private_endpoints(parent["data"], parent_props)
+        if foreign:
+            a.external_ids = foreign
+            a.ports = pset("tcp", 443, 443)
+            a.step("private_project_share", "allow", external_private_endpoints=foreign)
+            a.explicit = "FAIL"
+        if unresolved_links:
+            a.gap("private_project_share", "Foundry private endpoint approval or owner unresolved")
+    else:
+        a.gap("private_project_share", "Foundry parent private endpoint inventory unavailable")
+    access = parent_props.get("publicNetworkAccess")
+    if access == "Disabled":
+        if not a.external_ids:
+            a.ports = {}
+        a.step("account_public_network", "block", setting=access)
+        if a.explicit != "FAIL":
+            a.explicit = "UNKNOWN" if a.unresolved else "PASS"
+        return a
+    if access != "Enabled":
+        a.gap("listener", "Foundry parent public network setting unresolved")
+        return a
+    rules = parent_props.get("networkAcls")
+    if not isinstance(rules, dict):
+        a.gap("firewall", "Foundry parent network ACL unavailable")
+        return a
+    if rules.get("defaultAction") == "Allow":
+        a.step("account_firewall", "allow", default_action="Allow")
+    elif rules.get("defaultAction") == "Deny":
+        public_ips, malformed = [], False
+        rows = rules.get("ipRules")
+        if not isinstance(rows, list):
+            a.gap("firewall", "Foundry parent IP rules unavailable")
+            return a
+        for row in rows:
+            value = row.get("value") if isinstance(row, dict) else None
+            network = _cidr(value) if isinstance(value, str) else None
+            if network is None:
+                malformed = True
+            elif _azure_public_remainder([network], []):
+                public_ips.append(value)
+        if public_ips:
+            a.step("account_firewall", "allow", public_ip_rules=public_ips)
+        elif malformed or rules.get("trustedServiceAccessEnabled") is True or rules.get("bypass") not in (None, "None"):
+            a.gap("firewall", "Foundry parent IP rules or trusted-service bypass unresolved")
+            return a
+        else:
+            if not a.external_ids:
+                a.ports = {}
+            a.step("account_firewall", "block", default_action="Deny")
+            if a.explicit != "FAIL":
+                a.explicit = "UNKNOWN" if a.unresolved else "PASS"
+            return a
+    else:
+        a.gap("firewall", "Foundry parent default action unresolved")
+        return a
+    if not hosts:
+        a.gap("listener", "Foundry project LIST returned no HTTPS endpoint")
+        return a
+    a.addresses = hosts
+    a.ports = pset("tcp", 443, 443)
+    a.step("project_https", "allow", endpoint_hosts=hosts, authentication="Microsoft Entra or account key")
+    a.explicit = "FAIL"
+    return a
+
+
+def _azure_foundry_agent(snapshot, inventory, resource):
+    """Agent-specific public Activity route and non-RBAC runtime access."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    if data.get("status") == "Disabled":
+        a.step("agent_status", "block", status="Disabled")
+        a.ports = {}
+        a.explicit = "PASS"
+        return a
+    if data.get("status") != "Enabled":
+        a.gap("inventory", "Foundry agent serving status unavailable")
+    schemes = data.get("authorization_schemes")
+    if not isinstance(schemes, list):
+        a.gap("authorization", "Foundry agent authorization schemes unavailable")
+        return a
+    kinds = sorted({row.get("type") for row in schemes if isinstance(row, dict) and isinstance(row.get("type"), str)})
+    if any(kind in kinds for kind in ("AgentBlueprint", "BotService", "BotServiceTenant")):
+        a.step("agent_authorization", "conditional", schemes=kinds,
+               reason="agent or channel access can bypass project RBAC")
+        a.gap("authorization", "agent blueprint consent or channel user audience not established by agent GET")
+    else:
+        a.step("agent_authorization", "conditional", schemes=kinds, reason="Azure RBAC required")
+    if data.get("m365_public") is True and "activity" in data.get("protocols", []):
+        host = data.get("endpoint_host")
+        if not isinstance(host, str) or not host:
+            a.gap("listener", "Foundry public Activity endpoint host unavailable")
+            return a
+        a.addresses = [host]
+        a.ports = pset("tcp", 443, 443)
+        a.step("m365_activity", "allow", endpoint_host=host,
+               source="Microsoft 365 and Azure Bot Service IP ranges")
+        a.explicit = "FAIL"
+    elif data.get("m365_public") not in (True, False, None):
+        a.gap("listener", "Foundry Activity public route setting malformed")
+    return a
+
+
+def _azure_foundry_connection(snapshot, inventory, resource):
+    """Configured outbound project target; runtime use is not in connection LIST."""
+    a = Assessment(resource, "external_destination")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    target = data.get("target_host") or data.get("target_resource_id")
+    if not isinstance(target, str) or not target:
+        a.gap("destination", "Foundry connection target unavailable or not a supported HTTPS/ARM target")
+        return a
+    a.addresses = [target]
+    a.step("configured_connection", "conditional", target=target,
+           connection_type=data.get("connection_type"), credential_type=data.get("credential_type"))
+    a.gap("runtime_use", "connection LIST does not establish whether an agent used this destination")
+    return a
+
+
+def _azure_newrelic_monitor(snapshot, inventory, resource):
+    """Monitor control plane status; child rows establish actual telemetry sends."""
+    a = Assessment(resource, "external_destination")
+    a.authenticated = True
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "ready New Relic monitor state unavailable")
+    elif props.get("monitoringStatus") == "Disabled":
+        a.step("monitoring", "block", status="Disabled")
+        a.explicit = "PASS"
+    elif props.get("monitoringStatus") == "Enabled":
+        a.step("monitoring", "conditional", status="Enabled")
+        a.gap("telemetry", "monitored-resource rows determine whether Azure logs or metrics are sent")
+    else:
+        a.gap("monitoring", "New Relic monitoring status unavailable")
+    return a
+
+
+def _azure_newrelic_monitored_resource(snapshot, inventory, resource):
+    """Observed logs or metrics being sent to a New Relic account."""
+    a = Assessment(resource, "external_destination")
+    a.authenticated = True
+    data = resource["data"]
+    parent_id = data.get("monitor_id")
+    parents = [row for row in inventory.items("newrelic_monitor")
+               if isinstance(parent_id, str) and row["data"].get("id", "").casefold() == parent_id.casefold()]
+    if len(parents) != 1:
+        a.gap("inventory", "New Relic parent monitor unavailable or ambiguous")
+        return a
+    props = _props(parents[0])
+    if props.get("provisioningState") != "Succeeded" or props.get("monitoringStatus") != "Enabled":
+        a.gap("monitoring", "active New Relic monitor state unavailable")
+        return a
+    if props.get("marketplaceSubscriptionStatus") not in (None, "Active"):
+        a.gap("monitoring", "New Relic marketplace subscription is not confirmed active")
+        return a
+    statuses = (data.get("sendingLogs"), data.get("sendingMetrics"))
+    if any(value not in ("Enabled", "Disabled") for value in statuses):
+        a.gap("telemetry", "New Relic logs or metrics send state unavailable")
+        return a
+    if "Enabled" in statuses:
+        a.step("partner_telemetry", "allow", resource_id=data.get("resource_id"),
+               sending_logs=statuses[0], sending_metrics=statuses[1],
+               partner_account=props.get("accountId"), partner_organization=props.get("organizationId"))
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    else:
+        a.step("partner_telemetry", "block", sending_logs="Disabled", sending_metrics="Disabled")
+        a.explicit = "PASS"
+    return a
+
+
+def _azure_fabric_workspace(snapshot, inventory, resource):
+    """Fabric workspace grants to observed foreign users or applications."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    data = resource["data"]
+    grants = data.get("role_assignments")
+    if data.get("role_assignments_status") != "collected" or not isinstance(grants, list):
+        a.gap("authorization", "Fabric workspace role assignments unavailable to scan principal")
+        return a
+    if not grants:
+        a.step("workspace_roles", "block", reason="no workspace role assignments returned")
+        return a
+    from .iam import _azure_external_group_members
+    key = "azure_fabric_workspace_member_resolver"
+    if key not in inventory.network_cache:
+        all_resources = [row for rows in inventory.by_type.values() for row in rows]
+        inventory.network_cache[key] = _azure_external_group_members(snapshot, all_resources)
+    members = inventory.network_cache[key]
+    foreign = []
+    uncertain = []
+    for grant in grants:
+        kind = grant.get("principal_type") if isinstance(grant, dict) else None
+        principal = grant.get("principal_id") if isinstance(grant, dict) else None
+        role = grant.get("role") if isinstance(grant, dict) else None
+        if kind == "ServicePrincipalProfile":
+            kind = grant.get("parent_principal_type")
+            principal = grant.get("parent_principal_id")
+        if kind == "EntireTenant":
+            uncertain.append({"role": role, "reason": "all-tenant grant guest eligibility unresolved"})
+            continue
+        if not isinstance(principal, str) or not principal:
+            uncertain.append({"role": role, "reason": "principal identity unavailable"})
+            continue
+        identities = [(principal, externality(snapshot, principal))]
+        if kind == "Group":
+            identities.extend((member, "external") for member in members(principal))
+            membership_scope = resource["scope"] + "/groups/" + principal
+            if (inventory.state("directory_membership", membership_scope) not in ("collected", "empty")
+                    or inventory.state("directory_membership") not in ("collected", "empty")):
+                uncertain.append({"principal_id": principal, "reason": "group membership incomplete"})
+        for identity, classification in identities:
+            if classification == "external":
+                foreign.append({"principal_id": identity, "principal_type": kind, "role": role})
+            elif classification not in ("allowlisted", "provider_service"):
+                uncertain.append({"principal_id": identity, "reason": "principal tenant unresolved"})
+    if foreign:
+        a.external_ids = sorted({entry["principal_id"] for entry in foreign})
+        a.step("workspace_roles", "allow", foreign_grants=foreign)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    if uncertain:
+        a.gap("authorization", "Fabric workspace principal or group ownership incomplete")
+    if not foreign and not uncertain:
+        a.step("workspace_roles", "block", reason="no observed foreign workspace principal")
+    return a
+
+
+def _azure_powerbi_public_share(snapshot, inventory, resource):
+    """Configured anonymous publication or organization-wide link."""
+    a = Assessment(resource, "data_sharing")
+    a.ports = {}
+    data = resource["data"]
+    if resource["type"] == "powerbi_published_item":
+        a.step("publish_to_web", "allow", artifact_id=data.get("artifact_id"),
+               artifact_type=data.get("artifact_type"))
+        a.data_exposure = True
+        a.gap("authorization", "published-to-web API omits embed-code active or disabled status")
+        return a
+    a.authenticated = True
+    a.step("organization_link", "block", artifact_id=data.get("artifact_id"),
+           artifact_type=data.get("artifact_type"),
+           reason="organization-wide links exclude guest and external users")
+    return a
+
+
+def _azure_fabric_external_data_share(snapshot, inventory, resource):
+    """Accepted OneLake external share to a foreign tenant."""
+    a = Assessment(resource, "data_pipeline")
+    a.ports = {}
+    data = resource["data"]
+    state = data.get("status")
+    if state in ("Revoked", "InvitationExpired", "Pending"):
+        a.step("external_data_share", "block", reason="share is not active", status=state)
+        return a
+    if state != "Active":
+        a.gap("authorization", "external data share status unavailable")
+        return a
+    owner = (snapshot.get("metadata") or {}).get("tenant_id")
+    target = data.get("accepted_by_tenant_id") or data.get("recipient_tenant_id")
+    if not isinstance(owner, str) or not owner or not isinstance(target, str) or not target:
+        a.gap("authorization", "active external data share tenant ownership unavailable")
+        return a
+    if owner.casefold() != target.casefold():
+        a.external_ids = [target]
+        a.step("external_data_share", "allow", recipient_tenant_id=target,
+               item_id=data.get("item_id"), shared_path_count=data.get("shared_path_count"))
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    else:
+        a.step("external_data_share", "block", reason="recipient belongs to scanned tenant")
+    return a
+
+
+def _azure_cost_export(snapshot, inventory, resource):
+    """Configured cost-data delivery to a foreign subscription or tenant."""
+    a = Assessment(resource, "data_pipeline")
+    a.ports = {}
+    props = _props(resource)
+    delivery = props.get("deliveryInfo")
+    dest = delivery.get("destination") if isinstance(delivery, dict) else None
+    if not isinstance(dest, dict):
+        a.gap("inventory", "Cost Management export destination unavailable")
+        return a
+    target = dest.get("resourceId")
+    if not isinstance(target, str) or not target:
+        a.gap("inventory", "SAS-based export destination has no owner subscription or tenant ID")
+        return a
+    match = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/"
+                         r"Microsoft\.Storage/storageAccounts/[^/]+", target, re.I)
+    if match is None:
+        a.gap("inventory", "Cost Management destination storage account ID malformed")
+        return a
+    source_subscription = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    if source_subscription:
+        if source_subscription.group(1).casefold() == match.group(1).casefold():
+            a.step("export_destination", "block", reason="destination remains in source subscription")
+        else:
+            a.external_ids = [target]
+            a.step("export_destination", "allow", storage_account_id=target,
+                   source_subscription_id=source_subscription.group(1))
+            a.data_exposure = True
+            a.explicit = "FAIL"
+        return a
+    group = inventory.get("management_group", resource["scope"])
+    tenant = _props(group).get("tenantId") if group else None
+    target_scope = "/subscriptions/" + match.group(1)
+    target_tenant = ((snapshot.get("metadata") or {}).get("subscription_tenants") or {}).get(target_scope)
+    if isinstance(tenant, str) and isinstance(target_tenant, str):
+        if tenant.casefold() != target_tenant.casefold():
+            a.external_ids = [target]
+            a.step("export_destination", "allow", storage_account_id=target,
+                   source_management_group_id=resource["scope"])
+            a.data_exposure = True
+            a.explicit = "FAIL"
+        else:
+            a.gap("inventory", "management-group destination subscription ownership unresolved")
+    else:
+        a.gap("inventory", "management-group or destination tenant unavailable")
+    return a
+
+
+def _azure_security_contact(snapshot, inventory, resource):
+    """Defender alerts addressed outside verified tenant domains."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("isEnabled") is False:
+        a.step("contact", "block", reason="security contact disabled")
+        a.explicit = "PASS"
+        return a
+    if props.get("isEnabled") is not True:
+        a.gap("configuration", "security contact enablement unavailable")
+        return a
+    emails = props.get("emails")
+    sources = props.get("notificationsSources")
+    if not isinstance(emails, str) or not isinstance(sources, list):
+        a.gap("inventory", "security contact recipient or notification sources unavailable")
+        return a
+    recipients = [email.strip() for email in re.split(r"[;,]", emails) if email.strip()]
+    roles = props.get("notificationsByRole")
+    if not sources:
+        a.gap("configuration", "security contact notification source behavior unavailable")
+        return a
+    if not recipients:
+        if isinstance(roles, dict) and roles.get("state") == "Off":
+            a.step("alert_delivery", "block", reason="no explicit recipients and role notifications disabled")
+            a.explicit = "PASS"
+        else:
+            a.gap("authorization", "role-based notifications may reach external subscription principals")
+        return a
+    if inventory.state("directory_domain") not in ("collected", "empty"):
+        a.gap("inventory", "verified tenant domains unavailable")
+        return a
+    owned = {str(row["data"].get("id", "")).casefold() for row in inventory.items("directory_domain")
+             if row["data"].get("isVerified") is True}
+    if not owned:
+        a.gap("inventory", "tenant has no verified domain evidence")
+        return a
+    foreign = sorted({email for email in recipients if "@" in email and
+                      email.rsplit("@", 1)[-1].casefold() not in owned})
+    malformed = [email for email in recipients if "@" not in email]
+    if foreign:
+        a.external_ids = foreign
+        a.step("alert_delivery", "allow", off_tenant_domain_emails=foreign,
+               sources=sorted({str(row.get("sourceType")) for row in sources if isinstance(row, dict)}))
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    if malformed:
+        a.gap("authorization", "contact contains recipients without email domains")
+    if not foreign and not malformed:
+        a.gap("authorization", "same-domain mailbox ownership is not proven")
+    return a
+
+
+def _azure_defender_automation(snapshot, inventory, resource):
+    """Configured security-event exports to another subscription."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("isEnabled") is False:
+        a.step("automation", "block", reason="automation disabled")
+        a.explicit = "PASS"
+        return a
+    if props.get("isEnabled") is not True:
+        a.gap("configuration", "automation enablement unavailable")
+        return a
+    actions = props.get("actions")
+    sources = props.get("sources")
+    if not isinstance(actions, list) or not isinstance(sources, list):
+        a.gap("inventory", "automation actions or sources unavailable")
+        return a
+    if not actions or not sources:
+        a.step("event_export", "block", reason="no action or source")
+        a.explicit = "PASS"
+        return a
+    source_match = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    if source_match is None:
+        a.gap("inventory", "source subscription unavailable")
+        return a
+    targets = []
+    for action in actions:
+        target = action.get("resourceId") if isinstance(action, dict) else None
+        target_match = re.match(r"/subscriptions/([^/]+)(?:/|$)", target or "", re.I)
+        if target_match is None:
+            a.gap("inventory", "automation action target unavailable")
+            continue
+        if target_match.group(1).casefold() != source_match.group(1).casefold():
+            targets.append({"id": target, "type": action.get("actionType")})
+    if targets:
+        a.external_ids = sorted({row["id"] for row in targets})
+        a.step("event_export", "allow", cross_subscription_destinations=targets,
+               event_sources=sorted({str(row.get("eventSource")) for row in sources if isinstance(row, dict)}))
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    else:
+        a.gap("authorization", "same-subscription destination downstream readers not assessed here")
+    return a
+
+
+def _azure_external_id_auth_extension(snapshot, inventory, resource):
+    """Active External ID authentication callbacks to unverified domains."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    host = resource["data"].get("endpointHost")
+    if not isinstance(host, str) or not host:
+        a.gap("inventory", "authentication extension endpoint host unavailable")
+        return a
+    if inventory.state("external_id_auth_listener", resource["scope"]) not in ("collected", "empty"):
+        a.gap("inventory", "authentication event listeners unavailable")
+        return a
+    listeners = [row for row in inventory.items("external_id_auth_listener")
+                 if str(row["data"].get("extensionId", "")).casefold() ==
+                 str(resource["data"].get("id", "")).casefold()]
+    if not listeners:
+        if any(row["data"].get("extensionId") is None
+               for row in inventory.items("external_id_auth_listener")):
+            a.gap("inventory", "some authentication listeners omit their extension reference")
+            return a
+        a.step("callback", "block", reason="no listener references the extension")
+        a.explicit = "PASS"
+        return a
+    if inventory.state("directory_domain") not in ("collected", "empty"):
+        a.gap("inventory", "verified tenant domain inventory unavailable")
+        return a
+    owned = {str(row["data"].get("id", "")).casefold() for row in inventory.items("directory_domain")
+             if row["data"].get("isVerified") is True}
+    if not owned:
+        a.gap("inventory", "tenant has no verified domain evidence")
+        return a
+    if any(host == domain or host.endswith("." + domain) for domain in owned):
+        a.gap("authorization", "same-domain callback operator ownership is not proven")
+        return a
+    a.external_ids = [host]
+    a.step("authentication_callback", "allow", destination_host=host,
+           listener_ids=[row["data"].get("id") for row in listeners],
+           application_ids=sorted({app for row in listeners for app in row["data"].get("appIds", [])}))
+    a.data_exposure = True
+    a.explicit = "FAIL"
+    return a
+
+
+def _azure_external_id_cross_tenant(snapshot, inventory, resource):
+    """Inbound partner synchronization and delegated security-claim trust."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    partner = props.get("tenantId")
+    if resource["type"] == "external_id_cross_tenant_partner":
+        if inventory.state("external_id_cross_tenant_default", resource["scope"]) not in ("collected", "empty"):
+            a.gap("inventory", "default cross-tenant policy unavailable for inherited settings")
+            return a
+        defaults = inventory.items("external_id_cross_tenant_default")
+        default = _props(defaults[0]) if len(defaults) == 1 else {}
+    else:
+        default = props
+    def route_allowed(field, service_default):
+        setting = props.get(field) or default.get(field)
+        if setting is None:
+            return service_default if default.get("isServiceDefault") is True else None
+        if not isinstance(setting, dict):
+            return None
+        users = setting.get("usersAndGroups")
+        apps = setting.get("applications")
+        if not isinstance(users, dict) or not isinstance(apps, dict):
+            return None
+        def all_target(part, target):
+            return any(isinstance(row, dict) and row.get("target") == target
+                       for row in part.get("targets", []))
+        if (users.get("accessType") == "blocked" and all_target(users, "AllUsers")
+                or apps.get("accessType") == "blocked" and all_target(apps, "AllApplications")):
+            return False
+        if users.get("accessType") == "allowed" and apps.get("accessType") == "allowed":
+            return True
+        return None
+    collaboration = route_allowed("b2bCollaborationInbound", True)
+    direct = route_allowed("b2bDirectConnectInbound", False)
+    inbound_allowed = True if True in (collaboration, direct) else False if collaboration is False and direct is False else None
+    trust = props.get("inboundTrust") or default.get("inboundTrust")
+    accepted = sorted(key for key in ("isMfaAccepted", "isCompliantDeviceAccepted",
+                                    "isHybridAzureADJoinedDeviceAccepted")
+                      if isinstance(trust, dict) and trust.get(key) is True)
+    sync = props.get("userSyncInboundAllowed") if partner else None
+    if partner and partner.casefold() == resource["scope"].removeprefix("/tenants/").casefold():
+        a.gap("inventory", "partner tenant equals selected tenant")
+        return a
+    if partner and sync is True:
+        a.external_ids = [partner]
+        a.step("partner_user_sync", "allow", partner_tenant_id=partner)
+        a.explicit = "FAIL"
+    if accepted and inbound_allowed is True:
+        if partner:
+            a.external_ids = [partner]
+        a.step("external_claim_trust", "allow", partner_tenant_id=partner,
+               accepted_claims=accepted)
+        a.explicit = "FAIL"
+    elif accepted or inbound_allowed is None:
+        a.gap("authorization", "effective inbound collaboration or claim trust unresolved")
+    if a.explicit != "FAIL" and inbound_allowed is False and sync is not True:
+        a.step("inbound_collaboration", "block", reason="inbound B2B blocked")
+        a.explicit = "PASS"
+    elif a.explicit != "FAIL":
+        a.step("inbound_collaboration", "conditional", reason="B2B policy alone does not grant resource access")
+    return a
+
+
+def _azure_directory_consent(snapshot, inventory, resource):
+    """Delegated or application permission granted to a foreign-owned client."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    if inventory.state("directory_service_principal") not in ("collected", "empty"):
+        a.gap("inventory", "service principal ownership inventory incomplete")
+        return a
+    if resource["type"] == "directory_oauth2_permission_grant":
+        principal = data.get("clientId")
+        target = data.get("resourceId")
+        scope = data.get("scope")
+        consent = data.get("consentType")
+        if (not isinstance(principal, str) or not isinstance(target, str)
+                or not isinstance(scope, str) or not scope.strip()
+                or consent not in ("AllPrincipals", "Principal")):
+            a.gap("authorization", "delegated consent grant fields unavailable")
+            return a
+        if consent == "Principal" and not isinstance(data.get("principalId"), str):
+            a.gap("authorization", "per-user delegated consent principal unavailable")
+            return a
+        grant = {"permission_type": "delegated", "scope": scope.split(),
+                 "consent_type": consent, "user_id": data.get("principalId")}
+    else:
+        principal = data.get("principalId")
+        target = data.get("resourceId")
+        role = data.get("appRoleId")
+        if not all(isinstance(value, str) and value for value in (principal, target, role)):
+            a.gap("authorization", "application role grant fields unavailable")
+            return a
+        if (data.get("defaultAppRole") is True or data.get("appRoleEnabled") is not True
+                or not isinstance(data.get("appRoleValue"), str)
+                or not data.get("appRoleValue")):
+            a.gap("authorization", "application role metadata or effective rights unresolved")
+            return a
+        grant = {"permission_type": "application", "app_role_id": role,
+                 "app_role_value": data.get("appRoleValue")}
+    classification = externality(snapshot, principal)
+    if classification == "external":
+        client = inventory.get("directory_service_principal", principal)
+        if client is None or client["data"].get("accountEnabled") is not True:
+            a.gap("authorization", "foreign client service principal enabled state unresolved or disabled")
+            return a
+        a.external_ids = [principal]
+        a.step("foreign_client_grant", "allow", client_service_principal_id=principal,
+               resource_service_principal_id=target, **grant)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif classification == "provider_service":
+        a.gap("authorization", "Microsoft provider service permissions require service-specific review")
+    elif classification == "allowlisted":
+        a.gap("authorization", "local client application audience and downstream access unresolved")
+    else:
+        a.gap("inventory", "client service principal home tenant unresolved")
+    return a
+
+
+def _azure_easm_data_connection(snapshot, inventory, resource):
+    """Configured EASM data exports; destination tenant ownership is not in the API."""
+    a = Assessment(resource, "data_export")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    if data.get("active") is False:
+        a.step("data_connection", "block", reason="connection inactive")
+        a.explicit = "PASS"
+        return a
+    if data.get("active") is not True:
+        a.gap("configuration", "data connection active state unavailable")
+        return a
+    kind = data.get("kind")
+    if kind == "logAnalytics":
+        target = data.get("workspaceId")
+    elif kind == "azureDataExplorer":
+        target = data.get("clusterName")
+        if not isinstance(data.get("databaseName"), str) or not data["databaseName"]:
+            a.gap("configuration", "Data Explorer database unavailable")
+            return a
+    else:
+        a.gap("configuration", "data connection destination type unavailable")
+        return a
+    if not isinstance(target, str) or not target:
+        a.gap("configuration", "data connection destination unavailable")
+        return a
+    a.step("configured_export", "conditional", destination_kind=kind, destination_id=target,
+           content=data.get("content"), frequency=data.get("frequency"))
+    a.gap("ownership", "EASM data connection omits destination tenant and downstream reader grants")
+    return a
+
+
+def _azure_easm_workspace(snapshot, inventory, resource):
+    """The EASM workspace data-plane API is hosted on a public regional HTTPS name."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    data = resource["data"]
+    state = _props(resource).get("provisioningState")
+    region = data.get("location")
+    if state != "Succeeded" or not isinstance(region, str) or not re.fullmatch(r"[a-z0-9-]+", region.lower()):
+        a.gap("listener", "ready EASM workspace or regional endpoint unavailable")
+        a.explicit = "UNKNOWN"
+        return a
+    host = region.lower() + ".easm.defender.microsoft.com"
+    a.addresses = [host]
+    a.ports = pset("tcp", 443, 443)
+    a.step("regional_data_plane", "allow", endpoint_host=host, authentication="Microsoft Entra")
+    a.explicit = "FAIL"
+    return a
+
+
+def _azure_monitor_action_group(snapshot, inventory, resource):
+    """Alert receivers with a declared foreign Event Hub tenant/subscription."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("enabled") is False:
+        a.step("action_group", "block", reason="action group disabled")
+        a.explicit = "PASS"
+        return a
+    if props.get("enabled") is not True:
+        a.gap("configuration", "action group enabled state unavailable")
+        return a
+    rows = resource["data"].get("_exposureReceivers")
+    coverage = (resource["data"].get("_coverage") or {}).get("exposureReceivers") or {}
+    if not isinstance(rows, list) or coverage.get("status") != "collected":
+        a.gap("inventory", "safe receiver inventory incomplete")
+        return a
+    metadata = snapshot.get("metadata") or {}
+    owner_tenant = metadata.get("tenant_id") if metadata.get("tenant_verified") is True else None
+    source = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    foreign = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("kind") != "eventHub":
+            continue
+        tenant = row.get("tenantId")
+        subscription = row.get("subscriptionId")
+        if isinstance(tenant, str) and isinstance(owner_tenant, str) and tenant.casefold() != owner_tenant.casefold():
+            foreign.append({"tenant_id": tenant, "subscription_id": subscription})
+        elif isinstance(subscription, str) and source and subscription.casefold() != source.group(1).casefold():
+            foreign.append({"tenant_id": tenant, "subscription_id": subscription})
+    if foreign:
+        a.external_ids = sorted({str(row.get("tenant_id") or row["subscription_id"]) for row in foreign})
+        a.step("alert_delivery", "allow", foreign_event_hub_receivers=foreign)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    else:
+        a.gap("authorization", "webhook, mailbox and downstream receiver ownership unresolved")
+    return a
+
+
+def _azure_monitor_export(snapshot, inventory, resource):
+    """Diagnostic/log-profile delivery to another subscription or marketplace partner."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    kind = resource["type"]
+    if kind == "monitor_log_profile":
+        if not isinstance(props.get("categories"), list) or not isinstance(props.get("locations"), list):
+            a.gap("configuration", "log profile categories or locations unavailable")
+            return a
+        active = bool(props.get("categories")) and bool(props.get("locations"))
+        sinks = ("serviceBusRuleId", "storageAccountId")
+    else:
+        if "logs" not in props and "metrics" not in props:
+            a.gap("configuration", "diagnostic category declarations unavailable")
+            return a
+        settings = props.get("logs", [])
+        metrics = props.get("metrics", [])
+        if not isinstance(settings, list) or not isinstance(metrics, list):
+            a.gap("configuration", "diagnostic categories unavailable")
+            return a
+        active = any(isinstance(row, dict) and row.get("enabled") is True for row in settings + metrics)
+        sinks = ("eventHubAuthorizationRuleId", "serviceBusRuleId", "storageAccountId",
+                 "workspaceId", "marketplacePartnerId")
+    if not active:
+        a.step("diagnostic_delivery", "block", reason="no enabled categories")
+        a.explicit = "PASS"
+        return a
+    source = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    if source is None:
+        a.gap("inventory", "diagnostic source subscription unavailable")
+        return a
+    external = []
+    local = []
+    for field in sinks:
+        target = props.get(field)
+        if not isinstance(target, str) or not target:
+            continue
+        match = re.match(r"/subscriptions/([^/]+)(?:/|$)", target, re.I)
+        if match is None:
+            a.gap("inventory", "diagnostic destination ARM identity unavailable")
+            continue
+        if field == "marketplacePartnerId" or match.group(1).casefold() != source.group(1).casefold():
+            external.append({"kind": field, "resource_id": target})
+        else:
+            local.append(field)
+    if external:
+        a.external_ids = sorted({row["resource_id"] for row in external})
+        a.step("diagnostic_delivery", "allow", external_destinations=external)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif local:
+        a.gap("authorization", "same-subscription destination downstream readers unresolved")
+    else:
+        a.gap("configuration", "enabled diagnostics have no resolved delivery destination")
+    return a
+
+
+def _azure_monitor_workspace(snapshot, inventory, resource):
+    """Managed Prometheus public query endpoint and foreign private links."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "ready Monitor workspace state unavailable")
+        return a
+    access = props.get("publicNetworkAccess")
+    host = props.get("queryEndpointHost")
+    if access == "Enabled" and isinstance(host, str) and host:
+        a.addresses = [host]
+        a.ports = pset("tcp", 443, 443)
+        a.step("public_query", "allow", endpoint_host=host, authentication="Microsoft Entra")
+        a.explicit = "FAIL"
+    elif access == "Disabled":
+        a.ports = {}
+        a.step("public_query", "block", setting=access)
+    else:
+        a.gap("listener", "public access setting or query endpoint unavailable")
+    connections = props.get("privateEndpointConnections")
+    if not isinstance(connections, list):
+        a.gap("inventory", "private endpoint connection inventory unavailable")
+        return a
+    owner = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    foreign = []
+    for row in connections:
+        if not isinstance(row, dict):
+            a.gap("inventory", "private endpoint connection malformed")
+            continue
+        if row.get("status") != "Approved" or row.get("provisioningState") != "Succeeded":
+            continue
+        groups = row.get("groupIds")
+        target = row.get("privateEndpointId")
+        target_scope = re.match(r"/subscriptions/([^/]+)(?:/|$)", target or "", re.I)
+        if not isinstance(groups, list) or "prometheusMetrics" not in groups or target_scope is None or owner is None:
+            a.gap("inventory", "approved Prometheus private link target unresolved")
+            continue
+        if target_scope.group(1).casefold() != owner.group(1).casefold():
+            foreign.append(target)
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("private_query_share", "allow", external_private_endpoints=a.external_ids)
+        a.explicit = "FAIL"
+    elif access == "Disabled" and not a.unresolved:
+        a.explicit = "PASS"
+    return a
+
+
+def _azure_purview_account(snapshot, inventory, resource):
+    """Purview public API endpoints and approved cross-subscription private links."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "ready Purview account state unavailable")
+        return a
+    access = props.get("publicNetworkAccess")
+    hosts = props.get("endpointHosts")
+    if access == "Enabled" and isinstance(hosts, dict) and hosts:
+        a.addresses = sorted({host for host in hosts.values() if isinstance(host, str) and host})
+        if a.addresses:
+            a.ports = pset("tcp", 443, 443)
+            a.step("public_data_plane", "allow", endpoint_hosts=a.addresses,
+                   authentication="Microsoft Entra")
+            a.explicit = "FAIL"
+        else:
+            a.gap("listener", "Purview endpoint hosts unavailable")
+    elif access == "Disabled":
+        a.ports = {}
+        a.step("public_data_plane", "block", setting=access)
+    else:
+        a.gap("listener", "Purview public access or endpoints unavailable")
+    connections = props.get("privateEndpointConnections")
+    if not isinstance(connections, list):
+        a.gap("inventory", "Purview private endpoint inventory unavailable")
+        return a
+    source = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    foreign = []
+    for row in connections:
+        if not isinstance(row, dict):
+            a.gap("inventory", "Purview private endpoint malformed")
+            continue
+        if row.get("status") != "Approved" or row.get("provisioningState") != "Succeeded":
+            continue
+        target = row.get("privateEndpointId")
+        target_scope = re.match(r"/subscriptions/([^/]+)(?:/|$)", target or "", re.I)
+        if target_scope is None or source is None:
+            a.gap("inventory", "approved Purview private link target unresolved")
+        elif target_scope.group(1).casefold() != source.group(1).casefold():
+            foreign.append(target)
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("private_data_plane_share", "allow", external_private_endpoints=a.external_ids)
+        a.explicit = "FAIL"
+    if props.get("managedResourcesPublicNetworkAccess") == "Enabled":
+        a.gap("backend", "managed Storage/Event Hub effective access needs resource-specific review")
+    if access == "Disabled" and not foreign and not a.unresolved:
+        a.explicit = "PASS"
+    return a
+
+
+def _azure_purview_external_group_members(snapshot, inventory, groups):
+    """Observed foreign members from the shared Graph group inventory."""
+    key = "azure_purview_group_member_resolver"
+    if key not in inventory.network_cache:
+        from .iam import _azure_external_group_members
+        all_resources = [row for rows in inventory.by_type.values() for row in rows]
+        inventory.network_cache[key] = _azure_external_group_members(snapshot, all_resources)
+    resolve = inventory.network_cache[key]
+    return sorted({member for group in groups for member in resolve(group)})
+
+
+def _azure_purview_metadata_policy(snapshot, inventory, resource):
+    """Direct foreign principals granted classic Data Map collection roles."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    if inventory.state("directory_user") not in ("collected", "empty") or inventory.state("directory_service_principal") not in ("collected", "empty"):
+        a.gap("inventory", "Purview principal ownership inventory incomplete")
+        return a
+    roles = resource["data"].get("roles")
+    if not isinstance(roles, list):
+        a.gap("authorization", "Purview role projection missing")
+        return a
+    external = []
+    unresolved = False
+    for role in roles:
+        if not isinstance(role, dict) or not isinstance(role.get("role"), str):
+            unresolved = True
+            continue
+        role_name = role["role"]
+        if role_name not in ("purviewmetadatarole_builtin_purview-reader",
+                             "purviewmetadatarole_builtin_data-curator",
+                             "purviewmetadatarole_builtin_collection-administrator"):
+            unresolved = True
+            continue
+        if role.get("conditional"):
+            unresolved = True
+            continue
+        if role.get("groups"):
+            unresolved = True
+            external.extend(_azure_purview_external_group_members(snapshot, inventory, role["groups"]))
+        for principal in role.get("ids", []):
+            classification = externality(snapshot, principal)
+            if classification == "external":
+                external.append(principal)
+            elif classification not in ("allowlisted", "provider_service"):
+                unresolved = True
+    if external:
+        a.external_ids = sorted(set(external))
+        a.step("foreign_collection_role", "allow", collection=resource["data"].get("collection"),
+               principal_ids=a.external_ids, data="catalog metadata")
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif unresolved:
+        a.gap("authorization", "Purview group, custom or unattributed role grants unresolved")
+    else:
+        a.explicit = "PASS"
+    return a
+
+
+def _azure_purview_unified_policy(snapshot, inventory, resource):
+    """Direct external principals with documented Unified Catalog read rights."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    if inventory.state("directory_user") not in ("collected", "empty") or inventory.state("directory_service_principal") not in ("collected", "empty"):
+        a.gap("inventory", "Unified Catalog principal ownership inventory incomplete")
+        return a
+    roles = resource["data"].get("roles")
+    if not isinstance(roles, list):
+        a.gap("authorization", "Unified Catalog role projection missing")
+        return a
+    readable = {"purviewdatagovernancerole_builtin_business-domain-reader",
+                "purviewdatagovernancerole_builtin_business-domain-owner",
+                "purviewdatagovernancerole_builtin_datagovernance-administrator"}
+    external = []
+    unresolved = False
+    for role in roles:
+        if not isinstance(role, dict) or role.get("role") not in readable:
+            unresolved = True
+            continue
+        if role.get("conditional"):
+            unresolved = True
+            continue
+        if role.get("groups"):
+            unresolved = True
+            external.extend(_azure_purview_external_group_members(snapshot, inventory, role["groups"]))
+        for principal in role.get("ids", []):
+            classification = externality(snapshot, principal)
+            if classification == "external":
+                external.append(principal)
+            elif classification not in ("allowlisted", "provider_service"):
+                unresolved = True
+    if external:
+        a.external_ids = sorted(set(external))
+        a.step("foreign_governance_role", "allow", entity_type=resource["data"].get("entity_type"),
+               entity_id=resource["data"].get("entity_id"), principal_ids=a.external_ids,
+               data="published catalog concepts")
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif unresolved:
+        a.gap("authorization", "Unified Catalog group, custom or unattributed role grants unresolved")
+    else:
+        a.explicit = "PASS"
+    return a
+
+
+def _azure_purview_ediscovery_case_member(snapshot, inventory, resource):
+    """Direct external member of an active eDiscovery case."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    if data.get("case_status") != "active":
+        a.gap("authorization", "eDiscovery case is not confirmed active")
+        return a
+    if data.get("recipient_type") != "user":
+        a.gap("authorization", "eDiscovery role-group membership or recipient type unresolved")
+        return a
+    if inventory.state("directory_user") not in ("collected", "empty"):
+        a.gap("inventory", "eDiscovery member directory attribution incomplete")
+        return a
+    member = data.get("member_id")
+    if not isinstance(member, str) or inventory.get("directory_user", member) is None:
+        a.gap("inventory", "eDiscovery member object not matched to Graph user")
+        return a
+    classification = externality(snapshot, member)
+    if classification == "external":
+        a.external_ids = [member]
+        a.step("foreign_case_member", "allow", case_id=data.get("case_id"),
+               member_id=member, data="eDiscovery case")
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif classification == "allowlisted":
+        a.explicit = "PASS"
+    else:
+        a.gap("inventory", "eDiscovery member home tenant unresolved")
+    return a
+
+
+def _azure_sentinel_automation_rule(snapshot, inventory, resource):
+    """Incident or alert payload routed to a foreign Logic App playbook."""
+    a = Assessment(resource, "data_export")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    if data.get("enabled") is False:
+        a.explicit = "PASS"
+        return a
+    if data.get("enabled") is not True:
+        a.gap("authorization", "Sentinel automation enabled state unavailable")
+        return a
+    expiration = data.get("expiration_time_utc")
+    if expiration is not None:
+        try:
+            end = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+            observed = datetime.fromisoformat(snapshot["created_at"].replace("Z", "+00:00"))
+            if end.tzinfo is None or observed.tzinfo is None:
+                raise ValueError("timezone unavailable")
+        except (ValueError, TypeError, KeyError):
+            a.gap("authorization", "Sentinel automation expiration unresolved")
+            return a
+        if end <= observed:
+            a.explicit = "PASS"
+            return a
+    source = re.match(r"^/subscriptions/([^/]+)/", data.get("workspace_id") or "", re.I)
+    if source is None:
+        a.gap("inventory", "Sentinel workspace subscription unavailable")
+        return a
+    source_tenant = (snapshot.get("metadata") or {}).get("tenant_id")
+    playbooks = data.get("playbooks")
+    if not isinstance(playbooks, list):
+        a.gap("authorization", "Sentinel playbook actions unavailable")
+        return a
+    foreign = []
+    for row in playbooks:
+        if not isinstance(row, dict):
+            a.gap("authorization", "Sentinel playbook target malformed")
+            continue
+        target = row.get("resource_id")
+        tenant = row.get("tenant_id")
+        subscription = re.match(r"^/subscriptions/([^/]+)/", target or "", re.I)
+        if subscription is None:
+            a.gap("authorization", "Sentinel playbook subscription unavailable")
+            continue
+        if subscription.group(1).casefold() != source.group(1).casefold() or (
+            isinstance(tenant, str) and isinstance(source_tenant, str) and tenant.casefold() != source_tenant.casefold()):
+            foreign.append(target)
+        else:
+            a.gap("destination", "local playbook downstream recipients unresolved")
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("foreign_playbook", "allow", playbook_ids=a.external_ids,
+               data="triggering Sentinel incident or alert payload")
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif not playbooks and not data.get("unknown_action"):
+        a.explicit = "PASS"
+    elif data.get("unknown_action"):
+        a.gap("authorization", "unrecognized Sentinel automation action")
+    return a
+
+
+def _azure_sentinel_source_control(snapshot, inventory, resource):
+    """Foreign-tenant or external OIDC trust for Sentinel content deployment."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    tenant = (snapshot.get("metadata") or {}).get("tenant_id")
+    foreign = []
+    for field in ("service_principal_tenant", "federation_tenant"):
+        value = data.get(field)
+        if isinstance(value, str) and isinstance(tenant, str) and value.casefold() != tenant.casefold():
+            foreign.append(value)
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("foreign_repository_principal", "allow", tenant_ids=a.external_ids,
+               content_types=data.get("content_types"))
+        a.explicit = "FAIL"
+    if (data.get("repo_type") == "Github" and data.get("federation_present") is True
+            and data.get("federation_issuer_host") == "token.actions.githubusercontent.com"):
+        a.step("github_workflow_federation", "allow",
+               issuer_host="token.actions.githubusercontent.com",
+               content_types=data.get("content_types"))
+        a.explicit = "FAIL"
+    elif a.explicit != "FAIL":
+        a.gap("authorization", "repository writer identities and credential holders unavailable")
+    return a
+
+
+def _azure_nginx(snapshot, inventory, resource):
+    """Public NGINX frontends with ports derived from active configuration files."""
+    a = Assessment(resource, "public_endpoint")
+    a.ports = {}
+    data = resource["data"]
+    if (data.get("_coverage") or {}).get("nginxExposure", {}).get("status") != "collected":
+        a.gap("inventory", "NGINX frontend or configuration read unavailable")
+        return a
+    projection = data.get("nginxExposure")
+    if not isinstance(projection, dict):
+        a.gap("inventory", "NGINX exposure projection missing")
+        return a
+    state = projection.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed"):
+        a.step("deployment_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", None):
+        a.gap("inventory", "NGINX deployment state unresolved")
+        return a
+    public_ids = projection.get("publicIpIds")
+    if not isinstance(public_ids, list):
+        a.gap("inventory", "NGINX public IP references missing")
+        return a
+    if not public_ids:
+        a.step("public_frontend", "block", reason="no public IP address attached")
+        return a
+    a.step("public_frontend", "allow", public_ip_ids=public_ids)
+    for public_id in public_ids:
+        ip = inventory.get("public_ip", public_id)
+        address = (ip.get("data", {}).get("properties") or {}).get("ipAddress") if isinstance(ip, dict) else None
+        if isinstance(address, str):
+            a.addresses.append(address)
+    a.endpoint = a.addresses[0] if a.addresses else None
+    listeners = projection.get("listeners")
+    if not isinstance(listeners, list):
+        a.gap("listener", "NGINX listener inventory missing")
+        return a
+    for entry in listeners:
+        if (not isinstance(entry, (tuple, list)) or len(entry) != 2
+                or entry[0] not in ("tcp", "udp") or type(entry[1]) is not int
+                or not 1 <= entry[1] <= 65535):
+            a.gap("listener", "NGINX listener port malformed")
+            return a
+        a.ports = union(a.ports, pset(entry[0], entry[1], entry[1]))
+    if listeners:
+        a.step("listener", "allow", listeners=listeners)
+    if projection.get("listenerCoverage") != "collected":
+        a.gap("listener", "NGINX configuration includes or package leave listeners unresolved")
+    elif not listeners:
+        a.step("listener", "block", reason="no active network listen directives")
+    return a
+
+
+def _azure_openshift(snapshot, inventory, resource):
+    """Azure Red Hat OpenShift public API and router frontends from ARM GET."""
+    a = Assessment(resource, "cluster")
+    a.ports = {}
+    props = resource["data"].get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "OpenShift cluster detail unavailable")
+        return a
+    state = props.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed"):
+        a.step("cluster_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", None):
+        a.gap("inventory", "OpenShift cluster provisioning state unresolved")
+    api = props.get("apiserverProfile")
+    ingresses = props.get("ingressProfiles")
+    if not isinstance(api, dict) or not isinstance(ingresses, list):
+        a.gap("inventory", "OpenShift API or ingress profile missing")
+        return a
+    visibility = api.get("visibility")
+    if visibility == "Public":
+        endpoint = api.get("url")
+        parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+        try:
+            port = ((parsed.port or 443) if parsed and parsed.scheme == "https" and parsed.hostname
+                    and not (parsed.username or parsed.password or parsed.query or parsed.fragment) else None)
+        except ValueError:
+            port = None
+        if port is None:
+            a.gap("listener", "OpenShift public API URL or port unavailable")
+        else:
+            a.ports = union(a.ports, pset("tcp", port, port))
+            a.addresses.append(endpoint)
+            a.endpoint = endpoint
+            a.step("api_server", "allow", endpoint=endpoint, port=port)
+            a.authenticated = True
+    elif visibility == "Private":
+        a.step("api_server", "block", visibility=visibility)
+    else:
+        a.gap("listener", "OpenShift API server visibility unresolved")
+    for ingress in ingresses:
+        if not isinstance(ingress, dict):
+            a.gap("inventory", "OpenShift ingress profile malformed")
+            continue
+        visibility = ingress.get("visibility")
+        if visibility == "Public":
+            a.ports = union(a.ports, union(pset("tcp", 80, 80), pset("tcp", 443, 443)))
+            address = ingress.get("ip")
+            if isinstance(address, str) and address:
+                a.addresses.append(address)
+            a.step("ingress_router", "allow", name=ingress.get("name"), ip=address, ports=[80, 443])
+            a.authenticated = False
+        elif visibility == "Private":
+            a.step("ingress_router", "block", name=ingress.get("name"), visibility=visibility)
+        else:
+            a.gap("listener", "OpenShift ingress visibility unresolved")
+    if not a.ports and not a.unresolved:
+        a.step("public_frontend", "block", reason="API and ingress profiles are private")
+    elif not a.ports and a.unresolved:
+        a.explicit = "UNKNOWN"
+    if a.ports:
+        a.notes.append("ARM does not enumerate OpenShift workload Routes, Services, or their access policies")
+    a.addresses = sorted(set(a.addresses))
+    return a
+
+
+def _azure_openshift_hcp(snapshot, inventory, resource):
+    """Hosted OpenShift API allow list and default ingress exposure."""
+    a = Assessment(resource, "cluster")
+    a.ports = {}
+    props = resource["data"].get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "hosted OpenShift cluster detail unavailable")
+        return a
+    state = props.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed", "Canceled"):
+        a.step("cluster_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", None):
+        a.gap("inventory", "hosted OpenShift provisioning state unresolved")
+    api, ingress = props.get("api"), props.get("ingress")
+    if not isinstance(api, dict) or not isinstance(ingress, dict):
+        a.gap("inventory", "hosted OpenShift API or ingress profile unavailable")
+        return a
+    visibility = api.get("visibility")
+    if visibility == "Private":
+        a.step("api_server", "block", visibility=visibility)
+    elif visibility == "Public":
+        cidrs = api.get("authorizedCidrs")
+        if not isinstance(cidrs, list):
+            a.gap("firewall", "hosted OpenShift API authorized CIDRs unavailable")
+        else:
+            networks = []
+            try:
+                if any(not isinstance(value, str) or "/" not in value for value in cidrs):
+                    raise ValueError("invalid CIDR")
+                networks = [ipaddress.IPv4Network(value, strict=False) for value in cidrs]
+            except ValueError:
+                a.gap("firewall", "hosted OpenShift API CIDR malformed")
+            else:
+                public_sources = not networks or _azure_public_remainder(networks, [])
+                if public_sources:
+                    endpoint = api.get("url")
+                    parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+                    try:
+                        port = ((parsed.port or 443) if parsed and parsed.scheme == "https" and parsed.hostname
+                                and not (parsed.username or parsed.password or parsed.query or parsed.fragment) else None)
+                    except ValueError:
+                        port = None
+                    if port is None:
+                        a.gap("listener", "hosted OpenShift public API URL or port unavailable")
+                    else:
+                        a.ports = union(a.ports, pset("tcp", port, port))
+                        a.addresses.append(endpoint)
+                        a.endpoint = endpoint
+                        a.authenticated = True
+                        a.step("api_server", "allow", endpoint=endpoint, port=port,
+                               authorized_cidrs=cidrs)
+                else:
+                    a.step("api_authorized_cidrs", "block", authorized_cidrs=cidrs)
+    else:
+        a.gap("listener", "hosted OpenShift API visibility unresolved")
+    ingress_type = ingress.get("type")
+    if ingress_type == "Public":
+        a.ports = union(a.ports, union(pset("tcp", 80, 80), pset("tcp", 443, 443)))
+        a.authenticated = False
+        a.step("ingress_router", "allow", ports=[80, 443])
+        console = props.get("console")
+        console_url = console.get("url") if isinstance(console, dict) else None
+        parsed_console = urlsplit(console_url) if isinstance(console_url, str) else None
+        try:
+            console_valid = bool(parsed_console and parsed_console.scheme == "https" and parsed_console.hostname
+                                 and (parsed_console.port or 443) == 443
+                                 and not (parsed_console.username or parsed_console.password or parsed_console.query or parsed_console.fragment))
+        except ValueError:
+            console_valid = False
+        if console_valid:
+            a.addresses.append(console_url)
+    elif ingress_type in ("Private", "Disabled"):
+        a.step("ingress_router", "block", ingress_type=ingress_type)
+    else:
+        a.gap("listener", "hosted OpenShift ingress type unresolved")
+    if not a.ports and a.unresolved:
+        a.explicit = "UNKNOWN"
+    elif not a.ports:
+        a.step("public_frontend", "block", reason="API and default ingress are private or restricted")
+    else:
+        a.notes.append("ARM does not enumerate workload Routes, Services, or their access policies")
+    return a
+
+
+def _azure_traffic_manager(snapshot, inventory, resource):
+    """Detect a public DNS referral from one collected Traffic Manager profile."""
+    a = Assessment(resource, "public_dns")
+    props = resource["data"].get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Traffic Manager profile properties missing")
+        return a
+    status = props.get("profileStatus")
+    if status == "Disabled":
+        a.step("listener", "block", profile_status=status)
+        a.ports = {}
+        return a
+    if status != "Enabled":
+        a.gap("listener", "Traffic Manager profile status unresolved")
+        return a
+    dns = props.get("dnsConfig")
+    hostname = dns.get("fqdn") if isinstance(dns, dict) else None
+    endpoints = props.get("endpoints")
+    if not isinstance(hostname, str) or not hostname.strip():
+        a.gap("inventory", "Traffic Manager DNS name missing")
+        return a
+    if not isinstance(endpoints, list) or any(not isinstance(row, dict) or not isinstance(row.get("properties"), dict)
+                                             for row in endpoints):
+        a.gap("inventory", "Traffic Manager endpoints incomplete")
+        return a
+    enabled = [row for row in endpoints if row["properties"].get("endpointStatus") == "Enabled"]
+    unknown = [row for row in endpoints if row["properties"].get("endpointStatus") not in ("Enabled", "Disabled")]
+    if not enabled:
+        if unknown:
+            a.gap("listener", "Traffic Manager endpoint status unresolved")
+        else:
+            a.step("listener", "block", reason="no enabled endpoint referrals")
+            a.ports = {}
+        return a
+    a.addresses = [hostname.strip()]
+    a.endpoint = hostname.strip()
+    a.ports = union(pset("udp", 53, 53), pset("tcp", 53, 53))
+    a.step("listener", "allow", endpoint_ids=[row.get("id") for row in enabled])
+    targets = sorted({row["properties"][key] for row in enabled for key in ("target", "targetResourceId")
+                      if isinstance(row["properties"].get(key), str) and row["properties"][key]})
+    if targets:
+        a.step("backend", "unknown", declared_targets=targets)
+    a.gap("target", "DNS referral does not prove target port or reachability")
     return a
 
 
@@ -13551,6 +17128,21 @@ def _azure_api_management(snapshot, inventory, resource):
         if location.get("disableGateway") is not True:
             regional.append(location)
     if not primary_enabled and not regional and not a.unresolved:
+        portal = props.get("developerPortalUrl")
+        if props.get("developerPortalStatus") == "Enabled":
+            if not isinstance(portal, str) or not portal.startswith("https://"):
+                a.gap("inventory", "enabled API Management developer portal URL is not collected")
+                return a
+            a.addresses = [portal]
+            if network == "External":
+                a.step("developer_portal", "unknown", status="Enabled", url=portal,
+                       gateway_state="disabled")
+                a.gap("nsg", "External VNet developer portal subnet NSG path is not resolved")
+            else:
+                a.step("developer_portal", "allow", status="Enabled", url=portal,
+                       gateway_state="disabled")
+            a.ports = pset("tcp", 443, 443)
+            return a
         a.step("listener", "block", reason="primary and regional managed gateways disabled")
         a.ports = {}
         return a
@@ -13573,6 +17165,30 @@ def _azure_api_management(snapshot, inventory, resource):
     ports = pset("tcp", 443, 443)
     if network == "External":
         regional_only = not primary_enabled and len(regional) == 1
+        regional_subnets = [config.get("subnetResourceId") if isinstance(config, dict) else None
+                            for location in regional
+                            for config in [location.get("virtualNetworkConfiguration")]]
+        if (not primary_enabled and len(regional) > 1 and
+                len({str(subnet).casefold() for subnet in regional_subnets}) == len(regional)):
+            region_paths = [_azure_apim_external_region_path(inventory, resource, location)
+                            for location in regional]
+            if not a.unresolved and all(path == "block" for path in region_paths):
+                a.step("nsg", "block", reason="every enabled regional External VNet gateway subnet blocks public HTTPS ingress",
+                       regional_gateway_urls=list(a.addresses))
+                a.ports = {}
+                return a
+            for location, path in zip(regional, region_paths):
+                endpoint = location.get("gatewayRegionalUrl")
+                if path == "allow" and isinstance(endpoint, str) and endpoint.startswith("https://"):
+                    a.step("nsg", "allow", reason="recorded regional External VNet subnet admits public HTTPS ingress",
+                           regional_gateway_url=endpoint,
+                           subnet_id=location["virtualNetworkConfiguration"]["subnetResourceId"])
+                    a.addresses = [endpoint] + [url for url in a.addresses if url != endpoint]
+                    a.ports = ports
+                    a.explicit = "FAIL"
+                    if any(other is None for other in region_paths):
+                        a.notes.append("Other enabled regional gateway paths remain unresolved")
+                    return a
         if regional and not regional_only:
             a.gap("nsg", "External VNet regional gateway subnet NSG paths are not resolved")
         if not primary_enabled and not regional_only:
@@ -13607,14 +17223,38 @@ def _azure_api_management(snapshot, inventory, resource):
                 a.gap("inventory", "External VNet gateway return route through the associated route table is unresolved")
         if regional and not regional_only and empty(ports):
             a.blocked_by = None
+    portal = props.get("developerPortalUrl")
+    if (network in (None, "None") and props.get("developerPortalStatus") == "Enabled"
+            and isinstance(portal, str) and portal.startswith("https://")):
+        if portal not in a.addresses:
+            a.addresses.append(portal)
+        a.step("developer_portal", "allow", status="Enabled", url=portal,
+               gateway_state="independent")
+        for gap in a.unresolved:
+            gap["decisive"] = False
     a.ports = ports
-    a.notes.append("Gateway listener exposure does not establish anonymous API access or a healthy backend")
+    a.notes.append("Developer portal exposure does not establish anonymous content access or a healthy service"
+                   if any(step["layer"] == "developer_portal" for step in a.path) else
+                   "Gateway listener exposure does not establish anonymous API access or a healthy backend")
     return a
 
 
 def _azure_redis(snapshot, inventory, resource):
     props = resource["data"].get("properties") or {}
     a = Assessment(resource, "database")
+    coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+    connections = resource["data"].get("privateEndpointConnections")
+    private_unknown = True
+    if coverage.get("status") in ("collected", "empty") and isinstance(connections, list):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+            resource["data"], {"privateEndpointConnections": connections})
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.explicit = "FAIL"
+        if private_unknown:
+            a.gap("private_link_share", "Redis private endpoint approval or ownership is unresolved")
+    else:
+        a.gap("private_link_share", "Redis private endpoint connections are not fully collected")
     subnet_id = props.get("subnetId")
     if isinstance(subnet_id, str) and re.search(r"/subnets/[^/]+$", subnet_id, re.IGNORECASE):
         # Premium VNet injection assigns a private address to the cache. The
@@ -13623,6 +17263,8 @@ def _azure_redis(snapshot, inventory, resource):
         a.step("network", "block", reason="VNet-injected Redis has no public listener",
                subnet_id=subnet_id)
         a.ports = {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         return a
     if subnet_id is not None:
         a.gap("inventory", "Redis subnetId is malformed; VNet injection cannot be established")
@@ -13631,6 +17273,8 @@ def _azure_redis(snapshot, inventory, resource):
     if access == "Disabled":
         a.step("public_network_access", "block", value=access)
         a.ports = {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         return a
     if access != "Enabled":
         a.gap("inventory", "Redis public network access state is not explicit")
@@ -13679,6 +17323,8 @@ def _azure_redis(snapshot, inventory, resource):
             a.step("firewall", "block", reason="no rule admits a public IPv4 source")
             ports = {}
     a.ports = ports
+    if private_unknown and not a.external_ids and empty(ports):
+        a.explicit = "UNKNOWN"
     return a
 
 
@@ -13687,10 +17333,25 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "database")
     a.authenticated = True
+    coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+    connections = resource["data"].get("privateEndpointConnections")
+    private_unknown = True
+    if coverage.get("status") in ("collected", "empty") and isinstance(connections, list):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+            resource["data"], {"privateEndpointConnections": connections})
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.explicit = "FAIL"
+        if private_unknown:
+            a.gap("private_link_share", "Managed Redis private endpoint approval or ownership is unresolved")
+    else:
+        a.gap("private_link_share", "Managed Redis private endpoint connections are not fully collected")
     access = props.get("publicNetworkAccess")
     if access == "Disabled":
         a.step("public_network_access", "block", value=access)
         a.ports = {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         return a
     if access != "Enabled":
         a.gap("inventory", "Redis Enterprise publicNetworkAccess is absent or unrecognized")
@@ -13746,6 +17407,888 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
     elif status in ("collected", "empty") and not malformed:
         a.step("listener", "block", reason="no database listener in complete child inventory")
         a.ports = {}
+    if private_unknown and not a.external_ids and empty(a.ports or {}):
+        a.explicit = "UNKNOWN"
+    return a
+
+
+def _azure_netapp_volume(snapshot, inventory, resource):
+    """NFS export grants over connected foreign VNets; SMB ACLs remain opaque."""
+    props = _props(resource)
+    a = Assessment(resource, "file_share")
+    protocols = props.get("protocolTypes")
+    if not isinstance(protocols, list):
+        a.gap("inventory", "NetApp volume protocols are not observed")
+        return a
+    nfs = any(str(protocol).casefold().startswith("nfs") for protocol in protocols)
+    smb = any(str(protocol).casefold() in ("cifs", "smb") for protocol in protocols)
+    if smb:
+        a.gap("authorization", "NetApp SMB users and file ACLs are data-plane state")
+    if not nfs:
+        return a if smb else None
+    policy = props.get("exportPolicy")
+    rules = policy.get("rules") if isinstance(policy, dict) else None
+    if not isinstance(rules, list):
+        a.gap("policy", "NetApp NFS export rules are not observed")
+        return a
+    broad = []
+    for rule in rules:
+        if not isinstance(rule, dict) or type(rule.get("ruleIndex")) is not int:
+            a.gap("policy", "NetApp NFS export rule order is malformed")
+            continue
+        allowed = rule.get("allowedClients")
+        if not isinstance(allowed, str):
+            a.gap("policy", "NetApp NFS allowed clients are unavailable")
+            continue
+        clients = [value.strip() for value in allowed.split(",")]
+        grants = any(rule.get(field) is True for field in (
+            "unixReadOnly", "unixReadWrite", "kerberos5ReadOnly", "kerberos5ReadWrite",
+            "kerberos5iReadOnly", "kerberos5iReadWrite", "kerberos5pReadOnly", "kerberos5pReadWrite"))
+        if not grants:
+            continue
+        if any(value in ("0.0.0.0/0", "0.0.0.0", "::/0") for value in clients):
+            broad.append(rule)
+        elif any(_cidr(value) is None for value in clients):
+            a.gap("policy", "NetApp NFS client range is malformed or hostname-based")
+    if not broad:
+        if rules:
+            a.gap("inventory", "NetApp NFS client ownership and routed networks are unresolved")
+        else:
+            a.step("export_policy", "block", reason="no NFS export rules")
+            a.ports = {}
+        return a
+    first = min((r["ruleIndex"] for r in rules if isinstance(r, dict)
+                 and type(r.get("ruleIndex")) is int), default=None)
+    if any(rule["ruleIndex"] != first for rule in broad):
+        a.gap("policy", "earlier NetApp NFS export rule may override the broad allow")
+        return a
+    subnet_id = props.get("subnetId")
+    vnet_id = re.split(r"/subnets/", subnet_id, maxsplit=1, flags=re.I)[0] if isinstance(subnet_id, str) and re.search(r"/subnets/", subnet_id, re.I) else None
+    foreign = []
+    for peering in inventory.items("vnet_peering"):
+        pid = native_id(peering)
+        fields = _props(peering)
+        remote = (fields.get("remoteVirtualNetwork") or {}).get("id")
+        if (vnet_id and isinstance(pid, str) and pid.casefold().startswith(vnet_id.casefold() + "/virtualnetworkpeerings/")
+                and fields.get("peeringState") == "Connected" and fields.get("allowVirtualNetworkAccess") is True
+                and isinstance(remote, str) and re.match(r"/subscriptions/([^/]+)/", remote, re.I)):
+            owner = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+            other = re.match(r"/subscriptions/([^/]+)/", remote, re.I)
+            if owner and other and owner.group(1).casefold() != other.group(1).casefold():
+                foreign.append(remote)
+    a.step("export_policy", "allow", broad_rule_indices=sorted({r["ruleIndex"] for r in broad}))
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("foreign_vnet_peering", "allow", remote_vnets=a.external_ids)
+        a.ports = pset("tcp", 2049, 2049)
+        if any(rule.get("nfsv3") is True for rule in broad):
+            for port in (111, 635):
+                a.ports = union(a.ports, pset("tcp", port, port))
+                a.ports = union(a.ports, pset("udp", port, port))
+            a.ports = union(a.ports, pset("udp", 2049, 2049))
+        a.explicit = "FAIL"
+    else:
+        a.gap("inventory", "Broad NFS export has no proven foreign routed client in selected VNet inventory")
+    return a
+
+
+def _azure_stream_analytics_job(snapshot, inventory, resource):
+    """Flag explicitly foreign output tenants; retain uncertainty for other sinks."""
+    a = Assessment(resource, "data_pipeline")
+    outputs = resource["data"].get("streamOutputs")
+    coverage = (resource["data"].get("_coverage") or {}).get("streamOutputs") or {}
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(outputs, list):
+        a.gap("inventory", "Stream Analytics output LIST is incomplete")
+        return a
+    if not outputs:
+        a.step("outputs", "block", reason="no configured output destinations")
+        a.ports = {}
+        return a
+    metadata = snapshot.get("metadata") or {}
+    owner = metadata.get("tenant_id") if metadata.get("tenant_verified") else None
+    if not owner:
+        owner = (metadata.get("subscription_tenants") or {}).get(resource["scope"])
+    foreign = []
+    unresolved = []
+    for output in outputs:
+        source = ((output.get("properties") or {}).get("datasource") or {})
+        dest = source.get("properties") or {}
+        tenant = dest.get("tenantId")
+        if isinstance(tenant, str) and tenant and isinstance(owner, str) and owner:
+            if tenant.casefold() != owner.casefold():
+                foreign.append(output["id"])
+        else:
+            unresolved.append(output["id"])
+    a.step("outputs", "allow", output_count=len(outputs),
+           destination_types=sorted({str(((o.get("properties") or {}).get("datasource") or {}).get("type"))
+                                     for o in outputs}))
+    if foreign:
+        a.external_ids = sorted(foreign)
+        a.step("foreign_tenant", "allow", output_ids=a.external_ids)
+        a.data_exposure = True
+        a.explicit = "FAIL"
+        if _props(resource).get("jobState") != "Running":
+            a.dormant = True
+    if unresolved:
+        a.gap("inventory", "Output destination ownership or tenant is unavailable from the management API")
+    return a
+
+
+def _azure_managed_application(snapshot, inventory, resource):
+    """Publisher management grants on the managed resource group."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    props = _props(resource)
+    if not props:
+        a.gap("inventory", "managed application properties unavailable")
+        return a
+    state = props.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed", "Canceled"):
+        a.step("application_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", "Created", "Ready"):
+        a.gap("inventory", "managed application provisioning state unresolved")
+        return a
+    if props.get("managementMode") == "Unmanaged":
+        a.step("publisher_management", "block", reason="publisher management disabled")
+        return a
+    if props.get("managementMode") != "Managed":
+        a.gap("authorization", "publisher management mode unavailable")
+        return a
+    grants = props.get("authorizations")
+    if not isinstance(grants, list):
+        a.gap("authorization", "publisher authorization list unavailable")
+        grants = []
+    owner_meta = snapshot.get("metadata") or {}
+    owner = owner_meta.get("tenant_id") if owner_meta.get("tenant_verified") else None
+    if not owner:
+        owner = (owner_meta.get("subscription_tenants") or {}).get(resource["scope"])
+    publisher = props.get("publisherTenantId")
+    if not isinstance(owner, str) or not isinstance(publisher, str) or not owner or not publisher:
+        a.gap("inventory", "verified customer or publisher tenant unavailable")
+        return a
+    if owner.casefold() == publisher.casefold():
+        a.step("tenant_boundary", "block", reason="publisher tenant equals customer tenant")
+        return a
+    group = props.get("managedResourceGroupId")
+    if not isinstance(group, str) or not group:
+        a.gap("inventory", "managed resource group ID unavailable")
+        return a
+    a.external_ids = [publisher]
+    a.step("publisher_read_access", "allow", publisher_tenant_id=publisher,
+           managed_resource_group_id=group, authorizations=grants)
+    jit = props.get("jitAccessPolicy")
+    if isinstance(jit, dict) and jit.get("jitAccessEnabled") is True:
+        coverage = (resource["data"].get("_coverage") or {}).get("jitRequests") or {}
+        requests = resource["data"].get("jitRequests")
+        if coverage.get("status") not in ("collected", "empty") or not isinstance(requests, list):
+            a.gap("authorization", "managed application JIT request LIST incomplete")
+        else:
+            approved = [row for row in requests if (row.get("properties") or {}).get("jitRequestState") == "Approved"]
+            a.step("publisher_jit_requests", "conditional", approved_requests=[{
+                "id": row["id"], "schedule": (row.get("properties") or {}).get("jitSchedulingPolicy")}
+                for row in approved], total_requests=len(requests))
+            if approved:
+                a.gap("authorization", "approved JIT request schedule and effective role activation need runtime evaluation")
+    elif jit is not None and (not isinstance(jit, dict) or jit.get("jitAccessEnabled") is not False):
+        a.gap("authorization", "JIT publisher access setting unresolved")
+    a.explicit = "FAIL"
+    return a
+
+
+def _azure_managed_application_definition(snapshot, inventory, resource):
+    """Lifecycle notifications from instantiated service-catalog definitions."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    hosts = props.get("notificationHosts")
+    if not isinstance(hosts, list):
+        a.gap("inventory", "managed application definition notification policy unavailable")
+        return a
+    if not hosts:
+        a.step("notification_endpoints", "block", reason="no lifecycle webhook")
+        a.explicit = "PASS"
+        return a
+    if props.get("isEnabled") is not True:
+        a.gap("configuration", "definition is disabled or enablement unresolved")
+        return a
+    if inventory.state("managed_application", resource["scope"]) not in ("collected", "empty"):
+        a.gap("inventory", "managed application instance inventory incomplete")
+        return a
+    definition_id = resource["data"].get("id", "").casefold()
+    instances = [row for row in inventory.items("managed_application")
+                 if str(_props(row).get("applicationDefinitionId", "")).casefold() == definition_id
+                 and _props(row).get("provisioningState") in ("Succeeded", "Created", "Ready")]
+    if not instances:
+        a.gap("deployment", "no active instance referencing this definition was observed")
+        return a
+    if inventory.state("directory_domain") not in ("collected", "empty"):
+        a.gap("inventory", "verified tenant domain inventory incomplete")
+        return a
+    owned = {str(row["data"].get("id", "")).casefold() for row in inventory.items("directory_domain")
+             if row["data"].get("isVerified") is True}
+    if not owned:
+        a.gap("inventory", "tenant has no verified domain evidence")
+        return a
+    external = sorted({host for host in hosts if isinstance(host, str)
+                       and not any(host == domain or host.endswith("." + domain) for domain in owned)})
+    if external:
+        a.external_ids = external
+        a.step("lifecycle_webhook", "allow", destination_hosts=external,
+               application_ids=[row["data"].get("id") for row in instances])
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    else:
+        a.step("lifecycle_webhook", "block", reason="all endpoints in verified tenant domains")
+        a.explicit = "PASS"
+    return a
+
+
+def _azure_attestation_provider(snapshot, inventory, resource):
+    """Public attestation API reachability from ARM provider state."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    access = props.get("publicNetworkAccess")
+    status = props.get("status")
+    host = props.get("attestHost")
+    if access == "Disabled":
+        a.ports = {}
+        a.step("public_network_access", "block", setting=access)
+        if props.get("trustModel") == "Isolated":
+            a.gap("authorization", "isolated policy signer private-key holders cannot be enumerated")
+        return a
+    if access != "Enabled":
+        a.gap("listener", "attestation public network access setting unavailable")
+        a.explicit = "UNKNOWN"
+        return a
+    if status != "Ready" or not isinstance(host, str) or not host:
+        a.gap("inventory", "ready status or attestation endpoint unavailable")
+        a.explicit = "UNKNOWN"
+        return a
+    a.addresses = [host]
+    a.ports = pset("tcp", 443, 443)
+    a.step("public_network_access", "allow", setting=access, endpoint_host=host)
+    if props.get("tpmAttestationAuthentication") == "Disabled":
+        a.step("tpm_authentication", "allow", setting="Disabled")
+    if props.get("trustModel") == "Isolated":
+        a.gap("authorization", "isolated policy signer private-key holders cannot be enumerated")
+    a.explicit = "FAIL"
+    return a
+
+
+def _azure_entra_domain_service(snapshot, inventory, resource):
+    """Public LDAPS and configured off-domain recipients/forest trusts."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    ldap = props.get("ldapsSettings")
+    if not isinstance(ldap, dict):
+        a.gap("inventory", "Domain Services LDAPS settings unavailable")
+        return a
+    public = ldap.get("ldaps") == "Enabled" and ldap.get("externalAccess") == "Enabled"
+    if ldap.get("ldaps") == "Disabled" or ldap.get("externalAccess") == "Disabled":
+        a.step("public_ldaps", "block", ldaps=ldap.get("ldaps"), external_access=ldap.get("externalAccess"))
+    elif public:
+        replicas = props.get("replicaSets")
+        if not isinstance(replicas, list) or not replicas:
+            a.gap("inventory", "Domain Services replica sets unavailable")
+        else:
+            open_replicas = []
+            unresolved = False
+            for replica in replicas:
+                if not isinstance(replica, dict):
+                    unresolved = True
+                    continue
+                external_ip = replica.get("externalAccessIpAddress")
+                subnet_id = replica.get("subnetId")
+                controllers = replica.get("domainControllerIpAddress")
+                if (not _public_ip(external_ip) or not isinstance(subnet_id, str)
+                        or not isinstance(controllers, list) or not controllers):
+                    unresolved = True
+                    continue
+                if replica.get("serviceStatus") not in ("Running", "Ready"):
+                    unresolved = True
+                    continue
+                for controller in controllers:
+                    if not isinstance(controller, str) or _cidr(controller) is None:
+                        unresolved = True
+                        continue
+                    previous_gaps = len(a.unresolved)
+                    candidate = _azure_nsg_path(inventory, a, None, subnet_id,
+                                                pset("tcp", 636, 636), address=controller,
+                                                where="Domain Services LDAPS")
+                    if any(gap["layer"] == "nsg" for gap in a.unresolved[previous_gaps:]):
+                        unresolved = True
+                    elif not empty(candidate):
+                        open_replicas.append(external_ip)
+            if open_replicas:
+                a.addresses = sorted(set(open_replicas))
+                a.ports = pset("tcp", 636, 636)
+                a.step("public_ldaps", "allow", external_ips=a.addresses)
+                a.explicit = "FAIL"
+            elif unresolved or any(g["layer"] in ("nsg", "inventory") for g in a.unresolved):
+                a.gap("inventory", "Domain Services public LDAPS path unresolved")
+            else:
+                a.step("public_ldaps", "block", reason="replica subnet NSGs deny public LDAPS")
+    else:
+        a.gap("listener", "Domain Services LDAPS or external access setting unresolved")
+    notification = props.get("notificationSettings")
+    forest = props.get("resourceForestSettings")
+    recipients = notification.get("additionalRecipients") if isinstance(notification, dict) else None
+    trusts = forest.get("settings") if isinstance(forest, dict) else None
+    if not isinstance(recipients, list) or not isinstance(trusts, list):
+        a.gap("inventory", "Domain Services notification or forest trust inventory unavailable")
+        return a
+    if recipients or trusts:
+        if inventory.state("directory_domain") not in ("collected", "empty"):
+            a.gap("inventory", "verified tenant domains unavailable for recipient/trust ownership")
+            return a
+        owned = {str(row["data"].get("id", "")).casefold() for row in inventory.items("directory_domain")
+                 if row["data"].get("isVerified") is True}
+        if not owned:
+            a.gap("inventory", "tenant has no verified domain evidence")
+            return a
+        offdomain_recipients = sorted({email for email in recipients if isinstance(email, str) and "@" in email
+                                      and email.rsplit("@", 1)[-1].casefold() not in owned})
+        offdomain_trusts = sorted({str(t.get("trustedDomainFqdn")) for t in trusts if isinstance(t, dict)
+                                  and isinstance(t.get("trustedDomainFqdn"), str)
+                                  and t["trustedDomainFqdn"].casefold() not in owned})
+        if offdomain_recipients or offdomain_trusts:
+            a.external_ids = offdomain_recipients + offdomain_trusts
+            a.step("off_domain_destinations", "conditional", recipients=offdomain_recipients,
+                   trusted_domains=offdomain_trusts)
+            a.gap("authorization", "non-verified DNS names do not prove third-party ownership")
+    if a.explicit != "FAIL" and a.blocked_by and not a.unresolved:
+        a.explicit = "PASS"
+    return a
+
+
+def _azure_data_share_recipient(snapshot, inventory, resource):
+    """Classify provider-side Data Share recipients from cached ARM lists."""
+    props = _props(resource)
+    a = Assessment(resource, "data_share")
+    a.data_exposure = True
+    if resource["type"] == "data_share_provider_subscription":
+        status = props.get("shareSubscriptionStatus")
+        if status == "Active":
+            a.step("share_subscription", "allow", status=status,
+                   consumer_tenant_name=props.get("consumerTenantName"))
+            a.gap("recipient", "consumer tenant ID and organization ownership are not supplied by this API")
+            a.unresolved[-1]["decisive"] = False
+            return a
+        if status in ("Revoked", "SourceDeleted"):
+            a.data_exposure = False
+            a.step("share_subscription", "block", status=status)
+            a.ports = {}
+            return a
+        a.data_exposure = False
+        a.gap("inventory", "provider share subscription status is pending or unrecognized")
+        return a
+    status = props.get("invitationStatus")
+    if status in ("Rejected", "Withdrawn"):
+        a.data_exposure = False
+        a.step("invitation", "block", status=status)
+        a.ports = {}
+        return a
+    if status not in ("Pending", "Accepted"):
+        a.data_exposure = False
+        a.gap("inventory", "Data Share invitation status is absent or unrecognized")
+        return a
+    target = props.get("targetActiveDirectoryId")
+    owner = (snapshot.get("metadata") or {}).get("subscription_tenants") or {}
+    subscription = str(native_id(resource)).split("/resourceGroups/", 1)[0]
+    tenant = next((value for key, value in owner.items() if str(key).casefold() == subscription.casefold()), None)
+    a.step("invitation", "allow" if status == "Accepted" else "unknown", status=status,
+           target_tenant=target, owner_tenant=tenant, target_email=props.get("targetEmail"))
+    if status == "Pending":
+        a.data_exposure = False
+        a.gap("recipient", "recipient has not accepted the invitation")
+    elif not isinstance(target, str) or not isinstance(tenant, str):
+        a.data_exposure = False
+        a.gap("recipient", "email invitation or missing verified subscription tenant cannot establish external ownership")
+    elif target.casefold() == tenant.casefold():
+        a.data_exposure = False
+        a.gap("recipient", "same-tenant recipient may still be a guest or external principal")
+    else:
+        a.external_ids = [target]
+        a.data_exposure = False
+        a.gap("recipient", "accepted invitation does not establish an active provider share subscription")
+    return a
+
+
+def _azure_acat_report(snapshot, inventory, resource):
+    """Report storage outside its source subscriptions is a data recipient."""
+    a = Assessment(resource, "external_report_delivery")
+    a.ports = {}
+    props = _props(resource)
+    sources = props.get("subscriptions")
+    storage = props.get("storageInfo")
+    if storage is None:
+        a.step("storage_destination", "none", reason="no customer storage destination")
+    elif not isinstance(storage, dict) or not isinstance(storage.get("subscriptionId"), str) or not storage["subscriptionId"]:
+        a.gap("inventory", "App Compliance storage subscription is unavailable")
+    elif not isinstance(sources, list) or not sources or any(not isinstance(source, str) or not source for source in sources):
+        a.gap("inventory", "App Compliance source subscriptions are unavailable")
+    elif storage["subscriptionId"].casefold() not in {source.casefold() for source in sources}:
+        a.data_exposure = True
+        a.external_ids = [storage["subscriptionId"]]
+        a.step("storage_destination", "allow", destination_subscription=storage["subscriptionId"])
+    else:
+        a.step("storage_destination", "same_source", reason="storage belongs to a source subscription")
+    state = inventory.state("acat_webhook", native_id(resource))
+    if state not in ("collected", "empty"):
+        a.gap("inventory", "App Compliance webhook list is incomplete")
+        if a.data_exposure:
+            a.unresolved[-1]["decisive"] = False
+    elif not a.data_exposure and not a.unresolved:
+        a.step("delivery", "block", reason="no cross-subscription storage destination")
+    return a
+
+
+def _azure_app_configuration_private_connection(snapshot, inventory, resource):
+    """Approved foreign private endpoints create a cross-subscription network path."""
+    a = Assessment(resource, "external_share")
+    a.ports = {}
+    props = _props(resource)
+    target = props.get("privateEndpointId")
+    source = str(native_id(resource))
+    source_match = re.match(r"^/subscriptions/([^/]+)/", source, re.I)
+    target_match = re.match(r"^/subscriptions/([^/]+)/", target, re.I) if isinstance(target, str) else None
+    if source_match is None or target_match is None:
+        a.gap("inventory", "App Configuration private endpoint owner is unavailable")
+        return a
+    status, provisioning = props.get("status"), props.get("provisioningState")
+    if status in ("Rejected", "Disconnected"):
+        a.step("private_endpoint", "block", connection_status=status)
+    elif status == "Approved" and provisioning == "Succeeded":
+        if source_match.group(1).casefold() != target_match.group(1).casefold():
+            a.data_exposure = True
+            a.external_ids = [target_match.group(1)]
+            a.step("private_endpoint", "allow", destination_subscription=target_match.group(1))
+        else:
+            a.step("private_endpoint", "same_source", reason="consumer belongs to store subscription")
+    else:
+        a.gap("inventory", "App Configuration private endpoint approval or provisioning is unresolved")
+    return a
+
+
+def _azure_app_configuration_event_subscription(snapshot, inventory, resource):
+    """Assess delivery of App Configuration key-change metadata to another owner."""
+    a = Assessment(resource, "external_event_delivery")
+    a.ports = {}
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "App Configuration event subscription active state is unresolved")
+        return a
+    expiration = props.get("expirationTimeUtc")
+    if expiration is not None:
+        try:
+            until = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+            observed = datetime.fromisoformat(snapshot["created_at"].replace("Z", "+00:00"))
+            if until.tzinfo is None or observed.tzinfo is None:
+                raise ValueError("timezone missing")
+        except (TypeError, ValueError, KeyError):
+            a.gap("inventory", "App Configuration event expiration is malformed")
+            return a
+        if until <= observed:
+            a.step("event_subscription", "block", reason="subscription expired")
+            return a
+    source = str(native_id(resource))
+    own = re.match(r"^/subscriptions/([^/]+)/", source, re.I)
+    if own is None:
+        a.gap("inventory", "App Configuration event source subscription is unavailable")
+        return a
+    destination_type = props.get("endpointType")
+    destination_id = props.get("destinationResourceId")
+    destination_host = props.get("destinationHost")
+    foreign = []
+    if destination_type == "WebHook":
+        if not isinstance(destination_host, str) or not destination_host or props.get("destinationScheme") not in ("http", "https"):
+            a.gap("inventory", "App Configuration webhook host is unavailable")
+        else:
+            a.data_exposure = True
+            a.external_ids = [destination_host]
+            a.step("event_destination", "allow", destination_type=destination_type, receiver_host=destination_host)
+    elif destination_type in ("AzureFunction", "EventHub", "HybridConnection", "NamespaceTopic",
+                              "ServiceBusQueue", "ServiceBusTopic", "StorageQueue"):
+        match = re.match(r"^/subscriptions/([^/]+)/", destination_id, re.I) if isinstance(destination_id, str) else None
+        if match is None:
+            a.gap("inventory", "App Configuration event destination ownership is unavailable")
+        elif match.group(1).casefold() != own.group(1).casefold():
+            foreign.append(match.group(1))
+    elif destination_type == "MonitorAlert":
+        groups = props.get("actionGroupIds")
+        if not isinstance(groups, list) or not groups:
+            a.gap("inventory", "App Configuration event action groups are unavailable")
+        for group in groups if isinstance(groups, list) else []:
+            match = re.match(r"^/subscriptions/([^/]+)/", group, re.I) if isinstance(group, str) else None
+            if match is None:
+                a.gap("inventory", "App Configuration event action-group ownership is unavailable")
+            elif match.group(1).casefold() != own.group(1).casefold():
+                foreign.append(match.group(1))
+            elif inventory.state("app_configuration_event_action_group", group) not in ("collected", "empty"):
+                a.gap("inventory", "App Configuration event action group was not collected")
+            else:
+                action = inventory.get("app_configuration_event_action_group", group)
+                if action is None:
+                    a.gap("inventory", "App Configuration event action group is unavailable")
+                    continue
+                receiver = _props(action)
+                if receiver.get("enabled") is False:
+                    continue
+                if receiver.get("enabled") is not True:
+                    a.gap("inventory", "App Configuration event action-group enabled state is unavailable")
+                    continue
+                hosts = receiver.get("webhookHosts")
+                channels = receiver.get("channels")
+                subscriptions = receiver.get("resourceSubscriptions")
+                if not all(isinstance(value, list) for value in (hosts, channels, subscriptions)):
+                    a.gap("inventory", "App Configuration event action-group receivers are unavailable")
+                    continue
+                if hosts or channels:
+                    a.data_exposure = True
+                    a.external_ids.extend(hosts or channels)
+                    a.step("action_group", "allow", receiver_hosts=hosts, receiver_channels=channels)
+                foreign.extend(value for value in subscriptions if isinstance(value, str) and value.casefold() != own.group(1).casefold())
+                if receiver.get("unresolvedReceivers") is True:
+                    a.gap("inventory", "App Configuration event action group has unresolved receivers")
+                elif receiver.get("unresolvedReceivers") is not False:
+                    a.gap("inventory", "App Configuration event action-group receiver completeness is unavailable")
+    else:
+        a.gap("inventory", "App Configuration event destination type is unsupported")
+    dead_id = props.get("deadLetterResourceId")
+    if dead_id is not None:
+        match = re.match(r"^/subscriptions/([^/]+)/", dead_id, re.I) if isinstance(dead_id, str) else None
+        if match is None:
+            a.gap("inventory", "App Configuration dead-letter ownership is unavailable")
+        elif match.group(1).casefold() != own.group(1).casefold():
+            foreign.append(match.group(1))
+    if foreign:
+        a.data_exposure = True
+        a.external_ids = sorted(set(a.external_ids + foreign))
+        a.step("event_destination", "allow", destination_type=destination_type,
+               foreign_subscriptions=sorted(set(foreign)))
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    elif a.data_exposure:
+        a.external_ids = sorted(set(a.external_ids))
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    elif not a.unresolved and not a.data_exposure:
+        a.step("event_destination", "same_source", reason="delivery destinations remain in source subscription")
+    return a
+
+
+def _azure_cost_export(snapshot, inventory, resource):
+    """Cost exports can deliver billing data to a different subscription."""
+    a = Assessment(resource, "external_report_delivery")
+    a.ports = {}
+    props = _props(resource)
+    source = props.get("sourceScope")
+    destination = props.get("destination")
+    if not isinstance(source, str) or not isinstance(destination, dict):
+        a.gap("inventory", "Cost export source or destination is unavailable")
+        return a
+    source_match = re.match(r"^/subscriptions/([^/]+)(?:/|$)", source, re.I)
+    target = destination.get("resourceId")
+    target_match = re.match(r"^/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Storage/storageAccounts/[^/]+$", target, re.I) if isinstance(target, str) else None
+    if target_match and source_match:
+        target_subscription = target_match.group(1)
+        if target_subscription.casefold() != source_match.group(1).casefold():
+            a.data_exposure = True
+            a.external_ids = [target_subscription]
+            a.step("storage_destination", "allow", destination_subscription=target_subscription)
+        else:
+            a.step("storage_destination", "same_source", reason="destination belongs to the source subscription")
+    elif destination.get("hasPartnerSasDestination") is True:
+        a.gap("inventory", "Partner SAS export destination can be in another tenant; owner is not returned")
+    else:
+        a.gap("inventory", "Cost export storage destination is unavailable or malformed")
+    return a
+
+
+def _azure_acat_webhook(snapshot, inventory, resource):
+    """Assess configured delivery of report events to a webhook receiver."""
+    a = Assessment(resource, "external_report_delivery")
+    a.ports = {}
+    props = _props(resource)
+    status = props.get("status")
+    if status == "Disabled":
+        a.step("webhook", "block", status=status)
+        return a
+    if status != "Enabled" or props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "App Compliance webhook active state is unresolved")
+        return a
+    events = props.get("events")
+    all_events = props.get("sendAllEvents")
+    if not isinstance(events, list) or any(not isinstance(event, str) for event in events) or all_events not in ("true", "false"):
+        a.gap("inventory", "App Compliance webhook event selection is unresolved")
+        return a
+    if not events and all_events == "false":
+        a.step("webhook", "block", reason="no subscribed report events")
+        return a
+    host, scheme = props.get("payloadHost"), props.get("payloadScheme")
+    if not isinstance(host, str) or not host or scheme not in ("http", "https"):
+        a.gap("inventory", "App Compliance webhook destination is unavailable")
+        return a
+    a.data_exposure = True
+    a.external_ids = [host]
+    a.step("webhook", "allow", receiver_host=host, scheme=scheme, events=events,
+           all_events=all_events == "true", delivery_status=props.get("deliveryStatus"))
+    return a
+
+
+def _azure_private_link_service(snapshot, inventory, resource):
+    """Assess provider-side private access to subscriptions outside this service's own."""
+    a = Assessment(resource, "external_share")
+    props = _props(resource)
+    proof = (resource["data"].get("_provenance") or {})
+    if proof.get("source_operation") != "PrivateLinkServices_Get":
+        a.gap("inventory", "Private Link Service access settings are not from a full provider GET")
+        return a
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "Private Link Service is not in a proven succeeded state")
+        return a
+    match = re.match(r"(?i)^/subscriptions/([0-9a-f-]{36})/", str(native_id(resource)))
+    if match is None:
+        a.gap("inventory", "Private Link Service owner subscription is unavailable")
+        return a
+    own = match.group(1).casefold()
+    def grants(field):
+        value = props.get(field)
+        rows = value.get("subscriptions") if isinstance(value, dict) else None
+        if not isinstance(rows, list):
+            return None
+        return rows
+    visible, automatic = grants("visibility"), grants("autoApproval")
+    connections = props.get("privateEndpointConnections")
+    if visible is None or automatic is None or not isinstance(connections, list):
+        a.gap("inventory", "Private Link Service visibility, auto-approval, or connections are incomplete")
+        return a
+    def external_subscription(value):
+        if not isinstance(value, str):
+            return None
+        if value == "*":
+            return "*"
+        candidate = value.strip().casefold()
+        if re.fullmatch(r"[0-9a-f-]{36}", candidate):
+            return candidate if candidate != own else ""
+        return None
+    approved = []
+    unresolved = False
+    for row in connections:
+        if not isinstance(row, dict) or not isinstance(row.get("status"), str):
+            unresolved = True
+            continue
+        if row["status"].casefold() != "approved":
+            continue
+        endpoint = row.get("privateEndpoint")
+        endpoint_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+        found = re.match(r"(?i)^/subscriptions/([0-9a-f-]{36})/", endpoint_id or "")
+        if found is None:
+            unresolved = True
+            continue
+        subscription = external_subscription(found.group(1))
+        if subscription is None:
+            unresolved = True
+        elif subscription:
+            approved.append(subscription)
+    automatic_external = [external_subscription(value) for value in automatic]
+    visible_external = [external_subscription(value) for value in visible]
+    if None in automatic_external or None in visible_external:
+        unresolved = True
+    active = sorted(set(approved + [value for value in automatic_external if value]))
+    if active:
+        a.external_ids = active
+        a.data_exposure = True
+        a.step("private_access", "allow", approved_consumer_subscriptions=sorted(set(approved)),
+               auto_approved_subscriptions=sorted(set(value for value in automatic_external if value)))
+        return a
+    mode = props.get("accessMode")
+    if mode == "Default" or "*" in visible_external:
+        a.gap("authorization", "any alias holder can request a connection, subject to provider approval")
+        return a
+    if mode != "Restricted" or unresolved:
+        a.gap("inventory", "Private Link Service access mode or connection identity is unresolved")
+        return a
+    if any(visible_external):
+        a.gap("authorization", "other subscriptions can request access but no approval is observed")
+        return a
+    a.step("private_access", "block", reason="restricted to owner subscription with no external approval")
+    a.ports = {}
+    return a
+
+
+def _azure_lighthouse_assignment(snapshot, inventory, resource):
+    """Detect effective delegated ARM access to a managing tenant."""
+    a = Assessment(resource, "external_share")
+    props = _props(resource)
+    state = props.get("provisioningState")
+    if state != "Succeeded":
+        a.gap("inventory", "Lighthouse assignment is not in a proven succeeded state")
+        return a
+    definition = props.get("registrationDefinition")
+    detail = definition.get("properties") if isinstance(definition, dict) else None
+    if not isinstance(detail, dict) or detail.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "expanded Lighthouse registration definition is absent or not succeeded")
+        return a
+    managing = detail.get("managedByTenantId")
+    subscription = str(native_id(resource)).split("/providers/Microsoft.ManagedServices/", 1)[0].split("/resourceGroups/", 1)[0]
+    owners = (snapshot.get("metadata") or {}).get("subscription_tenants") or {}
+    owner = next((value for key, value in owners.items() if str(key).casefold() == subscription.casefold()), None)
+    managee = detail.get("manageeTenantId")
+    if not all(isinstance(value, str) and value for value in (managing, owner, managee)):
+        a.gap("inventory", "managing or managed tenant identity is unverified")
+        return a
+    if managee.casefold() != owner.casefold():
+        a.gap("inventory", "registration definition managed tenant conflicts with subscription owner")
+        return a
+    grants = detail.get("authorizations")
+    eligible = detail.get("eligibleAuthorizations")
+    if not isinstance(grants, list) or not isinstance(eligible, list):
+        a.gap("inventory", "expanded Lighthouse authorization arrays are missing")
+        return a
+    if any(not isinstance(row, dict) or not isinstance(row.get("principalId"), str)
+           or not isinstance(row.get("roleDefinitionId"), str) for row in grants + eligible):
+        a.gap("inventory", "Lighthouse authorization principal or role is malformed")
+        return a
+    if not grants and not eligible:
+        a.step("delegation", "block", reason="no authorized or eligible managing-tenant principals")
+        a.ports = {}
+        return a
+    if managing.casefold() == owner.casefold():
+        a.step("delegation", "block", reason="managing tenant matches verified subscription tenant")
+        a.ports = {}
+        return a
+    a.data_exposure = True
+    a.external_ids = [managing]
+    a.step("delegation", "allow", managing_tenant=managing, managed_tenant=owner,
+           active_roles=[row["roleDefinitionId"] for row in grants],
+           eligible_roles=[row["roleDefinitionId"] for row in eligible])
+    if not grants:
+        a.data_exposure = False
+        a.gap("activation", "only just-in-time eligible roles are recorded; activation is not observed")
+    return a
+
+
+def _azure_managed_application(snapshot, inventory, resource):
+    """Assess publisher management of a customer-owned managed application."""
+    a = Assessment(resource, "external_share")
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "managed application is not in a proven succeeded state")
+        return a
+    mode = props.get("managementMode")
+    if mode == "Unmanaged":
+        a.step("delegation", "block", reason="customer-managed application")
+        a.ports = {}
+        return a
+    if mode != "Managed":
+        a.gap("inventory", "managed application management mode is missing or unknown")
+        return a
+    grants = props.get("authorizations")
+    if not isinstance(grants, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get("principalId"), str)
+        or not row["principalId"] or not isinstance(row.get("roleDefinitionId"), str)
+        or not row["roleDefinitionId"] for row in grants
+    ):
+        a.gap("inventory", "publisher authorizations are missing or malformed")
+        return a
+    if not grants:
+        a.step("delegation", "block", reason="no publisher principals authorized")
+        a.ports = {}
+        return a
+    publisher = props.get("publisherTenantId")
+    subscription = str(native_id(resource)).split("/resourceGroups/", 1)[0]
+    owners = (snapshot.get("metadata") or {}).get("subscription_tenants") or {}
+    owner = next((value for key, value in owners.items() if str(key).casefold() == subscription.casefold()), None)
+    if not isinstance(publisher, str) or not publisher or not isinstance(owner, str) or not owner:
+        a.gap("inventory", "publisher or verified customer tenant is missing")
+        return a
+    if publisher.casefold() == owner.casefold():
+        a.step("delegation", "block", reason="publisher and customer tenants match")
+        a.ports = {}
+        return a
+    a.external_ids = [publisher]
+    a.step("delegation", "allow", publisher_tenant=publisher, customer_tenant=owner,
+           roles=[row["roleDefinitionId"] for row in grants])
+    jit = props.get("jitAccessPolicy")
+    if not isinstance(jit, dict) or type(jit.get("jitAccessEnabled")) is not bool:
+        a.gap("inventory", "publisher just-in-time access policy is absent or malformed")
+    elif jit["jitAccessEnabled"]:
+        a.gap("inventory", "just-in-time publisher access activation is not observed")
+    else:
+        a.data_exposure = True
+    return a
+
+
+def _azure_managed_grafana(snapshot, inventory, resource):
+    """Assess Grafana's workspace URL and external snapshot capability."""
+    a = Assessment(resource, "managed_endpoint")
+    props = _props(resource)
+    config = props.get("grafanaConfigurations")
+    snapshots = config.get("snapshots") if isinstance(config, dict) else None
+    external = snapshots.get("externalEnabled") if isinstance(snapshots, dict) else None
+    wid = str(native_id(resource))
+    snapshot_state = inventory.state("managed_grafana_snapshot", wid)
+    shared, uncertain = [], False
+    if snapshot_state in ("collected", "empty"):
+        for row in inventory.items("managed_grafana_snapshot"):
+            if str(row.get("scope", "")).casefold() != wid.casefold():
+                continue
+            fields = _props(row)
+            if fields.get("external") is not True:
+                continue
+            try:
+                expiry = datetime.fromisoformat(fields["expires"].replace("Z", "+00:00"))
+                if expiry.tzinfo is None:
+                    raise ValueError("naive expiry")
+            except (KeyError, TypeError, ValueError):
+                uncertain = True
+                continue
+            if expiry > datetime.now(timezone.utc):
+                shared.append(native_id(row))
+    else:
+        uncertain = True
+    if shared:
+        a.data_exposure = True
+        a.step("external_snapshot", "allow", snapshot_ids=shared)
+        a.notes.append("External snapshot URLs are capability links and are not retained in the inventory.")
+        return a
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "Grafana workspace is not in a proven succeeded state")
+        return a
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        if not uncertain:
+            a.step("external_snapshot_inventory", "block", reason="no unexpired external snapshot in complete list")
+            a.ports = {}
+        else:
+            a.gap("inventory", "external snapshot inventory is incomplete or expiry is uncertain")
+            a.explicit = "UNKNOWN"
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "Grafana public network access is absent or unrecognized")
+        return a
+    endpoint = props.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint.startswith("https://"):
+        a.gap("inventory", "Grafana public workspace URL is missing or malformed")
+        return a
+    a.addresses.append(endpoint)
+    a.step("public_network_access", "allow", value=access, endpoint=endpoint)
+    a.ports = pset("tcp", 443, 443)
+    if external is True:
+        a.step("external_snapshot_publish", "conditional", external_enabled=True)
+        a.notes.append("External snapshot publishing is enabled; published links are checked separately through the Grafana snapshot list.")
+    elif external is None:
+        a.notes.append("External snapshot publish setting is not collected.")
     return a
 
 
@@ -14272,9 +18815,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "media_cdn_service", "target_pool", "target_instance",
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
-AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
-               "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+AZURE_TYPES = ['vnet', 'subnet', 'vnet_peering', 'network_connection', 'hub_vpn_connection', 'nat_gateway', 'route_table', 'nsg', 'service_tag', 'nic', 'vm', 'public_ip', 'load_balancer', 'application_gateway', 'app_service', 'app_service_slot', 'app_service_plan', 'app_service_environment', 'app_service_config', 'aks_cluster', 'storage_account', 'storage_container', 'storage_service', 'sql_server', 'sql_firewall_rule', 'managed_identity_federated_credential', 'container_group', 'container_app', 'container_app_environment', 'container_app_runtime', 'azure_firewall', 'firewall_policy', 'ip_group', 'frontdoor_and_cdn_endpoint', 'api_management', 'redis_cache', 'redis_enterprise_cluster', 'redis_enterprise_database', 'signalr_service', 'web_pubsub', 'synapse_workspace', 'disk', 'snapshot', 'kusto_cluster', 'batch_account', 'ml_workspace', 'databricks_workspace', 'compute_gallery', 'bastion_host', 'virtual_network_gateway', 'attestation_provider', 'dns_zone', 'private_dns_zone', 'analysis_server', 'private_link_service', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_application', 'managed_grafana', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'traffic_manager_profile', 'notification_hub_namespace', 'private_dns_link', 'relay_namespace', 'mongo_cluster', 'lighthouse_delegation', 'management_group', 'subscription', 'managed_application_definition', 'entra_domain_service', 'security_contact', 'defender_automation', 'external_id_auth_extension', 'external_id_cross_tenant_default', 'external_id_cross_tenant_partner', 'directory_app_role_assignment', 'easm_workspace', 'easm_data_connection', 'action_group', 'diagnostic_setting', 'subscription_diagnostic_setting', 'monitor_log_profile', 'monitor_workspace', 'purview_account', 'purview_metadata_policy', 'purview_unified_policy', 'purview_ediscovery_case_member', 'sentinel_automation_rule', 'sentinel_source_control', 'powerbi_capacity', 'playwright_workspace', 'foundry_project', 'foundry_agent', 'foundry_connection', 'newrelic_monitor', 'newrelic_monitored_resource', 'fabric_workspace', 'fabric_item', 'fabric_external_data_share', 'powerbi_published_item', 'powerbi_org_link', 'nginx_deployment', 'openshift_cluster', 'openshift_hcp_cluster', 'netapp_volume', 'stream_analytics_job']
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -14290,8 +18831,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+             "azure": {'nic', 'vnet_peering', 'network_connection', 'hub_vpn_connection', 'load_balancer', 'application_gateway', 'app_service', 'app_service_slot', 'aks_cluster', 'storage_account', 'storage_container', 'sql_server', 'container_group', 'container_app', 'azure_firewall', 'frontdoor_and_cdn_endpoint', 'api_management', 'redis_cache', 'redis_enterprise_cluster', 'redis_enterprise_database', 'signalr_service', 'web_pubsub', 'synapse_workspace', 'disk', 'snapshot', 'kusto_cluster', 'batch_account', 'ml_workspace', 'databricks_workspace', 'compute_gallery', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_application', 'managed_grafana', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'analysis_server', 'virtual_network_gateway', 'attestation_provider', 'dns_zone', 'private_dns_zone', 'private_link_service', 'bastion_host', 'vm_scale_set', 'stream_analytics_job', 'managed_application_definition', 'entra_domain_service', 'security_contact', 'defender_automation', 'external_id_auth_extension', 'external_id_cross_tenant_default', 'external_id_cross_tenant_partner', 'directory_app_role_assignment', 'easm_workspace', 'easm_data_connection', 'action_group', 'diagnostic_setting', 'subscription_diagnostic_setting', 'monitor_log_profile', 'monitor_workspace', 'purview_account', 'purview_metadata_policy', 'purview_unified_policy', 'purview_ediscovery_case_member', 'sentinel_automation_rule', 'sentinel_source_control', 'management_group', 'subscription', 'powerbi_capacity', 'fabric_workspace', 'fabric_item', 'fabric_external_data_share', 'powerbi_published_item', 'powerbi_org_link', 'traffic_manager_profile', 'notification_hub_namespace', 'private_dns_link', 'relay_namespace', 'mongo_cluster', 'lighthouse_delegation', 'nginx_deployment', 'openshift_cluster', 'openshift_hcp_cluster', 'netapp_volume', 'playwright_workspace', 'foundry_project', 'foundry_agent', 'foundry_connection', 'newrelic_monitor', 'newrelic_monitored_resource', *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -14318,6 +18858,11 @@ def assess(snapshot, resources):
             parent = str(rule["data"].get("id", "")).lower().split("/firewallrules/")[0]
             rules.setdefault(parent, []).append(rule)
         extra["rules"] = rules
+        ipv6_rules = {}
+        for rule in inventory.items("sql_ipv6_firewall_rule"):
+            parent = str(rule["data"].get("id", "")).lower().split("/ipv6firewallrules/")[0]
+            ipv6_rules.setdefault(parent, []).append(rule)
+        extra["ipv6_rules"] = ipv6_rules
     handlers = {
         "aws": {"iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
                 "rds_instance": _aws_rds, "rds_cluster": _aws_rds_cluster_writer, "rds_cluster_endpoint": _aws_rds_cluster_endpoint,
@@ -14377,18 +18922,78 @@ def assess(snapshot, resources):
                 "vertex_agent_sandbox": _gcp_vertex_sandbox,
                 "tpu_node": _gcp_tpu_node,
                 "vmware_external_address": _gcp_vmware_address},
-        "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
+        "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]),
+                  "vm_scale_set": _azure_vm_scale_set, "vnet_peering": _azure_private_transit, "network_connection": _azure_private_transit,
+                  "hub_vpn_connection": _azure_private_transit,
+                  "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
                   "app_service": lambda s, i, r: _azure_app_service(s, i, r, extra["configs"]), "aks_cluster": _azure_aks,
                   "app_service_slot": _azure_app_service_slot,
                   "storage_account": _azure_storage, "storage_container": _azure_storage_container,
-                  "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"]),
+                  "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"], extra["ipv6_rules"]),
                   "container_group": _azure_container_group,
                   "container_app": _azure_container_app,
                   "azure_firewall": _azure_firewall,
+                  "bastion_host": _azure_bastion,
+                  "virtual_network_gateway": _azure_vpn_gateway,
+                  "attestation_provider": _azure_attestation_provider,
+                  "dns_zone": _azure_dns_zone,
+                  "private_dns_zone": _azure_private_dns_zone,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
+                  "traffic_manager_profile": _azure_traffic_manager,
+                  "notification_hub_namespace": _azure_notification_hub,
+                  "private_dns_link": _azure_private_dns_link,
+                  "relay_namespace": _azure_relay,
+                  "mongo_cluster": _azure_mongo_cluster,
+                  "lighthouse_delegation": _azure_lighthouse,
+                  "nginx_deployment": _azure_nginx,
+                  "openshift_cluster": _azure_openshift,
+                  "openshift_hcp_cluster": _azure_openshift_hcp,
                   "api_management": _azure_api_management,
+                  "analysis_server": _azure_analysis_server,
+                  "private_link_service": _azure_private_link_service,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
+                  "netapp_volume": _azure_netapp_volume,
+                  "stream_analytics_job": _azure_stream_analytics_job,
+                  "managed_application": _azure_managed_application,
+                  "managed_application_definition": _azure_managed_application_definition,
+                  "attestation_provider": _azure_attestation_provider,
+                  "entra_domain_service": _azure_entra_domain_service,
+                  "management_group": _azure_management_group,
+                  "subscription": _azure_subscription,
+                  "powerbi_capacity": _azure_powerbi_capacity,
+                  "playwright_workspace": _azure_playwright_workspace,
+                  "foundry_project": _azure_foundry_project,
+                  "foundry_agent": _azure_foundry_agent,
+                  "foundry_connection": _azure_foundry_connection,
+                  "newrelic_monitor": _azure_newrelic_monitor,
+                  "newrelic_monitored_resource": _azure_newrelic_monitored_resource,
+                  "fabric_workspace": _azure_fabric_workspace,
+                  "fabric_item": _azure_fabric_workspace,
+                  "fabric_external_data_share": _azure_fabric_external_data_share,
+                  "powerbi_published_item": _azure_powerbi_public_share,
+                  "powerbi_org_link": _azure_powerbi_public_share,
+                  "cost_export": _azure_cost_export,
+                  "security_contact": _azure_security_contact,
+                  "defender_automation": _azure_defender_automation,
+                  "external_id_auth_extension": _azure_external_id_auth_extension,
+                  "external_id_cross_tenant_default": _azure_external_id_cross_tenant,
+                  "external_id_cross_tenant_partner": _azure_external_id_cross_tenant,
+                  "directory_oauth2_permission_grant": _azure_directory_consent,
+                  "directory_app_role_assignment": _azure_directory_consent,
+                  "easm_data_connection": _azure_easm_data_connection,
+                  "easm_workspace": _azure_easm_workspace,
+                  "action_group": _azure_monitor_action_group,
+                  "diagnostic_setting": _azure_monitor_export,
+                  "subscription_diagnostic_setting": _azure_monitor_export,
+                  "monitor_log_profile": _azure_monitor_export,
+                  "monitor_workspace": _azure_monitor_workspace,
+                  "purview_account": _azure_purview_account,
+                  "purview_metadata_policy": _azure_purview_metadata_policy,
+                  "purview_unified_policy": _azure_purview_unified_policy,
+                  "purview_ediscovery_case_member": _azure_purview_ediscovery_case_member,
+                  "sentinel_automation_rule": _azure_sentinel_automation_rule,
+                  "sentinel_source_control": _azure_sentinel_source_control,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
@@ -14399,6 +19004,16 @@ def assess(snapshot, resources):
                   "ml_workspace": _azure_ml_workspace,
                   "databricks_workspace": _azure_databricks_workspace,
                   "compute_gallery": _azure_compute_gallery,
+                  "data_share_invitation": _azure_data_share_recipient,
+                  "data_share_provider_subscription": _azure_data_share_recipient,
+                  "acat_report": _azure_acat_report,
+                  "acat_webhook": _azure_acat_webhook,
+                  "cost_export": _azure_cost_export,
+                  "app_configuration_private_connection": _azure_app_configuration_private_connection,
+                  "app_configuration_event_subscription": _azure_app_configuration_event_subscription,
+                  "lighthouse_assignment": _azure_lighthouse_assignment,
+                  "managed_application": _azure_managed_application,
+                  "managed_grafana": _azure_managed_grafana,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
@@ -14417,6 +19032,22 @@ def assess(snapshot, resources):
             current.gap("inventory", f"malformed native fact: {type(exc).__name__}")
         if current is not None:
             output.append(current)
+        if (provider == "azure" and resource["type"] == "signalr_service" and
+                ((resource["data"].get("_provenance") or {}).get("representation") == "full" or
+                 "upstreamHosts" in _props(resource))):
+            try:
+                output.append(_azure_signalr_upstream(snapshot, inventory, resource))
+            except (TypeError, AttributeError, KeyError, ValueError, IndexError) as exc:
+                upstream = Assessment(resource, "external_event_delivery")
+                upstream.gap("inventory", f"malformed SignalR upstream fact: {type(exc).__name__}")
+                output.append(upstream)
+        if provider == "azure" and resource["type"] == "web_pubsub" and "web_pubsub_hub" in inventory.status:
+            try:
+                output.append(_azure_web_pubsub_delivery(snapshot, inventory, resource))
+            except (TypeError, AttributeError, KeyError, ValueError, IndexError) as exc:
+                delivery = Assessment(resource, "external_event_delivery")
+                delivery.gap("inventory", f"malformed Web PubSub hub fact: {type(exc).__name__}")
+                output.append(delivery)
         if provider == "aws" and resource["type"] in ("lambda_function", "lambda_alias"):
             direct = _aws_lambda_direct_invoke(snapshot, inventory, resource)
             if direct is not None:
@@ -14437,12 +19068,72 @@ def assess(snapshot, resources):
     return output
 
 
+def _azure_sql_public_blocked(assessment):
+    return (assessment.resource["type"] == "sql_server" and any(
+        step["layer"] == "public_network_access" and step["decision"] == "block"
+        for step in assessment.path))
+
+
 def _title(assessment, status):
     if assessment.resource["type"] == "transfer_server":
         return ("Transfer SFTP public listener" if status == "FAIL" else
                 "Transfer SFTP listener offline" if status == "PASS" else "Transfer SFTP listener unresolved")
     if assessment.kind == "external_deployment":
         return "StackSet instance targets foreign account" if status == "FAIL" else "StackSet target unresolved"
+    if assessment.resource["type"] == "web_pubsub" and assessment.kind == "external_event_delivery":
+        return ("Web PubSub forwards client events to another destination" if status == "FAIL" else
+                "Web PubSub event delivery unresolved" if status == "UNKNOWN" else
+                "Web PubSub has no detected external event delivery")
+    if assessment.resource["type"] == "signalr_service" and assessment.kind == "external_event_delivery":
+        return ("SignalR sends client events to an upstream URL" if status == "FAIL" else
+                "SignalR upstream delivery unresolved" if status == "UNKNOWN" else
+                "SignalR has no active upstream delivery")
+    if assessment.resource["type"] == "bastion_host":
+        return ("Bastion client endpoint or shareable link is exposed" if status == "FAIL" else
+                "Bastion client or shareable-link path unresolved" if status == "UNKNOWN" else
+                "Bastion has no detected public client path or shareable link")
+    if assessment.resource["type"] == "app_configuration_event_subscription":
+        return ("App Configuration sends events to an external destination" if status == "FAIL" else
+                "App Configuration event destination unresolved" if status == "UNKNOWN" else
+                "App Configuration event destination has no detected foreign owner")
+    if assessment.resource["type"] == "app_configuration_private_connection":
+        return ("App Configuration grants a foreign private endpoint access" if status == "FAIL" else
+                "App Configuration private endpoint access unresolved" if status == "UNKNOWN" else
+                "App Configuration private endpoint has no foreign approval")
+    if assessment.resource["type"] == "app_configuration":
+        return ("App Configuration permits public or cross-subscription access" if status == "FAIL" else
+                "App Configuration network access unresolved" if status == "UNKNOWN" else
+                "App Configuration has no detected public or cross-subscription access")
+    if assessment.resource["type"] == "cost_export":
+        return ("Cost Management export targets another subscription" if status == "FAIL" else
+                "Cost Management export destination ownership unresolved" if status == "UNKNOWN" else
+                "Cost Management export destination is in its source subscription")
+    if assessment.resource["type"] in ("acat_report", "acat_webhook"):
+        return ("App Compliance report has an external delivery destination" if status == "FAIL" else
+                "App Compliance report delivery unresolved" if status == "UNKNOWN" else
+                "App Compliance report has no active external delivery")
+    if assessment.resource["type"] == "private_link_service":
+        return ("Azure Private Link Service grants another subscription private access" if status == "FAIL" else
+                "Azure Private Link Service access unresolved" if status == "UNKNOWN" else
+                "Azure Private Link Service has no external subscription access")
+    if assessment.resource["type"] == "managed_grafana":
+        if status == "FAIL" and any(step.get("layer") == "external_snapshot" for step in assessment.path):
+            return "Azure Managed Grafana snapshot is shared externally"
+        return ("Azure Managed Grafana workspace is publicly reachable" if status == "FAIL" else
+                "Azure Managed Grafana exposure unresolved" if status == "UNKNOWN" else
+                "Azure Managed Grafana public access blocked")
+    if assessment.resource["type"] == "managed_application":
+        return ("Azure Managed Application delegates access to its publisher" if status == "FAIL" else
+                "Azure Managed Application publisher access unresolved" if status == "UNKNOWN" else
+                "Azure Managed Application grants no foreign publisher access")
+    if assessment.resource["type"] == "lighthouse_assignment":
+        return ("Azure Lighthouse grants a managing tenant access" if status == "FAIL" else
+                "Azure Lighthouse delegation unresolved" if status == "UNKNOWN" else
+                "Azure Lighthouse assignment grants no foreign access")
+    if assessment.resource["type"] in ("data_share_invitation", "data_share_provider_subscription"):
+        return ("Azure Data Share recipient can receive shared data" if status == "FAIL" else
+                "Azure Data Share recipient ownership or access unresolved" if status == "UNKNOWN" else
+                "Azure Data Share recipient access inactive")
     if assessment.kind == "vpn_client_authorization":
         return "Client VPN authorizes all clients to destination network" if status == "FAIL" else "Client VPN authorization unresolved"
     if assessment.kind == "external_generic_policy_grant":
@@ -14497,6 +19188,12 @@ def _title(assessment, status):
         return (("Established Cloud VPN tunnel to another GCP project" if cross_project else
                  "Established Cloud VPN tunnel to configured external peer") if status == "FAIL" else
                 "Cloud VPN peer path unresolved")
+    if assessment.kind == "private_transit":
+        return "Azure private network transit to a possible third party unresolved"
+    if status == "UNKNOWN" and _azure_sql_public_blocked(assessment):
+        return ("SQL private endpoint consumer path unresolved" if any(
+            step["layer"] == "private_endpoint" for step in assessment.path) else
+            "SQL private endpoint connection inventory unresolved")
     if assessment.kind == "gallery_share":
         return ("Compute Gallery community sharing permitted" if status == "FAIL" else
                 "Compute Gallery community sharing blocked" if status == "PASS" else
@@ -14522,6 +19219,106 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "web_pubsub" and assessment.kind == "external_event_delivery":
+        if status == "FAIL":
+            return "A Web PubSub hub forwards client events to an HTTP handler or Event Hub in another subscription; callback paths and tokens are not retained."
+        if status == "PASS":
+            return "The collected hubs have no HTTP handler or foreign Event Hub event listener."
+        return "Hub delivery settings or Event Hub destination ownership are incomplete."
+    if assessment.resource["type"] == "signalr_service" and assessment.kind == "external_event_delivery":
+        if status == "FAIL":
+            return "Serverless SignalR has an HTTP upstream that can receive client events; only receiver hostnames are retained."
+        if status == "PASS":
+            return "The collected SignalR service mode cannot run upstream hooks, or no upstream template is configured."
+        return "SignalR service mode or upstream template inventory is incomplete."
+    if assessment.resource["type"] == "bastion_host":
+        if status == "FAIL":
+            return "Azure Bastion has a public HTTPS client path or an issued shareable URL for a VM. Target VM authentication still applies; URL tokens are not retained."
+        if status == "PASS":
+            return "The collected Bastion client path is private or excludes public clients, and no issued shareable URL was found."
+        return "Bastion public IP, subnet access, shared endpoint ACL, or shareable-link inventory is incomplete."
+    if assessment.resource["type"] == "app_configuration_event_subscription":
+        if status == "FAIL":
+            return "An active App Configuration event subscription targets a webhook host or an Azure resource in another subscription. Event metadata may be delivered; webhook paths and tokens are not retained."
+        if status == "PASS":
+            return "The event subscription has expired or its configured Azure destinations are in the source subscription."
+        return "The event destination, its recipient ownership, action-group recipients, or subscription state is unresolved."
+    if assessment.resource["type"] == "app_configuration_private_connection":
+        if status == "FAIL":
+            return "The store approved a private endpoint in another subscription; the connection is provisioned. Application authentication still applies."
+        if status == "PASS":
+            return "The private endpoint is in the store's subscription or its connection is rejected or disconnected."
+        return "The private endpoint owner, approval, or provisioning state is unresolved."
+    if assessment.resource["type"] == "app_configuration":
+        if status == "FAIL":
+            return "The store allows public access, or its enforced perimeter has an inbound public-IP or cross-subscription rule. Client authentication still applies."
+        if status == "PASS":
+            return "The collected store and perimeter settings block public inbound access under the evaluated rule set."
+        return "The store's public access or effective perimeter association and inbound rules are incomplete or unresolved."
+    if assessment.resource["type"] == "cost_export":
+        if status == "FAIL":
+            return "The configured billing-data export destination is a storage account in another subscription."
+        if status == "PASS":
+            return "The configured billing-data export destination is in the source subscription."
+        return "The export destination owner cannot be established from the returned storage account or partner SAS metadata."
+    if assessment.resource["type"] in ("acat_report", "acat_webhook"):
+        if status == "FAIL":
+            return ("The report stores results outside its source subscriptions or an enabled webhook is configured "
+                    "to send report events to a URL. Only destination subscription or host metadata is retained.")
+        if status == "PASS":
+            return "The report has no external storage destination, or this webhook is disabled or has no subscribed events."
+        return "Report storage, webhook inventory, active state, event selection, or destination is unresolved."
+    if assessment.resource["type"] == "private_link_service":
+        if status == "FAIL":
+            return ("The provider's Private Link Service auto-approves another subscription or has an approved "
+                    "private endpoint from it. This is private cross-subscription access; the consumer's tenant "
+                    "and application authentication are not established by this resource response.")
+        if status == "PASS":
+            return "The service restricts visibility to its owner subscription and has no external approvals."
+        return "The service's access mode, visibility, or pending connection approval does not establish effective external access."
+    if assessment.resource["type"] == "managed_grafana":
+        if status == "FAIL":
+            if any(step.get("layer") == "external_snapshot" for step in assessment.path):
+                return ("The read-only Grafana snapshot list contains an unexpired externally published snapshot. "
+                        "The share is a public capability link; its key and URL are omitted from evidence storage.")
+            return ("A succeeded Grafana workspace has public network access enabled and an HTTPS workspace URL. "
+                    "Authentication remains required; snapshots are checked through a separate Grafana list.")
+        if status == "PASS":
+            return "The workspace blocks public network access and the complete Grafana list has no unexpired external snapshot."
+        return ("Workspace state, URL, public network setting, or external snapshot publishing is unresolved. "
+                "An enabled snapshot publisher alone does not prove that a snapshot was published.")
+    if assessment.resource["type"] == "managed_application":
+        if status == "FAIL":
+            return ("The succeeded customer-managed resource has publisher-managed mode, a foreign publisher tenant, "
+                    "authorized principals, and just-in-time access disabled. The publisher can manage its managed resource group; "
+                    "specific operations and data reads depend on the granted roles.")
+        if status == "PASS":
+            return "The application is customer-managed, has no publisher principal grant, or belongs to the same verified tenant."
+        return ("The publisher grant, customer tenant, application state, or just-in-time activation is unresolved. "
+                "The collected response does not prove current foreign publisher access.")
+    if assessment.resource["type"] == "lighthouse_assignment":
+        if status == "FAIL":
+            return ("A succeeded Lighthouse registration assignment links to a succeeded expanded definition for a different managing tenant.\n"
+                    "The definition names principals and active built-in roles at this subscription or resource-group scope.\n"
+                    "This grants delegated ARM access; actual operations and role-specific data reads were not observed.")
+        if status == "PASS":
+            return "The collected assignment has no principal grant or its managing tenant matches the verified subscription tenant."
+        return ("The Lighthouse assignment, expanded definition, tenant ownership, or just-in-time activation is incomplete.\n"
+                "The collected facts do not prove current foreign access.\n"
+                "A completed grant could delegate ARM operations at this scope.")
+    if assessment.resource["type"] in ("data_share_invitation", "data_share_provider_subscription"):
+        kind = assessment.resource["type"]
+        if kind == "data_share_provider_subscription":
+            return ("The provider share subscription is Active in the collected Data Share response.\n"
+                    "The recorded consumer can receive data from this share while the subscription remains active.\n"
+                    "The API supplies a consumer tenant name, not a tenant ID or proof of organizational ownership.") if status == "FAIL" else (
+                    "The provider share subscription is revoked or its source is deleted." if status == "PASS" else
+                    "The provider share subscription status is incomplete; recipient access is unresolved.")
+        if status == "PASS":
+            return "The Data Share invitation is rejected or withdrawn, so it grants no current share access."
+        return ("The Data Share invitation is pending, accepted without an observed active subscription, or its recipient tenant cannot be established.\n"
+                "The collected invitation does not prove current third-party access.\n"
+                "Acceptance and provider subscription state determine whether data can be received.")
     """A short observation, with uncertainty retained when a path is incomplete."""
     if assessment.resource["type"] == "transfer_server":
         data = assessment.resource["data"]
@@ -14761,15 +19558,33 @@ def _observed(assessment, status):
                 "A route toward the peer account cannot be resolved from those records.\n"
                 "Traffic may cross this connection if active routes and peer rules allow it.\n"
                 "That could expose data in connected resources.")
+    if assessment.kind == "private_transit":
+        transit = next(step for step in assessment.path if step["layer"] == "private_transit")
+        remote = transit.get("remote") or "an unrecorded remote gateway"
+        return (f"The Azure resource has {transit['connection']} to {remote}.\n"
+                "Its remote owner, effective route, target NSG and target service are not established.\n"
+                "This is a possible private third-party path, not a public Internet listener or a proven service connection.")
+    if assessment.resource["type"] == "frontdoor_and_cdn_endpoint" and status == "FAIL":
+        waf = next((step for step in assessment.path if step["layer"] == "waf"
+                    and step["decision"] == "allow"), None)
+        if waf is not None and waf.get("passive_policies"):
+            policy = waf["passive_policies"][0]
+            host = assessment.addresses[0] if assessment.addresses else "an unobserved hostname"
+            reason = ("and has explicitly empty custom and managed rule lists"
+                      if policy.get("reason") == "explicitly empty custom and managed rule lists" else
+                      "so it does not block this listener")
+            return (f"The Front Door edge has an enabled public route at {host}.\n"
+                    f"Its referenced WAF policy {policy['waf_policy']} records mode {policy['mode']} "
+                    f"and enabledState {policy['enabled_state']} {reason}.\n"
+                    "The public listener is configured; a successful request was not tested.")
     if assessment.resource["type"] == "load_balancer" and status == "UNKNOWN":
         missing_frontend = next((gap["reason"] for gap in assessment.unresolved
                                  if "assigned global public frontend address" in gap["reason"]), None)
         if missing_frontend:
             name = assessment.resource["data"].get("name", native_id(assessment.resource))
             return (f"The Load Balancer {name} has an inbound rule referencing a public-IP frontend.\n"
-                    "The rule has no recorded assigned global public frontend address.\n"
-                    "The listener's public address is unclear until that assignment is recorded.\n"
-                    "If assigned, public traffic could reach data served through this load balancer.")
+                    f"Its {missing_frontend}.\n"
+                    "The snapshot does not establish an assigned public listener address for that rule.")
     if assessment.kind == "public_ip" and status == "UNKNOWN":
         missing = next((gap["reason"] for gap in assessment.unresolved
                         if gap["layer"] == "inventory" and gap["reason"].startswith("referenced public IP ")), None)
@@ -14777,28 +19592,32 @@ def _observed(assessment, status):
             name = assessment.resource["data"].get("name", native_id(assessment.resource))
             return (f"The Azure network interface or VM {name} has a public-IP association.\n"
                     f"The {missing}.\n"
-                    "A public path to the interface is unclear without that address.\n"
-                    "If assigned, requests could reach software or data on the VM.")
-    if assessment.resource["type"] == "azure_firewall" and status == "PASS":
+                    "The snapshot does not establish an assigned public listener address for this path.")
+    if assessment.resource["type"] == "azure_firewall" and status == "UNKNOWN":
         backend = next((step for step in assessment.path
-                        if step["layer"] == "backend" and step["decision"] == "block"), None)
+                        if step["layer"] == "backend" and step.get("stopped_vm_candidates")), None)
         if backend is not None:
-            item = backend["stopped_vm_backends"][0]
+            item = backend["stopped_vm_candidates"][0]
             name = assessment.resource["data"].get("name", native_id(assessment.resource))
             return (f"The Azure Firewall {name} has a public-source DNAT rule to private address "
                     f"{item['translated_address']}.\n"
                     f"That address uniquely matches NIC {item['nic']} on VM {item['vm']} with "
                     f"recorded {item['power_state']}.\n"
-                    "The stopped VM cannot serve the current translated path.\n"
-                    "Starting it could reopen a route to software or data on that VM.")
+                    "The firewall's effective route to that private address is not observed, so the backend path remains unresolved.")
+    if assessment.resource["type"] == "vm" and status == "FAIL" and assessment.dormant:
+        power = next((step["state"] for step in assessment.path if step["layer"] == "vm_power_state"), None)
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        address = assessment.addresses[0] if assessment.addresses else "an unobserved address"
+        return (f"The Azure VM {name} has a public NIC path at {address} admitted by the collected network rules.\n"
+                f"Its instanceView records {power}, so the VM cannot currently serve requests.\n"
+                "Starting the VM could activate this configured path; a guest listener was not tested.")
     if assessment.resource["type"] == "application_gateway":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
         if status == "UNKNOWN" and any("public frontend address" in gap["reason"]
                                        for gap in assessment.unresolved):
             return (f"The Application Gateway {name} has a listener referencing a public frontend.\n"
                     "The referenced public IP resource has no collected assigned public address.\n"
-                    "A public path through this listener is unclear without that address.\n"
-                    "If assigned, the listener could expose data served by its backend.")
+                    "The public listener path remains unresolved until that address is observed.")
         if status == "FAIL" and assessment.addresses:
             nsg = next((step for step in assessment.path if step["layer"] == "nsg"), {})
             open_frontend = next((front["address"] for front in nsg.get("frontends", [])
@@ -14853,6 +19672,21 @@ def _observed(assessment, status):
         return "\n".join((first, second,
             "Internet clients may reach its HTTPS endpoint if routing and identity controls admit requests.",
             "That could expose application behavior or data to outside users if the service responds."))
+    if assessment.resource["type"] == "virtual_network_gateway" and status in ("FAIL", "UNKNOWN", "PASS"):
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        if status == "PASS":
+            return "\n".join((
+                f"The virtual network gateway {name} is recorded as an ExpressRoute gateway.",
+                "It has no VPN tunnel listener in this resource configuration.",
+                "This VPN-gateway check finds no internet-facing VPN listener on the resource."))
+        addresses = ", ".join(assessment.addresses[:2]) or "no resolved public IP address"
+        ports = ", ".join(describe(assessment.ports or {})) or "no established tunnel protocol ports"
+        return "\n".join((
+            f"The Azure VPN gateway {name} has public frontend evidence: {addresses}.",
+            f"Its recorded VPN tunnel listener selection is {ports}.",
+            "Internet peers may initiate a VPN handshake when the configured listener is active; tunnel authentication still applies."
+            if status == "FAIL" else "A public VPN handshake path remains unresolved from the collected gateway and connection facts.",
+            "An authenticated peer could reach connected network resources if tunnel, route, and firewall controls allow it."))
     if assessment.kind == "vpn_gateway" and status in ("FAIL", "UNKNOWN"):
         data = assessment.resource["data"]
         name = data.get("name", native_id(assessment.resource))
@@ -15115,6 +19949,12 @@ def _observed(assessment, status):
                 "An open path could expose workflow settings or data if IAM also grants access.")
     if assessment.resource["type"] == "container_app":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        if status == "UNKNOWN" and any(
+                "HTTP route target revision or label is unresolved" in gap["reason"]
+                for gap in assessment.unresolved):
+            return (f"The Container App {name} has internal ingress and a provisioned environment HTTP route that names it.\n"
+                    "The route's revision or label target cannot be resolved to an active revision from this snapshot.\n"
+                    "A public request path to app data remains possible if that target is active.")
         route = next((step for step in assessment.path if step["layer"] == "environment_http_route"), None)
         if route is not None and status in ("FAIL", "UNKNOWN"):
             return (f"The Container App {name} has internal ingress but an environment HTTP route "
@@ -15154,6 +19994,25 @@ def _observed(assessment, status):
             return (f"The Container App {name} has external ingress configured and recorded runningStatus {state}.\n"
                     "Its current public request path is unresolved while this state changes.\n"
                     "The endpoint could expose app responses if an active revision serves requests.")
+    if assessment.resource["type"] == "api_management" and status == "PASS":
+        regional_block = next((step for step in assessment.path if step.get("layer") == "nsg"
+                               and step.get("regional_gateway_urls") is not None), None)
+        if regional_block is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The API Management service {name} has its primary gateway disabled and "
+                    f"{len(regional_block['regional_gateway_urls'])} enabled regional gateways.\n"
+                    "Each regional gateway's collected External VNet subnet NSG blocks public HTTPS ingress.\n"
+                    "This blocks the recorded public gateway path; external proxies and backend health were not tested.")
+    if assessment.resource["type"] == "api_management" and status in ("FAIL", "UNKNOWN"):
+        portal = next((step for step in assessment.path if step["layer"] == "developer_portal"), None)
+        if portal is not None:
+            gateway = ("has its gateway disabled but records" if portal.get("gateway_state") == "disabled"
+                       else "records")
+            return (f"The API Management service {gateway} an enabled developer portal at {portal['url']}.\n"
+                    + ("Its public network gate and non-VNet mode admit the portal HTTPS listener.\n"
+                       if status == "FAIL" else
+                       "Its External VNet subnet NSG path is unresolved, so public portal admission is unknown.\n")
+                    + "Portal content, sign-in policy, DNS delivery, and a successful request were not tested.")
     if assessment.resource["type"] == "api_management" and status in ("FAIL", "UNKNOWN"):
         props = _props(assessment.resource)
         if props.get("disableGateway") is True and assessment.addresses:
@@ -15164,6 +20023,19 @@ def _observed(assessment, status):
                      if status == "FAIL" else
                      "The regional public request path is unresolved by its VNet or inventory settings.\n")
                     + "API authorization, backend health, and successful requests were not tested.")
+    if assessment.resource["type"] == "sql_server" and status == "UNKNOWN":
+        private = next((step for step in assessment.path if step["layer"] == "private_endpoint"), None)
+        if private is not None:
+            endpoint_id = private["approved_endpoint_ids"][0]
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Azure SQL server {name} blocks its public endpoint but records an Approved, Ready connection to private endpoint {endpoint_id}.\n"
+                    "That named private consumer may have a path; its tenant ownership and effective route are not established.\n"
+                    "Database authorization, DNS delivery and a successful SQL connection were not tested.")
+        if _azure_sql_public_blocked(assessment):
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Azure SQL server {name} has publicNetworkAccess Disabled.\n"
+                    "Its private endpoint connection inventory is missing, malformed, or has an unresolved state.\n"
+                    "Possible private consumers and their SQL authorization could not be determined from this snapshot.")
     if assessment.resource["type"] == "sql_server" and status == "UNKNOWN" and any(
             "database-level firewall rules" in gap["reason"] for gap in assessment.unresolved):
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
@@ -15171,6 +20043,15 @@ def _observed(assessment, status):
                 "public-source server firewall rule.\n"
                 "Database-level firewall rules are not present in the ARM server rule inventory.\n"
                 "A database could still admit a public source; its SQL data-plane rules were not read.")
+    if assessment.resource["type"] == "sql_server" and status == "FAIL":
+        subnet_step = next((step for step in assessment.path if step.get("virtual_network_rules")
+                            and not step.get("open_rules")), None)
+        if subnet_step is not None:
+            subnet_id = subnet_step["virtual_network_rules"][0]
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Azure SQL server {name} allows subnet {subnet_id} through its public endpoint.\n"
+                    "Its Ready virtual-network rule joins a provisioned Microsoft.Sql service endpoint in the server region.\n"
+                    "Subnet workload, database authorization, DNS delivery, and a successful connection were not tested.")
     if assessment.kind == "web_app":
         restriction = next((step for step in assessment.path if step["layer"] == "access_restrictions"), {})
         network = next((step for step in assessment.path if step["layer"] == "public_network_access"), {})
@@ -15193,7 +20074,9 @@ def _observed(assessment, status):
         if not restriction:
             missing = "main and SCM IP restriction settings"
         elif main == "unknown":
-            missing = "main IP restriction decision"
+            missing = ("enabled main hostname" if "hostname" in
+                       (restriction.get("main") or {}).get("reason", "") else
+                       "main IP restriction decision")
         else:
             missing = "SCM IP restriction decision or SCM hostname"
         return (f"The App Service has no complete recorded {missing}.\n"
@@ -15252,7 +20135,53 @@ def _observed(assessment, status):
         return (first + "\n"
                 "The public SAS export path is unclear from these settings.\n"
                 "If public export is allowed, a valid SAS URL could expose stored data.")
+    if assessment.resource["type"] == "storage_account" and status == "FAIL":
+        website = next((step for step in assessment.path if step["layer"] == "static_website"), None)
+        if website is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The storage account {name} has an enabled static website at "
+                    f"{website['web_endpoints'][0]} and its network rules admit a public source.\n"
+                    "Azure Storage serves $web anonymously even if account blob public access is disabled.\n"
+                    "The site endpoint is recorded in ARM; DNS delivery, a successful read, and contents were not tested.")
     if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
+        perimeter = next((step for step in assessment.path
+                          if step["layer"] == "network_security_perimeter" and
+                          step["decision"] == "allow"), None)
+        if perimeter is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            public_rules = perimeter.get("public_ip_rules") or []
+            if public_rules:
+                source = public_rules[0]["source"]
+                if assessment.resource["type"] == "storage_container":
+                    return (f"The blob container {name} allows anonymous access, and the effective Storage "
+                            f"perimeter admits IPv4 source {source} through the public blob endpoint.\n"
+                            "The account firewall cannot override this admitted perimeter rule.\n"
+                            "A successful read, DNS delivery, and blob contents were not tested.")
+                return (f"The storage account {name} has an effective perimeter rule admitting IPv4 source "
+                        f"{source} through its public endpoint.\n"
+                        "The account firewall cannot override this admitted perimeter rule.\n"
+                        "Data authorization, DNS delivery, and a successful request were not tested.")
+            subscription = perimeter["subscription_rules"][0]["subscription_id"]
+            return (f"The storage account {name} has an effective perimeter rule admitting named Azure "
+                    f"subscription {subscription} through its public endpoint.\n"
+                    "This rule requires authentication; the subscription owner was not established.\n"
+                    "Data authorization, DNS delivery, and a successful request were not tested.")
+        fallback = next((step for step in assessment.path
+                         if step["layer"] == "perimeter_learning_fallback" and
+                         step["decision"] == "allow"), None)
+        if fallback is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            firewall = ("firewall default Allow" if fallback["firewall_default_action"] == "Allow" else
+                        f"firewall rule allowing IPv4 source {fallback['public_ip_rules'][0]} under default Deny")
+            if assessment.resource["type"] == "storage_container":
+                return (f"The blob container {name} allows anonymous access, and its account's effective "
+                        f"perimeter is in Learning mode with {firewall}.\n"
+                        "An unmatched public source can use the account-firewall fallback to the blob endpoint.\n"
+                        "DNS delivery, a successful anonymous read, and contents were not tested.")
+            return (f"The storage account {name} has an effective Learning-mode perimeter and firewall "
+                    f"{firewall.removeprefix('firewall ')}.\n"
+                    "An unmatched public source can use the account-firewall fallback to its endpoint.\n"
+                    "Data authorization, DNS delivery, and a successful request were not tested.")
         ipv6_step = next((step for step in assessment.path if any(
             _cidr(value).version == 6 for value in step.get("public_ip_rules", []))), None)
         if ipv6_step is not None:
@@ -15268,7 +20197,8 @@ def _observed(assessment, status):
                     "Data authorization and successful access were not tested.")
         instance_step = next((step for step in assessment.path
                               if step.get("resource_instance_rules") and not step.get("public_ip_rules")), None)
-        if instance_step is not None:
+        if instance_step is not None and (assessment.resource["type"] != "storage_container" or
+                                          not instance_step.get("virtual_network_rules")):
             instance = instance_step["resource_instance_rules"][0]
             if assessment.resource["type"] == "storage_container":
                 return (f"The blob container {assessment.resource['data'].get('name', native_id(assessment.resource))} "
@@ -15280,7 +20210,7 @@ def _observed(assessment, status):
                     f"permits resource instance {instance['resource_id']} in tenant {instance['tenant_id']} "
                     "through its public endpoint.\n"
                     "Requests from that instance may reach the storage endpoint if the service responds.\n"
-                    "Reading data still requires separate authorization or a public container ACL; neither was tested.")
+                    "Reading data still requires an appropriate role for the instance's managed identity.")
         subnet_step = next((step for step in assessment.path
                             if step.get("virtual_network_rules") and not step.get("public_ip_rules")), None)
         if subnet_step is not None:
@@ -15289,12 +20219,28 @@ def _observed(assessment, status):
                 return (f"The blob container {assessment.resource['data'].get('name', native_id(assessment.resource))} "
                         f"allows anonymous access, and its account permits subnet {subnet_id} "
                         "through the public endpoint.\n"
-                        "Requests from that subnet may reach the blob endpoint if its service endpoint and service respond.\n"
+                        "The collected subnet has a provisioned Storage service endpoint and no attached endpoint policy.\n"
                         "Anonymous blob reads could expose stored data; subnet ownership and successful access were not tested.")
             return (f"The storage account {assessment.resource['data'].get('name', native_id(assessment.resource))} "
                     f"permits subnet {subnet_id} through its public endpoint.\n"
-                    "Requests from that subnet may reach storage if its service endpoint and the service respond.\n"
+                    "The collected subnet has a provisioned Storage service endpoint and no attached endpoint policy.\n"
                     "Subnet ownership, data authorization, and successful access were not tested.")
+    if assessment.resource["type"] == "storage_account" and status == "UNKNOWN":
+        exception = next((step for step in assessment.path if
+                          step["layer"] == "disabled_public_exception"), None)
+        if exception is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            kinds = []
+            if exception["resource_instance_rules"]:
+                kinds.append("resource-instance rules")
+            if exception["trusted_service_bypass"]:
+                kinds.append("trusted-service bypass " + ", ".join(exception["trusted_service_bypass"]))
+            if exception["malformed_exception"]:
+                kinds.append("an unresolved exception value")
+            return (f"The storage account {name} has publicNetworkAccess Disabled but records "
+                    f"{' and '.join(kinds)}.\n"
+                    "Azure Storage can retain these exceptions after public access is disabled.\n"
+                    "Effective exception traffic, source identity, data roles, and successful requests were not observed.")
     if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
         account = assessment.resource["data"]
         secondary = next((step.get("blob_url") for step in assessment.path
@@ -15334,6 +20280,28 @@ def _observed(assessment, status):
                 "Its public network path is unresolved because the network gate is incomplete.\n"
                 "If public access is allowed, people may pull any images present.\n"
                 "Those images could expose data used by people or services.")
+    if assessment.resource["type"] == "storage_container" and status == "PASS":
+        instance = next((step for step in assessment.path
+                         if step["layer"] == "resource_instance_exception"), None)
+        if instance is not None:
+            source = instance["resource_instance_rules"][0]["resource_id"]
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The blob container {name} allows anonymous reads, but its account denies unmatched "
+                    f"network sources and permits only resource instance {source}.\n"
+                    "That exception requires the source resource's managed identity and a Blob data role.\n"
+                    "The recorded exception does not establish an anonymous read path to this container.")
+    if assessment.resource["type"] == "container_registry" and _props(assessment.resource).get("anonymousPullEnabled") is True:
+        if status == "FAIL":
+            return ("The registry has anonymousPullEnabled true and a recorded public network path.\n"
+                    "Anyone admitted by its public firewall can pull images without a registry identity.\n"
+                    "The scan did not inventory whether repositories contain images.")
+        if status == "PASS":
+            return ("The registry has anonymousPullEnabled true, but its recorded network gate blocks direct public access.\n"
+                    "Anonymous pull remains configured for clients with another permitted network path.\n"
+                    "The scan did not inventory whether repositories contain images.")
+        return ("The registry has anonymousPullEnabled true.\n"
+                "Its public network path is unresolved, so internet pull access cannot be determined.\n"
+                "The scan did not inventory whether repositories contain images.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":
@@ -15418,6 +20386,8 @@ def internet_findings(snapshot, resources):
                                   if assessment.kind == "public_registry" else
                                   "Declared cross-account network connection and local route; return route and endpoint access are unverified."
                                   if assessment.kind == "external_network" else
+                                  "Private endpoint consumer inventory; the public SQL route is blocked and no traffic was sent."
+                                  if _azure_sql_public_blocked(assessment) else
                                   "Declared-configuration path model from 0.0.0.0/0; no traffic was sent.")}
         severity = ("critical" if assessment.kind == "external_cluster_snapshot_share" and assessment.data_exposure and status == "FAIL" else
                     "high" if assessment.kind in ("external_share", "external_cluster_snapshot_share", "external_network", "public_registry", "external_log_stream", "external_registry_share", "external_registry_policy_pull", "external_redshift_snapshot_share", "external_redshift_serverless_snapshot_share", "external_secret_grant", "external_queue_receive", "external_topic_subscription", "external_topic_subscribe_grant", "external_kms_decrypt_grant", "external_kms_grant", "external_lambda_invoke", "external_layer_share") and status == "FAIL" else assessment.adjusted_severity())
@@ -15482,6 +20452,15 @@ def coverage_findings(snapshot, resources):
                 status = collected.get((scope.split("/", 1)[0] + "/global", kind))
             if status is not None and status not in AVAILABLE:
                 gaps.append({"type": kind, "status": status})
+        if provider == "azure" and (scope, "lighthouse_assignment") in collected:
+            group_status = collected.get((scope, "resource_group"), "not_collected")
+            if group_status not in ("collected", "empty"):
+                gaps.append({"type": "resource_group", "status": group_status,
+                             "reason": "resource-group Lighthouse delegations were not fully enumerated"})
+            for (target, kind), status in collected.items():
+                if (kind == "lighthouse_assignment" and target.casefold().startswith(
+                        scope.casefold() + "/resourcegroups/") and status not in ("collected", "empty")):
+                    gaps.append({"type": kind, "scope": target, "status": status})
         if not gaps:
             continue
         placeholder = {"id": "inventory:internet_exposure", "type": "inventory", "scope": scope, "provider": provider, "service": "exposure", "data": {}}
@@ -15493,7 +20472,8 @@ def coverage_findings(snapshot, resources):
 def annotate_network(graph, snapshot, resources):
     """Add an Internet node and ``internet_exposure`` edges to every exposed or unresolved asset."""
     assessments = [a for a in assess(snapshot, resources) if a.verdict() in ("FAIL", "UNKNOWN")
-                   and a.kind not in ("external_share", "cross_project_peering")]
+                   and a.kind not in ("external_share", "cross_project_peering")
+                   and not _azure_sql_public_blocked(a)]
     if not assessments:
         return graph
     nodes = {n["id"]: n for n in graph.get("nodes", [])}
@@ -15546,8 +20526,11 @@ def federated_findings(snapshot, resources):
             continue
         status, severity, evidence = verdict
         evidence["source"] = source(snapshot, resource, "data")
-        output.append(finding(snapshot, resource, "exposure", "analysis.federated_trust",
-            "Federated (OIDC) trust is not pinned to a subject" if status == "FAIL" else "Federated (OIDC) trust review",
+        title = ("External workload can exchange tokens for a managed identity"
+                 if resource["type"] == "managed_identity_federated_credential" and status == "FAIL"
+                 else "Federated (OIDC) trust is not pinned to a subject" if status == "FAIL"
+                 else "Federated (OIDC) trust review")
+        output.append(finding(snapshot, resource, "exposure", "analysis.federated_trust", title,
             severity if status != "PASS" else "info", evidence, status=status))
     return output
 

@@ -1,7 +1,7 @@
 # Service Bus queue and topic SAS rule source proof
 
 The Azure collector SHA-256 after this change is
-`5eb0bbe375f851c6e66b247bc6f49291f40a8079550538775780f28368bb5961`.
+`e6739b54f408957f1504a9fa7d2014fce9cae90d09be7ccafb5574fee1c81110`.
 The collector adds paged ARM GETs for [queues](https://learn.microsoft.com/en-us/rest/api/servicebus/controlplane/queues/list-by-namespace?view=rest-servicebus-controlplane-2024-01-01)
 and [topics](https://learn.microsoft.com/en-us/rest/api/servicebus/controlplane/topics/list-by-namespace?view=rest-servicebus-controlplane-2024-01-01)
 within each observed namespace, then paged GETs for each observed

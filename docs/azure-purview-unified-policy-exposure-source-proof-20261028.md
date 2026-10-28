@@ -1,0 +1,9 @@
+# Purview Unified Catalog governance policies
+
+The [Unified Catalog Policies List API](https://learn.microsoft.com/en-us/rest/api/purview/purview-unified-catalog/policies/list?view=rest-purview-purview-unified-catalog-2026-03-20-preview) documents a read-only tenant endpoint, `GET https://api.purview-service.microsoft.com/datagovernance/catalog/policies?api-version=2026-03-20-preview`, with a `skipToken` continuation and `https://purview.azure.net/.default` audience. Its sample policy contains direct Entra object IDs in `attributeRules` for `business-domain-reader`, `business-domain-owner`, and `datagovernance-administrator` roles.
+
+[Purview data governance roles and permissions](https://learn.microsoft.com/en-us/purview/data-governance-roles-permissions) says Unified Catalog readers can access published business concepts, while Data Map/source permissions govern underlying data assets. [Data product access policies](https://learn.microsoft.com/en-us/purview/unified-catalog-data-product-access-policies) says approvers manually grant individual source asset access or use an access provider; a policy or approved request alone does not prove access to those assets.
+
+`azure_purview_unified_policy_native.collect` makes one paged policy LIST per tenant through the existing per-scan cache and projects only policy/entity IDs, built-in role names and principal object IDs. It drops descriptions and policy text. `internet_exposure._azure_purview_unified_policy` detects a direct foreign Guest or foreign-owned service principal in a documented reader, owner or administrator role, or an observed foreign member of a granted group, as exposure of published catalog concepts. Unknown roles, conditions, unresolvable group membership and unattributed principals stay `UNKNOWN`.
+
+The Microsoft Purview product review remains open for other access planes and indirect group grants. In particular, these policies do not enumerate downstream source asset grants.

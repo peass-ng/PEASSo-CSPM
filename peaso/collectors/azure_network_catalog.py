@@ -4,6 +4,7 @@ from pathlib import Path
 
 PRIVATE_SERVICES = json.loads(Path(__file__).with_name('azure_network_private_services.json').read_text())
 ENDPOINTS = {
+    "traffic_manager_profile": ("Microsoft.Network/trafficManagerProfiles", "2022-04-01"),
     "monitor_private_link_scope": ("Microsoft.Insights/privateLinkScopes", "2021-09-01"),
     "monitor_data_collection_endpoint": ("Microsoft.Insights/dataCollectionEndpoints", "2022-06-01"),
     "container_app": ("Microsoft.App/containerApps", "2024-03-01"),

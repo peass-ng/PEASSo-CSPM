@@ -1,0 +1,5 @@
+# Azure SignalR upstream exposure source proof
+
+Microsoft's [service mode guide](https://learn.microsoft.com/en-us/azure/azure-signalr/concept-service-mode) says Serverless mode can deliver client messages and connection events to configured upstream webhooks. Upstream endpoints do not run in Default or Classic mode. The [SignalR resource GET schema](https://learn.microsoft.com/en-us/rest/api/signalr/signalr/get?view=rest-signalr-2024-03-01) includes `features` with the `ServiceMode` flag and `upstream.templates[].urlTemplate`.
+
+The collector uses a cached full resource GET. It removes raw upstream URL templates before snapshot creation, retaining only receiver hostnames and a completeness flag; callback paths, query tokens, and URL credentials are excluded. The existing native rule still evaluates the service's public client listener and network ACLs. A separate deterministic assessment reports active Serverless delivery to configured HTTP upstream hosts, independent of whether public client ingress is enabled. Missing mode, malformed templates, and absent full GET evidence remain `UNKNOWN`.

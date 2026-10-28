@@ -4,4 +4,4 @@ The existing Microsoft Graph app credential collector writes `directory_federate
 
 The [Microsoft Graph federated credential schema](https://learn.microsoft.com/en-us/graph/api/resources/federatedidentitycredential?view=graph-rest-1.0) describes the collected issuer, subject, and audience as token-exchange trust selectors. A focused test uses the collector's exact row type and verifies that a native federation review is emitted.
 
-Current exposure analyzer SHA-256: `cb9663d0fca67cd95ac0cfcc826ab2ee96aa20771633f86ea9fa91ea943d451a`.
+Current exposure analyzer SHA-256: `8263329b85e01375f2b693f71c5e886b6827c866e656b8571fc99af3138e11c3`.

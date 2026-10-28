@@ -3,7 +3,8 @@ import json
 from urllib.parse import urlsplit
 
 from peaso.collectors import azure
-from peaso.snapshot import validate
+from peaso.snapshot import resources, validate
+from peaso.analysis.internet_exposure import federated_findings
 
 from test_peaso_collectors_azure_perf import FakeAzure, ReadError, rows
 
@@ -87,10 +88,16 @@ def test_application_federated_credentials_per_app_with_denied_coverage():
     def extra(url, path):
         if path == "/v1.0/applications":
             return {"value": [{"id": "app1", "appId": "a1"}, {"id": "app2", "appId": "a2"}]}
-        if path == "/v1.0/applications/app1/federatedIdentityCredentials":
+        if path == "/beta/applications/app1/federatedIdentityCredentials":
+            assert "claimsMatchingExpression" in url
             return {"value": [{"id": "f1", "name": "gh", "issuer": "https://token.actions.githubusercontent.com",
-                               "subject": "repo:o/r:pull_request", "audiences": ["api://AzureADTokenExchange"], "description": "d"}]}
-        if path == "/v1.0/applications/app2/federatedIdentityCredentials":
+                               "subject": "repo:o/r:pull_request", "audiences": ["api://AzureADTokenExchange"], "description": "d"},
+                              {"id": "f2", "name": "gh-flex", "issuer": "https://token.actions.githubusercontent.com",
+                               "subject": None, "audiences": ["api://AzureADTokenExchange"],
+                               "claimsMatchingExpression": {"languageVersion": 1,
+                                   "value": "claims['sub'] matches 'repo:o/r:ref:refs/heads/*' and claims['repository_id'] eq '123'"},
+                               "description": "INERT_PRIVATE"}]}
+        if path == "/beta/applications/app2/federatedIdentityCredentials":
             raise ReadError(403)
     snapshot = azure.collect({"scopes": ["sub-a"]}, ["directory_federated_credential"], transport=_directory(extra))
     assert validate(snapshot) == snapshot
@@ -100,6 +107,13 @@ def test_application_federated_credentials_per_app_with_denied_coverage():
     fic = first["items"][0]
     assert fic["id"] == "applications/app1/federatedIdentityCredentials/f1" and fic["appId"] == "a1"
     assert fic["subject"] == "repo:o/r:pull_request" and "description" not in fic
+    flex = first["items"][1]
+    assert flex["claimsMatchingExpression"] == {"languageVersion": 1,
+        "value": "claims['sub'] matches 'repo:o/r:ref:refs/heads/*' and claims['repository_id'] eq '123'"}
+    assert "INERT_PRIVATE" not in json.dumps(snapshot)
+    reviews = federated_findings(snapshot, resources(snapshot))
+    flex_review = next(row for row in reviews if row["evidence"].get("claims_matching_expression"))
+    assert flex_review["status"] == "MANUAL"
     assert rows(snapshot, "directory_federated_credential", tenant + "app2")[0]["status"] == "denied"
 
 
@@ -110,6 +124,28 @@ def test_federated_credentials_unknown_when_application_inventory_denied():
     snapshot = azure.collect({"scopes": ["sub-a"]}, ["directory_federated_credential"], transport=_directory(extra))
     row = rows(snapshot, "directory_federated_credential")
     assert len(row) == 1 and row[0]["status"] not in ("collected", "empty", "partial") and row[0]["items"] == []
+
+
+def test_managed_identity_flexible_credential_uses_expression_capable_child_version():
+    parent = RG + "/Microsoft.ManagedIdentity/userAssignedIdentities/identity"
+    def handler(url, body, audience):
+        path = urlsplit(url).path
+        if path == SUB + "/providers/Microsoft.ManagedIdentity/userAssignedIdentities":
+            return {"value": [{"id": parent, "name": "identity",
+                               "type": "Microsoft.ManagedIdentity/userAssignedIdentities", "properties": {}}]}
+        if path == parent + "/federatedIdentityCredentials":
+            assert "api-version=2025-05-31-preview" in url
+            return {"value": [{"id": path + "/flex", "name": "flex", "properties": {
+                "issuer": "https://token.actions.githubusercontent.com", "subject": None,
+                "audiences": ["api://AzureADTokenExchange"],
+                "claimsMatchingExpression": {"languageVersion": 1,
+                    "value": "claims['sub'] matches 'repo:o/r:ref:refs/heads/*' and claims['repository_id'] eq '123'"}}}]}
+        return {"value": []}
+    snapshot = azure.collect({"scopes": ["sub-a"]}, ["managed_identity_federated_credential"],
+                             transport=FakeAzure(handler))
+    assert validate(snapshot) == snapshot
+    fic = rows(snapshot, "managed_identity_federated_credential")[0]["items"][0]
+    assert fic["properties"]["claimsMatchingExpression"]["languageVersion"] == 1
 
 
 def test_cba_trust_store_drops_certificates():
@@ -127,4 +163,5 @@ def test_cba_trust_store_drops_certificates():
 
 
 def test_web_pubsub_is_listed_like_signalr():
-    assert azure.ENDPOINTS["web_pubsub"] == ("Microsoft.SignalRService/webPubSub", azure.ENDPOINTS["signalr_service"][1])
+    assert azure.ENDPOINTS["web_pubsub"][0] == "Microsoft.SignalRService/webPubSub"
+    assert azure.ENDPOINTS["signalr_service"] == ("Microsoft.SignalRService/signalR", "2024-03-01")
