@@ -15,7 +15,7 @@ PREFIX = "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/"
 
 def _find(mode, *, actions=(), data_actions=(), not_actions=(), not_data_actions=(),
           scope=WORKSPACE, principal="guest", principal_type="User", condition=None,
-          endpoint_id=ENDPOINT):
+          endpoint_id=ENDPOINT, denials=()):
     assignment = {"id": SUB + "/providers/Microsoft.Authorization/roleAssignments/a",
                   "properties": {"scope": scope, "principalId": principal,
                                  "principalType": principal_type, "roleDefinitionId": ROLE,
@@ -31,6 +31,8 @@ def _find(mode, *, actions=(), data_actions=(), not_actions=(), not_data_actions
          "status": "collected", "items": [assignment]},
         {"type": "role_definition", "scope": "/", "service": "Microsoft.Authorization",
          "status": "collected", "items": [definition]},
+        {"type": "deny_assignment", "scope": SUB, "service": "Microsoft.Authorization",
+         "status": "collected", "items": list(denials)},
         {"type": "directory_user", "scope": TENANT, "service": "Microsoft.Graph",
          "status": "collected", "items": [{"id": "guest", "userType": "Guest"}]},
     ]
@@ -78,3 +80,33 @@ def test_nested_group_guest_and_assignment_condition_are_preserved():
     assert evidence["via_group"] == "group"
     assert evidence["group_path"] == ["group"]
     assert evidence["membership_source"]
+
+
+def test_inherited_all_principal_data_deny_blocks_aad_scoring_action():
+    score = PREFIX + "score/action"
+    deny = {"id": "deny", "properties": {"scope": WORKSPACE,
+        "doNotApplyToChildScopes": False,
+        "principals": [{"id": "00000000-0000-0000-0000-000000000000", "type": "SystemDefined"}],
+        "excludePrincipals": [], "permissions": [{"dataActions": [score], "notDataActions": []}]}}
+    blocked = _find("AADToken", data_actions=[score], denials=[deny])
+    assert len(blocked) == 1 and blocked[0]["status"] == "PASS"
+    assert blocked[0]["evidence"]["deny_source"]
+    assert blocked[0]["evidence"]["effective_access"] == "blocked_for_online_endpoint_action"
+    for changes in ({"doNotApplyToChildScopes": True},
+                    {"excludePrincipals": [{"id": "guest", "type": "User"}]},
+                    {"permissions": [{"dataActions": [score], "notDataActions": [score]}]},
+                    {"scope": WORKSPACE + "/onlineEndpoints/other"},
+                    {"condition": "@Resource[x] StringEquals 'y'"}):
+        altered = {**deny, "properties": {**deny["properties"], **changes}}
+        assert _find("AADToken", data_actions=[score], denials=[altered])[0]["status"] == "FAIL"
+
+
+def test_exact_endpoint_control_plane_deny_blocks_key_retrieval():
+    get_key = PREFIX + "listKeys/action"
+    deny = {"id": "deny", "properties": {"scope": ENDPOINT,
+        "doNotApplyToChildScopes": True,
+        "principals": [{"id": "00000000-0000-0000-0000-000000000000", "type": "SystemDefined"}],
+        "excludePrincipals": [], "permissions": [{"actions": [get_key], "notActions": []}]}}
+    assert _find("Key", actions=[get_key], denials=[deny])[0]["status"] == "PASS"
+    assert _find("Key", actions=[get_key], denials=[{**deny, "properties": {**deny["properties"],
+        "permissions": [{"actions": [get_key], "notActions": [get_key]}]}}])[0]["status"] == "FAIL"
