@@ -130,11 +130,11 @@ def test_task_transport_never_exposes_real_model_token(configured,tmp_path,provi
     (tmp_path/'findings.json').write_text('{"items":[]}')
     tasks,storage=Tasks(),Storage()
     from peaso.ai.providers import ModelAccess
-    access = ModelAccess(provider, 'selected-model', 'medium', 'real-private-token') if provider else 'real-private-token'
+    access = ModelAccess(provider, 'OPENAI_BEST_QUALITY', 'high', 'real-private-token') if provider else 'real-private-token'
     assert fargate.invoke('network',tmp_path,access,30,ecs=tasks,s3=storage)=={'items':[]}
     relay=next(v for k,v in storage.objects.items() if k.endswith('relay.json'))
     assert json.loads(relay)['token']=='real-private-token'
-    assert json.loads(relay)['ai_configuration'] == ({'provider': provider, 'model': 'selected-model', 'thinking': 'medium'} if provider else {})
+    assert json.loads(relay)['ai_configuration'] == ({'provider': provider, 'model': 'OPENAI_BEST_QUALITY', 'thinking': 'high'} if provider else {})
     data=next(v for k,v in storage.objects.items() if k.endswith('input.tgz'))
     with tarfile.open(fileobj=io.BytesIO(data),mode='r:gz') as archive:
         assert set(archive.getnames())=={'credentials.json','findings.json'}
@@ -145,6 +145,19 @@ def test_task_transport_never_exposes_real_model_token(configured,tmp_path,provi
     assert request['overrides']['containerOverrides'][0]['name']=='relay'
     assert 'real-private-token' not in json.dumps(request)
     assert tasks.stops and len(storage.deleted)==3
+
+
+def test_complete_precompressed_priorities_archive_avoids_second_gzip(tmp_path):
+    files = {'context.sqlite.gz': b'\x1f\x8b' + bytes(range(256)) * 40,
+             'platform.json': b'{"all":"exact"}', 'credentials.json': b'{"entries":[]}'}
+    for name, body in files.items():
+        (tmp_path / name).write_bytes(body)
+    bundle = fargate.pack_workspace(tmp_path)
+    assert not bundle.startswith(b'\x1f\x8b')
+    restored = tmp_path / 'restored'
+    restored.mkdir()
+    task_runtime.unpack(bundle, restored)
+    assert {path.name: path.read_bytes() for path in restored.iterdir()} == files
 
 
 def test_prepared_task_starts_before_context_and_stops_on_preparation_failure(configured,tmp_path):

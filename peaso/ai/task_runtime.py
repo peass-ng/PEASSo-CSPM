@@ -55,7 +55,7 @@ def transfer(method, url, *, body=None, limit=MAX_INPUT):
 def unpack(data, root):
     import re
     total = count = 0
-    with tarfile.open(fileobj=io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data, mode='r:gz') as archive:
+    with tarfile.open(fileobj=io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data, mode='r:*') as archive:
         for member in archive:
             count += 1
             total += member.size

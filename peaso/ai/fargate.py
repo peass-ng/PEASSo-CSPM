@@ -70,8 +70,16 @@ def validate_task(definition):
 def pack_workspace(root):
     output = io.BytesIO()
     total = 0
-    with tarfile.open(fileobj=output, mode='w:gz', format=tarfile.USTAR_FORMAT, compresslevel=1) as archive:
-        for path in sorted(Path(root).iterdir()):
+    paths = sorted(Path(root).iterdir())
+    # The large Priorities database is already gzip-compressed. Avoid a
+    # second compression pass when the complete tar fits the input limit.
+    raw_size = sum(path.lstat().st_size for path in paths)
+    plain = ((Path(root) / 'context.sqlite.gz').is_file()
+             and raw_size + len(paths) * 1024 + 10240 <= MAX_INPUT)
+    mode = 'w' if plain else 'w:gz'
+    options = {} if plain else {'compresslevel': 1}
+    with tarfile.open(fileobj=output, mode=mode, format=tarfile.USTAR_FORMAT, **options) as archive:
+        for path in paths:
             if path.name == 'codex-auth.json':
                 raise ValueError('model_token_must_not_enter_agent_bundle')
             if not re.fullmatch(r'[a-z][a-z0-9_.-]{0,100}', path.name):
