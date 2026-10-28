@@ -1137,6 +1137,7 @@ def _listener_ports(protocol, port):
     return pset(kind, port, port)
 
 
+
 def _alb_listener_authentication(listener):
     """Whether every collected ALB rule blocks unauthenticated target forwarding."""
     rules = listener.get("Rules")
@@ -1184,61 +1185,61 @@ def _aws_elbv2(snapshot, inventory, resource):
     a.endpoint = data.get("DNSName")
     a.addresses = [data["DNSName"]] if _dns_hostname(data.get("DNSName")) else []
     state = data.get("State") if isinstance(data.get("State"), dict) else {}
-    code = state.get("Code") or data.get("LoadBalancerStateCode")
+    code = state.get("Code")
     if code == "failed":
         a.step("load_balancer_state", "block", code=code)
         a.ports = {}
         return a
-    config = data.get("Configuration")
-    settings = config.get("ConfigurationSettings") if isinstance(config, dict) else None
-    if not isinstance(settings, list) or len(settings) != 1 or not isinstance(settings[0], dict):
-        a.gap("delivery", "Beanstalk notification topic configuration is unavailable")
-    else:
-        options = settings[0].get("OptionSettings")
-        if not isinstance(options, list) or config.get("hostmanager_options_complete") is not True:
-            a.gap("delivery", "Beanstalk notification topic options are incomplete")
-        topic_arns = [o.get("Value") for o in options if isinstance(o, dict) and
-                      o.get("Namespace") == "aws:elasticbeanstalk:sns:topics" and
-                      o.get("OptionName") == "Notification Topic ARN"] if isinstance(options, list) else []
-        for topic in topic_arns:
-            match = re.fullmatch(r"arn:" + partition + r":sns:" + re.escape(region) + r":([0-9]{12}):[^:]+", topic if isinstance(topic, str) else "")
-            if match and match.group(1) not in trusted_scopes(snapshot)["ids"]:
-                a.external_ids = sorted(set(a.external_ids) | {match.group(1)})
-                a.explicit = "FAIL"
-                a.step("notification_topic", "allow", recipient_account=match.group(1))
-            elif not match:
-                a.gap("delivery", "Beanstalk notification topic ownership is unresolved")
-    tier = data.get("Tier")
-    if not isinstance(tier, dict) or tier.get("Name") != "WebServer":
+    if code not in ("active", "active_impaired"):
+        a.gap("inventory", f"ELBv2 load balancer state {code or 'not collected'}",
+              "elbv2:DescribeLoadBalancers.State.Code")
         return a
-    cname = data.get("CNAME")
-    if not isinstance(cname, str) or not re.fullmatch(r"[A-Za-z0-9.-]{1,253}", cname) or "." not in cname:
-        a.gap("listener", "Beanstalk environment CNAME is unavailable")
-        return a
-    bindings = data.get("EnvironmentResources")
-    if not isinstance(bindings, dict) or bindings.get("collection_status") != "collected":
-        a.gap("listener", "Beanstalk environment resource bindings are unavailable")
-        return a
-    lbs, instances = bindings.get("LoadBalancers"), bindings.get("Instances")
-    if not isinstance(lbs, list):
-        a.gap("listener", "Beanstalk load balancer association is unavailable")
-        return a
-    candidates = []
-    if lbs:
-        details = data.get("AssociatedLoadBalancers")
-        for lb in lbs:
-            lb_name = lb.get("Name") if isinstance(lb, dict) else None
-            detail = next((x for x in details if isinstance(x, dict) and x.get("Name") == lb_name), None) if isinstance(details, list) else None
-            if not isinstance(detail, dict) or detail.get("Type") not in ("classic", "application", "network"):
-                a.gap("listener", "Beanstalk associated load balancer identity is unavailable")
+    a.step("load_balancer_state", "allow", code=code)
+    if code == "active_impaired":
+        a.notes.append("Load balancer routes traffic but has impaired scaling capacity")
+    static_ipv6 = []
+    if data.get("Type") == "network":
+        static = []
+        for zone in as_list(data.get("AvailabilityZones")):
+            if not isinstance(zone, dict):
                 continue
-            target_kind = "classic_load_balancer" if detail["Type"] == "classic" else "load_balancer"
-            target = next((r for r in inventory.items(target_kind) if r.get("scope") == resource.get("scope") and
-                           r.get("data", {}).get("LoadBalancerName") == lb_name and
-                           (target_kind == "classic_load_balancer" or
-                            r.get("data", {}).get("LoadBalancerArn") == detail.get("LoadBalancerArn"))), None)
-            if target is None:
-                a.gap("listener", "Beanstalk associated load balancer is unavailable in the network inventory")
+            for address in as_list(zone.get("LoadBalancerAddresses")):
+                if isinstance(address, dict) and _public_ip(address.get("IpAddress")):
+                    static.append({"ip": address["IpAddress"], "allocation_id": address.get("AllocationId")})
+                if isinstance(address, dict) and _public_ip(address.get("IPv6Address")):
+                    static_ipv6.append(address["IPv6Address"])
+        if static:
+            a.addresses.extend(x["ip"] for x in static)
+            a.step("public_address", "allow", static_ipv4=static)
+        if static_ipv6:
+            a.addresses.extend(sorted(set(static_ipv6)))
+            a.step("public_address", "allow", static_ipv6=sorted(set(static_ipv6)))
+    if not a.addresses:
+        a.gap("inventory", "ELBv2 public DNS name or static NLB address not collected",
+              "elbv2:DescribeLoadBalancers.DNSName")
+        return a
+    address_type = data.get("IpAddressType")
+    valid_address_types = ({"ipv4", "dualstack", "dualstack-without-public-ipv4"}
+                           if data.get("Type") == "application" else {"ipv4", "dualstack"})
+    if address_type not in valid_address_types:
+        a.gap("inventory", "ELBv2 public address family not collected or unsupported",
+              "elbv2:DescribeLoadBalancers.IpAddressType")
+        return a
+    listeners = data.get("Listeners") if isinstance(data.get("Listeners"), dict) else {}
+    ports = {}
+    if listeners.get("collection_status") in ("collected", "empty"):
+        rows = listeners.get("items")
+        protocols = ({"HTTP", "HTTPS"} if data.get("Type") == "application" else
+                     {"TCP", "TLS", "UDP", "TCP_UDP", "QUIC", "TCP_QUIC"} if data.get("Type") == "network" else None)
+        if not isinstance(rows, list) or protocols is None:
+            a.gap("listener", "ELBv2 listener list or load balancer type unresolved", "elbv2:DescribeListeners")
+            return a
+        auth = []
+        malformed = False
+        for listener in rows:
+            if (not isinstance(listener, dict) or type(listener.get("Port")) is not int
+                    or not 1 <= listener["Port"] <= 65535 or listener.get("Protocol") not in protocols):
+                malformed = True
                 continue
             ports = union(ports, _listener_ports(listener["Protocol"], listener["Port"]))
             if any(isinstance(x, dict) and str(x.get("Type", "")).startswith("authenticate-") for x in as_list(listener.get("DefaultActions"))):
@@ -1279,6 +1280,7 @@ def _aws_elbv2(snapshot, inventory, resource):
     if any(g["layer"] == "listener" for g in a.unresolved) and not empty(a.ports):
         a.ports = None
     return a
+
 
 
 def _aws_elasticache_serverless_cache(snapshot, inventory, resource):
@@ -1640,36 +1642,49 @@ def _aws_rds_cluster_endpoint(snapshot, inventory, resource):
 
 def _aws_redshift(snapshot, inventory, resource):
     data = resource["data"]
-    a = Assessment(resource, "external_notification")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    if data.get("AccountId") != account or not isinstance(data.get("BudgetName"), str) or not data["BudgetName"]:
-        a.gap("inventory", "Budget owner or name is unresolved")
+    if data.get("PubliclyAccessible") is False:
+        return None
+    a = Assessment(resource, "database")
+    if data.get("PubliclyAccessible") is not True:
+        a.gap("inventory", "Redshift PubliclyAccessible flag not collected", "redshift:DescribeClusters.PubliclyAccessible")
         return a
-    if data.get("RecipientCollectionStatus") != "collected":
-        a.gap("delivery", "Budget notification subscriber inventory is incomplete")
-    domains, topics = data.get("EmailDomains"), data.get("SNSTopicArns")
-    if not isinstance(domains, list) or not isinstance(topics, list):
-        a.gap("delivery", "Budget notification targets are unavailable")
+    endpoint = data.get("Endpoint") if isinstance(data.get("Endpoint"), dict) else {}
+    a.addresses = [endpoint["Address"]] if _dns_hostname(endpoint.get("Address")) else []
+    if not isinstance(data.get("ClusterStatus"), str) or not data["ClusterStatus"]:
+        a.gap("inventory", "Redshift cluster status not collected", "redshift:DescribeClusters.ClusterStatus")
         return a
-    trusted = trusted_scopes(snapshot)
-    for domain in domains:
-        if not isinstance(domain, str) or not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", domain):
-            a.gap("delivery", "Budget email recipient domain is malformed")
-        elif domain.lower() not in trusted["domains"]:
-            a.external_ids = sorted(set(a.external_ids) | {domain.lower()})
-            a.explicit = "FAIL"
-            a.step("email_notification", "allow_declaration", recipient_domain=domain.lower(),
-                   semantics="Email confirmation and actual delivery are not observable from Budgets subscriber metadata")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    for topic in topics:
-        match = re.fullmatch(r"arn:" + partition + r":sns:([a-z0-9-]+):([0-9]{12}):[^:]+", topic if isinstance(topic, str) else "")
-        if not match:
-            a.gap("delivery", "Budget SNS target ARN is malformed")
-        elif match.group(2) not in trusted["ids"]:
-            a.external_ids = sorted(set(a.external_ids) | {match.group(2)})
-            a.explicit = "FAIL"
-            a.step("sns_notification", "allow_declaration", recipient_account=match.group(2))
-    return a if a.explicit or a.unresolved else None
+    if data["ClusterStatus"] not in ("available", "available, prep-for-resize", "available, resize-cleanup", "paused"):
+        a.gap("inventory", "Redshift cluster status does not establish a currently serving database endpoint",
+              "redshift:DescribeClusters.ClusterStatus")
+        return a
+    if not a.addresses:
+        a.gap("inventory", "Redshift public endpoint DNS address not collected or malformed", "redshift:DescribeClusters.Endpoint.Address")
+        return a
+    port = endpoint.get("Port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "Redshift endpoint port not collected", "redshift:DescribeClusters")
+        return a
+    a.step("listener", "allow", port=port)
+    _aws_redshift_custom_dns(inventory, a, data.get("CustomDomainName"), endpoint["Address"])
+    groups = [g.get("VpcSecurityGroupId") for g in as_list(data.get("VpcSecurityGroups")) if isinstance(g, dict)]
+    name = data.get("ClusterSubnetGroupName")
+    group = next((r["data"] for r in inventory.items("redshift_subnet_group") if r["scope"] == resource["scope"]
+                  and r["data"].get("ClusterSubnetGroupName") == name), None)
+    if not isinstance(group, dict):
+        a.gap("inventory", "Redshift subnet group not collected", "redshift:DescribeClusterSubnetGroups")
+        return a
+    subnets = [s.get("SubnetIdentifier") for s in as_list(group.get("Subnets"))
+               if isinstance(s, dict) and s.get("SubnetIdentifier")]
+    if not subnets:
+        a.gap("inventory", "Redshift subnet group has no collected subnets", "redshift:DescribeClusterSubnetGroups")
+        return a
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, pset("tcp", port, port), native_id(resource),
+                            vpc_id=group.get("VpcId"), narrow_public=True, public_host_witness=True)
+    if data.get("ClusterStatus") == "paused":
+        a.dormant = True
+        a.notes.append("Redshift cluster is paused; retained endpoint configuration applies after resume")
+    return a
+
 
 
 def _aws_codestar_notification_rule(snapshot, inventory, resource):
@@ -1968,34 +1983,6 @@ def _public_policy(document_value):
             public = True
     return public, restricted
 
-    data = resource["data"]
-    a = Assessment(resource, "external_deployment")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    target, target_region, stack_id = data.get("Account"), data.get("Region"), data.get("StackId")
-    name, stack_set = data.get("StackSetName"), data.get("StackSetId")
-    if (not isinstance(name, str) or not name or not isinstance(stack_set, str) or not stack_set.startswith(name + ":") or
-            not isinstance(target, str) or not re.fullmatch(r"[0-9]{12}", target) or
-            not isinstance(target_region, str) or not target_region or
-            not isinstance(stack_id, str) or not re.fullmatch(r"arn:" + partition + r":cloudformation:" +
-                                                       re.escape(target_region) + r":" + re.escape(target) +
-                                                       r":stack/[^/]+/[^/]+", stack_id)):
-        a.gap("inventory", "CloudFormation StackSet instance target identity is unresolved")
-        return a
-    if data.get("Status") == "INOPERABLE":
-        a.gap("delivery", "CloudFormation StackSet instance is inoperable; deployed resource state is unresolved")
-        return a
-    if data.get("Status") not in ("CURRENT", "OUTDATED"):
-        a.gap("delivery", "CloudFormation StackSet instance status is unresolved")
-        return a
-    if target in trusted_scopes(snapshot)["ids"]:
-        return None
-    a.external_ids = [target]
-    a.explicit = "FAIL"
-    a.step("stackset_target", "allow_declaration", target_account=target, target_region=target_region,
-           stack_set_id=stack_set, stack_id=stack_id,
-           semantics="StackSet instance exists in target account; template contents and resulting resources are assessed separately")
-    return a
 
 def _opensearch_http_policy(document_value, domain_arn):
     """Resolve broad anonymous HTTP grants to this domain from its cached policy."""
@@ -2094,6 +2081,7 @@ def _opensearch_http_policy(document_value, domain_arn):
     insecure = bool(allowed - denied or narrow)
     return (bool(insecure or secure_allowed - denied or source_hosts), restricted, uncertain, narrow,
             bool(secure_allowed - denied) and not insecure and not source_hosts, sorted(set(source_hosts)))
+
 
 def _aws_synthetics_canary(snapshot, inventory, resource):
     """Configured Synthetics logs, screenshots and HAR artifacts to S3."""
@@ -2223,34 +2211,21 @@ def _aws_opensearch(snapshot, inventory, resource):
         a.step("policy", "allow", reason="no access policy document; IAM identity policies govern", note="authenticated")
         a.authenticated = True
     else:
-        by_id = {row["data"].get("GroupId"): row["data"] for row in inventory.items("security_group")
-                 if row.get("scope") == resource["scope"] and isinstance(row.get("data"), dict)}
-        for attachment in groups:
-            group_id = attachment.get("SecurityGroupIdentifier") if isinstance(attachment, dict) else None
-            group = by_id.get(group_id)
-            if not isinstance(group, dict):
-                a.gap("inventory", "DAX attached security group is unavailable")
-                continue
-            for rule in group.get("IpPermissions", []):
-                if not isinstance(rule, dict) or rule.get("IpProtocol") not in ("tcp", "-1"):
-                    continue
-                low, high = rule.get("FromPort"), rule.get("ToPort")
-                if rule.get("IpProtocol") == "tcp" and (not isinstance(low, int) or not isinstance(high, int) or
-                        not any(low <= port <= high for port in (8111, 9111))):
-                    continue
-                for source in rule.get("UserIdGroupPairs", []):
-                    owner = source.get("UserId") if isinstance(source, dict) else None
-                    if isinstance(owner, str) and re.fullmatch(r"[0-9]{12}", owner) and owner not in trusted:
-                        foreign.add(owner)
-                        a.step("security_group_source", "allow_declaration", security_group=group_id,
-                               source_account=owner, source_group=source.get("GroupId"),
-                               semantics="Foreign security-group source; peer routing and client authorization unverified")
-                        a.gap("reachability", "Foreign-side route, source security group and client access were not observed")
-    if foreign:
-        a.external_ids = sorted(foreign)
-        a.explicit = "FAIL"
-        return a
-    return a if a.unresolved else None
+        a.step("policy", "allow", reason="access policy requires signed or condition-restricted access", restrictive_conditions=restricted)
+        a.authenticated = True
+    fine = status.get("AdvancedSecurityOptions", {})
+    if isinstance(fine, dict) and fine.get("Enabled") is True:
+        migration = fine.get("AnonymousAuthEnabled")
+        a.step("fine_grained_access", "requires_auth" if migration is False else "anonymous_migration" if migration is True else "unresolved",
+               enabled=True, anonymous_auth_enabled=migration,
+               semantics="OpenSearch migration can admit unsigned requests despite fine-grained access control")
+        if migration is False:
+            a.authenticated = True
+        elif type(migration) is not bool:
+            a.gap("fine_grained_access", "anonymous-auth migration setting not collected", "opensearch:DescribeDomain")
+    a.ports = ports
+    return a
+
 
 
 def _aws_firehose_external_delivery(snapshot, inventory, resource):
@@ -2835,8 +2810,10 @@ def _aws_lambda_url(snapshot, inventory, resource):
         return a
     if url.get("collection_status") == "empty" and url.get("absent") is True:
         return None
-    if data.get("Status") != "READY":
-        a.gap("deployment", "AgentCore gateway is not confirmed ready")
+    if url.get("collection_status") != "collected" or url.get("AuthType") not in ("NONE", "AWS_IAM"):
+        a = Assessment(resource, "function_url")
+        a.gap("inventory", f"function URL config {url.get('collection_status', 'not collected')} or auth type unresolved",
+              "lambda:GetFunctionUrlConfig")
         return a
     url_arn = url.get("FunctionArn")
     expected_arn = data.get("AliasArn") if resource["type"] == "lambda_alias" else data.get("FunctionArn")
@@ -2941,14 +2918,91 @@ def _aws_lambda_url(snapshot, inventory, resource):
         a.step("policy", "block", reason="AuthType NONE but no resource policy grants public InvokeFunctionUrl")
         a.ports = {}
         return a
-    if authorizer == "CUSTOM_JWT":
-        a.authenticated = True
-        a.gap("authorization", "JWT issuer membership and token admission are not observable from gateway metadata")
+    if "Policy" not in policy:
+        a.gap("policy", f"function policy {policy.get('collection_status', 'not collected')}", "lambda get_policy")
         return a
-    if authorizer == "AWS_IAM":
-        return None
-    a.gap("authorization", "AgentCore gateway authorizer type is unavailable")
+    from .iam import document
+    doc = document(policy["Policy"]) or {}
+    required = {"lambda:invokefunctionurl", "lambda:invokefunction"}
+    public, denied, uncertain = set(), set(), set()
+    function_arn = url.get("FunctionArn") or data.get("FunctionArn")
+    from fnmatch import fnmatchcase
+    for statement in as_list(doc.get("Statement")):
+        if not isinstance(statement, dict) or statement.get("Effect") not in ("Allow", "Deny"):
+            continue
+        if any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain.update(required)
+            continue
+        principal = statement.get("Principal")
+        values = [principal] if isinstance(principal, str) else as_list(principal.get("AWS")) if isinstance(principal, dict) else []
+        if "*" not in values:
+            continue
+        actions = [str(x).lower() for x in as_list(statement.get("Action"))]
+        matched = {action for action in required if any(fnmatchcase(action, pattern) for pattern in actions)}
+        if not matched:
+            continue
+        resources = as_list(statement.get("Resource"))
+        if not resources or not isinstance(function_arn, str):
+            uncertain.update(matched)
+            continue
+        if not any(isinstance(value, str) and fnmatchcase(function_arn, value) for value in resources):
+            continue
+        condition = statement.get("Condition") or {}
+        if not isinstance(condition, dict):
+            uncertain.update(matched)
+            continue
+        applicable = True
+        for operator, terms in condition.items():
+            if not isinstance(terms, dict) or operator not in ("StringEquals", "Bool"):
+                applicable = None
+                break
+            for key, value in terms.items():
+                if isinstance(value, list):
+                    value = value[0] if len(value) == 1 else None
+                if value is None:
+                    applicable = None
+                    break
+                normalized = str(value).lower()
+                if operator == "StringEquals" and key.lower() == "lambda:functionurlauthtype":
+                    if normalized != "none":
+                        applicable = False
+                elif operator == "Bool" and key.lower() == "lambda:invokedviafunctionurl":
+                    if normalized != "true":
+                        applicable = False
+                else:
+                    applicable = None
+                    break
+            if applicable is None:
+                break
+        if applicable is None:
+            uncertain.update(matched)
+        elif applicable:
+            (public if statement["Effect"] == "Allow" else denied).update(matched)
+    if denied:
+        a.step("policy", "block", reason="public URL invocation is explicitly denied", denied_actions=sorted(denied))
+        a.ports = {}
+    elif uncertain:
+        a.gap("policy", "public URL policy condition or resource is not fully resolved", "lambda:GetPolicy")
+    elif public == required:
+        a.step("policy", "allow", public_actions=sorted(public))
+    else:
+        created = url.get("CreationTime")
+        try:
+            from datetime import date
+            created_date = date.fromisoformat(created[:10]) if isinstance(created, str) else None
+        except ValueError:
+            created_date = None
+        if created_date is None or created_date < date(2025, 11, 1):
+            if public:
+                a.gap("policy", "Function URL creation falls before or within the undocumented October 2025 permission cutover", "lambda:GetFunctionUrlConfig")
+            else:
+                a.step("policy", "block", reason="no public URL invocation grant")
+                a.ports = {}
+        else:
+            a.step("policy", "block", reason="new Function URL requires both public invocation grants", public_actions=sorted(public))
+            a.ports = {}
     return a
+
 
 
 def _aws_cognito_identity_pool(snapshot, inventory, resource):
@@ -3040,125 +3094,8 @@ def _aws_eventbridge_pipe(snapshot, inventory, resource):
     return a if a.unresolved else None
 
 
-def _listener_ports(protocol, port):
-    proto = str(protocol or "TCP").upper()
-    kind = "udp" if proto in ("UDP", "QUIC") else "all" if proto in ("TCP_UDP", "TCP_QUIC") else "tcp"
-    if kind == "all":
-        return union(pset("tcp", port, port), pset("udp", port, port))
-    return pset(kind, port, port)
 
 
-def _aws_elbv2(snapshot, inventory, resource):
-    data = resource["data"]
-    if data.get("Scheme") != "internet-facing":
-        return None
-    a = Assessment(resource, "load_balancer")
-    a.endpoint = data.get("DNSName")
-    a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
-    state = data.get("State") if isinstance(data.get("State"), dict) else {}
-    code = state.get("Code")
-    if code == "failed":
-        a.step("load_balancer_state", "block", code=code)
-        a.ports = {}
-        return a
-    trusted = trusted_scopes(snapshot)["ids"]
-    foreign, uncertain = set(), False
-    for statement in statements:
-        action_match = _aws_policy_required_actions(statement, ("lambda:getlayerversion",))
-        if action_match is None:
-            uncertain = True
-            continue
-        if not action_match:
-            continue
-        resources = as_list(statement.get("Resource"))
-        if not all(isinstance(x, str) for x in resources):
-            uncertain = True
-            continue
-        if not any(fnmatchcase(arn, x) for x in resources):
-            continue
-        if statement.get("Effect") == "Deny":
-            uncertain = True
-            continue
-        if statement.get("Effect") != "Allow" or statement.get("Condition") or any(
-                key in statement for key in ("NotPrincipal", "NotResource")):
-            uncertain = True
-            continue
-        principal = statement.get("Principal")
-        principal = principal.get("AWS") if isinstance(principal, dict) else principal
-        principals = [principal] if isinstance(principal, str) else principal
-        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
-            uncertain = True
-            continue
-        for value in principals:
-            if value == "*":
-                foreign.add("*")
-                continue
-            for address in as_list(zone.get("LoadBalancerAddresses")):
-                if isinstance(address, dict) and _public_ip(address.get("IpAddress")):
-                    static.append({"ip": address["IpAddress"], "allocation_id": address.get("AllocationId")})
-                if isinstance(address, dict) and _public_ip(address.get("IPv6Address")):
-                    static_ipv6.append(address["IPv6Address"])
-        if static:
-            a.addresses.extend(x["ip"] for x in static)
-            a.step("public_address", "allow", static_ipv4=static)
-        if static_ipv6:
-            a.addresses.extend(sorted(set(static_ipv6)))
-            a.step("public_address", "allow", static_ipv6=sorted(set(static_ipv6)))
-    if not a.addresses:
-        a.gap("inventory", "ELBv2 public DNS name or static NLB address not collected",
-              "elbv2:DescribeLoadBalancers.DNSName")
-        return a
-    address_type = data.get("IpAddressType")
-    valid_address_types = ({"ipv4", "dualstack", "dualstack-without-public-ipv4"}
-                           if data.get("Type") == "application" else {"ipv4", "dualstack"})
-    if address_type not in valid_address_types:
-        a.gap("inventory", "ELBv2 public address family not collected or unsupported",
-              "elbv2:DescribeLoadBalancers.IpAddressType")
-        return a
-    listeners = data.get("Listeners") if isinstance(data.get("Listeners"), dict) else {}
-    ports = {}
-    if listeners.get("collection_status") in ("collected", "empty"):
-        rows = listeners.get("items")
-        protocols = ({"HTTP", "HTTPS"} if data.get("Type") == "application" else
-                     {"TCP", "TLS", "UDP", "TCP_UDP", "QUIC", "TCP_QUIC"} if data.get("Type") == "network" else None)
-        if not isinstance(rows, list) or protocols is None:
-            a.gap("listener", "ELBv2 listener list or load balancer type unresolved", "elbv2:DescribeListeners")
-            return a
-        auth = []
-        malformed = False
-        for listener in rows:
-            if (not isinstance(listener, dict) or type(listener.get("Port")) is not int
-                    or not 1 <= listener["Port"] <= 65535 or listener.get("Protocol") not in protocols):
-                malformed = True
-                continue
-            ports = union(ports, _listener_ports(listener["Protocol"], listener["Port"]))
-            if any(isinstance(x, dict) and str(x.get("Type", "")).startswith("authenticate-") for x in as_list(listener.get("DefaultActions"))):
-                auth.append(listener["Port"])
-        if malformed and empty(ports):
-            a.gap("listener", "ELBv2 listener protocol or port malformed", "elbv2:DescribeListeners")
-            return a
-        if malformed:
-            a.notes.append("Other ELBv2 listener protocol or port records were malformed")
-        a.step("listener", "allow" if not empty(ports) else "block", listeners=describe(ports), authenticated_default_actions=auth)
-        a.authenticated = bool(auth) and set(auth) >= {p for _, p in ports_of(ports)}
-    else:
-        a.gap("listener", f"listeners {listeners.get('collection_status', 'not collected')}", "elbv2 describe_listeners")
-        ports = dict(FULL)
-    groups = data.get("SecurityGroups")
-    subnets = [z.get("SubnetId") for z in as_list(data.get("AvailabilityZones")) if isinstance(z, dict) and z.get("SubnetId")]
-    a.ports = ({} if address_type == "dualstack-without-public-ipv4" else
-               _aws_vpc_path(inventory, a, subnets, groups if data.get("Type") == "application" or groups else None, ports,
-                             native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True,
-                             public_host_witness=data.get("Type") in ("application", "network")))
-    if address_type in ("dualstack", "dualstack-without-public-ipv4"):
-        a.ports = union(a.ports, _aws_vpc_path(inventory, a, subnets, groups if groups else None, ports,
-                                             native_id(resource), route=False, vpc_id=data.get("VpcId"),
-                                             family=6, narrow_public=True, public_host_witness=True))
-    if data.get("Type") == "network" and not groups:
-        a.notes.append("NLB without security groups: target security groups govern client traffic (client IP preserved)")
-    if any(g["layer"] == "listener" for g in a.unresolved) and not empty(a.ports):
-        a.ports = None
-    return a
 
 
 def _aws_classic(snapshot, inventory, resource):
@@ -3458,74 +3395,6 @@ def _aws_rds(snapshot, inventory, resource):
     return a
 
 
-def _aws_redshift(snapshot, inventory, resource):
-    data = resource["data"]
-    a = Assessment(resource, "api")
-    stage_read = data.get("Stages")
-    active_stage_names = ({s.get("StageName") for s in as_list(stage_read.get("items")) if isinstance(s, dict)
-                           and (s.get("AutoDeploy") is True or isinstance(s.get("DeploymentId"), str) and s.get("DeploymentId"))}
-                          if isinstance(stage_read, dict) and stage_read.get("collection_status") in ("collected", "empty") else None)
-    domains, unresolved_domains = [], []
-    for domain in inventory.items("apigatewayv2_domain_name"):
-        if domain["scope"] != resource["scope"]:
-            continue
-        domain_data = domain["data"]
-        if not _dns_hostname(domain_data.get("DomainName")):
-            unresolved_domains.append(native_id(domain))
-            continue
-        configs = as_list(domain_data.get("DomainNameConfigurations"))
-        if not configs or any(not isinstance(config, dict) or config.get("EndpointType") not in {"REGIONAL", "EDGE", "PRIVATE"}
-                              for config in configs):
-            unresolved_domains.append(domain_data.get("DomainName"))
-            continue
-        if configs and all(isinstance(config, dict) and config.get("EndpointType") == "PRIVATE" for config in configs):
-            continue
-        if "ROUTING_RULE" in str(domain_data.get("RoutingMode", "")):
-            unresolved_domains.append(domain_data.get("DomainName"))
-            continue
-        mappings = domain_data.get("ApiMappings") or {}
-        if mappings.get("collection_status") not in ("collected", "empty"):
-            unresolved_domains.append(domain_data.get("DomainName"))
-            continue
-        for mapping in as_list(mappings.get("items")):
-            if not isinstance(mapping, dict) or mapping.get("ApiId") != data.get("ApiId"):
-                continue
-            name = domain_data.get("DomainName")
-            if active_stage_names is not None and mapping.get("Stage") in active_stage_names and isinstance(name, str) and name:
-                domains.append(name)
-            elif active_stage_names is None or not isinstance(mapping.get("Stage"), str) or not isinstance(name, str):
-                unresolved_domains.append(name or native_id(domain))
-    if data.get("DisableExecuteApiEndpoint") is True and not domains:
-        a.step("route", "block", disable_execute_api_endpoint=True)
-        if unresolved_domains or inventory.state("apigatewayv2_domain_name", resource["scope"]) not in {"collected", "empty"}:
-            a.gap("inventory", "HTTP API custom-domain mappings or routing rules are not fully collected",
-                  "apigatewayv2 get_domain_names + get_api_mappings")
-            a.explicit = "UNKNOWN"
-        a.ports = {}
-        return a
-    endpoint = data.get("Endpoint") if isinstance(data.get("Endpoint"), dict) else {}
-    a.addresses = [endpoint.get("Address")] if endpoint.get("Address") else []
-    if not a.addresses:
-        a.gap("inventory", "Redshift public endpoint address not collected", "redshift:DescribeClusters")
-        return a
-    a.ports = pset("tcp", 443, 443)
-    routes = data.get("Routes")
-    if isinstance(routes, dict) and routes.get("collection_status") == "collected":
-        routes = routes.get("items")
-    if isinstance(routes, list):
-        if not routes:
-            a.step("authorization", "block", reason="no routes configured")
-            a.ports = {}
-            return a
-        open_routes = [r.get("RouteKey") for r in routes if isinstance(r, dict) and r.get("AuthorizationType", "NONE") == "NONE" and not r.get("ApiKeyRequired")]
-        a.step("authorization", "allow" if open_routes else "block", unauthenticated_routes=open_routes,
-               authentication_required=not bool(open_routes))
-        if not open_routes:
-            a.authenticated = True
-            a.ports = {}
-    else:
-        a.gap("authorization", "route AuthorizationType not collected", "apigatewayv2:GetRoutes")
-    return a
 
 
 def _aws_snapshot_share(snapshot, inventory, resource, attribute_path, name):
@@ -3560,121 +3429,10 @@ def _aws_snapshot_share(snapshot, inventory, resource, attribute_path, name):
     return a
 
 
-def _public_policy(document_value):
-    """(public, restrictive_conditions) for an AWS resource policy document."""
-    from .iam import document
-    from .trust import restrictive_conditions
-    doc = document(document_value)
-    if doc is None:
-        return None, []
-    public, restricted = False, []
-    for statement in as_list(doc.get("Statement")):
-        if not isinstance(statement, dict) or statement.get("Effect") != "Allow":
-            continue
-        principal = statement.get("Principal")
-        values = [principal] if isinstance(principal, str) else [v for x in principal.values() for v in as_list(x)] if isinstance(principal, dict) else []
-        if "*" not in values:
-            continue
-        conditions = restrictive_conditions(statement.get("Condition"))
-        if conditions:
-            restricted.extend(conditions)
-        else:
-            public = True
-    return public, restricted
 
 
-def _opensearch_http_policy(document_value, domain_arn):
-    """Resolve broad anonymous HTTP grants to this domain from its cached policy."""
-    from fnmatch import fnmatchcase
-    from .iam import document
-    from .trust import restrictive_conditions
-    doc = document(document_value)
-    if doc is None or not isinstance(domain_arn, str):
-        return None, [], True, []
-    methods = {f"es:eshttp{method}" for method in ("get", "head", "post", "put", "patch", "delete")}
-    scope = f"{domain_arn}/*"
-    allowed, denied, restricted, uncertain, narrow = set(), set(), [], False, []
-    statements = as_list(doc.get("Statement"))
-    any_deny = any(isinstance(row, dict) and row.get("Effect") == "Deny" for row in statements)
-    for statement in statements:
-        if not isinstance(statement, dict) or statement.get("Effect") not in ("Allow", "Deny"):
-            uncertain = True
-            continue
-        principal = statement.get("Principal")
-        values = [principal] if isinstance(principal, str) else [v for x in principal.values() for v in as_list(x)] if isinstance(principal, dict) else []
-        if "*" not in values:
-            continue
-        if any(key in statement for key in ("NotAction", "NotResource", "NotPrincipal")):
-            uncertain = True
-            continue
-        actions = [x.casefold() for x in as_list(statement.get("Action")) if isinstance(x, str)]
-        matched = {action for action in methods if any(fnmatchcase(action, pattern) for pattern in actions)}
-        if not matched:
-            continue
-        resources = as_list(statement.get("Resource"))
-        if scope not in resources and "*" not in resources:
-            path_resources = [x for x in resources if isinstance(x, str) and x.startswith(f"{domain_arn}/")
-                              and len(x) > len(domain_arn) + 1]
-            if path_resources:
-                if statement["Effect"] == "Allow" and not statement.get("Condition") and not any_deny:
-                    narrow.extend((action, resource) for action in sorted(matched) for resource in path_resources)
-                else:
-                    uncertain = True
-            continue
-        condition = statement.get("Condition") or {}
-        if condition:
-            if statement["Effect"] == "Allow":
-                restricted.extend(restrictive_conditions(condition))
-            uncertain = True
-            continue
-        (allowed if statement["Effect"] == "Allow" else denied).update(matched)
-    return bool(allowed - denied or narrow), restricted, uncertain, narrow
 
 
-def _aws_opensearch(snapshot, inventory, resource):
-    domain = resource["data"].get("Domain")
-    status = domain.get("DomainStatus") if isinstance(domain, dict) else None
-    if not isinstance(status, dict):
-        return None
-    a = Assessment(resource, "managed_endpoint")
-    if isinstance(status.get("VPCOptions"), dict):
-        return None
-    a.addresses = [host for host in (status.get("Endpoint"), status.get("EndpointV2")
-                   if status.get("IPAddressType") == "dualstack" else None)
-                   if isinstance(host, str) and host]
-    if not a.addresses:
-        a.gap("inventory", "OpenSearch public domain endpoint host not collected", "opensearch:DescribeDomain")
-        return a
-    a.step("route", "allow", reason="public (non-VPC) domain endpoint")
-    public, restricted, uncertain, narrow = _opensearch_http_policy(status.get("AccessPolicies"), status.get("ARN"))
-    ports = pset("tcp", 443, 443)
-    if status.get("DomainEndpointOptions", {}).get("EnforceHTTPS") is False:
-        ports = union(ports, pset("tcp", 80, 80))
-    if public:
-        a.step("policy", "allow", reason="access policy grants Principal * an HTTP action on this domain without restrictive conditions",
-               narrow_resource_declarations=[{"action": action, "resource": resource} for action, resource in narrow],
-               semantics="A granted domain path is a policy declaration; index existence and HTTP response are not established")
-    elif uncertain:
-        a.gap("policy", "domain HTTP action, resource or condition join is unresolved", "opensearch:DescribeDomain")
-        a.authenticated = True
-    elif public is None:
-        a.step("policy", "allow", reason="no access policy document; IAM identity policies govern", note="authenticated")
-        a.authenticated = True
-    else:
-        a.step("policy", "allow", reason="access policy requires signed or condition-restricted access", restrictive_conditions=restricted)
-        a.authenticated = True
-    fine = status.get("AdvancedSecurityOptions", {})
-    if isinstance(fine, dict) and fine.get("Enabled") is True:
-        migration = fine.get("AnonymousAuthEnabled")
-        a.step("fine_grained_access", "requires_auth" if migration is False else "anonymous_migration" if migration is True else "unresolved",
-               enabled=True, anonymous_auth_enabled=migration,
-               semantics="OpenSearch migration can admit unsigned requests despite fine-grained access control")
-        if migration is False:
-            a.authenticated = True
-        elif type(migration) is not bool:
-            a.gap("fine_grained_access", "anonymous-auth migration setting not collected", "opensearch:DescribeDomain")
-    a.ports = ports
-    return a
 
 
 def _aws_eks(snapshot, inventory, resource):
@@ -3769,177 +3527,6 @@ def _aws_eks_access_entry(snapshot, inventory, resource):
     return a
 
 
-def _aws_lambda_url(snapshot, inventory, resource):
-    data = resource["data"]
-    url = data.get("FunctionUrl")
-    if not isinstance(url, dict):
-        return None
-    if url.get("collection_status") == "empty" and url.get("absent") is True:
-        return None
-    if url.get("collection_status") != "collected" or url.get("AuthType") not in ("NONE", "AWS_IAM"):
-        a = Assessment(resource, "function_url")
-        a.gap("inventory", f"function URL config {url.get('collection_status', 'not collected')} or auth type unresolved",
-              "lambda:GetFunctionUrlConfig")
-        return a
-    if (resource["type"] == "lambda_alias" and url.get("FunctionArn") != data.get("AliasArn")) or not isinstance(url.get("FunctionUrl"), str):
-        a = Assessment(resource, "function_url")
-        a.gap("inventory", "function URL endpoint or alias identity unresolved", "lambda:GetFunctionUrlConfig")
-        return a
-    a = Assessment(resource, "function_url")
-    a.addresses = [url.get("FunctionUrl")] if url.get("FunctionUrl") else []
-    a.ports = pset("tcp", 443, 443)
-    if url.get("AuthType") == "AWS_IAM":
-        a.step("authorization", "allow", auth_type=url.get("AuthType"))
-        a.authenticated = True
-        policy = data.get("Policy")
-        if not isinstance(policy, dict) or not (policy.get("absent") is True or policy.get("collection_status") == "collected" and "Policy" in policy):
-            a.gap("policy", "AWS_IAM Function URL resource policy not collected", "lambda:GetPolicy")
-            a.explicit = "UNKNOWN"
-            return a
-        if policy.get("collection_status") == "collected":
-            from .iam import document
-            from fnmatch import fnmatchcase
-            statements = as_list((document(policy["Policy"]) or {}).get("Statement"))
-            function_arn = url.get("FunctionArn") or data.get("FunctionArn") or data.get("AliasArn")
-            account = resource["scope"].split("/", 1)[0]
-            grants = {}
-            if not any(isinstance(statement, dict) and statement.get("Effect") == "Deny" for statement in statements):
-                for statement in statements:
-                    if (not isinstance(statement, dict) or statement.get("Effect") != "Allow"
-                            or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource"))
-                            or not isinstance(function_arn, str) or function_arn not in as_list(statement.get("Resource"))):
-                        continue
-                    conditions = statement.get("Condition") or {}
-                    if not isinstance(conditions, dict):
-                        continue
-                    applicable = True
-                    for operator, terms in conditions.items():
-                        if not isinstance(terms, dict) or operator not in ("StringEquals", "Bool"):
-                            applicable = False
-                            break
-                        for key, value in terms.items():
-                            if isinstance(value, list):
-                                value = value[0] if len(value) == 1 else None
-                            expected = ("AWS_IAM" if operator == "StringEquals" and isinstance(key, str)
-                                        and key.casefold() == "lambda:functionurlauthtype" else
-                                        "true" if operator == "Bool" and isinstance(key, str)
-                                        and key.casefold() == "lambda:invokedviafunctionurl" else None)
-                            if expected is None or not isinstance(value, (str, bool)) or str(value).casefold() != expected.casefold():
-                                applicable = False
-                                break
-                        if not applicable:
-                            break
-                    if not applicable:
-                        continue
-                    principal = statement.get("Principal")
-                    principals = [principal] if isinstance(principal, str) else as_list(principal.get("AWS")) if isinstance(principal, dict) else []
-                    actions = [value.casefold() for value in as_list(statement.get("Action")) if isinstance(value, str)]
-                    matched = {action for action in ("lambda:invokefunctionurl", "lambda:invokefunction")
-                               if any(fnmatchcase(action, pattern) for pattern in actions)}
-                    for value in principals:
-                        identity = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):(?:root|role/.+|user/.+)", value) if isinstance(value, str) else None
-                        if value == "*" or identity and identity.group(1) != account:
-                            grants.setdefault(value, set()).update(matched)
-            for principal, actions in sorted(grants.items()):
-                if {"lambda:invokefunctionurl", "lambda:invokefunction"} <= actions:
-                    a.step("policy", "allow_declaration", principal=principal, actions=sorted(actions),
-                           function_arn=function_arn,
-                           semantics="Collected resource policy grants URL invocation to an external AWS principal; SigV4 and caller identity policy are still required, and no invocation was observed")
-                    a.explicit = "UNKNOWN"
-        a.notes.append("Function URL requires SigV4 (AWS_IAM); external caller identity permissions are not collected")
-        if a.explicit is None:
-            a.explicit = "PASS"
-        return a
-    a.step("authorization", "allow", auth_type="NONE")
-    policy = data.get("Policy") if isinstance(data.get("Policy"), dict) else {}
-    if policy.get("absent"):
-        a.step("policy", "block", reason="AuthType NONE but no resource policy grants public InvokeFunctionUrl")
-        a.ports = {}
-        return a
-    if "Policy" not in policy:
-        a.gap("policy", f"function policy {policy.get('collection_status', 'not collected')}", "lambda get_policy")
-        return a
-    from .iam import document
-    doc = document(policy["Policy"]) or {}
-    required = {"lambda:invokefunctionurl", "lambda:invokefunction"}
-    public, denied, uncertain = set(), set(), set()
-    function_arn = url.get("FunctionArn") or data.get("FunctionArn")
-    from fnmatch import fnmatchcase
-    for statement in as_list(doc.get("Statement")):
-        if not isinstance(statement, dict) or statement.get("Effect") not in ("Allow", "Deny"):
-            continue
-        if any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
-            uncertain.update(required)
-            continue
-        principal = statement.get("Principal")
-        values = [principal] if isinstance(principal, str) else as_list(principal.get("AWS")) if isinstance(principal, dict) else []
-        if "*" not in values:
-            continue
-        actions = [str(x).lower() for x in as_list(statement.get("Action"))]
-        matched = {action for action in required if any(fnmatchcase(action, pattern) for pattern in actions)}
-        if not matched:
-            continue
-        resources = as_list(statement.get("Resource"))
-        if not resources or not isinstance(function_arn, str):
-            uncertain.update(matched)
-            continue
-        if not any(isinstance(value, str) and fnmatchcase(function_arn, value) for value in resources):
-            continue
-        condition = statement.get("Condition") or {}
-        if not isinstance(condition, dict):
-            uncertain.update(matched)
-            continue
-        applicable = True
-        for operator, terms in condition.items():
-            if not isinstance(terms, dict) or operator not in ("StringEquals", "Bool"):
-                applicable = None
-                break
-            for key, value in terms.items():
-                if isinstance(value, list):
-                    value = value[0] if len(value) == 1 else None
-                if value is None:
-                    applicable = None
-                    break
-                normalized = str(value).lower()
-                if operator == "StringEquals" and key.lower() == "lambda:functionurlauthtype":
-                    if normalized != "none":
-                        applicable = False
-                elif operator == "Bool" and key.lower() == "lambda:invokedviafunctionurl":
-                    if normalized != "true":
-                        applicable = False
-                else:
-                    applicable = None
-                    break
-            if applicable is None:
-                break
-        if applicable is None:
-            uncertain.update(matched)
-        elif applicable:
-            (public if statement["Effect"] == "Allow" else denied).update(matched)
-    if denied:
-        a.step("policy", "block", reason="public URL invocation is explicitly denied", denied_actions=sorted(denied))
-        a.ports = {}
-    elif uncertain:
-        a.gap("policy", "public URL policy condition or resource is not fully resolved", "lambda:GetPolicy")
-    elif public == required:
-        a.step("policy", "allow", public_actions=sorted(public))
-    else:
-        created = url.get("CreationTime")
-        try:
-            from datetime import date
-            created_date = date.fromisoformat(created[:10]) if isinstance(created, str) else None
-        except ValueError:
-            created_date = None
-        if created_date is None or created_date < date(2025, 11, 1):
-            if public:
-                a.gap("policy", "Function URL creation falls before or within the undocumented October 2025 permission cutover", "lambda:GetFunctionUrlConfig")
-            else:
-                a.step("policy", "block", reason="no public URL invocation grant")
-                a.ports = {}
-        else:
-            a.step("policy", "block", reason="new Function URL requires both public invocation grants", public_actions=sorted(public))
-            a.ports = {}
-    return a
 
 
 def _aws_lambda_direct_invoke(snapshot, inventory, resource):
@@ -4034,11 +3621,9 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
         a.data_exposure = True
         a.ports = {}
         a.explicit = "FAIL"
-        a.step("resource_policy", "allow", function_arn=arn, external_principals=sorted(foreign), action="lambda:InvokeFunction")
-        a.gap("caller", "The foreign caller's identity policy and any invocation were not observed")
         return a
-    if foreign or uncertain:
-        a.gap("policy", "Lambda policy conditions or Deny applicability are unresolved")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
+        a.gap("attributes", f"{coverage_field} not completely collected", f"ec2:{permission_key}")
         return a
     public = any(p == {"Group": "all"} for p in permissions)
     selectors = {"UserId", "Group"} | ({"OrganizationArn", "OrganizationalUnitArn"} if resource["type"] == "ec2_image" else set())
@@ -4061,7 +3646,16 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
     unresolved = False
     if resource["type"] == "ec2_image":
         account = str(resource.get("scope", "")).split("/", 1)[0]
-        own_organization = _aws_account_organization(inventory, account)
+        key = ("aws_organization_id", account)
+        if key not in inventory.network_cache:
+            configs = [r["data"].get("Organization") for r in inventory.items("aws_account_configuration")
+                       if r["scope"].split("/", 1)[0] == account]
+            valid = [(c["OrganizationId"], c["MasterAccountId"]) for c in configs if isinstance(c, dict)
+                     and c.get("collection_status") == "collected" and
+                     re.fullmatch(r"o-[a-z0-9]{10,32}", str(c.get("OrganizationId", ""))) and
+                     re.fullmatch(r"[0-9]{12}", str(c.get("MasterAccountId", "")))]
+            inventory.network_cache[key] = valid[0] if len(configs) == len(valid) == 1 else None
+        own_organization = inventory.network_cache[key]
         for permission in permissions:
             field_name = next(iter(permission))
             if field_name not in ("OrganizationArn", "OrganizationalUnitArn"):
@@ -4105,6 +3699,7 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
         a.step("attributes", "block", permission_count=len(permissions))
         a.ports = {}
     return a
+
 
 
 def _aws_workspaces_image_share(snapshot, inventory, resource):
@@ -6024,6 +5619,7 @@ def _aws_vpc_peering(snapshot, inventory, resource):
     return a
 
 
+
 def _aws_tgw_foreign_attachment(snapshot, inventory, resource):
     """Join local VPC and TGW routes to a foreign VPC, Direct Connect gateway or gateway peer."""
     from .trust import trusted_scopes
@@ -6125,6 +5721,7 @@ def _aws_tgw_foreign_attachment(snapshot, inventory, resource):
     return a
 
 
+
 def _aws_vpn_connection(snapshot, inventory, resource):
     """Report the public IPsec frontend, separately from routed tunnel traffic."""
     data = resource["data"]
@@ -6166,6 +5763,7 @@ def _aws_vpn_connection(snapshot, inventory, resource):
     return a
 
 
+
 def _aws_client_vpn_endpoint(snapshot, inventory, resource):
     """Assess the managed OpenVPN listener, not post-login destination access."""
     data = resource["data"]
@@ -6194,6 +5792,7 @@ def _aws_client_vpn_endpoint(snapshot, inventory, resource):
     a.step("managed_vpn_listener", "allow", dns_name=a.endpoint, protocol=protocol, port=port)
     a.notes.append("Client VPN requires authentication; authorization rules and routes control post-login destinations")
     return a
+
 
 
 def _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource):
@@ -6322,6 +5921,7 @@ def _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource):
     return None
 
 
+
 def _aws_vpc_endpoint_service(snapshot, inventory, resource):
     """Classify PrivateLink invitations and accepted cross-account connections."""
     from .trust import trusted_scopes
@@ -6394,6 +5994,7 @@ def _aws_vpc_endpoint_service(snapshot, inventory, resource):
     return a
 
 
+
 def _aws_ecr_registry_replication(snapshot, inventory, resource):
     """Identify configured ECR image replication to a foreign registry."""
     from .trust import trusted_scopes
@@ -6443,6 +6044,7 @@ def _aws_ecr_registry_replication(snapshot, inventory, resource):
         a.ports = {}
         a.step("replication", "block", rule_count=len(rules))
     return a
+
 
 
 def _aws_ecr_registry_policy_pull(snapshot, inventory, resource):
@@ -6534,6 +6136,7 @@ def _aws_ecr_registry_policy_pull(snapshot, inventory, resource):
         a.gap("policy", "ECR registry pull grant, conditions or Deny applicability are unresolved")
         return a
     return None
+
 
 
 def _aws_ecr_template_pull(snapshot, inventory, resource):
@@ -6635,6 +6238,7 @@ def _aws_ecr_template_pull(snapshot, inventory, resource):
         a.gap("policy", "ECR template policy, conditions or Deny applicability are unresolved")
         return a
     return None
+
 
 
 def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
@@ -6955,6 +6559,7 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
     return None
 
 
+
 def _aws_role_foreign_assumption(snapshot, inventory, resource):
     """An owned role trust policy declaring AssumeRole to a foreign AWS principal."""
     from .iam import assume_role_document
@@ -7010,6 +6615,7 @@ def _aws_role_foreign_assumption(snapshot, inventory, resource):
     if result is not None and derived_not_action:
         result.notes.append("AssumeRole is included by an Allow NotAction statement in the source role trust policy")
     return result
+
 
 
 def _aws_policy_actions_cover(actions, required):
@@ -7165,6 +6771,7 @@ def _aws_ecr_repository_share(snapshot, inventory, resource):
     return None
 
 
+
 def _aws_secret_foreign_read(snapshot, inventory, resource):
     """A named foreign GetSecretValue grant with a potentially shareable key."""
     from .trust import trusted_scopes
@@ -7265,6 +6872,7 @@ def _aws_secret_foreign_read(snapshot, inventory, resource):
     return a
 
 
+
 def _aws_sqs_foreign_receive(snapshot, inventory, resource):
     """A named foreign ReceiveMessage grant on an owned SQS queue."""
     from .trust import trusted_scopes
@@ -7341,57 +6949,34 @@ def _aws_sqs_foreign_receive(snapshot, inventory, resource):
             if value == "*":
                 foreign.add("*")
                 continue
-            name = domain_data.get("DomainName")
-            if active_stage_names is not None and mapping.get("Stage") in active_stage_names and isinstance(name, str) and name:
-                domains.append(name)
-            elif active_stage_names is None or not isinstance(mapping.get("Stage"), str) or not isinstance(name, str):
-                unresolved_domains.append(name or native_id(domain))
-    if data.get("DisableExecuteApiEndpoint") is True and not domains:
-        a.step("route", "unresolved", disable_execute_api_endpoint=True,
-               semantics="Manual HTTP API stages require redeployment before the live disable flag blocks the default endpoint")
-        a.gap("inventory", "stage-applied HTTP API default execute-api endpoint state not observed",
-              "apigatewayv2:GetStage stage-applied DisableExecuteApiEndpoint (not exposed)")
-        if unresolved_domains or inventory.state("apigatewayv2_domain_name", resource["scope"]) not in {"collected", "empty"}:
-            a.gap("inventory", "HTTP API custom-domain mappings or routing rules are not fully collected",
-                  "apigatewayv2 get_domain_names + get_api_mappings")
-        a.explicit = "UNKNOWN"
+            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if not foreign and not uncertain:
+        return None
+    key = attributes.get("KmsMasterKeyId")
+    key_coverage = attributes.get("_coverage", {}).get("KmsMasterKeyId") if isinstance(attributes.get("_coverage"), dict) else None
+    if key == "" and isinstance(key_coverage, dict) and key_coverage.get("status") == "empty":
+        key = None
+    if key in ("alias/aws/sqs", "aws/sqs"):
+        a.step("kms_key", "block", reason="AWS managed SQS KMS key cannot grant foreign decrypt")
         a.ports = {}
         return a
-    if data.get("DisableExecuteApiEndpoint") is not True:
-        endpoint = data.get("ApiEndpoint")
-        try:
-            parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
-            region = resource["scope"].rsplit("/", 1)[-1]
-            suffix = "amazonaws.com.cn" if region.startswith("cn-") else "amazonaws.com"
-            valid_endpoint = (parsed is not None and parsed.scheme == "https" and
-                              parsed.hostname == f"{data.get('ApiId')}.execute-api.{region}.{suffix}" and
-                              parsed.port is None and parsed.username is None and parsed.password is None and
-                              parsed.path in ("", "/") and not parsed.query and not parsed.fragment)
-        except ValueError:
-            valid_endpoint = False
-        if valid_endpoint:
-            a.addresses.append(endpoint)
-        else:
-            a.gap("inventory", "HTTP API default endpoint missing or malformed",
-                  "apigatewayv2:GetApis.ApiEndpoint")
-    a.addresses.extend(f"https://{name}" for name in sorted(set(domains)) if name)
-    if data.get("DisableExecuteApiEndpoint") is True:
-        a.gap("default_route", "stage-applied HTTP API default endpoint block not observed",
-              "apigatewayv2:GetStage stage-applied DisableExecuteApiEndpoint (not exposed)")
-    a.step("route", "allow", protocol=data.get("ProtocolType"), custom_domains=sorted(set(domains)),
-           disable_execute_api_endpoint=data.get("DisableExecuteApiEndpoint"))
-    stage = _aws_api_stage(data, a, "http")
-    if stage is not True:
-        a.ports = {} if stage is False else None
+    if key is not None and (not isinstance(key, str) or not key):
+        a.gap("kms_key", "SQS KMS key identity is malformed")
         return a
-    a.ports = pset("tcp", 443, 443)
-    routes = data.get("Routes")
-    if isinstance(routes, dict) and routes.get("collection_status") == "collected":
-        routes = routes.get("items")
-    a.step("authorization", "unknown", live_route_count=len(routes) if isinstance(routes, list) else None,
-           semantics="GetRoutes describes current API configuration, not the route snapshot deployed to an active stage")
-    a.gap("authorization", "stage-bound HTTP API route authorization not collected", "apigatewayv2:ExportApi")
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.explicit = "FAIL"
+        a.step("queue_policy", "allow", queue_arn=arn, external_accounts=sorted(foreign), action="sqs:ReceiveMessage")
+        a.gap("caller", "Foreign caller identity permission and any customer KMS Decrypt authorization were not observed")
+        return a
+    a.gap("policy", "SQS policy conditions or Deny applicability are unresolved")
     return a
+
 
 
 def _aws_sns_foreign_subscription(snapshot, inventory, resource):
@@ -7437,6 +7022,7 @@ def _aws_sns_foreign_subscription(snapshot, inventory, resource):
            subscriber_account=owner, protocol=protocol)
     a.gap("delivery", "Endpoint ownership and successful message delivery were not observed")
     return a
+
 
 
 def _aws_redshift_snapshot_share(snapshot, inventory, resource):
@@ -7606,95 +7192,6 @@ def _aws_cluster_snapshot_share(snapshot, inventory, resource):
     return None
 
 
-def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permission_key):
-    """Report only observed EC2 snapshot/image launch grants; missing reads stay unknown."""
-    from .trust import trusted_scopes
-    data = resource["data"]
-    a = Assessment(resource, "data_share")
-    coverage = (data.get("_coverage") or {}).get(coverage_field, {})
-    permissions = data.get(field)
-    if resource["type"] == "ec2_image" and data.get("Public") is True:
-        account = str(resource.get("scope", "")).split("/", 1)[0]
-        if data.get("OwnerId") not in (None, account):
-            a.gap("inventory", "Public AMI owner does not match the scanned account")
-            return a
-        a.step("image_public_flag", "allow", image_id=data.get("ImageId"), public=True,
-               image_state=data.get("State"))
-        if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
-            a.gap("attributes", "Launch permission detail is incomplete; DescribeImages.Public proves the public grant",
-                  "ec2:DescribeImageAttribute")
-        a.data_exposure = True
-        a.ports = {}
-        a.explicit = "FAIL"
-        return a
-    if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
-        a.gap("attributes", f"{coverage_field} not completely collected", f"ec2:{permission_key}")
-        return a
-    public = any(p == {"Group": "all"} for p in permissions)
-    selectors = {"UserId", "Group"} | ({"OrganizationArn", "OrganizationalUnitArn"} if resource["type"] == "ec2_image" else set())
-    if not all(isinstance(p, dict) and len(p) == 1 and next(iter(p)) in selectors and
-               isinstance(next(iter(p.values())), str) and next(iter(p.values())) for p in permissions):
-        if not public:
-            a.gap("attributes", f"{coverage_field} malformed", f"ec2:{permission_key}")
-            return a
-        a.gap("attributes", f"Additional {coverage_field} entries malformed", f"ec2:{permission_key}")
-        permissions = [{"Group": "all"}]
-    if any(("UserId" in p and not re.fullmatch(r"[0-9]{12}", p["UserId"])) or
-           ("Group" in p and p["Group"] != "all") for p in permissions):
-        if not public:
-            a.gap("attributes", f"{coverage_field} selector is unresolved", f"ec2:{permission_key}")
-            return a
-        a.gap("attributes", f"Additional {coverage_field} selectors unresolved", f"ec2:{permission_key}")
-        permissions = [{"Group": "all"}]
-    trusted = trusted_scopes(snapshot)["ids"]
-    external = {p["UserId"] for p in permissions if "UserId" in p and p["UserId"] not in trusted}
-    unresolved = False
-    if resource["type"] == "ec2_image":
-        account = str(resource.get("scope", "")).split("/", 1)[0]
-        own_organization = _aws_account_organization(inventory, account)
-        for permission in permissions:
-            field_name = next(iter(permission))
-            if field_name not in ("OrganizationArn", "OrganizationalUnitArn"):
-                continue
-            arn = permission[field_name]
-            pattern = (r"arn:[^:]+:organizations::([0-9]{12}):organization/(o-[a-z0-9]{10,32})" if field_name == "OrganizationArn" else
-                       r"arn:[^:]+:organizations::([0-9]{12}):ou/(o-[a-z0-9]{10,32})/ou-[a-z0-9-]+")
-            match = re.fullmatch(pattern, arn)
-            if match is None or own_organization is None:
-                unresolved = True
-            elif match.group(2) != own_organization[0]:
-                external.add(arn)
-            elif match.group(1) != own_organization[1]:
-                unresolved = True
-    external = sorted(external)
-    if resource["type"] == "ebs_snapshot" and public:
-        settings = [r for r in inventory.items("ec2_regional_settings") if r["scope"] == resource["scope"]]
-        state = settings[0]["data"].get("SnapshotBlockPublicAccessState") if len(settings) == 1 else None
-        if state == "block-all-sharing":
-            a.step("public_access_block", "block", state=state)
-            public = False
-        elif state not in ("block-new-sharing", "unblocked"):
-            a.gap("attributes", "EBS snapshot Block Public Access state not collected", "ec2:GetSnapshotBlockPublicAccessState")
-            return a
-        else:
-            a.step("public_access_block", "allow", state=state)
-    if public:
-        a.step("attributes", "allow", public_group="all")
-        a.data_exposure = True
-        a.ports = {}
-    elif external:
-        a.step("attributes", "allow", external_principals=external)
-        a.kind = "external_share"
-        a.external_ids = external
-        a.explicit = "FAIL"
-        if unresolved:
-            a.gap("attributes", "Additional AMI organization or OU scope is unresolved")
-    elif unresolved:
-        a.gap("attributes", "AMI organization or OU sharing scope is unresolved", "organizations:DescribeOrganization")
-    else:
-        a.step("attributes", "block", permission_count=len(permissions))
-        a.ports = {}
-    return a
 
 
 def _aws_kms_foreign_decrypt(snapshot, inventory, resource):
@@ -7799,6 +7296,7 @@ def _aws_kms_foreign_decrypt(snapshot, inventory, resource):
     return None
 
 
+
 def _aws_kms_foreign_grant(snapshot, inventory, resource):
     """A foreign Decrypt grantee on an enabled customer KMS key."""
     from .trust import trusted_scopes
@@ -7879,6 +7377,7 @@ def _aws_kms_foreign_grant(snapshot, inventory, resource):
     return a
 
 
+
 def _aws_ecr_public_repository(snapshot, inventory, resource):
     """An ECR Public repository is readable without a repository policy grant."""
     data = resource["data"]
@@ -7896,6 +7395,7 @@ def _aws_ecr_public_repository(snapshot, inventory, resource):
     a.explicit = "FAIL"
     a.gap("content", "Published image inventory and successful pull were not tested")
     return a
+
 
 
 def _aws_log_subscription_export(snapshot, inventory, resource):
@@ -7942,1420 +7442,35 @@ def _aws_log_subscription_export(snapshot, inventory, resource):
     return a
 
 
-def _aws_vpc_peering(snapshot, inventory, resource):
-    """Identify an active foreign peer with a local route into the connection."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    status = data.get("Status")
-    state = status.get("Code") if isinstance(status, dict) else None
-    if state in ("deleted", "deleting", "rejected", "expired", "failed", "pending-acceptance", "initiating-request", "provisioning"):
-        return None
-    a = Assessment(resource, "external_network")
-    if state != "active":
-        a.gap("connection", "VPC peering state is not active or is unresolved")
-        return a
-    account = str(resource.get("scope", "")).split("/", 1)[0]
-    requester, accepter = data.get("RequesterVpcInfo"), data.get("AccepterVpcInfo")
-    if not isinstance(requester, dict) or not isinstance(accepter, dict):
-        a.gap("inventory", "VPC peering owners or VPC IDs are not collected")
-        return a
-    sides = [(requester, accepter), (accepter, requester)]
-    local = next((side for side in sides if side[0].get("OwnerId") == account), None)
-    if local is None or not all(isinstance(value, str) and value for value in
-                                (local[0].get("VpcId"), local[1].get("VpcId"))) or not re.fullmatch(r"[0-9]{12}", str(local[1].get("OwnerId", ""))):
-        a.gap("inventory", "Local and peer VPC ownership could not be resolved")
-        return a
-    peer = local[1]["OwnerId"]
-    if peer in trusted_scopes(snapshot)["ids"]:
-        return None
-    peer_id = data.get("VpcPeeringConnectionId")
-    if not isinstance(peer_id, str) or not peer_id:
-        a.gap("inventory", "VPC peering connection ID is missing")
-        return a
-    peer_networks, peer_malformed = [], False
-    for field, key in (("CidrBlockSet", "CidrBlock"), ("Ipv6CidrBlockSet", "Ipv6CidrBlock")):
-        block_set = local[1].get(field, [])
-        if not isinstance(block_set, list):
-            peer_malformed = True
-            continue
-        for block in block_set:
-            network = _cidr(block.get(key)) if isinstance(block, dict) and block.get(key) else None
-            if network is None:
-                peer_malformed = True
-            else:
-                peer_networks.append(network)
-    if local[1].get("CidrBlock"):
-        network = _cidr(local[1]["CidrBlock"])
-        if network is None:
-            peer_malformed = True
-        else:
-            peer_networks.append(network)
-    routes, active_routes = [], []
-    malformed = False
-    selection_unknown = False
-    for table in inventory.items("route_table"):
-        if table["scope"].split("/", 1)[0] != account or table["data"].get("VpcId") != local[0]["VpcId"]:
-            continue
-        entries = table["data"].get("Routes")
-        if not isinstance(entries, list):
-            malformed = True
-            continue
-        if any(not isinstance(route, dict) for route in entries):
-            malformed = True
-        selected = _vpc_route_table_selected(inventory, table, table["scope"])
-        if selected is None:
-            selection_unknown = True
-        if selected is not True:
-            continue
-        for route in entries:
-            if not isinstance(route, dict) or route.get("VpcPeeringConnectionId") != peer_id or route.get("State") != "active":
-                continue
-            witness = {"route_table": table["data"].get("RouteTableId"),
-                       "destination": route.get("DestinationCidrBlock") or route.get("DestinationIpv6CidrBlock")}
-            active_routes.append(witness)
-            if _cidr(witness["destination"]) is None:
-                malformed = True
-                continue
-            selected = [_vpc_route_has_destination(entries, route, network, "VpcPeeringConnectionId", peer_id)
-                        for network in peer_networks]
-            if True in selected:
-                routes.append(witness)
-            elif None in selected:
-                selection_unknown = True
-    if routes:
-        a.step("peering_route", "allow", local_vpc=local[0]["VpcId"], peer_vpc=local[1]["VpcId"],
-               peer_account=peer, routes=routes)
-        a.external_ids = [peer]
-        a.explicit = "FAIL"
-        a.gap("backend", "Peer-side route, subnet ACL, security group and application access are not established")
-        if peer_malformed or malformed:
-            a.gap("inventory", "Additional peer CIDR or route records are malformed")
-    elif active_routes and (not peer_networks or peer_malformed or malformed):
-        a.gap("peering_route", "Peer CIDRs or active route destinations are incomplete")
-    elif inventory.state("route_table", resource["scope"]) in ("collected", "empty") and not malformed and not selection_unknown:
-        a.step("peering_route", "block", local_vpc=local[0]["VpcId"], peer_account=peer,
-               reason="no active local route to this peer")
-        a.ports = {}
-    else:
-        a.gap("peering_route", "Local subnet or route-table selection is incomplete", "ec2:DescribeRouteTables/DescribeSubnets")
-    return a
 
 
-def _aws_tgw_foreign_attachment(snapshot, inventory, resource):
-    """Join local VPC and TGW routes to a foreign VPC, Direct Connect gateway or gateway peer."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    if data.get("State") in ("deleted", "deleting", "failed", "rejected"):
-        return None
-    account = str(resource.get("scope", "")).split("/", 1)[0]
-    peer = resource["type"] == "transit_gateway_peering_attachment"
-    if peer:
-        requester, accepter = data.get("RequesterTgwInfo"), data.get("AccepterTgwInfo")
-        sides = [(requester, accepter), (accepter, requester)]
-        local_side = next((pair for pair in sides if isinstance(pair[0], dict) and
-                           pair[0].get("OwnerId") == account and pair[0].get("Region") == resource["scope"].partition("/")[2]), None)
-        local_info, remote_info = local_side if local_side else ({}, {})
-        owner = remote_info.get("OwnerId") if isinstance(remote_info, dict) else None
-        gateway = local_info.get("TransitGatewayId")
-        target_id = remote_info.get("TransitGatewayId") if isinstance(remote_info, dict) else None
-    elif data.get("ResourceType") in ("vpc", "direct-connect-gateway"):
-        owner = data.get("ResourceOwnerId")
-        gateway = data.get("TransitGatewayId")
-        target_id = data.get("ResourceId")
-    else:
-        return None
-    attachment = data.get("TransitGatewayAttachmentId")
-    if owner in trusted_scopes(snapshot)["ids"]:
-        return None
-    a = Assessment(resource, "external_network")
-    if (data.get("State") != "available" or (not peer and data.get("TransitGatewayOwnerId") != account) or
-            not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner) or
-            not all(isinstance(value, str) and value for value in (gateway, attachment, target_id))):
-        a.gap("inventory", "Foreign transit attachment state, owner or gateway is unresolved")
-        return a
-    local = [row for row in inventory.items("transit_gateway_attachment")
-             if row["scope"] == resource["scope"] and row["data"].get("TransitGatewayId") == gateway
-             and row["data"].get("TransitGatewayOwnerId") == account
-             and row["data"].get("ResourceOwnerId") == account and row["data"].get("ResourceType") == "vpc"
-             and row["data"].get("State") == "available"]
-    for near in local:
-        info = near["data"]
-        assoc = info.get("Association")
-        table_id = assoc.get("TransitGatewayRouteTableId") if isinstance(assoc, dict) and assoc.get("State") == "associated" else None
-        table = inventory.get("transit_gateway_route_table", table_id)
-        if table is None or table["scope"] != resource["scope"] or table["data"].get("TransitGatewayId") != gateway or table["data"].get("State") != "available":
-            continue
-        route_inventory = table["data"].get("RouteInventory")
-        system_inventory = table["data"].get("SystemRouteInventory")
-        associations = table["data"].get("AssociationInventory")
-        if (not isinstance(route_inventory, dict) or route_inventory.get("collection_status") not in ("collected", "empty") or
-                route_inventory.get("queries") != ["type=static", "type=propagated"] or not isinstance(route_inventory.get("items"), list) or
-                not isinstance(system_inventory, dict) or system_inventory.get("collection_status") not in ("collected", "empty") or
-                system_inventory.get("queries") != ["type=system"] or not isinstance(system_inventory.get("items"), list) or
-                not isinstance(associations, dict) or associations.get("collection_status") not in ("collected", "empty") or
-                not isinstance(associations.get("items"), list) or not any(isinstance(row, dict) and
-                row.get("TransitGatewayAttachmentId") == info.get("TransitGatewayAttachmentId") and row.get("State") == "associated"
-                for row in associations["items"])):
-            continue
-        all_gateway_routes = [*route_inventory["items"], *system_inventory["items"]]
-        target_routes = []
-        for route in route_inventory["items"]:
-            if not isinstance(route, dict) or route.get("State") != "active" or route.get("Type") not in ("static", "propagated"):
-                continue
-            targets = route.get("TransitGatewayAttachments")
-            if (not isinstance(targets, list) or len(targets) != 1 or not isinstance(targets[0], dict) or
-                    targets[0].get("TransitGatewayAttachmentId") != attachment or
-                    targets[0].get("ResourceType") not in (("peering", "tgw-peering") if peer else (data.get("ResourceType"),)) or
-                    (targets[0].get("ResourceId") not in (None, target_id) if peer else targets[0].get("ResourceId") != target_id) or
-                    (peer and route.get("Type") != "static")):
-                continue
-            destinations = _tgw_route_destinations(all_gateway_routes, route, attachment)
-            if destinations:
-                target_routes.extend(destinations)
-        for vpc_table in inventory.items("route_table"):
-            if vpc_table["scope"] != resource["scope"] or vpc_table["data"].get("VpcId") != info.get("ResourceId"):
-                continue
-            if _vpc_route_table_selected(inventory, vpc_table, resource["scope"]) is not True:
-                continue
-            vpc_routes = vpc_table["data"].get("Routes")
-            if not isinstance(vpc_routes, list):
-                continue
-            for vpc_route in vpc_routes:
-                if not isinstance(vpc_route, dict) or vpc_route.get("TransitGatewayId") != gateway or vpc_route.get("State") != "active":
-                    continue
-                local_destination = _cidr(vpc_route.get("DestinationCidrBlock") or vpc_route.get("DestinationIpv6CidrBlock"))
-                for foreign_destination in target_routes:
-                    if local_destination is None or not local_destination.overlaps(foreign_destination):
-                        continue
-                    if _vpc_route_has_destination(vpc_routes, vpc_route, foreign_destination,
-                                                  "TransitGatewayId", gateway) is not True:
-                        continue
-                    a.step("transit_route", "allow", local_vpc=info.get("ResourceId"), foreign_attachment=attachment,
-                           foreign_account=owner, vpc_route_table=vpc_table["data"].get("RouteTableId"),
-                           gateway_route_table=table_id, destination=str(foreign_destination))
-                    a.external_ids = [owner]
-                    a.explicit = "FAIL"
-                    a.gap("backend", "Foreign return route, subnet ACL, security group and application access are not established")
-                    return a
-    a.gap("transit_route", "A complete route from a local VPC through this gateway to the foreign attachment was not established")
-    return a
 
 
-def _aws_vpn_connection(snapshot, inventory, resource):
-    """Report the public IPsec frontend, separately from routed tunnel traffic."""
-    data = resource["data"]
-    if data.get("State") in ("deleted", "deleting"):
-        return None
-    a = Assessment(resource, "vpn_gateway")
-    options = data.get("Options")
-    if not isinstance(options, dict) or data.get("State") != "available":
-        a.gap("inventory", "VPN connection state or outside address mode is unresolved")
-        return a
-    mode = options.get("OutsideIpAddressType", "PublicIpv4")
-    if mode == "PrivateIpv4":
-        a.ports = {}
-        a.step("vpn_transport", "block", outside_address_type=mode)
-        return a
-    if mode not in ("PublicIpv4", "Ipv6"):
-        a.gap("inventory", "VPN outside address mode is unsupported or malformed")
-        return a
-    telemetry = data.get("VgwTelemetry")
-    tunnels = options.get("TunnelOptions")
-    if not isinstance(telemetry, list) or not isinstance(tunnels, list):
-        a.gap("inventory", "VPN tunnel outside addresses are not completely collected")
-        return a
-    rows = telemetry + tunnels
-    if not rows or any(not isinstance(row, dict) for row in rows):
-        a.gap("inventory", "VPN tunnel outside address records are missing or malformed")
-        return a
-    addresses = sorted({row["OutsideIpAddress"] for row in rows
-                        if isinstance(row.get("OutsideIpAddress"), str) and _public_ip(row["OutsideIpAddress"])})
-    if not addresses:
-        a.gap("inventory", "Public VPN tunnel outside address is absent or malformed")
-        return a
-    a.addresses = addresses
-    a.ports = union(pset("udp", 500, 500), pset("udp", 4500, 4500))
-    a.ports["esp"] = ((0, 0),)
-    a.authenticated = True
-    a.step("vpn_transport", "allow", addresses=addresses, protocols=["udp/500", "udp/4500", "esp"])
-    a.notes.append("Public IPsec tunnel endpoints require peer authentication; tunnel routes and downstream controls are separate")
-    return a
 
 
-def _aws_client_vpn_endpoint(snapshot, inventory, resource):
-    """Assess the managed OpenVPN listener, not post-login destination access."""
-    data = resource["data"]
-    status = data.get("Status")
-    state = status.get("Code") if isinstance(status, dict) else None
-    a = Assessment(resource, "vpn_gateway")
-    if state in ("pending-associate", "pending", "deleting", "deleted"):
-        a.ports = {}
-        a.step("endpoint_state", "block", state=state)
-        return a
-    if state != "available":
-        a.gap("inventory", "Client VPN endpoint state is unresolved")
-        return a
-    dns = data.get("DnsName")
-    if not isinstance(dns, str) or not dns.strip():
-        a.gap("inventory", "Available Client VPN endpoint has no collected DNS name")
-        return a
-    protocol = data.get("TransportProtocol", "udp")
-    port = data.get("VpnPort", 443)
-    if protocol not in ("tcp", "udp") or port not in (443, 1194):
-        a.gap("inventory", "Client VPN transport protocol or port is malformed")
-        return a
-    a.endpoint = dns
-    a.ports = pset(protocol, port, port)
-    a.authenticated = True
-    a.step("managed_vpn_listener", "allow", dns_name=a.endpoint, protocol=protocol, port=port)
-    a.notes.append("Client VPN requires authentication; authorization rules and routes control post-login destinations")
-    return a
 
 
-def _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource):
-    """Review all-client grants and retain unresolved group-scoped rules."""
-    data = resource["data"]
-    endpoint = data.get("ClientVpnEndpointId")
-    routing = inventory.get("client_vpn_routing", endpoint) if isinstance(endpoint, str) else None
-    detail = routing["data"] if routing is not None and routing["scope"] == resource["scope"] else {}
-    read = detail.get("AuthorizationRules", data.get("AuthorizationRules"))
-    if read is None:
-        return None
-    a = Assessment(resource, "vpn_client_authorization")
-    if (not isinstance(endpoint, str) or not re.fullmatch(r"cvpn-endpoint-[a-z0-9]+", endpoint) or
-            not isinstance(read, dict) or read.get("ClientVpnEndpointId") != endpoint):
-        a.gap("inventory", "Client VPN authorization rules are not bound to the scoped endpoint")
-        return a
-    state = (data.get("Status") or {}).get("Code") if isinstance(data.get("Status"), dict) else None
-    if state in {"pending-associate", "pending", "deleting", "deleted"}:
-        return None
-    if state != "available":
-        a.gap("inventory", "Client VPN endpoint state is unresolved")
-        return a
-    status = read.get("collection_status")
-    rules = read.get("items")
-    if status not in {"collected", "empty", "partial"} or not isinstance(rules, list):
-        a.gap("inventory", "Client VPN authorization rule read is incomplete")
-        return a
-    destinations, scoped, uncertain = [], [], status == "partial"
-    for rule in rules:
-        if not isinstance(rule, dict) or not isinstance(rule.get("Status"), dict):
-            uncertain = True
-            continue
-        rule_state = rule["Status"].get("Code")
-        if rule_state != "active":
-            if rule_state not in {"authorizing", "revoking", "failed"}:
-                uncertain = True
-            continue
-        all_groups = rule.get("AccessAll")
-        if type(all_groups) is not bool:
-            uncertain = True
-            continue
-        cidr = rule.get("DestinationCidr")
-        try:
-            network = ipaddress.ip_network(cidr, strict=True)
-        except (TypeError, ValueError):
-            uncertain = True
-            continue
-        if all_groups:
-            destinations.append(str(network))
-        elif isinstance(rule.get("GroupId"), str) and rule["GroupId"].strip():
-            scoped.append({"destination_cidr": str(network), "access_group_id": rule["GroupId"]})
-        else:
-            uncertain = True
-    if destinations or scoped:
-        a.authenticated = True
-        if destinations:
-            a.explicit = "FAIL"
-        a.step("client_authorization", "allow" if destinations else "conditional", endpoint_id=endpoint,
-               destination_cidrs=sorted(set(destinations)), group_rules=scoped)
-        if scoped:
-            a.gap("authorization", "Access-group membership and SAML or directory claims were not observed")
-        if uncertain:
-            a.gap("authorization", "Additional Client VPN authorization rules were not completely resolved")
-        routes, targets = detail.get("Routes"), detail.get("TargetNetworks")
-        if (isinstance(routes, dict) and routes.get("ClientVpnEndpointId") == endpoint and
-                routes.get("collection_status") in {"collected", "empty", "partial"} and
-                isinstance(routes.get("items"), list) and
-                isinstance(targets, dict) and targets.get("ClientVpnEndpointId") == endpoint and
-                targets.get("collection_status") in {"collected", "empty", "partial"} and
-                isinstance(targets.get("items"), list)):
-            associated, malformed = {}, False
-            for target in targets["items"]:
-                if not isinstance(target, dict) or target.get("ClientVpnEndpointId") != endpoint:
-                    malformed = True
-                    continue
-                if (isinstance(target.get("Status"), dict) and target["Status"].get("Code") == "associated" and
-                        isinstance(target.get("TargetNetworkId"), str) and
-                        re.fullmatch(r"subnet-[a-z0-9]+", target["TargetNetworkId"]) and
-                        isinstance(target.get("AssociationId"), str) and
-                        re.fullmatch(r"cvpn-assoc-[a-z0-9]+", target["AssociationId"]) and
-                        isinstance(target.get("VpcId"), str) and re.fullmatch(r"vpc-[a-z0-9]+", target["VpcId"])):
-                    if target["TargetNetworkId"] in associated:
-                        malformed = True
-                    associated[target["TargetNetworkId"]] = target
-                elif isinstance(target.get("Status"), dict) and target["Status"].get("Code") == "associated":
-                    malformed = True
-            matched = []
-            all_destinations = destinations + [item["destination_cidr"] for item in scoped]
-            for route in routes["items"]:
-                if not isinstance(route, dict) or route.get("ClientVpnEndpointId") != endpoint or not isinstance(route.get("Status"), dict):
-                    malformed = True
-                    continue
-                if route["Status"].get("Code") != "active":
-                    continue
-                try:
-                    route_network = ipaddress.ip_network(route.get("DestinationCidr"), strict=True)
-                except (TypeError, ValueError):
-                    malformed = True
-                    continue
-                subnet = route.get("TargetSubnet")
-                if not isinstance(subnet, str):
-                    malformed = True
-                    continue
-                target = associated.get(subnet)
-                if target and any(route_network.version == (network := ipaddress.ip_network(cidr)).version and
-                                  route_network.overlaps(network) for cidr in all_destinations):
-                    matched.append({"route_cidr": str(route_network), "target_subnet": route["TargetSubnet"],
-                                    "vpc_id": target["VpcId"], "association_id": target.get("AssociationId"),
-                                    "security_groups": target.get("SecurityGroups", [])})
-            if matched:
-                a.step("client_route", "allow", routes=matched)
-                a.gap("destination", "Destination security groups, NACLs, device policy and actual traffic were not verified")
-                if malformed:
-                    a.gap("route", "Additional Client VPN routes or target networks are malformed")
-                if routes.get("collection_status") == "partial" or targets.get("collection_status") == "partial":
-                    a.gap("route", "Additional Client VPN routes or target networks were not completely collected")
-            else:
-                a.gap("route", "No validated active Client VPN route and associated target subnet joins this authorization rule")
-        else:
-            a.gap("route", "Client VPN route or target-network association read is incomplete")
-        a.gap("caller", "Client authentication, device policy and actual traffic were not observed")
-        return a
-    if uncertain:
-        a.gap("authorization", "Client VPN all-client authorization status or destination is unresolved")
-        return a
-    return None
 
 
-def _aws_vpc_endpoint_service(snapshot, inventory, resource):
-    """Classify PrivateLink invitations and accepted cross-account connections."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_share")
-    state = data.get("ServiceState")
-    if state in ("Deleted", "Deleting", "Failed"):
-        return None
-    if state != "Available":
-        a.gap("inventory", "VPC endpoint service state is unresolved")
-        return a
-    trusted = trusted_scopes(snapshot)["ids"]
-    connections = data.get("EndpointConnections")
-    active_foreign = []
-    connections_complete = isinstance(connections, list)
-    if connections_complete:
-        for row in connections:
-            if not isinstance(row, dict) or row.get("ServiceId") != data.get("ServiceId"):
-                connections_complete = False
-                break
-            connection_state = row.get("VpcEndpointState")
-            if connection_state == "Available":
-                owner = row.get("VpcEndpointOwner")
-                endpoint_id = row.get("VpcEndpointId")
-                if not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner) or not isinstance(endpoint_id, str):
-                    connections_complete = False
-                    break
-                if owner not in trusted:
-                    active_foreign.append({"account": owner, "endpoint": endpoint_id})
-            elif connection_state not in ("PendingAcceptance", "Pending", "Deleting", "Deleted", "Rejected", "Failed", "Expired"):
-                connections_complete = False
-                break
-    if not connections_complete:
-        a.gap("inventory", "VPC endpoint service connections are not completely collected",
-              "ec2:DescribeVpcEndpointConnections")
-    principals = data.get("AllowedPrincipals")
-    principals_complete = isinstance(principals, list) and all(isinstance(p, str) for p in principals)
-    if not principals_complete:
-        a.gap("inventory", "VPC endpoint service allowed principals are not completely collected",
-              "ec2:DescribeVpcEndpointServicePermissions")
-        principals = []
-    external = []
-    unknown = []
-    for principal in principals:
-        if principal == "*":
-            external.append(principal)
-            continue
-        match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):(?:root|role/.+|user/.+)", principal)
-        if match:
-            if match.group(1) not in trusted:
-                external.append(principal)
-        else:
-            unknown.append(principal)
-    if external or active_foreign:
-        a.external_ids = sorted(set(external) | {row["account"] for row in active_foreign})
-        a.explicit = "FAIL"
-        if external:
-            a.step("allowed_principals", "allow", external_principals=sorted(set(external)),
-                   acceptance_required=data.get("AcceptanceRequired"))
-            a.notes.append("Allowed principals can request PrivateLink connections; manual acceptance and backend access are separate")
-        if active_foreign:
-            a.step("endpoint_connections", "allow", active_external_connections=active_foreign)
-            a.notes.append("Available external endpoints remain connected even if their principals were removed from the allowlist")
-    elif unknown:
-        a.gap("inventory", "VPC endpoint service principal scope is unresolved")
-    elif principals_complete and connections_complete:
-        a.ports = {}
-        a.step("external_access", "block", principal_count=len(principals), connection_count=len(connections))
-    return a
 
 
-def _aws_ecr_registry_replication(snapshot, inventory, resource):
-    """Identify configured ECR image replication to a foreign registry."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_share")
-    replication = data.get("Replication")
-    if not isinstance(replication, dict) or replication.get("collection_status") != "collected":
-        a.gap("inventory", "ECR registry replication configuration is not completely collected", "ecr:DescribeRegistry")
-        return a
-    rules = replication.get("rules")
-    if not isinstance(rules, list):
-        a.gap("inventory", "ECR registry replication rules are malformed")
-        return a
-    trusted = trusted_scopes(snapshot)["ids"]
-    external = []
-    malformed = False
-    for rule in rules:
-        if not isinstance(rule, dict) or not isinstance(rule.get("destinations"), list):
-            malformed = True
-            continue
-        filters = rule.get("repositoryFilters", [])
-        if not isinstance(filters, list) or any(not isinstance(f, dict) or f.get("filterType") != "PREFIX_MATCH"
-                                                or not isinstance(f.get("filter"), str) for f in filters):
-            malformed = True
-            continue
-        for destination in rule["destinations"]:
-            if not isinstance(destination, dict):
-                malformed = True
-                continue
-            account = destination.get("registryId")
-            region = destination.get("region")
-            if not isinstance(account, str) or not re.fullmatch(r"[0-9]{12}", account) or not isinstance(region, str) or not region:
-                malformed = True
-                continue
-            if account not in trusted:
-                external.append({"account": account, "region": region,
-                                 "repository_prefixes": sorted(f["filter"] for f in filters)})
-    if malformed:
-        a.gap("inventory", "Some ECR replication destinations or filters are malformed")
-    if external:
-        a.external_ids = sorted({row["account"] for row in external})
-        a.explicit = "FAIL"
-        a.step("replication", "allow", external_destinations=external)
-        a.notes.append("Destination registry permission is required; the source account cannot prove completed replication")
-    elif not malformed:
-        a.ports = {}
-        a.step("replication", "block", rule_count=len(rules))
-    return a
 
 
-def _aws_ecr_registry_policy_pull(snapshot, inventory, resource):
-    """A private-registry policy granting foreign image-pull actions."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    read = data.get("RegistryPolicy")
-    if isinstance(read, dict) and read.get("absent") is True:
-        return None
-    a = Assessment(resource, "external_registry_policy_pull")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    if not re.fullmatch(r"[0-9]{12}", account) or data.get("registryId") != account:
-        a.gap("inventory", "ECR registry identity does not match the scoped account")
-        return a
-    if not isinstance(read, dict) or read.get("collection_status") != "collected":
-        a.gap("inventory", "ECR registry policy read is incomplete", "ecr:GetRegistryPolicy")
-        return a
-    policy = read.get("policyText")
-    if isinstance(policy, str):
-        try:
-            policy = json.loads(policy)
-        except ValueError:
-            policy = None
-    statements = policy.get("Statement") if isinstance(policy, dict) else None
-    statements = [statements] if isinstance(statements, dict) else statements
-    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
-        a.gap("inventory", "ECR registry policy statements are malformed")
-        return a
-    prefix = f"arn:{partition}:ecr:{region}:{account}:repository/"
-    required = ("ecr:batchgetimage", "ecr:getdownloadurlforlayer")
-    trusted = trusted_scopes(snapshot)["ids"]
-    foreign, patterns, uncertain = set(), set(), False
-    for statement in statements:
-        matches = [_aws_policy_required_actions(statement, (action,)) for action in required]
-        if any(match is None for match in matches):
-            uncertain = True
-            continue
-        matched = {action for action, match in zip(required, matches) if match}
-        if not matched:
-            continue
-        if statement.get("Effect") == "Deny" and any(key in statement for key in ("NotResource", "NotPrincipal")):
-            uncertain = True
-            continue
-        resources = as_list(statement.get("Resource"))
-        if not all(isinstance(x, str) for x in resources):
-            uncertain = True
-            continue
-        owned = [value for value in resources if value == "*" or value.startswith(prefix) and len(value) > len(prefix)]
-        if not owned:
-            continue
-        if statement.get("Effect") == "Deny":
-            uncertain = True
-            continue
-        if len(matched) != len(required):
-            continue
-        if statement.get("Effect") != "Allow" or statement.get("Condition") or any(
-                key in statement for key in ("NotPrincipal", "NotResource")):
-            uncertain = True
-            continue
-        principal = statement.get("Principal")
-        principal = principal.get("AWS") if isinstance(principal, dict) else principal
-        principals = [principal] if isinstance(principal, str) else principal
-        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
-            uncertain = True
-            continue
-        for value in principals:
-            if value == "*":
-                foreign.add("*")
-                patterns.update(owned)
-                continue
-            match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
-            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
-            if owner is None:
-                uncertain = True
-            elif owner not in trusted:
-                foreign.add(owner)
-                patterns.update(owned)
-    if foreign and not uncertain:
-        a.external_ids = sorted(foreign)
-        a.authenticated = True
-        a.explicit = "FAIL"
-        a.step("registry_policy", "allow", resource_patterns=sorted(patterns), external_principals=sorted(foreign),
-               actions=["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"])
-        a.gap("caller", "Authorization token, identity permissions, matching repositories and image pulls were not observed")
-        return a
-    if foreign or uncertain:
-        a.gap("policy", "ECR registry pull grant, conditions or Deny applicability are unresolved")
-        return a
-    return None
 
 
-def _aws_ecr_template_pull(snapshot, inventory, resource):
-    """A creation template that would attach a foreign pull policy to future repositories."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_registry_template_pull")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    if not re.fullmatch(r"[0-9]{12}", account) or data.get("registryId") != account:
-        a.gap("inventory", "ECR registry identity does not match the scoped account")
-        return a
-    read = data.get("RepositoryCreationTemplates")
-    if not isinstance(read, dict) or read.get("collection_status") not in ("collected", "empty"):
-        a.gap("inventory", "ECR repository creation templates are incompletely collected", "ecr:DescribeRepositoryCreationTemplates")
-        return a
-    templates = read.get("items")
-    if not isinstance(templates, list):
-        a.gap("inventory", "ECR repository creation template list is malformed")
-        return a
-    if not templates and read.get("collection_status") == "empty":
-        return None
-    trusted = trusted_scopes(snapshot)["ids"]
-    required = ("ecr:batchgetimage", "ecr:getdownloadurlforlayer")
-    grants, uncertain = [], False
-    for template in templates:
-        if not isinstance(template, dict):
-            uncertain = True
-            continue
-        prefix, workflows = template.get("prefix"), template.get("appliedFor")
-        if (not isinstance(prefix, str) or not prefix or
-                not isinstance(workflows, list) or not workflows or
-                any(value not in ("PULL_THROUGH_CACHE", "CREATE_ON_PUSH", "REPLICATION") for value in workflows)):
-            uncertain = True
-            continue
-        policy = template.get("repositoryPolicy")
-        if policy is None:
-            continue
-        if isinstance(policy, str):
-            try:
-                policy = json.loads(policy)
-            except ValueError:
-                policy = None
-        statements = policy.get("Statement") if isinstance(policy, dict) else None
-        statements = [statements] if isinstance(statements, dict) else statements
-        if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
-            uncertain = True
-            continue
-        for statement in statements:
-            matches = [_aws_policy_required_actions(statement, (action,)) for action in required]
-            if any(match is None for match in matches):
-                uncertain = True
-                continue
-            matched = {action for action, match in zip(required, matches) if match}
-            if not matched:
-                continue
-            if statement.get("Effect") == "Deny" and any(key in statement for key in ("NotResource", "NotPrincipal")):
-                uncertain = True
-                continue
-            resources = as_list(statement.get("Resource", "*"))
-            if resources != ["*"]:
-                uncertain = True
-                continue
-            if statement.get("Effect") == "Deny":
-                uncertain = True
-                continue
-            if len(matched) != len(required):
-                continue
-            if statement.get("Effect") != "Allow" or statement.get("Condition") or any(
-                    key in statement for key in ("NotPrincipal", "NotResource")):
-                uncertain = True
-                continue
-            principal = statement.get("Principal")
-            principal = principal.get("AWS") if isinstance(principal, dict) else principal
-            principals = [principal] if isinstance(principal, str) else principal
-            if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
-                uncertain = True
-                continue
-            for value in principals:
-                if value == "*":
-                    grants.append({"principal": "*", "prefix": prefix, "workflows": sorted(set(workflows))})
-                    continue
-                match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
-                owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
-                if owner is None:
-                    uncertain = True
-                elif owner not in trusted:
-                    grants.append({"principal": owner, "prefix": prefix, "workflows": sorted(set(workflows))})
-    if grants and not uncertain:
-        a.external_ids = sorted({row["principal"] for row in grants})
-        a.authenticated = True
-        a.dormant = True
-        a.explicit = "FAIL"
-        a.step("repository_creation_template", "allow", future_grants=grants)
-        a.gap("creation", "Templates affect only future ECR-created repositories; matching repository creation and image pulls were not observed")
-        return a
-    if grants or uncertain:
-        a.gap("policy", "ECR template policy, conditions or Deny applicability are unresolved")
-        return a
-    return None
 
 
-def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
-    """A source-attributed resource policy declaring access for a foreign AWS principal."""
-    from .trust import trusted_scopes
-    from fnmatch import fnmatchcase
-
-    data = resource["data"]
-    provenance = data.get("_provenance")
-    a = Assessment(resource, "external_generic_policy_grant")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    arn = data.get("ResourceArn")
-    if (not isinstance(provenance, dict) or provenance.get("read_only") is not True or
-            provenance.get("owner_account") != account or not isinstance(provenance.get("families"), list) or
-            not provenance["families"] or any(not isinstance(x, str) for x in provenance["families"]) or
-            not isinstance(arn, str)):
-        a.gap("inventory", "Resource policy source or owner is not attributable to the scanned account")
-        return a
-    parts = arn.split(":", 5)
-    if (len(parts) != 6 or parts[0] != "arn" or parts[1] != partition or
-            parts[3] not in (region, "") or parts[4] not in (account, "") or not parts[5] or
-            (parts[4] == "" and not all(str(family).startswith("s3-") for family in provenance["families"]))):
-        a.gap("inventory", "Resource policy ARN is outside the owned partition, account or Region")
-        return a
-    if parts[2] == "logs" and any(family in {"logs-policies", "logs-resource-policies"}
-                                    for family in provenance["families"]):
-        # PutResourcePolicy only authorizes AWS service principals. Destination
-        # access policies have their own cross-account handler.
-        return None
-    policy = data.get("Policy")
-    statements = policy.get("Statement") if isinstance(policy, dict) else None
-    statements = [statements] if isinstance(statements, dict) else statements
-    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
-        a.gap("inventory", "Resource policy statements are malformed")
-        return a
-    # An unconditional all-principal, all-action, all-resource Deny defeats
-    # every Allow in this attached policy, including role trust statements.
-    if any(statement.get("Effect") == "Deny" and
-           statement.get("Principal") in ("*", {"AWS": "*"}) and
-           "*" in as_list(statement.get("Action")) and
-           ("*" in as_list(statement.get("Resource")) or
-            "iam-role-trust" in provenance["families"] and "Resource" not in statement) and
-           statement.get("Condition") in (None, {}) and
-           not any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource"))
-           for statement in statements):
-        return None
-    trusted = trusted_scopes(snapshot)["ids"]
-    # The base families have separate, more precise checks for these actions.
-    dedicated = {"sns": {"sns:subscribe"}, "sqs": {"sqs:receivemessage"},
-                 "lambda": {"lambda:invokefunction", "lambda:invokefunctionurl"},
-                 "ecr": {"ecr:batchgetimage", "ecr:getdownloadurlforlayer"}}
-    excluded_actions = dedicated.get(parts[2], set()) if "covered_services" in provenance else set()
-    not_action_witnesses = {"sqs": ("sqs:SendMessage", "sqs:ReceiveMessage"),
-                            "sns": ("sns:Publish", "sns:Subscribe"),
-                            "kms": ("kms:Decrypt",),
-                            "secretsmanager": ("secretsmanager:GetSecretValue",),
-                            "ecr": ("ecr:PutImage",)}
-    grants, uncertain, candidate, denied_accounts = [], False, False, set()
-    account_denies = []
-    allowed_actions = [action.lower() for statement in statements if statement.get("Effect") == "Allow"
-        for action in as_list(statement.get("Action")) if isinstance(action, str)]
-    literal_allows = bool(allowed_actions) and all(
-        action and not any(wildcard in action for wildcard in "*?") for action in allowed_actions)
-    # A universal Deny for the same exact action set and resource defeats all
-    # foreign grants in this policy. Keep patterned/NotAction Allows unresolved:
-    # proving a Deny covers an arbitrary action pattern needs policy algebra.
-    exact_allows = [s for s in statements if s.get("Effect") == "Allow"]
-    if (literal_allows and exact_allows and
-            all("NotAction" not in s and isinstance(s.get("Action"), (str, list)) and
-                as_list(s.get("Action")) and all(isinstance(x, str) and x for x in as_list(s.get("Action")))
-                for s in exact_allows)):
-        for deny in statements:
-            if (deny.get("Effect") != "Deny" or deny.get("Principal") not in ("*", {"AWS": "*"}) or
-                    deny.get("Condition") not in (None, {}) or
-                    any(key in deny for key in ("NotPrincipal", "NotAction", "NotResource"))):
-                continue
-            denied_actions = as_list(deny.get("Action"))
-            if not denied_actions or any(not isinstance(x, str) or not x for x in denied_actions):
-                continue
-            if not all(any(fnmatchcase(action, pattern.lower()) for pattern in denied_actions)
-                       for action in allowed_actions):
-                continue
-            deny_resources = as_list(deny.get("Resource"))
-            if ("*" in deny_resources or
-                    arn in deny_resources and all(as_list(s.get("Resource")) == [arn] for s in exact_allows) or
-                    "iam-role-trust" in provenance["families"] and "Resource" not in deny and
-                    all("Resource" not in s for s in exact_allows)):
-                return None
-    for statement in statements:
-        if statement.get("Effect") == "Deny":
-            denied_actions = as_list(statement.get("Action"))
-            if (literal_allows and "NotAction" not in statement and denied_actions
-                    and all(isinstance(action, str) and action and
-                            not any(wildcard in action for wildcard in "*?") and
-                            action.lower() not in allowed_actions for action in denied_actions)):
-                continue
-            deny_principal = statement.get("Principal")
-            if "NotPrincipal" not in statement and isinstance(deny_principal, dict) and set(deny_principal) == {"AWS"}:
-                values = as_list(deny_principal["AWS"])
-                owners = []
-                for value in values:
-                    if not isinstance(value, str):
-                        break
-                    match = re.fullmatch(r"arn:" + re.escape(partition) +
-                        r":iam::([0-9]{12}):root", value)
-                    owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
-                    if owner is None:
-                        break
-                    owners.append(owner)
-                deny_resources = as_list(statement.get("Resource")) if "Resource" in statement else (
-                    [arn] if "iam-role-trust" in provenance["families"] else [])
-                if (values and len(owners) == len(values) and statement.get("Condition") in (None, {}) and
-                        "NotAction" not in statement and "NotResource" not in statement and
-                        denied_actions and all(isinstance(x, str) and x for x in denied_actions) and
-                        deny_resources and all(isinstance(x, str) and x for x in deny_resources)):
-                    account_denies.extend((owner, denied_actions, deny_resources) for owner in owners)
-                    continue
-            uncertain = True
-            continue
-        if statement.get("Effect") != "Allow":
-            uncertain = True
-            continue
-        derived_not_action = False
-        unresolved_not_action = False
-        if "NotAction" in statement:
-            excluded = as_list(statement.get("NotAction"))
-            if "Action" in statement or not excluded or any(not isinstance(value, str) or not value for value in excluded):
-                uncertain = True
-                continue
-            derived_not_action = True
-            actions = [value for value in not_action_witnesses.get(parts[2], ())
-                       if not any(fnmatchcase(value.lower(), pattern.lower()) for pattern in excluded)]
-            unresolved_not_action = not actions
-        else:
-            actions = as_list(statement.get("Action"))
-            if not actions or any(not isinstance(value, str) or not value for value in actions):
-                uncertain = True
-                continue
-            actions = [value for value in actions if value.lower() not in excluded_actions]
-            if parts[2] == "ses" and "ses-identities" in provenance["families"]:
-                # SES identity policies delegate sending through these actions.
-                actions = [value for value in actions if any(fnmatchcase(action, value.lower())
-                    for action in ("ses:sendemail", "ses:sendrawemail"))]
-            if not actions:
-                continue
-        resources = as_list(statement.get("Resource", arn))
-        if not resources or any(not isinstance(value, str) or not value for value in resources):
-            uncertain = True
-            continue
-        if not any(value == "*" or fnmatchcase(arn, value) or
-                   value.startswith(arn + "/") or value.startswith(arn + ":") for value in resources):
-            continue
-        principal = statement.get("Principal")
-        if principal == "*":
-            principals = ["*"]
-        elif isinstance(principal, dict) and "AWS" in principal:
-            principals = as_list(principal["AWS"])
-        elif isinstance(principal, dict) and "AWS" not in principal:
-            continue  # Service/federated principals require service-specific semantics.
-        else:
-            uncertain = True
-            continue
-        if not principals or any(not isinstance(value, str) for value in principals):
-            uncertain = True
-            continue
-        condition = statement.get("Condition")
-        account_condition = None
-        arn_condition = None
-        org_condition = None
-        org_paths_condition = None
-        source_ip_cidrs = None
-        if isinstance(condition, dict) and len(condition) == 1:
-            operator, equals = next(iter(condition.items()))
-            if isinstance(equals, dict) and len(equals) == 1:
-                key, raw_values = next(iter(equals.items()))
-                values = as_list(raw_values)
-                if operator == "StringEquals" and key == "aws:PrincipalAccount" and values and all(
-                        isinstance(item, str) and re.fullmatch(r"[0-9]{12}", item) for item in values):
-                    account_condition = set(values)
-                if operator in {"ArnEquals", "StringEquals"} and key == "aws:PrincipalArn" and values:
-                    matches = [re.fullmatch(r"arn:" + re.escape(partition) +
-                        r":iam::([0-9]{12}):(?:root|(?:role|user)/[^*?${}]+)", item)
-                        if isinstance(item, str) else None for item in values]
-                    if all(matches):
-                        arn_condition = {item: match.group(1) for item, match in zip(values, matches)}
-                if operator == "StringEquals" and str(key).lower() == "aws:principalorgid" and values and all(
-                        isinstance(item, str) and re.fullmatch(r"o-[a-z0-9]{10,32}", item) for item in values):
-                    org_condition = set(values)
-                if operator in {"ForAnyValue:StringEquals", "ForAnyValue:StringLike"} and str(key).lower() == "aws:principalorgpaths" and values:
-                    paths = {}
-                    for item in values:
-                        match = re.fullmatch(
-                            r"(o-[a-z0-9]{10,32})/(?:\*|r-[a-z0-9]{4,32}/(?:ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}/)*(?:\*)?)",
-                            item) if isinstance(item, str) else None
-                        if match is None or operator.endswith("StringEquals") and "*" in item:
-                            paths = {}
-                            break
-                        paths.setdefault(match.group(1), set()).add(item)
-                    if paths:
-                        org_paths_condition = paths
-                if operator == "IpAddress" and str(key).lower() == "aws:sourceip" and values:
-                    try:
-                        cidrs = [str(ipaddress.ip_network(value, strict=False)) for value in values
-                                 if isinstance(value, str)]
-                    except ValueError:
-                        cidrs = []
-                    if len(cidrs) == len(values) and any(_public_source(value) for value in cidrs):
-                        source_ip_cidrs = sorted(set(cidrs))
-        for value in principals:
-            if value == "*":
-                owner = "*"
-            else:
-                match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
-                owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
-            if owner is None:
-                uncertain = True
-                continue
-            owners = [(owner, None)]
-            if org_condition is not None:
-                if value != "*":
-                    candidate = uncertain = True  # Named-principal membership in a foreign org is not observed.
-                    continue
-                own_org = _aws_account_organization(inventory, account)
-                if own_org is None:
-                    candidate = uncertain = True
-                    continue
-                owners = [(f"organization:{org}", None) for org in sorted(org_condition - {own_org[0]})]
-            elif org_paths_condition is not None:
-                if value != "*":
-                    candidate = uncertain = True
-                    continue
-                own_org = _aws_account_organization(inventory, account)
-                if own_org is None:
-                    candidate = uncertain = True
-                    continue
-                owners = [(f"organization:{org}", None) for org in sorted(set(org_paths_condition) - {own_org[0]})]
-            elif account_condition is not None:
-                owners = [(target, None) for target in (account_condition if owner == "*"
-                          else {owner} & account_condition)]
-            elif arn_condition is not None:
-                account_principal = owner == "*" or re.fullmatch(r"[0-9]{12}", value) or value.endswith(":root")
-                owners = [(target, principal_arn) for principal_arn, target in arn_condition.items()
-                          if owner == "*" or owner == target and (account_principal or value == principal_arn)]
-            for target, principal_arn in owners:
-                if target != "*" and target in trusted:
-                    continue
-                candidate = True
-                if (unresolved_not_action or condition and account_condition is None and arn_condition is None and org_condition is None and org_paths_condition is None and source_ip_cidrs is None or
-                        any(key in statement for key in ("NotPrincipal", "NotResource"))):
-                    uncertain = True
-                else:
-                    grants.append({"account": target, "actions": sorted(set(actions)),
-                                   **({"not_action": as_list(statement["NotAction"])} if derived_not_action else {}),
-                                   **({"organization_id": target.split(":", 1)[1]}
-                                      if target.startswith("organization:") else {}),
-                                   **({"organization_paths": sorted(org_paths_condition[target.split(":", 1)[1]])}
-                                      if org_paths_condition is not None and target.startswith("organization:") else {}),
-                                   **({"source_ip_cidrs": source_ip_cidrs} if source_ip_cidrs else {}),
-                                   **({"principal_arn": principal_arn} if principal_arn else {})})
-    exact_allow_resource = all((as_list(statement.get("Resource")) if "Resource" in statement else
-                                [arn] if "iam-role-trust" in provenance["families"] else []) == [arn]
-                               for statement in statements if statement.get("Effect") == "Allow")
-    surviving = []
-    for grant in grants:
-        relevant_denies = [(owner, actions) for owner, actions, resources in account_denies
-                           if "*" in resources or arn in resources and exact_allow_resource]
-        if grant["account"] == "*":
-            denied_accounts.update(owner for owner, actions in relevant_denies
-                if ("not_action" not in grant or "*" in actions) and
-                all(not any(char in action for char in "*?") and
-                    any(fnmatchcase(action.lower(), pattern.lower()) for pattern in actions)
-                    for action in grant["actions"]))
-            surviving.append(grant)
-            continue
-        applicable = [actions for owner, actions in relevant_denies if owner == grant["account"]]
-        if not applicable:
-            surviving.append(grant)
-            continue
-        if "not_action" in grant and not any("*" in actions for actions in applicable):
-            uncertain = True
-            surviving.append(grant)
-            continue
-        remaining_actions = [action for action in grant["actions"] if not any(
-            fnmatchcase(action.lower(), pattern.lower()) for actions in applicable for pattern in actions)]
-        if any(any(char in action for char in "*?") for action in remaining_actions):
-            uncertain = True
-        if remaining_actions:
-            surviving.append({**grant, "actions": remaining_actions})
-    grants = surviving
-    if grants and parts[2] == "ses" and "ses-identities" in provenance["families"]:
-        identity_name = parts[5].removeprefix("identity/")
-        identities = [item["data"] for item in inventory.items("ses_email_identity")
-                      if item.get("scope") == resource.get("scope") and
-                      item["data"].get("IdentityName") == identity_name]
-        if (not parts[5].startswith("identity/") or not identity_name or
-                len(identities) != 1 or not isinstance(identities[0].get("Identity"), dict) or
-                identities[0]["Identity"].get("collection_status") != "collected" or
-                not isinstance(identities[0]["Identity"].get("VerifiedForSendingStatus"), bool)):
-            a.gap("inventory", "SES identity verification detail is missing or incomplete")
-            return a
-        if identities[0]["Identity"]["VerifiedForSendingStatus"] is False:
-            return None
-    if grants and not uncertain:
-        a.external_ids = sorted({grant["account"] for grant in grants})
-        a.authenticated = True
-        a.explicit = "FAIL"
-        a.step("resource_policy", "allow", resource_arn=arn, source_families=provenance["families"],
-               external_grants=grants, **({"ses_identity_verified_for_sending": True}
-                                       if parts[2] == "ses" and "ses-identities" in provenance["families"] else {}),
-               **({"excluded_deny_accounts": sorted(denied_accounts)}
-                                        if denied_accounts and any(grant["account"] == "*" for grant in grants) else {}))
-        a.gap("caller", "Caller identity permissions, service-specific prerequisites and actual use were not observed")
-        return a
-    if grants or candidate and uncertain:
-        a.gap("policy", "Resource policy conditions, Deny or foreign principal applicability are unresolved")
-        return a
-    return None
 
 
-def _aws_role_foreign_assumption(snapshot, inventory, resource):
-    """An owned role trust policy declaring AssumeRole to a foreign AWS principal."""
-    from .iam import assume_role_document
-    from fnmatch import fnmatchcase
-
-    data = resource["data"]
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    arn, name = data.get("Arn"), data.get("RoleName")
-    if (not isinstance(name, str) or not name or not isinstance(arn, str) or
-            not re.fullmatch(r"arn:" + re.escape(partition) + r":iam::" + re.escape(account) +
-                             r":role/(?:[^/]+/)*" + re.escape(name), arn)):
-        a = Assessment(resource, "external_generic_policy_grant")
-        a.gap("inventory", "IAM role trust policy is not attributable to the scoped role")
-        return a
-    policy = assume_role_document(resource)
-    if policy is None:
-        a = Assessment(resource, "external_generic_policy_grant")
-        a.gap("inventory", "IAM role trust policy is missing or malformed")
-        return a
-    statements = as_list(policy.get("Statement"))
-    relevant = []
-    derived_not_action = False
-    for statement in statements:
-        if not isinstance(statement, dict):
-            relevant.append(statement)
-            continue
-        if statement.get("Effect") == "Deny" and "NotAction" in statement:
-            relevant.append(statement)  # Could deny AssumeRole even without an Action field.
-            continue
-        if statement.get("Effect") == "Allow" and "NotAction" in statement:
-            excluded = as_list(statement.get("NotAction"))
-            if ("Action" in statement or not excluded or
-                    any(not isinstance(action, str) or not action for action in excluded)):
-                relevant.append({**statement, "Action": ["sts:AssumeRole"]})  # Malformed exclusion stays UNKNOWN.
-            elif not any(fnmatchcase("sts:assumerole", action.lower()) for action in excluded):
-                relevant.append({**{key: value for key, value in statement.items() if key != "NotAction"},
-                                 "Action": ["sts:AssumeRole"]})
-                derived_not_action = True
-            continue
-        actions = as_list(statement.get("Action"))
-        matched = [action for action in actions if isinstance(action, str) and
-                   fnmatchcase("sts:assumerole", action.lower())]
-        if matched:
-            relevant.append({**statement, "Action": matched})
-    if not relevant:
-        return None
-    attributed = {**resource, "data": {"ResourceArn": arn, "Policy": {"Statement": relevant},
-        "_provenance": {"read_only": True, "owner_account": account,
-                        "source_region": region, "families": ["iam-role-trust"],
-                        "source_operations": ["iam:GetRole"]}}}
-    result = _aws_generic_resource_policy_grant(snapshot, inventory, attributed)
-    if result is not None and derived_not_action:
-        result.notes.append("AssumeRole is included by an Allow NotAction statement in the source role trust policy")
-    return result
 
 
-def _aws_ecr_repository_share(snapshot, inventory, resource):
-    """Identify a declared private-image pull grant to a named foreign principal."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_registry_share")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    arn = data.get("repositoryArn")
-    name = data.get("repositoryName")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    if (not isinstance(name, str) or not name or
-            arn != f"arn:{partition}:ecr:{region}:{account}:repository/{name}" or
-            data.get("registryId", account) != account):
-        a.gap("inventory", "ECR repository identity is not attributable to the scoped account")
-        return a
-    read = data.get("Policy")
-    if not isinstance(read, dict):
-        a.gap("inventory", "ECR repository policy read is missing", "ecr:GetRepositoryPolicy")
-        return a
-    if read.get("collection_status") == "empty" and read.get("absent") is True:
-        return None
-    if read.get("collection_status") != "collected" or read.get("registryId", account) != account or read.get("repositoryName", name) != name:
-        a.gap("inventory", "ECR repository policy read is incomplete or mismatched", "ecr:GetRepositoryPolicy")
-        return a
-    policy = read.get("policyText")
-    if isinstance(policy, str):
-        try:
-            policy = json.loads(policy)
-        except ValueError:
-            policy = None
-    statements = policy.get("Statement") if isinstance(policy, dict) else None
-    statements = [statements] if isinstance(statements, dict) else statements
-    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
-        a.gap("inventory", "ECR repository policy statements are malformed")
-        return a
-    trusted = trusted_scopes(snapshot)["ids"]
-    foreign, uncertain = set(), False
-    for statement in statements:
-        if statement.get("Effect") == "Deny":
-            uncertain |= (_aws_policy_deny_may_cover(statement, ("ecr:batchgetimage", "ecr:getdownloadurlforlayer"))
-                          and _aws_policy_deny_may_target(statement, arn)
-                          and _aws_policy_deny_may_target_foreign(statement, account, partition))
-            continue
-        if statement.get("Effect") != "Allow":
-            uncertain = True
-            continue
-        action_match = _aws_policy_required_actions(statement, ("ecr:batchgetimage", "ecr:getdownloadurlforlayer"))
-        if action_match is None:
-            uncertain = True
-            continue
-        if not action_match:
-            continue
-        resources = statement.get("Resource", arn)
-        resources = [resources] if isinstance(resources, str) else resources
-        if not isinstance(resources, list) or any(not isinstance(x, str) for x in resources):
-            uncertain = True
-            continue
-        if "*" not in resources and arn not in resources:
-            continue
-        if statement.get("Condition") or "NotPrincipal" in statement or "NotResource" in statement:
-            uncertain = True
-            continue
-        principal = statement.get("Principal")
-        principal = principal.get("AWS") if isinstance(principal, dict) else principal
-        principals = [principal] if isinstance(principal, str) else principal
-        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
-            uncertain = True
-            continue
-        for value in principals:
-            if value == "*":
-                foreign.add("*")
-                continue
-            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
-            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
-            if owner is None:
-                uncertain = True
-            elif owner not in trusted:
-                foreign.add(owner)
-    if foreign and not uncertain:
-        a.external_ids = sorted(foreign)
-        a.explicit = "FAIL"
-        a.step("repository_policy", "allow", repository_arn=arn, external_accounts=sorted(foreign),
-               actions=["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"])
-        a.gap("caller", "Foreign principal authentication, authorization token and identity-side permissions were not observed")
-        return a
-    if foreign or uncertain:
-        a.gap("policy", "ECR repository grant or Deny applicability is unresolved")
-        return a
-    return None
 
 
-def _aws_secret_foreign_read(snapshot, inventory, resource):
-    """A named foreign GetSecretValue grant with a potentially shareable key."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_secret_grant")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    arn, name = data.get("ARN"), data.get("Name")
-    if (not isinstance(name, str) or not name or not isinstance(arn, str) or
-            not re.fullmatch(r"arn:" + re.escape(partition) + r":secretsmanager:" + re.escape(region) +
-                             r":" + re.escape(account) + r":secret:[^:]+", arn)):
-        a.gap("inventory", "Secret identity is not attributable to the scoped account")
-        return a
-    read = data.get("Policy")
-    if not isinstance(read, dict) or read.get("collection_status") != "collected":
-        a.gap("inventory", "Secret resource policy read is incomplete", "secretsmanager:GetResourcePolicy")
-        return a
-    if "ResourcePolicy" not in read:
-        return None
-    if read.get("ARN") != arn or read.get("Name") != name:
-        a.gap("inventory", "Secret resource policy is not bound to this secret")
-        return a
-    policy = read["ResourcePolicy"]
-    if isinstance(policy, str):
-        try:
-            policy = json.loads(policy)
-        except ValueError:
-            policy = None
-    statements = policy.get("Statement") if isinstance(policy, dict) else None
-    statements = [statements] if isinstance(statements, dict) else statements
-    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
-        a.gap("inventory", "Secret resource policy statements are malformed")
-        return a
-    trusted = trusted_scopes(snapshot)["ids"]
-    foreign, uncertain = set(), False
-    for statement in statements:
-        if statement.get("Effect") == "Deny":
-            uncertain |= (_aws_policy_deny_may_cover(statement, ("secretsmanager:getsecretvalue",))
-                          and _aws_policy_deny_may_target(statement, arn)
-                          and _aws_policy_deny_may_target_foreign(statement, account, partition))
-            continue
-        if statement.get("Effect") != "Allow":
-            uncertain = True
-            continue
-        action_match = _aws_policy_required_actions(statement, ("secretsmanager:getsecretvalue",))
-        if action_match is None:
-            uncertain = True
-            continue
-        if not action_match:
-            continue
-        resources = statement.get("Resource", arn)
-        resources = [resources] if isinstance(resources, str) else resources
-        if not isinstance(resources, list) or any(not isinstance(x, str) for x in resources):
-            uncertain = True
-            continue
-        if "*" not in resources and arn not in resources:
-            continue
-        if statement.get("Condition") or any(key in statement for key in ("NotPrincipal", "NotResource")):
-            uncertain = True
-            continue
-        principal = statement.get("Principal")
-        principal = principal.get("AWS") if isinstance(principal, dict) else principal
-        principals = [principal] if isinstance(principal, str) else principal
-        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
-            uncertain = True
-            continue
-        for value in principals:
-            if value == "*":
-                foreign.add("*")
-                continue
-            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
-            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
-            if owner is None:
-                uncertain = True
-            elif owner not in trusted:
-                foreign.add(owner)
-    if not foreign and not uncertain:
-        return None
-    coverage = data.get("_coverage", {}).get("KmsKeyId") if isinstance(data.get("_coverage"), dict) else None
-    if isinstance(coverage, dict) and coverage.get("status") == "empty" and coverage.get("documented_default") == "aws/secretsmanager":
-        a.step("kms_key", "block", reason="AWS managed default key cannot be used for cross-account secret reads")
-        a.ports = {}
-        return a
-    if (not isinstance(coverage, dict) or coverage.get("status") != "collected" or
-            not isinstance(data.get("KmsKeyId"), str) or not data["KmsKeyId"] or
-            data["KmsKeyId"] in ("alias/aws/secretsmanager", "aws/secretsmanager")):
-        a.gap("kms_key", "Secret KMS key identity is missing or does not prove a shareable customer key", "secretsmanager:DescribeSecret")
-        return a
-    if foreign and not uncertain:
-        a.external_ids = sorted(foreign)
-        a.explicit = "FAIL"
-        a.step("secret_policy", "allow", secret_arn=arn, external_accounts=sorted(foreign),
-               action="secretsmanager:GetSecretValue")
-        a.gap("caller", "Foreign caller identity permission and KMS Decrypt authorization were not observed")
-        return a
-    a.gap("policy", "Secret policy conditions or Deny applicability are unresolved")
-    return a
 
 
-def _aws_sqs_foreign_receive(snapshot, inventory, resource):
-    """A named foreign ReceiveMessage grant on an owned SQS queue."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_queue_receive")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    suffix = "amazonaws.com.cn" if partition == "aws-cn" else "amazonaws.com"
-    url = data.get("QueueUrl")
-    parsed = urlsplit(url) if isinstance(url, str) else None
-    if (parsed is None or parsed.scheme != "https" or parsed.netloc != f"sqs.{region}.{suffix}" or
-            parsed.query or parsed.fragment or
-            not re.fullmatch(r"/" + re.escape(account) + r"/[A-Za-z0-9_-]{1,80}(?:\.fifo)?", parsed.path)):
-        a.gap("inventory", "SQS queue URL is not attributable to the scoped account")
-        return a
-    name = parsed.path.rsplit("/", 1)[-1]
-    arn = f"arn:{partition}:sqs:{region}:{account}:{name}"
-    read = data.get("Attributes")
-    if not isinstance(read, dict) or read.get("collection_status") != "collected":
-        a.gap("inventory", "SQS queue attributes are incomplete", "sqs:GetQueueAttributes")
-        return a
-    attributes = read.get("Attributes")
-    if not isinstance(attributes, dict) or attributes.get("QueueArn") != arn:
-        a.gap("inventory", "SQS queue attributes are not bound to this queue")
-        return a
-    if "Policy" not in attributes:
-        return None
-    policy = attributes["Policy"]
-    if isinstance(policy, str):
-        try:
-            policy = json.loads(policy)
-        except ValueError:
-            policy = None
-    statements = policy.get("Statement") if isinstance(policy, dict) else None
-    statements = [statements] if isinstance(statements, dict) else statements
-    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
-        a.gap("inventory", "SQS queue policy statements are malformed")
-        return a
-    foreign, uncertain = set(), False
-    trusted = trusted_scopes(snapshot)["ids"]
-    for statement in statements:
-        if statement.get("Effect") == "Deny":
-            uncertain |= (_aws_policy_deny_may_cover(statement, ("sqs:receivemessage",))
-                          and _aws_policy_deny_may_target(statement, arn)
-                          and _aws_policy_deny_may_target_foreign(statement, account, partition))
-            continue
-        if statement.get("Effect") != "Allow":
-            uncertain = True
-            continue
-        action_match = _aws_policy_required_actions(statement, ("sqs:receivemessage",))
-        if action_match is None:
-            uncertain = True
-            continue
-        if not action_match:
-            continue
-        resources = statement.get("Resource", arn)
-        resources = [resources] if isinstance(resources, str) else resources
-        if not isinstance(resources, list) or any(not isinstance(x, str) for x in resources):
-            uncertain = True
-            continue
-        if "*" not in resources and arn not in resources:
-            continue
-        if statement.get("Condition") or any(key in statement for key in ("NotPrincipal", "NotResource")):
-            uncertain = True
-            continue
-        principal = statement.get("Principal")
-        principal = principal.get("AWS") if isinstance(principal, dict) else principal
-        principals = [principal] if isinstance(principal, str) else principal
-        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
-            uncertain = True
-            continue
-        for value in principals:
-            if value == "*":
-                foreign.add("*")
-                continue
-            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
-            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
-            if owner is None:
-                uncertain = True
-            elif owner not in trusted:
-                foreign.add(owner)
-    if not foreign and not uncertain:
-        return None
-    key = attributes.get("KmsMasterKeyId")
-    key_coverage = attributes.get("_coverage", {}).get("KmsMasterKeyId") if isinstance(attributes.get("_coverage"), dict) else None
-    if key == "" and isinstance(key_coverage, dict) and key_coverage.get("status") == "empty":
-        key = None
-    if key in ("alias/aws/sqs", "aws/sqs"):
-        a.step("kms_key", "block", reason="AWS managed SQS KMS key cannot grant foreign decrypt")
-        a.ports = {}
-        return a
-    if key is not None and (not isinstance(key, str) or not key):
-        a.gap("kms_key", "SQS KMS key identity is malformed")
-        return a
-    if foreign and not uncertain:
-        a.external_ids = sorted(foreign)
-        a.explicit = "FAIL"
-        a.step("queue_policy", "allow", queue_arn=arn, external_accounts=sorted(foreign), action="sqs:ReceiveMessage")
-        a.gap("caller", "Foreign caller identity permission and any customer KMS Decrypt authorization were not observed")
-        return a
-    a.gap("policy", "SQS policy conditions or Deny applicability are unresolved")
-    return a
 
 
-def _aws_sns_foreign_subscription(snapshot, inventory, resource):
-    """A confirmed subscription to an owned topic by a foreign account."""
-    from .trust import trusted_scopes
 
-    data = resource["data"]
-    a = Assessment(resource, "external_topic_subscription")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    topic, subscription, owner, protocol = (data.get(key) for key in ("TopicArn", "SubscriptionArn", "Owner", "Protocol"))
-    topic_match = re.fullmatch(r"arn:" + partition + r":sns:" + re.escape(region) + ":" + re.escape(account) +
-                               r":([A-Za-z0-9_-]{1,256}(?:\.fifo)?)", topic) if isinstance(topic, str) else None
-    if (topic_match is None or not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner) or
-            not isinstance(protocol, str) or not protocol):
-        a.gap("inventory", "SNS topic subscription identity is not attributable to the scoped topic")
-        return a
-    if owner in trusted_scopes(snapshot)["ids"]:
-        return None
-    if subscription == "PendingConfirmation":
-        a.gap("confirmation", "Foreign-owned SNS subscription has not been confirmed")
-        return a
-    if (not isinstance(subscription, str) or not re.fullmatch(r"arn:" + partition + r":sns:" +
-            re.escape(region) + ":" + owner + ":" + re.escape(topic_match.group(1)) + r":[0-9a-fA-F-]{36}", subscription)):
-        a.gap("inventory", "SNS subscription ARN does not match its foreign owner and topic")
-        return a
-    a.external_ids = [owner]
-    a.explicit = "FAIL"
-    a.step("subscription", "allow", topic_arn=topic, subscription_arn=subscription,
-           subscriber_account=owner, protocol=protocol)
-    a.gap("delivery", "Endpoint ownership and successful message delivery were not observed")
-    return a
 
 
 def _aws_sns_subscribe_grant(snapshot, inventory, resource):
@@ -9445,249 +7560,12 @@ def _aws_sns_subscribe_grant(snapshot, inventory, resource):
     return None
 
 
-def _aws_kms_foreign_decrypt(snapshot, inventory, resource):
-    """A key policy permitting foreign use of an enabled decrypt-capable key."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_kms_decrypt_grant")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    key_id = data.get("KeyId")
-    metadata = data.get("Metadata")
-    if (not isinstance(key_id, str) or not key_id or not isinstance(metadata, dict) or
-            metadata.get("collection_status") != "collected"):
-        a.gap("inventory", "KMS key metadata is incomplete", "kms:DescribeKey")
-        return a
-    native = metadata.get("KeyMetadata")
-    arn = native.get("Arn") if isinstance(native, dict) else None
-    if (not isinstance(native, dict) or native.get("KeyId") != key_id or
-            not isinstance(arn, str) or not re.fullmatch(r"arn:" + partition + r":kms:" +
-                re.escape(region) + ":" + re.escape(account) + r":key/[A-Za-z0-9-]+", arn) or
-            data.get("KeyArn", arn) != arn):
-        a.gap("inventory", "KMS key ARN is not attributable to the scoped key")
-        return a
-    if native.get("KeyManager") == "AWS" or native.get("KeyUsage") in ("SIGN_VERIFY", "GENERATE_VERIFY_MAC", "KEY_AGREEMENT"):
-        return None
-    if native.get("KeyManager") != "CUSTOMER" or native.get("KeyUsage") != "ENCRYPT_DECRYPT":
-        a.gap("inventory", "KMS key manager or cryptographic usage is unresolved", "kms:DescribeKey")
-        return a
-    if native.get("KeyState") in ("Disabled", "PendingDeletion", "PendingImport") or native.get("Enabled") is False:
-        a.step("key_state", "block", reason="KMS key cannot currently decrypt")
-        a.ports = {}
-        return a
-    if native.get("KeyState") != "Enabled" or native.get("Enabled") is not True:
-        a.gap("key_state", "KMS key enabled state is unresolved", "kms:DescribeKey")
-        return a
-    read = data.get("Policy")
-    if not isinstance(read, dict) or read.get("collection_status") != "collected":
-        a.gap("inventory", "KMS key policy read is incomplete", "kms:GetKeyPolicy")
-        return a
-    policy = read.get("Policy")
-    if isinstance(policy, str):
-        try:
-            policy = json.loads(policy)
-        except ValueError:
-            policy = None
-    statements = policy.get("Statement") if isinstance(policy, dict) else None
-    statements = [statements] if isinstance(statements, dict) else statements
-    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
-        a.gap("inventory", "KMS key policy statements are malformed")
-        return a
-    trusted = trusted_scopes(snapshot)["ids"]
-    foreign, uncertain = set(), False
-    for statement in statements:
-        if statement.get("Effect") == "Deny":
-            uncertain |= (_aws_policy_deny_may_cover(statement, ("kms:decrypt",))
-                          and _aws_policy_deny_may_target(statement, arn)
-                          and _aws_policy_deny_may_target_foreign(statement, account, partition))
-            continue
-        if statement.get("Effect") != "Allow":
-            uncertain = True
-            continue
-        action_match = _aws_policy_required_actions(statement, ("kms:decrypt",))
-        if action_match is None:
-            uncertain = True
-            continue
-        if not action_match:
-            continue
-        resources = statement.get("Resource")
-        resources = [resources] if isinstance(resources, str) else resources
-        if not isinstance(resources, list) or "*" not in resources:
-            uncertain = True
-            continue
-        if statement.get("Condition") or any(key in statement for key in ("NotPrincipal", "NotResource")):
-            uncertain = True
-            continue
-        principal = statement.get("Principal")
-        principal = principal.get("AWS") if isinstance(principal, dict) else principal
-        principals = [principal] if isinstance(principal, str) else principal
-        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
-            uncertain = True
-            continue
-        for value in principals:
-            if value == "*":
-                foreign.add("*")
-                continue
-            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
-            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
-            if owner is None:
-                uncertain = True
-            elif owner not in trusted:
-                foreign.add(owner)
-    if foreign and not uncertain:
-        a.external_ids = sorted(foreign)
-        a.explicit = "FAIL"
-        a.step("key_policy", "allow", key_arn=arn, external_principals=sorted(foreign), action="kms:Decrypt")
-        a.gap("caller", "Foreign caller IAM permission and possession of decryptable ciphertext were not observed")
-        return a
-    if foreign or uncertain:
-        a.gap("policy", "KMS key policy conditions or Deny applicability are unresolved")
-        return a
-    return None
 
 
-def _aws_kms_foreign_grant(snapshot, inventory, resource):
-    """A foreign Decrypt grantee on an enabled customer KMS key."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_kms_grant")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    key_id, key_arn, grant_id = (data.get(key) for key in ("KeyId", "KeyArn", "GrantId"))
-    if (not isinstance(key_id, str) or not key_id or not isinstance(grant_id, str) or not grant_id or
-            not isinstance(key_arn, str) or key_arn != f"arn:{partition}:kms:{region}:{account}:key/{key_id}"):
-        a.gap("inventory", "KMS grant key identity is incomplete or foreign")
-        return a
-    operations = data.get("Operations")
-    if not isinstance(operations, list) or any(not isinstance(operation, str) for operation in operations):
-        a.gap("inventory", "KMS grant operations are malformed")
-        return a
-    if "Decrypt" not in operations:
-        return None
-    grantee = data.get("GranteePrincipal")
-    match = re.fullmatch(r"arn:" + re.escape(partition) + r":(?:iam|sts)::([0-9]{12}):(?:root|(?:role|user)/.+|assumed-role/.+)", grantee) if isinstance(grantee, str) else None
-    owner = grantee if isinstance(grantee, str) and re.fullmatch(r"[0-9]{12}", grantee) else match.group(1) if match else None
-    if owner is None:
-        a.gap("grantee", "KMS grant grantee cannot be attributed to an AWS account")
-        return a
-    if owner in trusted_scopes(snapshot)["ids"]:
-        return None
-    if data.get("ConstraintKeys"):
-        a.gap("constraint", "KMS grant encryption context or source constraint is not resolved")
-        return a
-    key = inventory.get("kms_key", key_arn)
-    if key is None or key.get("scope") != resource.get("scope"):
-        a.gap("inventory", "KMS grant has no matching collected key metadata", "kms:DescribeKey")
-        return a
-    detail = key["data"]
-    metadata = detail.get("Metadata")
-    native = metadata.get("KeyMetadata") if isinstance(metadata, dict) and metadata.get("collection_status") == "collected" else None
-    if (not isinstance(native, dict) or native.get("Arn") != key_arn or native.get("KeyId") != key_id):
-        a.gap("inventory", "KMS grant key metadata is incomplete or mismatched", "kms:DescribeKey")
-        return a
-    if native.get("KeyManager") == "AWS" or native.get("KeyUsage") in ("SIGN_VERIFY", "GENERATE_VERIFY_MAC", "KEY_AGREEMENT"):
-        return None
-    if native.get("KeyManager") != "CUSTOMER" or native.get("KeyUsage") != "ENCRYPT_DECRYPT":
-        a.gap("inventory", "KMS grant key manager or usage is unresolved", "kms:DescribeKey")
-        return a
-    if native.get("KeyState") in ("Disabled", "PendingDeletion", "PendingImport") or native.get("Enabled") is False:
-        a.step("key_state", "block", reason="KMS key cannot currently decrypt")
-        a.ports = {}
-        return a
-    if native.get("KeyState") != "Enabled" or native.get("Enabled") is not True:
-        a.gap("key_state", "KMS grant key enabled state is unresolved", "kms:DescribeKey")
-        return a
-    policy_read = detail.get("Policy")
-    if not isinstance(policy_read, dict) or policy_read.get("collection_status") != "collected":
-        a.gap("inventory", "KMS key policy read is needed to evaluate explicit Deny", "kms:GetKeyPolicy")
-        return a
-    policy = policy_read.get("Policy")
-    if isinstance(policy, str):
-        try:
-            policy = json.loads(policy)
-        except ValueError:
-            policy = None
-    statements = policy.get("Statement") if isinstance(policy, dict) else None
-    statements = [statements] if isinstance(statements, dict) else statements
-    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
-        a.gap("inventory", "KMS key policy statements are malformed")
-        return a
-    if any(statement.get("Effect") == "Deny" and _aws_policy_deny_may_cover(statement, ("kms:decrypt",))
-           and _aws_policy_deny_may_target(statement, key_arn)
-           and _aws_policy_deny_may_target_foreign(statement, account, partition)
-           for statement in statements):
-        a.gap("policy", "KMS key policy Deny applicability to the grantee is unresolved")
-        return a
-    a.external_ids = [owner]
-    a.explicit = "FAIL"
-    a.step("grant", "allow", key_arn=key_arn, grant_id=grant_id, grantee=grantee, action="kms:Decrypt")
-    a.gap("caller", "Grantee identity controls, other denies and possession of decryptable ciphertext were not observed")
-    return a
 
 
-def _aws_ecr_public_repository(snapshot, inventory, resource):
-    """An ECR Public repository is readable without a repository policy grant."""
-    data = resource["data"]
-    a = Assessment(resource, "public_registry")
-    account = str(resource.get("scope", "")).split("/", 1)[0]
-    name, arn, registry = data.get("repositoryName"), data.get("repositoryArn"), data.get("registryId")
-    if (resource.get("scope", "").split("/")[-1] != "us-east-1" or
-            not isinstance(name, str) or not re.fullmatch(r"(?:[a-z0-9]+(?:[._-][a-z0-9]+)*/)*[a-z0-9]+(?:[._-][a-z0-9]+)*", name) or
-            not isinstance(arn, str) or arn != f"arn:aws:ecr-public::{account}:repository/{name}" or
-            registry != account):
-        a.gap("inventory", "ECR Public repository identity or regional scope is incomplete")
-        return a
-    a.step("public_repository", "allow", repository_arn=arn, repository_name=name,
-           repository_uri=data.get("repositoryUri") if isinstance(data.get("repositoryUri"), str) else None)
-    a.explicit = "FAIL"
-    a.gap("content", "Published image inventory and successful pull were not tested")
-    return a
 
 
-def _aws_log_subscription_export(snapshot, inventory, resource):
-    """A log-group or account subscription aimed at a foreign logical destination."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_log_stream")
-    scope = str(resource.get("scope", ""))
-    account, _, region = scope.partition("/")
-    destination = data.get("DestinationArn", data.get("destinationArn"))
-    account_policy = resource["type"] == "log_account_subscription_policy"
-    source = data.get("LogGroupArn")
-    name = data.get("policyName") if account_policy else data.get("filterName")
-    group = "account policy " + name if account_policy and isinstance(name, str) else data.get("logGroupName")
-    if not all(isinstance(value, str) and value for value in (destination, name, group)):
-        a.gap("inventory", "Log subscription source or destination identity is incomplete")
-        return a
-    if account_policy:
-        if data.get("accountId") != account or data.get("policyType") != "SUBSCRIPTION_FILTER_POLICY":
-            a.gap("inventory", "Log account policy is not attributable to the scoped account")
-            return a
-        partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    else:
-        source_match = re.fullmatch(r"arn:([^:]+):logs:" + re.escape(region) + ":" + re.escape(account) +
-                                    r":log-group:(.+)", source) if isinstance(source, str) else None
-        if source_match is None or source_match.group(2) != group:
-            a.gap("inventory", "Log subscription source is not the scoped log group")
-            return a
-        partition = source_match.group(1)
-    target = re.fullmatch(r"arn:" + re.escape(partition) + r":logs:" + re.escape(region) +
-                          r":([0-9]{12}):destination:([^:]+)", destination)
-    if target is None:
-        a.gap("inventory", "Log subscription destination is not an attributable logical destination")
-        return a
-    recipient = target.group(1)
-    if recipient in trusted_scopes(snapshot)["ids"]:
-        return None
-    a.step("subscription", "allow", log_group=group, filter_name=name,
-           destination_arn=destination, recipient_account=recipient)
-    a.external_ids = [recipient]
-    a.explicit = "FAIL"
-    a.gap("delivery", "Recipient acceptance and successful log-event delivery were not observed")
-    return a
 
 
 def _aws_log_destination_policy_grant(snapshot, inventory, resource):
