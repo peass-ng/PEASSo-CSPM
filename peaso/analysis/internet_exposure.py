@@ -4312,6 +4312,22 @@ def _azure_app_service(snapshot, inventory, resource, configs):
     return a
 
 
+def _azure_app_service_slot(snapshot, inventory, resource):
+    slot = resource["data"]
+    coverage = (slot.get("_coverage") or {}).get("configuration") or {}
+    config = slot.get("configuration")
+    if (coverage.get("status") == "collected" and isinstance(config, dict)
+            and str(config.get("id", "")).casefold() ==
+            (str(slot.get("id", "")) + "/config/web").casefold()
+            and isinstance(config.get("properties"), dict)):
+        configs = {str(slot["id"]).casefold(): {"data": config}}
+    else:
+        configs = {}
+    assessment = _azure_app_service(snapshot, inventory, resource, configs)
+    assessment.notes.append("Deployment slot has independent public-access and main/SCM restriction settings")
+    return assessment
+
+
 def _azure_aks(snapshot, inventory, resource):
     from ..checks.exposure_endpoints import aks_api_server
     from ..checks.facts import Unavailable
@@ -5940,7 +5956,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "media_cdn_service", "target_pool", "target_instance",
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
-AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_plan", "app_service_environment",
+AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
                "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
@@ -5957,7 +5973,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "aks_cluster", "storage_account", "storage_container", "sql_server",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -6013,6 +6029,7 @@ def assess(snapshot, resources):
                 "vmware_external_address": _gcp_vmware_address},
         "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
                   "app_service": lambda s, i, r: _azure_app_service(s, i, r, extra["configs"]), "aks_cluster": _azure_aks,
+                  "app_service_slot": _azure_app_service_slot,
                   "storage_account": _azure_storage, "storage_container": _azure_storage_container,
                   "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"]),
                   "container_group": _azure_container_group,

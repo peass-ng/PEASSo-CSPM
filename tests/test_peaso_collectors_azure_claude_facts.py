@@ -22,7 +22,12 @@ def test_plans_environments_slots_and_site_logs_are_collected_without_sas_urls()
         if path == SUB + "/providers/Microsoft.Web/sites":
             return {"value": [{"id": SITE, "name": "app", "properties": {"httpsOnly": True}}]}
         if path == SITE + "/slots":
-            return {"value": [{"id": SITE + "/slots/staging", "name": "app/staging", "properties": {"httpsOnly": False}}]}
+            return {"value": [{"id": SITE + "/slots/staging", "name": "app/staging",
+                              "type": "Microsoft.Web/sites/slots", "properties": {"httpsOnly": False}}]}
+        if path == SITE + "/slots/staging/config/web":
+            return {"id": path, "type": "Microsoft.Web/sites/slots/config", "properties": {
+                "ipSecurityRestrictionsDefaultAction": "Deny", "scmIpSecurityRestrictionsUseMain": True,
+                "appSettings": [{"name": "secret", "value": "SLOT_SECRET_VALUE"}]}}
         if path == SITE + "/config/logs":
             return {"id": SITE + "/config/logs", "name": "logs", "properties": {
                 "failedRequestsTracing": {"enabled": False}, "detailedErrorMessages": {"enabled": True},
@@ -38,6 +43,9 @@ def test_plans_environments_slots_and_site_logs_are_collected_without_sas_urls()
     slot = rows(snapshot, "app_service_slot", SUB)[0]
     assert slot["status"] == "collected"
     assert slot["items"][0]["properties"]["httpsOnly"] is False and slot["items"][0]["parent_id"] == SITE
+    assert slot["items"][0]["_coverage"]["configuration"]["status"] == "collected"
+    assert slot["items"][0]["configuration"]["properties"]["ipSecurityRestrictionsDefaultAction"] == "Deny"
+    assert "SLOT_SECRET_VALUE" not in repr(snapshot)
     site = rows(snapshot, "app_service")[0]["items"][0]
     logs = site["logsConfiguration"]["properties"]
     assert logs["failedRequestsTracing"] == {"enabled": False}

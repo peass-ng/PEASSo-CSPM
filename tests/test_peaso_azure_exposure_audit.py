@@ -358,6 +358,32 @@ def test_app_service_private_endpoint_default_and_ase_surface_modes():
     assert verdict("None", private=True, access=None).verdict() == "PASS"
 
 
+def test_app_service_slot_uses_its_own_cached_configuration():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    slot_id = site_id + "/slots/staging"
+
+    def slot_decision(main_default, status="collected", scm_default="Deny"):
+        slot = {"id": slot_id, "parent_id": site_id, "properties": {
+            "defaultHostName": "app-staging.azurewebsites.net", "publicNetworkAccess": "Enabled",
+            "enabledHostNames": ["app-staging.azurewebsites.net", "app-staging.scm.azurewebsites.net"]},
+            "_coverage": {"configuration": {"status": status}}}
+        if status == "collected":
+            slot["configuration"] = {"id": slot_id + "/config/web", "properties": {
+                "ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": main_default,
+                "scmIpSecurityRestrictionsUseMain": False, "scmIpSecurityRestrictions": [],
+                "scmIpSecurityRestrictionsDefaultAction": scm_default}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service_slot", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [slot]}])
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service_slot")
+
+    public = slot_decision("Allow")
+    assert public.verdict() == "FAIL"
+    assert slot_decision("Deny").verdict() == "PASS"
+    assert slot_decision("Deny", scm_default="Allow").verdict() == "FAIL"
+    assert slot_decision("Allow", status="partial").verdict() == "UNKNOWN"
+
+
 def test_anonymous_blob_requires_container_and_account_gates():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
     container = {"id": account_id + "/blobServices/default/containers/public",

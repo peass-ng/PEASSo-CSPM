@@ -249,7 +249,8 @@ EMBEDDED_SINGLETONS = {
     "app_service": (("configuration", "config/web", "2023-12-01"), ("authSettingsV2", "config/authsettingsV2", "2025-03-01"), ("logsConfiguration", "config/logs", "2023-12-01"),
                     # Microsoft.Web/sites/basicPublishingCredentialsPolicies/read: only the allow flag is kept.
                     ("scmBasicAuthPolicy", "basicPublishingCredentialsPolicies/scm", "2023-12-01"), ("ftpBasicAuthPolicy", "basicPublishingCredentialsPolicies/ftp", "2023-12-01")),
-    "app_service_slot": (("scmBasicAuthPolicy", "basicPublishingCredentialsPolicies/scm", "2023-12-01"),),
+    "app_service_slot": (("configuration", "config/web", "2023-12-01"),
+                         ("scmBasicAuthPolicy", "basicPublishingCredentialsPolicies/scm", "2023-12-01")),
     "eventhub_namespace": (("networkRuleSet", "networkRuleSets/default", "2024-01-01"),),
     "servicebus_namespace": (("networkRuleSet", "networkRuleSets/default", "2022-10-01-preview"),),
     "sql_server": (("vulnerabilityAssessment", "vulnerabilityAssessments/default", "2023-08-01"), ("expressVulnerabilityAssessment", "sqlVulnerabilityAssessments/default", "2023-08-01-preview"), ("encryptionProtector", "encryptionProtector/current", "2023-08-01")),
