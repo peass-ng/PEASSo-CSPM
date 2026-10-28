@@ -800,6 +800,35 @@ def test_gcp_source_repository_direct_cross_project_reader_grant():
     assert findings() == []
 
 
+def test_gcp_cloud_tasks_direct_cross_project_enqueuer_grant():
+    queue = {"name": "projects/p1/locations/us-central1/queues/outbound", "state": "RUNNING",
+             "hasTargetOverride": True, "iamPolicy": {"bindings": [{"role": "roles/cloudtasks.enqueuer",
+             "members": ["serviceAccount:sender@foreign-project.iam.gserviceaccount.com"]}]},
+             "_coverage": {"iamPolicy": {"status": "collected"}}}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("cloudtasks_queue", [queue], service="cloudtasks")))["findings"]
+                if row["check_id"] == "analysis.gcp_cloud_tasks_external_enqueuer"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], queue["name"])
+    assert rows[0]["evidence"]["permission"] == "cloudtasks.tasks.create"
+    assert rows[0]["evidence"]["direct_enqueuer_grants"][0]["service_account_project"] == "foreign-project"
+    queue["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert findings()[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(findings()[0], queue["name"])
+    queue["iamPolicy"]["bindings"][0].pop("condition")
+    queue["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:sender@p1.iam.gserviceaccount.com"]
+    assert findings() == []
+    queue["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:sender@foreign-project.iam.gserviceaccount.com"]
+    queue["iamPolicy"]["bindings"][0]["role"] = "roles/cloudtasks.viewer"
+    assert findings() == []
+    queue["iamPolicy"]["bindings"][0]["role"] = "roles/cloudtasks.enqueuer"
+    queue["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert findings() == []
+
+
 def test_gcp_scheduler_oidc_http_target_declaration_keeps_uri_path_private():
     job = {"name": "projects/p1/locations/us-central1/jobs/send",
            "state": "ENABLED", "httpTarget": {

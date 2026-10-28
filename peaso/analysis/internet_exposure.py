@@ -3220,6 +3220,53 @@ def gcp_source_repository_external_reader_findings(snapshot, resources):
     return output
 
 
+def gcp_cloud_tasks_external_enqueuer_findings(snapshot, resources):
+    """Report direct queue Enqueuer grants to a cross-project service account."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "cloudtasks_queue" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        envelope = data.get("_coverage")
+        coverage = envelope.get("iamPolicy") if isinstance(envelope, dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = _gcp_cross_project_sa_grants(policy, project, "roles/cloudtasks.enqueuer")
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
+        first = (f"The Cloud Tasks queue {name} has roles/cloudtasks.enqueuer for {grant['member']} in its direct IAM policy."
+                 if unconditional else
+                 f"The Cloud Tasks queue {name} has a conditional roles/cloudtasks.enqueuer binding for {grant['member']}.")
+        evidence = {
+            "observed": "\n".join((first,
+                "That role includes cloudtasks.tasks.create on the queue." if unconditional else
+                "The condition has no recorded request evaluation.",
+                "A service account from another GCP project may create tasks in this queue if other controls allow it." if unconditional else
+                "If the condition is satisfied, that service account may create tasks in this queue.",
+                "Project ownership, IAM denies, task payloads, and actual dispatch remain unresolved.")),
+            "direct_enqueuer_grants": grants,
+            "permission": "cloudtasks.tasks.create",
+            "queue_state": data.get("state"),
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct queue permission declaration only; task creation, target routing, dispatch and recipient ownership are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_cloud_tasks_external_enqueuer",
+                              "Cross-project Cloud Tasks Enqueuer grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
 def gcp_scheduler_oidc_target_findings(snapshot, resources):
     """Surface configured token delivery to an HTTP target, not execution."""
     if snapshot["provider"] != "gcp":
@@ -5713,6 +5760,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_public_policy_findings(snapshot, resources))
     output.extend(gcp_bigtable_external_reader_findings(snapshot, resources))
     output.extend(gcp_source_repository_external_reader_findings(snapshot, resources))
+    output.extend(gcp_cloud_tasks_external_enqueuer_findings(snapshot, resources))
     output.extend(gcp_scheduler_oidc_target_findings(snapshot, resources))
     output.extend(gcp_artifact_public_reader_findings(snapshot, resources))
     return output
