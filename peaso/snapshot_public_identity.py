@@ -21,7 +21,8 @@ def _known_types(provider):
         # Exact transient Reader.run jobs are checkpointed before their
         # reviewed adapters fold them into public native inventories.
         native.update({'_native_vpn_connection_rg', '_native_access_review_instance',
-                       '_native_access_review_decision'})
+                       '_native_access_review_decision', 'cost_export_billing_scope',
+                       'databricks_workspace_ip_policy'})
         # The opt-in native disclosure reader emits these exact envelopes.
         from .collectors.azure_disclosure_native import KINDS
         native.update(KINDS)
@@ -45,7 +46,7 @@ def _azure_scope(scope):
     identity = r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}'
     guid = r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'
     if re.fullmatch(r'/(?i:tenants)/' + identity +
-            r'(?:/' + guid + r'|/(?i:servicePrincipals|applications|groups|users|administrativeUnits|directoryRoles|roleDefinitions)/' + guid + r')?', scope):
+            r'(?:/' + guid + r'|/(?i:servicePrincipals|applications|groups|users|administrativeUnits|directoryRoles|roleDefinitions|catalogs|accessPackages)/' + guid + r')?', scope):
         return True
     segment = r'[A-Za-z0-9_().%+@=,-]{1,256}'
     root = r'/(?i:subscriptions)/' + identity

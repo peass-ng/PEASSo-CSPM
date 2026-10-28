@@ -3324,6 +3324,15 @@ def collect(connector, requirements=None, *, transport=None):
     from . import azure_swc, azure_appservice_identity_followup
     trusted_scopes = _trusted_scopes(options)
     reader = _ReaderExposure(options)
+    # An earlier native/checkpoint failure still reaches metadata assembly.
+    # No targets have been proven yet; retain explicit incomplete coverage.
+    for enabled, prefix in ((auto_container_literals, "automatic_container_literal"),
+                            (auto_app_settings, "automatic_app_settings")):
+        if enabled:
+            setattr(reader, prefix + "_batches", [])
+            setattr(reader, prefix + "_coverage", {"discovered": 0, "planned": 0,
+                "inspected": 0, "targets": [], "complete": False,
+                "reason": "source_inventory_unavailable"})
     reader.progress_callback = options.get("_progress_callback")
     from peaso.collection_events import SettledCollections
     deferred = {"subscription", "network_interface"}
