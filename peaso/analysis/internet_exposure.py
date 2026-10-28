@@ -10279,7 +10279,7 @@ def _azure_app_service(snapshot, inventory, resource, configs):
             a.gap("inventory", "privateEndpointConnections contain no valid site child identity")
     if public_access is not None and str(public_access).lower() != "enabled":
         a.gap("inventory", "App Service publicNetworkAccess value is unrecognized")
-    ports = pset("tcp", 443, 443) if props.get("httpsOnly") else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
+    ports = pset("tcp", 443, 443)
     a.step("public_network_access", "allow", public_network_access=props.get("publicNetworkAccess", "default(Enabled)"))
     if props.get("enabled") is False and props.get("scmSiteAlsoStopped") is True:
         a.step("site_state", "block", enabled=False, scm_site_also_stopped=True)
@@ -10336,6 +10336,14 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.addresses.extend(scm_hosts)
     decision = ("allow" if "allow" in (main, scm) else
                 "block" if main == scm == "block" else "unknown")
+    if main == "allow":
+        https_only = props.get("httpsOnly")
+        if https_only is not None and type(https_only) is not bool:
+            a.gap("listener", "App Service httpsOnly redirect mode is malformed")
+        else:
+            ports = union(ports, pset("tcp", 80, 80))
+            a.step("http_port_80", "redirect" if https_only is True else "allow",
+                   https_only=https_only if https_only is not None else "default(False)")
     _azure_app_authentication(a, resource, main, scm)
     _azure_app_client_certificate(a, props, main)
     a.step("access_restrictions", decision, main={"decision": main, **main_detail},
