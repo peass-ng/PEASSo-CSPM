@@ -11220,6 +11220,54 @@ def _azure_powerbi_capacity(snapshot, inventory, resource):
     return a
 
 
+def _azure_cost_export(snapshot, inventory, resource):
+    """Configured cost-data delivery to a foreign subscription or tenant."""
+    a = Assessment(resource, "data_pipeline")
+    a.ports = {}
+    props = _props(resource)
+    delivery = props.get("deliveryInfo")
+    dest = delivery.get("destination") if isinstance(delivery, dict) else None
+    if not isinstance(dest, dict):
+        a.gap("inventory", "Cost Management export destination unavailable")
+        return a
+    target = dest.get("resourceId")
+    if not isinstance(target, str) or not target:
+        a.gap("inventory", "SAS-based export destination has no owner subscription or tenant ID")
+        return a
+    match = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/"
+                         r"Microsoft\.Storage/storageAccounts/[^/]+", target, re.I)
+    if match is None:
+        a.gap("inventory", "Cost Management destination storage account ID malformed")
+        return a
+    source_subscription = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    if source_subscription:
+        if source_subscription.group(1).casefold() == match.group(1).casefold():
+            a.step("export_destination", "block", reason="destination remains in source subscription")
+        else:
+            a.external_ids = [target]
+            a.step("export_destination", "allow", storage_account_id=target,
+                   source_subscription_id=source_subscription.group(1))
+            a.data_exposure = True
+            a.explicit = "FAIL"
+        return a
+    group = inventory.get("management_group", resource["scope"])
+    tenant = _props(group).get("tenantId") if group else None
+    target_scope = "/subscriptions/" + match.group(1)
+    target_tenant = ((snapshot.get("metadata") or {}).get("subscription_tenants") or {}).get(target_scope)
+    if isinstance(tenant, str) and isinstance(target_tenant, str):
+        if tenant.casefold() != target_tenant.casefold():
+            a.external_ids = [target]
+            a.step("export_destination", "allow", storage_account_id=target,
+                   source_management_group_id=resource["scope"])
+            a.data_exposure = True
+            a.explicit = "FAIL"
+        else:
+            a.gap("inventory", "management-group destination subscription ownership unresolved")
+    else:
+        a.gap("inventory", "management-group or destination tenant unavailable")
+    return a
+
+
 def _azure_nginx(snapshot, inventory, resource):
     """Public NGINX frontends with ports derived from active configuration files."""
     a = Assessment(resource, "public_endpoint")
@@ -12424,7 +12472,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "managed_application", "powerbi_capacity", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "managed_application", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12439,7 +12487,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "management_group", "powerbi_capacity",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "management_group", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12549,6 +12597,7 @@ def assess(snapshot, resources):
                   "managed_application": _azure_managed_application,
                   "management_group": _azure_management_group,
                   "powerbi_capacity": _azure_powerbi_capacity,
+                  "cost_export": _azure_cost_export,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
