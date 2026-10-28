@@ -1,8 +1,4 @@
-"""AWS configuration inventory with scoped temporary Access Analyzer lifecycle.
-
-General requests remain read-only; scan-owned analyzers are created and cleaned
-up by a dedicated handler. The legacy scanner is never imported.
-"""
+"""AWS configuration inventory with no live Access Analyzer access."""
 from __future__ import annotations
 
 import copy
@@ -392,6 +388,8 @@ class Requests:
             raise ReadFailure("timeout", "intentional_scan_deadline")
 
     def client(self, session, service, region, *, _metadata_profile=None):
+        if service == "accessanalyzer":
+            raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
         from botocore.config import Config
         from .aws_request_pool import canonical_wrapper
         session = canonical_wrapper(self, session)
@@ -461,6 +459,8 @@ class Requests:
         return cached_client(create)
 
     def call(self, session, service, region, operation, *, _cache_refresh=False, _uncached_credential_exchange=False, _metadata_profile=None, _projection_context=None, _codecommit_routes=None, **arguments):
+        if service == "accessanalyzer":
+            raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
         from .aws_request_pool import SHARED_PROFILES, canonical_wrapper, shared_reads
         session = canonical_wrapper(self, session)
         if _metadata_profile == 'aws-build-deployment-referenced-source-v1':
@@ -893,6 +893,8 @@ class Requests:
         """Complete list read. `_tokens=(input_name, output_name)` paginates an
         operation that botocore declares without a paginator; an unpaginated
         response carrying a continuation token is never reported complete."""
+        if service == "accessanalyzer":
+            raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
         import jmespath
         from .aws_request_pool import canonical_wrapper
         session = canonical_wrapper(self, session)
@@ -3016,10 +3018,10 @@ def collect(connector, requirements=None):
                 register_context(requests, session, identity, regions_for(identity["Account"]))
     metadata["access_analyzer_lifecycle"] = []
     if "access_analyzer" in wanted:
-        metadata["collection"] = "read-only-with-temporary-access-analyzers"
+        metadata["collection"] = "saved-access-analyzer-results-only"
     analyzer_lifecycle = AnalyzerLifecycle(requests, metadata["access_analyzer_lifecycle"], progress_callback)
-    # A global call cap assigns budget by admission order. Keep the original
-    # analyzer-first admission in that explicitly limited mode.
+    # Retain collection ordering; Access Analyzer preparation is inert and
+    # never makes a live service call.
     defer_analyzer_preparation = requests.max_calls is None
     automatic_sources = {
         aws_lambda_environment_secret_indicators.KIND: frozenset({'lambda_function'}),
@@ -3191,9 +3193,8 @@ def collect(connector, requirements=None):
                             elif kind == "aws_cloudtrail_activity":
                                 future = activity_jobs[(id(identity), region)]
                             elif kind == "access_analyzer" and defer_analyzer_preparation:
-                                # Preparation can make slow SDK calls in every
-                                # Region. Queue ordinary reads first so they
-                                # progress while analyzers are prepared.
+                                # Preserve collection ordering for the inert
+                                # Access Analyzer inventory placeholder.
                                 deferred_analyzers.append((len(regional_jobs), session, identity, region))
                                 future = None
                             else:
