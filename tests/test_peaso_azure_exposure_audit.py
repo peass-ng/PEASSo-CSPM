@@ -306,8 +306,10 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     assert open_scm.addresses == [scm_host]
     assert open_scm.path[-1]["main"]["decision"] == "block"
     assert open_scm.path[-1]["scm"]["decision"] == "allow"
-    assert "SCM restrictions permit a public-source request" in _observed(open_scm, "FAIL")
-    assert "were not tested" in _observed(open_scm, "FAIL")
+    observed = _observed(open_scm, "FAIL")
+    assert "SCM IP rules allow a public source" in observed
+    assert "could expose deployment controls or app data" in observed
+    assert len(observed.splitlines()) == 3
     assert app_decision({**separate, "scmIpSecurityRestrictionsDefaultAction": "Deny"}).verdict() == "PASS"
     assert app_decision({**separate, "scmIpSecurityRestrictionsUseMain": True}).verdict() == "PASS"
     assert app_decision(main_blocked).verdict() == "UNKNOWN"

@@ -5353,18 +5353,32 @@ def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
     if assessment.kind == "web_app":
         restriction = next((step for step in assessment.path if step["layer"] == "access_restrictions"), {})
+        network = next((step for step in assessment.path if step["layer"] == "public_network_access"), {})
         main = (restriction.get("main") or {}).get("decision")
         scm = (restriction.get("scm") or {}).get("decision")
         if status == "FAIL":
             surface = "SCM" if scm == "allow" and main != "allow" else "main site"
-            return (f"Recorded App Service public access and {surface} restrictions permit a public-source request.\n"
-                    "The finding describes the declared default-endpoint listener.\n"
-                    "Request authentication, deployment permission, and runtime health were not tested.")
+            impact = ("deployment controls or app data" if surface == "SCM" else "app data")
+            return (f"The App Service allows public network access, and its {surface} IP rules allow a public source.\n"
+                    f"A request may reach the {surface} endpoint if its hostname and service are active.\n"
+                    f"If authentication also allows it, that could expose {impact}.")
         if status == "PASS":
-            return ("Recorded App Service public access or both site restriction sets block public-source requests.\n"
-                    "This decision concerns the default main and SCM endpoints; private endpoint traffic is separate.")
-        return ("Recorded App Service facts do not resolve public-source access to both main and SCM endpoints.\n"
-                "The missing or ambiguous field is listed in the path; no live request was sent.")
+            if network.get("decision") == "block":
+                return ("The App Service has publicNetworkAccess set to Disabled.\n"
+                        "That setting blocks public requests to its main and SCM endpoints.\n"
+                        "This limits a route to app data and deployment controls.")
+            return ("The App Service's main and SCM IP rules deny public sources.\n"
+                    "Those rules may block internet requests to both endpoints.\n"
+                    "This limits a route to app data and deployment controls.")
+        if not restriction:
+            missing = "main and SCM IP restriction settings"
+        elif main == "unknown":
+            missing = "main IP restriction decision"
+        else:
+            missing = "SCM IP restriction decision or SCM hostname"
+        return (f"The App Service has no complete recorded {missing}.\n"
+                "Its public request path therefore remains unclear.\n"
+                "An open path could expose app data or deployment controls if authentication also allows access.")
     if assessment.kind == "gallery_share":
         profile = _props(assessment.resource).get("sharingProfile")
         permission = profile.get("permissions") if isinstance(profile, dict) else None
