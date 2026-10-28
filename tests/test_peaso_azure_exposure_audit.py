@@ -140,6 +140,46 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
         "ipAddress": "10.0.0.4"}}]}).verdict() == "UNKNOWN"
 
 
+def test_application_gateway_public_frontend_requires_observed_address():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    gateway_id = base + "/applicationGateways/gateway"
+    subnet_id = base + "/virtualNetworks/vnet/subnets/gateway"
+
+    def check(addresses, listener_fronts=("first",)):
+        fronts = [{"id": gateway_id + "/frontendIPConfigurations/" + name,
+                   "properties": {"publicIPAddress": {"id": base + "/publicIPAddresses/" + name}}}
+                  for name in addresses]
+        listeners = [{"properties": {"frontendIPConfiguration": {"id": front["id"]},
+                      "frontendPort": {"id": gateway_id + "/frontendPorts/https"}}}
+                     for front in fronts if front["id"].rsplit("/", 1)[1] in listener_fronts]
+        collections = [
+            {"type": "application_gateway", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": gateway_id, "properties": {"frontendIPConfigurations": fronts,
+                 "frontendPorts": [{"id": gateway_id + "/frontendPorts/https", "properties": {"port": 443}}],
+                 "httpListeners": listeners, "gatewayIPConfigurations": [
+                     {"properties": {"subnet": {"id": subnet_id}}}]}}]},
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": base + "/publicIPAddresses/" + name,
+                        "properties": {"ipAddress": address}} for name, address in addresses.items() if address is not None]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": subnet_id, "properties": {}}]},
+        ]
+        snapshot = make_snapshot("azure", [SCOPE], collections)
+        return next(row for row in assess(snapshot, resources(snapshot))
+                    if row.resource["type"] == "application_gateway")
+
+    known = check({"first": "8.8.8.8"})
+    assert known.verdict() == "FAIL" and known.addresses == ["8.8.8.8"]
+    assert "assigned public address 8.8.8.8" in _observed(known, "FAIL")
+    unassigned = check({"first": None})
+    assert unassigned.verdict() == "UNKNOWN"
+    assert "no collected assigned public address" in _observed(unassigned, "UNKNOWN")
+    assert check({"first": "10.0.0.4"}).verdict() == "UNKNOWN"
+    mixed = check({"first": "8.8.8.8", "second": None}, ("first", "second"))
+    assert mixed.verdict() == "FAIL" and mixed.addresses == ["8.8.8.8"]
+    assert check({"first": None}, ()).verdict() == "PASS"
+
+
 @pytest.mark.parametrize("kind,field", [
     ("container_registry", "networkRuleSet"), ("cognitive_account", "networkAcls")])
 def test_managed_endpoint_parent_public_ip_rules(kind, field):

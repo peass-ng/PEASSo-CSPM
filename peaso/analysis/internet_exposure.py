@@ -4394,19 +4394,35 @@ def _azure_lb(snapshot, inventory, resource):
 
 def _azure_appgw(snapshot, inventory, resource):
     props = _props(resource)
-    fronts = {str(f.get("id", "")).lower() for f in as_list(props.get("frontendIPConfigurations")) if isinstance(f, dict)
+    fronts = {str(f.get("id", "")).lower(): ((f.get("properties") or {}).get("publicIPAddress") or {}).get("id")
+              for f in as_list(props.get("frontendIPConfigurations")) if isinstance(f, dict)
               and ((f.get("properties") or {}).get("publicIPAddress") or {}).get("id")}
     if not fronts:
         return None
     a = Assessment(resource, "load_balancer")
     port_map = {str(p.get("id", "")).lower(): (p.get("properties") or {}).get("port") for p in as_list(props.get("frontendPorts")) if isinstance(p, dict)}
     ports = {}
+    unresolved_fronts = []
     for listener in as_list(props.get("httpListeners")) + as_list(props.get("listeners")):
         lp = (listener or {}).get("properties") or {}
-        if str((lp.get("frontendIPConfiguration") or {}).get("id", "")).lower() in fronts:
+        front_id = str((lp.get("frontendIPConfiguration") or {}).get("id", "")).lower()
+        if front_id in fronts:
             port = port_map.get(str((lp.get("frontendPort") or {}).get("id", "")).lower())
             if isinstance(port, int):
-                ports = union(ports, pset("tcp", port, port))
+                public = inventory.get("public_ip", fronts[front_id])
+                address = _props(public).get("ipAddress") if public is not None else None
+                if address and _public_ip(address):
+                    ports = union(ports, pset("tcp", port, port))
+                    if address not in a.addresses:
+                        a.addresses.append(address)
+                else:
+                    unresolved_fronts.append(fronts[front_id])
+    if unresolved_fronts:
+        if empty(ports):
+            a.gap("inventory", "Application Gateway public frontend address is not collected",
+                  "Microsoft.Network/publicIPAddresses")
+            return a
+        a.notes.append("Other Application Gateway public frontend addresses are not collected")
     a.step("listener", "allow" if not empty(ports) else "block", listener_ports=describe(ports))
     subnet = next((((c.get("properties") or {}).get("subnet") or {}).get("id") for c in as_list(props.get("gatewayIPConfigurations")) if isinstance(c, dict)), None)
     a.ports = _azure_nsg_path(inventory, a, None, subnet, ports, sku="basic", where="gateway subnet")
@@ -6672,6 +6688,18 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.resource["type"] == "application_gateway":
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        if status == "UNKNOWN" and any("public frontend address" in gap["reason"]
+                                       for gap in assessment.unresolved):
+            return (f"The Application Gateway {name} has a listener referencing a public frontend.\n"
+                    "The referenced public IP resource has no collected assigned public address.\n"
+                    "The public listener path remains unresolved until that address is observed.")
+        if status == "FAIL" and assessment.addresses:
+            return (f"The Application Gateway {name} has a listener on assigned public address "
+                    f"{assessment.addresses[0]}.\n"
+                    "The recorded gateway subnet rules allow the listener port from a public source.\n"
+                    "Backend routing, WAF behavior, and a successful request were not observed.")
     terminal = next((step for step in assessment.path
                      if step.get("layer") == "effective_firewall"
                      and step.get("basis") == "terminal hierarchical ingress rule"), None)
