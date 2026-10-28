@@ -1679,8 +1679,18 @@ def _aws_opensearch(snapshot, inventory, resource):
             custom_declared = True
             a.step("alternate_endpoint", "allow_declaration", custom_endpoint=custom_host,
                    source="opensearch:DescribeDomain.DomainEndpointOptions",
-                   semantics="Enabled custom hostname is configured; public DNS CNAME or alias routing is not collected")
-            a.notes.append("OpenSearch custom hostname needs a public DNS CNAME or alias to the service endpoint")
+                   semantics="Enabled custom hostname is configured; public DNS routing is assessed separately")
+            dns = [record for host in service_hosts for record in _aws_route53_cname_declaration(inventory, custom_host, host)
+                   if record["record_type"] == "CNAME" or (
+                       host == status.get("EndpointV2") and
+                       isinstance(status.get("DomainEndpointV2HostedZoneId"), str) and
+                       record.get("alias_hosted_zone_id") == status["DomainEndpointV2HostedZoneId"])]
+            if dns:
+                a.step("dns", "allow_declaration", route53_records=dns,
+                       semantics="Public Route 53 zone has an exact service-endpoint target; delegation and current DNS answers are unobserved")
+                a.notes.append("OpenSearch custom hostname has an in-account DNS declaration; public delegation remains unverified")
+            else:
+                a.notes.append("OpenSearch custom hostname needs a public DNS CNAME or alias to the service endpoint")
         else:
             a.gap("inventory", "enabled OpenSearch custom endpoint host missing or malformed",
                   "opensearch:DescribeDomain.DomainEndpointOptions.CustomEndpoint")
@@ -4310,6 +4320,37 @@ def _cloudfront_staging_primary(inventory, staging):
         if routed and isinstance(host, str) and host:
             matches.append((host, mode, policy["Id"], primary_arn))
     return sorted(matches)[0] if matches else None
+
+
+def _aws_route53_cname_declaration(inventory, domain, target):
+    """Exact public-zone CNAME/alias declaration; delegation is not observed."""
+    domain, target = domain.lower().rstrip("."), target.lower().rstrip(".")
+    key = ("aws_route53_public_aliases",)
+    if key not in inventory.network_cache:
+        records = {}
+        for row in inventory.items("route53_record_set"):
+            data = row["data"]
+            name, zone = data.get("Name"), data.get("HostedZoneName")
+            if (data.get("PrivateZone") is not False or not isinstance(name, str) or
+                    not isinstance(zone, str) or data.get("SetIdentifier") or data.get("HealthCheckId")):
+                continue
+            name, zone = name.lower().rstrip("."), zone.lower().rstrip(".")
+            if not (name == zone or name.endswith("." + zone)):
+                continue
+            values, alias = data.get("Values"), data.get("AliasTarget")
+            if (data.get("Type") == "CNAME" and isinstance(values, list) and len(values) == 1 and
+                    isinstance(values[0], str)):
+                destination = values[0].lower().rstrip(".")
+            elif (data.get("Type") in ("A", "AAAA") and isinstance(alias, dict) and
+                    isinstance(alias.get("DNSName"), str) and alias.get("EvaluateTargetHealth") is False):
+                destination = alias["DNSName"].lower().rstrip(".")
+            else:
+                continue
+            records.setdefault((name, destination), []).append({"hosted_zone_id": data.get("HostedZoneId"),
+                "name": name, "record_type": data["Type"], "target": destination,
+                **({"alias_hosted_zone_id": alias.get("HostedZoneId")} if data["Type"] in ("A", "AAAA") else {})})
+        inventory.network_cache[key] = records
+    return inventory.network_cache[key].get((domain, target), [])
 
 
 def _aws_cloudfront(snapshot, inventory, resource):

@@ -931,6 +931,37 @@ def test_opensearch_enabled_custom_endpoint_is_an_observed_alternate_host():
     assert finding()["status"] == "FAIL"
 
 
+def test_opensearch_custom_host_route53_target_is_declaration_pending_delegation():
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    status = {"DomainName": "search", "ARN": arn, "DomainProcessingStatus": "Active",
+              "Endpoint": "search.es.amazonaws.com", "EndpointV2": "search.aoss.api.aws",
+              "IPAddressType": "dualstack", "DomainEndpointV2HostedZoneId": "ZV2",
+              "DomainEndpointOptions": {"CustomEndpointEnabled": True, "CustomEndpoint": "search.example.com"},
+              "AccessPolicies": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                  "Action": "es:ESHttpGet", "Resource": arn + "/*"}]}}
+    item = {"DomainName": "search", "Domain": {"collection_status": "collected", "DomainStatus": status}}
+    record = {"Name": "search.example.com.", "HostedZoneName": "example.com.",
+              "HostedZoneId": "/hostedzone/Z1", "PrivateZone": False, "Type": "CNAME",
+              "Values": ["search.es.amazonaws.com."]}
+    def finding():
+        return one(aws(coll("opensearch_domain", [item], service="opensearch"),
+                       coll("route53_record_set", [record], scope=f"{ACCOUNT}/global", service="route53")),
+                   "opensearch_domain")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["public_addresses"] == [
+        "search.aoss.api.aws", "search.es.amazonaws.com"]
+    assert any(step["layer"] == "dns" and step["decision"] == "allow_declaration"
+               for step in result["evidence"]["path"])
+    record["PrivateZone"] = True
+    assert not any(step["layer"] == "dns" for step in finding()["evidence"]["path"])
+    record.update(PrivateZone=False, Type="A", AliasTarget={"DNSName": "search.aoss.api.aws.",
+                  "HostedZoneId": "wrong", "EvaluateTargetHealth": False})
+    record.pop("Values")
+    assert not any(step["layer"] == "dns" for step in finding()["evidence"]["path"])
+    record["AliasTarget"]["HostedZoneId"] = "ZV2"
+    assert any(step["layer"] == "dns" for step in finding()["evidence"]["path"])
+
+
 @pytest.mark.parametrize("primary,dual,expected,addresses", [
     ("https://search.example.com/path", None, "UNKNOWN", []),
     ("search.example.com", "https://search.aos.us-east-1.on.aws/path", "FAIL", ["search.example.com"]),
