@@ -79,6 +79,7 @@ from . import azure_notification_hubs_native
 from . import azure_relay_native
 from . import azure_lighthouse_native
 from . import azure_cost_exports_native
+from . import azure_managed_application_definitions_native
 from . import azure_nginx_native
 from . import azure_webpubsub_hubs_native
 
@@ -1215,7 +1216,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "certificate_issuance", *azure_nsg_ingress_native.NATIVE_TYPES,
     *azure_wave_compute_native.NATIVE_TYPES,
     *azure_wave_network_controls.NATIVE_TYPES,
-    "subscription", "tenant", "management_group", "cost_export", "resource_graph", "activity_log", "activity_log_coverage",
+    "subscription", "tenant", "management_group", "cost_export", "managed_application_definition", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
@@ -2467,6 +2468,8 @@ def _selected(options, requirements):
                          "directory_group", "directory_service_principal", "directory_membership"))
     if "cost_export" in selected:
         selected.update(("resource_group", "management_group"))
+    if "managed_application_definition" in selected:
+        selected.update(("resource_group", "managed_application", "directory_domain"))
     if "powerbi_capacity" in selected:
         selected.add("directory_domain")
     if selected.intersection(("directory_group_pim_policy", "directory_group_pim_owner_policy",
@@ -3552,6 +3555,7 @@ def collect(connector, requirements=None, *, transport=None):
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
         azure_cost_exports_native.collect(reader, request, scopes, wanted)
+        azure_managed_application_definitions_native.collect(reader, request, wanted)
         _collect_managed_application_jit(reader, request, embedded_parents)
         _collect_servicebus_entity_rules(reader, request, embedded_parents)
         _collect_gallery_versions(reader, request, embedded_parents)

@@ -360,7 +360,8 @@ def list_detail(value, kind):
         if not isinstance(props, dict):
             raise ValueError("managed application properties missing")
         safe = {key: props[key] for key in (
-            "managedResourceGroupId", "publisherTenantId", "managementMode", "provisioningState")
+            "managedResourceGroupId", "publisherTenantId", "managementMode", "provisioningState",
+            "applicationDefinitionId")
             if key in props}
         if "authorizations" in props:
             authorizations = props["authorizations"]
