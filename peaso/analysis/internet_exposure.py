@@ -3648,26 +3648,52 @@ def _aws_lambda_direct_invoke(snapshot, inventory, resource):
         a.gap("inventory", "Lambda function policy statements are malformed")
         return a
     trusted = trusted_scopes(snapshot)["ids"]
-    foreign = sorted({value for value in values if re.fullmatch(r"[0-9]{12}", value) and value not in trusted})
-    invalid = [value for value in values if value != "all" and not re.fullmatch(r"[0-9]{12}", value)]
-    public = "all" in values
-    if invalid:
-        a.gap("inventory", "Cluster snapshot restore recipient is not an account ID")
-        return a
-    if public and data.get("StorageEncrypted") is not False:
-        a.gap("inventory", "Public snapshot grant conflicts with encrypted or unknown storage state")
-        return a
-    if (public or foreign) and data.get("Status") != "available":
-        a.gap("inventory", "Cluster snapshot availability is unresolved")
-        return a
-    if public or foreign:
-        a.external_ids = ["*"] if public else foreign
-        a.data_exposure = public
+    foreign, uncertain = set(), False
+    for statement in statements:
+        actions = as_list(statement.get("Action"))
+        if not all(isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        if not any(fnmatchcase("lambda:invokefunction", x.casefold()) for x in actions):
+            continue
+        resources = as_list(statement.get("Resource"))
+        if not all(isinstance(x, str) for x in resources):
+            uncertain = True
+            continue
+        if not any(fnmatchcase(arn, x) for x in resources):
+            continue
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow" or statement.get("Condition") or any(
+                key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            if value == "*":
+                foreign.add("*")
+                continue
+            match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.authenticated = True
         a.explicit = "FAIL"
-        a.step("restore_authorization", "allow", snapshot_arn=arn, external_recipients=a.external_ids,
-               semantics="Public or foreign copy/restore authorization; KMS and actual copy/restore unverified")
-        if data.get("StorageEncrypted") is True:
-            a.gap("kms", "Foreign KMS access and encrypted snapshot copy were not observed")
+        a.step("resource_policy", "allow", function_arn=arn, external_principals=sorted(foreign), action="lambda:InvokeFunction")
+        a.gap("caller", "The foreign caller's identity policy and any invocation were not observed")
+        return a
+    if foreign or uncertain:
+        a.gap("policy", "Lambda policy conditions or Deny applicability are unresolved")
         return a
     return None
 

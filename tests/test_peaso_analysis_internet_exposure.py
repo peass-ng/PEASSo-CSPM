@@ -3099,6 +3099,20 @@ def test_lambda_direct_invoke_policy_covers_function_and_alias_without_urls():
     assert findings({"collection_status": "denied"})[0]["status"] == "UNKNOWN"
 
 
+def test_lambda_direct_invoke_is_safe_in_progressive_network_graph():
+    from peaso.analysis import build_graphs
+    from peaso.snapshot import resources
+
+    function = lambda_function(auth="AWS_IAM", policy=False)
+    arn = function["FunctionArn"]
+    function["Policy"] = {"collection_status": "collected", "Policy": {"Statement": [{
+        "Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::444455556666:root"},
+        "Action": "lambda:InvokeFunction", "Resource": arn}]}}
+    snapshot = aws(coll("lambda_function", [function], service="lambda"))
+    graph = build_graphs(snapshot, resources(snapshot), graph_kinds={"network"})["network"]
+    assert any(edge.get("type") == "internet_exposure" for edge in graph["edges"])
+
+
 def test_lambda_layer_version_policy_foreign_get_layer_version():
     base = f"arn:aws:lambda:us-east-1:{ACCOUNT}:layer:shared"
     arn = base + ":2"
