@@ -8615,7 +8615,26 @@ def gcp_default_object_acl_findings(snapshot, resources):
             elif ip_filter.get("mode") != "Disabled":
                 filter_state = "unresolved"
         definite = not blocked and not unresolved_prevention and filter_state in ("disabled", "public_allowed")
-        evidence = {"observed": "The bucket's default object ACL contains a public grant for future uploads.",
+        if blocked:
+            boundary = "Public access prevention is enforced and overrides that grant."
+            outcome = "The grant may apply to future uploads if that setting changes."
+        elif unresolved_prevention:
+            boundary = "The bucket's effective public access prevention setting is not recorded."
+            outcome = "The missing setting leaves public access to future uploads unclear."
+        elif filter_state == "public_blocked":
+            boundary = "The bucket's IP filter has no allowed public source range."
+            outcome = "The grant may apply to future uploads if that filter changes."
+        elif filter_state == "unresolved":
+            boundary = "The bucket's effective public IP filter setting is not recorded."
+            outcome = "The missing filter setting leaves public access to future uploads unclear."
+        else:
+            boundary = "Public access prevention is not enforced and the IP filter permits a public source."
+            outcome = "Future uploads may inherit this public grant."
+        observed = "\n".join((
+            f"Bucket {data.get('bucket') or 'with an unrecorded name'} has a default object ACL granting {data['role']} to {data['entity']}.",
+            boundary, outcome,
+            "That could expose data in objects uploaded under this default ACL."))
+        evidence = {"observed": observed,
                     "bucket": data.get("bucket"), "principal": data["entity"], "role": data["role"],
                     "source": source(snapshot, resource, "entity"),
                     "risk_state": "observed_configuration" if definite else "unknown",
