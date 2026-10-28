@@ -1660,7 +1660,8 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
 
     def app_decision(env_public="Enabled", rules=None, transport="http", extra=None,
-                     allow_insecure=None, fqdn="app.example.azurecontainerapps.io", domains=None):
+                     allow_insecure=None, fqdn="app.example.azurecontainerapps.io", domains=None,
+                     vnet=True):
         ingress = {"external": True, "transport": transport, "fqdn": fqdn,
                    "ipSecurityRestrictions": rules if rules is not None else []}
         if domains is not None:
@@ -1674,7 +1675,9 @@ def test_container_app_requires_public_environment_and_effective_ingress():
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": env_id, "properties": {"publicNetworkAccess": env_public,
-                         "vnetConfiguration": {"internal": False}}}]},
+                         "vnetConfiguration": {"internal": False,
+                             **({"infrastructureSubnetId": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/apps"}
+                                if vnet else {})}}}]},
             {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
                          "configuration": {"ingress": ingress}, "provisioningState": "Succeeded"}}]}])
@@ -1708,6 +1711,11 @@ def test_container_app_requires_public_environment_and_effective_ingress():
         {"name": "disabled.example.org", "bindingType": "Disabled"}]).verdict() == "UNKNOWN"
     tcp = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}])
     assert tcp.verdict() == "FAIL" and tcp.ports == {"tcp": ((8443, 8443), (9000, 9000))}
+    default_extra = app_decision(transport="tcp", extra=[{"external": True, "targetPort": 9001}])
+    assert default_extra.verdict() == "FAIL" and default_extra.ports == {"tcp": ((8443, 8443), (9001, 9001))}
+    no_vnet = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}], vnet=False)
+    assert no_vnet.verdict() == "FAIL" and no_vnet.ports == {"tcp": ((8443, 8443),)}
+    assert any("without external app ingress and a recorded VNet" in note for note in no_vnet.notes)
 
 
 def test_container_app_recorded_stopped_runtime_blocks_external_ingress():

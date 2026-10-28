@@ -5702,6 +5702,12 @@ def _azure_container_app(snapshot, inventory, resource):
         a.gap("listener", "Container App ingress transport is unrecognized")
     for mapping in as_list(ingress.get("additionalPortMappings")):
         if isinstance(mapping, dict) and mapping.get("external") is True:
+            vnet = _props(environment).get("vnetConfiguration") if environment is not None else None
+            if (ingress.get("external") is not True or not isinstance(vnet, dict) or
+                    not isinstance(vnet.get("infrastructureSubnetId"), str) or
+                    not vnet["infrastructureSubnetId"]):
+                a.notes.append("External extra TCP mapping is not an admitted public port without external app ingress and a recorded VNet infrastructure subnet")
+                continue
             port = mapping.get("exposedPort") or mapping.get("targetPort")
             if isinstance(port, int) and 1 <= port <= 65535:
                 a.ports = union(a.ports or {}, pset("tcp", port, port))
