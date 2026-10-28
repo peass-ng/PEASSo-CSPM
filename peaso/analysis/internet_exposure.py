@@ -15942,6 +15942,112 @@ def _azure_newrelic_monitored_resource(snapshot, inventory, resource):
     return a
 
 
+def _azure_service_fabric_cluster(snapshot, inventory, resource):
+    """Surface Service Fabric control endpoints from authoritative cluster LIST."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "ready Service Fabric cluster state unavailable")
+        return a
+    if resource["type"] == "service_fabric_cluster":
+        host, port = props.get("managementHost"), props.get("managementPort")
+        if isinstance(host, str) and re.fullmatch(r"[a-z0-9.-]{1,253}", host.lower()) and type(port) is int and 1 <= port <= 65535:
+            a.addresses = [host.lower()]
+            a.ports = pset("tcp", port, port)
+            a.step("cluster_management", "conditional", endpoint_host=host.lower(), port=port)
+        else:
+            a.gap("listener", "Service Fabric management endpoint unavailable")
+    else:
+        host = props.get("fqdn")
+        if not isinstance(host, str) or not re.fullmatch(r"[a-z0-9.-]{1,253}", host.lower()):
+            address = props.get("ipv4Address")
+            try:
+                host = address if ipaddress.ip_address(address).is_global else None
+            except (ValueError, TypeError):
+                host = None
+        if not isinstance(host, str) or not re.fullmatch(r"[a-z0-9.-]{1,253}", host.lower()):
+            a.gap("listener", "managed Service Fabric public load-balancer FQDN unavailable")
+            return a
+        ports = [props.get(name) for name in ("clientConnectionPort", "httpGatewayConnectionPort",
+                                             "httpGatewayTokenAuthConnectionPort")]
+        ports = sorted({port for port in ports if type(port) is int and 1 <= port <= 65535})
+        if not ports:
+            a.gap("listener", "managed Service Fabric connection ports unavailable")
+            return a
+        a.addresses = [host.lower()]
+        a.ports = {}
+        for port in ports:
+            a.ports = union(a.ports, pset("tcp", port, port))
+        a.step("public_load_balancer", "conditional", endpoint_host=host.lower(), ports=ports)
+    a.gap("ingress", "Service Fabric listener ingress rules and reachability require a network-path join")
+    return a
+
+
+def _azure_ml_compute(snapshot, inventory, resource):
+    """Compute-instance public SSH policy from the cached workspace compute LIST."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    if props.get("computeType") != "ComputeInstance":
+        a.gap("compute_type", "ML compute type has no compute-instance SSH policy")
+        return a
+    instance = props.get("properties")
+    settings = instance.get("sshSettings") if isinstance(instance, dict) else None
+    if not isinstance(settings, dict):
+        a.gap("ssh_policy", "compute-instance SSH settings unavailable")
+        return a
+    public = settings.get("sshPublicAccess")
+    if public == "Disabled":
+        a.step("public_ssh", "block", setting=public)
+        a.explicit = "PASS"
+    elif public == "Enabled":
+        port = settings.get("sshPort")
+        if type(port) is int and 1 <= port <= 65535:
+            a.ports = pset("tcp", port, port)
+        a.step("public_ssh", "conditional", setting=public, port=port)
+        a.gap("ingress", "VNet/subnet policy and public SSH address are not joined")
+        a.explicit = "UNKNOWN"
+    else:
+        a.gap("ssh_policy", "compute-instance public SSH setting unavailable")
+    return a
+
+
+def _azure_recovery_vault(snapshot, inventory, resource):
+    """Recovery Services public network gate and approved foreign private links."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "ready Recovery Services vault state unavailable")
+        return a
+    links = props.get("privateEndpointConnections")
+    if isinstance(links, list):
+        foreign, unresolved = _azure_foreign_private_endpoints(resource["data"], props)
+        if foreign:
+            a.external_ids = foreign
+            a.ports = pset("tcp", 443, 443)
+            a.step("private_vault_share", "allow", external_private_endpoints=foreign)
+            a.explicit = "FAIL"
+        if unresolved:
+            a.gap("private_vault_share", "Recovery Services private endpoint approval or owner unresolved")
+    else:
+        a.gap("private_vault_share", "Recovery Services private endpoint inventory unavailable")
+    access = props.get("publicNetworkAccess")
+    if access == "Enabled":
+        a.ports = pset("tcp", 443, 443)
+        a.step("vault_public_network", "allow", setting=access, authentication="Azure RBAC")
+        a.explicit = "FAIL"
+    elif access == "Disabled":
+        a.step("vault_public_network", "block", setting=access)
+        if a.explicit != "FAIL":
+            a.explicit = "UNKNOWN" if a.unresolved else "PASS"
+    else:
+        a.gap("vault_public_network", "Recovery Services public network setting unavailable")
+    return a
+
+
 def _azure_fabric_workspace(snapshot, inventory, resource):
     """Fabric workspace grants to observed foreign users or applications."""
     a = Assessment(resource, "identity_trust")
@@ -18827,7 +18933,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "media_cdn_service", "target_pool", "target_instance",
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
-AZURE_TYPES = ['vnet', 'subnet', 'vnet_peering', 'network_connection', 'hub_vpn_connection', 'nat_gateway', 'route_table', 'nsg', 'service_tag', 'nic', 'vm', 'public_ip', 'load_balancer', 'application_gateway', 'app_service', 'app_service_slot', 'app_service_plan', 'app_service_environment', 'app_service_config', 'aks_cluster', 'storage_account', 'storage_container', 'storage_service', 'sql_server', 'sql_firewall_rule', 'managed_identity_federated_credential', 'container_group', 'container_app', 'container_app_environment', 'container_app_runtime', 'azure_firewall', 'firewall_policy', 'ip_group', 'frontdoor_and_cdn_endpoint', 'api_management', 'redis_cache', 'redis_enterprise_cluster', 'redis_enterprise_database', 'signalr_service', 'web_pubsub', 'synapse_workspace', 'disk', 'snapshot', 'kusto_cluster', 'batch_account', 'ml_workspace', 'databricks_workspace', 'compute_gallery', 'bastion_host', 'virtual_network_gateway', 'attestation_provider', 'dns_zone', 'private_dns_zone', 'analysis_server', 'private_link_service', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_application', 'managed_grafana', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'traffic_manager_profile', 'notification_hub_namespace', 'private_dns_link', 'relay_namespace', 'mongo_cluster', 'lighthouse_delegation', 'management_group', 'subscription', 'managed_application_definition', 'entra_domain_service', 'security_contact', 'defender_automation', 'external_id_auth_extension', 'external_id_cross_tenant_default', 'external_id_cross_tenant_partner', 'directory_app_role_assignment', 'easm_workspace', 'easm_data_connection', 'action_group', 'diagnostic_setting', 'subscription_diagnostic_setting', 'monitor_log_profile', 'monitor_workspace', 'purview_account', 'purview_metadata_policy', 'purview_unified_policy', 'purview_ediscovery_case_member', 'sentinel_automation_rule', 'sentinel_source_control', 'powerbi_capacity', 'playwright_workspace', 'foundry_project', 'foundry_agent', 'foundry_connection', 'newrelic_monitor', 'newrelic_monitored_resource', 'fabric_workspace', 'fabric_item', 'fabric_external_data_share', 'powerbi_published_item', 'powerbi_org_link', 'nginx_deployment', 'openshift_cluster', 'openshift_hcp_cluster', 'netapp_volume', 'stream_analytics_job']
+AZURE_TYPES = ['vnet', 'subnet', 'vnet_peering', 'network_connection', 'hub_vpn_connection', 'nat_gateway', 'route_table', 'nsg', 'service_tag', 'nic', 'vm', 'public_ip', 'load_balancer', 'application_gateway', 'app_service', 'app_service_slot', 'app_service_plan', 'app_service_environment', 'app_service_config', 'aks_cluster', 'storage_account', 'storage_container', 'storage_service', 'sql_server', 'sql_firewall_rule', 'managed_identity_federated_credential', 'container_group', 'container_app', 'container_app_environment', 'container_app_runtime', 'azure_firewall', 'firewall_policy', 'ip_group', 'frontdoor_and_cdn_endpoint', 'api_management', 'redis_cache', 'redis_enterprise_cluster', 'redis_enterprise_database', 'signalr_service', 'web_pubsub', 'synapse_workspace', 'disk', 'snapshot', 'kusto_cluster', 'batch_account', 'ml_workspace', 'databricks_workspace', 'compute_gallery', 'bastion_host', 'virtual_network_gateway', 'attestation_provider', 'dns_zone', 'private_dns_zone', 'analysis_server', 'private_link_service', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_application', 'managed_grafana', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'traffic_manager_profile', 'notification_hub_namespace', 'private_dns_link', 'relay_namespace', 'mongo_cluster', 'lighthouse_delegation', 'management_group', 'subscription', 'managed_application_definition', 'entra_domain_service', 'security_contact', 'defender_automation', 'external_id_auth_extension', 'external_id_cross_tenant_default', 'external_id_cross_tenant_partner', 'directory_app_role_assignment', 'easm_workspace', 'easm_data_connection', 'action_group', 'diagnostic_setting', 'subscription_diagnostic_setting', 'monitor_log_profile', 'monitor_workspace', 'purview_account', 'purview_metadata_policy', 'purview_unified_policy', 'purview_ediscovery_case_member', 'sentinel_automation_rule', 'sentinel_source_control', 'powerbi_capacity', 'playwright_workspace', 'foundry_project', 'foundry_agent', 'foundry_connection', 'newrelic_monitor', 'newrelic_monitored_resource', 'fabric_workspace', 'fabric_item', 'fabric_external_data_share', 'powerbi_published_item', 'powerbi_org_link', 'nginx_deployment', 'openshift_cluster', 'openshift_hcp_cluster', 'netapp_volume', 'stream_analytics_job', 'ml_compute', 'recovery_vault', 'service_fabric_cluster', 'service_fabric_managed_cluster']
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -18842,7 +18948,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {'nic', 'vnet_peering', 'network_connection', 'hub_vpn_connection', 'load_balancer', 'application_gateway', 'app_service', 'app_service_slot', 'aks_cluster', 'storage_account', 'storage_container', 'sql_server', 'container_group', 'container_app', 'azure_firewall', 'frontdoor_and_cdn_endpoint', 'api_management', 'redis_cache', 'redis_enterprise_cluster', 'redis_enterprise_database', 'signalr_service', 'web_pubsub', 'synapse_workspace', 'disk', 'snapshot', 'kusto_cluster', 'batch_account', 'ml_workspace', 'databricks_workspace', 'compute_gallery', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_application', 'managed_grafana', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'analysis_server', 'virtual_network_gateway', 'attestation_provider', 'dns_zone', 'private_dns_zone', 'private_link_service', 'bastion_host', 'vm_scale_set', 'stream_analytics_job', 'managed_application_definition', 'entra_domain_service', 'security_contact', 'defender_automation', 'external_id_auth_extension', 'external_id_cross_tenant_default', 'external_id_cross_tenant_partner', 'directory_app_role_assignment', 'easm_workspace', 'easm_data_connection', 'action_group', 'diagnostic_setting', 'subscription_diagnostic_setting', 'monitor_log_profile', 'monitor_workspace', 'purview_account', 'purview_metadata_policy', 'purview_unified_policy', 'purview_ediscovery_case_member', 'sentinel_automation_rule', 'sentinel_source_control', 'management_group', 'subscription', 'powerbi_capacity', 'fabric_workspace', 'fabric_item', 'fabric_external_data_share', 'powerbi_published_item', 'powerbi_org_link', 'traffic_manager_profile', 'notification_hub_namespace', 'private_dns_link', 'relay_namespace', 'mongo_cluster', 'lighthouse_delegation', 'nginx_deployment', 'openshift_cluster', 'openshift_hcp_cluster', 'netapp_volume', 'playwright_workspace', 'foundry_project', 'foundry_agent', 'foundry_connection', 'newrelic_monitor', 'newrelic_monitored_resource', 'devops_project', 'eventgrid_topic', 'eventgrid_domain', 'automation_account', 'iot_hub', 'mssql_managed_instance', *_AZURE_MANAGED_ENDPOINTS},
+             "azure": {'nic', 'vnet_peering', 'network_connection', 'hub_vpn_connection', 'load_balancer', 'application_gateway', 'app_service', 'app_service_slot', 'aks_cluster', 'storage_account', 'storage_container', 'sql_server', 'container_group', 'container_app', 'azure_firewall', 'frontdoor_and_cdn_endpoint', 'api_management', 'redis_cache', 'redis_enterprise_cluster', 'redis_enterprise_database', 'signalr_service', 'web_pubsub', 'synapse_workspace', 'disk', 'snapshot', 'kusto_cluster', 'batch_account', 'ml_workspace', 'databricks_workspace', 'compute_gallery', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_application', 'managed_grafana', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'analysis_server', 'virtual_network_gateway', 'attestation_provider', 'dns_zone', 'private_dns_zone', 'private_link_service', 'bastion_host', 'vm_scale_set', 'stream_analytics_job', 'managed_application_definition', 'entra_domain_service', 'security_contact', 'defender_automation', 'external_id_auth_extension', 'external_id_cross_tenant_default', 'external_id_cross_tenant_partner', 'directory_app_role_assignment', 'easm_workspace', 'easm_data_connection', 'action_group', 'diagnostic_setting', 'subscription_diagnostic_setting', 'monitor_log_profile', 'monitor_workspace', 'purview_account', 'purview_metadata_policy', 'purview_unified_policy', 'purview_ediscovery_case_member', 'sentinel_automation_rule', 'sentinel_source_control', 'management_group', 'subscription', 'powerbi_capacity', 'fabric_workspace', 'fabric_item', 'fabric_external_data_share', 'powerbi_published_item', 'powerbi_org_link', 'traffic_manager_profile', 'notification_hub_namespace', 'private_dns_link', 'relay_namespace', 'mongo_cluster', 'lighthouse_delegation', 'nginx_deployment', 'openshift_cluster', 'openshift_hcp_cluster', 'netapp_volume', 'playwright_workspace', 'foundry_project', 'foundry_agent', 'foundry_connection', 'newrelic_monitor', 'newrelic_monitored_resource', 'devops_project', 'eventgrid_topic', 'eventgrid_domain', 'automation_account', 'iot_hub', 'mssql_managed_instance', 'ml_compute', 'recovery_vault', 'service_fabric_cluster', 'service_fabric_managed_cluster', *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -18983,6 +19089,10 @@ def assess(snapshot, resources):
                   "foundry_connection": _azure_foundry_connection,
                   "newrelic_monitor": _azure_newrelic_monitor,
                   "newrelic_monitored_resource": _azure_newrelic_monitored_resource,
+                  "service_fabric_cluster": _azure_service_fabric_cluster,
+                  "service_fabric_managed_cluster": _azure_service_fabric_cluster,
+                  "ml_compute": _azure_ml_compute,
+                  "recovery_vault": _azure_recovery_vault,
                   "fabric_workspace": _azure_fabric_workspace,
                   "fabric_item": _azure_fabric_workspace,
                   "fabric_external_data_share": _azure_fabric_external_data_share,
