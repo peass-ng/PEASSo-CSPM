@@ -14,7 +14,7 @@ def test_reviewed_source_and_literal_api_clients():
     files = gate.reviewed_python(ROOT)
     calls = gate.direct_clients(ROOT)
     assert len(files) == gate.REVIEWED_PYTHON_COUNT
-    assert len(calls) == 30
+    assert len(calls) == 29
     assert {service for _, _, service in calls} <= gate.API_SERVICES
     assert gate.review_source(ROOT)['source_diff'] == {'added': [], 'removed': [], 'changed': []}
 
