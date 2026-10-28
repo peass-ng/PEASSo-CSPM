@@ -338,6 +338,12 @@ def _workloads(snapshot, resources, by_type, signal):
         k8s_workloads = K8sWorkloadIndex(snapshot, by_type, _cluster)
     from peaso.analysis.cloud_workload_index import CloudWorkloadIndex, compute_path
     cloud_workloads = CloudWorkloadIndex(by_type)
+    lambda_versions = defaultdict(list)
+    if provider == "aws":
+        for version_row in by_type["lambda_version"]:
+            version_arn = version_row["data"].get("FunctionArn")
+            if isinstance(version_arn, str):
+                lambda_versions[version_arn].append(version_row)
     aws_backend_inventory = None
     profiles = {r["data"].get("Arn"): r["data"] for r in by_type["iam_instance_profile"]}
     # IAM role inventory embeds instance profiles on some collector versions.
@@ -349,7 +355,43 @@ def _workloads(snapshot, resources, by_type, signal):
         data = row["data"]
         if provider == "aws":
             if row["type"] == "lambda_function":
-                return [data.get("Role")]
+                arn, role = data.get("FunctionArn"), data.get("Role")
+                account = row["scope"].split("/", 1)[0]
+                partition = arn.split(":", 2)[1] if isinstance(arn, str) and arn.startswith("arn:") else ""
+                return [role] if isinstance(role, str) and role.startswith(f"arn:{partition}:iam::{account}:role/") else []
+            if row["type"] in {"lambda_version", "lambda_alias"}:
+                base = data.get("BaseFunctionArn") if row["type"] == "lambda_version" else data.get("FunctionArn")
+                version_ids = [data.get("Version")] if row["type"] == "lambda_version" else [data.get("FunctionVersion")]
+                if row["type"] == "lambda_alias":
+                    if not isinstance(base, str) or data.get("AliasArn") != f"{base}:{data.get('Name')}":
+                        return []
+                    routing = data.get("RoutingConfig") or {}
+                    weights = routing.get("AdditionalVersionWeights", {}) if isinstance(routing, dict) else None
+                    if not isinstance(weights, dict) or any(
+                            not isinstance(weight, (float, int)) or isinstance(weight, bool) or not 0 <= weight <= 1
+                            for weight in weights.values()):
+                        return []
+                    version_ids += [version for version, weight in weights.items()
+                        if isinstance(weight, (float, int)) and not isinstance(weight, bool) and 0 < weight <= 1]
+                if not isinstance(base, str) or not version_ids or any(
+                        not isinstance(version, str) or not version.isdigit() for version in version_ids):
+                    return []
+                roles = []
+                for version in version_ids:
+                    version_arn = f"{base}:{version}"
+                    matches = lambda_versions.get(version_arn, [])
+                    if len(matches) != 1 or matches[0]["scope"] != row["scope"]:
+                        return []
+                    detail = matches[0]["data"]
+                    role = detail.get("Role")
+                    account = row["scope"].split("/", 1)[0]
+                    partition = base.split(":", 2)[1] if base.startswith("arn:") else ""
+                    if (detail.get("BaseFunctionArn") != base or detail.get("Version") != version or
+                            detail.get("FunctionArn") != version_arn or not isinstance(role, str) or
+                            not role.startswith(f"arn:{partition}:iam::{account}:role/")):
+                        return []
+                    roles.append(role)
+                return sorted(set(roles))
             if row["type"] == "ecs_task":
                 definition = next((r["data"] for r in cloud_workloads.candidates("ecs_task_definition", "taskDefinitionArn", [data.get("taskDefinitionArn")]) if r["data"].get("taskDefinitionArn") == data.get("taskDefinitionArn")), {})
                 return [data.get("taskRoleArn") or definition.get("taskRoleArn")]
@@ -380,6 +422,16 @@ def _workloads(snapshot, resources, by_type, signal):
         if (assessment.verdict() == "PASS" and not auth_public_api) or assessment.data_exposure or assessment.kind in {"control_plane", "external_share"}:
             continue
         row = assessment.resource
+        if provider == "aws" and assessment.kind == "external_lambda_invoke":
+            if assessment.verdict() == "FAIL":
+                for identity in identities(row):
+                    if identity:
+                        signal(identity, row, "external_workload", "declared",
+                            endpoint_resource=row.get("id"), workload_resource=row.get("id"),
+                            external_accounts=assessment.external_ids, path=assessment.path,
+                            caller_permissions_unobserved=True, invocation_unobserved=True,
+                            requires_application_compromise=True)
+            continue
         targets = [row]
         backend_evidence = {}
         confirmed_targets = set()

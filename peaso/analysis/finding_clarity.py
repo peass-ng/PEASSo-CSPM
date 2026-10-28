@@ -391,8 +391,8 @@ def _aws_principal_summary(finding,entries):
 _EXPOSURE_KINDS={
     'public_ip':'public IP path','load_balancer':'load-balancer frontend','database':'database endpoint',
     'managed_endpoint':'managed service endpoint','control_plane':'cluster control-plane endpoint',
-    'function_url':'Lambda function URL','api':'API endpoint','data_share':'stored-data sharing',
-    'external_share':'external snapshot sharing','external_network':'external VPC peering route','public_registry':'public image registry','external_log_stream':'log subscription destination','serverless':'serverless endpoint','web_app':'web application endpoint',
+    'function_url':'Lambda function URL','external_lambda_invoke':'Lambda direct invocation grant','external_layer_share':'Lambda layer sharing','api':'API endpoint','data_share':'stored-data sharing',
+    'external_share':'external snapshot sharing','external_generic_policy_grant':'AWS resource policy grant','external_cluster_snapshot_share':'DocumentDB or Neptune snapshot sharing','external_redshift_snapshot_share':'Redshift snapshot sharing','external_redshift_serverless_snapshot_share':'Redshift Serverless snapshot sharing','external_network':'external VPC peering route','vpn_client_authorization':'Client VPN authorization grant','public_registry':'public image registry','external_log_stream':'log subscription destination','external_registry_share':'ECR repository sharing','external_registry_policy_pull':'ECR registry pull grant','external_registry_template_pull':'ECR future repository grant','external_secret_grant':'secret read grant','external_queue_receive':'SQS message receive grant','external_topic_subscription':'SNS subscription owner','external_topic_subscribe_grant':'SNS Subscribe grant','external_kms_decrypt_grant':'KMS Decrypt grant','external_kms_grant':'KMS grant','serverless':'serverless endpoint','web_app':'web application endpoint',
     'service':'Kubernetes service','ingress':'Kubernetes ingress','malformed':'internet path',
 }
 
@@ -403,6 +403,133 @@ def _internet_summary(finding):
         return _coverage_summary(e)
     if not isinstance(kind,str) or kind not in _EXPOSURE_KINDS:return None
     label=_EXPOSURE_KINDS[kind]
+    if kind=='vpn_client_authorization':
+        if status=='FAIL':
+            return 'An active Client VPN rule declares access for every authenticated client to the recorded destination network. Route and destination controls remain unverified.'
+        return 'Client VPN all-client authorization cannot be resolved from the collected rules.'
+    if kind=='external_generic_policy_grant':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            audience='any AWS principal' if '*' in principals else 'external account '+', '.join(principals)
+            return 'The collected resource policy declares an unconditional grant to '+audience+'. Caller permissions, service requirements and actual use remain unobserved.'
+        if status=='UNKNOWN':
+            return 'The resource policy owner, conditions or applicable Deny could not be resolved; foreign use remains uncertain.'
+        return None
+    if kind=='external_cluster_snapshot_share':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            audience='all AWS accounts' if '*' in principals else 'external account '+', '.join(principals)
+            return 'The owned manual cluster snapshot authorizes '+audience+' to copy or restore it. KMS permissions and actual use were not observed.'
+        if status=='UNKNOWN':
+            return 'The cluster snapshot identity, restore attributes or recipient scope could not be resolved; sharing remains uncertain.'
+        return None
+    if kind=='external_redshift_serverless_snapshot_share':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            return 'The owned Redshift Serverless snapshot authorizes restore by external account '+', '.join(principals)+'. Caller IAM permission, any KMS access and actual restore were not observed.'
+        if status=='UNKNOWN':
+            return 'The Redshift Serverless snapshot owner, status or restore recipients could not be resolved; foreign restore access remains uncertain.'
+        return None
+    if kind=='external_redshift_snapshot_share':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            return 'The owned Redshift manual snapshot authorizes restore by '+', '.join(principals)+'. Caller IAM permission, any KMS access and actual restore were not observed.'
+        if status=='UNKNOWN':
+            return 'The Redshift snapshot owner, status or restore authorization could not be resolved; foreign restore access remains uncertain.'
+        return None
+    if kind=='external_registry_template_pull':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            audience='all AWS accounts' if '*' in principals else 'external account '+', '.join(principals)
+            return 'An ECR creation template would grant image-pull actions to '+audience+' on matching future repositories. It does not change existing repositories.'
+        if status=='UNKNOWN':
+            return 'The ECR creation template or applicable policy conditions could not be resolved; a future foreign pull grant remains uncertain.'
+        return None
+    if kind=='external_registry_policy_pull':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            audience='all AWS accounts' if '*' in principals else 'external account '+', '.join(principals)
+            return 'The ECR registry policy grants image-pull actions to '+audience+'. A token, matching repository and actual image pull were not observed.'
+        if status=='UNKNOWN':
+            return 'The ECR registry policy or applicable Deny and conditions could not be resolved; foreign image-pull capability remains uncertain.'
+        return None
+    if kind=='external_layer_share':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            audience='all AWS accounts' if '*' in principals else 'external account '+', '.join(principals)
+            return 'The Lambda layer version policy grants GetLayerVersion to '+audience+'. Caller permissions and actual download were not observed.'
+        if status=='UNKNOWN':
+            return 'The Lambda layer policy or applicable Deny and conditions could not be resolved; foreign layer access remains uncertain.'
+        return None
+    if kind=='external_lambda_invoke':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            audience='any AWS principal' if '*' in principals else 'external account '+', '.join(principals)
+            return 'The function or alias policy grants InvokeFunction to '+audience+'. The caller also needs identity permission; no invocation was observed.'
+        if status=='UNKNOWN':
+            return 'The Lambda policy or applicable Deny and conditions could not be resolved; foreign direct invocation remains uncertain.'
+        return None
+    if kind=='external_kms_grant':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            return 'An active KMS grant permits Decrypt for a principal in external account '+', '.join(principals)+'. Other authorization controls and possession of decryptable ciphertext were not observed.'
+        if status=='PASS':
+            return 'The KMS grant key cannot currently decrypt.'
+        if status=='UNKNOWN':
+            return 'The KMS grant, encryption context constraints, key state or key-policy Deny could not be resolved; foreign decryption remains uncertain.'
+        return None
+    if kind=='external_kms_decrypt_grant':
+        principals=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(principals) and principals:
+            audience='any principal' if '*' in principals else 'external account '+', '.join(principals)
+            return 'The enabled customer KMS key policy grants Decrypt to '+audience+'. The caller also needs its own IAM permission and decryptable ciphertext; no decryption was observed.'
+        if status=='PASS':
+            return 'The KMS key is disabled or unavailable for decryption in its current state.'
+        if status=='UNKNOWN':
+            return 'The KMS key metadata, policy, or applicable Deny and conditions could not be resolved; foreign decryption remains uncertain.'
+        return None
+    if kind=='external_topic_subscribe_grant':
+        accounts=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(accounts) and accounts:
+            audience='any principal' if '*' in accounts else 'external account '+', '.join(accounts)
+            return 'The SNS topic policy permits '+audience+' to request a subscription. An endpoint still needs confirmation; no message delivery was observed.'
+        if status=='UNKNOWN':
+            return 'The SNS topic policy or applicable Deny and conditions could not be resolved; foreign subscription capability remains uncertain.'
+        return None
+    if kind=='external_topic_subscription':
+        accounts=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(accounts) and accounts:
+            return 'A confirmed subscription to the SNS topic is owned by external account '+', '.join(accounts)+'. The endpoint was not retained, and message delivery was not observed.'
+        if status=='UNKNOWN':
+            return 'The SNS subscription is pending confirmation or its topic and owner cannot be attributed; external delivery remains uncertain.'
+        return None
+    if kind=='external_queue_receive':
+        accounts=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(accounts) and accounts:
+            return 'The SQS queue policy grants ReceiveMessage to external account '+', '.join(accounts)+'. The caller also needs its own identity permission and any customer KMS Decrypt access; no messages were read.'
+        if status=='PASS':
+            return 'The queue uses the AWS managed SQS KMS key, which cannot grant cross-account decrypt access.'
+        if status=='UNKNOWN':
+            return 'The SQS policy, KMS key, or applicable Deny and conditions could not be resolved; foreign message receive remains uncertain.'
+        return None
+    if kind=='external_secret_grant':
+        accounts=e.get('external_scope_ids')
+        if status=='FAIL' and _strings(accounts) and accounts:
+            return 'The secret policy grants GetSecretValue to external account '+', '.join(accounts)+'. The caller also needs its own identity permission and KMS Decrypt access; no secret value was read.'
+        if status=='PASS':
+            return 'The secret uses the AWS managed default KMS key, which cannot support cross-account secret reads.'
+        if status=='UNKNOWN':
+            return 'The secret policy, customer KMS key, or applicable Deny and conditions could not be resolved; external secret-read access remains uncertain.'
+        return None
+    if kind=='external_registry_share':
+        path=e.get('path')
+        rows=[step for step in path if isinstance(step,dict) and step.get('layer')=='repository_policy'] if isinstance(path,list) else []
+        accounts=e.get('external_scope_ids')
+        if status=='FAIL' and len(rows)==1 and rows[0].get('decision')=='allow' and _strings(accounts) and accounts:
+            return 'The ECR repository policy grants image pull actions to external account '+', '.join(accounts)+'. The caller still needs authentication and its own permissions; image pulls were not observed.'
+        if status=='UNKNOWN':
+            return 'The ECR repository policy or applicable Deny and conditions could not be resolved; external image pull access remains uncertain.'
+        return None
     if kind=='external_log_stream':
         path=e.get('path')
         rows=[step for step in path if isinstance(step,dict) and step.get('layer')=='subscription'] if isinstance(path,list) else []

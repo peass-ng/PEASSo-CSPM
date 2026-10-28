@@ -1,6 +1,7 @@
 """Internet-to-asset exposure (peaso.analysis.internet_exposure): PASS/FAIL/UNKNOWN per scenario."""
 import copy
 import ipaddress
+import json
 
 import pytest
 
@@ -30,7 +31,9 @@ def exposure(snapshot, kind=None):
 def one(snapshot, resource_type):
     report = analyze(snapshot)
     ids = {r["id"]: r["type"] for r in report["resources"]}
-    found = [f for f in report["findings"] if f["check_id"] == CHECK and ids.get(f["resource_id"]) == resource_type]
+    found = [f for f in report["findings"] if f["check_id"] == CHECK and ids.get(f["resource_id"]) == resource_type
+             and (resource_type not in ("lambda_function", "lambda_alias") or f["evidence"].get("exposure_kind") == "function_url")
+             and (resource_type != "ecr_registry" or f["evidence"].get("exposure_kind") == "external_share")]
     assert len(found) == 1, found
     return found[0]
 
@@ -211,6 +214,44 @@ def test_aws_client_vpn_managed_listener_and_inactive_state():
     assert one(aws(coll("client_vpn_endpoint", [incomplete])), "client_vpn_endpoint")["status"] == "UNKNOWN"
 
 
+def test_client_vpn_all_authenticated_clients_authorization_declaration():
+    from peaso.finding_observation import evidence_summary
+
+    endpoint = {"ClientVpnEndpointId": "cvpn-endpoint-1", "Status": {"Code": "available"},
+                "DnsName": "*.cvpn-endpoint-1.prod.clientvpn.us-east-1.amazonaws.com",
+                "AuthorizationRules": {"ClientVpnEndpointId": "cvpn-endpoint-1", "collection_status": "collected",
+                                       "items": [{"Status": {"Code": "active"}, "AuthorizeAllGroups": True,
+                                                  "DestinationCidr": "10.20.0.0/16"}]}}
+
+    def grants(row):
+        return [f for f in exposure(aws(coll("client_vpn_endpoint", [row], service="ec2")))
+                if f["evidence"].get("exposure_kind") == "vpn_client_authorization"]
+
+    found = grants(endpoint)
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["path"][0]["destination_cidrs"] == ["10.20.0.0/16"]
+    assert "Route and destination controls remain unverified" in evidence_summary(found[0])
+    assert "authorization rule" in found[0]["remediation"]
+    scoped = copy.deepcopy(endpoint)
+    scoped["AuthorizationRules"]["items"][0]["AuthorizeAllGroups"] = False
+    assert grants(scoped) == []
+    inactive = copy.deepcopy(endpoint)
+    inactive["Status"]["Code"] = "deleted"
+    assert grants(inactive) == []
+    pending = copy.deepcopy(endpoint)
+    pending["AuthorizationRules"]["items"][0]["Status"]["Code"] = "authorizing"
+    assert grants(pending) == []
+    malformed = copy.deepcopy(endpoint)
+    malformed["AuthorizationRules"]["items"][0]["DestinationCidr"] = "not-a-cidr"
+    assert grants(malformed)[0]["status"] == "UNKNOWN"
+    partial = copy.deepcopy(endpoint)
+    partial["AuthorizationRules"]["collection_status"] = "partial"
+    assert grants(partial)[0]["status"] == "UNKNOWN"
+    wrong = copy.deepcopy(endpoint)
+    wrong["AuthorizationRules"]["ClientVpnEndpointId"] = "cvpn-endpoint-foreign"
+    assert grants(wrong)[0]["status"] == "UNKNOWN"
+
+
 def test_aws_vpc_endpoint_service_external_principal_permissions():
     service = {"ServiceId": "vpce-svc-1", "ServiceState": "Available",
                "AcceptanceRequired": False, "AllowedPrincipals": ["*"], "EndpointConnections": []}
@@ -278,6 +319,81 @@ def test_aws_ecr_registry_cross_account_image_replication():
     assert one(aws(coll("ecr_registry", [malformed], service="ecr")), "ecr_registry")["status"] == "UNKNOWN"
 
 
+def test_ecr_registry_policy_foreign_pull_actions():
+    prefix = f"arn:aws:ecr:us-east-1:{ACCOUNT}:repository/"
+    principal = {"AWS": "arn:aws:iam::444455556666:root"}
+
+    def policy(action=None, resource=prefix + "*", who=principal, **extra):
+        return {"collection_status": "collected", "policyText": {"Statement": [{
+            "Effect": "Allow", "Principal": who,
+            "Action": action or ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+            "Resource": resource, **extra}]}}
+
+    def result(read, registry_id=ACCOUNT):
+        registry = {"id": f"ecr-registry/{ACCOUNT}/us-east-1", "registryId": registry_id,
+                    "Replication": {"collection_status": "collected", "rules": []}, "RegistryPolicy": read}
+        return [f for f in exposure(aws(coll("ecr_registry", [registry], service="ecr")))
+                if f["evidence"].get("exposure_kind") == "external_registry_policy_pull"]
+
+    named = result(policy())
+    assert len(named) == 1 and named[0]["status"] == "FAIL"
+    assert named[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert result(policy(who="*"))[0]["status"] == "FAIL"
+    assert result(policy(action="ecr:BatchGetImage")) == []
+    assert result(policy(resource=f"arn:aws:ecr:us-east-1:999988887777:repository/*")) == []
+    assert result(policy(who={"AWS": f"arn:aws:iam::{ACCOUNT}:root"})) == []
+    assert result({"collection_status": "empty", "absent": True}) == []
+    assert result(policy(Condition={"StringEquals": {"aws:PrincipalOrgID": "o-1234567890"}}))[0]["status"] == "UNKNOWN"
+    denied = policy()
+    denied["policyText"]["Statement"].append({"Effect": "Deny", "Principal": principal,
+                                                 "Action": "ecr:*", "Resource": "*"})
+    assert result(denied)[0]["status"] == "UNKNOWN"
+    denied_one = policy()
+    denied_one["policyText"]["Statement"].append({"Effect": "Deny", "Principal": principal,
+                                                     "Action": "ecr:BatchGetImage", "Resource": "*"})
+    assert result(denied_one)[0]["status"] == "UNKNOWN"
+    assert result({"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+    assert result(policy(), registry_id="000000000000")[0]["status"] == "UNKNOWN"
+
+
+def test_ecr_creation_template_foreign_pull_applies_only_to_future_repositories():
+    principal = {"AWS": "arn:aws:iam::444455556666:root"}
+
+    def statement(who=principal, actions=None, **extra):
+        return {"Effect": "Allow", "Principal": who,
+                "Action": actions or ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+                **extra}
+
+    def result(rows, status="collected"):
+        registry = {"id": f"ecr-registry/{ACCOUNT}/us-east-1", "registryId": ACCOUNT,
+                    "Replication": {"collection_status": "collected", "rules": []},
+                    "RegistryPolicy": {"collection_status": "empty", "absent": True},
+                    "RepositoryCreationTemplates": {"collection_status": status, "items": rows}}
+        return [f for f in exposure(aws(coll("ecr_registry", [registry], service="ecr")))
+                if f["evidence"].get("exposure_kind") == "external_registry_template_pull"]
+
+    def template(policy=None):
+        return {"prefix": "prod", "appliedFor": ["REPLICATION"],
+                "repositoryPolicy": {"Statement": [statement()]} if policy is None else policy}
+
+    found = result([template()])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert found[0]["evidence"]["path"][0]["future_grants"][0]["prefix"] == "prod"
+    assert "future" in found[0]["evidence"]["semantics"]
+    assert result([template({"Statement": [statement(who="*")]})])[0]["status"] == "FAIL"
+    assert result([template({"Statement": [statement(actions="ecr:BatchGetImage")]})]) == []
+    assert result([template({"Statement": [statement(who={"AWS": f"arn:aws:iam::{ACCOUNT}:root"})]})]) == []
+    assert result([{"prefix": "ROOT", "appliedFor": ["CREATE_ON_PUSH"]}]) == []
+    assert result([], status="empty") == []
+    assert result([template({"Statement": [statement(Condition={"StringEquals": {"aws:PrincipalOrgID": "o-123"}})]})])[0]["status"] == "UNKNOWN"
+    assert result([template({"Statement": [statement(), {"Effect": "Deny", "Principal": principal,
+                                                     "Action": "ecr:*", "Resource": "*"}]})])[0]["status"] == "UNKNOWN"
+    assert result([template({"Statement": [statement(), {"Effect": "Deny", "Principal": principal,
+                                                     "Action": "ecr:BatchGetImage", "Resource": "*"}]})])[0]["status"] == "UNKNOWN"
+    assert result([template()], status="denied")[0]["status"] == "UNKNOWN"
+
+
 def test_ecr_public_repository_declares_anonymous_pull_without_image_inventory():
     from peaso.finding_observation import evidence_summary
 
@@ -317,6 +433,333 @@ def test_cloudwatch_subscription_filter_targets_foreign_log_destination():
     assert one(aws(coll("log_subscription_filter", [malformed], service="logs")), "log_subscription_filter")["status"] == "UNKNOWN"
     trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
     assert not exposure(aws(coll("log_subscription_filter", [subscription], service="logs"), trusted))
+
+
+def test_cloudwatch_account_subscription_policy_targets_foreign_log_destination():
+    from peaso.finding_observation import evidence_summary
+    from peaso.analysis.catalog import REQUIRED_TYPES
+
+    kind = "log_account_subscription_policy"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    policy = {"id": f"{ACCOUNT}/us-east-1/log-account-policy/export",
+              "accountId": ACCOUNT, "policyName": "export", "policyType": "SUBSCRIPTION_FILTER_POLICY",
+              "DestinationArn": "arn:aws:logs:us-east-1:999988887777:destination:partner",
+              "selectionCriteria": 'LogGroupName NOT IN ["skip"]'}
+    found = one(aws(coll(kind, [policy], service="logs")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "account policy export" in evidence_summary(found)
+    assert "delivery was not verified" in evidence_summary(found)
+    own = {**policy, "DestinationArn": f"arn:aws:logs:us-east-1:{ACCOUNT}:destination:own"}
+    assert not exposure(aws(coll(kind, [own], service="logs")))
+    malformed = {**policy, "DestinationArn": "unknown"}
+    assert one(aws(coll(kind, [malformed], service="logs")), kind)["status"] == "UNKNOWN"
+    wrong_scope = {**policy, "accountId": "999988887777"}
+    assert one(aws(coll(kind, [wrong_scope], service="logs")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [policy], service="logs"), trusted))
+
+
+def test_cloudwatch_destination_access_policy_grants_foreign_sender():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+
+    assert "log_destination" in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:logs:us-east-1:{ACCOUNT}:destination:receiver"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+                 "Action": ["logs:PutSubscriptionFilter", "logs:PutAccountPolicy"], "Resource": arn}
+
+    def findings(statements, **changes):
+        row = {"arn": arn, "destinationName": "receiver", "targetArn": f"arn:aws:kinesis:us-east-1:{ACCOUNT}:stream/receiver",
+               "accessPolicy": json.dumps({"Statement": statements}), **changes}
+        return [f for f in exposure(aws(coll("log_destination", [row], service="logs")))
+                if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+
+    found = findings([statement])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert found[0]["evidence"]["path"][0]["external_grants"][0]["actions"] == sorted(statement["Action"])
+    assert findings([{**statement, "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]) == []
+    assert findings([{**statement, "Resource": arn + "-other"}]) == []
+    assert findings([statement, {**statement, "Effect": "Deny"}])[0]["status"] == "UNKNOWN"
+    assert findings([{**statement, "Condition": {"StringEquals": {"aws:PrincipalOrgID": "o-123"}}}])[0]["status"] == "UNKNOWN"
+    assert findings([statement], arn=arn.replace(ACCOUNT, "000000000000"))[0]["status"] == "UNKNOWN"
+    assert findings([statement], accessPolicy="{broken")[0]["status"] == "UNKNOWN"
+    assert findings([statement], accessPolicy="") == []
+
+
+def test_private_ecr_repository_policy_foreign_image_pull_grant():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "ecr_repository"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:ecr:us-east-1:{ACCOUNT}:repository/team/app"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::999988887777:root"},
+                 "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"], "Resource": arn}
+    repo = {"repositoryArn": arn, "repositoryName": "team/app", "registryId": ACCOUNT,
+            "Policy": {"collection_status": "collected", "registryId": ACCOUNT,
+                       "repositoryName": "team/app", "policyText": {"Statement": [statement]}}}
+    found = one(aws(coll(kind, [repo], service="ecr")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert any("authentication" in gap.get("reason", "").lower() for gap in found["evidence"]["unresolved"])
+    assert "image pulls were not observed" in evidence_summary(found)
+    assert "ECR repository" in found["remediation"]
+    own = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [{**statement,
+           "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]}}}
+    assert not exposure(aws(coll(kind, [own], service="ecr")))
+    wrong_action = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [{**statement,
+                    "Action": "ecr:DescribeImages"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="ecr")))
+    wrong_resource = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [{**statement,
+                      "Resource": arn + "-different"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_resource], service="ecr")))
+    restricted = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [{**statement,
+                  "Condition": {"StringEquals": {"aws:SourceAccount": "999988887777"}}}]}}}
+    assert one(aws(coll(kind, [restricted], service="ecr")), kind)["status"] == "UNKNOWN"
+    denied = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [statement,
+              {"Effect": "Deny", "Principal": "*", "Action": "ecr:*", "Resource": arn}]}}}
+    assert one(aws(coll(kind, [denied], service="ecr")), kind)["status"] == "UNKNOWN"
+    missing = {**repo, "Policy": {"collection_status": "denied"}}
+    assert one(aws(coll(kind, [missing], service="ecr")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [repo], service="ecr"), trusted))
+
+
+def test_secret_policy_foreign_read_requires_customer_key_candidate():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "secret"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:secretsmanager:us-east-1:{ACCOUNT}:secret:app/db-AbCdEf"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::999988887777:role/reader"},
+                 "Action": "secretsmanager:GetSecretValue", "Resource": arn}
+    secret = {"ARN": arn, "Name": "app/db", "KmsKeyId": f"arn:aws:kms:us-east-1:{ACCOUNT}:key/abc",
+              "_coverage": {"KmsKeyId": {"status": "collected"}},
+              "Policy": {"collection_status": "collected", "ARN": arn, "Name": "app/db",
+                         "ResourcePolicy": {"Statement": [statement]}}}
+    found = one(aws(coll(kind, [secret], service="secretsmanager")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "no secret value was read" in evidence_summary(found)
+    assert "KMS key policy" in found["remediation"]
+    default = {**secret, "KmsKeyId": None, "_coverage": {"KmsKeyId": {"status": "empty",
+               "documented_default": "aws/secretsmanager"}}}
+    assert one(aws(coll(kind, [default], service="secretsmanager")), kind)["status"] == "PASS"
+    missing_key = {**secret, "_coverage": {"KmsKeyId": {"status": "denied"}}}
+    assert one(aws(coll(kind, [missing_key], service="secretsmanager")), kind)["status"] == "UNKNOWN"
+    own = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [{**statement,
+           "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]}}}
+    assert not exposure(aws(coll(kind, [own], service="secretsmanager")))
+    wrong_action = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [{**statement,
+                    "Action": "secretsmanager:DescribeSecret"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="secretsmanager")))
+    wrong_resource = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [{**statement,
+                      "Resource": arn + "-other"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_resource], service="secretsmanager")))
+    conditioned = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [{**statement,
+                   "Condition": {"StringEquals": {"aws:SourceAccount": "999988887777"}}}]}}}
+    assert one(aws(coll(kind, [conditioned], service="secretsmanager")), kind)["status"] == "UNKNOWN"
+    denied = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [statement,
+              {"Effect": "Deny", "Principal": "*", "Action": "secretsmanager:GetSecretValue", "Resource": arn}]}}}
+    assert one(aws(coll(kind, [denied], service="secretsmanager")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [secret], service="secretsmanager"), trusted))
+
+
+def test_sqs_queue_policy_foreign_receive_respects_key_and_scope():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "sqs_queue"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:sqs:us-east-1:{ACCOUNT}:events"
+    url = f"https://sqs.us-east-1.amazonaws.com/{ACCOUNT}/events"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+                 "Action": "sqs:ReceiveMessage", "Resource": arn}
+    attrs = {"QueueArn": arn, "Policy": {"Statement": [statement]}, "KmsMasterKeyId": "",
+             "_coverage": {"KmsMasterKeyId": {"status": "empty"}}}
+    queue = {"QueueUrl": url, "Attributes": {"collection_status": "collected", "Attributes": attrs}}
+    found = one(aws(coll(kind, [queue], service="sqs")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "no messages were read" in evidence_summary(found)
+    assert "SQS queue" in found["remediation"]
+    managed = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {
+               **attrs, "KmsMasterKeyId": "alias/aws/sqs"}}}
+    assert one(aws(coll(kind, [managed], service="sqs")), kind)["status"] == "PASS"
+    own = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+           "Policy": {"Statement": [{**statement, "Principal": {"AWS": ACCOUNT}}]}}}}
+    assert not exposure(aws(coll(kind, [own], service="sqs")))
+    wrong_action = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+                    "Policy": {"Statement": [{**statement, "Action": "sqs:SendMessage"}]}}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="sqs")))
+    wrong_resource = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+                      "Policy": {"Statement": [{**statement, "Resource": arn + "-other"}]}}}}
+    assert not exposure(aws(coll(kind, [wrong_resource], service="sqs")))
+    conditioned = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+                   "Policy": {"Statement": [{**statement, "Condition": {"StringEquals": {"aws:SourceAccount": "999988887777"}}}]}}}}
+    assert one(aws(coll(kind, [conditioned], service="sqs")), kind)["status"] == "UNKNOWN"
+    denied = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+              "Policy": {"Statement": [statement, {"Effect": "Deny", "Principal": "*",
+                       "Action": "sqs:ReceiveMessage", "Resource": arn}]}}}}
+    assert one(aws(coll(kind, [denied], service="sqs")), kind)["status"] == "UNKNOWN"
+    mismatched = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+                  "QueueArn": arn + "-other"}}}
+    assert one(aws(coll(kind, [mismatched], service="sqs")), kind)["status"] == "UNKNOWN"
+    unread = {**queue, "Attributes": {"collection_status": "denied"}}
+    assert one(aws(coll(kind, [unread], service="sqs")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [queue], service="sqs"), trusted))
+
+
+def test_confirmed_foreign_owned_sns_topic_subscription():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "sns_topic_subscription"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    topic = f"arn:aws:sns:us-east-1:{ACCOUNT}:events"
+    foreign = "999988887777"
+    subscription = f"arn:aws:sns:us-east-1:{foreign}:events:12345678-1234-1234-1234-123456789012"
+    row = {"id": subscription, "TopicArn": topic, "SubscriptionArn": subscription,
+           "Owner": foreign, "Protocol": "https"}
+    found = one(aws(coll(kind, [row], service="sns")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == [foreign]
+    assert "message delivery was not observed" in evidence_summary(found)
+    assert "SNS topic" in found["remediation"]
+    pending = {**row, "SubscriptionArn": "PendingConfirmation"}
+    assert one(aws(coll(kind, [pending], service="sns")), kind)["status"] == "UNKNOWN"
+    mismatched = {**row, "TopicArn": topic.replace(ACCOUNT, foreign)}
+    assert one(aws(coll(kind, [mismatched], service="sns")), kind)["status"] == "UNKNOWN"
+    own = {**row, "Owner": ACCOUNT, "SubscriptionArn": subscription.replace(foreign, ACCOUNT)}
+    assert not exposure(aws(coll(kind, [own], service="sns")))
+    trusted = coll("organization_account", [{"Id": foreign}], service="organizations")
+    assert not exposure(aws(coll(kind, [row], service="sns"), trusted))
+
+
+def test_sns_topic_policy_foreign_and_wildcard_subscribe_grants():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "sns_topic"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:sns:us-east-1:{ACCOUNT}:events"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+                 "Action": "sns:Subscribe", "Resource": arn}
+    attrs = {"TopicArn": arn, "Owner": ACCOUNT, "Policy": {"Statement": [statement]}}
+    topic = {"TopicArn": arn, "Attributes": {"collection_status": "collected", "Attributes": attrs}}
+    found = one(aws(coll(kind, [topic], service="sns")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "no message delivery was observed" in evidence_summary(found)
+    assert "Subscribe grant" in found["remediation"]
+    wildcard = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                "Policy": {"Statement": [{**statement, "Principal": "*"}]}}}}
+    public = one(aws(coll(kind, [wildcard], service="sns")), kind)
+    assert public["status"] == "FAIL" and public["evidence"]["external_scope_ids"] == ["*"]
+    assert "any principal" in evidence_summary(public)
+    own = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+           "Policy": {"Statement": [{**statement, "Principal": {"AWS": ACCOUNT}}]}}}}
+    assert not exposure(aws(coll(kind, [own], service="sns")))
+    wrong_action = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                    "Policy": {"Statement": [{**statement, "Action": "sns:Publish"}]}}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="sns")))
+    wrong_resource = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                      "Policy": {"Statement": [{**statement, "Resource": arn + "-other"}]}}}}
+    assert not exposure(aws(coll(kind, [wrong_resource], service="sns")))
+    conditioned = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                   "Policy": {"Statement": [{**statement,
+                              "Condition": {"StringEquals": {"sns:Protocol": "https"}}}]}}}}
+    assert one(aws(coll(kind, [conditioned], service="sns")), kind)["status"] == "UNKNOWN"
+    denied = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+              "Policy": {"Statement": [statement, {"Effect": "Deny", "Principal": "*",
+                       "Action": "sns:Subscribe", "Resource": arn}]}}}}
+    assert one(aws(coll(kind, [denied], service="sns")), kind)["status"] == "UNKNOWN"
+    bad_owner = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                 "Owner": "999988887777"}}}
+    assert one(aws(coll(kind, [bad_owner], service="sns")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [topic], service="sns"), trusted))
+
+
+def test_kms_key_policy_foreign_decrypt_grant_requires_enabled_customer_key():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "kms_key"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    key_id = "12345678-1234-1234-1234-123456789012"
+    arn = f"arn:aws:kms:us-east-1:{ACCOUNT}:key/{key_id}"
+    metadata = {"KeyId": key_id, "Arn": arn, "KeyManager": "CUSTOMER",
+                "KeyUsage": "ENCRYPT_DECRYPT", "KeyState": "Enabled", "Enabled": True}
+    statement = {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::999988887777:root"},
+                 "Action": "kms:Decrypt", "Resource": "*"}
+    key = {"KeyId": key_id, "KeyArn": arn,
+           "Metadata": {"collection_status": "collected", "KeyMetadata": metadata},
+           "Policy": {"collection_status": "collected", "Policy": {"Statement": [statement]}}}
+    found = one(aws(coll(kind, [key], service="kms")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "no decryption was observed" in evidence_summary(found)
+    assert "KMS key policy" in found["remediation"]
+    wildcard = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [{**statement, "Principal": "*"}]}}}
+    assert one(aws(coll(kind, [wildcard], service="kms")), kind)["evidence"]["external_scope_ids"] == ["*"]
+    own = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [{**statement,
+           "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]}}}
+    assert not exposure(aws(coll(kind, [own], service="kms")))
+    wrong_action = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [{**statement,
+                    "Action": "kms:DescribeKey"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="kms")))
+    disabled = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+                **metadata, "KeyState": "Disabled", "Enabled": False}}}
+    assert one(aws(coll(kind, [disabled], service="kms")), kind)["status"] == "PASS"
+    managed = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+               **metadata, "KeyManager": "AWS"}}}
+    assert not exposure(aws(coll(kind, [managed], service="kms")))
+    signing = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+               **metadata, "KeyUsage": "SIGN_VERIFY"}}}
+    assert not exposure(aws(coll(kind, [signing], service="kms")))
+    unknown_manager = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+                       field: value for field, value in metadata.items() if field != "KeyManager"}}}
+    assert one(aws(coll(kind, [unknown_manager], service="kms")), kind)["status"] == "UNKNOWN"
+    conditioned = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [{**statement,
+                   "Condition": {"StringEquals": {"kms:CallerAccount": "999988887777"}}}]}}}
+    assert one(aws(coll(kind, [conditioned], service="kms")), kind)["status"] == "UNKNOWN"
+    denied = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [statement,
+              {"Effect": "Deny", "Principal": "*", "Action": "kms:Decrypt", "Resource": "*"}]}}}
+    assert one(aws(coll(kind, [denied], service="kms")), kind)["status"] == "UNKNOWN"
+    unread = {**key, "Policy": {"collection_status": "denied"}}
+    assert one(aws(coll(kind, [unread], service="kms")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [key], service="kms"), trusted))
+
+
+def test_foreign_kms_grant_joins_key_state_policy_and_constraints():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "kms_grant"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    key_id = "12345678-1234-1234-1234-123456789012"
+    arn = f"arn:aws:kms:us-east-1:{ACCOUNT}:key/{key_id}"
+    metadata = {"KeyId": key_id, "Arn": arn, "KeyManager": "CUSTOMER",
+                "KeyUsage": "ENCRYPT_DECRYPT", "KeyState": "Enabled", "Enabled": True}
+    key = {"KeyId": key_id, "KeyArn": arn,
+           "Metadata": {"collection_status": "collected", "KeyMetadata": metadata},
+           "Policy": {"collection_status": "collected", "Policy": {"Statement": [
+               {"Effect": "Allow", "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"},
+                "Action": "kms:*", "Resource": "*"}]}}}
+    grant = {"id": arn + "/grant/g1", "GrantId": "g1", "KeyId": key_id, "KeyArn": arn,
+             "GranteePrincipal": "arn:aws:iam::999988887777:role/reader", "Operations": ["Decrypt"]}
+    collections = lambda row, key_row=key: aws(coll("kms_key", [key_row], service="kms"), coll(kind, [row], service="kms"))
+    found = one(collections(grant), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "ciphertext were not observed" in evidence_summary(found)
+    assert "revoke the KMS grant" in found["remediation"]
+    same = {**grant, "GranteePrincipal": f"arn:aws:iam::{ACCOUNT}:role/reader"}
+    assert not exposure(collections(same))
+    encrypt_only = {**grant, "Operations": ["Encrypt"]}
+    assert not exposure(collections(encrypt_only))
+    constrained = {**grant, "ConstraintKeys": {"EncryptionContextEquals": ["tenant"]}}
+    assert one(collections(constrained), kind)["status"] == "UNKNOWN"
+    disabled_key = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+                    **metadata, "KeyState": "Disabled", "Enabled": False}}}
+    assert one(collections(grant, disabled_key), kind)["status"] == "PASS"
+    deny_key = {**key, "Policy": {"collection_status": "collected", "Policy": {"Statement": [
+                {"Effect": "Deny", "Principal": "*", "Action": "kms:Decrypt", "Resource": "*"}]}}}
+    assert one(collections(grant, deny_key), kind)["status"] == "UNKNOWN"
+    assert one(aws(coll(kind, [grant], service="kms")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll("kms_key", [key], service="kms"), coll(kind, [grant], service="kms"), trusted))
 
 
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
@@ -1656,6 +2099,94 @@ def test_lambda_alias_url_uses_qualified_policy_and_keeps_failed_reads_unknown()
     assert row(foreign_alias)["status"] == "UNKNOWN"
 
 
+def test_lambda_direct_invoke_policy_covers_function_and_alias_without_urls():
+    base = lambda_function(auth="AWS_IAM")
+    arn = base["FunctionArn"]
+    alias_arn = arn + ":live"
+
+    def findings(policy_read, target=arn, alias=False):
+        resource = {"id": target, "FunctionName": "f", "FunctionArn": arn,
+                    "FunctionUrl": {"collection_status": "empty", "absent": True}, "Policy": policy_read}
+        if alias:
+            resource.update({"AliasArn": target, "Name": "live"})
+        kind = "lambda_alias" if alias else "lambda_function"
+        return [f for f in exposure(aws(coll(kind, [resource], service="lambda")))
+                if f["evidence"].get("exposure_kind") == "external_lambda_invoke"]
+
+    def policy(principal, action="lambda:InvokeFunction", resource=arn, **extra):
+        return {"collection_status": "collected", "Policy": {"Statement": [{
+            "Effect": "Allow", "Principal": principal, "Action": action, "Resource": resource, **extra}]}}
+
+    external = {"AWS": "arn:aws:iam::444455556666:root"}
+    result = findings(policy(external))
+    assert len(result) == 1 and result[0]["status"] == "FAIL"
+    assert result[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert result[0]["evidence"]["authenticated_endpoint"] is True
+    assert len(findings(policy(external, resource=alias_arn), alias=True, target=alias_arn)) == 1
+    assert findings(policy(external, action="lambda:Invoke*", resource="*"))[0]["status"] == "FAIL"
+    assert findings(policy(external, action="lambda:InvokeFunctionUrl")) == []
+    assert findings(policy(external, resource=alias_arn)) == []
+    assert findings(policy({"AWS": "arn:aws:iam::111122223333:root"})) == []
+    assert findings({"collection_status": "empty", "absent": True}) == []
+    assert findings(policy(external, Condition={"Bool": {"lambda:InvokedViaFunctionUrl": "true"}}))[0]["status"] == "UNKNOWN"
+    denied = policy(external)
+    denied["Policy"]["Statement"].append({"Effect": "Deny", "Principal": external,
+                                              "Action": "lambda:InvokeFunction", "Resource": arn})
+    assert findings(denied)[0]["status"] == "UNKNOWN"
+    assert findings({"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+
+
+def test_lambda_layer_version_policy_foreign_get_layer_version():
+    base = f"arn:aws:lambda:us-east-1:{ACCOUNT}:layer:shared"
+    arn = base + ":2"
+
+    def result(read, **changes):
+        layer = {"id": arn, "LayerName": "shared", "LayerArn": base,
+                 "LayerVersionArn": arn, "Version": 2, "Policy": read, **changes}
+        return [f for f in exposure(aws(coll("lambda_layer_version", [layer], service="lambda")))
+                if f["evidence"].get("exposure_kind") == "external_layer_share"]
+
+    def policy(principal, action="lambda:GetLayerVersion", resource=arn, **extra):
+        return {"collection_status": "collected", "Policy": {"Statement": [{
+            "Effect": "Allow", "Principal": principal, "Action": action, "Resource": resource, **extra}]}}
+
+    foreign = {"AWS": f"arn:aws:iam::444455556666:root"}
+    named = result(policy(foreign))
+    assert len(named) == 1 and named[0]["status"] == "FAIL"
+    assert named[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert result(policy("*"))[0]["status"] == "FAIL"
+    assert result(policy(foreign, action="lambda:InvokeFunction")) == []
+    assert result(policy(foreign, resource=base + ":3")) == []
+    assert result(policy({"AWS": f"arn:aws:iam::{ACCOUNT}:root"})) == []
+    assert result({"collection_status": "empty", "absent": True}) == []
+    assert result(policy("*", Condition={"StringEquals": {"aws:PrincipalOrgID": "o-1234567890"}}))[0]["status"] == "UNKNOWN"
+    denied = policy(foreign)
+    denied["Policy"]["Statement"].append({"Effect": "Deny", "Principal": foreign,
+                                              "Action": "lambda:GetLayerVersion", "Resource": arn})
+    assert result(denied)[0]["status"] == "UNKNOWN"
+    assert result({"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+    assert result(policy(foreign), LayerVersionArn=base + ":3")[0]["status"] == "UNKNOWN"
+
+
+def test_lambda_published_version_direct_invoke_policy():
+    base = f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:app"
+    arn = base + ":3"
+    policy = {"collection_status": "collected", "Policy": {"Statement": [{
+        "Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::444455556666:root"},
+        "Action": "lambda:InvokeFunction", "Resource": arn}]}}
+
+    def result(**changes):
+        version = {"id": arn, "FunctionName": "app", "BaseFunctionArn": base,
+                   "FunctionArn": arn, "Version": "3", "Policy": policy, **changes}
+        return [f for f in exposure(aws(coll("lambda_version", [version], service="lambda")))
+                if f["evidence"].get("exposure_kind") == "external_lambda_invoke"]
+
+    assert result()[0]["status"] == "FAIL"
+    assert result()[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert result(BaseFunctionArn=base + ":other")[0]["status"] == "UNKNOWN"
+    assert result(Policy={"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+
+
 def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():
     api = {"id": "a1b2", "name": "api", "endpointConfiguration": {"types": ["REGIONAL"]},
            "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
@@ -1848,6 +2379,166 @@ def test_public_and_external_rds_snapshots():
     assert one(aws(coll("rds_snapshot", [snap([ACCOUNT])], service="rds")), "rds_snapshot")["status"] == "PASS"
     missing = snap([]) | {"Attributes": {"collection_status": "denied"}}
     assert one(aws(coll("rds_snapshot", [missing], service="rds")), "rds_snapshot")["status"] == "UNKNOWN"
+
+
+def test_redshift_manual_snapshot_restore_authorizations():
+    arn = f"arn:aws:redshift:us-east-1:{ACCOUNT}:snapshot:warehouse/nightly"
+
+    def result(**changes):
+        data = {"SnapshotArn": arn, "SnapshotIdentifier": "nightly", "ClusterIdentifier": "warehouse",
+                "OwnerAccount": ACCOUNT, "SnapshotType": "manual", "Status": "available",
+                "AccountsWithRestoreAccess": [{"AccountId": "999988887777"}], **changes}
+        return [f for f in exposure(aws(coll("redshift_snapshot", [data], service="redshift")))
+                if f["evidence"].get("exposure_kind") == "external_redshift_snapshot_share"]
+
+    found = result()
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert found[0]["evidence"]["path"][0]["snapshot_arn"] == arn
+    assert result(AccountsWithRestoreAccess=[{"AccountAlias": "amazon-redshift-support"}])[0]["status"] == "FAIL"
+    assert result(AccountsWithRestoreAccess=[{"AccountId": ACCOUNT}]) == []
+    assert result(AccountsWithRestoreAccess=[]) == []
+    assert result(SnapshotType="automated") == []
+    assert result(Status="creating")[0]["status"] == "UNKNOWN"
+    assert result(OwnerAccount="000000000000")[0]["status"] == "UNKNOWN"
+    assert result(SnapshotArn=arn + "-wrong")[0]["status"] == "UNKNOWN"
+    assert result(AccountsWithRestoreAccess=[{"AccountId": "invalid"}])[0]["status"] == "UNKNOWN"
+
+
+def test_redshift_serverless_snapshot_namespace_and_provisioned_restore_grants():
+    arn = f"arn:aws:redshift-serverless:us-east-1:{ACCOUNT}:snapshot/11111111-2222-3333-4444-555555555555"
+
+    def result(**changes):
+        data = {"id": arn, "snapshotArn": arn, "ownerAccount": ACCOUNT, "status": "AVAILABLE",
+                "accountsWithRestoreAccess": ["999988887777"],
+                "accountsWithProvisionedRestoreAccess": ["444455556666"], **changes}
+        return [f for f in exposure(aws(coll("redshiftserverless_snapshot", [data], service="redshift-serverless")))
+                if f["evidence"].get("exposure_kind") == "external_redshift_serverless_snapshot_share"]
+
+    found = result()
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["444455556666", "999988887777"]
+    targets = found[0]["evidence"]["path"][0]["external_targets"]
+    assert targets == {"namespace": ["999988887777"], "provisioned_cluster": ["444455556666"]}
+    assert result(accountsWithRestoreAccess=[ACCOUNT], accountsWithProvisionedRestoreAccess=[]) == []
+    assert result(accountsWithRestoreAccess=[], accountsWithProvisionedRestoreAccess=[]) == []
+    assert result(status="CREATING")[0]["status"] == "UNKNOWN"
+    assert result(ownerAccount="000000000000")[0]["status"] == "UNKNOWN"
+    assert result(snapshotArn=arn + "-other")[0]["status"] == "UNKNOWN"
+    assert result(accountsWithRestoreAccess=["invalid"])[0]["status"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize("kind,service", [("docdb_cluster_snapshot", "docdb"),
+                                          ("neptune_cluster_snapshot", "neptune")])
+def test_documentdb_neptune_manual_snapshot_restore_shares(kind, service):
+    arn = f"arn:aws:rds:us-east-1:{ACCOUNT}:cluster-snapshot:shared"
+
+    def result(values, **changes):
+        data = {"id": arn, "DBClusterSnapshotIdentifier": "shared", "DBClusterSnapshotArn": arn,
+                "SnapshotType": "manual", "Status": "available", "StorageEncrypted": False,
+                "Engine": service, "Attributes": {"collection_status": "collected",
+                    "DBClusterSnapshotAttributesResult": {"DBClusterSnapshotIdentifier": "shared",
+                        "DBClusterSnapshotAttributes": [{"AttributeName": "restore", "AttributeValues": values}]}}, **changes}
+        return [f for f in exposure(aws(coll(kind, [data], service=service)))
+                if f["evidence"].get("exposure_kind") == "external_cluster_snapshot_share"]
+
+    public = result(["all"])
+    assert len(public) == 1 and public[0]["status"] == "FAIL" and public[0]["severity"] == "critical"
+    assert public[0]["evidence"]["external_scope_ids"] == ["*"]
+    foreign = result(["999988887777"], StorageEncrypted=True)
+    assert foreign[0]["status"] == "FAIL" and foreign[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert result([ACCOUNT]) == []
+    assert result([]) == []
+    assert result(["all"], StorageEncrypted=True)[0]["status"] == "UNKNOWN"
+    assert result(["999988887777"], SnapshotType="automated") == []
+    assert result(["999988887777"], Status="creating")[0]["status"] == "UNKNOWN"
+    assert result(["999988887777"], DBClusterSnapshotArn=arn + "-wrong")[0]["status"] == "UNKNOWN"
+    assert result(["999988887777"], Attributes={"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+    assert result(["invalid"])[0]["status"] == "UNKNOWN"
+
+
+def test_source_attributed_resource_policy_declares_foreign_grant():
+    arn = f"arn:aws:elasticfilesystem:us-east-1:{ACCOUNT}:file-system/fs-12345678"
+    principal = {"AWS": "arn:aws:iam::999988887777:root"}
+
+    def result(statements, **changes):
+        row = {"ResourceArn": arn, "Policy": {"Statement": statements},
+               "_provenance": {"read_only": True, "owner_account": ACCOUNT,
+                               "families": ["efs-filesystems"], "source_region": "us-east-1"}, **changes}
+        return [f for f in exposure(aws(coll("aws_resource_policy", [row], service="efs")))
+                if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+
+    allow = {"Effect": "Allow", "Principal": principal, "Action": "elasticfilesystem:ClientMount", "Resource": arn}
+    found = result([allow])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert found[0]["evidence"]["path"][0]["external_grants"][0]["actions"] == ["elasticfilesystem:ClientMount"]
+    assert result([{**allow, "Principal": "*"}])[0]["status"] == "FAIL"
+    assert result([{**allow, "Principal": {"AWS": principal["AWS"], "Service": "backup.amazonaws.com"}}])[0]["status"] == "FAIL"
+    assert result([{**allow, "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]) == []
+    assert result([{**allow, "Principal": {"Service": "backup.amazonaws.com"}}]) == []
+    assert result([{**allow, "Resource": "arn:aws:elasticfilesystem:us-east-1:000000000000:file-system/fs-12345678"}]) == []
+    assert result([{"Effect": "Deny", "Principal": principal, "Action": "elasticfilesystem:ClientMount", "Resource": arn}]) == []
+    assert result([allow, {**allow, "Effect": "Deny"}])[0]["status"] == "UNKNOWN"
+    assert result([{**allow, "Condition": {"StringEquals": {"aws:PrincipalOrgID": "o-123"}}}])[0]["status"] == "UNKNOWN"
+    bad_owner = {"read_only": True, "owner_account": "000000000000", "families": ["efs-filesystems"]}
+    assert result([allow], _provenance=bad_owner)[0]["status"] == "UNKNOWN"
+    assert result([allow], _provenance={"covered_services": ["efs"]})[0]["status"] == "UNKNOWN"
+
+    serverless = f"arn:aws:redshift-serverless:us-east-1:{ACCOUNT}:snapshot/11111111-2222-3333-4444-555555555555"
+    policy = {"ResourceArn": serverless, "Policy": {"Statement": [{"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+              "Action": "redshift-serverless:RestoreFromSnapshot"}]},
+              "_provenance": {"read_only": True, "owner_account": ACCOUNT, "families": ["redshift-snapshots"]}}
+    shares = [f for f in exposure(aws(coll("aws_resource_policy", [policy], service="redshift-serverless")))
+              if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+    assert shares[0]["status"] == "FAIL"
+
+
+def test_owned_iam_role_trust_declares_foreign_assume_role():
+    arn = f"arn:aws:iam::{ACCOUNT}:role/team/Reader"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::999988887777:root"},
+                 "Action": "sts:AssumeRole"}
+
+    def findings(statements, **changes):
+        row = {"Arn": arn, "RoleName": "Reader", "AssumeRolePolicyDocument": {"Statement": statements}, **changes}
+        return [f for f in exposure(aws(coll("iam_role", [row], service="iam")))
+                if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+
+    found = findings([statement])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert found[0]["evidence"]["path"][0]["external_grants"][0]["actions"] == ["sts:AssumeRole"]
+    assert findings([{**statement, "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]) == []
+    assert findings([{**statement, "Action": "sts:TagSession"}]) == []
+    assert findings([{**statement, "Action": "sts:AssumeR*"}])[0]["status"] == "FAIL"
+    assert findings([statement, {**statement, "Effect": "Deny"}])[0]["status"] == "UNKNOWN"
+    assert findings([statement, {"Effect": "Deny", "Principal": "*", "NotAction": "sts:TagSession"}])[0]["status"] == "UNKNOWN"
+    assert findings([{**statement, "Condition": {"StringEquals": {"sts:ExternalId": "partner"}}}])[0]["status"] == "UNKNOWN"
+    assert findings([statement], Arn=arn.replace(ACCOUNT, "000000000000"))[0]["status"] == "UNKNOWN"
+    assert findings([statement], AssumeRolePolicyDocument="{broken")[0]["status"] == "UNKNOWN"
+    assert findings([{**statement, "Principal": "*"}])[0]["evidence"]["external_scope_ids"] == ["*"]
+
+
+@pytest.mark.parametrize("service,tail,action,dedicated", [
+    ("sns", "topic", "sns:Publish", "sns:Subscribe"),
+    ("sqs", "queue", "sqs:SendMessage", "sqs:ReceiveMessage"),
+    ("ecr", "repository/fixture", "ecr:PutImage", "ecr:BatchGetImage"),
+])
+def test_base_resource_policy_additional_foreign_actions(service, tail, action, dedicated):
+    arn = f"arn:aws:{service}:us-east-1:{ACCOUNT}:{tail}"
+    provenance = {"read_only": True, "owner_account": ACCOUNT, "families": [service + "-base"],
+                  "covered_services": ["sns", "sqs", "lambda", "ecr"]}
+
+    def findings(actions):
+        row = {"ResourceArn": arn, "Policy": {"Statement": [{"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+               "Action": actions, "Resource": arn}]}, "_provenance": provenance}
+        return [f for f in exposure(aws(coll("aws_resource_policy", [row], service=service)))
+                if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+
+    assert findings([dedicated]) == []
+    found = findings([dedicated, action])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["path"][0]["external_grants"][0]["actions"] == [action]
 
 
 def bucket(public_policy=True, bucket_pab=None):

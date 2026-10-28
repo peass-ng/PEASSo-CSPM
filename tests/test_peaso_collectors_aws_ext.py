@@ -108,6 +108,57 @@ def test_layer_policy_denied_keeps_status(stub):
     assert read.items[0]["Policy"]["collection_status"] == "denied"
 
 
+def test_lambda_published_versions_read_qualified_policy(stub):
+    session, add = stub
+    lam = add("lambda")
+    lam.add_response("list_functions", {"Functions": [{"FunctionName": "app", "FunctionArn": FN}]})
+    lam.add_response("list_versions_by_function", {"Versions": [
+        {"FunctionName": "app", "FunctionArn": FN, "Version": "$LATEST"},
+        {"FunctionName": "app", "FunctionArn": FN + ":3", "Version": "3", "Role": f"arn:aws:iam::{ACCOUNT}:role/version-three"},
+        {"FunctionName": "app", "FunctionArn": FN + ":2", "Version": "2"}]}, {"FunctionName": "app"})
+    policy = {"Statement": [{"Effect": "Allow", "Principal": {"AWS": f"arn:aws:iam::{OTHER}:root"},
+                              "Action": "lambda:InvokeFunction", "Resource": FN + ":3"}]}
+    lam.add_response("get_policy", {"Policy": json.dumps(policy)}, {"FunctionName": "app", "Qualifier": "3"})
+    lam.add_client_error("get_policy", "ResourceNotFoundException", expected_params={"FunctionName": "app", "Qualifier": "2"})
+    read = run("lambda_version", session)
+    assert read.status == "collected" and [row["Version"] for row in read.items] == ["3", "2"]
+    assert read.items[0]["Role"] == f"arn:aws:iam::{ACCOUNT}:role/version-three"
+    assert read.items[0]["Policy"]["Policy"] == policy
+    assert read.items[1]["Policy"]["absent"] is True
+
+
+def test_redshift_serverless_snapshot_restore_recipients_are_preserved(stub):
+    session, add = stub
+    arn = f"arn:aws:redshift-serverless:{REGION}:{ACCOUNT}:snapshot/11111111-2222-3333-4444-555555555555"
+    add("redshift-serverless").add_response("list_snapshots", {"snapshots": [{
+        "snapshotArn": arn, "snapshotName": "shared", "ownerAccount": ACCOUNT,
+        "status": "AVAILABLE", "accountsWithRestoreAccess": [OTHER],
+        "accountsWithProvisionedRestoreAccess": ["888888888888"]}]})
+    read = run("redshiftserverless_snapshot", session)
+    assert read.status == "collected" and read.items[0]["id"] == arn
+    assert read.items[0]["accountsWithRestoreAccess"] == [OTHER]
+    assert read.items[0]["accountsWithProvisionedRestoreAccess"] == ["888888888888"]
+
+
+@pytest.mark.parametrize("service,kind", [("docdb", "docdb_cluster_snapshot"),
+                                           ("neptune", "neptune_cluster_snapshot")])
+def test_cluster_snapshot_restore_attributes_are_cached(stub, service, kind):
+    session, add = stub
+    arn = f"arn:aws:rds:{REGION}:{ACCOUNT}:cluster-snapshot:shared"
+    client = add(service)
+    client.add_response("describe_db_cluster_snapshots", {"DBClusterSnapshots": [{
+        "DBClusterSnapshotIdentifier": "shared", "DBClusterSnapshotArn": arn,
+        "SnapshotType": "manual", "Status": "available", "Engine": service,
+        "StorageEncrypted": False}]}, {"IncludeShared": False, "IncludePublic": False})
+    client.add_response("describe_db_cluster_snapshot_attributes", {"DBClusterSnapshotAttributesResult": {
+        "DBClusterSnapshotIdentifier": "shared", "DBClusterSnapshotAttributes": [
+            {"AttributeName": "restore", "AttributeValues": [OTHER]}]}},
+        {"DBClusterSnapshotIdentifier": "shared"})
+    read = run(kind, session)
+    assert read.status == "collected" and read.items[0]["id"] == arn
+    assert read.items[0]["Attributes"]["DBClusterSnapshotAttributesResult"]["DBClusterSnapshotAttributes"][0]["AttributeValues"] == [OTHER]
+
+
 def test_list_layers_denied_is_denied(stub):
     session, add = stub
     add("lambda").add_client_error("list_layers", "AccessDeniedException")
@@ -123,6 +174,8 @@ def test_aliases_and_event_source_mappings(stub):
         "RoutingConfig": {"AdditionalVersionWeights": {"4": 0.1}}}]}, {"FunctionName": "app"})
     lam.add_client_error("get_function_url_config", "ResourceNotFoundException",
                          expected_params={"FunctionName": "app", "Qualifier": "live"})
+    lam.add_client_error("get_policy", "ResourceNotFoundException",
+                         expected_params={"FunctionName": "app", "Qualifier": "live"})
     lam.add_response("list_event_source_mappings", {"EventSourceMappings": [{"UUID": "11111111-2222-3333-4444-555555555555", "FunctionArn": FN, "State": "Enabled",
         "EventSourceArn": f"arn:aws:sqs:{REGION}:{OTHER}:q", "FilterCriteria": {"Filters": [{"Pattern": "{\"secret\":[\"x\"]}"}]},
         "SourceAccessConfigurations": [{"Type": "BASIC_AUTH", "URI": f"arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:s"}],
@@ -130,6 +183,7 @@ def test_aliases_and_event_source_mappings(stub):
     aliases = run("lambda_alias", session)
     assert aliases.status == "collected" and aliases.items[0]["id"] == FN + ":live" and aliases.items[0]["FunctionName"] == "app"
     assert aliases.items[0]["FunctionUrl"]["absent"] is True
+    assert aliases.items[0]["Policy"]["absent"] is True
     esm = run("lambda_event_source_mapping", session)
     row = esm.items[0]
     assert esm.status == "collected" and row["id"] == "11111111-2222-3333-4444-555555555555" and row["FilterCount"] == 1

@@ -96,7 +96,7 @@ SIMPLE = {
  'resolver_firewall_rule_group_association': ('route53resolver', 'list_firewall_rule_group_associations', 'FirewallRuleGroupAssociations', {'Id': 'rslvr-frgassoc-qa', 'Arn': f'arn:aws:route53resolver:{REGION}:{ACCOUNT}:firewall-rule-group-association/qa', 'FirewallRuleGroupId': GROUP, 'VpcId': 'vpc-qa', 'Status': 'COMPLETE'}),
  'resolver_query_log_config': ('route53resolver', 'list_resolver_query_log_configs', 'ResolverQueryLogConfigs', {'Id': 'rqlc-qa', 'Arn': f'arn:aws:route53resolver:{REGION}:{ACCOUNT}:resolver-query-log-config/qa', 'DestinationArn': LOG, 'Status': 'CREATED'}),
  'resolver_query_log_config_association': ('route53resolver', 'list_resolver_query_log_config_associations', 'ResolverQueryLogConfigAssociations', {'Id': 'rqlca-qa', 'ResolverQueryLogConfigId': 'rqlc-qa', 'ResourceId': 'vpc-qa', 'Status': 'ACTIVE'}),
- 'log_destination': ('logs', 'describe_destinations', 'destinations', {'destinationName': 'qa', 'arn': f'arn:aws:logs:{REGION}:{ACCOUNT}:destination:qa', 'targetArn': DEST}),
+ 'log_destination': ('logs', 'describe_destinations', 'destinations', {'destinationName': 'qa', 'arn': f'arn:aws:logs:{REGION}:{ACCOUNT}:destination:qa', 'targetArn': DEST, 'accessPolicy': '{"Statement":[]}'}),
  'ec2_instance_type': ('ec2', 'describe_instance_types', 'InstanceTypes', {'InstanceType': 't3.small', 'Hypervisor': 'nitro', 'CurrentGeneration': True}),
 }
 
@@ -118,6 +118,8 @@ def test_simple_native_shapes_pagination_and_errors(sdk, kind, state):
   if state == 'paginated': stub.add_response(operation, {key: []}, {token: 'next'})
  read = facts.FETCHERS[kind](aws.Requests(options), session, REGION, ACCOUNT)
  assert read.status == ('empty' if state == 'empty' else 'collected' if state in ('complete', 'paginated') else 'partial' if state in ('limited', 'duplicate') else 'denied' if state == 'denied' else 'malformed')
+ if kind == 'log_destination' and state == 'complete':
+  assert read.items[0]['accessPolicy'] == row['accessPolicy']
  stub.assert_no_pending_responses()
 
 @pytest.mark.parametrize('action, expected', [('BLOCK', 'PASS'), ('ALLOW', 'FAIL')])
@@ -174,6 +176,61 @@ def test_log_subscription_native_metadata_and_failure_boundaries(sdk, state):
   assert 'filterPattern' not in read.items[0]
  elif state in ('empty_parent', 'empty_child'): assert read.status == 'empty'
  else: assert read.status not in ('collected', 'empty')
+ stub.assert_no_pending_responses()
+
+
+@pytest.mark.parametrize('state', ['complete', 'empty', 'denied', 'partial', 'malformed', 'foreign'])
+def test_log_account_subscription_policy_native_read(sdk, state):
+ import json
+ session, add = sdk; stub = add('logs'); options = {'retries': 0}
+ policy = {'accountId': ACCOUNT if state != 'foreign' else '999999999999',
+           'policyName': 'export', 'policyType': 'SUBSCRIPTION_FILTER_POLICY',
+           'policyDocument': json.dumps({'DestinationArn': f'arn:aws:logs:{REGION}:999999999999:destination:partner'}),
+           'selectionCriteria': 'LogGroupName NOT IN ["skip"]'}
+ if state == 'malformed': policy['policyDocument'] = '{invalid'
+ params = {'policyType': 'SUBSCRIPTION_FILTER_POLICY'}
+ if state == 'denied': stub.add_client_error('describe_account_policies', 'AccessDeniedException', expected_params=params)
+ else:
+  response = {'accountPolicies': [] if state == 'empty' else [policy]}
+  if state == 'partial': response['nextToken'] = 'next'; options['max_pages'] = 1
+  stub.add_response('describe_account_policies', response, params)
+ requests = aws.Requests(options)
+ read = facts.FETCHERS['log_account_subscription_policy'](requests, session, REGION, ACCOUNT)
+ assert read.status == ('collected' if state == 'complete' else 'empty' if state == 'empty' else 'denied' if state == 'denied' else 'partial' if state == 'partial' else 'malformed')
+ if state == 'complete':
+  assert read.items[0]['DestinationArn'].endswith(':destination:partner')
+  assert read.items[0]['selectionCriteria'] == policy['selectionCriteria']
+  assert 'policyDocument' not in read.items[0]
+ assert requests.calls == 1
+ stub.assert_no_pending_responses()
+
+
+@pytest.mark.parametrize('state', ['confirmed', 'pending', 'empty', 'denied', 'foreign_topic'])
+def test_sns_topic_subscriptions_read_by_topic_without_endpoint(sdk, state):
+ import json
+ session, add = sdk; stub = add('sns')
+ topic = f'arn:aws:sns:{REGION}:{ACCOUNT}:events'
+ owner = '999988887777'
+ subscription = f'arn:aws:sns:{REGION}:{owner}:events:12345678-1234-1234-1234-123456789012'
+ listed = topic.replace(ACCOUNT, owner) if state == 'foreign_topic' else topic
+ stub.add_response('list_topics', {'Topics': [{'TopicArn': listed}]}, {})
+ if state not in ('foreign_topic',):
+  if state == 'denied':
+   stub.add_client_error('list_subscriptions_by_topic', 'AuthorizationError', expected_params={'TopicArn': topic})
+  else:
+   item = {'TopicArn': topic, 'Owner': owner, 'Protocol': 'https',
+           'SubscriptionArn': 'PendingConfirmation' if state == 'pending' else subscription,
+           'Endpoint': 'https://example.invalid/?private-token=do-not-store'}
+   stub.add_response('list_subscriptions_by_topic', {'Subscriptions': [] if state == 'empty' else [item]}, {'TopicArn': topic})
+ requests = aws.Requests({'retries': 0})
+ read = facts.FETCHERS['sns_topic_subscription'](requests, session, REGION, ACCOUNT)
+ expected = {'confirmed': 'collected', 'pending': 'collected', 'empty': 'empty',
+             'denied': 'unknown', 'foreign_topic': 'malformed'}[state]
+ assert read.status == expected
+ assert 'private-token' not in json.dumps(read.items)
+ if state == 'confirmed': assert read.items[0]['Owner'] == owner and read.items[0]['SubscriptionArn'] == subscription
+ if state == 'pending': assert read.items[0]['id'].startswith(topic + '/pending/')
+ assert requests.calls == (1 if state == 'foreign_topic' else 2)
  stub.assert_no_pending_responses()
 
 @pytest.mark.parametrize('version_status, allowed, expected', [('STANDARD_SUPPORT', ['STANDARD'], 'PASS'), ('EXTENDED_SUPPORT', ['STANDARD'], 'FAIL'), ('EXTENDED_SUPPORT', ['EXTENDED'], 'PASS'), ('UNSUPPORTED', ['STANDARD', 'EXTENDED'], 'FAIL'), ('FUTURE', ['STANDARD'], 'UNKNOWN')])

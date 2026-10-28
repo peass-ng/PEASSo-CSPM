@@ -68,6 +68,9 @@ def verdict(read):
 @pytest.mark.parametrize('mode,status',[('public','FAIL'),('private','PASS'),('condition','PASS'),('deny','PASS'),('malformed','UNKNOWN'),('detail_denied','DENIED'),('list_denied','DENIED'),('foreign','UNKNOWN'),('duplicate','UNKNOWN'),('truncated','UNKNOWN')])
 def test_sdk_shapes_are_scoped_and_fail_closed(sdk,service,mode,status):
  session,stubs=setup(sdk,service,mode);read=native.policies(aws.Requests({'max_pages':1,'retry_attempts':1}),session,REGION,ACCOUNT);findings,snapshot=verdict(read)
+ if mode=='public':
+  assert read.items[0]['_provenance']['owner_account']==ACCOUNT
+  assert read.items[0]['_provenance']['families']==[service+'-base']
  if mode in ('duplicate','truncated'):
   assert {f['status'] for f in findings} == {'FAIL','UNKNOWN'},findings
  else:

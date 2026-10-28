@@ -217,7 +217,7 @@ class Inventory:
     def _keys(self, resource):
         data = resource["data"]
         keys = {str(native_id(resource))}
-        for field in ("id", "selfLink", "name", "GroupId", "SubnetId", "VpcId", "InternetGatewayId", "PrefixListId", "NetworkAclId", "RouteTableId", "TransitGatewayRouteTableId", "InstanceId",
+        for field in ("id", "selfLink", "name", "GroupId", "SubnetId", "VpcId", "InternetGatewayId", "PrefixListId", "NetworkAclId", "RouteTableId", "TransitGatewayRouteTableId", "InstanceId", "KeyArn",
                       "NetworkInterfaceId", "LoadBalancerArn", "LoadBalancerName"):
             value = data.get(field) if isinstance(data, dict) else None
             if isinstance(value, str):
@@ -1403,6 +1403,171 @@ def _aws_lambda_url(snapshot, inventory, resource):
     return a
 
 
+def _aws_lambda_direct_invoke(snapshot, inventory, resource):
+    """Find an owned function or alias policy granting foreign direct invocation."""
+    from .trust import trusted_scopes
+    from .iam import document
+    from fnmatch import fnmatchcase
+
+    data = resource["data"]
+    read = data.get("Policy")
+    if isinstance(read, dict) and read.get("absent") is True:
+        return None
+    a = Assessment(resource, "external_lambda_invoke")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    kind = resource["type"]
+    arn = data.get("AliasArn") if kind == "lambda_alias" else data.get("FunctionArn")
+    if not isinstance(arn, str) or not re.fullmatch(
+            r"arn:" + partition + r":lambda:" + re.escape(region) + ":" +
+            re.escape(account) + r":function:[A-Za-z0-9_.-]+" +
+            (r":[A-Za-z0-9_-]+" if kind == "lambda_alias" else r":[0-9]+" if kind == "lambda_version" else ""), arn):
+        a.gap("inventory", "Lambda policy resource is not attributable to the scoped function")
+        return a
+    if kind == "lambda_version" and (data.get("BaseFunctionArn") != arn.rsplit(":", 1)[0] or data.get("Version") != arn.rsplit(":", 1)[1]):
+        a.gap("inventory", "Lambda version policy identity is inconsistent with the published function version")
+        return a
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        a.gap("inventory", "Lambda function policy read is incomplete", "lambda:GetPolicy")
+        return a
+    doc = document(read.get("Policy"))
+    statements = doc.get("Statement") if isinstance(doc, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "Lambda function policy statements are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = set(), False
+    for statement in statements:
+        actions = as_list(statement.get("Action"))
+        if not all(isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        if not any(fnmatchcase("lambda:invokefunction", x.casefold()) for x in actions):
+            continue
+        resources = as_list(statement.get("Resource"))
+        if not all(isinstance(x, str) for x in resources):
+            uncertain = True
+            continue
+        if not any(fnmatchcase(arn, x) for x in resources):
+            continue
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow" or statement.get("Condition") or any(
+                key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            if value == "*":
+                foreign.add("*")
+                continue
+            match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.authenticated = True
+        a.explicit = "FAIL"
+        a.step("resource_policy", "allow", function_arn=arn, external_principals=sorted(foreign), action="lambda:InvokeFunction")
+        a.gap("caller", "The foreign caller's identity policy and any invocation were not observed")
+        return a
+    if foreign or uncertain:
+        a.gap("policy", "Lambda policy conditions or Deny applicability are unresolved")
+        return a
+    return None
+
+
+def _aws_lambda_layer_share(snapshot, inventory, resource):
+    """A version-scoped Lambda layer policy granting cross-account code access."""
+    from .trust import trusted_scopes
+    from .iam import document
+    from fnmatch import fnmatchcase
+
+    data = resource["data"]
+    read = data.get("Policy")
+    if isinstance(read, dict) and read.get("absent") is True:
+        return None
+    a = Assessment(resource, "external_layer_share")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    name, number = data.get("LayerName"), data.get("Version")
+    base, arn = data.get("LayerArn"), data.get("LayerVersionArn")
+    if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9-_]+", name) or
+            not isinstance(number, int) or isinstance(number, bool) or number < 1 or
+            base != f"arn:{partition}:lambda:{region}:{account}:layer:{name}" or
+            arn != f"{base}:{number}"):
+        a.gap("inventory", "Lambda layer version ARN is not attributable to the scoped layer")
+        return a
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        a.gap("inventory", "Lambda layer policy read is incomplete", "lambda:GetLayerVersionPolicy")
+        return a
+    doc = document(read.get("Policy"))
+    statements = doc.get("Statement") if isinstance(doc, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "Lambda layer policy statements are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = set(), False
+    for statement in statements:
+        actions = as_list(statement.get("Action"))
+        if not all(isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        if not any(fnmatchcase("lambda:getlayerversion", x.casefold()) for x in actions):
+            continue
+        resources = as_list(statement.get("Resource"))
+        if not all(isinstance(x, str) for x in resources):
+            uncertain = True
+            continue
+        if not any(fnmatchcase(arn, x) for x in resources):
+            continue
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow" or statement.get("Condition") or any(
+                key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            if value == "*":
+                foreign.add("*")
+                continue
+            match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.authenticated = True
+        a.explicit = "FAIL"
+        a.step("resource_policy", "allow", layer_version_arn=arn, external_principals=sorted(foreign), action="lambda:GetLayerVersion")
+        a.gap("caller", "The foreign caller's identity policy and any layer download were not observed")
+        return a
+    if foreign or uncertain:
+        a.gap("policy", "Lambda layer policy conditions or Deny applicability are unresolved")
+        return a
+    return None
+
+
 def _aws_api_stage(snapshot_data, assessment, service):
     """Check a cached API Gateway stage read without fetching during analysis."""
     stages = snapshot_data.get("Stages")
@@ -1724,6 +1889,173 @@ def _aws_snapshot_share(snapshot, inventory, resource, attribute_path, name):
     a.step("attributes", "block", restore=values)
     a.ports = {}
     return a
+
+
+def _aws_redshift_snapshot_share(snapshot, inventory, resource):
+    """Owner-visible Redshift manual snapshot restore authorizations."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_redshift_snapshot_share")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    cluster, name, arn = data.get("ClusterIdentifier"), data.get("SnapshotIdentifier"), data.get("SnapshotArn")
+    if (not isinstance(cluster, str) or not cluster or not isinstance(name, str) or not name or
+            arn != f"arn:{partition}:redshift:{region}:{account}:snapshot:{cluster}/{name}" or
+            data.get("OwnerAccount") != account):
+        a.gap("inventory", "Redshift snapshot identity or owner does not match the scoped account")
+        return a
+    if data.get("SnapshotType") != "manual":
+        if data.get("SnapshotType") == "automated":
+            return None
+        a.gap("inventory", "Redshift snapshot type is unresolved")
+        return a
+    accounts = data.get("AccountsWithRestoreAccess", [])
+    if accounts is None:
+        accounts = []
+    if not isinstance(accounts, list):
+        a.gap("inventory", "Redshift restore authorization list is malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = set(), False
+    for row in accounts:
+        if not isinstance(row, dict):
+            uncertain = True
+            continue
+        account_id, alias = row.get("AccountId"), row.get("AccountAlias")
+        if isinstance(account_id, str) and re.fullmatch(r"[0-9]{12}", account_id) and not alias:
+            if account_id not in trusted:
+                foreign.add(account_id)
+        elif alias == "amazon-redshift-support" and not account_id:
+            foreign.add(alias)
+        else:
+            uncertain = True
+    if foreign:
+        a.external_ids = sorted(foreign)
+        if data.get("Status") == "available" and not uncertain:
+            a.explicit = "FAIL"
+            a.step("restore_authorization", "allow", snapshot_arn=arn, external_accounts=sorted(foreign))
+            a.gap("restore", "Foreign caller IAM permission, any KMS access and actual restore were not observed")
+        else:
+            a.gap("inventory", "Redshift snapshot status or restore authorization is unresolved")
+        return a
+    if uncertain:
+        a.gap("inventory", "Redshift restore authorization owner is unresolved")
+        return a
+    return None
+
+
+def _aws_redshift_serverless_snapshot_share(snapshot, inventory, resource):
+    """Owner-visible Redshift Serverless restore grants to either restore target."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_redshift_serverless_snapshot_share")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn = data.get("snapshotArn")
+    if (not isinstance(arn, str) or not re.fullmatch(r"arn:" + partition + r":redshift-serverless:" +
+            re.escape(region) + ":" + re.escape(account) + r":snapshot/[A-Za-z0-9-]+", arn) or
+            data.get("ownerAccount") != account or data.get("id", arn) != arn):
+        a.gap("inventory", "Redshift Serverless snapshot ARN or owner does not match the scoped account")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = {}, False
+    for field, target in (("accountsWithRestoreAccess", "namespace"),
+                          ("accountsWithProvisionedRestoreAccess", "provisioned_cluster")):
+        values = data.get(field, [])
+        if values is None:
+            values = []
+        if not isinstance(values, list):
+            uncertain = True
+            continue
+        for value in values:
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9]{12}", value):
+                uncertain = True
+            elif value not in trusted:
+                foreign.setdefault(target, set()).add(value)
+    if foreign:
+        a.external_ids = sorted({value for accounts in foreign.values() for value in accounts})
+        if data.get("status") == "AVAILABLE" and not uncertain:
+            a.explicit = "FAIL"
+            a.step("restore_authorization", "allow", snapshot_arn=arn,
+                   external_targets={target: sorted(accounts) for target, accounts in sorted(foreign.items())})
+            a.gap("restore", "Foreign caller IAM permission, any KMS access and actual restore were not observed")
+        else:
+            a.gap("inventory", "Redshift Serverless snapshot status or restore authorization is unresolved")
+        return a
+    if uncertain:
+        a.gap("inventory", "Redshift Serverless restore authorization list is malformed")
+        return a
+    return None
+
+
+def _aws_cluster_snapshot_share(snapshot, inventory, resource):
+    """DocumentDB or Neptune manual snapshot restore authorization."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_cluster_snapshot_share")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    name, arn = data.get("DBClusterSnapshotIdentifier"), data.get("DBClusterSnapshotArn")
+    if (not isinstance(name, str) or not name or
+            arn != f"arn:{partition}:rds:{region}:{account}:cluster-snapshot:{name}" or
+            data.get("id", arn) != arn):
+        a.gap("inventory", "Cluster snapshot ARN is not attributable to the scoped account")
+        return a
+    if data.get("SnapshotType") in ("automated", "awsbackup"):
+        return None
+    if data.get("SnapshotType") != "manual":
+        a.gap("inventory", "Cluster snapshot type is unresolved")
+        return a
+    read = data.get("Attributes")
+    service = "docdb" if resource["type"] == "docdb_cluster_snapshot" else "neptune"
+    if data.get("Engine") not in (None, service):
+        a.gap("inventory", "Cluster snapshot engine does not match the source service")
+        return a
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        a.gap("inventory", "Cluster snapshot restore attributes are incomplete", f"{service}:DescribeDBClusterSnapshotAttributes")
+        return a
+    result = read.get("DBClusterSnapshotAttributesResult")
+    if not isinstance(result, dict) or result.get("DBClusterSnapshotIdentifier") != name:
+        a.gap("inventory", "Cluster snapshot attribute result does not match the snapshot")
+        return a
+    attributes = result.get("DBClusterSnapshotAttributes")
+    if not isinstance(attributes, list) or any(not isinstance(row, dict) for row in attributes):
+        a.gap("inventory", "Cluster snapshot restore attributes are malformed")
+        return a
+    restore = [row for row in attributes if row.get("AttributeName") == "restore"]
+    if len(restore) != 1 or not isinstance(restore[0].get("AttributeValues"), list):
+        a.gap("inventory", "Cluster snapshot restore values are missing or malformed")
+        return a
+    values = restore[0]["AttributeValues"]
+    if any(not isinstance(value, str) or not value for value in values):
+        a.gap("inventory", "Cluster snapshot restore recipient is malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign = sorted({value for value in values if re.fullmatch(r"[0-9]{12}", value) and value not in trusted})
+    invalid = [value for value in values if value != "all" and not re.fullmatch(r"[0-9]{12}", value)]
+    public = "all" in values
+    if invalid:
+        a.gap("inventory", "Cluster snapshot restore recipient is not an account ID")
+        return a
+    if public and data.get("StorageEncrypted") is not False:
+        a.gap("inventory", "Public snapshot grant conflicts with encrypted or unknown storage state")
+        return a
+    if (public or foreign) and data.get("Status") != "available":
+        a.gap("inventory", "Cluster snapshot availability is unresolved")
+        return a
+    if public or foreign:
+        a.external_ids = ["*"] if public else foreign
+        a.data_exposure = public
+        a.explicit = "FAIL"
+        a.step("restore_authorization", "allow", snapshot_arn=arn, external_recipients=a.external_ids,
+               semantics="Public or foreign copy/restore authorization; KMS and actual copy/restore unverified")
+        if data.get("StorageEncrypted") is True:
+            a.gap("kms", "Foreign KMS access and encrypted snapshot copy were not observed")
+        return a
+    return None
 
 
 def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permission_key):
@@ -2103,6 +2435,66 @@ def _aws_client_vpn_endpoint(snapshot, inventory, resource):
     return a
 
 
+def _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource):
+    """An active Client VPN rule admitting every authenticated client to a CIDR."""
+    data = resource["data"]
+    read = data.get("AuthorizationRules")
+    if read is None:
+        return None
+    a = Assessment(resource, "vpn_client_authorization")
+    endpoint = data.get("ClientVpnEndpointId")
+    if (not isinstance(endpoint, str) or not re.fullmatch(r"cvpn-endpoint-[a-z0-9]+", endpoint) or
+            not isinstance(read, dict) or read.get("ClientVpnEndpointId") != endpoint):
+        a.gap("inventory", "Client VPN authorization rules are not bound to the scoped endpoint")
+        return a
+    state = (data.get("Status") or {}).get("Code") if isinstance(data.get("Status"), dict) else None
+    if state in {"pending-associate", "pending", "deleting", "deleted"}:
+        return None
+    if state != "available":
+        a.gap("inventory", "Client VPN endpoint state is unresolved")
+        return a
+    status = read.get("collection_status")
+    rules = read.get("items")
+    if status not in {"collected", "empty", "partial"} or not isinstance(rules, list):
+        a.gap("inventory", "Client VPN authorization rule read is incomplete")
+        return a
+    destinations, uncertain = [], status == "partial"
+    for rule in rules:
+        if not isinstance(rule, dict) or not isinstance(rule.get("Status"), dict):
+            uncertain = True
+            continue
+        rule_state = rule["Status"].get("Code")
+        if rule_state != "active":
+            if rule_state not in {"authorizing", "revoking", "failed"}:
+                uncertain = True
+            continue
+        all_groups = rule.get("AuthorizeAllGroups")
+        if type(all_groups) is not bool:
+            uncertain = True
+            continue
+        if not all_groups:
+            continue
+        cidr = rule.get("DestinationCidr")
+        try:
+            network = ipaddress.ip_network(cidr, strict=True)
+        except (TypeError, ValueError):
+            uncertain = True
+            continue
+        destinations.append(str(network))
+    if destinations and not uncertain:
+        a.authenticated = True
+        a.explicit = "FAIL"
+        a.step("client_authorization", "allow", endpoint_id=endpoint,
+               destination_cidrs=sorted(set(destinations)))
+        a.gap("route", "Client VPN route, target-network association, endpoint and destination security controls were not joined")
+        a.gap("caller", "Client authentication, device policy and actual traffic were not observed")
+        return a
+    if destinations or uncertain:
+        a.gap("authorization", "Client VPN all-client authorization status or destination is unresolved")
+        return a
+    return None
+
+
 def _aws_vpc_endpoint_service(snapshot, inventory, resource):
     """Classify PrivateLink invitations and accepted cross-account connections."""
     from .trust import trusted_scopes
@@ -2226,6 +2618,922 @@ def _aws_ecr_registry_replication(snapshot, inventory, resource):
     return a
 
 
+def _aws_ecr_registry_policy_pull(snapshot, inventory, resource):
+    """A private-registry policy granting foreign image-pull actions."""
+    from .trust import trusted_scopes
+    from fnmatch import fnmatchcase
+
+    data = resource["data"]
+    read = data.get("RegistryPolicy")
+    if isinstance(read, dict) and read.get("absent") is True:
+        return None
+    a = Assessment(resource, "external_registry_policy_pull")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    if not re.fullmatch(r"[0-9]{12}", account) or data.get("registryId") != account:
+        a.gap("inventory", "ECR registry identity does not match the scoped account")
+        return a
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        a.gap("inventory", "ECR registry policy read is incomplete", "ecr:GetRegistryPolicy")
+        return a
+    policy = read.get("policyText")
+    if isinstance(policy, str):
+        try:
+            policy = json.loads(policy)
+        except ValueError:
+            policy = None
+    statements = policy.get("Statement") if isinstance(policy, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "ECR registry policy statements are malformed")
+        return a
+    prefix = f"arn:{partition}:ecr:{region}:{account}:repository/"
+    required = ("ecr:batchgetimage", "ecr:getdownloadurlforlayer")
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, patterns, uncertain = set(), set(), False
+    for statement in statements:
+        if statement.get("Effect") == "Deny" and any(key in statement for key in ("NotAction", "NotResource", "NotPrincipal")):
+            uncertain = True
+            continue
+        actions = as_list(statement.get("Action"))
+        if not all(isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        matched = {action for action in required if any(fnmatchcase(action, value.casefold()) for value in actions)}
+        if not matched:
+            continue
+        resources = as_list(statement.get("Resource"))
+        if not all(isinstance(x, str) for x in resources):
+            uncertain = True
+            continue
+        owned = [value for value in resources if value == "*" or value.startswith(prefix) and len(value) > len(prefix)]
+        if not owned:
+            continue
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if len(matched) != len(required):
+            continue
+        if statement.get("Effect") != "Allow" or statement.get("Condition") or any(
+                key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            if value == "*":
+                foreign.add("*")
+                patterns.update(owned)
+                continue
+            match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+                patterns.update(owned)
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.authenticated = True
+        a.explicit = "FAIL"
+        a.step("registry_policy", "allow", resource_patterns=sorted(patterns), external_principals=sorted(foreign),
+               actions=["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"])
+        a.gap("caller", "Authorization token, identity permissions, matching repositories and image pulls were not observed")
+        return a
+    if foreign or uncertain:
+        a.gap("policy", "ECR registry pull grant, conditions or Deny applicability are unresolved")
+        return a
+    return None
+
+
+def _aws_ecr_template_pull(snapshot, inventory, resource):
+    """A creation template that would attach a foreign pull policy to future repositories."""
+    from .trust import trusted_scopes
+    from fnmatch import fnmatchcase
+
+    data = resource["data"]
+    a = Assessment(resource, "external_registry_template_pull")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    if not re.fullmatch(r"[0-9]{12}", account) or data.get("registryId") != account:
+        a.gap("inventory", "ECR registry identity does not match the scoped account")
+        return a
+    read = data.get("RepositoryCreationTemplates")
+    if not isinstance(read, dict) or read.get("collection_status") not in ("collected", "empty"):
+        a.gap("inventory", "ECR repository creation templates are incompletely collected", "ecr:DescribeRepositoryCreationTemplates")
+        return a
+    templates = read.get("items")
+    if not isinstance(templates, list):
+        a.gap("inventory", "ECR repository creation template list is malformed")
+        return a
+    if not templates and read.get("collection_status") == "empty":
+        return None
+    trusted = trusted_scopes(snapshot)["ids"]
+    required = ("ecr:batchgetimage", "ecr:getdownloadurlforlayer")
+    grants, uncertain = [], False
+    for template in templates:
+        if not isinstance(template, dict):
+            uncertain = True
+            continue
+        prefix, workflows = template.get("prefix"), template.get("appliedFor")
+        if (not isinstance(prefix, str) or not prefix or
+                not isinstance(workflows, list) or not workflows or
+                any(value not in ("PULL_THROUGH_CACHE", "CREATE_ON_PUSH", "REPLICATION") for value in workflows)):
+            uncertain = True
+            continue
+        policy = template.get("repositoryPolicy")
+        if policy is None:
+            continue
+        if isinstance(policy, str):
+            try:
+                policy = json.loads(policy)
+            except ValueError:
+                policy = None
+        statements = policy.get("Statement") if isinstance(policy, dict) else None
+        statements = [statements] if isinstance(statements, dict) else statements
+        if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+            uncertain = True
+            continue
+        for statement in statements:
+            if statement.get("Effect") == "Deny" and any(key in statement for key in ("NotAction", "NotResource", "NotPrincipal")):
+                uncertain = True
+                continue
+            actions = as_list(statement.get("Action"))
+            if not all(isinstance(x, str) for x in actions):
+                uncertain = True
+                continue
+            matched = {action for action in required if any(fnmatchcase(action, value.casefold()) for value in actions)}
+            if not matched:
+                continue
+            resources = as_list(statement.get("Resource", "*"))
+            if resources != ["*"]:
+                uncertain = True
+                continue
+            if statement.get("Effect") == "Deny":
+                uncertain = True
+                continue
+            if len(matched) != len(required):
+                continue
+            if statement.get("Effect") != "Allow" or statement.get("Condition") or any(
+                    key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+                uncertain = True
+                continue
+            principal = statement.get("Principal")
+            principal = principal.get("AWS") if isinstance(principal, dict) else principal
+            principals = [principal] if isinstance(principal, str) else principal
+            if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+                uncertain = True
+                continue
+            for value in principals:
+                if value == "*":
+                    grants.append({"principal": "*", "prefix": prefix, "workflows": sorted(set(workflows))})
+                    continue
+                match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+                owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+                if owner is None:
+                    uncertain = True
+                elif owner not in trusted:
+                    grants.append({"principal": owner, "prefix": prefix, "workflows": sorted(set(workflows))})
+    if grants and not uncertain:
+        a.external_ids = sorted({row["principal"] for row in grants})
+        a.authenticated = True
+        a.dormant = True
+        a.explicit = "FAIL"
+        a.step("repository_creation_template", "allow", future_grants=grants)
+        a.gap("creation", "Templates affect only future ECR-created repositories; matching repository creation and image pulls were not observed")
+        return a
+    if grants or uncertain:
+        a.gap("policy", "ECR template policy, conditions or Deny applicability are unresolved")
+        return a
+    return None
+
+
+def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
+    """A source-attributed resource policy declaring access for a foreign AWS principal."""
+    from .trust import trusted_scopes
+    from fnmatch import fnmatchcase
+
+    data = resource["data"]
+    provenance = data.get("_provenance")
+    a = Assessment(resource, "external_generic_policy_grant")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn = data.get("ResourceArn")
+    if (not isinstance(provenance, dict) or provenance.get("read_only") is not True or
+            provenance.get("owner_account") != account or not isinstance(provenance.get("families"), list) or
+            not provenance["families"] or any(not isinstance(x, str) for x in provenance["families"]) or
+            not isinstance(arn, str)):
+        a.gap("inventory", "Resource policy source or owner is not attributable to the scanned account")
+        return a
+    parts = arn.split(":", 5)
+    if (len(parts) != 6 or parts[0] != "arn" or parts[1] != partition or
+            parts[3] not in (region, "") or parts[4] not in (account, "") or not parts[5] or
+            (parts[4] == "" and not all(str(family).startswith("s3-") for family in provenance["families"]))):
+        a.gap("inventory", "Resource policy ARN is outside the owned partition, account or Region")
+        return a
+    policy = data.get("Policy")
+    statements = policy.get("Statement") if isinstance(policy, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "Resource policy statements are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    # The base families have separate, more precise checks for these actions.
+    dedicated = {"sns": {"sns:subscribe"}, "sqs": {"sqs:receivemessage"},
+                 "lambda": {"lambda:invokefunction", "lambda:invokefunctionurl"},
+                 "ecr": {"ecr:batchgetimage", "ecr:getdownloadurlforlayer"}}
+    excluded_actions = dedicated.get(parts[2], set()) if "covered_services" in provenance else set()
+    grants, uncertain, candidate = [], False, False
+    for statement in statements:
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow":
+            uncertain = True
+            continue
+        actions = as_list(statement.get("Action"))
+        if not actions or any(not isinstance(value, str) or not value for value in actions):
+            uncertain = True
+            continue
+        actions = [value for value in actions if value.lower() not in excluded_actions]
+        if not actions:
+            continue
+        resources = as_list(statement.get("Resource", arn))
+        if not resources or any(not isinstance(value, str) or not value for value in resources):
+            uncertain = True
+            continue
+        if not any(value == "*" or fnmatchcase(arn, value) or
+                   value.startswith(arn + "/") or value.startswith(arn + ":") for value in resources):
+            continue
+        principal = statement.get("Principal")
+        if principal == "*":
+            principals = ["*"]
+        elif isinstance(principal, dict) and "AWS" in principal:
+            principals = as_list(principal["AWS"])
+        elif isinstance(principal, dict) and "AWS" not in principal:
+            continue  # Service/federated principals require service-specific semantics.
+        else:
+            uncertain = True
+            continue
+        if not principals or any(not isinstance(value, str) for value in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            if value == "*":
+                owner = "*"
+            else:
+                match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+                owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner == "*" or owner not in trusted:
+                candidate = True
+                if statement.get("Condition") or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+                    uncertain = True
+                else:
+                    grants.append({"account": owner, "actions": sorted(set(actions))})
+    if grants and not uncertain:
+        a.external_ids = sorted({grant["account"] for grant in grants})
+        a.authenticated = True
+        a.explicit = "FAIL"
+        a.step("resource_policy", "allow", resource_arn=arn, source_families=provenance["families"],
+               external_grants=grants)
+        a.gap("caller", "Caller identity permissions, service-specific prerequisites and actual use were not observed")
+        return a
+    if grants or candidate:
+        a.gap("policy", "Resource policy conditions, Deny or foreign principal applicability are unresolved")
+        return a
+    return None
+
+
+def _aws_role_foreign_assumption(snapshot, inventory, resource):
+    """An owned role trust policy declaring AssumeRole to a foreign AWS principal."""
+    from .iam import assume_role_document
+    from fnmatch import fnmatchcase
+
+    data = resource["data"]
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn, name = data.get("Arn"), data.get("RoleName")
+    if (not isinstance(name, str) or not name or not isinstance(arn, str) or
+            not re.fullmatch(r"arn:" + re.escape(partition) + r":iam::" + re.escape(account) +
+                             r":role/(?:[^/]+/)*" + re.escape(name), arn)):
+        a = Assessment(resource, "external_generic_policy_grant")
+        a.gap("inventory", "IAM role trust policy is not attributable to the scoped role")
+        return a
+    policy = assume_role_document(resource)
+    if policy is None:
+        a = Assessment(resource, "external_generic_policy_grant")
+        a.gap("inventory", "IAM role trust policy is missing or malformed")
+        return a
+    statements = as_list(policy.get("Statement"))
+    relevant = []
+    for statement in statements:
+        if not isinstance(statement, dict):
+            relevant.append(statement)
+            continue
+        if statement.get("Effect") == "Deny" and "NotAction" in statement:
+            relevant.append(statement)  # Could deny AssumeRole even without an Action field.
+            continue
+        actions = as_list(statement.get("Action"))
+        matched = [action for action in actions if isinstance(action, str) and
+                   fnmatchcase("sts:assumerole", action.lower())]
+        if matched:
+            relevant.append({**statement, "Action": matched})
+    if not relevant:
+        return None
+    attributed = {**resource, "data": {"ResourceArn": arn, "Policy": {"Statement": relevant},
+        "_provenance": {"read_only": True, "owner_account": account,
+                        "source_region": region, "families": ["iam-role-trust"],
+                        "source_operations": ["iam:GetRole"]}}}
+    return _aws_generic_resource_policy_grant(snapshot, inventory, attributed)
+
+
+def _aws_ecr_repository_share(snapshot, inventory, resource):
+    """Identify a declared private-image pull grant to a named foreign principal."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_registry_share")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    arn = data.get("repositoryArn")
+    name = data.get("repositoryName")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    if (not isinstance(name, str) or not name or
+            arn != f"arn:{partition}:ecr:{region}:{account}:repository/{name}" or
+            data.get("registryId", account) != account):
+        a.gap("inventory", "ECR repository identity is not attributable to the scoped account")
+        return a
+    read = data.get("Policy")
+    if not isinstance(read, dict):
+        a.gap("inventory", "ECR repository policy read is missing", "ecr:GetRepositoryPolicy")
+        return a
+    if read.get("collection_status") == "empty" and read.get("absent") is True:
+        return None
+    if read.get("collection_status") != "collected" or read.get("registryId", account) != account or read.get("repositoryName", name) != name:
+        a.gap("inventory", "ECR repository policy read is incomplete or mismatched", "ecr:GetRepositoryPolicy")
+        return a
+    policy = read.get("policyText")
+    if isinstance(policy, str):
+        try:
+            policy = json.loads(policy)
+        except ValueError:
+            policy = None
+    statements = policy.get("Statement") if isinstance(policy, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "ECR repository policy statements are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = set(), False
+    for statement in statements:
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow":
+            uncertain = True
+            continue
+        actions = statement.get("Action")
+        actions = [actions] if isinstance(actions, str) else actions
+        if not isinstance(actions, list) or any(not isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        actions = {x.casefold() for x in actions}
+        if not ({"*", "ecr:*"} & actions or {"ecr:batchgetimage", "ecr:getdownloadurlforlayer"} <= actions):
+            continue
+        resources = statement.get("Resource", arn)
+        resources = [resources] if isinstance(resources, str) else resources
+        if not isinstance(resources, list) or any(not isinstance(x, str) for x in resources):
+            uncertain = True
+            continue
+        if "*" not in resources and arn not in resources:
+            continue
+        if statement.get("Condition") or "NotPrincipal" in statement or "NotAction" in statement or "NotResource" in statement:
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.explicit = "FAIL"
+        a.step("repository_policy", "allow", repository_arn=arn, external_accounts=sorted(foreign),
+               actions=["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"])
+        a.gap("caller", "Foreign principal authentication, authorization token and identity-side permissions were not observed")
+        return a
+    if foreign or uncertain:
+        a.gap("policy", "ECR repository grant or Deny applicability is unresolved")
+        return a
+    return None
+
+
+def _aws_secret_foreign_read(snapshot, inventory, resource):
+    """A named foreign GetSecretValue grant with a potentially shareable key."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_secret_grant")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn, name = data.get("ARN"), data.get("Name")
+    if (not isinstance(name, str) or not name or not isinstance(arn, str) or
+            not re.fullmatch(r"arn:" + re.escape(partition) + r":secretsmanager:" + re.escape(region) +
+                             r":" + re.escape(account) + r":secret:[^:]+", arn)):
+        a.gap("inventory", "Secret identity is not attributable to the scoped account")
+        return a
+    read = data.get("Policy")
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        a.gap("inventory", "Secret resource policy read is incomplete", "secretsmanager:GetResourcePolicy")
+        return a
+    if "ResourcePolicy" not in read:
+        return None
+    if read.get("ARN") != arn or read.get("Name") != name:
+        a.gap("inventory", "Secret resource policy is not bound to this secret")
+        return a
+    policy = read["ResourcePolicy"]
+    if isinstance(policy, str):
+        try:
+            policy = json.loads(policy)
+        except ValueError:
+            policy = None
+    statements = policy.get("Statement") if isinstance(policy, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "Secret resource policy statements are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = set(), False
+    for statement in statements:
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow":
+            uncertain = True
+            continue
+        actions = statement.get("Action")
+        actions = [actions] if isinstance(actions, str) else actions
+        if not isinstance(actions, list) or any(not isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        if not {x.casefold() for x in actions} & {"*", "secretsmanager:*", "secretsmanager:getsecretvalue"}:
+            continue
+        resources = statement.get("Resource", arn)
+        resources = [resources] if isinstance(resources, str) else resources
+        if not isinstance(resources, list) or any(not isinstance(x, str) for x in resources):
+            uncertain = True
+            continue
+        if "*" not in resources and arn not in resources:
+            continue
+        if statement.get("Condition") or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if not foreign and not uncertain:
+        return None
+    coverage = data.get("_coverage", {}).get("KmsKeyId") if isinstance(data.get("_coverage"), dict) else None
+    if isinstance(coverage, dict) and coverage.get("status") == "empty" and coverage.get("documented_default") == "aws/secretsmanager":
+        a.step("kms_key", "block", reason="AWS managed default key cannot be used for cross-account secret reads")
+        a.ports = {}
+        return a
+    if (not isinstance(coverage, dict) or coverage.get("status") != "collected" or
+            not isinstance(data.get("KmsKeyId"), str) or not data["KmsKeyId"] or
+            data["KmsKeyId"] in ("alias/aws/secretsmanager", "aws/secretsmanager")):
+        a.gap("kms_key", "Secret KMS key identity is missing or does not prove a shareable customer key", "secretsmanager:DescribeSecret")
+        return a
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.explicit = "FAIL"
+        a.step("secret_policy", "allow", secret_arn=arn, external_accounts=sorted(foreign),
+               action="secretsmanager:GetSecretValue")
+        a.gap("caller", "Foreign caller identity permission and KMS Decrypt authorization were not observed")
+        return a
+    a.gap("policy", "Secret policy conditions or Deny applicability are unresolved")
+    return a
+
+
+def _aws_sqs_foreign_receive(snapshot, inventory, resource):
+    """A named foreign ReceiveMessage grant on an owned SQS queue."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_queue_receive")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    suffix = "amazonaws.com.cn" if partition == "aws-cn" else "amazonaws.com"
+    url = data.get("QueueUrl")
+    parsed = urlsplit(url) if isinstance(url, str) else None
+    if (parsed is None or parsed.scheme != "https" or parsed.netloc != f"sqs.{region}.{suffix}" or
+            parsed.query or parsed.fragment or
+            not re.fullmatch(r"/" + re.escape(account) + r"/[A-Za-z0-9_-]{1,80}(?:\.fifo)?", parsed.path)):
+        a.gap("inventory", "SQS queue URL is not attributable to the scoped account")
+        return a
+    name = parsed.path.rsplit("/", 1)[-1]
+    arn = f"arn:{partition}:sqs:{region}:{account}:{name}"
+    read = data.get("Attributes")
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        a.gap("inventory", "SQS queue attributes are incomplete", "sqs:GetQueueAttributes")
+        return a
+    attributes = read.get("Attributes")
+    if not isinstance(attributes, dict) or attributes.get("QueueArn") != arn:
+        a.gap("inventory", "SQS queue attributes are not bound to this queue")
+        return a
+    if "Policy" not in attributes:
+        return None
+    policy = attributes["Policy"]
+    if isinstance(policy, str):
+        try:
+            policy = json.loads(policy)
+        except ValueError:
+            policy = None
+    statements = policy.get("Statement") if isinstance(policy, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "SQS queue policy statements are malformed")
+        return a
+    foreign, uncertain = set(), False
+    trusted = trusted_scopes(snapshot)["ids"]
+    for statement in statements:
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow":
+            uncertain = True
+            continue
+        actions = statement.get("Action")
+        actions = [actions] if isinstance(actions, str) else actions
+        if not isinstance(actions, list) or any(not isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        if not {x.casefold() for x in actions} & {"*", "sqs:*", "sqs:receivemessage"}:
+            continue
+        resources = statement.get("Resource", arn)
+        resources = [resources] if isinstance(resources, str) else resources
+        if not isinstance(resources, list) or any(not isinstance(x, str) for x in resources):
+            uncertain = True
+            continue
+        if "*" not in resources and arn not in resources:
+            continue
+        if statement.get("Condition") or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if not foreign and not uncertain:
+        return None
+    key = attributes.get("KmsMasterKeyId")
+    key_coverage = attributes.get("_coverage", {}).get("KmsMasterKeyId") if isinstance(attributes.get("_coverage"), dict) else None
+    if key == "" and isinstance(key_coverage, dict) and key_coverage.get("status") == "empty":
+        key = None
+    if key in ("alias/aws/sqs", "aws/sqs"):
+        a.step("kms_key", "block", reason="AWS managed SQS KMS key cannot grant foreign decrypt")
+        a.ports = {}
+        return a
+    if key is not None and (not isinstance(key, str) or not key):
+        a.gap("kms_key", "SQS KMS key identity is malformed")
+        return a
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.explicit = "FAIL"
+        a.step("queue_policy", "allow", queue_arn=arn, external_accounts=sorted(foreign), action="sqs:ReceiveMessage")
+        a.gap("caller", "Foreign caller identity permission and any customer KMS Decrypt authorization were not observed")
+        return a
+    a.gap("policy", "SQS policy conditions or Deny applicability are unresolved")
+    return a
+
+
+def _aws_sns_foreign_subscription(snapshot, inventory, resource):
+    """A confirmed subscription to an owned topic by a foreign account."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_topic_subscription")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    topic, subscription, owner, protocol = (data.get(key) for key in ("TopicArn", "SubscriptionArn", "Owner", "Protocol"))
+    topic_match = re.fullmatch(r"arn:" + partition + r":sns:" + re.escape(region) + ":" + re.escape(account) +
+                               r":([A-Za-z0-9_-]{1,256}(?:\.fifo)?)", topic) if isinstance(topic, str) else None
+    if (topic_match is None or not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner) or
+            not isinstance(protocol, str) or not protocol):
+        a.gap("inventory", "SNS topic subscription identity is not attributable to the scoped topic")
+        return a
+    if owner in trusted_scopes(snapshot)["ids"]:
+        return None
+    if subscription == "PendingConfirmation":
+        a.gap("confirmation", "Foreign-owned SNS subscription has not been confirmed")
+        return a
+    if (not isinstance(subscription, str) or not re.fullmatch(r"arn:" + partition + r":sns:" +
+            re.escape(region) + ":" + owner + ":" + re.escape(topic_match.group(1)) + r":[0-9a-fA-F-]{36}", subscription)):
+        a.gap("inventory", "SNS subscription ARN does not match its foreign owner and topic")
+        return a
+    a.external_ids = [owner]
+    a.explicit = "FAIL"
+    a.step("subscription", "allow", topic_arn=topic, subscription_arn=subscription,
+           subscriber_account=owner, protocol=protocol)
+    a.gap("delivery", "Endpoint ownership and successful message delivery were not observed")
+    return a
+
+
+def _aws_sns_subscribe_grant(snapshot, inventory, resource):
+    """A topic policy permitting a foreign principal to request subscription."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_topic_subscribe_grant")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn = data.get("TopicArn")
+    if (not isinstance(arn, str) or not re.fullmatch(r"arn:" + partition + r":sns:" +
+            re.escape(region) + ":" + re.escape(account) + r":[A-Za-z0-9_-]{1,256}(?:\.fifo)?", arn)):
+        a.gap("inventory", "SNS topic ARN is not attributable to the scoped account")
+        return a
+    read = data.get("Attributes")
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        a.gap("inventory", "SNS topic attributes are incomplete", "sns:GetTopicAttributes")
+        return a
+    attrs = read.get("Attributes")
+    if not isinstance(attrs, dict) or attrs.get("TopicArn") != arn or attrs.get("Owner") != account:
+        a.gap("inventory", "SNS topic attributes are not bound to this owned topic")
+        return a
+    policy = attrs.get("Policy")
+    if isinstance(policy, str):
+        try:
+            policy = json.loads(policy)
+        except ValueError:
+            policy = None
+    statements = policy.get("Statement") if isinstance(policy, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "SNS topic policy statements are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = set(), False
+    for statement in statements:
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow":
+            uncertain = True
+            continue
+        actions = statement.get("Action")
+        actions = [actions] if isinstance(actions, str) else actions
+        if not isinstance(actions, list) or any(not isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        if not {x.casefold() for x in actions} & {"*", "sns:*", "sns:subscribe"}:
+            continue
+        resources = statement.get("Resource", arn)
+        resources = [resources] if isinstance(resources, str) else resources
+        if not isinstance(resources, list) or any(not isinstance(x, str) for x in resources):
+            uncertain = True
+            continue
+        if "*" not in resources and arn not in resources:
+            continue
+        if statement.get("Condition") or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            if value == "*":
+                foreign.add("*")
+                continue
+            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.explicit = "FAIL"
+        a.step("topic_policy", "allow", topic_arn=arn, external_principals=sorted(foreign), action="sns:Subscribe")
+        a.gap("confirmation", "A subscription request, endpoint confirmation and successful delivery were not observed")
+        return a
+    if foreign or uncertain:
+        a.gap("policy", "SNS topic policy conditions or Deny applicability are unresolved")
+        return a
+    return None
+
+
+def _aws_kms_foreign_decrypt(snapshot, inventory, resource):
+    """A key policy permitting foreign use of an enabled decrypt-capable key."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_kms_decrypt_grant")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    key_id = data.get("KeyId")
+    metadata = data.get("Metadata")
+    if (not isinstance(key_id, str) or not key_id or not isinstance(metadata, dict) or
+            metadata.get("collection_status") != "collected"):
+        a.gap("inventory", "KMS key metadata is incomplete", "kms:DescribeKey")
+        return a
+    native = metadata.get("KeyMetadata")
+    arn = native.get("Arn") if isinstance(native, dict) else None
+    if (not isinstance(native, dict) or native.get("KeyId") != key_id or
+            not isinstance(arn, str) or not re.fullmatch(r"arn:" + partition + r":kms:" +
+                re.escape(region) + ":" + re.escape(account) + r":key/[A-Za-z0-9-]+", arn) or
+            data.get("KeyArn", arn) != arn):
+        a.gap("inventory", "KMS key ARN is not attributable to the scoped key")
+        return a
+    if native.get("KeyManager") == "AWS" or native.get("KeyUsage") in ("SIGN_VERIFY", "GENERATE_VERIFY_MAC", "KEY_AGREEMENT"):
+        return None
+    if native.get("KeyManager") != "CUSTOMER" or native.get("KeyUsage") != "ENCRYPT_DECRYPT":
+        a.gap("inventory", "KMS key manager or cryptographic usage is unresolved", "kms:DescribeKey")
+        return a
+    if native.get("KeyState") in ("Disabled", "PendingDeletion", "PendingImport") or native.get("Enabled") is False:
+        a.step("key_state", "block", reason="KMS key cannot currently decrypt")
+        a.ports = {}
+        return a
+    if native.get("KeyState") != "Enabled" or native.get("Enabled") is not True:
+        a.gap("key_state", "KMS key enabled state is unresolved", "kms:DescribeKey")
+        return a
+    read = data.get("Policy")
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        a.gap("inventory", "KMS key policy read is incomplete", "kms:GetKeyPolicy")
+        return a
+    policy = read.get("Policy")
+    if isinstance(policy, str):
+        try:
+            policy = json.loads(policy)
+        except ValueError:
+            policy = None
+    statements = policy.get("Statement") if isinstance(policy, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "KMS key policy statements are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = set(), False
+    for statement in statements:
+        if statement.get("Effect") == "Deny":
+            uncertain = True
+            continue
+        if statement.get("Effect") != "Allow":
+            uncertain = True
+            continue
+        actions = statement.get("Action")
+        actions = [actions] if isinstance(actions, str) else actions
+        if not isinstance(actions, list) or any(not isinstance(x, str) for x in actions):
+            uncertain = True
+            continue
+        if not {x.casefold() for x in actions} & {"*", "kms:*", "kms:decrypt"}:
+            continue
+        resources = statement.get("Resource")
+        resources = [resources] if isinstance(resources, str) else resources
+        if not isinstance(resources, list) or "*" not in resources:
+            uncertain = True
+            continue
+        if statement.get("Condition") or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            uncertain = True
+            continue
+        principal = statement.get("Principal")
+        principal = principal.get("AWS") if isinstance(principal, dict) else principal
+        principals = [principal] if isinstance(principal, str) else principal
+        if not isinstance(principals, list) or any(not isinstance(x, str) for x in principals):
+            uncertain = True
+            continue
+        for value in principals:
+            if value == "*":
+                foreign.add("*")
+                continue
+            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", value)
+            owner = value if re.fullmatch(r"[0-9]{12}", value) else match.group(1) if match else None
+            if owner is None:
+                uncertain = True
+            elif owner not in trusted:
+                foreign.add(owner)
+    if foreign and not uncertain:
+        a.external_ids = sorted(foreign)
+        a.explicit = "FAIL"
+        a.step("key_policy", "allow", key_arn=arn, external_principals=sorted(foreign), action="kms:Decrypt")
+        a.gap("caller", "Foreign caller IAM permission and possession of decryptable ciphertext were not observed")
+        return a
+    if foreign or uncertain:
+        a.gap("policy", "KMS key policy conditions or Deny applicability are unresolved")
+        return a
+    return None
+
+
+def _aws_kms_foreign_grant(snapshot, inventory, resource):
+    """A foreign Decrypt grantee on an enabled customer KMS key."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_kms_grant")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    key_id, key_arn, grant_id = (data.get(key) for key in ("KeyId", "KeyArn", "GrantId"))
+    if (not isinstance(key_id, str) or not key_id or not isinstance(grant_id, str) or not grant_id or
+            not isinstance(key_arn, str) or key_arn != f"arn:{partition}:kms:{region}:{account}:key/{key_id}"):
+        a.gap("inventory", "KMS grant key identity is incomplete or foreign")
+        return a
+    operations = data.get("Operations")
+    if not isinstance(operations, list) or any(not isinstance(operation, str) for operation in operations):
+        a.gap("inventory", "KMS grant operations are malformed")
+        return a
+    if "Decrypt" not in operations:
+        return None
+    grantee = data.get("GranteePrincipal")
+    match = re.fullmatch(r"arn:" + re.escape(partition) + r":(?:iam|sts)::([0-9]{12}):(?:root|(?:role|user)/.+|assumed-role/.+)", grantee) if isinstance(grantee, str) else None
+    owner = grantee if isinstance(grantee, str) and re.fullmatch(r"[0-9]{12}", grantee) else match.group(1) if match else None
+    if owner is None:
+        a.gap("grantee", "KMS grant grantee cannot be attributed to an AWS account")
+        return a
+    if owner in trusted_scopes(snapshot)["ids"]:
+        return None
+    if data.get("ConstraintKeys"):
+        a.gap("constraint", "KMS grant encryption context or source constraint is not resolved")
+        return a
+    key = inventory.get("kms_key", key_arn)
+    if key is None or key.get("scope") != resource.get("scope"):
+        a.gap("inventory", "KMS grant has no matching collected key metadata", "kms:DescribeKey")
+        return a
+    detail = key["data"]
+    metadata = detail.get("Metadata")
+    native = metadata.get("KeyMetadata") if isinstance(metadata, dict) and metadata.get("collection_status") == "collected" else None
+    if (not isinstance(native, dict) or native.get("Arn") != key_arn or native.get("KeyId") != key_id):
+        a.gap("inventory", "KMS grant key metadata is incomplete or mismatched", "kms:DescribeKey")
+        return a
+    if native.get("KeyManager") == "AWS" or native.get("KeyUsage") in ("SIGN_VERIFY", "GENERATE_VERIFY_MAC", "KEY_AGREEMENT"):
+        return None
+    if native.get("KeyManager") != "CUSTOMER" or native.get("KeyUsage") != "ENCRYPT_DECRYPT":
+        a.gap("inventory", "KMS grant key manager or usage is unresolved", "kms:DescribeKey")
+        return a
+    if native.get("KeyState") in ("Disabled", "PendingDeletion", "PendingImport") or native.get("Enabled") is False:
+        a.step("key_state", "block", reason="KMS key cannot currently decrypt")
+        a.ports = {}
+        return a
+    if native.get("KeyState") != "Enabled" or native.get("Enabled") is not True:
+        a.gap("key_state", "KMS grant key enabled state is unresolved", "kms:DescribeKey")
+        return a
+    policy_read = detail.get("Policy")
+    if not isinstance(policy_read, dict) or policy_read.get("collection_status") != "collected":
+        a.gap("inventory", "KMS key policy read is needed to evaluate explicit Deny", "kms:GetKeyPolicy")
+        return a
+    policy = policy_read.get("Policy")
+    if isinstance(policy, str):
+        try:
+            policy = json.loads(policy)
+        except ValueError:
+            policy = None
+    statements = policy.get("Statement") if isinstance(policy, dict) else None
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        a.gap("inventory", "KMS key policy statements are malformed")
+        return a
+    if any(statement.get("Effect") == "Deny" for statement in statements):
+        a.gap("policy", "KMS key policy Deny applicability to the grantee is unresolved")
+        return a
+    a.external_ids = [owner]
+    a.explicit = "FAIL"
+    a.step("grant", "allow", key_arn=key_arn, grant_id=grant_id, grantee=grantee, action="kms:Decrypt")
+    a.gap("caller", "Grantee identity controls, other denies and possession of decryptable ciphertext were not observed")
+    return a
+
+
 def _aws_ecr_public_repository(snapshot, inventory, resource):
     """An ECR Public repository is readable without a repository policy grant."""
     data = resource["data"]
@@ -2246,26 +3554,34 @@ def _aws_ecr_public_repository(snapshot, inventory, resource):
 
 
 def _aws_log_subscription_export(snapshot, inventory, resource):
-    """A log-group subscription aimed at a foreign logical destination."""
+    """A log-group or account subscription aimed at a foreign logical destination."""
     from .trust import trusted_scopes
 
     data = resource["data"]
     a = Assessment(resource, "external_log_stream")
     scope = str(resource.get("scope", ""))
     account, _, region = scope.partition("/")
-    source = data.get("LogGroupArn")
     destination = data.get("DestinationArn", data.get("destinationArn"))
-    name = data.get("filterName")
-    group = data.get("logGroupName")
-    if not all(isinstance(value, str) and value for value in (source, destination, name, group)):
+    account_policy = resource["type"] == "log_account_subscription_policy"
+    source = data.get("LogGroupArn")
+    name = data.get("policyName") if account_policy else data.get("filterName")
+    group = "account policy " + name if account_policy and isinstance(name, str) else data.get("logGroupName")
+    if not all(isinstance(value, str) and value for value in (destination, name, group)):
         a.gap("inventory", "Log subscription source or destination identity is incomplete")
         return a
-    source_match = re.fullmatch(r"arn:([^:]+):logs:" + re.escape(region) + ":" + re.escape(account) +
-                                r":log-group:(.+)", source)
-    if source_match is None or source_match.group(2) != group:
-        a.gap("inventory", "Log subscription source is not the scoped log group")
-        return a
-    target = re.fullmatch(r"arn:" + re.escape(source_match.group(1)) + r":logs:" + re.escape(region) +
+    if account_policy:
+        if data.get("accountId") != account or data.get("policyType") != "SUBSCRIPTION_FILTER_POLICY":
+            a.gap("inventory", "Log account policy is not attributable to the scoped account")
+            return a
+        partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    else:
+        source_match = re.fullmatch(r"arn:([^:]+):logs:" + re.escape(region) + ":" + re.escape(account) +
+                                    r":log-group:(.+)", source) if isinstance(source, str) else None
+        if source_match is None or source_match.group(2) != group:
+            a.gap("inventory", "Log subscription source is not the scoped log group")
+            return a
+        partition = source_match.group(1)
+    target = re.fullmatch(r"arn:" + re.escape(partition) + r":logs:" + re.escape(region) +
                           r":([0-9]{12}):destination:([^:]+)", destination)
     if target is None:
         a.gap("inventory", "Log subscription destination is not an attributable logical destination")
@@ -2279,6 +3595,33 @@ def _aws_log_subscription_export(snapshot, inventory, resource):
     a.explicit = "FAIL"
     a.gap("delivery", "Recipient acceptance and successful log-event delivery were not observed")
     return a
+
+
+def _aws_log_destination_policy_grant(snapshot, inventory, resource):
+    """Assess the access policy returned with an owned logical log destination."""
+    data = resource["data"]
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn, name = data.get("arn"), data.get("destinationName")
+    if (not isinstance(arn, str) or not isinstance(name, str) or not name or ":" in name or
+            arn != f"arn:{partition}:logs:{region}:{account}:destination:{name}"):
+        a = Assessment(resource, "external_generic_policy_grant")
+        a.gap("inventory", "CloudWatch Logs destination identity is not attributable to the scanned account")
+        return a
+    raw = data.get("accessPolicy")
+    if raw is None or raw == "":
+        return None
+    try:
+        policy = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        policy = None
+    # DescribeDestinations returns the attached policy with the destination;
+    # reuse the source/owner checks and conservative Allow/Deny logic.
+    attributed = {**resource, "data": {"ResourceArn": arn, "Policy": policy,
+        "_provenance": {"read_only": True, "owner_account": account,
+                        "source_region": region, "families": ["logs-destinations"],
+                        "source_operations": ["logs:DescribeDestinations"]}}}
+    return _aws_generic_resource_policy_grant(snapshot, inventory, attributed)
 
 
 def _aws_cloudfront(snapshot, inventory, resource):
@@ -8196,10 +9539,10 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
+AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
-             "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "ecr_public_repository", "log_subscription_filter", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
+             "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
+             "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
@@ -8216,9 +9559,9 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
              "component_configuration", *sorted(K8S_ROUTE_TYPES)]
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
-EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
-                     "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry", "vpc_peering", "transit_gateway_attachment", "ecr_public_repository", "log_subscription_filter"},
+EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
+                     "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "vpc_peering", "transit_gateway_attachment", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -8252,12 +9595,18 @@ def assess(snapshot, resources):
             rules.setdefault(parent, []).append(rule)
         extra["rules"] = rules
     handlers = {
-        "aws": {"instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
+        "aws": {"iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
                 "rds_instance": _aws_rds, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
                 "lambda_function": _aws_lambda_url, "lambda_alias": _aws_lambda_url,
+                "lambda_version": _aws_lambda_direct_invoke,
+                "lambda_layer_version": _aws_lambda_layer_share,
                 "rest_api": _aws_rest_api, "http_api": _aws_http_api, "bucket": _aws_bucket,
                 "rds_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBSnapshotAttributesResult", "DBSnapshotAttributes"), "snapshot"),
                 "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot"),
+                "redshift_snapshot": _aws_redshift_snapshot_share,
+                "redshiftserverless_snapshot": _aws_redshift_serverless_snapshot_share,
+                "docdb_cluster_snapshot": _aws_cluster_snapshot_share,
+                "neptune_cluster_snapshot": _aws_cluster_snapshot_share,
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
                 "ram_resource_share": _aws_ram_share, "vpc_peering": _aws_vpc_peering,
@@ -8265,8 +9614,18 @@ def assess(snapshot, resources):
                 "client_vpn_endpoint": _aws_client_vpn_endpoint,
                 "vpc_endpoint_service": _aws_vpc_endpoint_service,
                 "ecr_registry": _aws_ecr_registry_replication,
+                "aws_resource_policy": _aws_generic_resource_policy_grant,
+                "ecr_repository": _aws_ecr_repository_share,
+                "secret": _aws_secret_foreign_read,
+                "sqs_queue": _aws_sqs_foreign_receive,
+                "sns_topic_subscription": _aws_sns_foreign_subscription,
+                "sns_topic": _aws_sns_subscribe_grant,
+                "kms_key": _aws_kms_foreign_decrypt,
+                "kms_grant": _aws_kms_foreign_grant,
                 "ecr_public_repository": _aws_ecr_public_repository,
                 "log_subscription_filter": _aws_log_subscription_export,
+                "log_account_subscription_policy": _aws_log_subscription_export,
+                "log_destination": _aws_log_destination_policy_grant,
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
@@ -8328,12 +9687,63 @@ def assess(snapshot, resources):
             current.gap("inventory", f"malformed native fact: {type(exc).__name__}")
         if current is not None:
             output.append(current)
+        if provider == "aws" and resource["type"] in ("lambda_function", "lambda_alias"):
+            direct = _aws_lambda_direct_invoke(snapshot, inventory, resource)
+            if direct is not None:
+                output.append(direct)
+        if provider == "aws" and resource["type"] == "client_vpn_endpoint":
+            authorization = _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource)
+            if authorization is not None:
+                output.append(authorization)
+        if provider == "aws" and resource["type"] == "ecr_registry":
+            pull = _aws_ecr_registry_policy_pull(snapshot, inventory, resource)
+            if pull is not None:
+                output.append(pull)
+            template = _aws_ecr_template_pull(snapshot, inventory, resource)
+            if template is not None:
+                output.append(template)
     if context is not None and context["snapshot"] is snapshot:
         context["derivations"][key] = output
     return output
 
 
 def _title(assessment, status):
+    if assessment.kind == "vpn_client_authorization":
+        return "Client VPN authorizes all clients to destination network" if status == "FAIL" else "Client VPN authorization unresolved"
+    if assessment.kind == "external_generic_policy_grant":
+        return "Resource policy grants foreign account access" if status == "FAIL" else "Foreign resource-policy grant unresolved"
+    if assessment.kind == "external_cluster_snapshot_share":
+        service = "DocumentDB" if assessment.resource["type"] == "docdb_cluster_snapshot" else "Neptune"
+        return (service + " snapshot grants public restore access" if "*" in assessment.external_ids else
+                service + " snapshot grants foreign restore access") if status == "FAIL" else service + " snapshot sharing unresolved"
+    if assessment.kind == "external_redshift_serverless_snapshot_share":
+        return "Redshift Serverless snapshot grants foreign restore access" if status == "FAIL" else "Redshift Serverless snapshot sharing unresolved"
+    if assessment.kind == "external_redshift_snapshot_share":
+        return "Redshift snapshot grants foreign restore access" if status == "FAIL" else "Redshift snapshot sharing unresolved"
+    if assessment.kind == "external_registry_template_pull":
+        return "ECR creation template grants future foreign image pulls" if status == "FAIL" else "ECR creation template pull grant unresolved"
+    if assessment.kind == "external_registry_policy_pull":
+        return "ECR registry policy permits foreign image pulls" if status == "FAIL" else "ECR registry pull grant unresolved"
+    if assessment.kind == "external_layer_share":
+        return "Lambda layer version shared with foreign principals" if status == "FAIL" else "Lambda layer sharing unresolved"
+    if assessment.kind == "external_lambda_invoke":
+        return "Lambda policy permits foreign direct invocation" if status == "FAIL" else "Foreign Lambda invocation unresolved"
+    if assessment.kind == "external_kms_grant":
+        return "KMS grant permits foreign Decrypt" if status == "FAIL" else "Foreign KMS grant unresolved" if status == "UNKNOWN" else "KMS grant key cannot currently decrypt"
+    if assessment.kind == "external_kms_decrypt_grant":
+        return "KMS key policy permits foreign decrypt" if status == "FAIL" else "Foreign KMS decrypt unresolved" if status == "UNKNOWN" else "KMS key cannot currently decrypt"
+    if assessment.kind == "external_topic_subscribe_grant":
+        if status == "FAIL" and "*" in assessment.external_ids:
+            return "SNS topic permits public subscription requests"
+        return "SNS topic permits foreign subscription requests" if status == "FAIL" else "SNS subscribe grant unresolved"
+    if assessment.kind == "external_topic_subscription":
+        return "SNS topic has a foreign-owned subscription" if status == "FAIL" else "Foreign SNS subscription unresolved"
+    if assessment.kind == "external_queue_receive":
+        return "SQS queue grants foreign message receive" if status == "FAIL" else "Foreign SQS receive unresolved" if status == "UNKNOWN" else "Managed key blocks foreign SQS receive"
+    if assessment.kind == "external_secret_grant":
+        return "Secret policy grants foreign read" if status == "FAIL" else "Foreign secret read unresolved" if status == "UNKNOWN" else "Default key blocks foreign secret read"
+    if assessment.kind == "external_registry_share":
+        return "ECR repository grants foreign image pull" if status == "FAIL" else "ECR repository sharing unresolved"
     if assessment.kind == "external_log_stream":
         return "Log subscription targets external account" if status == "FAIL" else "Log subscription destination unresolved"
     if assessment.kind == "public_registry":
@@ -8380,6 +9790,151 @@ def _observed(assessment, status):
                 "The controller's treatment of that value is not recorded, so its public source rule is unclear.\n"
                 "The source rule may admit public requests if the controller ignores that range.\n"
                 f"That could expose data served through this {noun}.")
+    if assessment.kind == "vpn_client_authorization":
+        if status == "FAIL":
+            return ("The active Client VPN rule allows every authenticated client for its destination CIDR.\n"
+                    "A client may reach that network if its route and filters also allow traffic.\n"
+                    "That could expose data served by resources on the destination network.")
+        return ("The Client VPN all-client rule read is incomplete.\n"
+                "Authorization for its destination CIDR remains unclear.\n"
+                "Clients may reach data on that network if the missing rule allows them.")
+    if assessment.kind == "external_generic_policy_grant":
+        if status == "FAIL":
+            return ("The owned resource policy allows a foreign or wildcard AWS principal.\n"
+                    "That principal may use the permitted action if other service rules allow it.\n"
+                    "The action could expose data held by this resource.")
+        return ("The owned resource policy or foreign grant is incomplete.\n"
+                "A foreign principal may use its action if the missing terms allow it.\n"
+                "That could expose data held by this resource.")
+    if assessment.kind == "external_cluster_snapshot_share":
+        if status == "FAIL":
+            recipient = "all AWS accounts" if "*" in assessment.external_ids else "foreign accounts"
+            return (f"The manual cluster snapshot grants copy or restore access to {recipient}.\n"
+                    "Those accounts may copy or restore it if their IAM and KMS permissions allow it.\n"
+                    "A copy could expose data stored in the cluster snapshot.")
+        return ("The cluster snapshot ownership or restore attributes are incomplete.\n"
+                "A foreign account may copy it if the missing grant allows restoration.\n"
+                "That could expose data stored in the snapshot.")
+    if assessment.kind == "external_redshift_serverless_snapshot_share":
+        if status == "FAIL":
+            return ("The Redshift Serverless snapshot permits a foreign namespace or cluster restore.\n"
+                    "A foreign account may restore it if its IAM and KMS permissions allow it.\n"
+                    "That could expose data stored in the snapshot.")
+        return ("The Redshift Serverless snapshot owner or restore recipients are incomplete.\n"
+                "A foreign account may restore it if the missing grant allows that action.\n"
+                "That could expose data stored in the snapshot.")
+    if assessment.kind == "external_redshift_snapshot_share":
+        if status == "FAIL":
+            return ("The manual Redshift snapshot allows a foreign account or AWS Support to restore it.\n"
+                    "That principal may restore it if its IAM and KMS permissions allow it.\n"
+                    "That could expose data stored in the snapshot.")
+        return ("The Redshift snapshot owner or restore authorizations are incomplete.\n"
+                "A foreign principal may restore it if the missing grant allows that action.\n"
+                "That could expose data stored in the snapshot.")
+    if assessment.kind == "external_registry_template_pull":
+        if status == "FAIL":
+            return ("The ECR creation template attaches a foreign image-pull policy to future matching repositories.\n"
+                    "A foreign principal may pull future images if other permissions allow it.\n"
+                    "Those images could expose data used by people or services.")
+        return ("The ECR creation template or its future pull grant is incomplete.\n"
+                "A foreign principal may pull future images if the missing terms allow it.\n"
+                "Those images could expose data used by people or services.")
+    if assessment.kind == "external_registry_policy_pull":
+        if status == "FAIL":
+            return ("The private ECR registry policy grants both image-pull actions to a foreign principal.\n"
+                    "That principal may pull images if token access and other permissions allow it.\n"
+                    "Those images could expose data used by people or services.")
+        return ("The private ECR registry policy or foreign pull grant is incomplete.\n"
+                "A foreign principal may pull images if the missing terms allow it.\n"
+                "Those images could expose data used by people or services.")
+    if assessment.kind == "external_layer_share":
+        if status == "FAIL":
+            return ("The Lambda layer version policy grants GetLayerVersion to a foreign principal.\n"
+                    "That principal may download the layer if its caller permissions allow it.\n"
+                    "Layer contents could expose data used by services.")
+        return ("The Lambda layer version policy or foreign GetLayerVersion grant is incomplete.\n"
+                "A foreign principal may download the layer if the missing terms allow it.\n"
+                "Layer contents could expose data used by services.")
+    if assessment.kind == "external_lambda_invoke":
+        if status == "FAIL":
+            return ("The Lambda function or alias policy grants InvokeFunction to a foreign principal.\n"
+                    "That principal may invoke it if caller permissions also allow the action.\n"
+                    "An invocation could affect data handled by the function.")
+        return ("The Lambda function or alias policy has incomplete invoke terms.\n"
+                "A foreign principal may invoke it if the missing terms allow the action.\n"
+                "That could affect data handled by the function.")
+    if assessment.kind == "external_kms_grant":
+        if status == "FAIL":
+            return ("The KMS grant permits a foreign principal to request Decrypt with this key.\n"
+                    "The principal may decrypt ciphertext if other authorization and ciphertext access allow it.\n"
+                    "That could expose data protected by the key.")
+        if status == "PASS":
+            return ("The KMS grant refers to a key that cannot currently decrypt.\n"
+                    "This grant cannot use that key to read ciphertext in its recorded state.\n"
+                    "Data protected by the key is outside this grant's current decrypt path.")
+        return ("The KMS grant, key state, or constraints are incomplete.\n"
+                "A foreign principal may decrypt if the missing terms permit it.\n"
+                "That could expose data protected by the key.")
+    if assessment.kind == "external_kms_decrypt_grant":
+        if status == "FAIL":
+            return ("The enabled customer KMS key policy grants Decrypt to a foreign principal.\n"
+                    "That principal may decrypt if caller permission and ciphertext access allow it.\n"
+                    "That could expose data protected by this key.")
+        if status == "PASS":
+            return ("The KMS key is disabled or otherwise unable to decrypt in its recorded state.\n"
+                    "Its policy cannot currently decrypt ciphertext through this path.\n"
+                    "Data protected by this key remains outside that decrypt path.")
+        return ("The KMS key state or Decrypt policy grant is incomplete.\n"
+                "A foreign principal may decrypt if the missing terms allow it.\n"
+                "That could expose data protected by this key.")
+    if assessment.kind == "external_topic_subscribe_grant":
+        if status == "FAIL":
+            return ("The SNS topic policy permits a foreign principal to request a subscription.\n"
+                    "That principal may receive messages if a subscription is confirmed.\n"
+                    "Those messages could contain data about people or services.")
+        return ("The SNS topic policy or foreign Subscribe grant is incomplete.\n"
+                "A foreign principal may subscribe if the missing terms allow it.\n"
+                "Topic messages could contain data about people or services.")
+    if assessment.kind == "external_topic_subscription":
+        if status == "FAIL":
+            return ("A foreign account owns a confirmed subscription to this SNS topic.\n"
+                    "The endpoint may receive topic messages if delivery succeeds.\n"
+                    "Those messages could contain data about people or services.")
+        return ("The SNS subscription confirmation or owner account is incomplete.\n"
+                "A foreign endpoint may receive messages if confirmation and delivery succeed.\n"
+                "Those messages could contain data about people or services.")
+    if assessment.kind == "external_queue_receive":
+        if status == "FAIL":
+            return ("The SQS queue policy grants ReceiveMessage to foreign account " + ", ".join(assessment.external_ids) + ".\n"
+                    "That account may read messages if caller and KMS permissions allow it.\n"
+                    "Those messages could contain data about people or services.")
+        if status == "PASS":
+            return ("The queue uses the AWS managed SQS KMS key.\n"
+                    "That key blocks the cross-account decrypt path for this queue.\n"
+                    "Message data remains outside this foreign read path.")
+        return ("The queue policy or foreign ReceiveMessage grant is incomplete.\n"
+                "A foreign account may read messages if the missing terms allow it.\n"
+                "Those messages could contain data about people or services.")
+    if assessment.kind == "external_secret_grant":
+        if status == "FAIL":
+            return ("The secret policy grants GetSecretValue to foreign account " + ", ".join(assessment.external_ids) + ".\n"
+                    "That account may read the secret if caller and KMS permissions allow it.\n"
+                    "The value could expose data used by people or services.")
+        if status == "PASS":
+            return ("The secret uses the AWS managed default KMS key.\n"
+                    "That key blocks the cross-account decrypt path for this secret.\n"
+                    "The secret value remains outside this foreign read path.")
+        return ("The secret policy or KMS key terms are incomplete.\n"
+                "A foreign account may read the value if the missing terms allow it.\n"
+                "That could expose data used by people or services.")
+    if assessment.kind == "external_registry_share":
+        if status == "FAIL":
+            return ("The ECR repository policy grants image-pull actions to foreign account " + ", ".join(assessment.external_ids) + ".\n"
+                    "That account may pull images if caller authentication also allows it.\n"
+                    "Those images could expose data used by people or services.")
+        return ("The ECR repository policy or foreign image-pull grant is incomplete.\n"
+                "A foreign account may pull images if the missing terms allow it.\n"
+                "Those images could expose data used by people or services.")
     if assessment.kind == "external_log_stream":
         if status == "FAIL":
             return ("A CloudWatch Logs subscription targets a destination owned by account "
@@ -8793,12 +10348,43 @@ def internet_findings(snapshot, resources):
                     "risk_state": "observed" if status == "FAIL" else "reviewed" if status == "PASS" else "unknown",
                     "semantics": ("Configured CloudWatch Logs subscription to a foreign logical destination; delivery was not observed."
                                   if assessment.kind == "external_log_stream" else
+                                  "Declared ECR repository policy grant to a foreign principal; caller authentication, identity-side permissions and image pulls were not observed."
+                                  if assessment.kind == "external_registry_share" else
+                                  "Declared ECR registry policy grant for image-pull actions; caller token, matching repositories and pulls were not observed."
+                                  if assessment.kind == "external_registry_policy_pull" else
+                                  "Configured ECR creation template would grant foreign pull actions to future matching repositories; no existing repository or pull is implied."
+                                  if assessment.kind == "external_registry_template_pull" else
+                                  "Observed Redshift manual snapshot restore authorization for a foreign account or AWS Support; caller IAM, KMS and actual restore were not observed."
+                                  if assessment.kind == "external_redshift_snapshot_share" else
+                                  "Observed Redshift Serverless snapshot restore authorization for foreign namespace or provisioned-cluster targets; caller IAM, KMS and actual restore were not observed."
+                                  if assessment.kind == "external_redshift_serverless_snapshot_share" else
+                                  "Observed DocumentDB or Neptune manual snapshot copy/restore authorization; caller, KMS and actual use were not observed."
+                                  if assessment.kind == "external_cluster_snapshot_share" else
+                                  "Declared foreign AWS principal grant in a source-attributed resource policy; caller, service prerequisites and actual use were not observed."
+                                  if assessment.kind == "external_generic_policy_grant" else
+                                  "Declared cross-account secret read grant with a customer KMS key; caller and KMS permissions were not observed."
+                                  if assessment.kind == "external_secret_grant" else
+                                  "Declared SQS queue ReceiveMessage grant to a foreign principal; caller and any KMS permissions were not observed."
+                                  if assessment.kind == "external_queue_receive" else
+                                  "Confirmed foreign-owned SNS subscription to an owned topic; endpoint ownership and message delivery were not observed."
+                                  if assessment.kind == "external_topic_subscription" else
+                                  "Declared SNS topic Subscribe grant to a foreign or wildcard principal; confirmation and message delivery were not observed."
+                                  if assessment.kind == "external_topic_subscribe_grant" else
+                                  "Declared foreign KMS Decrypt grant on an enabled customer key; caller permissions and ciphertext access were not observed."
+                                  if assessment.kind == "external_kms_decrypt_grant" else
+                                  "Declared foreign KMS Decrypt grant on an enabled customer key; other authorization controls and ciphertext access were not observed."
+                                  if assessment.kind == "external_kms_grant" else
+                                  "Declared Lambda InvokeFunction grant to a foreign or wildcard principal; caller permissions and invocation were not observed."
+                                  if assessment.kind == "external_lambda_invoke" else
+                                  "Declared Lambda layer GetLayerVersion grant to a foreign or wildcard principal; caller permissions and download were not observed."
+                                  if assessment.kind == "external_layer_share" else
                                   "ECR Public repository configuration permits anonymous image pulls; published images were not enumerated."
                                   if assessment.kind == "public_registry" else
                                   "Declared cross-account network connection and local route; return route and endpoint access are unverified."
                                   if assessment.kind == "external_network" else
                                   "Declared-configuration path model from 0.0.0.0/0; no traffic was sent.")}
-        severity = "high" if assessment.kind in ("external_share", "external_network", "public_registry", "external_log_stream") and status == "FAIL" else assessment.adjusted_severity()
+        severity = ("critical" if assessment.kind == "external_cluster_snapshot_share" and assessment.data_exposure and status == "FAIL" else
+                    "high" if assessment.kind in ("external_share", "external_cluster_snapshot_share", "external_network", "public_registry", "external_log_stream", "external_registry_share", "external_registry_policy_pull", "external_redshift_snapshot_share", "external_redshift_serverless_snapshot_share", "external_secret_grant", "external_queue_receive", "external_topic_subscription", "external_topic_subscribe_grant", "external_kms_decrypt_grant", "external_kms_grant", "external_lambda_invoke", "external_layer_share") and status == "FAIL" else assessment.adjusted_severity())
         current = finding(snapshot, assessment.resource, "exposure", CHECK, _title(assessment, status), severity, evidence, status=status)
         current["remediation"] = exposure_action(evidence, status)
         current["id"] = stable_id("exposure", CHECK, node_id(assessment.resource), node_id(assessment.origin), assessment.kind)
