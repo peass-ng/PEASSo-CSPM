@@ -110,6 +110,7 @@
         "classic_load_balancer",
         "client_vpn_endpoint",
         "client_vpn_route",
+        "client_vpn_routing",
         "client_vpn_target_network",
         "cloudformation_organizations_access",
         "cloudformation_stack",

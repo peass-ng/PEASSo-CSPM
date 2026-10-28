@@ -2487,7 +2487,60 @@ def _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource):
         a.explicit = "FAIL"
         a.step("client_authorization", "allow", endpoint_id=endpoint,
                destination_cidrs=sorted(set(destinations)))
-        a.gap("route", "Client VPN route, target-network association, endpoint and destination security controls were not joined")
+        routing = inventory.get("client_vpn_routing", endpoint)
+        detail = routing["data"] if routing is not None and routing["scope"] == resource["scope"] else {}
+        routes, targets = detail.get("Routes"), detail.get("TargetNetworks")
+        if (isinstance(routes, dict) and routes.get("ClientVpnEndpointId") == endpoint and
+                routes.get("collection_status") in {"collected", "empty"} and
+                isinstance(routes.get("items"), list) and
+                isinstance(targets, dict) and targets.get("ClientVpnEndpointId") == endpoint and
+                targets.get("collection_status") in {"collected", "empty"} and
+                isinstance(targets.get("items"), list)):
+            associated, malformed = {}, False
+            for target in targets["items"]:
+                if not isinstance(target, dict) or target.get("ClientVpnEndpointId") != endpoint:
+                    malformed = True
+                    continue
+                if (isinstance(target.get("Status"), dict) and target["Status"].get("Code") == "associated" and
+                        isinstance(target.get("TargetNetworkId"), str) and
+                        re.fullmatch(r"subnet-[a-z0-9]+", target["TargetNetworkId"]) and
+                        isinstance(target.get("AssociationId"), str) and
+                        re.fullmatch(r"cvpn-assoc-[a-z0-9]+", target["AssociationId"]) and
+                        isinstance(target.get("VpcId"), str) and re.fullmatch(r"vpc-[a-z0-9]+", target["VpcId"])):
+                    if target["TargetNetworkId"] in associated:
+                        malformed = True
+                    associated[target["TargetNetworkId"]] = target
+                elif isinstance(target.get("Status"), dict) and target["Status"].get("Code") == "associated":
+                    malformed = True
+            matched = []
+            for route in routes["items"]:
+                if not isinstance(route, dict) or route.get("ClientVpnEndpointId") != endpoint or not isinstance(route.get("Status"), dict):
+                    malformed = True
+                    continue
+                if route["Status"].get("Code") != "active":
+                    continue
+                try:
+                    route_network = ipaddress.ip_network(route.get("DestinationCidr"), strict=True)
+                except (TypeError, ValueError):
+                    malformed = True
+                    continue
+                subnet = route.get("TargetSubnet")
+                if not isinstance(subnet, str):
+                    malformed = True
+                    continue
+                target = associated.get(subnet)
+                if target and any(route_network.version == (network := ipaddress.ip_network(cidr)).version and
+                                  route_network.overlaps(network) for cidr in destinations):
+                    matched.append({"route_cidr": str(route_network), "target_subnet": route["TargetSubnet"],
+                                    "vpc_id": target["VpcId"], "association_id": target.get("AssociationId"),
+                                    "security_groups": target.get("SecurityGroups", [])})
+            if matched and not malformed:
+                a.step("client_route", "allow", routes=matched)
+                a.gap("destination", "Destination security groups, NACLs, device policy and actual traffic were not verified")
+            else:
+                a.gap("route", "No validated active Client VPN route and associated target subnet joins this authorization rule")
+        else:
+            a.gap("route", "Client VPN route or target-network association read is incomplete")
         a.gap("caller", "Client authentication, device policy and actual traffic were not observed")
         return a
     if destinations or uncertain:
@@ -11082,7 +11135,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
+AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]

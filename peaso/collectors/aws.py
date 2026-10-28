@@ -449,10 +449,14 @@ class Requests:
                     **({'ignore_configured_endpoint_urls': True, 'use_fips_endpoint': False, 'use_dualstack_endpoint': False}
                        if _metadata_profile == 'aws-selected-configuration-content-v1' else {})))
             raw_reads = getattr(self, 'raw_reads', None)
-            if _metadata_profile is None and raw_reads is not None:
+            share_ecs_definition = (_metadata_profile == 'aws-selected-configuration-content-v1'
+                and service == 'ecs')
+            if (_metadata_profile is None or share_ecs_definition) and raw_reads is not None:
                 from botocore.client import BaseClient
                 if isinstance(client, BaseClient):
                     raw_reads.install(client, session)
+                    if share_ecs_definition:
+                        client._peaso_content_ecs_definition_share = True
             return client
         return cached_client(create)
 
@@ -1652,7 +1656,7 @@ def _sla_reports(requests, session, region, arns):
     return service_reports(requests, session, region, arns)
 
 
-def _buckets(requests, session, region):
+def _buckets(requests, session, region, account=None):
     result = requests.pages(session, "s3", region, "list_buckets", "Buckets")
     reads = [
         ("PublicAccessBlock", "get_public_access_block", ("NoSuchPublicAccessBlockConfiguration",)),
@@ -1684,7 +1688,8 @@ def _buckets(requests, session, region):
         targets.append(selected)
     pairs = [(item["Name"], selected, read) for item, selected in zip(items, targets) for read in reads]
     values = iter(ordered_map(requests, pairs, lambda pair: requests.detail(
-        session, "s3", pair[1], pair[2][1], Bucket=pair[0], absent=pair[2][2])))
+        session, "s3", pair[1], pair[2][1], Bucket=pair[0], absent=pair[2][2],
+        **({"ExpectedBucketOwner": account} if account and pair[2][1] == "get_bucket_policy" else {}))))
     for item, location in zip(items, locations):
         item["Location"] = location
         for field_name, _operation, _absent in reads:
@@ -2783,7 +2788,7 @@ def collect(connector, requirements=None):
                 from .aws_facts_gap import metric_alarm_rows
                 return metric_alarm_rows(regional_job, session, identity, regions_for(account))
             if kind == "bucket":
-                return _buckets(requests, session, region)
+                return _buckets(requests, session, region, account)
             if kind == "iam_customer_policy":
                 from .aws_customer_policies import collect as collect_customer_policies
                 return collect_customer_policies(requests, session, region, account)
@@ -3085,6 +3090,11 @@ def collect(connector, requirements=None):
                     counts[key] += getattr(local, key)
         return plan, records, (counts, last_metadata)
 
+    def measured_automatic_scope(scope, session, identity, region, plan, spec):
+        from peaso.runtime_metrics import span as _runtime_span
+        with _runtime_span("collection.automatic_content_scope"):
+            return automatic_scope(scope, session, identity, region, plan, spec)
+
     def start_automatic(scope, session, identity, region, content_executor):
         nonlocal content_tail_started
         if not streaming_content:
@@ -3105,7 +3115,7 @@ def collect(connector, requirements=None):
                     content_tail_callback(True)
                     content_tail_started = True
                 automatic_futures[key] = content_executor.submit(
-                    automatic_scope, scope, session, identity, region, plan, spec)
+                    measured_automatic_scope, scope, session, identity, region, plan, spec)
     with capture_scope(requests), analyzer_lifecycle, ThreadPoolExecutor(max_workers=ordinary_workers, thread_name_prefix="aws-read") as pool, \
             ThreadPoolExecutor(max_workers=max(1, content_workers), thread_name_prefix="aws-content") as content_pool, \
             ThreadPoolExecutor(max_workers=activity_workers, thread_name_prefix="aws-activity") as activity_pool, \
@@ -3402,7 +3412,11 @@ def collect(connector, requirements=None):
     image_vulnerabilities.attach_metadata(metadata, collections, image_targets)
     workload_image_secrets.attach_metadata(metadata, secret_image_targets)
     ecr_public_image.attach_metadata(metadata, public_targets, public_secret, public_vuln)
-    return make_snapshot("aws", scopes, collections, created_at=requests.observed_at.isoformat(), metadata=_safe(metadata))
+    # append() has already copied and sanitized every item, and no collector
+    # path uses these lists after handoff. Adopt them instead of copying the
+    # full AWS inventory a second time at the final snapshot boundary.
+    return make_snapshot("aws", scopes, collections, created_at=requests.observed_at.isoformat(),
+                         metadata=_safe(metadata), owned=True)
 
 
 # Trusted in-repository read-only extension modules, loaded in this order. Each

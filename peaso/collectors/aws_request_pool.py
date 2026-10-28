@@ -15,8 +15,8 @@ botocore client. This module removes both costs without changing projections:
   every Region and are therefore read once.
 * Only read-named, non-streaming operations are eligible. Credential, token,
   password, secret, session and presigned-download style operations, STS and
-  SSO are never retained. Requests with a refresh, credential-exchange or
-  content profile run with sharing disabled.
+  SSO are never retained. Refresh and credential-exchange requests do not
+  share. The sole content exception is an exact immutable ECS task revision.
 * Concurrent identical reads wait for one owner (single flight). Successes and
   definitive client errors (for example access denied) are shared; throttling,
   5xx, 429 and transport failures are never stored, so a waiter retries.
@@ -216,12 +216,21 @@ class RawReadCache:
                             owner.calls += 1
 
         def make_api_call(operation_name, api_params):
-            if not _SHARED.get():
+            # An ECS task revision is immutable. The selected content client
+            # has independently admitted this exact ARN and may consume the
+            # scan-local native read before either projection retains data.
+            selected_ecs = (operation_name == 'DescribeTaskDefinition' and
+                getattr(client, '_peaso_content_ecs_definition_share', False) is True)
+            if not _SHARED.get() and not selected_ecs:
                 return limited(operation_name, api_params)
+            # Requests.call already holds the selected content admission slot.
+            # Taking the native slot again would halve effective concurrency.
+            send = (lambda: original(operation_name, api_params)) if selected_ecs else (
+                lambda: limited(operation_name, api_params))
             key = self._key(client, root_id, operation_name, api_params)
             if key is None:
-                return limited(operation_name, api_params)
-            return self._read(key, lambda: limited(operation_name, api_params))
+                return send()
+            return self._read(key, send)
         try:
             client._make_api_call = make_api_call
             client._peaso_native_call = limited
@@ -233,8 +242,8 @@ class RawReadCache:
     def admit(self, client, root, check_deadline):
         """Admit a content-profile wire attempt at its native endpoint.
 
-        Content clients cannot use native response sharing because their raw
-        payloads may contain secrets. They still share the endpoint budget.
+        Other content clients do not share native responses. The exact ECS
+        task-revision exception is admitted in ``make_api_call`` above.
         """
         return self.limiter.slot((id(root), client.meta.endpoint_url), check=check_deadline)
 
@@ -315,7 +324,16 @@ class RawReadCache:
             self._bytes += size
             self.stored += 1
             while self._bytes > self.max_bytes and self._entries:
-                _, dropped = self._entries.popitem(last=False)
+                # Keep immutable ECS revisions for the later content pass;
+                # ordinary metadata remains LRU. The same byte ceiling still
+                # bounds the complete scan-local cache.
+                ordinary = (next((item for item in self._entries
+                    if item[2:4] != ('ecs', 'DescribeTaskDefinition')), None)
+                    if getattr(getattr(self, 'owner', None), 'content_secret_scans', False) else None)
+                if ordinary is None:
+                    _, dropped = self._entries.popitem(last=False)
+                else:
+                    dropped = self._entries.pop(ordinary)
                 self._bytes -= dropped[2]
                 self.evicted += 1
 

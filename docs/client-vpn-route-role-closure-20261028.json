@@ -1,0 +1,52 @@
+{
+  "added_iam_actions": [
+    "ec2:DescribeClientVpnRoutes",
+    "ec2:DescribeClientVpnTargetNetworks"
+  ],
+  "api_references": [
+    "https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeClientVpnRoutes.html",
+    "https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeClientVpnTargetNetworks.html"
+  ],
+  "base_wave2_sha": "c6ac4160d59acf46e5ac680d00b8e35cd913215b",
+  "boundary": "Reads only configured routes and associated target networks of Client VPN endpoints in the customer account; no mutation, credential or traffic access.",
+  "collector_operations": [
+    "ec2/describe_client_vpn_endpoints",
+    "ec2/describe_client_vpn_routes",
+    "ec2/describe_client_vpn_target_networks"
+  ],
+  "customer_role_resource": {
+    "Fn::Sub": "arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:client-vpn-endpoint/*"
+  },
+  "generated_customer_role_managed_policies": 7,
+  "generated_customer_role_sizes": [
+    6122,
+    6122,
+    6122,
+    6126,
+    6119,
+    6128,
+    5808
+  ],
+  "iam_reference": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html",
+  "iam_reference_resource_type": "client-vpn-endpoint",
+  "owner_committed_source": "8e5538880273048a92e2f9386f931a119948c2c2",
+  "production_actions": "none",
+  "purpose": "Client VPN route and target-network read allocation for the customer role",
+  "schema_version": 1,
+  "source_sha256": {
+    "infra/aws/customer-role.json": "dbf4bf67bcf7f1e5804894c6e9f329ae0bb138f765782d296c8ae2c7689520d7",
+    "peaso/analysis/finding_clarity.py": "ee78c5d1ed5692ba1da9faab2494f94981dd3b01d95ee86a1c474c907a06d0da",
+    "peaso/analysis/internet_exposure.py": "fb678a1c267a8705258b393a473ee993db9f33758028c9c849dbd03a303a9c7e",
+    "peaso/collectors/aws_facts_ext.py": "bb67f4f9acc8c8fbb869a38e5bc12e0d41d058ab2b37d9429d39354c3239e7b9",
+    "scripts/peaso_deploy_customer_policy.py": "c10ed460e0f0912bbe9966e8b317f18d1254b51b37ec2950ac8a06bd58f65a16"
+  },
+  "validation": {
+    "api_source_review": "source_diff empty; 30 direct SDK client sites",
+    "catalog_materialization": "stale=[]; checked=8",
+    "customer_policy_after_exact_template_assertion": "67 passed",
+    "customer_policy_api_service_and_privilege_display": "82 passed before additional exact-template assertion",
+    "internet_exposure_and_collector_provider_observations": "366 passed",
+    "locked_combined_release_gate": "6 passed",
+    "locked_source_attestation": "9 passed in 44.21s"
+  }
+}

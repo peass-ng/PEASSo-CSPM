@@ -76,6 +76,37 @@ def test_current_declared_read_actions_are_verified_and_sts_not_granted():
     assert all(policy_size(document) <= IAM_MANAGED_POLICY_LIMIT for document in documents)
 
 
+def test_client_vpn_route_inventory_has_only_endpoint_scoped_read_grants():
+    from peaso.collectors.aws import READ_ACTIONS
+    pairs = {
+        ("ec2", "describe_client_vpn_routes"),
+        ("ec2", "describe_client_vpn_target_networks"),
+    }
+    assert pairs <= READ_ACTIONS
+    policy = build_policy(pairs, include_credential_report_generation=False)
+    assert policy["Statement"] == [{
+        "Sid": "ClientVpnRouteInventoryRead", "Effect": "Allow",
+        "Action": ["ec2:DescribeClientVpnRoutes", "ec2:DescribeClientVpnTargetNetworks"],
+        "Resource": {"Fn::Sub": "arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:client-vpn-endpoint/*"},
+    }]
+    assert set(policy["Statement"][0]["Action"]) <= VERIFIED_ACTIONS
+
+
+def test_generated_customer_role_keeps_client_vpn_route_reads_endpoint_scoped():
+    template = json.loads((Path(__file__).resolve().parents[1] / "infra/aws/customer-role.json").read_text())
+    documents = [resource["Properties"]["PolicyDocument"] for resource in template["Resources"].values()
+                 if resource.get("Type") == "AWS::IAM::ManagedPolicy"]
+    target_actions = {"ec2:DescribeClientVpnRoutes", "ec2:DescribeClientVpnTargetNetworks"}
+    statements = [statement for document in documents for statement in document["Statement"]]
+    selected = [statement for statement in statements
+                if target_actions & set(statement["Action"] if isinstance(statement["Action"], list) else [statement["Action"]])]
+    assert len(selected) == 1
+    assert set(selected[0]["Action"]) == target_actions
+    assert selected[0]["Resource"] == {"Fn::Sub": "arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:client-vpn-endpoint/*"}
+    assert len(documents) <= IAM_MANAGED_POLICIES_PER_ROLE
+    assert all(policy_size(document) <= IAM_MANAGED_POLICY_LIMIT for document in documents)
+
+
 def test_credential_report_evidence_refresh_is_separate_and_optional():
     policy = build_policy({("iam", "get_credential_report"), ("iam", "generate_credential_report")}, include_credential_report_generation=False)
     assert policy["Statement"][0]["Action"] == ["iam:GetCredentialReport"]
@@ -261,6 +292,8 @@ _POST_HISTORICAL_METADATA_READS = {
     ('ssm', 'describe_maintenance_window_tasks'), ('ssm', 'describe_maintenance_windows'),
     ('amplify', 'list_domain_associations'),
     ('apigatewayv2', 'list_routing_rules'),
+    ('ec2', 'describe_client_vpn_routes'),
+    ('ec2', 'describe_client_vpn_target_networks'),
     ('cloudfront', 'get_cloud_front_origin_access_identity'),
     ('cloudfront', 'get_origin_access_control'),
     ('elb', 'describe_instance_health'),

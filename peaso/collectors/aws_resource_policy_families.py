@@ -218,12 +218,13 @@ RECIPES = [Recipe(r.id, r.service,
     r.operation, r.parameters, r.document, r.resource, r.region, r.absent, r.normalizer)
     for r in RECIPES]
 READ_ACTIONS = {(r.service, op) for r in RECIPES for op in ([r.operation] if r.operation else []) + [s[0] for s in r.steps]}
+READ_ACTIONS.add(("s3", "get_bucket_location"))
 
 
 
 def recipe_operations(r):
     return {operation for operation in ([r.operation] if r.operation else []) +
-            [step[0] for step in r.steps]}
+            [step[0] for step in r.steps]} | ({"get_bucket_location"} if r.id == "s3-buckets" else set())
 
 
 def unsupported_operations(r, session):
@@ -327,6 +328,15 @@ def collect(requests, session, region, account, recipes=None):
                         continue
                     if r.operation:
                         arguments = {key: resolve(value, current) for key, value in r.parameters.items()}
+                        detail_region = api_region
+                        if r.id == "s3-buckets":
+                            # Match the native bucket reader's home endpoint and
+                            # request arguments so Requests can share its Future.
+                            location = requests.detail(session, "s3", api_region,
+                                "get_bucket_location", Bucket=arguments["Bucket"])
+                            if location.get("collection_status") in (None, "collected"):
+                                home = location.get("LocationConstraint")
+                                detail_region = "eu-west-1" if home == "EU" else home or "us-east-1"
                         if "[]" in r.document or r.normalizer == "ssm_document":
                             read = requests.pages(session, r.service, api_region, r.operation, r.document, **arguments)
                             if read.status not in {"collected", "empty"}:
@@ -334,7 +344,7 @@ def collect(requests, session, region, account, recipes=None):
                             response = {"collection_status": "collected", "documents": read.items}
                             raw = read.items
                         else:
-                            response = requests.detail(session, r.service, api_region, r.operation,
+                            response = requests.detail(session, r.service, detail_region, r.operation,
                                 absent=r.absent, **arguments)
                             raw = jmespath.search(r.document, response)
                         status = response.get("collection_status")

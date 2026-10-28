@@ -405,8 +405,34 @@ def _internet_summary(finding):
     label=_EXPOSURE_KINDS[kind]
     if kind=='vpn_client_authorization':
         if status=='FAIL':
-            return 'An active Client VPN rule declares access for every authenticated client to the recorded destination network. Route and destination controls remain unverified.'
-        return 'Client VPN all-client authorization cannot be resolved from the collected rules.'
+            steps=e.get('path') if isinstance(e.get('path'),list) else []
+            authorization=next((step for step in steps if isinstance(step,dict) and step.get('layer')=='client_authorization'),{})
+            route=next((step for step in steps if isinstance(step,dict) and step.get('layer')=='client_route'),{})
+            cidrs=authorization.get('destination_cidrs')
+            destination=', '.join(cidrs) if isinstance(cidrs,list) and all(isinstance(c,str) for c in cidrs) else 'a destination network'
+            lines=[f'An active Client VPN rule allows every authenticated client toward {destination}.']
+            routes=route.get('routes')
+            if isinstance(routes,list) and routes and isinstance(routes[0],dict):
+                first=routes[0]
+                lines.append(f"An active route points through {first.get('target_subnet', 'a target subnet')} into {first.get('vpc_id', 'a VPC')}.")
+                lines.append('The destination security rules are unresolved, and actual traffic is unknown.')
+            else:
+                lines.append('A matching active route and associated target subnet are not recorded together.')
+                lines.append('The destination security rules and actual traffic remain unknown.')
+            lines.append('Authenticated clients could reach services or data there if the remaining network controls allow it.')
+            return '\n'.join(lines)
+        gaps=e.get('unresolved') if isinstance(e.get('unresolved'),list) else []
+        reason=next((gap.get('reason') for gap in gaps if isinstance(gap,dict) and isinstance(gap.get('reason'),str)), '')
+        if 'endpoint state' in reason:
+            missing='The Client VPN endpoint state is missing or unresolved.'
+        elif 'bound to the scoped endpoint' in reason:
+            missing='The Client VPN authorization rules are not bound to the recorded endpoint ID.'
+        elif 'rule read' in reason:
+            missing='The Client VPN authorization-rule list is incomplete.'
+        else:
+            missing='The Client VPN all-client rule status or destination is unresolved.'
+        return (missing+'\nThe active all-client destination setting cannot be determined.\n'
+                'Access to services or data through that endpoint may remain unclear.')
     if kind=='external_generic_policy_grant':
         principals=e.get('external_scope_ids')
         if status=='FAIL' and _strings(principals) and principals:

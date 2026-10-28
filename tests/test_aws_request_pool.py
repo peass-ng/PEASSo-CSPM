@@ -2,6 +2,7 @@
 
 import threading
 import time
+from types import SimpleNamespace
 
 import boto3
 import botocore.client
@@ -100,6 +101,39 @@ def test_identical_reads_share_one_native_call_within_a_scan(native):
     with pool.shared_reads():
         aws.Requests({}).client(session, "iam", REGION).get_role(RoleName="a")
     assert len(calls) == 4
+
+
+def test_selected_ecs_content_reuses_exact_native_revision_within_scan(native):
+    calls, handlers = native
+    arn = 'arn:aws:ecs:us-east-1:123456789012:task-definition/example:1'
+    handlers['DescribeTaskDefinition'] = lambda params: {
+        'taskDefinition': {'taskDefinitionArn': params['taskDefinition'],
+                           'containerDefinitions': [{'name': 'web', 'environment': [
+                               {'name': 'PASSWORD', 'value': 'private-test-value'}]}]},
+        'ResponseMetadata': {'HTTPStatusCode': 200}}
+    session = _session()
+    requests = aws.Requests({'content_secret_scans': True})
+    with pool.shared_reads():
+        native_response = requests.client(session, 'ecs', REGION).describe_task_definition(taskDefinition=arn)
+    selected = requests.client(session, 'ecs', REGION,
+        _metadata_profile='aws-selected-configuration-content-v1')
+    content_response = selected.describe_task_definition(taskDefinition=arn)
+    assert content_response == native_response and content_response is not native_response
+    assert [name for _, name, _ in calls] == ['DescribeTaskDefinition']
+    assert requests.raw_reads.hits == 1
+    selected.describe_task_definition(taskDefinition=arn[:-1] + '2')
+    assert [name for _, name, _ in calls] == ['DescribeTaskDefinition'] * 2
+
+
+def test_content_scan_retains_ecs_revision_before_ordinary_cache_entries():
+    cache = pool.RawReadCache(max_bytes=320, max_entry_bytes=320)
+    cache.owner = SimpleNamespace(content_secret_scans=True)
+    ecs = (1, 'endpoint', 'ecs', 'DescribeTaskDefinition', 'revision')
+    ordinary = (1, 'endpoint', 'ec2', 'DescribeInstances', 'instance')
+    cache._store(ecs, ('ok', {'taskDefinition': 'x' * 90}))
+    cache._store(ordinary, ('ok', {'Reservations': 'y' * 90}))
+    assert ecs in cache._entries and ordinary not in cache._entries
+    assert cache.stats()['bytes'] <= cache.max_bytes
 
 
 def test_mutating_secret_and_streaming_operations_are_never_shared():
