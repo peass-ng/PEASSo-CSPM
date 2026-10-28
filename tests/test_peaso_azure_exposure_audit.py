@@ -575,6 +575,8 @@ def test_app_service_stopped_and_disabled_hostname_surfaces():
     assert stopped.verdict() == "PASS" and stopped.blocked_by == "site_state"
     scm_only = decision(enabled=False)
     assert scm_only.verdict() == "FAIL" and scm_only.addresses == ["app.scm.azurewebsites.net"]
+    assert decision(enabled=False, scm_stopped=None).verdict() == "FAIL"  # Documented false default.
+    assert decision(enabled=False, scm_stopped="unknown").verdict() == "UNKNOWN"
     hostname_gate = decision(hostnames_disabled=True)
     assert hostname_gate.verdict() == "UNKNOWN" and hostname_gate.addresses == []
     assert decision(hostnames_disabled=True, scm_default="Deny").verdict() == "PASS"

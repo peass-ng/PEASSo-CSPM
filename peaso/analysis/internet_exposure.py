@@ -4734,6 +4734,9 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.addresses = []
         a.ports = {}
         return a
+    if (props.get("enabled") is False and props.get("scmSiteAlsoStopped") is not None and
+            type(props["scmSiteAlsoStopped"]) is not bool):
+        a.gap("listener", "stopped App Service has malformed scmSiteAlsoStopped setting")
     ase_mode, ase_id = _azure_app_ase_mode(inventory, props)
     if ase_mode == "Web, Publishing":
         a.step("hosting_environment", "block", ase_id=ase_id, internal_load_balancing_mode=ase_mode)
