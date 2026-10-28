@@ -2,7 +2,7 @@
 
 Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs/product-list), retrieved 2026-10-27, supplemented with Firebase Realtime Database because its rules are an independent exposure surface. The table is a tracking inventory, not a closure claim. `REVIEW REQUIRED` means an independent exposure primitive has not yet been ruled out or implemented.
 
-Open review ledger: **178 rows** remain REVIEW REQUIRED; **144 have no native path identified** in this sweep and **34 have a partial native path**. The rows below name every open product. By category, the counts are Cross-product tools 14, AI and ML 18, App development 23, App hosting 5, Compute 12, Data analytics and pipelines 17, Databases 11, Distributed/hybrid/multicloud 6, Industry solutions 7, Migration 6, Networking 23, Observability 5, Security 27, and Storage 4. A dash in the native-path column is the concrete blocker: no product-specific exposure inventory and verdict has yet been audited. A populated native path is still REVIEW REQUIRED until that product's public endpoints, IAM/policy/ACL, sharing, and federation primitives have been exhaustively checked.
+Open review ledger: **178 rows** remain REVIEW REQUIRED; **139 have no native path identified** in this sweep and **39 have a partial native path**. The rows below name every open product. By category, the counts are Cross-product tools 14, AI and ML 18, App development 23, App hosting 5, Compute 12, Data analytics and pipelines 17, Databases 11, Distributed/hybrid/multicloud 6, Industry solutions 7, Migration 6, Networking 23, Observability 5, Security 27, and Storage 4. A dash in the native-path column means no product-specific native path has yet been identified; it is not an API impossibility or a concrete data blocker. A populated native path is still REVIEW REQUIRED until that product's public endpoints, IAM/policy/ACL, sharing, and federation primitives have been exhaustively checked.
 
 | Category | Product | Native path found so far | Audit state |
 | --- | --- | --- | --- |
@@ -21,14 +21,14 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **144 have no native pa
 | Cross-product tools | [Service Catalog](https://docs.cloud.google.com/service-catalog/docs) | — | REVIEW REQUIRED |
 | Cross-product tools | [Service Usage](https://docs.cloud.google.com/service-usage/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Agent Platform Vision](https://docs.cloud.google.com/vision-ai/docs) | — | REVIEW REQUIRED |
-| AI and ML | [Cloud TPU](https://docs.cloud.google.com/tpu/docs) | tpu_node external IP, endpoint port, target tags/service account and VPC firewall join | REVIEW REQUIRED |
+| AI and ML | [Cloud TPU](https://docs.cloud.google.com/tpu/docs) | tpu_node external IP, endpoint port, target tags/service account and shared-VPC networkConfigs firewall join; distinct-VPC selection uses explicit single public-enabled VPC; multiple or missing flags leave endpoint association unresolved | REVIEW REQUIRED |
 | AI and ML | [Colab Enterprise](https://docs.cloud.google.com/colab/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Deep Learning Containers](https://docs.cloud.google.com/deep-learning-containers/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Deep Learning VM](https://docs.cloud.google.com/deep-learning-vm/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Dialogflow ES](https://docs.cloud.google.com/dialogflow/es/docs) | — | REVIEW REQUIRED |
 | AI and ML | [DocAI](https://docs.cloud.google.com/document-ai/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Enterprise Knowledge Graph](https://docs.cloud.google.com/enterprise-knowledge-graph/docs) | — | REVIEW REQUIRED |
-| AI and ML | [Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform) | — | REVIEW REQUIRED |
+| AI and ML | [Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform) | workbench_instance Jupyter proxy URI, disableProxyAccess and ACTIVE state; identity grants, direct VM ingress and other Agent Platform interfaces unresolved | REVIEW REQUIRED |
 | AI and ML | [Live Stream API](https://docs.cloud.google.com/livestream/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Speech-to-Text](https://docs.cloud.google.com/speech-to-text/docs) | — | REVIEW REQUIRED |
 | AI and ML | [TensorFlow Enterprise](https://docs.cloud.google.com/tensorflow-enterprise/docs) | — | REVIEW REQUIRED |
@@ -61,17 +61,17 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **144 have no native pa
 | App development | [Service Infrastructure](https://docs.cloud.google.com/service-infrastructure/docs) | — | REVIEW REQUIRED |
 | App development | [Software supply chain security](https://docs.cloud.google.com/software-supply-chain-security/docs) | — | REVIEW REQUIRED |
 | App development | [Workflows](https://docs.cloud.google.com/workflows/docs) | — | REVIEW REQUIRED |
-| App hosting | [App Engine](https://docs.cloud.google.com/appengine/docs) | app_engine_application | REVIEW REQUIRED |
+| App hosting | [App Engine](https://docs.cloud.google.com/appengine/docs) | app_engine_application default hostname and serving status; ordered ingress firewall evaluator accepts complete cached rule facts, but the current collector cannot fetch them under its reviewed whole-file source gate, so serving applications without those facts remain UNKNOWN; IAP and custom-domain joins remain | REVIEW REQUIRED |
 | App hosting | [Blockchain Node Engine](https://docs.cloud.google.com/blockchain-node-engine/docs) | blockchain_node | REVIEW REQUIRED |
 | App hosting | [Buildpacks](https://docs.cloud.google.com/docs/buildpacks) | — | REVIEW REQUIRED |
-| App hosting | [Cloud Run](https://docs.cloud.google.com/run/docs) | cloudrun_service / function v2 backing-service ingress and IAM | REVIEW REQUIRED |
+| App hosting | [Cloud Run](https://docs.cloud.google.com/run/docs) | cloudrun_service / function v2 backing-service ingress and IAM; cloudrun_instance serving URLs, public ingress and direct invoker grant or disabled check; IAP, inherited IAM, custom domains and other routes unresolved | REVIEW REQUIRED |
 | App hosting | [Google Kubernetes Engine (GKE)](https://docs.cloud.google.com/kubernetes-engine/docs) | gke_cluster / Kubernetes snapshot | REVIEW REQUIRED |
 | Compute | [AI Hypercomputer](https://docs.cloud.google.com/ai-hypercomputer/docs) | — | REVIEW REQUIRED |
 | Compute | [Batch](https://docs.cloud.google.com/batch/docs) | — | REVIEW REQUIRED |
 | Compute | [Capacity Planner](https://docs.cloud.google.com/capacity-planner/docs) | — | REVIEW REQUIRED |
 | Compute | [Cluster Director](https://docs.cloud.google.com/cluster-director/docs) | — | REVIEW REQUIRED |
 | Compute | [Cluster Toolkit](https://docs.cloud.google.com/cluster-toolkit/docs) | — | REVIEW REQUIRED |
-| Compute | [Compute Engine](https://docs.cloud.google.com/compute/docs) | instance / per-interface effective firewall / forwarding_rule | REVIEW REQUIRED |
+| Compute | [Compute Engine](https://docs.cloud.google.com/compute/docs) | instance / per-interface effective firewall with ordered hierarchy, regional system-to-network, explicit BEFORE_CLASSIC global-to-regional transitions, and default/explicit AFTER_CLASSIC positive classic allows or provably nonmatching classic transitions into network policy / forwarding_rule; other policy decisions remain | REVIEW REQUIRED |
 | Compute | [Container-Optimized OS](https://docs.cloud.google.com/container-optimized-os/docs) | — | REVIEW REQUIRED |
 | Compute | [Oracle on Google Cloud Compute](https://docs.cloud.google.com/oracle/compute) | — | REVIEW REQUIRED |
 | Compute | [Shielded VMs](https://docs.cloud.google.com/compute/shielded-vm/docs) | — | REVIEW REQUIRED |
@@ -92,7 +92,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **144 have no native pa
 | Data analytics and pipelines | [Looker](https://docs.cloud.google.com/looker/docs) | looker_instance | REVIEW REQUIRED |
 | Data analytics and pipelines | [Managed Service for Apache Airflow](https://docs.cloud.google.com/composer/docs) | composer_environment Airflow URI and web-server IP allowlist; IAM and other interfaces unresolved | REVIEW REQUIRED |
 | Data analytics and pipelines | [Managed Service for Apache Kafka](https://docs.cloud.google.com/managed-service-for-apache-kafka/docs) | — | REVIEW REQUIRED |
-| Data analytics and pipelines | [Managed Service for Apache Spark](https://docs.cloud.google.com/managed-spark/docs) | — | REVIEW REQUIRED |
+| Data analytics and pipelines | [Managed Service for Apache Spark](https://docs.cloud.google.com/managed-spark/docs) | dataproc_cluster Component Gateway HTTPS URLs and enabled state; IAM grants, UI response, underlying VM exposure and other interfaces unresolved | REVIEW REQUIRED |
 | Data analytics and pipelines | [Manufacturing Data Engine](https://docs.cloud.google.com/manufacturing-data-engine/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Pub/Sub](https://docs.cloud.google.com/pubsub/docs) | Topic public Publisher and subscription public Subscriber direct IAM grants; subscription OIDC push endpoint configuration; inherited/custom roles, IAM denies, conditions, endpoint ownership and successful message access unresolved | REVIEW REQUIRED |
 | Databases | [AlloyDB](https://docs.cloud.google.com/alloydb/docs) | alloydb_instance public IP / Data API executeSql declaration | REVIEW REQUIRED |
@@ -126,17 +126,17 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **144 have no native pa
 | Migration | [Migrate to VMs](https://docs.cloud.google.com/migrate/virtual-machines/docs/5.0) | — | REVIEW REQUIRED |
 | Migration | [Migration Center](https://docs.cloud.google.com/migration-center/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud Armor](https://docs.cloud.google.com/armor/docs) | security_policy | REVIEW REQUIRED |
-| Networking | [Cloud CDN](https://docs.cloud.google.com/cdn/docs) | backend bucket origin and private service-agent IAM join; backend-service edge/backend Cloud Armor cache-path distinction | REVIEW REQUIRED |
+| Networking | [Cloud CDN](https://docs.cloud.google.com/cdn/docs) | backend bucket origin and private service-agent IAM join; direct bucket/project public object-get, complete public object ACL or public managed-folder object-get on a top-level (including unmatched exact-host HTTP) or bound matcher default route; backend-service edge/backend Cloud Armor cache-path distinction; top-level defaults require unmatched Host and path matchers require bound host rules; a selected path-rule Host/path can join a direct public bucket/project object-get grant; other object routes and origin grants unresolved | REVIEW REQUIRED |
 | Networking | [Cloud DNS](https://docs.cloud.google.com/dns/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud Domains](https://docs.cloud.google.com/domains/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud IDS](https://docs.cloud.google.com/intrusion-detection-system/docs) | — | REVIEW REQUIRED |
 | Networking | [Cloud Interconnect](https://docs.cloud.google.com/network-connectivity/docs/interconnect) | — | REVIEW REQUIRED |
-| Networking | [Cloud Load Balancing](https://docs.cloud.google.com/load-balancing/docs) | forwarding_rule / target proxy / URL map / backend service or bucket / edge policy | REVIEW REQUIRED |
+| Networking | [Cloud Load Balancing](https://docs.cloud.google.com/load-balancing/docs) | forwarding_rule / target proxy / URL map / backend service or bucket / edge policy; URL-map default/path including unmatched exact-host HTTP default, first prefix-or-exact-path and later disjoint exact-path route-rule redirects without a backend; first bound wildcard-host universal route-rule backend even with later unreachable rules, and first-priority exact/prefix and later path-disjoint exact/prefix-path backend witnesses; selected exact/suffix path-rule backend Host/path witness, with universal sole wildcard-Host `/*` backend Cloud Armor block; other route and policy joins unresolved | REVIEW REQUIRED |
 | Networking | [Cloud NAT](https://docs.cloud.google.com/nat/docs) | — | REVIEW REQUIRED |
-| Networking | [Cloud NGFW](https://docs.cloud.google.com/firewall/docs) | — | REVIEW REQUIRED |
+| Networking | [Cloud NGFW](https://docs.cloud.google.com/firewall/docs) | per-interface effective firewall / ordered hierarchy, regional system, classic VPC and global/regional network positive subcases; advanced selectors and remaining policy precedence unresolved | REVIEW REQUIRED |
 | Networking | [Cloud Router](https://docs.cloud.google.com/network-connectivity/docs/router) | — | REVIEW REQUIRED |
 | Networking | [Cloud Service Mesh](https://docs.cloud.google.com/service-mesh/docs) | — | REVIEW REQUIRED |
-| Networking | [Cloud VPN](https://docs.cloud.google.com/network-connectivity/docs/vpn) | — | REVIEW REQUIRED |
+| Networking | [Cloud VPN](https://docs.cloud.google.com/network-connectivity/docs/vpn) | public HA VPN interface IPs and classic target-VPN forwarding rules declare IKE/ESP endpoint protocols; ESTABLISHED HA tunnels join their exact public gateway interface and configured external peer gateway reference, and Classic tunnels join public peer IP plus same-IP ESP/UDP forwarding triplet; cross-project peerGcpGateway tunnels also join the exact local HA interface; peer ownership, same-project tunnel paths, route and post-decap firewall joins unresolved | REVIEW REQUIRED |
 | Networking | [Data Transfer Essentials](https://docs.cloud.google.com/data-transfer-essentials/docs) | — | REVIEW REQUIRED |
 | Networking | [Media CDN](https://docs.cloud.google.com/media-cdn/docs) | media_cdn_service | REVIEW REQUIRED |
 | Networking | [Network Connectivity Center (NCC)](https://docs.cloud.google.com/network-connectivity/docs/network-connectivity-center) | — | REVIEW REQUIRED |
@@ -146,7 +146,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **144 have no native pa
 | Networking | [Secure Access Connect](https://docs.cloud.google.com/secure-access-connect/docs) | — | REVIEW REQUIRED |
 | Networking | [Secure Web Proxy](https://docs.cloud.google.com/secure-web-proxy/docs) | — | REVIEW REQUIRED |
 | Networking | [Service Extensions](https://docs.cloud.google.com/service-extensions/docs) | — | REVIEW REQUIRED |
-| Networking | [Virtual Private Cloud (VPC)](https://docs.cloud.google.com/vpc/docs) | — | REVIEW REQUIRED |
+| Networking | [Virtual Private Cloud (VPC)](https://docs.cloud.google.com/vpc/docs) | active cross-project peerings from cached network.peerings produce UNKNOWN pending effective exchanged routes, destination firewall and peer ownership; VPC NAT, Shared VPC and other route paths unresolved | REVIEW REQUIRED |
 | Networking | [VPC Service Controls](https://docs.cloud.google.com/vpc-service-controls/docs) | — | REVIEW REQUIRED |
 | Observability and monitoring | [Error Reporting](https://docs.cloud.google.com/error-reporting/docs) | — | REVIEW REQUIRED |
 | Observability and monitoring | [Logging](https://docs.cloud.google.com/logging/docs) | Enabled sink destination naming a different project ID; destination ownership, writer IAM, filters/exclusions, project-number aliases and delivery unresolved | REVIEW REQUIRED |

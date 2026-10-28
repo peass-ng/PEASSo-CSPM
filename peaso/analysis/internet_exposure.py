@@ -4148,15 +4148,77 @@ def _gcp_network_internet_rules(inventory, network):
     return resolved[network]
 
 
-def _gcp_terminal_hierarchy_rule(policies, interface):
-    """Resolve only the first active hierarchical rule when it covers all ingress.
+def _gcp_order_hierarchy_policies(inventory, instance, policies):
+    known_types = {"HIERARCHY", "NETWORK", "NETWORK_REGIONAL", "SYSTEM_GLOBAL", "SYSTEM_REGIONAL"}
+    if any(not isinstance(policy, dict) or policy.get("type") not in known_types for policy in policies):
+        return None
+    hierarchy = [policy for policy in policies if policy.get("type") == "HIERARCHY"]
+    if len(hierarchy) <= 1:
+        return hierarchy
+    projects = [row for row in inventory.items("project") if row.get("scope") == instance.get("scope")]
+    if len(projects) != 1:
+        return None
+    ancestry = projects[0]["data"].get("_ancestry")
+    project_ids = {instance["scope"].split("/", 1)[-1], str(projects[0]["data"].get("projectNumber"))}
+    if (not isinstance(ancestry, list) or len(ancestry) < 2 or
+            not isinstance(ancestry[0], dict) or
+            (ancestry[0].get("resourceId") or {}).get("type") != "project" or
+            str((ancestry[0].get("resourceId") or {}).get("id")) not in project_ids):
+        return None
+    scopes = []
+    for ancestor in ancestry[1:]:
+        resource_id = ancestor.get("resourceId") if isinstance(ancestor, dict) else None
+        if not isinstance(resource_id, dict) or resource_id.get("type") not in ("folder", "organization"):
+            return None
+        identifier = resource_id.get("id")
+        if not isinstance(identifier, str) or not identifier.isdigit():
+            return None
+        scopes.append(f"{resource_id['type']}s/{identifier}")
+    if len(scopes) != len(set(scopes)) or not scopes[-1].startswith("organizations/") or any(
+            scope.startswith("organizations/") for scope in scopes[:-1]):
+        return None
+    ordered = []
+    for scope in reversed(scopes):
+        if inventory.state("firewall_policy_association", scope) not in ("collected", "empty"):
+            return None
+        associations = [row["data"] for row in inventory.items("firewall_policy_association")
+                        if row.get("scope") == scope]
+        if any(not isinstance(row, dict) or row.get("attachmentTarget") != scope or
+               not isinstance(row.get("name"), str) or
+               type(row.get("priority", 1000)) is not int or
+               not 1 <= row.get("priority", 1000) <= 2147483647 or
+               not isinstance(row.get("firewallPolicyId"), str) or
+               not row["firewallPolicyId"].isdigit() for row in associations):
+            return None
+        ordered.extend(sorted(associations, key=lambda row: (row.get("priority", 1000), row["name"])))
+    ids = [row["firewallPolicyId"] for row in ordered]
+    effective = {}
+    for policy in hierarchy:
+        name = policy.get("name")
+        identifier = name.rsplit("/", 1)[-1] if isinstance(name, str) else None
+        if not isinstance(identifier, str) or not identifier.isdigit() or identifier in effective:
+            return None
+        effective[identifier] = policy
+    if len(ids) != len(set(ids)) or set(ids) != set(effective):
+        return None
+    return [effective[identifier] for identifier in ids]
+
+
+def _gcp_terminal_hierarchy_rule(policies, interface, policy_type="HIERARCHY"):
+    """Resolve terminal policy allow ports after private-only or port-deny rules.
 
     getEffectiveFirewalls has already selected rules for this VM interface. Other
     policy matches and inter-policy precedence still require full evaluation.
     """
-    if not policies or not isinstance(policies[0], dict) or policies[0].get("type") != "HIERARCHY":
+    known_types = {"HIERARCHY", "NETWORK", "NETWORK_REGIONAL", "SYSTEM_GLOBAL", "SYSTEM_REGIONAL"}
+    if (not isinstance(policies, list) or any(not isinstance(policy, dict) or
+            policy.get("type") not in known_types for policy in policies)):
         return None
-    rules = policies[0].get("rules")
+    selected = [policy for policy in policies if policy.get("type") == policy_type]
+    if len(selected) != 1:
+        return None
+    policy = selected[0]
+    rules = policy.get("rules")
     if not isinstance(rules, list):
         return None
     ingress = []
@@ -4171,27 +4233,152 @@ def _gcp_terminal_hierarchy_rule(policies, interface):
         if isinstance(priority, bool) or not isinstance(priority, (int, str)) or not str(priority).isdigit():
             return None
         ingress.append((int(priority), rule))
-    if not ingress:
-        return None
-    priority, rule = min(ingress, key=lambda row: row[0])
-    if sum(value == priority for value, _ in ingress) != 1:
-        return None
-    if rule.get("targetType", "INSTANCES") != "INSTANCES" or rule.get("action") not in ("allow", "deny"):
-        return None
-    match = rule.get("match")
-    if not isinstance(match, dict) or set(match) - {"srcIpRanges", "layer4Configs"}:
-        return None
-    if match.get("layer4Configs") not in (None, []):
-        return None
-    sources = match.get("srcIpRanges")
-    if not isinstance(sources, list) or any(not isinstance(value, str) for value in sources):
+    ingress.sort(key=lambda row: row[0])
+    if len({priority for priority, _ in ingress}) != len(ingress):
         return None
     families = set()
     if any(isinstance(row, dict) and row.get("natIP") for row in as_list(interface.get("accessConfigs"))):
         families.add("0.0.0.0/0")
     if any(isinstance(row, dict) and row.get("externalIpv6") for row in as_list(interface.get("ipv6AccessConfigs"))):
         families.add("::/0")
-    return rule if families and families.issubset(set(sources)) else None
+    if not families:
+        return None
+    private_ranges = tuple(ipaddress.ip_network(value) for value in
+                           ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"))
+    earlier_denied = {}
+    for _, rule in ingress:
+        if rule.get("targetType", "INSTANCES") != "INSTANCES":
+            return None
+        match = rule.get("match")
+        if not isinstance(match, dict) or set(match) - {"srcIpRanges", "layer4Configs"}:
+            return None
+        sources = match.get("srcIpRanges")
+        if not isinstance(sources, list) or not sources or any(not isinstance(value, str) for value in sources):
+            return None
+        networks = [_cidr(value) for value in sources]
+        if any(network is None for network in networks):
+            return None
+        if all(any(network.subnet_of(private) for private in private_ranges
+                   if private.version == network.version) for network in networks):
+            # These sources have no direct route from public-internet clients.
+            continue
+        if rule.get("action") not in ("allow", "deny", "goto_next") or not families.issubset(set(sources)):
+            return None
+        configs = match.get("layer4Configs")
+        if configs in (None, []):
+            ports = dict(FULL)
+        elif not isinstance(configs, list):
+            return None
+        else:
+            ports = {}
+            for config in configs:
+                if not isinstance(config, dict) or set(config) - {"ipProtocol", "ports"}:
+                    return None
+                protocol = _proto(config.get("ipProtocol"))
+                if protocol not in ("tcp", "udp"):
+                    return None
+                specs = config.get("ports")
+                if specs is not None and (not isinstance(specs, list) or not specs):
+                    return None
+                for spec in specs if specs is not None else [None]:
+                    if spec is None:
+                        ports = union(ports, pset(protocol))
+                        continue
+                    if not isinstance(spec, str) or not re.fullmatch(r"\d{1,5}(?:-\d{1,5})?", spec):
+                        return None
+                    bounds = [int(value) for value in spec.split("-", 1)]
+                    low, high = (bounds[0], bounds[-1])
+                    if not 1 <= low <= high <= 65535:
+                        return None
+                    ports = union(ports, pset(protocol, low, high))
+        if rule["action"] == "deny":
+            if ports == FULL:
+                return policy, rule, {}
+            earlier_denied = union(earlier_denied, ports)
+            continue
+        if rule["action"] == "goto_next":
+            if not empty(earlier_denied):
+                return None
+            return (policy, rule, None) if ports == FULL else (policy, rule, None, ports)
+        allowed = subtract(ports, earlier_denied)
+        if not empty(allowed):
+            return policy, rule, allowed
+    return (policy, {"action": "goto_next", "ruleName": "implied"}, None) if empty(earlier_denied) else None
+
+
+def _gcp_effective_vpc_public_allow(rules, tags, accounts, address_families):
+    if not isinstance(rules, list) or not address_families:
+        return None
+    candidates = []
+    for rule in rules:
+        if not isinstance(rule, dict) or type(rule.get("priority", 1000)) is not int:
+            return None
+        if rule.get("direction", "INGRESS") != "INGRESS" or rule.get("disabled") is True:
+            continue
+        if rule.get("destinationRanges"):
+            return None
+        sources = as_list(rule.get("sourceRanges"))
+        if sources and (rule.get("sourceTags") or rule.get("sourceServiceAccounts")):
+            return None
+        if (not sources and (rule.get("sourceTags") or rule.get("sourceServiceAccounts"))) or (
+                not sources and 4 not in address_families) or (
+                sources and not any(_public_source(value) and _cidr(value).version in address_families
+                                    for value in sources)):
+            continue
+        if rule.get("targetTags") and not tags & set(as_list(rule["targetTags"])):
+            continue
+        if rule.get("targetServiceAccounts") and not accounts & set(as_list(rule["targetServiceAccounts"])):
+            continue
+        if bool(rule.get("allowed")) == bool(rule.get("denied")):
+            return None
+        candidates.append(rule)
+    allowed, decided, matched = {}, {}, []
+    for rule in sorted(candidates, key=lambda row: (row.get("priority", 1000), 0 if row.get("denied") else 1)):
+        ports = _gcp_rule_ports(rule.get("denied") or rule.get("allowed"))
+        if empty(ports):
+            return None
+        fresh = subtract(ports, decided)
+        if rule.get("allowed") and not empty(fresh):
+            allowed = union(allowed, fresh)
+            matched.append({"rule": rule.get("name"), "priority": rule.get("priority", 1000),
+                            "source_ranges": as_list(rule.get("sourceRanges")), "ports": describe(fresh)})
+        decided = union(decided, ports)
+    return allowed, matched
+
+
+def _gcp_effective_vpc_no_public_match(rules, tags, accounts, address_families):
+    if not isinstance(rules, list) or not address_families:
+        return False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            return False
+        if rule.get("disabled") is True or rule.get("direction", "INGRESS") == "EGRESS":
+            continue
+        if rule.get("disabled") not in (None, False) or rule.get("direction", "INGRESS") != "INGRESS":
+            return False
+        target_tags = rule.get("targetTags")
+        target_accounts = rule.get("targetServiceAccounts")
+        if target_tags is not None and (not isinstance(target_tags, list) or
+                                        any(not isinstance(tag, str) for tag in target_tags)):
+            return False
+        if target_accounts is not None and (not isinstance(target_accounts, list) or
+                                            any(not isinstance(account, str) for account in target_accounts)):
+            return False
+        if target_tags and not tags.intersection(target_tags):
+            continue
+        if target_accounts and not accounts.intersection(target_accounts):
+            continue
+        sources = rule.get("sourceRanges")
+        if sources is not None and (not isinstance(sources, list) or
+                                    any(not isinstance(source, str) or _cidr(source) is None for source in sources)):
+            return False
+        if not sources:
+            if rule.get("sourceTags") or rule.get("sourceServiceAccounts") or 4 not in address_families:
+                continue
+            return False
+        if any(_public_source(source) and _cidr(source).version in address_families for source in sources):
+            return False
+    return True
 
 
 def _gcp_firewall(inventory, instance, interface, assessment):
@@ -4199,6 +4386,11 @@ def _gcp_firewall(inventory, instance, interface, assessment):
     network = interface.get("network")
     tags = set(as_list((data.get("tags") or {}).get("items")))
     accounts = {s.get("email") for s in as_list(data.get("serviceAccounts")) if isinstance(s, dict)}
+    address_families = ({4} if any(c.get("natIP") for c in as_list(interface.get("accessConfigs"))
+                                   if isinstance(c, dict)) else set())
+    if any(c.get("externalIpv6") for c in as_list(interface.get("ipv6AccessConfigs"))
+           if isinstance(c, dict)):
+        address_families.add(6)
     allowed, decided = {}, {}
     policies = inventory.items("firewall_policy")
     instance_link = data.get("selfLink")
@@ -4216,17 +4408,126 @@ def _gcp_firewall(inventory, instance, interface, assessment):
             return None
         attached = effective[0]["data"]["firewallPolicys"]
         if attached:
-            terminal = _gcp_terminal_hierarchy_rule(attached, interface)
-            if terminal is None:
+            if any(not isinstance(policy, dict) or policy.get("type") not in (
+                    "HIERARCHY", "SYSTEM_REGIONAL", "NETWORK", "NETWORK_REGIONAL") for policy in attached):
+                assessment.gap("firewall", "per-interface effective firewall response has an unrecognized policy type")
+                return None
+            ordered = _gcp_order_hierarchy_policies(inventory, instance, attached)
+            resolved = None
+            policy_kind = "hierarchical"
+            transition_ports = dict(FULL)
+            hierarchy_exhausted = ordered == []
+            system_exhausted = False
+            if ordered:
+                hierarchy_exhausted = True
+                for hierarchy_policy in ordered:
+                    candidate = _gcp_terminal_hierarchy_rule([hierarchy_policy], interface)
+                    if candidate is None:
+                        hierarchy_exhausted = False
+                        break
+                    if candidate[2] is None:
+                        if len(candidate) == 4:
+                            transition_ports = intersect(transition_ports, candidate[3])
+                            if empty(transition_ports):
+                                hierarchy_exhausted = False
+                                break
+                        assessment.step("hierarchy_transition", "goto_next", policy=hierarchy_policy.get("name"),
+                                        rule=candidate[1].get("ruleName"), ports=describe(transition_ports))
+                        continue
+                    resolved = candidate
+                    break
+            if (resolved is None and hierarchy_exhausted and
+                    not any(policy.get("type") == "SYSTEM_GLOBAL" for policy in attached)):
+                system_policies = [policy for policy in attached if policy.get("type") == "SYSTEM_REGIONAL"]
+                if not system_policies:
+                    system_exhausted = True
+                elif len(system_policies) == 1:
+                    candidate = _gcp_terminal_hierarchy_rule([system_policies[0]], interface, "SYSTEM_REGIONAL")
+                    if candidate is not None and candidate[2] is not None:
+                        resolved = candidate
+                        policy_kind = "regional system"
+                    elif candidate is not None and candidate[2] is None:
+                        next_ports = (intersect(transition_ports, candidate[3]) if len(candidate) == 4
+                                      else transition_ports)
+                        if not empty(next_ports):
+                            assessment.step("system_transition", "goto_next", policy=system_policies[0].get("name"),
+                                            rule=candidate[1].get("ruleName"), ports=describe(next_ports))
+                            transition_ports = next_ports
+                            system_exhausted = True
+            if resolved is None and hierarchy_exhausted and system_exhausted:
+                network_resource = inventory.get("network", network)
+                global_policies = [policy for policy in attached if policy.get("type") == "NETWORK"]
+                regional_policies = [policy for policy in attached if policy.get("type") == "NETWORK_REGIONAL"]
+                enforcement_order = (network_resource["data"].get("networkFirewallPolicyEnforcementOrder")
+                                     if network_resource is not None else None)
+                classic_ignored_for_public = (network_resource is not None and
+                                              enforcement_order in (None, "AFTER_CLASSIC_FIREWALL") and
+                                              _gcp_effective_vpc_no_public_match(effective[0]["data"]["firewalls"],
+                                                                                 tags, accounts, address_families))
+                if network_resource is not None and (enforcement_order == "BEFORE_CLASSIC_FIREWALL" or
+                                                     classic_ignored_for_public):
+                    if classic_ignored_for_public:
+                        assessment.step("classic_transition", "goto_next", network=network,
+                                        enforcement_order="AFTER_CLASSIC_FIREWALL",
+                                        vpc_rule_count=len(effective[0]["data"]["firewalls"]))
+                    if len(global_policies) == 1:
+                        candidate = _gcp_terminal_hierarchy_rule([global_policies[0]], interface, "NETWORK")
+                        if candidate is not None and candidate[2] is not None:
+                            resolved = candidate
+                            policy_kind = "global network"
+                        elif candidate is not None and candidate[2] is None and len(regional_policies) == 1:
+                            next_ports = (intersect(transition_ports, candidate[3]) if len(candidate) == 4
+                                          else transition_ports)
+                            if not empty(next_ports):
+                                assessment.step("network_transition", "goto_next", policy=global_policies[0].get("name"),
+                                                rule=candidate[1].get("ruleName"), ports=describe(next_ports))
+                                regional = _gcp_terminal_hierarchy_rule([regional_policies[0]], interface,
+                                                                         "NETWORK_REGIONAL")
+                                if regional is not None and regional[2] is not None:
+                                    resolved = regional
+                                    transition_ports = next_ports
+                                    policy_kind = "regional network"
+                    elif not global_policies and len(regional_policies) == 1:
+                        candidate = _gcp_terminal_hierarchy_rule([regional_policies[0]], interface, "NETWORK_REGIONAL")
+                        if candidate is not None and candidate[2] is not None:
+                            resolved = candidate
+                            policy_kind = "regional network"
+            if resolved is None:
+                network_resource = inventory.get("network", network)
+                if (hierarchy_exhausted and system_exhausted and network_resource is not None and
+                        network_resource["data"].get("networkFirewallPolicyEnforcementOrder", "AFTER_CLASSIC_FIREWALL")
+                        == "AFTER_CLASSIC_FIREWALL"):
+                    classic = _gcp_effective_vpc_public_allow(effective[0]["data"]["firewalls"], tags,
+                                                               accounts, address_families)
+                    if classic is not None:
+                        classic_ports = intersect(classic[0], transition_ports)
+                        if not empty(classic_ports):
+                            assessment.step("classic_precedence", "allow", network=network,
+                                            enforcement_order="AFTER_CLASSIC_FIREWALL",
+                                            matched_rules=classic[1], allowed=describe(classic_ports))
+                            return classic_ports
                 assessment.gap("firewall", "per-interface hierarchical/network firewall policy rules need ordered evaluation")
                 return None
+            hierarchy_policy, terminal, terminal_ports = resolved
             action = terminal["action"]
+            if action == "allow":
+                terminal_ports = intersect(terminal_ports, transition_ports)
+                if empty(terminal_ports):
+                    assessment.gap("firewall", "hierarchical transition and later allow have no shared Layer 4 ports")
+                    return None
+            elif transition_ports != FULL:
+                assessment.gap("firewall", "hierarchical deny after a port-specific transition leaves other ports unresolved")
+                return None
             assessment.step("effective_firewall", "allow" if action == "allow" else "block", instance=instance_id,
-                            network_interface=interface.get("name"), policy=attached[0].get("name"),
+                            network_interface=interface.get("name"), policy=hierarchy_policy.get("name"),
                             rule=terminal.get("ruleName"), priority=terminal["priority"], action=action,
                             source_ranges=terminal["match"]["srcIpRanges"],
-                            basis="terminal hierarchical ingress rule")
-            return dict(FULL) if action == "allow" else {}
+                            allowed_ports=describe(terminal_ports) if action == "allow" else [],
+                            basis=f"terminal {policy_kind} ingress rule")
+            if action == "allow" and terminal_ports != FULL:
+                assessment.gap("firewall", f"{policy_kind} allow covers only recorded Layer 4 ports; other traffic needs ordered policy evaluation")
+                assessment.unresolved[-1]["decisive"] = False
+            return terminal_ports if action == "allow" else {}
         effective_rules = effective[0]["data"]["firewalls"]
         assessment.step("effective_firewall", "allow", instance=instance_id,
                         network_interface=interface.get("name"), policy_count=0,
@@ -4382,7 +4683,9 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
         if proxy is None:
             a.gap("backend", f"target proxy {target} not collected", "compute targetHttp(s)Proxies")
             return a
-        services = []
+        services, redirects = [], []
+        path_route_witnesses = {}
+        partial_route_witness = False
         url_map = proxy["data"].get("urlMap")
         if url_map:
             mapping = inventory.get("url_map", url_map)
@@ -4390,6 +4693,26 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                 a.gap("backend", f"url map {url_map} not collected", "compute urlMaps")
                 return a
             m = mapping["data"]
+            def redirect_action(action, route):
+                if not isinstance(action, dict) or not any(
+                        kind in target for kind in ("/targetHttpProxies/", "/targetHttpsProxies/")):
+                    return None
+                code = action.get("redirectResponseCode", "MOVED_PERMANENTLY_DEFAULT")
+                if code not in ("MOVED_PERMANENTLY_DEFAULT", "FOUND", "SEE_OTHER",
+                                "TEMPORARY_REDIRECT", "PERMANENT_REDIRECT"):
+                    return None
+                host = action.get("hostRedirect")
+                if host is not None and (not isinstance(host, str) or not host or
+                                         any(char in host for char in "/?#@ ")):
+                    return None
+                strip_query = action.get("stripQuery", False)
+                https_redirect = action.get("httpsRedirect", False)
+                if type(strip_query) is not bool or type(https_redirect) is not bool:
+                    return None
+                if https_redirect and "/targetHttpProxies/" not in target:
+                    return None
+                return {"route": route, "response_code": code, "host_redirect": host,
+                        "strip_query": strip_query, "https_redirect": https_redirect}
             def route_backends(route, action_key):
                 if not isinstance(route, dict):
                     return []
@@ -4400,20 +4723,225 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                         if isinstance(weighted, dict) and isinstance(weighted.get("weight"), int) and weighted["weight"] > 0:
                             found.append(weighted.get("backendService"))
                 return [ref for ref in found if isinstance(ref, str) and ref]
-            services = route_backends(m, "defaultRouteAction")
+            host_rules = m.get("hostRules")
+            unmatched_host = None
+            if ("/targetHttpProxies/" in target and isinstance(host_rules, list) and host_rules and
+                    all(isinstance(rule, dict) and isinstance(rule.get("hosts"), list) and rule["hosts"] and
+                        all(isinstance(host, str) and host and "*" not in host for host in rule["hosts"])
+                        for rule in host_rules)):
+                witness = "peaso-unmatched.invalid"
+                if all(witness.casefold() != host.casefold() for rule in host_rules for host in rule["hosts"]):
+                    unmatched_host = witness
+            services = (route_backends(m, "defaultRouteAction")
+                        if not as_list(host_rules) or unmatched_host is not None else [])
+            if ((not as_list(host_rules) or unmatched_host is not None) and not m.get("defaultService") and
+                    not as_list((m.get("defaultRouteAction") or {}).get("weightedBackendServices"))):
+                redirect = redirect_action(m.get("defaultUrlRedirect"),
+                                           "unmatched_host_default" if unmatched_host else "url_map_default")
+                if redirect:
+                    if unmatched_host:
+                        redirect["host_witness"] = unmatched_host
+                    redirects.append(redirect)
+            host_matchers = {rule["pathMatcher"] for rule in as_list(m.get("hostRules"))
+                             if isinstance(rule, dict) and isinstance(rule.get("pathMatcher"), str)
+                             and isinstance(rule.get("hosts"), list)
+                             and rule["hosts"] and all(isinstance(host, str) and host for host in rule["hosts"])}
             for matcher in as_list(m.get("pathMatchers")):
-                services.extend(route_backends(matcher, "defaultRouteAction"))
                 if not isinstance(matcher, dict):
                     continue
-                for rule in as_list(matcher.get("pathRules")) + as_list(matcher.get("routeRules")):
-                    services.extend(route_backends(rule, "routeAction"))
+                if matcher.get("name") in host_matchers:
+                    route_rules = matcher.get("routeRules")
+                    def matches_all_paths(rule):
+                        matches = rule.get("matchRules") if isinstance(rule, dict) else None
+                        return isinstance(matches, list) and any(
+                            isinstance(match, dict) and set(match) <= {"prefixMatch", "ignoreCase"} and
+                            match.get("prefixMatch") == "/" and type(match.get("ignoreCase", False)) is bool
+                            for match in matches)
+                    route_intercepts_default = (isinstance(route_rules, list) and
+                                                any(matches_all_paths(rule) for rule in route_rules))
+                    path_rules = matcher.get("pathRules")
+                    path_intercepts_default = (isinstance(path_rules, list) and any(
+                        isinstance(rule, dict) and "/*" in as_list(rule.get("paths"))
+                        for rule in path_rules))
+                    universal_rule = None
+                    if (isinstance(host_rules, list) and len(host_rules) == 1 and
+                            host_rules[0].get("hosts") == ["*"] and
+                            host_rules[0].get("pathMatcher") == matcher.get("name") and
+                            isinstance(route_rules, list) and route_rules and
+                            not as_list(matcher.get("pathRules"))):
+                        priorities = [rule.get("priority") for rule in route_rules if isinstance(rule, dict)]
+                        valid_order = (len(priorities) == len(route_rules) and
+                                       all(type(value) is int and 0 <= value <= 2147483647 for value in priorities) and
+                                       len(set(priorities)) == len(priorities))
+                        rule = min(route_rules, key=lambda row: row["priority"]) if valid_order else None
+                        matches = rule.get("matchRules") if isinstance(rule, dict) else None
+                        if (isinstance(rule, dict) and type(rule.get("priority")) is int and
+                                0 <= rule["priority"] <= 2147483647 and
+                                isinstance(matches, list) and len(matches) == 1 and matches_all_paths(rule) and
+                                not rule.get("urlRedirect") and route_backends(rule, "routeAction")):
+                            universal_rule = rule
+                    if universal_rule is not None:
+                        services.extend(route_backends(universal_rule, "routeAction"))
+                        a.step("url_route_rule", "allow", host="*", prefix="/",
+                               priority=universal_rule["priority"],
+                               backends=route_backends(universal_rule, "routeAction"))
+                    elif not route_intercepts_default and not path_intercepts_default:
+                        services.extend(route_backends(matcher, "defaultRouteAction"))
+                    def earlier_excludes(rule, path):
+                        matches = rule.get("matchRules")
+                        if not isinstance(matches, list) or not matches:
+                            return False
+                        for match in matches:
+                            if not isinstance(match, dict):
+                                return False
+                            path_keys = [key for key in ("prefixMatch", "fullPathMatch") if key in match]
+                            if len(path_keys) != 1:
+                                return False
+                            prefix, exact = match.get("prefixMatch"), match.get("fullPathMatch")
+                            if isinstance(prefix, str) and (prefix == "" or prefix.startswith("/")) and (
+                                    not path.casefold().startswith(prefix.casefold())):
+                                continue
+                            if isinstance(exact, str) and exact.startswith("/") and path.casefold() != exact.casefold():
+                                continue
+                            return False
+                        return True
+                    if (universal_rule is None and isinstance(host_rules, list) and
+                            isinstance(route_rules, list) and route_rules and not as_list(matcher.get("pathRules"))):
+                        priorities = [rule.get("priority") for rule in route_rules if isinstance(rule, dict)]
+                        if (len(priorities) == len(route_rules) and
+                                all(type(value) is int and 0 <= value <= 2147483647 for value in priorities) and
+                                len(set(priorities)) == len(priorities)):
+                            ordered_rules = sorted(route_rules, key=lambda rule: rule["priority"])
+                            for position, selected_rule in enumerate(ordered_rules):
+                                matches = selected_rule.get("matchRules")
+                                if not (isinstance(matches, list) and len(matches) == 1 and isinstance(matches[0], dict) and
+                                    set(matches[0]) <= {"prefixMatch", "fullPathMatch", "ignoreCase"} and
+                                    type(matches[0].get("ignoreCase", False)) is bool and
+                                    not selected_rule.get("urlRedirect") and route_backends(selected_rule, "routeAction")):
+                                    continue
+                                match = matches[0]
+                                keys = [key for key in ("prefixMatch", "fullPathMatch") if key in match]
+                                path = match.get(keys[0]) if len(keys) == 1 else None
+                                host = next((value for rule in host_rules if isinstance(rule, dict) and
+                                             rule.get("pathMatcher") == matcher.get("name") and
+                                             isinstance(rule.get("hosts"), list)
+                                             for value in rule["hosts"] if isinstance(value, str) and
+                                             value and "*" not in value), None)
+                                if host is None and len(host_rules) == 1 and host_rules[0].get("hosts") == ["*"]:
+                                    host = "peaso-route.invalid"
+                                if (isinstance(path, str) and path.startswith("/") and
+                                        not any(char in path for char in "?#\r\n") and host and
+                                        (position == 0 or all(earlier_excludes(earlier, path)
+                                                              for earlier in ordered_rules[:position]))):
+                                    services.extend(route_backends(selected_rule, "routeAction"))
+                                    partial_route_witness = True
+                                    a.step("url_route_rule", "allow", host=host, match_type=keys[0], path=path,
+                                           priority=selected_rule["priority"],
+                                           backends=route_backends(selected_rule, "routeAction"))
+                                    break
+                    if (not as_list(matcher.get("pathRules")) and not as_list(matcher.get("routeRules"))
+                            and not matcher.get("defaultService") and not as_list(
+                                (matcher.get("defaultRouteAction") or {}).get("weightedBackendServices"))):
+                        redirect = redirect_action(matcher.get("defaultUrlRedirect"), "path_matcher_default")
+                        if redirect:
+                            redirects.append(redirect)
+                    if isinstance(path_rules, list) and path_rules and not as_list(route_rules):
+                        patterns = []
+                        for rule in path_rules:
+                            paths = rule.get("paths") if isinstance(rule, dict) else None
+                            if not isinstance(paths, list) or not paths:
+                                patterns = []
+                                break
+                            for pattern in paths:
+                                if (not isinstance(pattern, str) or not pattern.startswith("/") or
+                                        any(char in pattern for char in "?#\r\n") or
+                                        ("*" in pattern and not pattern.endswith("/*")) or pattern.count("*") > 1):
+                                    patterns = []
+                                    break
+                                patterns.append((pattern, rule))
+                            if not patterns:
+                                break
+                        host = next((value for rule in host_rules if isinstance(rule, dict) and
+                                     rule.get("pathMatcher") == matcher.get("name") and
+                                     isinstance(rule.get("hosts"), list)
+                                     for value in rule["hosts"] if isinstance(value, str) and value and
+                                     "*" not in value), None)
+                        if host is None and len(host_rules) == 1 and host_rules[0].get("hosts") == ["*"]:
+                            host = "peaso-path.invalid"
+                        if patterns and host:
+                            for pattern, selected_rule in patterns:
+                                witness = pattern[:-1] + "peaso-witness" if pattern.endswith("/*") else pattern
+                                exact = [rule for other, rule in patterns if other == witness]
+                                prefixes = [(len(other), rule) for other, rule in patterns
+                                            if other.endswith("/*") and witness.startswith(other[:-1])]
+                                winner = (exact[0] if len(exact) == 1 else None) if exact else (
+                                    max(prefixes, key=lambda row: row[0])[1] if prefixes and
+                                    len([row for row in prefixes if row[0] == max(item[0] for item in prefixes)]) == 1
+                                    else None)
+                                if winner is not selected_rule:
+                                    continue
+                                backend_refs = route_backends(selected_rule, "routeAction")
+                                if backend_refs and not selected_rule.get("urlRedirect"):
+                                    services.extend(backend_refs)
+                                    universal_path_rule = (
+                                        len(host_rules) == 1 and host_rules[0].get("hosts") == ["*"] and
+                                        len(patterns) == 1 and pattern == "/*" and
+                                        len(path_rules) == 1 and len(backend_refs) == 1)
+                                    partial_route_witness = partial_route_witness or not universal_path_rule
+                                    for ref in backend_refs:
+                                        path_route_witnesses[ref] = {"host": host, "path": witness,
+                                                                     "pattern": pattern}
+                                    a.step("url_path_rule", "allow", host=host, path=witness,
+                                           pattern=pattern, backends=backend_refs)
+                                    continue
+                                if not backend_refs:
+                                    redirect = redirect_action(selected_rule.get("urlRedirect"), "path_rule")
+                                    if redirect:
+                                        redirect["match_path_type"] = ("prefixMatch" if pattern.endswith("/*")
+                                                                        else "fullPathMatch")
+                                        redirect["match_path"] = witness
+                                        redirects.append(redirect)
+                                        break
+                    if isinstance(route_rules, list) and route_rules and not as_list(matcher.get("pathRules")):
+                        priorities = [rule.get("priority") for rule in route_rules if isinstance(rule, dict)]
+                        if (len(priorities) == len(route_rules) and
+                                all(type(value) is int and 0 <= value <= 2147483647 for value in priorities) and
+                                len(set(priorities)) == len(priorities)):
+                            def redirect_paths(rule):
+                                matches = rule.get("matchRules")
+                                return ([(key, match[key]) for match in matches if isinstance(match, dict)
+                                         for key in ("prefixMatch", "fullPathMatch")
+                                         if set(match) <= {key, "ignoreCase"} and isinstance(match.get(key), str)
+                                         and (key != "prefixMatch" or match[key] == "" or match[key].startswith("/"))
+                                         and (key != "fullPathMatch" or match[key].startswith("/"))
+                                         and not any(char in match[key] for char in "?#\r\n")
+                                         and type(match.get("ignoreCase", False)) is bool]
+                                        if isinstance(matches, list) else [])
+                            prior = []
+                            found_route_redirect = False
+                            for rule in sorted(route_rules, key=lambda row: row["priority"]):
+                                if not rule.get("service") and not rule.get("routeAction"):
+                                    for kind, path in redirect_paths(rule):
+                                        if prior and (kind != "fullPathMatch" or
+                                                not all(earlier_excludes(earlier, path) for earlier in prior)):
+                                            continue
+                                        redirect = redirect_action(rule.get("urlRedirect"),
+                                                                   "first_route_rule" if not prior else "disjoint_route_rule")
+                                        if redirect:
+                                            redirect["match_path_type"], redirect["match_path"] = kind, path
+                                            redirects.append(redirect)
+                                            found_route_redirect = True
+                                            break
+                                if found_route_redirect:
+                                    break
+                                prior.append(rule)
         elif proxy["data"].get("service"):
             services = [proxy["data"]["service"]]
         services = [s for s in dict.fromkeys(services) if s]
         routes, buckets = [], []
-        unresolved_backend = not services
-        if not services:
-            a.gap("backend", "target proxy has no collected URL-map backend route")
+        unresolved_backend = not services and not redirects
+        if not services and not redirects:
+            a.gap("backend", "target proxy has no provably reachable collected URL-map backend route")
         for service in services:
             if "/backendBuckets/" in service:
                 bucket = inventory.get("backend_bucket", service)
@@ -4425,6 +4953,10 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                 origin = {"backend_bucket": service, "bucket_name": detail.get("bucketName"),
                           "cdn_enabled": detail.get("enableCdn"),
                           "signed_url_keys_present": bool(as_list((detail.get("cdnPolicy") or {}).get("signedUrlKeyNames")))}
+                if service in path_route_witnesses:
+                    origin["host_witness"] = path_route_witnesses[service]["host"]
+                    origin["path_witness"] = path_route_witnesses[service]["path"]
+                    origin["path_pattern"] = path_route_witnesses[service]["pattern"]
                 storage = inventory.get("bucket", detail.get("bucketName"))
                 projects = [row["data"] for row in inventory.items("project")
                             if row.get("scope") == resource.get("scope")]
@@ -4452,12 +4984,112 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                         if isinstance(permissions, list) and "storage.objects.get" in permissions:
                             inherited_grants.append({"scope": storage["scope"], "role": role,
                                                      "permission": "storage.objects.get"})
+                public_grants = []
+                public_object_acl = []
+                public_folder_grants = []
+                if storage and isinstance(policy, dict) and policy.get("collection_status") in (None, "collected"):
+                    bucket_data = storage["data"]
+                    coverage = bucket_data.get("_coverage")
+                    iam_coverage = coverage.get("iamPolicy") if isinstance(coverage, dict) else None
+                    config = bucket_data.get("iamConfiguration")
+                    prevention = config.get("publicAccessPrevention") if isinstance(config, dict) else None
+                    ip_filter = bucket_data.get("ipFilter")
+                    def public_object_get_role(role):
+                        if role == "roles/storage.objectViewer":
+                            return True
+                        role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+                        detail = role_row["data"] if role_row else None
+                        return (isinstance(detail, dict) and detail.get("stage") != "DISABLED" and
+                                isinstance(detail.get("includedPermissions"), list) and
+                                "storage.objects.get" in detail["includedPermissions"])
+                    if (not isinstance(iam_coverage, dict) or iam_coverage.get("status") in (None, "collected")) and (
+                            prevention == "not_enforced" and (ip_filter is None or
+                            isinstance(ip_filter, dict) and ip_filter.get("mode") == "Disabled")):
+                        public_grants = [{"role": binding["role"], "member": member,
+                                          **({"permission": "storage.objects.get"} if binding["role"] != "roles/storage.objectViewer" else {})}
+                                         for binding in as_list(policy.get("bindings"))
+                                         if isinstance(binding, dict) and public_object_get_role(binding.get("role"))
+                                         and not binding.get("condition")
+                                         for member in as_list(binding.get("members"))
+                                         if member in ("allUsers", "allAuthenticatedUsers")]
+                        if isinstance(root_policy, dict) and root_policy.get("collection_status") in (None, "collected"):
+                            public_grants.extend({"role": binding["role"], "member": member,
+                                                  "scope": storage["scope"],
+                                                  **({"permission": "storage.objects.get"} if binding["role"] != "roles/storage.objectViewer" else {})}
+                                                 for binding in as_list(root_policy.get("bindings"))
+                                                 if isinstance(binding, dict) and public_object_get_role(binding.get("role"))
+                                                 and not binding.get("condition")
+                                                 for member in as_list(binding.get("members"))
+                                                 if member in ("allUsers", "allAuthenticatedUsers"))
+                if storage:
+                    bucket_data = storage["data"]
+                    config = bucket_data.get("iamConfiguration")
+                    prevention = config.get("publicAccessPrevention") if isinstance(config, dict) else None
+                    uniform = config.get("uniformBucketLevelAccess") if isinstance(config, dict) else None
+                    ip_filter = bucket_data.get("ipFilter")
+                    envelope = bucket_data.get("objectAccessControls")
+                    top_level_default = (url_map and isinstance(m, dict) and m.get("defaultService") == service
+                                         and (not as_list(m.get("hostRules")) or unmatched_host is not None))
+                    matcher_default = (url_map and isinstance(m, dict) and any(
+                        isinstance(matcher, dict) and matcher.get("name") in host_matchers
+                        and matcher.get("defaultService") == service
+                        and matcher.get("pathRules") in (None, []) and matcher.get("routeRules") in (None, [])
+                        for matcher in as_list(m.get("pathMatchers"))))
+                    default_route = top_level_default or matcher_default
+                    if top_level_default and unmatched_host:
+                        origin["host_witness"] = unmatched_host
+                    if (default_route and isinstance(uniform, dict) and uniform.get("enabled") is False
+                            and prevention == "not_enforced" and
+                            (ip_filter is None or isinstance(ip_filter, dict) and ip_filter.get("mode") == "Disabled")
+                            and isinstance(envelope, dict) and envelope.get("status") == "collected"
+                            and envelope.get("all_pages") is True and envelope.get("all_objects") is True
+                            and envelope.get("all_versions") is True and envelope.get("projection") == "full"
+                            and envelope.get("source_inventory") == "object_acl"
+                            and isinstance(envelope.get("source_requests"), list)
+                            and bool(envelope["source_requests"])):
+                        public_object_acl = [{"role": f"object ACL {row['role']}", "member": row["entity"],
+                                              "source": "objectAccessControls"}
+                                             for row in as_list(envelope.get("items"))
+                                             if isinstance(row, dict) and row.get("entity") in ("allUsers", "allAuthenticatedUsers")
+                                             and row.get("role") in ("READER", "OWNER")]
+                        public_grants.extend(public_object_acl)
+                    if (default_route and isinstance(uniform, dict) and uniform.get("enabled") is True
+                            and prevention == "not_enforced" and
+                            (ip_filter is None or isinstance(ip_filter, dict) and ip_filter.get("mode") == "Disabled")):
+                        for folder_row in inventory.items("managed_folder"):
+                            folder = folder_row["data"]
+                            if (not isinstance(folder, dict) or folder_row.get("scope") != storage.get("scope") or
+                                    folder.get("bucket") != bucket_data.get("name") or
+                                    not isinstance(folder.get("name"), str) or not folder["name"].endswith("/")):
+                                continue
+                            folder_policy = folder.get("iamPolicy")
+                            if not isinstance(folder_policy, dict) or folder_policy.get("collection_status") not in (None, "collected"):
+                                continue
+                            for binding in as_list(folder_policy.get("bindings")):
+                                if not isinstance(binding, dict) or binding.get("condition"):
+                                    continue
+                                role = binding.get("role")
+                                role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+                                role_data = role_row["data"] if role_row else None
+                                object_read = (role == "roles/storage.objectViewer" or
+                                               isinstance(role_data, dict) and role_data.get("stage") != "DISABLED"
+                                               and isinstance(role_data.get("includedPermissions"), list)
+                                               and "storage.objects.get" in role_data["includedPermissions"])
+                                if object_read:
+                                    public_folder_grants.extend({"role": role, "member": member,
+                                                                 "folder": folder["name"], "source": "managed_folder"}
+                                                                for member in as_list(binding.get("members"))
+                                                                if member in ("allUsers", "allAuthenticatedUsers"))
+                        public_grants.extend(public_folder_grants)
                 origin["cdn_service_agent_read_grant"] = bool(grants or inherited_grants)
                 origin["cdn_service_agent_inherited_grants"] = inherited_grants
+                origin["public_origin_read_grants"] = public_grants
+                origin["public_object_acl_grants"] = public_object_acl
+                origin["public_managed_folder_grants"] = public_folder_grants
                 origin["origin_bucket_collected"] = storage is not None
-                a.step("cdn_origin", "allow" if grants or inherited_grants else "unknown", **origin,
+                a.step("cdn_origin", "allow" if grants or inherited_grants or public_grants else "unknown", **origin,
                        service_agent=service_agent, object_content_observed=False)
-                if not grants and not inherited_grants:
+                if not grants and not inherited_grants and not public_grants:
                     a.gap("origin", "origin object-read authorization or cached object state is not established by the backend bucket")
                 buckets.append(origin)
                 routes.append({**origin, "edge_security_policy": detail.get("edgeSecurityPolicy"),
@@ -4492,13 +5124,28 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                               "decision": outcome})
         if any(row["decision"] == "allow" for row in decisions):
             a.step("cloud_armor", "allow", routes=decisions, backend_buckets=buckets)
-        elif decisions and not unresolved_backend and all(row["decision"] == "block" for row in decisions):
+            if partial_route_witness or any(row["decision"] == "allow" and row.get("host_witness") and
+                   row.get("public_origin_read_grants") for row in decisions):
+                for gap in a.unresolved:
+                    if gap["layer"] == "backend":
+                        gap["decisive"] = False
+        elif decisions and not unresolved_backend and not partial_route_witness and all(row["decision"] == "block" for row in decisions):
             a.step("cloud_armor", "block", routes=decisions, backend_buckets=buckets)
             a.ports = {}
-        else:
+        elif not redirects:
             a.step("cloud_armor", "unknown", routes=decisions, backend_buckets=buckets)
-            a.gap("cloud_armor", "edge/backend policy decision or CDN cache-hit path is request dependent or unavailable",
-                  STATIC_GAPS["gcp"][0]["fact"])
+            if partial_route_witness and decisions and all(row["decision"] == "block" for row in decisions):
+                a.gap("backend", "selected path or route-rule backend is blocked; other host and path routes remain unresolved")
+            else:
+                a.gap("cloud_armor", "edge/backend policy decision or CDN cache-hit path is request dependent or unavailable",
+                      STATIC_GAPS["gcp"][0]["fact"])
+        if redirects:
+            a.step("url_redirect", "allow", routes=redirects, url_map=url_map)
+            a.ports = ports
+            a.blocked_by = None
+            for gap in a.unresolved:
+                if gap["layer"] in ("backend", "cloud_armor"):
+                    gap["decisive"] = False
     else:
         backend_ref = data.get("backendService")
         backend = inventory.get("backend_service", backend_ref)
@@ -4667,6 +5314,71 @@ def _gcp_serverless(snapshot, inventory, resource):
     else:
         a.step("invoker", "block", reason="no allUsers/allAuthenticatedUsers invoker; IAM authentication required")
         a.ports = {}
+    return a
+
+
+def _gcp_cloudrun_instance(snapshot, inventory, resource):
+    data = resource["data"]
+    ingress = data.get("ingress")
+    if ingress in ("INGRESS_TRAFFIC_INTERNAL_ONLY", "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"):
+        return None
+    if ingress != "INGRESS_TRAFFIC_ALL" and not data.get("urls"):
+        return None
+    a = Assessment(resource, "serverless")
+    raw_urls = data.get("urls")
+    if not isinstance(raw_urls, list) or not raw_urls:
+        a.gap("public_endpoint", "Cloud Run instance has public ingress but no recorded serving URLs")
+        return a
+    origins = []
+    for url in raw_urls:
+        try:
+            parsed = urlsplit(url) if isinstance(url, str) else None
+            valid = (parsed is not None and parsed.scheme == "https" and bool(parsed.hostname) and
+                     not parsed.username and not parsed.password and parsed.port in (None, 443))
+        except ValueError:
+            valid = False
+        if not valid:
+            a.gap("public_endpoint", "Cloud Run instance serving URL is malformed or not HTTPS")
+            return a
+        origins.append(f"https://{parsed.hostname}")
+    a.addresses = sorted(set(origins))
+    if ingress != "INGRESS_TRAFFIC_ALL":
+        a.gap("ingress", "Cloud Run instance has serving URLs but public ingress is not confirmed")
+        return a
+    condition = data.get("terminalCondition")
+    condition_state = condition.get("state") if isinstance(condition, dict) else None
+    if (data.get("deleteTime") or data.get("reconciling") is True or
+            condition_state not in (None, "CONDITION_SUCCEEDED")):
+        a.gap("instance_state", "Cloud Run instance is deleted, reconciling, or has no successful serving condition")
+        return a
+    if data.get("defaultUriDisabled") is True:
+        a.gap("public_endpoint", "Cloud Run instance default URI is disabled; alternate URL resolution is unresolved")
+        return a
+    if data.get("iapEnabled") is True:
+        a.gap("authorization", "Cloud Run instance IAP is enabled; IAP user grants are unresolved")
+        return a
+    if data.get("invokerIamDisabled") is True:
+        a.step("invoker", "allow", invoker_iam_disabled=True)
+    else:
+        policy = data.get("iamPolicy")
+        if isinstance(policy, dict) and policy.get("collection_status") not in (None, "collected"):
+            policy = None
+        public, conditional = _gcp_invoker(policy, {"roles/run.invoker", "roles/run.servicesInvoker"})
+        if public is None:
+            a.gap("invoker", "Cloud Run instance IAM policy is unavailable")
+            return a
+        if public:
+            a.step("invoker", "allow", public_members=public)
+            a.authenticated = "allUsers" not in public
+        elif conditional:
+            a.gap("invoker", "Cloud Run instance public invoker grant has an IAM condition")
+            return a
+        else:
+            a.gap("invoker", "Cloud Run instance has no direct public invoker grant; inherited and named-principal access remain unresolved")
+            return a
+    a.step("instance_url", "allow", ingress="INGRESS_TRAFFIC_ALL", origins=a.addresses,
+           default_uri_disabled=False)
+    a.ports = pset("tcp", 443, 443)
     return a
 
 
@@ -5327,6 +6039,145 @@ def _gcp_vpn_gateway(snapshot, inventory, resource):
     return a
 
 
+def _gcp_network_peering(snapshot, inventory, resource):
+    data = resource["data"]
+    peerings = data.get("peerings")
+    if not isinstance(peerings, list):
+        return None
+    scope = resource.get("scope", "")
+    if not scope.startswith("projects/"):
+        return None
+    project = scope.removeprefix("projects/")
+    if not project or project.isdigit():
+        return None
+    candidates = []
+    for peering in peerings:
+        if not isinstance(peering, dict) or peering.get("state") != "ACTIVE":
+            continue
+        peer_ref = peering.get("network")
+        if not isinstance(peer_ref, str):
+            continue
+        if "://" in peer_ref:
+            try:
+                parsed = urlsplit(peer_ref)
+                if (parsed.scheme != "https" or parsed.hostname not in
+                        ("compute.googleapis.com", "www.googleapis.com") or parsed.port is not None or
+                        parsed.username or parsed.password or parsed.query or parsed.fragment):
+                    continue
+            except ValueError:
+                continue
+            peer_path = parsed.path.removeprefix("/compute/v1/")
+        else:
+            peer_path = peer_ref.removeprefix("/")
+        match = re.fullmatch(r"projects/([^/]+)/global/networks/[^/]+", peer_path)
+        if match and match.group(1) != project and not match.group(1).isdigit():
+            candidates.append({"name": peering.get("name"), "peer_network": peer_ref,
+                               "peer_project": match.group(1), "state": "ACTIVE",
+                               "import_custom_routes": peering.get("importCustomRoutes"),
+                               "export_custom_routes": peering.get("exportCustomRoutes")})
+    if not candidates:
+        return None
+    a = Assessment(resource, "cross_project_peering")
+    for candidate in candidates:
+        a.step("vpc_peering", "allow", **candidate)
+    a.gap("route", "effective exchanged routes, destination firewall and peer ownership are unresolved",
+          "compute networks.listPeeringRoutes and network effective routes")
+    return a
+
+
+def _gcp_vpn_tunnel(snapshot, inventory, resource):
+    data = resource["data"]
+    if data.get("status") != "ESTABLISHED":
+        return None
+    peer_ref = data.get("peerExternalGateway")
+    external_peer = isinstance(peer_ref, str) and "/externalVpnGateways/" in peer_ref
+    gcp_peer_ref = data.get("peerGcpGateway")
+    peer_project = None
+    if isinstance(gcp_peer_ref, str):
+        try:
+            parsed_peer = urlsplit(gcp_peer_ref)
+            peer_match = re.fullmatch(r"/compute/v1/projects/([^/]+)/regions/[^/]+/vpnGateways/[^/]+",
+                                      parsed_peer.path)
+            if (parsed_peer.scheme == "https" and parsed_peer.hostname in
+                    ("compute.googleapis.com", "www.googleapis.com") and not parsed_peer.query and
+                    not parsed_peer.fragment and not parsed_peer.username and not parsed_peer.password and
+                    parsed_peer.port is None and peer_match):
+                peer_project = peer_match.group(1)
+        except ValueError:
+            pass
+    cross_project_peer = (peer_project is not None and
+                          resource.get("scope") != f"projects/{peer_project}")
+    if external_peer and gcp_peer_ref:
+        return None
+    ha = external_peer or cross_project_peer
+    classic = not ha and isinstance(data.get("peerIp"), str) and _public_ip(data["peerIp"])
+    if not ha and not classic:
+        return None
+    gateway_ref = data.get("vpnGateway" if ha else "targetVpnGateway")
+    if not isinstance(gateway_ref, str) or ("/vpnGateways/" if ha else "/targetVpnGateways/") not in gateway_ref:
+        return None
+    a = Assessment(resource, "vpn_peer")
+    a.authenticated = True
+    gateway = inventory.get("vpn_gateway", gateway_ref)
+    if gateway is None or gateway.get("scope") != resource.get("scope"):
+        a.gap("inventory", "VPN tunnel local gateway is not in the collected inventory",
+              "compute vpnGateways/targetVpnGateways.aggregatedList")
+        return a
+    if ha:
+        interface_id = data.get("vpnGatewayInterface")
+        if type(interface_id) is not int or interface_id not in (0, 1):
+            a.gap("inventory", "HA VPN tunnel local interface ID is unavailable")
+            return a
+        interfaces = [row for row in as_list(gateway["data"].get("vpnInterfaces"))
+                      if isinstance(row, dict) and row.get("id") == interface_id]
+        if len(interfaces) != 1 or interfaces[0].get("interconnectAttachment"):
+            a.gap("inventory", "HA VPN tunnel local public interface is unavailable or ambiguous")
+            return a
+        public_ip = interfaces[0].get("ipAddress")
+        if not isinstance(public_ip, str) or not _public_ip(public_ip):
+            a.gap("public_ip", "HA VPN tunnel local interface has no recorded public IP")
+            return a
+    else:
+        def udp_ports(rule):
+            specs = rule.get("ports") if isinstance(rule.get("ports"), list) else [rule.get("portRange")]
+            found = set()
+            for spec in specs:
+                if not isinstance(spec, str) or not re.fullmatch(r"[0-9]+(?:-[0-9]+)?", spec):
+                    continue
+                low, high = (int(part) for part in spec.split("-")) if "-" in spec else (int(spec), int(spec))
+                if 1 <= low <= high <= 65535:
+                    found.update(port for port in (500, 4500) if low <= port <= high)
+            return found
+        by_ip = {}
+        for row in inventory.items("forwarding_rule"):
+            rule = row["data"]
+            address = rule.get("IPAddress")
+            if (row.get("scope") != resource.get("scope") or rule.get("target") != gateway_ref or
+                    rule.get("loadBalancingScheme", "EXTERNAL") != "EXTERNAL" or
+                    not isinstance(address, str) or not _public_ip(address)):
+                continue
+            protocols = by_ip.setdefault(address, set())
+            if rule.get("IPProtocol") == "ESP":
+                protocols.add("esp")
+            elif rule.get("IPProtocol") == "UDP":
+                protocols.update(udp_ports(rule))
+        public_ip = next((address for address, protocols in sorted(by_ip.items())
+                          if {"esp", 500, 4500} <= protocols), None)
+        if public_ip is None:
+            a.gap("inventory", "Classic VPN tunnel lacks one collected public IP with ESP, UDP 500 and UDP 4500 forwarding rules",
+                  "compute forwardingRules.aggregatedList")
+            return a
+    a.addresses = [public_ip]
+    a.ports = union(pset("udp", 500, 500), pset("udp", 4500, 4500))
+    a.ports["esp"] = ((0, 0),)
+    a.step("vpn_peer", "allow", tunnel_status="ESTABLISHED", local_gateway=gateway_ref,
+           tunnel_type="HA" if ha else "Classic", public_ip=public_ip,
+           peer=(peer_ref if external_peer else gcp_peer_ref if cross_project_peer else data["peerIp"]),
+           **({"peer_project": peer_project} if cross_project_peer else {}),
+           **({"interface_id": interface_id} if ha else {}))
+    return a
+
+
 def _gcp_ftp(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("externalConfig")
@@ -5452,12 +6303,46 @@ def _gcp_app_engine(snapshot, inventory, resource):
     a = Assessment(resource, "managed_endpoint")
     a.addresses = [hostname]
     a.authenticated = (data.get("iap") or {}).get("enabled") is True
-    if data.get("servingStatus") in {"USER_DISABLED", "SYSTEM_DISABLED"}:
+    status = data.get("servingStatus")
+    if status in {"USER_DISABLED", "SYSTEM_DISABLED"}:
         a.step("serving_status", "block", status=data["servingStatus"])
         a.ports = {}
-    else:
-        a.step("default_hostname", "allow", hostname=hostname, iap_enabled=a.authenticated)
-        a.ports = pset("tcp", 443, 443)
+        return a
+    if status != "SERVING":
+        a.gap("serving_status", "App Engine application serving status is unavailable or unspecified")
+        return a
+    a.step("default_hostname", "allow", hostname=hostname, iap_enabled=a.authenticated)
+    if inventory.state("app_engine_firewall_rule", resource["scope"]) != "collected":
+        a.gap("app_engine_firewall", "App Engine ingress firewall rules are not completely collected",
+              "apps.firewall.ingressRules.list")
+        return a
+    rules = [row["data"] for row in inventory.items("app_engine_firewall_rule")
+             if row.get("scope") == resource["scope"]]
+    if not rules or any(type(rule.get("priority")) is not int or not 1 <= rule["priority"] <= 2147483647
+                        for rule in rules) or len({rule["priority"] for rule in rules}) != len(rules):
+        a.gap("app_engine_firewall", "App Engine ingress firewall priorities or default rule are unavailable")
+        return a
+    private_ranges = tuple(ipaddress.ip_network(value) for value in
+                           ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"))
+    for rule in sorted(rules, key=lambda row: row["priority"]):
+        source = rule.get("sourceRange")
+        network = _cidr(source) if isinstance(source, str) and source != "*" else None
+        if source != "*" and network is None:
+            break
+        if network is not None and any(network.subnet_of(private) for private in private_ranges
+                                       if network.version == private.version):
+            continue
+        action = rule.get("action")
+        if action == "ALLOW" and (source == "*" or _public_source(source)):
+            a.step("app_engine_firewall", "allow", priority=rule["priority"], source_range=source, action=action)
+            a.ports = pset("tcp", 443, 443)
+            return a
+        if action == "DENY" and source == "*":
+            a.step("app_engine_firewall", "block", priority=rule["priority"], source_range=source, action=action)
+            a.ports = {}
+            return a
+        break
+    a.gap("app_engine_firewall", "App Engine ingress firewall has no provable public allow or universal deny")
     return a
 
 
@@ -5478,6 +6363,73 @@ def _gcp_api_gateway(snapshot, inventory, resource):
     else:
         a.explicit = "UNKNOWN"
         a.gap("gateway_state", "Gateway has a hostname but is not confirmed ACTIVE")
+    return a
+
+
+def _gcp_dataproc_cluster(snapshot, inventory, resource):
+    data = resource["data"]
+    config = data.get("config")
+    endpoint = config.get("endpointConfig") if isinstance(config, dict) else None
+    if not isinstance(endpoint, dict) or endpoint.get("enableHttpPortAccess") is not True:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    ports = endpoint.get("httpPorts")
+    if not isinstance(ports, dict) or not ports:
+        a.gap("public_endpoint", "Component Gateway is enabled but has no recorded HTTP port URLs")
+        return a
+    origins = []
+    for label, url in ports.items():
+        if not isinstance(label, str) or not isinstance(url, str):
+            a.gap("public_endpoint", "Component Gateway HTTP port mapping is malformed")
+            return a
+        try:
+            parsed = urlsplit(url)
+            valid = (parsed.scheme == "https" and bool(parsed.hostname) and
+                     not parsed.username and not parsed.password and parsed.port in (None, 443))
+        except ValueError:
+            valid = False
+        if not valid:
+            a.gap("public_endpoint", "Component Gateway HTTP port URL is not a valid HTTPS gateway URL")
+            return a
+        origins.append(f"https://{parsed.hostname}")
+    a.addresses = sorted(set(origins))
+    state = (data.get("status") or {}).get("state") if isinstance(data.get("status"), dict) else None
+    if state != "RUNNING":
+        a.gap("cluster_state", "Component Gateway cluster is not confirmed RUNNING")
+        return a
+    a.step("component_gateway", "allow", enabled=True, origins=a.addresses,
+           interfaces=sorted(ports))
+    a.ports = pset("tcp", 443, 443)
+    a.notes.append("Component Gateway user IAM and UI response are separate from the declared HTTPS endpoint")
+    return a
+
+
+def _gcp_workbench_instance(snapshot, inventory, resource):
+    data = resource["data"]
+    if data.get("disableProxyAccess") is True:
+        return None
+    if not isinstance(data.get("proxyUri"), str) and data.get("state") != "ACTIVE":
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    uri = data.get("proxyUri")
+    try:
+        parsed = urlsplit(uri) if isinstance(uri, str) else None
+        valid = (parsed is not None and parsed.scheme == "https" and bool(parsed.hostname) and
+                 not parsed.username and not parsed.password and parsed.port in (None, 443))
+    except ValueError:
+        valid = False
+    if not valid:
+        a.gap("public_endpoint", "Workbench proxy is enabled but has no valid recorded HTTPS proxy URI")
+        return a
+    a.addresses = [f"https://{parsed.hostname}"]
+    if data.get("state") != "ACTIVE":
+        a.gap("instance_state", "Workbench instance is not confirmed ACTIVE")
+        return a
+    a.step("notebook_proxy", "allow", proxy_access_disabled=False, origin=a.addresses[0], state="ACTIVE")
+    a.ports = pset("tcp", 443, 443)
+    a.notes.append("Workbench owner or service-account-user authorization and Jupyter response remain unresolved")
     return a
 
 
@@ -5681,15 +6633,29 @@ def _gcp_tpu_node(snapshot, inventory, resource):
     a.addresses = addresses
     a.step("external_ip", "allow", addresses=addresses)
     configs = as_list(data.get("networkConfigs")) or ([data["networkConfig"]] if isinstance(data.get("networkConfig"), dict) else [])
-    if len(configs) != 1 or not isinstance(configs[0], dict):
+    if not configs or any(not isinstance(config, dict) for config in configs):
         a.explicit = "UNKNOWN"
-        a.gap("firewall", "TPU external IP cannot be bound to exactly one VPC network configuration")
+        a.gap("firewall", "TPU external IP has no complete VPC network configuration")
         return a
-    network = configs[0].get("network") or "default"
-    if not isinstance(network, str) or not network:
+    configured_networks = [("default" if config.get("network") in (None, "") else config.get("network"))
+                           for config in configs]
+    if any(not isinstance(value, str) or not value for value in configured_networks):
         a.explicit = "UNKNOWN"
         a.gap("firewall", "TPU network identity is unavailable")
         return a
+    selected_by_external_flag = False
+    if len(set(configured_networks)) != 1:
+        explicit_flags = all(type(config.get("enableExternalIps")) is bool for config in configs)
+        public_networks = {configured_networks[index] for index, config in enumerate(configs)
+                           if config.get("enableExternalIps") is True} if explicit_flags else set()
+        if len(public_networks) != 1:
+            a.explicit = "UNKNOWN"
+            a.gap("firewall", "TPU public endpoints cannot be mapped to distinct VPC network configurations from the Node API")
+            return a
+        network = public_networks.pop()
+        selected_by_external_flag = True
+    else:
+        network = configured_networks[0]
     if "/networks/" not in network:
         matches = [row for row in inventory.items("network") if row["scope"] == resource["scope"] and
                    row["data"].get("name") == network and isinstance(row["data"].get("selfLink"), str)]
@@ -5698,6 +6664,10 @@ def _gcp_tpu_node(snapshot, inventory, resource):
             a.gap("firewall", "TPU network name cannot be bound to one collected VPC")
             return a
         network = matches[0]["data"]["selfLink"]
+    if selected_by_external_flag:
+        a.step("tpu_network_config", "allow", network=network,
+               public_enabled_configs=sum(config["enableExternalIps"] for config in configs),
+               private_only_configs=sum(not config["enableExternalIps"] for config in configs))
     tags = data.get("tags")
     account = data.get("serviceAccount")
     if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags) or not isinstance(account, dict):
@@ -5720,10 +6690,24 @@ def _gcp_tpu_node(snapshot, inventory, resource):
         a.explicit = "UNKNOWN"
         a.gap("firewall", "TPU public address has no proven allowed port under the collected VPC policy")
         return a
-    a.ports = allowed
-    a.step("tpu_endpoint", "allow", declared_ports=[row.get("port") for row in endpoints
-           if isinstance(row.get("accessConfig"), dict) and row["accessConfig"].get("externalIp") in addresses],
-           firewall_allowed=describe(allowed))
+    public_endpoints = [row for row in endpoints if isinstance(row.get("accessConfig"), dict)
+                        and row["accessConfig"].get("externalIp") in addresses]
+    declared_ports = [row.get("port") for row in public_endpoints]
+    if any(type(port) is not int or not 1 <= port <= 65535 for port in declared_ports):
+        a.explicit = "UNKNOWN"
+        a.gap("endpoint_port", "TPU public network endpoint port is missing or malformed")
+        return a
+    endpoint_ports = {}
+    for port in declared_ports:
+        endpoint_ports = union(endpoint_ports, pset("tcp", port, port))
+    permitted = intersect(allowed, endpoint_ports)
+    if empty(permitted):
+        a.explicit = "UNKNOWN"
+        a.gap("endpoint_port", "TPU declared public endpoint port has no matching TCP firewall allowance")
+        return a
+    a.ports = permitted
+    a.step("tpu_endpoint", "allow", declared_ports=declared_ports,
+           firewall_allowed=describe(allowed), matched_ports=describe(permitted))
     if data.get("state") != "READY":
         a.dormant = True
     return a
@@ -9544,9 +10528,9 @@ AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "securit
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "cloudrun_service", "cloudrun_instance", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway", "vpn_tunnel",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
-             "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
+             "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "dataproc_cluster", "workbench_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
              "media_cdn_service", "target_pool", "target_instance",
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
@@ -9562,8 +10546,8 @@ EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s
 EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
                      "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "vpc_peering", "transit_gateway_attachment", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
-             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
-                     "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
+             "gcp": {"network", "instance", "forwarding_rule", "cloudrun_service", "cloudrun_instance", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway", "vpn_tunnel",
+                     "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "dataproc_cluster", "workbench_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
@@ -9628,16 +10612,18 @@ def assess(snapshot, resources):
                 "log_destination": _aws_log_destination_policy_grant,
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
-        "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
+        "gcp": {"network": _gcp_network_peering, "instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "cloudrun_instance": _gcp_cloudrun_instance, "function": _gcp_serverless,
                 "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke,
                 "gke_exposure_service": _gcp_gke_exposure_service,
                 "gke_exposure_ingress": _gcp_gke_exposure_ingress,
                 "gke_exposure_pod": _gcp_gke_exposure_pod, "bucket": _gcp_bucket,
                 "bigquery_dataset": _gcp_bigquery_dataset, "firebase_rules_release": _gcp_firebase_rules,
                 "firebase_database_rules": _gcp_firebase_rules,
-                "vpn_gateway": _gcp_vpn_gateway,
+                "vpn_gateway": _gcp_vpn_gateway, "vpn_tunnel": _gcp_vpn_tunnel,
                 "cloud_ftp_server": _gcp_ftp, "looker_instance": _gcp_looker, "blockchain_node": _gcp_blockchain_node,
-                "data_fusion_instance": _gcp_data_fusion, "vertex_index_endpoint": _gcp_vertex_index,
+                "data_fusion_instance": _gcp_data_fusion, "dataproc_cluster": _gcp_dataproc_cluster,
+                "workbench_instance": _gcp_workbench_instance,
+                "vertex_index_endpoint": _gcp_vertex_index,
                 "vertex_feature_online_store": _gcp_vertex_feature_store, "app_engine_application": _gcp_app_engine,
                 "api_gateway": _gcp_api_gateway, "composer_environment": _gcp_composer_environment,
                 "firebase_apphosting_endpoint": _gcp_firebase_apphosting,
@@ -9755,6 +10741,13 @@ def _title(assessment, status):
         return ("Active route to external VPC peer" if status == "FAIL" else
                 "No active route to external VPC peer" if status == "PASS" else
                 "External VPC peering route unresolved")
+    if assessment.kind == "cross_project_peering":
+        return "Cross-project VPC peering path unresolved"
+    if assessment.kind == "vpn_peer":
+        cross_project = any(step.get("peer_project") for step in assessment.path if step.get("layer") == "vpn_peer")
+        return (("Established Cloud VPN tunnel to another GCP project" if cross_project else
+                 "Established Cloud VPN tunnel to configured external peer") if status == "FAIL" else
+                "Cloud VPN peer path unresolved")
     if assessment.kind == "gallery_share":
         return ("Compute Gallery community sharing permitted" if status == "FAIL" else
                 "Compute Gallery community sharing blocked" if status == "PASS" else
@@ -10030,15 +11023,273 @@ def _observed(assessment, status):
                     "The recorded gateway subnet rules allow the listener port from a public source.\n"
                     "Requests may reach a backend if its routing and access rules also allow them.\n"
                     "That could expose data served through this gateway.")
+    if assessment.kind == "cross_project_peering" and status == "UNKNOWN":
+        data = assessment.resource["data"]
+        name = data.get("name", native_id(assessment.resource))
+        peering = next(step for step in assessment.path if step.get("layer") == "vpc_peering")
+        return "\n".join((
+            f"The VPC network {name} has ACTIVE peering {peering.get('name') or 'unnamed'} to {peering['peer_network']} in project {peering['peer_project']}.",
+            f"Its importCustomRoutes value is {peering['import_custom_routes']} and exportCustomRoutes value is {peering['export_custom_routes']}.",
+            "Peer network clients may reach local subnet addresses if exchanged routes and local firewall rules admit them.",
+            "That could expose workload services or data to users in the peer project if those paths exist."))
+    if assessment.resource["type"] == "vpn_tunnel" and status in ("FAIL", "UNKNOWN"):
+        data = assessment.resource["data"]
+        name = data.get("name", native_id(assessment.resource))
+        classic = bool(data.get("targetVpnGateway"))
+        peer = data.get("peerIp") if classic else data.get("peerExternalGateway") or data.get("peerGcpGateway")
+        gateway = data.get("targetVpnGateway") if classic else data.get("vpnGateway")
+        peer_project = next((step.get("peer_project") for step in assessment.path
+                             if step.get("layer") == "vpn_peer" and step.get("peer_project")), None)
+        peer_label = "peer" if classic else "peer GCP gateway" if data.get("peerGcpGateway") else "peer gateway"
+        project_detail = f" in project {peer_project}" if peer_project else ""
+        public_ip = assessment.addresses[0] if assessment.addresses else "no recorded public interface address"
+        local = (f"Its local gateway {gateway} has {public_ip} across ESP, UDP 500 and UDP 4500 forwarding rules."
+                 if classic and assessment.addresses else
+                 f"Its local gateway {gateway} lacks a recorded public IP with all three forwarding rules."
+                 if classic else
+                 f"Its local gateway {gateway} uses interface {data.get('vpnGatewayInterface')} with {public_ip}.")
+        return "\n".join((
+            f"The {'Classic' if classic else 'HA'} VPN tunnel {name} has status {data.get('status') or 'unavailable'} and {peer_label} {peer}{project_detail}.",
+            local,
+            "An authenticated peer may exchange IPsec traffic with that gateway when the tunnel remains established.",
+            "That could allow the peer to reach VPC services or data if routes and firewalls admit the traffic."))
+    if assessment.resource["type"] == "app_engine_application" and status in ("FAIL", "UNKNOWN"):
+        data = assessment.resource["data"]
+        name = data.get("name", native_id(assessment.resource))
+        hostname = data.get("defaultHostname") or "no recorded default hostname"
+        serving = data.get("servingStatus") or "unavailable"
+        firewall = next((step for step in assessment.path if step.get("layer") == "app_engine_firewall"), None)
+        first = f"The App Engine application {name} has default hostname {hostname} and serving status {serving}."
+        if firewall and firewall.get("decision") == "allow":
+            second = (f"Its priority {firewall['priority']} ingress rule allows source {firewall['source_range']}"
+                      f" and application IAP is {'enabled' if assessment.authenticated else 'disabled or unrecorded'}.")
+        else:
+            second = "Its ordered ingress firewall decision or serving status is unresolved."
+        return "\n".join((first, second,
+            "Internet clients may reach its HTTPS endpoint if routing and identity controls admit requests.",
+            "That could expose application behavior or data to outside users if the service responds."))
+    if assessment.kind == "vpn_gateway" and status in ("FAIL", "UNKNOWN"):
+        data = assessment.resource["data"]
+        name = data.get("name", native_id(assessment.resource))
+        addresses = ", ".join(str(value) for value in assessment.addresses[:2]) or "no recorded public address"
+        if assessment.resource["type"] == "vpn_gateway":
+            return "\n".join((
+                f"The HA VPN gateway {name} has public interface address {addresses}.",
+                "Its public interfaces permit UDP 500, UDP 4500, and ESP for IPsec peer traffic.",
+                "An internet peer may send those protocols to the gateway, subject to tunnel authentication.",
+                "An authenticated peer could reach VPC services or data if tunnel, route, and firewall controls allow it."))
+        target = data.get("target") or "no recorded target VPN gateway"
+        ports = ", ".join(describe(assessment.ports or {})) or "no recorded protocol port"
+        return "\n".join((
+            f"The Classic VPN forwarding rule {name} has address {addresses} and target {target}.",
+            f"Its recorded IP protocol and port selection is {ports}.",
+            "An internet peer may send that traffic to the gateway if the public listener responds.",
+            "An authenticated peer could reach VPC services or data if tunnel, route, and firewall controls allow it."))
+    redirect = next((step for step in assessment.path if step.get("layer") == "url_redirect"), None)
+    if assessment.resource["type"] == "forwarding_rule" and redirect and status in ("FAIL", "UNKNOWN"):
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        address = ", ".join(str(value) for value in assessment.addresses[:2]) or "no recorded public address"
+        route = redirect["routes"][0]
+        target = route.get("host_redirect") or "the requested host"
+        first = f"The forwarding rule {name} has address {address} and a URL-map redirect route."
+        match_path = route.get("match_path")
+        match_type = "prefix" if route.get("match_path_type") == "prefixMatch" else "exact"
+        path_detail = f" for request path {match_type} {match_path or '/'}" if match_path is not None else ""
+        host_detail = f" for unmatched host {route['host_witness']}" if route.get("host_witness") else ""
+        second = (f"That route{host_detail}{path_detail} has response code {route['response_code']}, destination {target}, "
+                  f"and stripQuery set to {str(route['strip_query']).lower()}.")
+        impact = ("Visitors could be sent to the configured destination after their query string is removed."
+                  if route["strip_query"] else
+                  "Visitors could send URL query data to the configured destination if their client follows the redirect.")
+        return "\n".join((first, second,
+            "An internet client may receive the redirect if the public listener responds.",
+            impact))
+    route_rule = next((step for step in assessment.path if step.get("layer") == "url_route_rule"), None)
+    if assessment.resource["type"] == "forwarding_rule" and route_rule and status in ("FAIL", "UNKNOWN"):
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        address = ", ".join(str(value) for value in assessment.addresses[:2]) or "no recorded public address"
+        backends = ", ".join(route_rule.get("backends", []))
+        match_type = "exact" if route_rule.get("match_type") == "fullPathMatch" else "prefix"
+        path = route_rule.get("path", route_rule.get("prefix", "/"))
+        host = route_rule.get("host", "unrecorded")
+        return "\n".join((
+            f"The forwarding rule {name} has public address {address} and URL-map Host {host}.",
+            f"Its priority {route_rule.get('priority')} rule matches path {match_type} {path} and selects backend {backends}.",
+            "Internet clients may reach that backend if edge policy and backend routing admit requests.",
+            "That could expose application behavior or data; backend health and responses remain unresolved."))
+    if assessment.resource["type"] == "cloudrun_instance" and status in ("FAIL", "UNKNOWN"):
+        data = assessment.resource["data"]
+        name = data.get("name", native_id(assessment.resource))
+        origins = ", ".join(assessment.addresses[:2]) or "no recorded serving URL"
+        first = f"The Cloud Run instance {name} has ingress {data.get('ingress') or 'unavailable'} and {origins}."
+        if status == "FAIL":
+            grant = next((step for step in assessment.path if step.get("layer") == "invoker"), {})
+            access = ("its invoker IAM check disabled" if grant.get("invoker_iam_disabled") else
+                      f"a direct public invoker grant to {', '.join(grant.get('public_members', []))}")
+            return "\n".join((first,
+                f"It has {access} and a declared HTTPS route on port 443.",
+                "Internet clients may call that route if DNS and the instance respond.",
+                "That could expose application behavior or data to outside users."))
+        return "\n".join((first,
+            "Its serving URL, active state, IAP setting, or invoker grant is unresolved.",
+            "Internet clients may call that route if those controls admit them.",
+            "That could expose application behavior or data to outside users."))
+    if assessment.resource["type"] == "workbench_instance" and status in ("FAIL", "UNKNOWN"):
+        data = assessment.resource["data"]
+        name = data.get("name", native_id(assessment.resource))
+        origin = assessment.addresses[0] if assessment.addresses else "no recorded HTTPS URI"
+        first = (f"The Workbench instance {name} has proxy access enabled at {origin}."
+                 if assessment.addresses else
+                 f"The Workbench instance {name} has proxy access enabled with no recorded HTTPS URI.")
+        if status == "FAIL":
+            return "\n".join((first,
+                "Its state is ACTIVE and the Jupyter proxy route is declared on HTTPS port 443.",
+                "An internet client may reach that proxy if the service responds and identity grants allow the user.",
+                "That could expose notebook code or data to an authorized outside user."))
+        return "\n".join((first,
+            f"Its recorded state is {data.get('state') or 'unavailable'}, and the proxy URL or active state is unresolved.",
+            "An internet client may reach the proxy if it becomes available and identity grants allow the user.",
+            "That could expose notebook code or data to an authorized outside user."))
+    if assessment.resource["type"] == "dataproc_cluster" and status in ("FAIL", "UNKNOWN"):
+        data = assessment.resource["data"]
+        name = data.get("clusterName", native_id(assessment.resource))
+        endpoint = (data.get("config") or {}).get("endpointConfig") or {}
+        labels = sorted((endpoint.get("httpPorts") or {}).keys()) if isinstance(endpoint.get("httpPorts"), dict) else []
+        origins = ", ".join(assessment.addresses[:2]) or "no recorded URL"
+        first = (f"The Dataproc cluster {name} has Component Gateway enabled with HTTPS origin {origins}."
+                 if assessment.addresses else
+                 f"The Dataproc cluster {name} has Component Gateway enabled with no recorded HTTPS URL.")
+        if status == "FAIL":
+            return "\n".join((first,
+                f"Its RUNNING cluster advertises {', '.join(labels[:3])} through the gateway.",
+                "An internet client may reach those gateway URLs if the service responds and IAM permits the user.",
+                "That could expose cluster interface details or workload data to an authorized outside user."))
+        state = (data.get("status") or {}).get("state") if isinstance(data.get("status"), dict) else None
+        return "\n".join((first,
+            f"Its recorded state is {state or 'unavailable'}, and its gateway URL or active status is unresolved.",
+            "An internet client may reach a gateway interface if it becomes available and IAM permits the user.",
+            "That could expose cluster interface details or workload data to an authorized outside user."))
+    public_origin = next((step for step in assessment.path if step.get("layer") == "cdn_origin"
+                          and step.get("public_origin_read_grants")), None)
+    if assessment.resource["type"] == "forwarding_rule" and public_origin and status in ("FAIL", "UNKNOWN"):
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        address = ", ".join(str(value) for value in assessment.addresses[:2])
+        grant = public_origin["public_origin_read_grants"][0]
+        grant_scope = (f" on project {grant['scope']}" if grant.get("scope") else "")
+        permission = (f" including {grant['permission']}" if grant.get("permission") else "")
+        if grant.get("source") == "objectAccessControls":
+            host_detail = f" for unmatched Host {public_origin['host_witness']}" if public_origin.get("host_witness") else ""
+            return "\n".join((
+                f"The forwarding rule {name} has public address {address} and default backend bucket {public_origin.get('bucket_name')}{host_detail}.",
+                f"At least one origin object has {grant['role']} for {grant['member']} with public access prevention not enforced.",
+                "An internet client may request that object through the backend bucket route if edge policy admits it.",
+                "An outside viewer could receive object data; current edge delivery and object response remain unresolved."))
+        if grant.get("source") == "managed_folder":
+            host_detail = f" for unmatched Host {public_origin['host_witness']}" if public_origin.get("host_witness") else ""
+            return "\n".join((
+                f"The forwarding rule {name} has public address {address} and default backend bucket {public_origin.get('bucket_name')}{host_detail}.",
+                f"Its managed folder {grant['folder']} grants {grant['role']} to {grant['member']} with public access prevention not enforced.",
+                "An internet client may request objects under that folder prefix if edge policy admits the route.",
+                "An outside viewer could receive object data if matching objects exist; delivery remains unresolved."))
+        host_detail = (f" for Host {public_origin['host_witness']} path {public_origin['path_witness']}"
+                       if public_origin.get("path_witness") else
+                       f" for unmatched Host {public_origin['host_witness']}"
+                       if public_origin.get("host_witness") else "")
+        return "\n".join((
+            f"The forwarding rule {name} has public address {address} and backend bucket {public_origin.get('bucket_name')}{host_detail}.",
+            f"Its origin has {grant['role']}{permission} for {grant['member']}{grant_scope} with public access prevention not enforced.",
+            "Internet clients may reach the bucket route if edge policy and origin delivery allow it.",
+            "An outside viewer could receive object data if objects exist; edge cache contents and responses remain unresolved."))
+    path_rule = next((step for step in assessment.path if step.get("layer") == "url_path_rule"), None)
+    if assessment.resource["type"] == "forwarding_rule" and path_rule and status in ("FAIL", "UNKNOWN"):
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        address = ", ".join(str(value) for value in assessment.addresses[:2]) or "no recorded public address"
+        backends = ", ".join(path_rule.get("backends", []))
+        return "\n".join((
+            f"The forwarding rule {name} has public address {address} and URL-map Host {path_rule['host']}.",
+            f"Its path rule {path_rule['pattern']} matches request path {path_rule['path']} and selects backend {backends}.",
+            "Internet clients may reach that backend if edge policy and backend routing admit requests.",
+            "That could expose application behavior or data; backend health and responses remain unresolved."))
+    if assessment.resource["type"] == "tpu_node" and status in ("FAIL", "UNKNOWN"):
+        data = assessment.resource["data"]
+        name = data.get("name", native_id(assessment.resource))
+        public = [row for row in as_list(data.get("networkEndpoints"))
+                  if isinstance(row, dict) and isinstance(row.get("accessConfig"), dict)
+                  and row["accessConfig"].get("externalIp") in assessment.addresses]
+        endpoint = public[0] if public else {}
+        address = (endpoint.get("accessConfig") or {}).get("externalIp", "unrecorded")
+        port = endpoint.get("port", "unrecorded")
+        first = f"The TPU node {name} has public network endpoint {address} with port {port}."
+        if status == "FAIL":
+            matched = ", ".join(describe(assessment.ports or {}))
+            selected = next((step for step in assessment.path if step.get("layer") == "tpu_network_config"), None)
+            network_detail = f" on selected VPC {selected['network']}" if selected else ""
+            return "\n".join((first,
+                f"Its joined VPC firewall{network_detail} allows {matched} at the declared endpoint port.",
+                "Internet clients may reach that port if the TPU workload accepts connections.",
+                "That could expose TPU workload services or data; guest listener state and responses remain unresolved."))
+        distinct_networks = any("distinct VPC network configurations" in gap.get("reason", "")
+                                for gap in assessment.unresolved)
+        detail = ("Its networkConfigs name distinct VPC networks without a networkEndpoint-to-networkConfig association."
+                  if distinct_networks else "Its network, firewall, or endpoint-port decision remains unresolved.")
+        return "\n".join((first,
+            detail,
+            "Internet clients may reach a TPU workload port if those controls admit traffic.",
+            "That could expose TPU workload services or data; guest listener state and responses remain unresolved."))
+    classic = next((step for step in assessment.path if step.get("layer") == "classic_precedence"), None)
+    if assessment.resource["type"] == "instance" and classic and status == "FAIL":
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        addresses = ", ".join(str(value) for value in assessment.addresses[:2])
+        matched = classic.get("matched_rules") or [{}]
+        return "\n".join((
+            f"The Compute instance {name} has external address {addresses} on VPC {classic.get('network')}.",
+            f"Its VPC enforcement order is AFTER_CLASSIC_FIREWALL, and classic rule {matched[0].get('rule')} allows {', '.join(classic.get('allowed') or [])}.",
+            "Internet clients may reach an allowed port if a guest listener accepts traffic.",
+            "That could expose software or data served by this instance."))
     terminal = next((step for step in assessment.path
                      if step.get("layer") == "effective_firewall"
-                     and step.get("basis") == "terminal hierarchical ingress rule"), None)
+                     and step.get("basis") in ("terminal hierarchical ingress rule",
+                                               "terminal global network ingress rule",
+                                               "terminal regional network ingress rule",
+                                               "terminal regional system ingress rule")), None)
+    transition = next((step for step in assessment.path if step.get("layer") == "hierarchy_transition"), None)
+    system_transition = next((step for step in assessment.path if step.get("layer") == "system_transition"), None)
+    network_transition = next((step for step in assessment.path if step.get("layer") == "network_transition"), None)
+    if (assessment.resource["type"] == "instance" and status == "UNKNOWN" and terminal is None and
+            (transition or system_transition or network_transition or any(gap.get("layer") == "firewall" and "per-interface" in gap.get("reason", "")
+                               for gap in assessment.unresolved))):
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        addresses = ", ".join(str(value) for value in assessment.addresses[:2])
+        transition_ports = transition.get("ports") if transition else None
+        port_detail = f" for {', '.join(transition_ports)}" if transition_ports and transition_ports != describe(FULL) else ""
+        if transition:
+            second = f"Its hierarchical policy {transition.get('policy')} has goto_next at rule {transition.get('rule')}{port_detail}."
+        elif system_transition:
+            ports = system_transition.get("ports")
+            port_detail = f" for {', '.join(ports)}" if ports and ports != describe(FULL) else ""
+            second = (f"Its regional system policy {system_transition.get('policy')} has goto_next at rule "
+                      f"{system_transition.get('rule')}{port_detail}.")
+        elif network_transition:
+            ports = network_transition.get("ports")
+            port_detail = f" for {', '.join(ports)}" if ports and ports != describe(FULL) else ""
+            second = (f"Its global network policy {network_transition.get('policy')} has goto_next at rule "
+                      f"{network_transition.get('rule')}{port_detail}.")
+        else:
+            second = "Its per-interface firewall policy decision is unresolved."
+        return "\n".join((
+            f"The Compute instance {name} has external address {addresses}.",
+            second,
+            "A later firewall decision may allow an internet client to reach a workload port.",
+            "That could expose software or data served by this instance if a later policy admits traffic."))
     if terminal is not None and assessment.resource["type"] == "instance":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
         addresses = ", ".join(str(value) for value in assessment.addresses[:2])
         first = f"The Compute instance {name} has external address {addresses}."
-        second = (f"Its effective hierarchical rule {terminal.get('rule')} has action "
-                  f"{terminal.get('action')} at priority {terminal.get('priority')}.")
+        port_note = (f" and allows {', '.join(terminal['allowed_ports'])}"
+                     if terminal.get("action") == "allow" and terminal.get("allowed_ports") else "")
+        policy_kind = terminal.get("basis", "terminal hierarchical ingress rule").removeprefix("terminal ").removesuffix(" ingress rule")
+        second = (f"Its effective {policy_kind} rule {terminal.get('rule')} has action "
+                  f"{terminal.get('action')} at priority {terminal.get('priority')}{port_note}.")
         if status == "FAIL":
             return "\n".join((first, second,
                 "Internet clients may reach an allowed port if a guest listener accepts traffic.",
@@ -10428,7 +11679,8 @@ def coverage_findings(snapshot, resources):
 
 def annotate_network(graph, snapshot, resources):
     """Add an Internet node and ``internet_exposure`` edges to every exposed or unresolved asset."""
-    assessments = [a for a in assess(snapshot, resources) if a.verdict() in ("FAIL", "UNKNOWN") and a.kind != "external_share"]
+    assessments = [a for a in assess(snapshot, resources) if a.verdict() in ("FAIL", "UNKNOWN")
+                   and a.kind not in ("external_share", "cross_project_peering")]
     if not assessments:
         return graph
     nodes = {n["id"]: n for n in graph.get("nodes", [])}
