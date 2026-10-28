@@ -254,7 +254,7 @@ EMBEDDED_LISTS = {
                         ("eventSubscriptions", "providers/Microsoft.EventGrid/eventSubscriptions", "2022-06-15"),
                         ("localUsers", "localUsers", "2023-05-01")),
     "arc_kubernetes_cluster": (("extensions", "providers/Microsoft.KubernetesConfiguration/extensions", "2023-05-01"),),
-    "sql_server": (("serverAdministrators", "administrators", "2023-08-01"), ("azureADOnlyAuthentications", "azureADOnlyAuthentications", "2023-08-01"), ("virtualNetworkRules", "virtualNetworkRules", "2023-08-01"), ("firewallRules", "firewallRules", "2023-08-01"), ("securityAlertPolicies", "securityAlertPolicies", "2023-08-01")),
+    "sql_server": (("serverAdministrators", "administrators", "2023-08-01"), ("azureADOnlyAuthentications", "azureADOnlyAuthentications", "2023-08-01"), ("virtualNetworkRules", "virtualNetworkRules", "2023-08-01"), ("firewallRules", "firewallRules", "2023-08-01"), ("securityAlertPolicies", "securityAlertPolicies", "2023-08-01"), ("privateEndpointConnections", "privateEndpointConnections", "2023-08-01")),
     "synapse_workspace": (("sqlPools", "sqlPools", "2021-06-01"), ("firewallRules", "firewallRules", "2021-06-01"),
                           ("workspaceVulnerabilityAssessments", "vulnerabilityAssessments", "2021-06-01")),
     "sql_database": (("backupShortTermRetentionPolicies", "backupShortTermRetentionPolicies", "2023-08-01"),

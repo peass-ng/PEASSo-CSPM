@@ -9295,10 +9295,27 @@ def _azure_storage_container(snapshot, inventory, resource):
 def _azure_sql(snapshot, inventory, resource, rules):
     props = _props(resource)
     public_access = props.get("publicNetworkAccess")
-    if str(public_access).lower() == "disabled":
-        return None
     a = Assessment(resource, "database")
     a.addresses = [props.get("fullyQualifiedDomainName")] if props.get("fullyQualifiedDomainName") else []
+    private_coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+    connections = resource["data"].get("privateEndpointConnections")
+    private_unknown = True
+    if private_coverage.get("status") in ("collected", "empty") and isinstance(connections, list):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+            resource["data"], {"privateEndpointConnections": connections})
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.explicit = "FAIL"
+        if private_unknown:
+            a.gap("private_link_share", "SQL private endpoint approval or ownership is unresolved")
+    else:
+        a.gap("private_link_share", "SQL private endpoint connections are not fully collected")
+    if str(public_access).lower() == "disabled":
+        a.step("public_network_access", "block", value=public_access)
+        a.ports = pset("tcp", 1433, 1433) if a.external_ids else {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
+        return a
     if str(public_access).lower() != "enabled":
         a.gap("inventory", "SQL publicNetworkAccess is not explicitly Enabled or Disabled")
     rid = str(resource["data"].get("id", "")).lower()
@@ -9334,7 +9351,7 @@ def _azure_sql(snapshot, inventory, resource, rules):
     unresolved_rules = any(gap["layer"] == "firewall" for gap in a.unresolved)
     a.step("firewall", "allow" if open_rules else "unknown" if unresolved_rules else "block",
            open_rules=open_rules)
-    a.ports = pset("tcp", 1433, 1433) if open_rules else {}
+    a.ports = pset("tcp", 1433, 1433) if open_rules or a.external_ids else {}
     if open_rules and not a.addresses:
         a.gap("inventory", "SQL public endpoint FQDN is not collected")
     return a
