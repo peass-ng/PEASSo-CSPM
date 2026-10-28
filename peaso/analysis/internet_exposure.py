@@ -12062,6 +12062,95 @@ def _azure_attestation_provider(snapshot, inventory, resource):
     return a
 
 
+def _azure_entra_domain_service(snapshot, inventory, resource):
+    """Public LDAPS and configured off-domain recipients/forest trusts."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    ldap = props.get("ldapsSettings")
+    if not isinstance(ldap, dict):
+        a.gap("inventory", "Domain Services LDAPS settings unavailable")
+        return a
+    public = ldap.get("ldaps") == "Enabled" and ldap.get("externalAccess") == "Enabled"
+    if ldap.get("ldaps") == "Disabled" or ldap.get("externalAccess") == "Disabled":
+        a.step("public_ldaps", "block", ldaps=ldap.get("ldaps"), external_access=ldap.get("externalAccess"))
+    elif public:
+        replicas = props.get("replicaSets")
+        if not isinstance(replicas, list) or not replicas:
+            a.gap("inventory", "Domain Services replica sets unavailable")
+        else:
+            open_replicas = []
+            unresolved = False
+            for replica in replicas:
+                if not isinstance(replica, dict):
+                    unresolved = True
+                    continue
+                external_ip = replica.get("externalAccessIpAddress")
+                subnet_id = replica.get("subnetId")
+                controllers = replica.get("domainControllerIpAddress")
+                if (not _public_ip(external_ip) or not isinstance(subnet_id, str)
+                        or not isinstance(controllers, list) or not controllers):
+                    unresolved = True
+                    continue
+                if replica.get("serviceStatus") not in ("Running", "Ready"):
+                    unresolved = True
+                    continue
+                for controller in controllers:
+                    if not isinstance(controller, str) or _cidr(controller) is None:
+                        unresolved = True
+                        continue
+                    previous_gaps = len(a.unresolved)
+                    candidate = _azure_nsg_path(inventory, a, None, subnet_id,
+                                                pset("tcp", 636, 636), address=controller,
+                                                where="Domain Services LDAPS")
+                    if any(gap["layer"] == "nsg" for gap in a.unresolved[previous_gaps:]):
+                        unresolved = True
+                    elif not empty(candidate):
+                        open_replicas.append(external_ip)
+            if open_replicas:
+                a.addresses = sorted(set(open_replicas))
+                a.ports = pset("tcp", 636, 636)
+                a.step("public_ldaps", "allow", external_ips=a.addresses)
+                a.explicit = "FAIL"
+            elif unresolved or any(g["layer"] in ("nsg", "inventory") for g in a.unresolved):
+                a.gap("inventory", "Domain Services public LDAPS path unresolved")
+            else:
+                a.step("public_ldaps", "block", reason="replica subnet NSGs deny public LDAPS")
+    else:
+        a.gap("listener", "Domain Services LDAPS or external access setting unresolved")
+    notification = props.get("notificationSettings")
+    forest = props.get("resourceForestSettings")
+    recipients = notification.get("additionalRecipients") if isinstance(notification, dict) else None
+    trusts = forest.get("settings") if isinstance(forest, dict) else None
+    if not isinstance(recipients, list) or not isinstance(trusts, list):
+        a.gap("inventory", "Domain Services notification or forest trust inventory unavailable")
+        return a
+    if recipients or trusts:
+        if inventory.state("directory_domain") not in ("collected", "empty"):
+            a.gap("inventory", "verified tenant domains unavailable for recipient/trust ownership")
+            return a
+        owned = {str(row["data"].get("id", "")).casefold() for row in inventory.items("directory_domain")
+                 if row["data"].get("isVerified") is True}
+        if not owned:
+            a.gap("inventory", "tenant has no verified domain evidence")
+            return a
+        offdomain_recipients = sorted({email for email in recipients if isinstance(email, str) and "@" in email
+                                      and email.rsplit("@", 1)[-1].casefold() not in owned})
+        offdomain_trusts = sorted({str(t.get("trustedDomainFqdn")) for t in trusts if isinstance(t, dict)
+                                  and isinstance(t.get("trustedDomainFqdn"), str)
+                                  and t["trustedDomainFqdn"].casefold() not in owned})
+        if offdomain_recipients or offdomain_trusts:
+            a.external_ids = offdomain_recipients + offdomain_trusts
+            a.step("off_domain_destinations", "conditional", recipients=offdomain_recipients,
+                   trusted_domains=offdomain_trusts)
+            a.gap("authorization", "non-verified DNS names do not prove third-party ownership")
+    if a.explicit != "FAIL" and a.blocked_by and not a.unresolved:
+        a.explicit = "PASS"
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -12590,7 +12679,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12605,7 +12694,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12715,6 +12804,7 @@ def assess(snapshot, resources):
                   "managed_application": _azure_managed_application,
                   "managed_application_definition": _azure_managed_application_definition,
                   "attestation_provider": _azure_attestation_provider,
+                  "entra_domain_service": _azure_entra_domain_service,
                   "management_group": _azure_management_group,
                   "subscription": _azure_subscription,
                   "powerbi_capacity": _azure_powerbi_capacity,
