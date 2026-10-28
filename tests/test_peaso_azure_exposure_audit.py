@@ -1289,7 +1289,7 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     def app_decision(env_public="Enabled", rules=None, transport="http", extra=None,
                      allow_insecure=None):
         ingress = {"external": True, "transport": transport, "fqdn": "app.example.azurecontainerapps.io",
-                   "ipSecurityRestrictions": rules or []}
+                   "ipSecurityRestrictions": rules if rules is not None else []}
         if allow_insecure is not None:
             ingress["allowInsecure"] = allow_insecure
         if transport == "tcp":
@@ -1323,6 +1323,8 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     public_allow = [{"action": "Allow", "ipAddressRange": "8.8.8.8/32"}]
     assert app_decision(rules=private_allow).verdict() == "PASS"
     assert app_decision(rules=public_allow).verdict() == "FAIL"
+    assert app_decision(rules=private_allow[0]).verdict() == "UNKNOWN"
+    assert app_decision(rules="").verdict() == "UNKNOWN"
     tcp = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}])
     assert tcp.verdict() == "FAIL" and tcp.ports == {"tcp": ((8443, 8443), (9000, 9000))}
 

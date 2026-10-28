@@ -5367,7 +5367,11 @@ def _azure_container_app(snapshot, inventory, resource):
                 a.ports = union(a.ports or {}, pset("tcp", port, port))
             else:
                 a.gap("listener", "Container App external additional port is unavailable")
-    rules = as_list(ingress.get("ipSecurityRestrictions"))
+    raw_rules = ingress.get("ipSecurityRestrictions")
+    malformed_rules = raw_rules is not None and not isinstance(raw_rules, list)
+    rules = raw_rules if isinstance(raw_rules, list) else []
+    if malformed_rules:
+        a.gap("access_restrictions", "Container App IP restriction inventory is not an array")
     if route_hosts and ingress.get("external") is not True and rules:
         a.gap("access_restrictions", "app IP restriction behavior through environment HTTP route is unresolved")
         rules = []
@@ -5390,7 +5394,7 @@ def _azure_container_app(snapshot, inventory, resource):
             a.step("access_restrictions", "allow", action="Deny", rule_count=len(rules))
         else:
             a.gap("access_restrictions", "Container App IP restriction action is unrecognized")
-    else:
+    elif not malformed_rules:
         a.step("access_restrictions", "allow", rule_count=0)
     if ingress.get("clientCertificateMode") == "Require":
         a.authenticated = True
