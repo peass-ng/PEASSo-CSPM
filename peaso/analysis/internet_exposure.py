@@ -3045,9 +3045,21 @@ def gcp_bigtable_external_reader_findings(snapshot, resources):
             continue
         unconditional = [grant for grant in grants if not grant["condition"]]
         status = "FAIL" if unconditional else "UNKNOWN"
+        named_grant = (unconditional or grants)[0]
+        if unconditional:
+            observed = (
+                f"This table's IAM policy grants roles/bigtable.reader to {named_grant['member']}.\n"
+                "That grant may let the service account read rows in this table.\n"
+                "Those rows could contain data intended to stay within this project."
+            )
+        else:
+            observed = (
+                f"This table's IAM policy has a conditional roles/bigtable.reader grant to {named_grant['member']}.\n"
+                "The recorded condition does not tell whether this account can read these rows.\n"
+                "If it allows access, the account could read data intended to stay within this project."
+            )
         evidence = {
-            "observed": ("The collected Bigtable table IAM policy grants the Bigtable Reader role to a service account from another project."
-                         if unconditional else "The collected Bigtable table IAM policy has a conditional Bigtable Reader grant to a service account from another project."),
+            "observed": observed,
             "direct_reader_grants": grants,
             "permission": "bigtable.tables.readRows",
             "source": source(snapshot, resource, "iamPolicy.bindings"),
