@@ -200,6 +200,10 @@ _KMS_STATES = frozenset({"Enabled", "Disabled", "PendingDeletion", "PendingImpor
 
 
 def _secret_index(index):
+    return memoized(index, ("remaining_aws_gcp", "secrets_index"), lambda: _build_secret_index(index))
+
+
+def _build_secret_index(index):
     account, region, rows = _authority(index, "secret")
     partition = _scope_partition(index, account)
     by_arn = {}
