@@ -386,6 +386,8 @@ def exposure_action(evidence, status):
         return "Restrict snapshot restore access to the accounts that need it."
     if evidence.get("data_exposure"):
         source = evidence.get("source") if isinstance(evidence.get("source"), dict) else {}
+        if source.get("resource_type") == "ec2_image":
+            return "Remove public AMI launch permission if broad sharing is unnecessary."
         if source.get("resource_type") in ("rds_snapshot", "rds_cluster_snapshot"):
             return "Remove public snapshot restore access; share only with the accounts that need it."
         return "If public data access is unnecessary, restrict the granting policy or ACL to the readers that need it."

@@ -714,6 +714,21 @@ def test_aws_ec2_public_and_external_shares(kind, field, permission, operation):
     assert incomplete["status"] == "UNKNOWN"
 
 
+def test_describe_images_public_flag_survives_missing_permission_detail_and_new_share_block():
+    from peaso.finding_observation import evidence_summary
+    image = {"ImageId": "ami-1", "OwnerId": ACCOUNT, "Public": True, "State": "available",
+             "_coverage": {"LaunchPermissions": {"status": "denied"}}}
+    settings = coll("ec2_regional_settings", [{"ImageBlockPublicAccessState": "block-new-sharing"}])
+    found = one(aws(coll("ec2_image", [image]), settings), "ec2_image")
+    assert found["status"] == "FAIL" and found["evidence"]["data_exposure"] is True
+    assert found["evidence"]["path"][0]["layer"] == "image_public_flag"
+    assert found["evidence"]["unresolved"][0]["layer"] == "attributes"
+    assert "public launch permission" in evidence_summary(found)
+    assert "public AMI launch permission" in found["remediation"]
+    assert one(aws(coll("ec2_image", [{**image, "Public": False}]), settings), "ec2_image")["status"] == "UNKNOWN"
+    assert one(aws(coll("ec2_image", [{**image, "OwnerId": "999988887777"}]), settings), "ec2_image")["status"] == "UNKNOWN"
+
+
 def test_ami_organization_and_ou_launch_permissions_join_account_organization():
     from peaso.finding_observation import evidence_summary
     from peaso.analysis.catalog import REQUIRED_TYPES

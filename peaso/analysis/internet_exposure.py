@@ -1489,6 +1489,20 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
     a = Assessment(resource, "data_share")
     coverage = (data.get("_coverage") or {}).get(coverage_field, {})
     permissions = data.get(field)
+    if resource["type"] == "ec2_image" and data.get("Public") is True:
+        account = str(resource.get("scope", "")).split("/", 1)[0]
+        if data.get("OwnerId") not in (None, account):
+            a.gap("inventory", "Public AMI owner does not match the scanned account")
+            return a
+        a.step("image_public_flag", "allow", image_id=data.get("ImageId"), public=True,
+               image_state=data.get("State"))
+        if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
+            a.gap("attributes", "Launch permission detail is incomplete; DescribeImages.Public proves the public grant",
+                  "ec2:DescribeImageAttribute")
+        a.data_exposure = True
+        a.ports = {}
+        a.explicit = "FAIL"
+        return a
     if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
         a.gap("attributes", f"{coverage_field} not completely collected", f"ec2:{permission_key}")
         return a

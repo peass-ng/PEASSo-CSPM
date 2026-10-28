@@ -484,6 +484,13 @@ def _internet_summary(finding):
             return 'AMI launch access is declared for external principals '+_items(external)+'. They may launch the shared image; actual use and other controls were not tested.'
         return 'Snapshot restore access is declared for external accounts '+_items(external)+'. These accounts may copy the data; actual restores and other controls were not tested.'
     if e.get('data_exposure')is True:
+        source=e.get('source') if isinstance(e.get('source'),dict) else {}
+        if kind=='data_share' and source.get('resource_type')=='ec2_image':
+            if not any(step.get('decision')=='allow' and
+                       (step.get('layer')=='attributes' and step.get('public_group')=='all' or
+                        step.get('layer')=='image_public_flag' and step.get('public') is True)
+                       for step in path):return None
+            return 'The AMI has public launch permission. Other accounts may launch it; successful use and backing snapshot access were not tested.'
         noun='Snapshot restore access' if kind=='data_share' and 'snapshot' in str((e.get('source') if isinstance(e.get('source'),dict) else {}).get('resource_type','')) else 'Stored-data access'
         return noun+' is declared public. This may expose data to unintended readers; actual reads and other access controls were not tested.'
     target=(' at '+_items(addresses)) if addresses else ''
