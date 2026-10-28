@@ -1311,7 +1311,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration", "bastion_host", "signalr_service"})
+                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration", "bastion_host", "signalr_service", "attestation_provider"})
 
 
 def _canonicalize_embedded(collections):
@@ -3324,6 +3324,26 @@ def collect(connector, requirements=None, *, transport=None):
                             _remaining_services_private_links(result, kind)
                             if kind in FULL_GET_KINDS:
                                 result = azure_swc.full_detail(result, kind, version)
+                            if kind == "attestation_provider":
+                                # The provider schema permits private JWK fields in signing certificates.
+                                # Public exposure requires only these control-plane properties.
+                                attestation_props = result["properties"]
+                                result = {**result, "properties": {
+                                    key: attestation_props[key] for key in
+                                    ("status", "attestUri", "publicNetworkAccess", "tpmAttestationAuthentication", "trustModel")
+                                    if key in attestation_props}}
+                                connections = attestation_props.get("privateEndpointConnections")
+                                if isinstance(connections, list):
+                                    result["properties"]["privateEndpointConnections"] = [
+                                        {"id": connection.get("id"), "properties": {
+                                            "privateEndpoint": {"id": details["privateEndpoint"]["id"]},
+                                            "privateLinkServiceConnectionState": {"status": state.get("status")}}}
+                                        for connection in connections if isinstance(connection, dict)
+                                        for details in [connection.get("properties")]
+                                        if isinstance(details, dict)
+                                        for state in [details.get("privateLinkServiceConnectionState")]
+                                        if isinstance(state, dict) and isinstance(details.get("privateEndpoint"), dict)
+                                        and isinstance(details["privateEndpoint"].get("id"), str)]
                             if kind == "bastion_host":
                                 bastion_props = result["properties"]
                                 result = {**result, "properties": {

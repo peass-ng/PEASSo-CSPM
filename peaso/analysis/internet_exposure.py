@@ -9698,6 +9698,52 @@ _AZURE_MANAGED_ENDPOINTS = {
 }
 
 
+def _azure_attestation_provider(snapshot, inventory, resource):
+    """Assess the provider's documented public HTTPS attestation endpoint."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    if (resource["data"].get("_provenance") or {}).get("representation") != "full":
+        a.gap("inventory", "Attestation provider full GET is unavailable")
+        return a
+    props = _props(resource)
+    public = props.get("publicNetworkAccess")
+    if public == "Disabled":
+        a.step("public_network", "block", public_network_access=public)
+        a.ports = {}
+        return a
+    if public != "Enabled":
+        a.gap("inventory", "Attestation public network access is unresolved")
+        return a
+    if props.get("status") != "Ready":
+        a.gap("inventory", "Attestation provider readiness is unresolved")
+        return a
+    uri = props.get("attestUri")
+    try:
+        parsed = urlsplit(uri) if isinstance(uri, str) else None
+        valid_uri = (parsed is not None and parsed.scheme == "https" and
+                     bool(parsed.hostname) and parsed.username is None and
+                     parsed.password is None and parsed.port in (None, 443) and
+                     not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid_uri = False
+    if not valid_uri:
+        a.gap("inventory", "Attestation provider URI is unavailable or malformed")
+        return a
+    a.addresses = [parsed.hostname]
+    a.endpoint = uri
+    a.step("public_network", "allow", public_network_access=public)
+    a.ports = pset("tcp", 443, 443)
+    tpm_auth = props.get("tpmAttestationAuthentication")
+    if tpm_auth == "Disabled":
+        a.authenticated = False
+        a.step("tpm_authentication", "allow", authentication_requirement="disabled")
+    elif tpm_auth == "Enabled":
+        a.step("tpm_authentication", "conditional", authentication_requirement="enabled")
+    else:
+        a.notes.append("TPM attestation authentication requirement is unavailable")
+    return a
+
+
 def _azure_vpn_gateway(snapshot, inventory, resource):
     """Assess configured VPN tunnel listeners on observed gateway public IPs."""
     a = Assessment(resource, "vpn_gateway")
@@ -12127,7 +12173,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "attestation_provider", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12142,7 +12188,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "private_link_service",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "attestation_provider", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "bastion_host", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12236,6 +12282,7 @@ def assess(snapshot, resources):
                   "azure_firewall": _azure_firewall,
                   "bastion_host": _azure_bastion,
                   "virtual_network_gateway": _azure_vpn_gateway,
+                  "attestation_provider": _azure_attestation_provider,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "analysis_server": _azure_analysis_server,
