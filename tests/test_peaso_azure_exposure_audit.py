@@ -1474,6 +1474,35 @@ def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncerta
     assert edge_decision([route], hostname=False).verdict() == "UNKNOWN"
 
 
+def test_afd_disabled_endpoint_blocks_enabled_child_route():
+    from peaso.collectors.azure_frontdoor_native import _routes
+
+    profile = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
+    endpoint_id = profile + "/afdEndpoints/default"
+    group_id = profile + "/originGroups/main"
+    route = {"id": endpoint_id + "/routes/all", "type": "Microsoft.Cdn/profiles/afdEndpoints/routes",
+             "properties": {"enabledState": "Enabled", "patternsToMatch": ["/*"],
+                 "ruleSets": [], "customDomains": [], "linkToDefaultDomain": "Enabled",
+                 "originGroup": {"id": group_id}, "supportedProtocols": ["Https"],
+                 "forwardingProtocol": "HttpsOnly", "httpsRedirect": "Disabled"}}
+
+    def projected(endpoint_state):
+        item = {"id": profile, "sku": {"name": "Standard_AzureFrontDoor"}, "properties": {},
+                "endpoints": [{"id": endpoint_id, "properties": {
+                    "hostName": "edge.azurefd.net", "enabledState": endpoint_state}}],
+                "originGroups": [{"id": group_id}], "domains": [], "securityPolicies": []}
+        _routes(item, "afd", [route])
+        snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
+            "scope": SCOPE, "service": "cdn", "status": "collected", "items": [item]}])
+        return next(a for a in assess(snap, resources(snap))
+                    if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    blocked = projected("Disabled")
+    assert blocked.verdict() == "PASS" and blocked.ports == {}
+    assert projected("Enabled").verdict() == "UNKNOWN"  # Origin access still unresolved.
+    assert projected(None).verdict() == "UNKNOWN"
+
+
 def test_api_management_public_gateway_and_network_gates():
     base = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
             "disableGateway": False, "gatewayUrl": "https://gateway.azure-api.net"}
