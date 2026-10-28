@@ -1,7 +1,7 @@
 # Azure Lighthouse exposure source proof
 
 The reviewed Azure collector SHA-256 after this change is
-`2afdf34c17aa049403041dfc3df869f3c6c3f9a6d5f2921f5edf0ce45b30fbee`.
+`e2b081f6279b7d3e02e992eb8b154a046d6ddfe78dfdc18bcef95136c99fe492`.
 
 [Azure Lighthouse architecture](https://learn.microsoft.com/en-us/azure/lighthouse/concepts/azure-delegated-resource-management) states that a registration assignment at a subscription or resource group scope activates a registration definition's managing-tenant authorizations. The collector uses one paged, read-only [registration assignment LIST](https://learn.microsoft.com/en-us/rest/api/managedservices/registration-assignments/list?view=rest-managedservices-2022-10-01) per selected subscription and enumerated resource group, with `$expandRegistrationDefinition=true`. It reuses the selected subscription and resource-group inventory and the per-scan request cache. Assignment IDs are bound to the requested scope; only tenant IDs, status and role/principal identifiers are retained. Missing expansion, malformed children and incomplete group enumeration cannot prove absence.
 

@@ -1311,7 +1311,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration", "bastion_host"})
+                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration", "bastion_host", "signalr_service"})
 
 
 def _canonicalize_embedded(collections):
@@ -3342,6 +3342,21 @@ def collect(connector, requirements=None, *, transport=None):
                                         for row in rules]} if isinstance(rules, list) else {"ipRules": None}
                                 elif acls is not None and not isinstance(acls, dict):
                                     result["properties"]["networkAcls"] = {"ipRules": None}
+                            if kind == "signalr_service":
+                                signalr_props = result["properties"]
+                                upstream = signalr_props.pop("upstream", None)
+                                templates = upstream.get("templates") if isinstance(upstream, dict) else [] if upstream is None else None
+                                hosts, complete = [], isinstance(templates, list)
+                                for template in templates if isinstance(templates, list) else []:
+                                    url = template.get("urlTemplate") if isinstance(template, dict) else None
+                                    parts = urlsplit(url) if isinstance(url, str) else None
+                                    if (parts is None or parts.scheme not in ("http", "https") or not parts.hostname
+                                            or parts.username or parts.password):
+                                        complete = False
+                                    else:
+                                        hosts.append(parts.hostname)
+                                signalr_props["upstreamHosts"] = sorted(set(hosts))
+                                signalr_props["upstreamComplete"] = complete
                             if kind == "app_configuration":
                                 result = _app_configuration_private_link_metadata(result)
                             if kind == "mongo_cluster":

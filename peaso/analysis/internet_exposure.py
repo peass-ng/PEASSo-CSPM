@@ -10215,6 +10215,49 @@ def _azure_realtime_endpoint(snapshot, inventory, resource):
     return a
 
 
+def _azure_signalr_upstream(snapshot, inventory, resource):
+    """SignalR Serverless sends client events to configured HTTP upstreams."""
+    a = Assessment(resource, "external_event_delivery")
+    a.ports = {}
+    props = _props(resource)
+    if (resource["data"].get("_provenance") or {}).get("representation") != "full":
+        a.gap("inventory", "SignalR upstreams require a full resource GET")
+        return a
+    flags = props.get("features")
+    if flags is None:
+        flags = props.get("featureFlags")
+    if not isinstance(flags, list):
+        a.gap("inventory", "SignalR service mode is unavailable")
+        return a
+    modes = [row.get("value") for row in flags if isinstance(row, dict) and row.get("flag") == "ServiceMode"]
+    if len(modes) > 1 or (modes and modes[0] not in ("Default", "Serverless", "Classic")):
+        a.gap("inventory", "SignalR service mode is malformed")
+        return a
+    if modes and modes[0] in ("Default", "Classic"):
+        a.step("service_mode", "block", mode=modes[0], reason="upstream hooks run only in Serverless mode")
+        return a
+    hosts = props.get("upstreamHosts")
+    complete = props.get("upstreamComplete")
+    if not isinstance(hosts, list) or complete not in (True, False):
+        a.gap("inventory", "SignalR upstream template projection is unavailable")
+        return a
+    if not modes and hosts:
+        a.gap("inventory", "SignalR service mode is unavailable for configured upstreams")
+        return a
+    if hosts:
+        a.data_exposure = True
+        a.external_ids = sorted(set(hosts))
+        a.step("upstream", "allow", receiver_hosts=a.external_ids, mode="Serverless")
+    elif complete:
+        a.step("upstream", "same_source", reason="no configured HTTP upstream template")
+    if not complete:
+        a.gap("inventory", "SignalR upstream templates contain malformed or missing URLs")
+        if hosts:
+            for gap in a.unresolved:
+                gap["decisive"] = False
+    return a
+
+
 def _azure_synapse_workspace(snapshot, inventory, resource):
     """Workspace public SQL/development listeners and complete ARM IP rules."""
     props = _props(resource)
@@ -12063,6 +12106,15 @@ def assess(snapshot, resources):
             current.gap("inventory", f"malformed native fact: {type(exc).__name__}")
         if current is not None:
             output.append(current)
+        if (provider == "azure" and resource["type"] == "signalr_service" and
+                ((resource["data"].get("_provenance") or {}).get("representation") == "full" or
+                 "upstreamHosts" in _props(resource))):
+            try:
+                output.append(_azure_signalr_upstream(snapshot, inventory, resource))
+            except (TypeError, AttributeError, KeyError, ValueError, IndexError) as exc:
+                upstream = Assessment(resource, "external_event_delivery")
+                upstream.gap("inventory", f"malformed SignalR upstream fact: {type(exc).__name__}")
+                output.append(upstream)
         if provider == "aws" and resource["type"] in ("lambda_function", "lambda_alias"):
             direct = _aws_lambda_direct_invoke(snapshot, inventory, resource)
             if direct is not None:
@@ -12084,6 +12136,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "signalr_service" and assessment.kind == "external_event_delivery":
+        return ("SignalR sends client events to an upstream URL" if status == "FAIL" else
+                "SignalR upstream delivery unresolved" if status == "UNKNOWN" else
+                "SignalR has no active upstream delivery")
     if assessment.resource["type"] == "bastion_host":
         return ("Bastion client endpoint or shareable link is exposed" if status == "FAIL" else
                 "Bastion client or shareable-link path unresolved" if status == "UNKNOWN" else
@@ -12209,6 +12265,12 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "signalr_service" and assessment.kind == "external_event_delivery":
+        if status == "FAIL":
+            return "Serverless SignalR has an HTTP upstream that can receive client events; only receiver hostnames are retained."
+        if status == "PASS":
+            return "The collected SignalR service mode cannot run upstream hooks, or no upstream template is configured."
+        return "SignalR service mode or upstream template inventory is incomplete."
     if assessment.resource["type"] == "bastion_host":
         if status == "FAIL":
             return "Azure Bastion has a public HTTPS client path or an issued shareable URL for a VM. Target VM authentication still applies; URL tokens are not retained."
