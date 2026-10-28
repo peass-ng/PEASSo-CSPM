@@ -342,6 +342,41 @@ def full_detail(value, kind, version):
 
 def list_detail(value, kind):
     """Attest alert LISTs; retain action-group configuration as metadata only."""
+    if kind == "monitor_workspace":
+        props = value.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("Monitor workspace properties unavailable")
+        metrics = props.get("metrics")
+        endpoint = metrics.get("prometheusQueryEndpoint") if isinstance(metrics, dict) else None
+        try:
+            parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+            host = parsed.hostname if parsed and parsed.scheme == "https" and not parsed.username and not parsed.password and parsed.port in (None, 443) else None
+        except ValueError:
+            host = None
+        if not isinstance(host, str) or not host.lower().endswith(".prometheus.monitor.azure.com"):
+            host = None
+        connections = props.get("privateEndpointConnections")
+        safe_connections = None
+        if isinstance(connections, list):
+            safe_connections = []
+            for row in connections:
+                if not isinstance(row, dict) or not isinstance(row.get("properties"), dict):
+                    raise ValueError("Monitor workspace private connection malformed")
+                detail = row["properties"]
+                link = detail.get("privateEndpoint")
+                state = detail.get("privateLinkServiceConnectionState")
+                safe_connections.append({"privateEndpointId": link.get("id") if isinstance(link, dict) else None,
+                                         "status": state.get("status") if isinstance(state, dict) else None,
+                                         "provisioningState": detail.get("provisioningState"),
+                                         "groupIds": detail.get("groupIds")})
+        return {**{key: value[key] for key in ("id", "name", "type", "location") if key in value},
+                "properties": {"publicNetworkAccess": props.get("publicNetworkAccess"),
+                               "provisioningState": props.get("provisioningState"),
+                               "queryEndpointHost": host,
+                               "privateEndpointConnections": safe_connections},
+                "_provenance": {"source_operation": "AzureMonitorWorkspaces_ListBySubscription",
+                                "api_version": "2025-10-03", "read_only": True,
+                                "representation": "metadata"}}
     if kind == "powerbi_capacity":
         props = value.get("properties")
         administration = props.get("administration") if isinstance(props, dict) else None
