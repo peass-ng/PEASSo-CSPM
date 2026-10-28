@@ -228,6 +228,44 @@ def test_load_balancer_public_ip_prefix_frontend_is_outbound_only():
     assert not any(row.resource["type"] == "load_balancer" for row in assess(snapshot, resources(snapshot)))
 
 
+def test_load_balancer_individual_nat_and_backend_pool_range_boundary():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    lb_id, nic_id = base + "/loadBalancers/lb", base + "/networkInterfaces/nic"
+    front_id, pool_id = lb_id + "/frontendIPConfigurations/front", lb_id + "/backendAddressPools/pool"
+    config_id, subnet_id = nic_id + "/ipConfigurations/primary", base + "/virtualNetworks/v/subnets/s"
+
+    def decision(rule_props, kind="inboundNatRules", legacy=False):
+        lb_props = {"frontendIPConfigurations": [{"id": front_id,
+            "properties": {"publicIPAddress": {"id": base + "/publicIPAddresses/pip"}}}],
+            "backendAddressPools": [{"id": pool_id,
+                "properties": {"backendIPConfigurations": [{"id": config_id}]}}]}
+        lb_props["inboundNatPools" if legacy else kind] = [
+            {"name": "ssh", "properties": rule_props}]
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "load_balancer", "scope": SCOPE, "status": "collected", "items": [
+                {"id": lb_id, "sku": {"name": "Basic"}, "properties": lb_props}]},
+            {"type": "public_ip", "scope": SCOPE, "status": "collected", "items": [
+                {"id": base + "/publicIPAddresses/pip", "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "nic", "scope": SCOPE, "status": "collected", "items": [
+                {"id": nic_id, "properties": {"ipConfigurations": [{"id": config_id,
+                    "properties": {"privateIPAddress": "10.0.0.4", "subnet": {"id": subnet_id}}}]}}]},
+            {"type": "subnet", "scope": SCOPE, "status": "collected", "items": [
+                {"id": subnet_id, "properties": {}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "load_balancer")
+
+    individual = decision({"frontendIPConfiguration": {"id": front_id},
+        "backendIPConfiguration": {"id": config_id}, "protocol": "Tcp",
+        "frontendPort": 2200, "backendPort": 22})
+    assert individual.verdict() == "FAIL" and individual.ports == {"tcp": ((2200, 2200),)}
+    pool = {"frontendIPConfiguration": {"id": front_id},
+        "backendAddressPool": {"id": pool_id}, "protocol": "Tcp",
+        "frontendPortRangeStart": 5000, "frontendPortRangeEnd": 5100, "backendPort": 22}
+    for row in (decision(pool), decision(pool, legacy=True)):
+        assert row.verdict() == "UNKNOWN"
+        assert any("per-instance frontend port mapping" in gap["reason"] for gap in row.unresolved)
+
+
 @pytest.mark.parametrize("kind,field", [
     ("container_registry", "networkRuleSet"), ("cognitive_account", "networkAcls")])
 def test_managed_endpoint_parent_public_ip_rules(kind, field):

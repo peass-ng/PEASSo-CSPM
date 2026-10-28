@@ -4273,10 +4273,23 @@ def _azure_lb(snapshot, inventory, resource):
     backend_routes = []
     unresolved_backends = []
     rules = [("loadBalancingRules", r) for r in as_list(props.get("loadBalancingRules"))] + [("inboundNatRules", r) for r in as_list(props.get("inboundNatRules"))]
+    for pool in as_list(props.get("inboundNatPools")):
+        if not isinstance(pool, dict):
+            continue
+        pp = pool.get("properties") or {}
+        front_id = str((pp.get("frontendIPConfiguration") or {}).get("id", "")).lower()
+        if front_id in fronts:
+            unresolved_backends.append(
+                f"legacy inbound NAT pool {pool.get('name')}: per-instance frontend port mapping and backend path unresolved")
     for kind, rule in rules:
         rp = (rule or {}).get("properties") or {}
         front_id = str((rp.get("frontendIPConfiguration") or {}).get("id", "")).lower()
         if front_id not in fronts:
+            continue
+        if kind == "inboundNatRules" and (rp.get("backendAddressPool") or
+                                           rp.get("frontendPortRangeStart") is not None):
+            unresolved_backends.append(
+                f"inbound NAT backend-pool rule {rule.get('name')}: per-instance frontend port mapping and backend path unresolved")
             continue
         protocol = rp.get("protocol", "Tcp")
         frontend, backend = rp.get("frontendPort"), rp.get("backendPort", rp.get("frontendPort"))
