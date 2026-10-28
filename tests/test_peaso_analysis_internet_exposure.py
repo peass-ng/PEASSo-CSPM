@@ -1313,6 +1313,46 @@ def test_gcp_dataset_access_conditions_do_not_prove_public_or_delegated_read():
     assert assessment().verdict() == "FAIL"
 
 
+def test_gcp_dataset_project_special_groups_join_project_and_ancestor_roles():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    dataset = {"name": "projects/p1/datasets/data", "access": [
+        {"role": "READER", "specialGroup": "projectReaders"}]}
+    policy = {"name": "projects/p1", "bindings": [{
+        "role": "roles/viewer", "members": ["allUsers"]}]}
+    project = {"name": "projects/123", "projectId": "p1", "projectNumber": "123",
+               "_inherited_iam_policies": [],
+               "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [dataset], service="bigquery"),
+                   gcoll("iam_policy", [policy], service="cloudasset"),
+                   gcoll("project", [project], service="cloudresourcemanager"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset")
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert result.path[-1]["grants"][0]["iam_role"] == "roles/viewer"
+    policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+    policy["bindings"][0].pop("condition")
+    policy["bindings"][0]["role"] = "roles/editor"
+    assert assessment() is None
+    dataset["access"][0].update({"specialGroup": "projectWriters", "role": "WRITER"})
+    assert assessment().verdict() == "FAIL"
+    policy["bindings"][0]["members"] = ["serviceAccount:sa@outside.iam.gserviceaccount.com"]
+    result = assessment()
+    assert result.verdict() == "FAIL" and result.external_ids == ["outside"]
+    policy["bindings"] = []
+    dataset["access"][0].update({"specialGroup": "projectOwners", "role": "OWNER"})
+    project["_inherited_iam_policies"] = [{"name": "folders/42", "ancestor": "folders/42",
+        "bindings": [{"role": "roles/owner", "members": ["allUsers"]}]}]
+    result = assessment()
+    assert result.verdict() == "FAIL" and result.path[-1]["grants"][0]["scope"] == "folders/42"
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
+    assert assessment().verdict() == "UNKNOWN"
+
+
 def test_gcp_authorized_view_conditional_destination_dataset_acl_is_unknown():
     from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
     from peaso.snapshot import resources
