@@ -8,16 +8,18 @@ Input: `~/peaso-work/replay/aws-bf67-collected-snapshot.json.gz`, the saved coll
 
 | Measure | Previous route on saved input | New route on saved input |
 | --- | ---: | ---: |
-| Native FAILs offered to Hardening reviewer | 16,284 | 0 |
-| Native FAILs offered to Exposure reviewer | 505 | 0 |
-| Initial representative batches planned | 21 Hardening + 5 Exposure | 0 |
-| Hardening/Exposure model launches | At most 26 initial planned batches plus possible individual rechecks; actual launches unavailable for this saved collection | 0 |
+| Native Hardening FAILs in offline evaluation | 16,284 | 16,284, all final |
+| Native Exposure FAILs in offline evaluation | 505 | 505, all final |
+| First-pass reviewer batches planned with native admission disabled | 21 Hardening + 5 Exposure | 0 |
+| Hardening/Exposure model launches | 26 first-pass batches in the offline no-admission plan; actual deployed launch count unavailable | 0 |
 | Hardening/Exposure model calls | Unavailable without a model replay | 0 |
 | Hardening/Exposure model tokens | Unavailable without a model replay | 0 |
 | Hardening/Exposure model wall time | Unavailable without a model replay | 0 seconds |
 | Native evaluation wall time | 114.405 seconds (second local replay) | Same native evaluation; 114.405 seconds |
 
 The second local replay loaded the compressed snapshot in 5.626 seconds, evaluated 124,416 native findings in 114.405 seconds, and peaked at 2,411,053,056 bytes RSS on macOS. First replay: 4.316 seconds loading and 96.428 seconds evaluating, with 2,285,223,936 bytes peak RSS. These timings vary with concurrent work on the host and do not include AI inference.
+
+The matching production bf67 receipt, `~/peaso-work/receipts/prod-aws-ai-836a-full-final-summary.json`, records 1,316 Hardening and 504 Exposure AI inputs after its deployed native-final allowlist, Network completed, Priorities produced 15 actions, and the whole Analyze phase took 1,273.142 seconds. That phase includes native evaluation, AI and report publication; it is not model-only wall time. The offline 26-batch plan intentionally disables native admission to measure the former full-review route, so it is not the deployed bf67 task count.
 
 For a separate production AWS scan, `~/peaso-work/receipts/prod-aws-ai-f204-final-summary.json` and its ECS task receipt record **16 total AI ECS tasks** across all stages, spanning 1,088.576 seconds from first creation to last stop (4,648.563 summed task seconds). That scan had 1,312 Hardening and 504 Exposure AI inputs after its native-final allowlist, plus Network and Priorities. The receipt has no per-stage task labels or token counts, so its wall time cannot be assigned specifically to the removed agents or compared as a same-snapshot before/after runtime.
 
