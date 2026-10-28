@@ -1261,7 +1261,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
-    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook",
+    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook", "cost_export",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -2559,6 +2559,8 @@ def _selected(options, requirements):
         selected.add("managed_grafana")
     if selected.intersection(("acat_report", "acat_webhook")):
         selected.update(("acat_report", "acat_webhook"))
+    if "cost_export" in selected:
+        selected.update(("resource_group", "management_group"))
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -3364,6 +3366,93 @@ def collect(connector, requirements=None, *, transport=None):
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
+        if "cost_export" in wanted:
+            def billing_export_scopes():
+                account_url = ARM + "/providers/Microsoft.Billing/billingAccounts?api-version=2024-04-01&includeAll=true"
+                accounts = []
+                seen_accounts = set()
+                for page in reader.pages(request, account_url):
+                    projected = []
+                    for row in page:
+                        rid = row.get("id") if isinstance(row, dict) else None
+                        props = row.get("properties") if isinstance(row, dict) else None
+                        if (not isinstance(rid, str) or re.fullmatch(
+                                r"/providers/Microsoft\.Billing/billingAccounts/[^/?#%\\\s]+", rid, re.I) is None
+                                or rid.casefold() in seen_accounts or not isinstance(props, dict)):
+                            raise ValueError("malformed billing account identity")
+                        seen_accounts.add(rid.casefold())
+                        agreement = props.get("agreementType")
+                        accounts.append((rid, agreement))
+                        projected.append({"id": rid})
+                    yield projected
+                def children(parent, kind):
+                    path = parent + "/" + kind
+                    url = ARM + path + "?api-version=2024-04-01"
+                    seen = set()
+                    for page in reader.pages(request, url):
+                        projected = []
+                        for row in page:
+                            rid = row.get("id") if isinstance(row, dict) else None
+                            if (not isinstance(rid, str) or re.fullmatch(
+                                    re.escape(path) + r"/[^/?#%\\\s]+", rid, re.I) is None
+                                    or rid.casefold() in seen):
+                                raise ValueError("malformed billing hierarchy identity")
+                            seen.add(rid.casefold())
+                            projected.append({"id": rid})
+                        yield projected
+                for account, agreement in accounts:
+                    if agreement == "EnterpriseAgreement":
+                        yield from children(account, "departments")
+                        yield from children(account, "enrollmentAccounts")
+                    elif agreement in ("MicrosoftCustomerAgreement", "MicrosoftPartnerAgreement"):
+                        profiles = []
+                        for page in children(account, "billingProfiles"):
+                            profiles.extend(item["id"] for item in page)
+                            yield page
+                        if agreement == "MicrosoftCustomerAgreement":
+                            for profile in profiles:
+                                yield from children(profile, "invoiceSections")
+                        else:
+                            yield from children(account, "customers")
+                    elif agreement not in ("MicrosoftOnlineServicesProgram",):
+                        raise ValueError("unsupported billing agreement type for Cost exports")
+            reader.run([("cost_export_billing_scope", tenant_scope, "Microsoft.Billing", billing_export_scopes)])
+            def cost_exports(scope):
+                url = ARM + scope + "/providers/Microsoft.CostManagement/exports?api-version=2025-03-01"
+                prefix = scope + "/providers/Microsoft.CostManagement/exports/"
+                seen = set()
+                for page in reader.pages(request, url):
+                    projected = []
+                    for row in page:
+                        rid = row.get("id") if isinstance(row, dict) else None
+                        props = row.get("properties") if isinstance(row, dict) else None
+                        if (not isinstance(rid, str) or not rid.casefold().startswith(prefix.casefold())
+                                or re.fullmatch(r"[^/?#%\\\s]+", rid[len(prefix):]) is None
+                                or rid.casefold() in seen or not isinstance(props, dict)):
+                            raise ValueError("foreign, duplicate or malformed Cost Management export")
+                        seen.add(rid.casefold())
+                        delivery = props.get("deliveryInfo")
+                        destination = delivery.get("destination") if isinstance(delivery, dict) else None
+                        if destination is None:
+                            destination = {}
+                        if not isinstance(destination, dict):
+                            raise ValueError("Cost Management export destination malformed")
+                        target = destination.get("resourceId")
+                        if target is not None and (not isinstance(target, str) or re.fullmatch(
+                                r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Storage/storageAccounts/[^/?#%\\\s]+", target, re.I) is None):
+                            raise ValueError("Cost Management export storage identity malformed")
+                        projected.append({"id": rid, "name": rid.rsplit("/", 1)[-1],
+                                          "type": "Microsoft.CostManagement/exports",
+                                          "properties": {"sourceScope": scope,
+                                                         "destination": {"resourceId": target,
+                                                                         "hasPartnerSasDestination": bool(destination.get("storageAccount"))}}})
+                    yield projected
+            export_scopes = list(scopes)
+            for collection in reader.collections:
+                if collection["type"] in ("resource_group", "management_group", "cost_export_billing_scope") and collection["status"] in ("collected", "empty", "partial"):
+                    export_scopes.extend(item["id"] for item in collection["items"] if isinstance(item.get("id"), str))
+            export_scopes = list(dict.fromkeys(export_scopes))
+            reader.run([("cost_export", scope, "Microsoft.CostManagement", lambda scope=scope: cost_exports(scope)) for scope in export_scopes])
         if "acat_report" in wanted:
             def acat_reports():
                 url = ARM + "/providers/Microsoft.AppComplianceAutomation/reports?api-version=2024-06-27"

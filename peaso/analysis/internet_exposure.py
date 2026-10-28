@@ -10709,6 +10709,34 @@ def _azure_acat_report(snapshot, inventory, resource):
     return a
 
 
+def _azure_cost_export(snapshot, inventory, resource):
+    """Cost exports can deliver billing data to a different subscription."""
+    a = Assessment(resource, "external_report_delivery")
+    a.ports = {}
+    props = _props(resource)
+    source = props.get("sourceScope")
+    destination = props.get("destination")
+    if not isinstance(source, str) or not isinstance(destination, dict):
+        a.gap("inventory", "Cost export source or destination is unavailable")
+        return a
+    source_match = re.match(r"^/subscriptions/([^/]+)(?:/|$)", source, re.I)
+    target = destination.get("resourceId")
+    target_match = re.match(r"^/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Storage/storageAccounts/[^/]+$", target, re.I) if isinstance(target, str) else None
+    if target_match and source_match:
+        target_subscription = target_match.group(1)
+        if target_subscription.casefold() != source_match.group(1).casefold():
+            a.data_exposure = True
+            a.external_ids = [target_subscription]
+            a.step("storage_destination", "allow", destination_subscription=target_subscription)
+        else:
+            a.step("storage_destination", "same_source", reason="destination belongs to the source subscription")
+    elif destination.get("hasPartnerSasDestination") is True:
+        a.gap("inventory", "Partner SAS export destination can be in another tenant; owner is not returned")
+    else:
+        a.gap("inventory", "Cost export storage destination is unavailable or malformed")
+    return a
+
+
 def _azure_acat_webhook(snapshot, inventory, resource):
     """Assess configured delivery of report events to a webhook receiver."""
     a = Assessment(resource, "external_report_delivery")
@@ -11516,7 +11544,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11531,7 +11559,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "analysis_server", "private_link_service",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "analysis_server", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11643,6 +11671,7 @@ def assess(snapshot, resources):
                   "data_share_provider_subscription": _azure_data_share_recipient,
                   "acat_report": _azure_acat_report,
                   "acat_webhook": _azure_acat_webhook,
+                  "cost_export": _azure_cost_export,
                   "lighthouse_assignment": _azure_lighthouse_assignment,
                   "managed_application": _azure_managed_application,
                   "managed_grafana": _azure_managed_grafana,
@@ -11685,6 +11714,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "cost_export":
+        return ("Cost Management export targets another subscription" if status == "FAIL" else
+                "Cost Management export destination ownership unresolved" if status == "UNKNOWN" else
+                "Cost Management export destination is in its source subscription")
     if assessment.resource["type"] in ("acat_report", "acat_webhook"):
         return ("App Compliance report has an external delivery destination" if status == "FAIL" else
                 "App Compliance report delivery unresolved" if status == "UNKNOWN" else
@@ -11790,6 +11823,12 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "cost_export":
+        if status == "FAIL":
+            return "The configured billing-data export destination is a storage account in another subscription."
+        if status == "PASS":
+            return "The configured billing-data export destination is in the source subscription."
+        return "The export destination owner cannot be established from the returned storage account or partner SAS metadata."
     if assessment.resource["type"] in ("acat_report", "acat_webhook"):
         if status == "FAIL":
             return ("The report stores results outside its source subscriptions or an enabled webhook is configured "

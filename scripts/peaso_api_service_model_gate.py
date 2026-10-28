@@ -6,7 +6,7 @@ from pathlib import Path
 
 REVIEWED_PYTHON_SHA256 = '3bbe130219640d2817ff8c0bf1ae7859bc62dcf0006bcfb63e4e5a4188104f2f'
 REVIEWED_PYTHON_COUNT = 1718
-REVIEWED_MANIFEST_SHA256 = '3a47b099d6e2add19c27267a8f98fb9c1b5acbca44c3c61bedca8149e58e32ee'
+REVIEWED_MANIFEST_SHA256 = '714d6435d0ee54dad7d0acaa616783952216719a8ef4a893ea423be975f579f4'
 REQUIRED_BOTOCORE_VERSION = '1.43.38'
 API_SERVICES = frozenset({
     'accessanalyzer', 'cloudtrail', 'cognito-identity', 'cognito-idp',
