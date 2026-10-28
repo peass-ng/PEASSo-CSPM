@@ -1594,6 +1594,47 @@ def _aws_ram_share(snapshot, inventory, resource):
     return a
 
 
+def _aws_vpn_connection(snapshot, inventory, resource):
+    """Report the public IPsec frontend, separately from routed tunnel traffic."""
+    data = resource["data"]
+    if data.get("State") in ("deleted", "deleting"):
+        return None
+    a = Assessment(resource, "vpn_gateway")
+    options = data.get("Options")
+    if not isinstance(options, dict) or data.get("State") != "available":
+        a.gap("inventory", "VPN connection state or outside address mode is unresolved")
+        return a
+    mode = options.get("OutsideIpAddressType", "PublicIpv4")
+    if mode == "PrivateIpv4":
+        a.ports = {}
+        a.step("vpn_transport", "block", outside_address_type=mode)
+        return a
+    if mode not in ("PublicIpv4", "Ipv6"):
+        a.gap("inventory", "VPN outside address mode is unsupported or malformed")
+        return a
+    telemetry = data.get("VgwTelemetry")
+    tunnels = options.get("TunnelOptions")
+    if not isinstance(telemetry, list) or not isinstance(tunnels, list):
+        a.gap("inventory", "VPN tunnel outside addresses are not completely collected")
+        return a
+    rows = telemetry + tunnels
+    if not rows or any(not isinstance(row, dict) for row in rows):
+        a.gap("inventory", "VPN tunnel outside address records are missing or malformed")
+        return a
+    addresses = sorted({row["OutsideIpAddress"] for row in rows
+                        if isinstance(row.get("OutsideIpAddress"), str) and _public_ip(row["OutsideIpAddress"])})
+    if not addresses:
+        a.gap("inventory", "Public VPN tunnel outside address is absent or malformed")
+        return a
+    a.addresses = addresses
+    a.ports = union(pset("udp", 500, 500), pset("udp", 4500, 4500))
+    a.ports["esp"] = ((0, 0),)
+    a.authenticated = True
+    a.step("vpn_transport", "allow", addresses=addresses, protocols=["udp/500", "udp/4500", "esp"])
+    a.notes.append("Public IPsec tunnel endpoints require peer authentication; tunnel routes and downstream controls are separate")
+    return a
+
+
 def _aws_cloudfront(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("Config")
@@ -6559,7 +6600,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway",
+AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpn_connection",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
@@ -6581,7 +6622,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6623,7 +6664,7 @@ def assess(snapshot, resources):
                 "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot"),
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
-                "ram_resource_share": _aws_ram_share,
+                "ram_resource_share": _aws_ram_share, "vpn_connection": _aws_vpn_connection,
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,

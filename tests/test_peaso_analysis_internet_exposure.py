@@ -91,6 +91,26 @@ def deployed_rest(api, *, stage="prod", authorization=None, api_key_required=Non
         "_provenance": {"stage_deployment_join_verified": True}}], service="apigateway")
 
 
+def test_aws_site_to_site_vpn_public_ipsec_frontend():
+    connection = {"VpnConnectionId": "vpn-1", "State": "available",
+                  "Options": {"OutsideIpAddressType": "PublicIpv4",
+                              "TunnelOptions": [{"OutsideIpAddress": "54.1.2.3"}]},
+                  "VgwTelemetry": [{"OutsideIpAddress": "54.1.2.3", "Status": "DOWN"}]}
+    result = one(aws(coll("vpn_connection", [connection])), "vpn_connection")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["54.1.2.3"]
+    assert result["evidence"]["exposed_ports"] == ["udp/500", "udp/4500", "esp"]
+    assert result["evidence"]["authenticated_endpoint"] is True
+
+    private = copy.deepcopy(connection)
+    private["Options"]["OutsideIpAddressType"] = "PrivateIpv4"
+    assert one(aws(coll("vpn_connection", [private])), "vpn_connection")["status"] == "PASS"
+
+    missing = copy.deepcopy(connection)
+    del missing["VgwTelemetry"]
+    assert one(aws(coll("vpn_connection", [missing])), "vpn_connection")["status"] == "UNKNOWN"
+
+
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
     (["es:DescribeDomain"], "/*", False, True),
     (["es:ESHttpGet"], "/other/*", False, False),
