@@ -3184,9 +3184,21 @@ def gcp_source_repository_external_reader_findings(snapshot, resources):
         if not grants:
             continue
         unconditional = [grant for grant in grants if not grant["condition"]]
+        named_grant = (unconditional or grants)[0]
+        if unconditional:
+            observed = (
+                f"This source repository's IAM policy grants roles/source.reader to {named_grant['member']}.\n"
+                "That grant may let the service account fetch source files.\n"
+                "Those files could contain code or data intended to stay within this project."
+            )
+        else:
+            observed = (
+                f"This source repository's IAM policy has a conditional roles/source.reader grant to {named_grant['member']}.\n"
+                "The recorded condition leaves this account's source access unclear.\n"
+                "If it allows access, the account could fetch code or data from this project."
+            )
         evidence = {
-            "observed": ("The collected source repository IAM policy grants Source Repository Reader to a service account from another project."
-                         if unconditional else "The collected source repository IAM policy has a conditional Source Repository Reader grant to a service account from another project."),
+            "observed": observed,
             "direct_reader_grants": grants,
             "permission": "source.repos.get",
             "source": source(snapshot, resource, "iamPolicy.bindings"),
@@ -3237,7 +3249,11 @@ def gcp_scheduler_oidc_target_findings(snapshot, resources):
         origin_host = f"[{host.lower()}]" if ":" in host else host.lower()
         origin = f"{parsed.scheme}://{origin_host}" + (f":{port}" if port else "")
         evidence = {
-            "observed": "The enabled Cloud Scheduler job is configured to send a service-account OIDC token to an HTTP target.",
+            "observed": (
+                f"The enabled Cloud Scheduler job is configured to send an OIDC token for {token['serviceAccountEmail']} to {origin}.\n"
+                "When the job runs, that target may receive the service account's identity token.\n"
+                "If the target is outside trusted control, the token could expose access tied to that identity."
+            ),
             "target_origin": origin,
             "service_account": token["serviceAccountEmail"],
             "http_method": target.get("httpMethod"),
@@ -3276,9 +3292,21 @@ def gcp_artifact_public_reader_findings(snapshot, resources):
         if not grants:
             continue
         unconditional = [grant for grant in grants if not grant["condition"]]
+        named_grant = (unconditional or grants)[0]
+        if unconditional:
+            observed = (
+                f"This Artifact Registry repository's IAM policy grants roles/artifactregistry.reader to {named_grant['member']}.\n"
+                "That grant may let the public principal download artifacts from this repository.\n"
+                "Those artifacts could contain software or data intended for a smaller audience."
+            )
+        else:
+            observed = (
+                f"This Artifact Registry repository's IAM policy has a conditional roles/artifactregistry.reader grant to {named_grant['member']}.\n"
+                "The recorded condition leaves public artifact access unclear.\n"
+                "If it allows access, artifacts could reach people outside the intended audience."
+            )
         evidence = {
-            "observed": ("The collected Artifact Registry repository IAM policy grants Reader to a public principal."
-                         if unconditional else "The collected Artifact Registry repository IAM policy has a conditional public Reader grant."),
+            "observed": observed,
             "direct_reader_grants": grants,
             "permission": "artifactregistry.repositories.downloadArtifacts",
             "repository_format": data.get("format"),
@@ -5527,6 +5555,32 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.resource["type"] == "composer_environment":
+        allowlist = next((step for step in assessment.path
+                          if step["layer"] == "web_server_ip_allowlist"), {})
+        if status == "FAIL":
+            setting = ("has no webServerNetworkAccessControl setting"
+                       if allowlist.get("mode") == "unrestricted" else
+                       "has a webServerNetworkAccessControl range that allows a public source")
+            return (f"The RUNNING Composer environment {setting} for its Airflow web UI.\n"
+                    "A public source may reach that UI if the service responds.\n"
+                    "If IAM also grants access, workflow settings or data could become visible.")
+        if status == "PASS":
+            return ("The Composer environment's webServerNetworkAccessControl lists no public source range.\n"
+                    "That setting may block internet clients from its Airflow web UI.\n"
+                    "This limits a route to workflow settings and data.")
+        reason = assessment.unresolved[0]["reason"] if assessment.unresolved else ""
+        if "config" in reason:
+            missing = "config"
+        elif "URI" in reason:
+            missing = "config.airflowUri"
+        elif "RUNNING" in reason:
+            missing = "RUNNING state"
+        else:
+            missing = "webServerNetworkAccessControl.allowedIpRanges"
+        return (f"The Composer environment has no complete recorded {missing} for its Airflow web UI.\n"
+                "Its public access setting remains unclear.\n"
+                "An open path could expose workflow settings or data if IAM also grants access.")
     if assessment.kind == "web_app":
         restriction = next((step for step in assessment.path if step["layer"] == "access_restrictions"), {})
         network = next((step for step in assessment.path if step["layer"] == "public_network_access"), {})
