@@ -677,6 +677,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result['duplicates'] = duplicates
         if k8s_native_exposure or exposure_native_only:
             result['reviews']['exposure'] = native_exposure_reviews(exposure, duplicates)
+            result['native_final']['exposure'] = [row['finding_id']
+                                                  for row in result['reviews']['exposure']]
         from .progressive_kinds import review_group_signatures
         result['review_group_signatures'] = {
             'hardening': review_group_signatures(hardening) if 'hardening' in selected else {}}
@@ -858,8 +860,14 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             failed_stage = True
             result['limitations'].append('Prioritized recommendations could not be completed.')
         result['status'] = 'partial' if failed_stage else 'completed'
+        native_review_ids = {ident for ids in result['native_final'].values() for ident in ids}
         result['coverage'] = {'hardening': len(hardening), 'exposure': len(exposure) + len(duplicates),
-            'reviewed': sum(row['verdict'] in ('PASS', 'FAIL', 'NOT_APPLICABLE', 'EMPTY') for row in reviewed), 'total': len(reviewed)}
+            'reviewed': sum(row['verdict'] in ('PASS', 'FAIL', 'NOT_APPLICABLE', 'EMPTY') for row in reviewed),
+            'native_final': sum(row['finding_id'] in native_review_ids for row in reviewed),
+            'model_reviewed': sum(row['finding_id'] not in native_review_ids
+                                  and row['verdict'] in ('PASS', 'FAIL', 'NOT_APPLICABLE', 'EMPTY')
+                                  for row in reviewed),
+            'total': len(reviewed)}
         # Redact exact cloud and AI credential values before durable publication.
         # Retain public IDs/metadata: only credential-bearing fields are secrets.
         secrets = [credential_value(token), *getattr(getattr(token, 'guard', None), 'secrets', ())] + [value for entry in entries for key, value in entry.items()

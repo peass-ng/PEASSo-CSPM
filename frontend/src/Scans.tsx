@@ -554,7 +554,7 @@ export function LaunchForm({
           <p className="muted small">{resumePrevious ? "Keeps the same scan and saved results. Only unfinished work runs, using the original check selection and the connector’s current credentials." : "Collects fresh evidence and creates a new scan."}</p>
         </fieldset>}
         {!resumePrevious && <>
-        <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled} disabled={!aiAvailable} onChange={event => setAiEnabled(event.target.checked)} />Use AI to review failed findings</label>
+        <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled} disabled={!aiAvailable} onChange={event => setAiEnabled(event.target.checked)} />Use AI for Network analysis and prioritized actions</label>
         {!aiAvailable && <p className="muted small">{codex.isPending ? "Checking AI access…" : codex.data?.disabled ? "AI review is disabled for every scan in Settings." : codex.data?.isolation_available === false ? "AI checks are unavailable until the platform administrator configures isolated agent execution." : "Configure an AI provider, model and thinking effort in Settings to enable AI checks."}</p>}
         <section className="assessment-config-section" aria-labelledby="hardening-config-title">
           <div className="assessment-section-heading"><span>01</span><div><h3 id="hardening-config-title">Hardening &amp; Compliance</h3><p>Select the checks to run for this environment.</p></div></div>

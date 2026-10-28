@@ -9,9 +9,11 @@ def review_index(result):
     index, seen = {}, set()
     if not isinstance(result, dict) or not isinstance(result.get('reviews'), dict):
         return index
-    native_final = (result.get('native_final') or {}).get('hardening', ())
-    native_ids = {ident for ident in native_final if isinstance(ident, str)} if isinstance(native_final, list) else set()
+    native_final = result.get('native_final') or {}
     for category in ('hardening', 'exposure'):
+        native_rows = native_final.get(category, ()) if isinstance(native_final, dict) else ()
+        native_ids = ({ident for ident in native_rows if isinstance(ident, str)}
+                      if isinstance(native_rows, list) else set())
         rows = result['reviews'].get(category, [])
         if not isinstance(rows, list):
             continue
@@ -22,7 +24,7 @@ def review_index(result):
                 continue
             key = (category, row['finding_id'])
             # Synthetic FAILs exist for Priorities coverage, not as AI verdicts.
-            if category == 'hardening' and row['finding_id'] in native_ids:
+            if row['finding_id'] in native_ids:
                 continue
             if key in seen:
                 index.pop(key, None)
@@ -37,12 +39,15 @@ def review_index(result):
 def presented_reviews(result, offset, limit):
     """Label synthetic native-final rows in the AI API without changing storage."""
     reviews = result.get('reviews', {})
-    native_final = (result.get('native_final') or {}).get('hardening', ())
-    native_ids = {ident for ident in native_final if isinstance(ident, str)} if isinstance(native_final, list) else set()
-    return {category: [dict(row, source='native_final' if category == 'hardening'
-                         and row.get('finding_id') in native_ids else 'ai')
-                       for row in rows[offset:offset + limit]]
-            for category, rows in reviews.items()}
+    native_final = result.get('native_final') or {}
+    output = {}
+    for category, rows in reviews.items():
+        native_rows = native_final.get(category, ()) if isinstance(native_final, dict) else ()
+        native_ids = ({ident for ident in native_rows if isinstance(ident, str)}
+                      if isinstance(native_rows, list) else set())
+        output[category] = [dict(row, source='native_final' if row.get('finding_id') in native_ids else 'ai')
+                            for row in rows[offset:offset + limit]]
+    return output
 
 
 def _concrete_secret_observation(finding):

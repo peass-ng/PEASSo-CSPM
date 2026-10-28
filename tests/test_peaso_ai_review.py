@@ -370,6 +370,31 @@ def test_network_findings_publish_in_regular_api_and_paginated_ai_result(environ
         assert client.get(f'/api/scans/{ident}/ai', headers={'Authorization': 'Bearer bob'}).status_code == 404
 
 
+def test_native_exposure_detail_and_ai_endpoint_keep_native_provenance(environment):
+    from test_peaso_api_large import completed_job
+    settings, store, artifacts = environment
+    data = report()
+    data.update(schema_version='1.0', snapshot_id='native-exposure',
+                created_at='2026-10-28T10:00:00Z', stats={'by_status': {'FAIL': 2}},
+                ai={'status': 'completed', 'actions': [],
+                    'native_final': {'hardening': ['h1'], 'exposure': ['e1']},
+                    'reviews': {'hardening': [review('h1')],
+                                'exposure': [review('e1')]},
+                    'coverage': {'reviewed': 2, 'native_final': 2,
+                                 'model_reviewed': 0, 'total': 2}})
+    ident, _ = completed_job(store, artifacts, data)
+    with TestClient(create_app(settings, store=store, artifacts=artifacts,
+                               authenticator=Identities()), base_url='http://127.0.0.1') as client:
+        detail = client.get(f'/api/scans/{ident}/findings/e1')
+        assert detail.status_code == 200, detail.text
+        assert detail.json()['status'] == 'FAIL'
+        assert 'ai_review' not in detail.json()
+        result = client.get(f'/api/scans/{ident}/ai')
+        assert result.status_code == 200, result.text
+        assert result.json()['reviews']['exposure'][0]['source'] == 'native_final'
+        assert result.json()['coverage']['model_reviewed'] == 0
+
+
 def test_capture_is_opt_in_and_never_exports_permanent_aws_keys():
     access.finish()
     access.bearer('gcp', 'google', 'secret-token')
@@ -473,6 +498,31 @@ def test_hosted_agent_switches_send_native_reviews_to_priorities_for_every_cloud
     assert result['stage_inputs'] == {'hardening': [], 'exposure': []}
 
 
+def test_hosted_agent_switches_launch_network_and_priorities_only(environment, monkeypatch):
+    monkeypatch.setenv('PEASO_AI_HARDENING_AGENT_ENABLED', '0')
+    monkeypatch.setenv('PEASO_AI_EXPOSURE_AGENT_ENABLED', '0')
+    data, inventory, network_output = network_fixture()
+    monkeypatch.setattr('peaso.snapshot.resources', lambda _: inventory)
+    calls = []
+
+    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
+        calls.append(stage)
+        if stage == 'network':
+            return network_output
+        assert stage == 'priorities'
+        assert {row['finding_id']: row['verdict'] for row in reviews} == {'h1': 'FAIL', 'e1': 'FAIL'}
+        assert platform['network_review']['status'] == 'completed'
+        return {'actions': [], 'limitations': []}
+
+    monkeypatch.setattr(pipeline, 'invoke', invoke)
+    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
+    assert calls == ['network', 'priorities']
+    assert result['status'] == 'completed'
+    assert result['coverage']['native_final'] == 2
+    assert result['coverage']['model_reviewed'] == 0
+    assert result['network']['status'] == 'completed'
+
+
 def test_gcp_native_final_preserves_priorities_finding_ids(environment, monkeypatch):
     from peaso.ai import gcp_native_final
     data = report()
@@ -482,6 +532,12 @@ def test_gcp_native_final_preserves_priorities_finding_ids(environment, monkeypa
     data['findings'][0]['check_id'] = 'gcp.compute.secure_boot'
     data['findings'][0]['evidence'] = {
         'field': 'shieldedInstanceConfig.enableSecureBoot', 'configured': False}
+    scope = data['findings'][0]['scope']
+    data['coverage'] = [
+        {'level': 'check', 'check_id': 'gcp.compute.secure_boot', 'scope': scope,
+         'status': 'evaluated'},
+        {'level': 'collection', 'type': 'instance', 'scope': scope,
+         'status': 'collected'}]
     data['findings'].append(finding('h2', check='gcp.compute.other_setting')
                             | {'provider': 'gcp'})
     original = copy.deepcopy(data)
@@ -512,6 +568,12 @@ def test_k8s_native_final_preserves_remaining_hardening_ai_inputs(environment, m
         dict(finding('h1', check='k8s.deployment.non_root'), provider='k8s'),
         dict(finding('h2', check='k8s.job.non_root'), provider='k8s')],
         'resources': [], 'graphs': {}}
+    scope = data['findings'][0]['scope']
+    data['coverage'] = [
+        {'level': 'check', 'check_id': 'k8s.deployment.non_root', 'scope': scope,
+         'status': 'evaluated'},
+        {'level': 'collection', 'type': 'deployment', 'scope': scope,
+         'status': 'collected'}]
     original = copy.deepcopy(data)
     monkeypatch.setattr(k8s_native_final, 'admitted_check_ids', lambda: k8s_native_final.ELIGIBLE)
     calls = []

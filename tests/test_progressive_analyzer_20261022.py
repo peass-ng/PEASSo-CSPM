@@ -521,7 +521,8 @@ def test_partial_prior_reuses_conclusive_observations_only(monkeypatch, tmp_path
     result = pipeline.review_scan(current, {}, {}, tenant="tenant", artifacts=None,
                                   reused_stages={"hardening": prior})
     assert [ids for stage, ids, _ in calls if stage == "hardening"] == [["old-b", "new"]]
-    assert result["coverage"] == {"hardening": 3, "exposure": 0, "reviewed": 3, "total": 3}
+    assert result["coverage"] == {"hardening": 3, "exposure": 0, "reviewed": 3,
+                                   "native_final": 0, "model_reviewed": 3, "total": 3}
     reused_priority_input = next(rows for stage, _, rows in calls if stage == "priorities")
     calls.clear()
     reference = pipeline.review_scan(current, {}, {}, tenant="tenant", artifacts=None)
