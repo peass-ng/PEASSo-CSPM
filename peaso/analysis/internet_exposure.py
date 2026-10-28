@@ -32048,6 +32048,193 @@ def gcp_iap_web_exposure_findings(snapshot, resources):
     return output
 
 
+def gcp_spanner_database_reader_findings(snapshot, resources):
+    """Permission-specific database read grants at database and inherited scopes."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    instances = {row["data"].get("name"): row for row in resources
+                 if row["type"] == "spanner_instance" and isinstance(row.get("data"), dict)}
+    roots = {row["data"].get("name"): row for row in resources
+             if row["type"] == "iam_policy" and isinstance(row.get("data"), dict)
+             and row["data"].get("name") == row.get("scope") and row["data"].get("_representation") != "partial"}
+    projects = {row["scope"]: row for row in resources
+                if row["type"] == "project" and isinstance(row.get("data"), dict)}
+    roles = {row["data"].get("name"): row["data"] for row in resources
+             if row["type"] == "iam_role" and isinstance(row.get("data"), dict)}
+    readers = {"roles/spanner.databaseReader", "roles/spanner.databaseReaderWithDataBoost",
+               "roles/spanner.databaseUser", "roles/spanner.graphIntelligenceUser",
+               "roles/spanner.admin", "roles/spanner.editor", "roles/spanner.databaseAdmin",
+               "roles/owner", "roles/editor", "roles/viewer"}
+    metadata_only = {"roles/spanner.viewer"}
+    permission = "spanner.databases.read"
+    for resource in resources:
+        if resource["type"] != "spanner_database" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        name = data.get("name")
+        if not isinstance(name, str) or "/databases/" not in name:
+            continue
+        project_id = resource["scope"].removeprefix("projects/")
+        sources, missing = _gcp_public_permission_sources(resource, roots, projects)
+        instance = instances.get(name.split("/databases/", 1)[0])
+        if instance is None:
+            missing.append("instance IAM")
+        else:
+            sources.insert(1, (instance, instance["data"].get("iamPolicy"), "instance", "iamPolicy.bindings"))
+        grants = []
+        for owner, policy, level, field in sources:
+            coverage = (owner["data"].get("_coverage") or {}).get("iamPolicy") if level in ("resource", "instance") else None
+            if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                    or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+                missing.append(level + " IAM")
+                continue
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or not isinstance(binding.get("role"), str):
+                    continue
+                role = binding["role"]
+                role_data = roles.get(role)
+                role_permissions = role_data.get("includedPermissions") if role_data else None
+                allowed = permission in role_permissions if isinstance(role_permissions, list) else role in readers
+                unknown_role = (not isinstance(role_permissions, list) and role not in readers | metadata_only)
+                if role_data and role_data.get("stage") == "DISABLED":
+                    allowed, unknown_role = False, True
+                if not allowed and not unknown_role:
+                    continue
+                for member in as_list(binding.get("members")):
+                    if not isinstance(member, str):
+                        continue
+                    audience = "public" if member in ("allUsers", "allAuthenticatedUsers") else None
+                    if member.startswith("serviceAccount:"):
+                        match = re.fullmatch(r"[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com",
+                                             member.removeprefix("serviceAccount:"))
+                        if match and match.group(1) != project_id:
+                            audience = "different-project service account"
+                    if audience:
+                        grants.append({"role": role, "member": member, "audience": audience,
+                                       "level": level, "scope": owner["data"].get("name", owner["scope"]),
+                                       "condition": binding.get("condition"), "allows_read": allowed,
+                                       "source": source(snapshot, owner, field)})
+        if not grants:
+            continue
+        positive = [grant for grant in grants if grant["allows_read"] and not grant["condition"]]
+        grant = (positive or grants)[0]
+        status = "FAIL" if positive else "UNKNOWN"
+        observed = "\n".join((
+            f"The Spanner database {name} has a {grant['level']} IAM grant of {grant['role']} to {grant['member']}.",
+            (f"That role includes {permission} for the database."
+             if grant["allows_read"] else "That role's database read permission is unresolved."),
+            (f"The {grant['audience']} may read rows if this grant applies."
+             if status == "FAIL" else f"The {grant['audience']} may read rows if its role and condition allow it."),
+            "That could expose database records or personal data to people outside the project."))
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_spanner_database_reader",
+                              "Spanner database read grant to outside principals",
+                              "high" if positive else "info", {
+                                  "observed": observed, "reader_grants": grants, "missing_iam": missing,
+                                  "permission": permission, "source": grant["source"],
+                                  "risk_state": "observed" if positive else "unknown",
+                                  "semantics": "IAM grant declaration only; conditions, denies, database-role permissions, ownership, row contents and successful reads are not established.",
+                              }, status=status))
+    return output
+
+
+def gcp_firestore_database_reader_findings(snapshot, resources):
+    """Datastore/Mongo database reader grants with credential identity context."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    roots = {row["data"].get("name"): row for row in resources
+             if row["type"] == "iam_policy" and isinstance(row.get("data"), dict)
+             and row["data"].get("name") == row.get("scope") and row["data"].get("_representation") != "partial"}
+    projects = {row["scope"]: row for row in resources
+                if row["type"] == "project" and isinstance(row.get("data"), dict)}
+    roles = {row["data"].get("name"): row["data"] for row in resources
+             if row["type"] == "iam_role" and isinstance(row.get("data"), dict)}
+    creds = {row["data"].get("name", "").split("/userCreds/", 1)[0]: [] for row in resources
+             if row["type"] == "firestore_user_cred" and isinstance(row.get("data"), dict)}
+    for row in resources:
+        if row["type"] == "firestore_user_cred" and isinstance(row.get("data"), dict):
+            creds.setdefault(row["data"].get("name", "").split("/userCreds/", 1)[0], []).append(row)
+    readers = {"roles/datastore.owner", "roles/datastore.user", "roles/datastore.viewer",
+               "roles/owner", "roles/editor", "roles/viewer"}
+    metadata_only = {"roles/datastore.indexAdmin", "roles/datastore.statisticsViewer",
+                     "roles/datastore.userCredsViewer", "roles/datastore.userCredsAdmin"}
+    for resource in resources:
+        if resource["type"] != "firestore_database" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        name = data.get("name")
+        mongo = data.get("databaseEdition") == "ENTERPRISE"
+        datastore = data.get("type") == "DATASTORE_MODE"
+        if not isinstance(name, str) or not (mongo or datastore):
+            continue
+        mode = data.get("mongodbCompatibleDataAccessMode") if mongo else data.get("firestoreDataAccessMode")
+        if mode == "DATA_ACCESS_MODE_DISABLED":
+            continue
+        project_id = resource["scope"].removeprefix("projects/")
+        sources, missing = _gcp_public_permission_sources(resource, roots, projects)
+        sources = [row for row in sources if row[2] != "resource"]
+        active_creds = {row["data"].get("resourceIdentity", {}).get("principal"): row
+                        for row in creds.get(name, []) if row["data"].get("state") == "ENABLED"
+                        and isinstance(row["data"].get("resourceIdentity"), dict)}
+        grants = []
+        for owner, policy, level, field in sources:
+            if not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected"):
+                missing.append(level + " IAM")
+                continue
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or not isinstance(binding.get("role"), str):
+                    continue
+                role = binding["role"]
+                role_data = roles.get(role)
+                permissions = role_data.get("includedPermissions") if role_data else None
+                allowed = (bool({"datastore.entities.get", "datastore.entities.list"} & set(permissions))
+                           if isinstance(permissions, list) else role in readers)
+                unknown_role = not isinstance(permissions, list) and role not in readers | metadata_only
+                if role_data and role_data.get("stage") == "DISABLED":
+                    allowed, unknown_role = False, True
+                if not allowed and not unknown_role:
+                    continue
+                for member in as_list(binding.get("members")):
+                    if not isinstance(member, str):
+                        continue
+                    audience = "public principal" if member in ("allUsers", "allAuthenticatedUsers") else None
+                    credential = active_creds.get(member)
+                    if credential is not None:
+                        audience = "enabled MongoDB credential"
+                    elif member.startswith("serviceAccount:"):
+                        match = re.fullmatch(r"[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com",
+                                             member.removeprefix("serviceAccount:"))
+                        if match and match.group(1) != project_id:
+                            audience = "different-project service account"
+                    if audience:
+                        grants.append({"role": role, "member": member, "audience": audience,
+                                       "level": level, "condition": binding.get("condition"),
+                                       "allows_read": allowed, "source": source(snapshot, owner, field),
+                                       "credential_source": source(snapshot, credential, "state") if credential else None})
+        if not grants:
+            continue
+        positive = [grant for grant in grants if grant["allows_read"] and not grant["condition"]
+                    and grant["audience"] != "enabled MongoDB credential"]
+        grant = (positive or grants)[0]
+        status = "FAIL" if positive else "UNKNOWN"
+        observed = "\n".join((
+            f"The Firestore database {name} has {data.get('databaseEdition', 'unrecorded')} edition, {data.get('type', 'unrecorded')} type and {mode or 'default'} data access mode.",
+            f"Its {grant['level']} IAM policy grants {grant['role']} to {grant['member']}.",
+            (f"That {grant['audience']} may read entities if the grant applies."
+             if grant["allows_read"] else f"That {grant['audience']} may read entities if its unresolved role allows it."),
+            "That could expose application records or personal data to people outside the project."))
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_firestore_database_reader",
+                              "Firestore database reader grant to outside principals",
+                              "high" if positive else "info", {
+                                  "observed": observed, "reader_grants": grants, "missing_iam": missing,
+                                  "data_access_mode": mode, "source": grant["source"],
+                                  "risk_state": "observed" if positive else "unknown",
+                                  "semantics": "Database mode and IAM/credential declaration only; conditions, denies, password possession, network route, document contents and successful reads are not established.",
+                              }, status=status))
+    return output
+
+
 # --------------------------------------------------------------- dispatcher
 
 AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service", "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster", "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block", "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app", "rds_cluster", "rds_cluster_endpoint", "redshiftserverless_workgroup"]
@@ -33383,6 +33570,8 @@ def internet_findings(snapshot, resources, *, related_snapshots=()):
     output.extend(gcp_secure_source_manager_psc_allowance_findings(snapshot, resources))
     output.extend(gcp_apigee_psc_consumer_findings(snapshot, resources))
     output.extend(gcp_dns_public_address_record_findings(snapshot, resources))
+    output.extend(gcp_firestore_database_reader_findings(snapshot, resources))
+    output.extend(gcp_spanner_database_reader_findings(snapshot, resources))
     output.extend(gcp_alloydb_backup_dr_project_findings(snapshot, resources))
     output.extend(gcp_alloydb_cross_project_backup_findings(snapshot, resources))
     output.extend(gcp_alloydb_cross_project_replication_findings(snapshot, resources))

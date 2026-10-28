@@ -625,6 +625,9 @@ class Transport:
                 or re.fullmatch(r"/v1/projects/[^/%:]+:getAncestry", parsed.path)))
             or (parsed.hostname == "bigtableadmin.googleapis.com" and
                 re.fullmatch(r"/v2/projects/[^/%:]+/instances/[^/%:]+:getIamPolicy", parsed.path))
+            or (parsed.hostname == "spanner.googleapis.com" and
+                re.fullmatch(r"/v1/projects/[^/%:]+/instances/[^/%:]+(?:/databases/[^/%:]+)?:getIamPolicy", parsed.path)
+                and body == {"options": {"requestedPolicyVersion": 3}})
             or (parsed.hostname == "dataproc.googleapis.com" and
                 re.fullmatch(r"/v1/projects/[^/%:]+/regions/[a-z0-9-]+/clusters/[^/%:]+:getIamPolicy", parsed.path)
                 and isinstance(body, dict) and body == {"options": {"requestedPolicyVersion": 3}})
@@ -968,7 +971,7 @@ COMPUTE = (
 SUPPORTED_TYPES = frozenset({x[0] for x in COMPUTE} | {
     "asset", "iam_policy", "iam_role", "iam_deny_policy", "project", "organization", "folder",
     "service_account", "service_account_key", "service_account_insight", "activity", "recommendation", "insight", "shared_vpc",
-    "bucket", "managed_folder", "sql_instance", "gke_cluster", "kms_key_ring", "kms_key", "secret", "log_sink",
+    "bucket", "managed_folder", "sql_instance", "spanner_instance", "spanner_database", "firestore_database", "firestore_user_cred", "gke_cluster", "kms_key_ring", "kms_key", "secret", "log_sink",
     "workload_identity_pool", "workload_identity_provider", "workforce_pool", "workforce_provider", "cloudtasks_task",
     "bigquery_dataset", "bigquery_acl_mode", "bigquery_row_policy_inventory", "bigquery_connection", "bigquery_routine_metadata", "bigquery_transfer_config", "bigquery_continuous_assignment", "artifact_repository", "containeranalysis_note", "datacatalog_taxonomy", "datacatalog_policy_tag", "biglake_catalog", "biglake_namespace", "biglake_table", "analyticshub_data_exchange", "analyticshub_listing", "agentidentity_auth_provider", "agentidentity_authorization", "cloudrun_service", "cloudrun_instance", "cloudrun_worker_pool", "function", "group", "group_membership",
     "principal_access_boundary_policy", "policy_binding", "app_engine_application", "app_engine_application_identity", "app_engine_service", "app_engine_version", "app_engine_instance", "app_engine_legacy_constraint", "workspace_user", "workspace_customer", "workspace_role",
@@ -1360,6 +1363,10 @@ class GCPCollector:
             self.wanted.update(("bigtable_instance", "bigtable_table"))
         if "bigtable_table" in self.wanted:
             self.wanted.add("bigtable_instance")
+        if "spanner_database" in self.wanted:
+            self.wanted.add("spanner_instance")
+        if "firestore_user_cred" in self.wanted:
+            self.wanted.add("firestore_database")
         if "bigtable_materialized_view" in self.wanted:
             self.wanted.add("bigtable_instance")
         if "bigtable_backup" in self.wanted:
@@ -2461,6 +2468,75 @@ class GCPCollector:
         add("service_usage", "serviceusage", lambda: self.pages(
             f"https://serviceusage.googleapis.com/v1/{scope}/services", scope, key="services",
             params={"pageSize": min(self.page_size if "page_size" in self.options else 200, 200)}))
+        def spanner_instances():
+            parent = scope + "/instances/"
+            for items, request_id in self.pages(
+                    f"https://spanner.googleapis.com/v1/{scope}/instances", scope, key="instances"):
+                for item in items:
+                    if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not re.fullmatch(
+                            re.escape(parent) + r"[A-Za-z0-9_-]+", item["name"]):
+                        raise ReadError("malformed", "spanner_instance_identity")
+                yield self.parallel(lambda item: self.hydrate(
+                    {"name": item["name"], "state": item.get("state"), "_representation": "full"},
+                    "iamPolicy", f"https://spanner.googleapis.com/v1/{item['name']}:getIamPolicy", scope,
+                    method="POST", body={"options": {"requestedPolicyVersion": 3}}), items), request_id
+        add("spanner_instance", "spanner", spanner_instances)
+        def spanner_databases():
+            for instance_page, _ in spanner_instances():
+                for instance in instance_page:
+                    parent = instance["name"] + "/databases/"
+                    for items, request_id in self.pages(
+                            f"https://spanner.googleapis.com/v1/{instance['name']}/databases", scope,
+                            key="databases"):
+                        for item in items:
+                            if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not re.fullmatch(
+                                    re.escape(parent) + r"[A-Za-z0-9_-]+", item["name"]):
+                                raise ReadError("malformed", "spanner_database_identity")
+                        yield self.parallel(lambda item: self.hydrate(
+                            {"name": item["name"], "state": item.get("state"), "_representation": "full"},
+                            "iamPolicy", f"https://spanner.googleapis.com/v1/{item['name']}:getIamPolicy", scope,
+                            method="POST", body={"options": {"requestedPolicyVersion": 3}}), items), request_id
+        add("spanner_database", "spanner", spanner_databases)
+        def firestore_databases():
+            parent = scope + "/databases/"
+            for items, request_id in self.pages(
+                    f"https://firestore.googleapis.com/v1/{scope}/databases", scope, key="databases"):
+                rows = []
+                for item in items:
+                    name = item.get("name") if isinstance(item, dict) else None
+                    if not isinstance(name, str) or not re.fullmatch(
+                            re.escape(parent) + r"[^/\x00-\x1f]+", name):
+                        raise ReadError("malformed", "firestore_database_identity")
+                    rows.append({"name": name, "type": item.get("type"),
+                                 "databaseEdition": item.get("databaseEdition"),
+                                 "mongodbCompatibleDataAccessMode": item.get("mongodbCompatibleDataAccessMode"),
+                                 "firestoreDataAccessMode": item.get("firestoreDataAccessMode"),
+                                 "locationId": item.get("locationId"), "uid": item.get("uid"),
+                                 "_representation": "full"})
+                yield rows, request_id
+        add("firestore_database", "firestore", firestore_databases)
+        def firestore_user_creds():
+            for database_page, _ in firestore_databases():
+                for database in database_page:
+                    if database.get("databaseEdition") != "ENTERPRISE":
+                        continue
+                    parent = database["name"] + "/userCreds/"
+                    for items, request_id in self.pages(
+                            f"https://firestore.googleapis.com/v1/{database['name']}/userCreds", scope,
+                            key="userCreds", page_size_key=None):
+                        rows = []
+                        for item in items:
+                            name = item.get("name") if isinstance(item, dict) else None
+                            if not isinstance(name, str) or not re.fullmatch(
+                                    re.escape(parent) + r"[^/\x00-\x1f]+", name):
+                                raise ReadError("malformed", "firestore_user_cred_identity")
+                            identity = item.get("resourceIdentity")
+                            principal = identity.get("principal") if isinstance(identity, dict) else None
+                            rows.append({"name": name, "state": item.get("state"),
+                                         "resourceIdentity": {"principal": principal} if isinstance(principal, str) else {},
+                                         "_representation": "full"})
+                        yield rows, request_id
+        add("firestore_user_cred", "firestore", firestore_user_creds)
         def bigtable_instances():
             for items, request_id in self.pages(f"https://bigtableadmin.googleapis.com/v2/{scope}/instances", scope,
                 key="instances", page_size_key=None, params={"fields": "instances(name,displayName,state,type,labels),failedLocations"}):
