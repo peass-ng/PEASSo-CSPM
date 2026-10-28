@@ -12,28 +12,18 @@ def test_disabled_pin_and_source_guard(tmp_path, monkeypatch):
     monkeypatch.setenv("PEASO_K8S_HARDENING_NATIVE_FINAL_SHA256", digest)
     assert not k8s_native_final.admitted_check_ids()
     monkeypatch.setenv("PEASO_K8S_HARDENING_NATIVE_FINAL_ENABLED", "1")
-    assert not k8s_native_final.admitted_check_ids()
-    qualified = json.loads(body)
-    qualified["qualification"] = {
-        "status": "qualified", "hosted_cost_gate": "a" * 64}
-    path = tmp_path / "qualified.json"
-    qualified_body = (json.dumps(qualified, sort_keys=True) + "\n").encode()
-    path.write_bytes(qualified_body)
-    monkeypatch.setattr(k8s_native_final, "HOSTED_RECEIPT_SHA256", "a" * 64)
-    monkeypatch.setenv("PEASO_K8S_HARDENING_NATIVE_FINAL_SHA256",
-                       hashlib.sha256(qualified_body).hexdigest())
-    assert k8s_native_final.admitted_check_ids(path) == k8s_native_final.ELIGIBLE
+    assert len(k8s_native_final.ELIGIBLE) == 43
+    assert not k8s_native_final.admitted_check_ids()  # hosted gate remains pending
     monkeypatch.setenv("PEASO_K8S_HARDENING_NATIVE_FINAL_SHA256", "0" * 64)
-    assert not k8s_native_final.admitted_check_ids(path)
+    assert not k8s_native_final.admitted_check_ids()
     monkeypatch.setenv("PEASO_K8S_HARDENING_NATIVE_FINAL_SHA256", digest)
     for mutation in (
         lambda row: row["checks"][0].update(disagreements=1),
         lambda row: row["checks"][0].update(check_id="k8s.job.non_root"),
         lambda row: row["qualification"].update(status="pending"),
-        lambda row: row["qualification"].update(hosted_cost_gate="b" * 64),
-        lambda row: row.update(source_sha256="0" * 64),
+        lambda row: row["checks"][0]["source"].update(sha256="0" * 64),
     ):
-        manifest = json.loads(qualified_body)
+        manifest = json.loads(body)
         mutation(manifest)
         path = tmp_path / "manifest.json"
         altered = (json.dumps(manifest, sort_keys=True) + "\n").encode()
@@ -57,3 +47,23 @@ def test_exact_k8s_hardening_failure_selection():
     assert [row["id"] for row in native] == ["admit"]
     assert [row["id"] for row in ai] == [
         "other", "pass", "scanner_unknown", "partial", "other_provider", "other_category"]
+
+
+def test_hosted_receipt_required_for_activation(tmp_path, monkeypatch):
+    receipt = tmp_path / "hosted.json"
+    receipt.write_text(json.dumps({"version": 2, "status": "qualified",
+        "paired_run_count": 2, "admitted_check_ids": 43,
+        "audit_receipt_sha256": k8s_native_final.AUDIT_SHA}) + "\n")
+    monkeypatch.setattr(k8s_native_final, "HOSTED", receipt)
+    value = json.loads(k8s_native_final.MANIFEST.read_text())
+    value["qualification"] = {
+        "status": "hosted_qualified", "hosted_cost_gate": "passed",
+        "hosted_receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest()}
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(value, sort_keys=True) + "\n")
+    monkeypatch.setenv("PEASO_K8S_HARDENING_NATIVE_FINAL_ENABLED", "1")
+    monkeypatch.setenv("PEASO_K8S_HARDENING_NATIVE_FINAL_SHA256",
+                       hashlib.sha256(path.read_bytes()).hexdigest())
+    assert k8s_native_final.admitted_check_ids(path) == k8s_native_final.ELIGIBLE
+    receipt.write_text('{"status":"failed"}\n')
+    assert not k8s_native_final.admitted_check_ids(path)
