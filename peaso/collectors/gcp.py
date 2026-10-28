@@ -1827,7 +1827,7 @@ class GCPCollector:
             yield items, request_id
             if incomplete:
                 raise ReadError("unavailable", "partial_api_warning")
-            if data.get("unreachables") or data.get("unreachable") or data.get("missingZones") or data.get("failedLocations") or data.get("failedLocation"):
+            if data.get("unreachables") or data.get("unreachable") or data.get("unreachableLocations") or data.get("missingZones") or data.get("failedLocations") or data.get("failedLocation"):
                 raise ReadError("unavailable", "unreachable_locations")
             token = data.get("nextPageToken")
             if token is not None and not isinstance(token, str):

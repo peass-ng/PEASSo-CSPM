@@ -1712,7 +1712,7 @@
     "version": "v1"
   },
   "knowledge_catalog_aspect_type": {
-    "fields": "aspectTypes(name),nextPageToken,unreachable",
+    "fields": "aspectTypes(name),nextPageToken,unreachableLocations",
     "iam_policy": true,
     "key": "aspectTypes",
     "location_kind": "region",
@@ -1723,7 +1723,7 @@
     "version": "v1"
   },
   "knowledge_catalog_asset": {
-    "fields": "assets(name),nextPageToken,unreachable",
+    "fields": "assets(name),nextPageToken",
     "iam_policy": true,
     "key": "assets",
     "location_kind": "region",
@@ -1744,7 +1744,7 @@
     "version": "v1"
   },
   "knowledge_catalog_entry_group": {
-    "fields": "entryGroups(name),nextPageToken,unreachable",
+    "fields": "entryGroups(name),nextPageToken,unreachableLocations",
     "iam_policy": true,
     "key": "entryGroups",
     "location_kind": "region",
@@ -1755,7 +1755,7 @@
     "version": "v1"
   },
   "knowledge_catalog_entry_type": {
-    "fields": "entryTypes(name),nextPageToken,unreachable",
+    "fields": "entryTypes(name),nextPageToken,unreachableLocations",
     "iam_policy": true,
     "key": "entryTypes",
     "location_kind": "region",
@@ -1766,7 +1766,7 @@
     "version": "v1"
   },
   "knowledge_catalog_lake": {
-    "fields": "lakes(name),nextPageToken,unreachable",
+    "fields": "lakes(name),nextPageToken,unreachableLocations",
     "iam_policy": true,
     "key": "lakes",
     "location_kind": "region",
@@ -1777,7 +1777,7 @@
     "version": "v1"
   },
   "knowledge_catalog_zone": {
-    "fields": "zones(name),nextPageToken,unreachable",
+    "fields": "zones(name),nextPageToken",
     "iam_policy": true,
     "key": "zones",
     "location_kind": "region",
