@@ -10301,6 +10301,59 @@ def gcp_secure_source_manager_psc_allowance_findings(snapshot, resources):
     return output
 
 
+def gcp_apigee_psc_consumer_findings(snapshot, resources):
+    """Record active Apigee instances allowing a different project's PSC endpoint."""
+    if snapshot["provider"] != "gcp":
+        return []
+    organizations = {(resource["scope"], resource["data"].get("name")): resource
+                     for resource in resources
+                     if resource["type"] == "apigee_organization" and isinstance(resource.get("data"), dict)
+                     and isinstance(resource["data"].get("name"), str)}
+    output = []
+    for resource in resources:
+        if resource["type"] != "apigee_instance" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        name = data.get("name")
+        identity = re.fullmatch(r"organizations/([^/]+)/instances/[^/]+", name or "")
+        if not identity or data.get("state") != "ACTIVE":
+            continue
+        organization = organizations.get((resource["scope"], identity[1]))
+        organization_data = organization["data"] if organization else {}
+        owner = organization_data.get("projectId") if organization_data.get("state") == "ACTIVE" else None
+        if not isinstance(owner, str) or resource["scope"] != f"projects/{owner}":
+            continue
+        attachment = data.get("serviceAttachment")
+        if not re.fullmatch(r"projects/[^/]+/regions/[^/]+/serviceAttachments/[^/]+", attachment or ""):
+            continue
+        projects = data.get("consumerAcceptList")
+        if not isinstance(projects, list):
+            continue
+        consumers = sorted({value for value in projects if isinstance(value, str)
+                            and re.fullmatch(r"[a-z][a-z0-9-]*", value) and value != owner})
+        if not consumers:
+            continue
+        observed = "\n".join((
+            f"The Apigee instance {name} is ACTIVE with serviceAttachment {attachment} and consumerAcceptList entries {', '.join(consumers)}.",
+            f"Its ACTIVE organization {identity[1]} names project ID {owner}, while the listed PSC consumers name different project IDs.",
+            "The allowlist permits those projects to create private endpoint connections, while endpoint acceptance, routes and API proxy policy remain unresolved.",
+            "Users in those projects may reach API interfaces and could handle application data if connectivity and proxy authorization permit it."))
+        evidence = {
+            "observed": observed,
+            "service_attachment": attachment,
+            "owner_project": owner,
+            "consumer_projects": consumers,
+            "organization_source": source(snapshot, organization, "projectId"),
+            "source": source(snapshot, resource, "consumerAcceptList"),
+            "risk_state": "unknown",
+            "semantics": "PSC consumer allowlist only; endpoint acceptance, routes, load balancer, API proxy policy, application data and outside ownership are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_apigee_psc_consumer",
+                              "Apigee cross-project PSC consumer unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
 def gcp_dns_public_address_record_findings(snapshot, resources):
     """Record public-zone address publication without claiming endpoint reachability."""
     if snapshot["provider"] != "gcp":
@@ -15198,6 +15251,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_migration_cross_project_psc_findings(snapshot, resources))
     output.extend(gcp_migration_cross_project_vpc_peering_findings(snapshot, resources))
     output.extend(gcp_secure_source_manager_psc_allowance_findings(snapshot, resources))
+    output.extend(gcp_apigee_psc_consumer_findings(snapshot, resources))
     output.extend(gcp_dns_public_address_record_findings(snapshot, resources))
     output.extend(gcp_domains_external_dns_configurator_findings(snapshot, resources))
     output.extend(gcp_workflows_cross_project_service_account_findings(snapshot, resources))

@@ -6187,6 +6187,38 @@ def test_gcp_secure_source_manager_additional_psc_project_needs_endpoint_and_iam
     assert rows() == []
 
 
+def test_gcp_apigee_cross_project_psc_allowlist_needs_endpoint_and_proxy():
+    name = "organizations/p1/instances/runtime-a"
+    attachment = "projects/apigee-producer/regions/us-central1/serviceAttachments/runtime"
+    organization = {"name": "p1", "state": "ACTIVE", "projectId": "p1"}
+    instance = {"name": name, "state": "ACTIVE", "serviceAttachment": attachment,
+                "consumerAcceptList": ["p1", "consumer-p2", "consumer-p2", "consumer-p3"]}
+
+    def rows():
+        return [row for row in analyze(gcp(
+            gcoll("apigee_organization", [organization], service="apigee"),
+            gcoll("apigee_instance", [instance], service="apigee")))["findings"]
+            if row["check_id"] == "analysis.gcp_apigee_psc_consumer"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["consumer_projects"] == ["consumer-p2", "consumer-p3"]
+    assert findings[0]["evidence"]["organization_source"]["path"] == "projectId"
+    assert_gcp_observed_style(findings[0], name)
+    assert "application data" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    instance["consumerAcceptList"] = ["p1", "123456"]
+    assert rows() == []
+    instance["consumerAcceptList"] = ["consumer-p2"]
+    organization["projectId"] = "other-project"
+    assert rows() == []
+    organization["projectId"] = "p1"
+    instance["serviceAttachment"] = "bad"
+    assert rows() == []
+    instance["serviceAttachment"] = attachment
+    instance["state"] = "CREATING"
+    assert rows() == []
+
+
 def test_gcp_public_nat_is_outbound_configuration_only():
     router = {"name": "router-a", "nats": [{
         "name": "nat-a", "type": "PUBLIC", "sourceSubnetworkIpRangesToNat": "ALL_SUBNETWORKS_ALL_IP_RANGES",

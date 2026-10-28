@@ -2,7 +2,7 @@
 
 Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs/product-list), retrieved 2026-10-27, supplemented with Firebase Realtime Database because its rules are an independent exposure surface. The table is a tracking inventory, not a closure claim. `REVIEW REQUIRED` means an independent exposure primitive has not yet been ruled out or implemented.
 
-Open review ledger: **178 rows** remain REVIEW REQUIRED; **115 have no native path identified** in this sweep and **63 have a partial native path**. The rows below name every open product. By category, the counts are Cross-product tools 14, AI and ML 18, App development 23, App hosting 5, Compute 12, Data analytics and pipelines 17, Databases 11, Distributed/hybrid/multicloud 6, Industry solutions 7, Migration 6, Networking 23, Observability 5, Security 27, and Storage 4. A dash in the native-path column means no product-specific native path has yet been identified; it is not an API impossibility or a concrete data blocker. A populated native path is still REVIEW REQUIRED until that product's public endpoints, IAM/policy/ACL, sharing, and federation primitives have been exhaustively checked.
+Open review ledger: **178 rows** remain REVIEW REQUIRED; **114 have no native path identified** in this sweep and **64 have a partial native path**. The rows below name every open product. By category, the counts are Cross-product tools 14, AI and ML 18, App development 23, App hosting 5, Compute 12, Data analytics and pipelines 17, Databases 11, Distributed/hybrid/multicloud 6, Industry solutions 7, Migration 6, Networking 23, Observability 5, Security 27, and Storage 4. A dash in the native-path column means no product-specific native path has yet been identified; it is not an API impossibility or a concrete data blocker. A populated native path is still REVIEW REQUIRED until that product's public endpoints, IAM/policy/ACL, sharing, and federation primitives have been exhaustively checked.
 
 | Category | Product | Native path found so far | Audit state |
 | --- | --- | --- | --- |
@@ -39,7 +39,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **115 have no native pa
 | AI and ML | [Video Stitcher API](https://docs.cloud.google.com/video-stitcher/docs) | — | REVIEW REQUIRED |
 | AI and ML | [Vision API](https://docs.cloud.google.com/vision/docs) | — | REVIEW REQUIRED |
 | App development | [API Gateway](https://docs.cloud.google.com/api-gateway/docs) | api_gateway | REVIEW REQUIRED |
-| App development | [Apigee](https://docs.cloud.google.com/apigee/docs) | — | REVIEW REQUIRED |
+| App development | [Apigee](https://docs.cloud.google.com/apigee/docs) | apigee_instance ACTIVE PSC service attachment with a different explicit project ID in consumerAcceptList, joined to apigee_organization.projectId; PSC endpoint, routes, load balancer, API proxy and authorization unresolved; numeric consumer owner alias unavailable | REVIEW REQUIRED |
 | App development | [App Design Center](https://docs.cloud.google.com/application-design-center/docs) | — | REVIEW REQUIRED |
 | App development | [App Hub](https://docs.cloud.google.com/app-hub/docs) | — | REVIEW REQUIRED |
 | App development | [Application Integration](https://docs.cloud.google.com/application-integration/docs) | — | REVIEW REQUIRED |
