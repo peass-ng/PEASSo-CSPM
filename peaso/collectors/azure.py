@@ -166,7 +166,7 @@ ENDPOINTS = {
     'ml_workspace': ('Microsoft.MachineLearningServices/workspaces', '2026-03-01'),
     'mssql_managed_instance': ('Microsoft.Sql/managedInstances', '2023-08-01'),
     'mysql_flexible_server': ('Microsoft.DBforMySQL/flexibleServers', '2024-12-30'),
-    'postgresql_flexible_server': ('Microsoft.DBforPostgreSQL/flexibleServers', '2024-08-01'),
+    'postgresql_flexible_server': ('Microsoft.DBforPostgreSQL/flexibleServers', '2025-08-01'),
     'recovery_vault': ('Microsoft.RecoveryServices/vaults', '2024-04-01'),
     'policy_assignment': ('Microsoft.Authorization/policyAssignments', '2023-04-01'),
     'security_assessment': ('Microsoft.Security/assessments', '2020-01-01'),
@@ -225,7 +225,8 @@ EMBEDDED_LISTS = {
     "network_watcher": (("flowLogs", "flowLogs", "2023-09-01"),),
     "mysql_flexible_server": (("configurations", "configurations", "2023-12-30"), ("firewallRules", "firewallRules", "2023-12-30"), ("administrators", "administrators", "2023-12-30"),
                               ("privateEndpointConnections", "privateEndpointConnections", "2024-12-30")),
-    "postgresql_flexible_server": (("configurations", "configurations", "2024-08-01"), ("firewallRules", "firewallRules", "2024-08-01"), ("administrators", "administrators", "2024-08-01")),
+    "postgresql_flexible_server": (("configurations", "configurations", "2024-08-01"), ("firewallRules", "firewallRules", "2024-08-01"), ("administrators", "administrators", "2024-08-01"),
+                                   ("privateEndpointConnections", "privateEndpointConnections", "2024-08-01")),
     "postgresql_single_server": (("configurations", "configurations", "2017-12-01"), ("firewallRules", "firewallRules", "2017-12-01")),
     "redis_cache": (("firewallRules", "firewallRules", "2024-11-01"),),
     "mysql_single_server": (("configurations", "configurations", "2017-12-01"),),
@@ -336,9 +337,11 @@ def _network_platform_native_identity(row, scope, kind):
 def _child_rows(rows, parent_id, field):
     if any(not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].lower().startswith(parent_id.lower() + "/") for row in rows):
         raise ValueError("malformed or foreign embedded child identity")
-    if field == "privateEndpointConnections" and "/providers/microsoft.dbformysql/flexibleservers/" in parent_id.casefold():
+    db_provider = next((provider for provider in ("Microsoft.DBforMySQL", "Microsoft.DBforPostgreSQL")
+                        if "/providers/" + provider.casefold() + "/flexibleservers/" in parent_id.casefold()), None)
+    if field == "privateEndpointConnections" and db_provider:
         seen, safe = set(), []
-        expected_type = "Microsoft.DBforMySQL/flexibleServers/privateEndpointConnections"
+        expected_type = db_provider + "/flexibleServers/privateEndpointConnections"
         for row in rows:
             rid = row["id"]
             props = row.get("properties")
@@ -352,7 +355,7 @@ def _child_rows(rows, parent_id, field):
                     or not isinstance(props, dict)
                     or remote is not None and (not isinstance(remote, str) or re.fullmatch(
                         r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+", remote, re.I) is None)):
-                raise ValueError("foreign or malformed MySQL private endpoint connection")
+                raise ValueError("foreign or malformed database private endpoint connection")
             seen.add(rid.casefold())
             safe.append({"id": rid, "parent_id": parent_id,
                          "properties": {"privateEndpoint": {"id": remote},
@@ -524,7 +527,7 @@ def _child_rows(rows, parent_id, field):
                  "properties": {key: data for key, data in row.get("properties", {}).items() if key in ("publisher", "type", "provisioningState", "autoUpgradeMinorVersion")}} for row in rows]
     if field == "configurations":
         # Database configuration endpoints can contain credential-shaped options.
-        allowed = {"audit_log_enabled", "audit_log_events", "tls_version", "require_secure_transport", "log_checkpoints", "connection_throttle.enable", "connection_throttling", "log_retention_days", "logfiles.retention_days", "log_connections", "log_disconnections", "log_duration", "aad_auth_only"}
+        allowed = {"audit_log_enabled", "audit_log_events", "tls_version", "require_secure_transport", "log_checkpoints", "connection_throttle.enable", "connection_throttling", "log_retention_days", "logfiles.retention_days", "log_connections", "log_disconnections", "log_duration", "aad_auth_only", "pgbouncer.enabled"}
         return [{**{key: data for key, data in row.items() if key in ("id", "name", "type")}, "parent_id": parent_id,
                  "properties": {key: data for key, data in row.get("properties", {}).items()
                                 if key in ("value", "isReadOnly", "isDynamicConfig")}}
@@ -725,7 +728,7 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
         for field, path, version in specs:
             if field in skip:
                 continue
-            if kind == "mysql_flexible_server" and field == "privateEndpointConnections":
+            if kind in ("mysql_flexible_server", "postgresql_flexible_server") and field == "privateEndpointConnections":
                 props = item.get("properties")
                 if isinstance(props, dict) and field in props:
                     embedded = props.pop(field)

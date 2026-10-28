@@ -9634,6 +9634,25 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                       else pset("tcp", port, port) if port is not None else {})
     if port is None:
         a.gap("listener", "MySQL Flexible Server databasePort is invalid")
+    if kind == "postgresql_flexible_server":
+        config_coverage = (resource["data"].get("_coverage") or {}).get("configurations") or {}
+        configurations = resource["data"].get("configurations")
+        if config_coverage.get("status") in ("collected", "empty") and isinstance(configurations, list):
+            pgbouncer = next((row.get("properties", {}).get("value") for row in configurations
+                              if str(row.get("name", "")).casefold() == "pgbouncer.enabled"), None)
+            if isinstance(pgbouncer, str) and pgbouncer.casefold() == "true":
+                endpoint_ports = union(endpoint_ports, pset("tcp", 6432, 6432))
+                a.step("pgbouncer_listener", "allow", port=6432)
+                cluster = props.get("cluster")
+                if isinstance(cluster, dict) and type(cluster.get("clusterSize")) is int and cluster["clusterSize"] > 0:
+                    endpoint_ports = union(endpoint_ports, pset("tcp", 8432, 8432))
+                    a.step("pgbouncer_worker_listener", "allow", port=8432, cluster_size=cluster["clusterSize"])
+                elif cluster is not None:
+                    a.notes.append("Elastic cluster size is unresolved; PgBouncer worker port 8432 may be available")
+            elif pgbouncer is None:
+                a.notes.append("PgBouncer configuration was absent from the completed list")
+        else:
+            a.notes.append("PgBouncer configuration inventory is incomplete; port 6432 is unresolved")
     private_unknown = False
     if kind in ("servicebus_namespace", "search_service"):
         a.external_ids, private_unknown = _azure_foreign_private_endpoints(resource["data"], props)
@@ -9641,7 +9660,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
             a.step("private_link_share", "allow", outside_private_endpoints=sorted(a.external_ids))
             a.ports = endpoint_ports
             a.explicit = "FAIL"
-    if kind == "mysql_flexible_server":
+    if kind in ("mysql_flexible_server", "postgresql_flexible_server"):
         child_coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
         child = resource["data"].get("privateEndpointConnections")
         if child_coverage.get("status") in ("collected", "empty") and isinstance(child, list):
