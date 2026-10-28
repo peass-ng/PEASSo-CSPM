@@ -302,7 +302,9 @@ def test_redis_enterprise_managed_redis_database_listener_gates():
     cluster = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redisEnterprise/cache"
     def evaluate(access, child_status="collected", database_port=10000):
         item = {"id": cluster, "properties": {"publicNetworkAccess": access,
-                "hostName": "cache.westus.redis.azure.net"}}
+                "hostName": "cache.westus.redis.azure.net"},
+                "privateEndpointConnections": [],
+                "_coverage": {"privateEndpointConnections": {"status": "empty"}}}
         database = {"id": cluster + "/databases/default", "properties": {
             "port": database_port, "clientProtocol": "Encrypted"}}
         snap = make_snapshot("azure", [SCOPE], [

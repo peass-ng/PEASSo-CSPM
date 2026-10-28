@@ -11414,10 +11414,25 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "database")
     a.authenticated = True
+    coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+    connections = resource["data"].get("privateEndpointConnections")
+    private_unknown = True
+    if coverage.get("status") in ("collected", "empty") and isinstance(connections, list):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+            resource["data"], {"privateEndpointConnections": connections})
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.explicit = "FAIL"
+        if private_unknown:
+            a.gap("private_link_share", "Managed Redis private endpoint approval or ownership is unresolved")
+    else:
+        a.gap("private_link_share", "Managed Redis private endpoint connections are not fully collected")
     access = props.get("publicNetworkAccess")
     if access == "Disabled":
         a.step("public_network_access", "block", value=access)
         a.ports = {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         return a
     if access != "Enabled":
         a.gap("inventory", "Redis Enterprise publicNetworkAccess is absent or unrecognized")
@@ -11450,6 +11465,8 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
     elif status in ("collected", "empty") and not malformed:
         a.step("listener", "block", reason="no database listener in complete child inventory")
         a.ports = {}
+    if private_unknown and not a.external_ids and empty(a.ports or {}):
+        a.explicit = "UNKNOWN"
     return a
 
 

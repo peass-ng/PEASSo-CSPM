@@ -3,6 +3,8 @@
 from urllib.parse import urlsplit, parse_qs
 
 from peaso.collectors import azure
+from peaso.analysis.internet_exposure import assess
+from peaso.snapshot import resources
 
 SUB = "11111111-1111-1111-1111-111111111111"
 SCOPE = "/subscriptions/" + SUB
@@ -13,8 +15,9 @@ DATABASE = CLUSTER + "/databases/default"
 class Transport:
     tenant = verified_tenant = "22222222-2222-2222-2222-222222222222"
 
-    def __init__(self):
+    def __init__(self, private_connections=()):
         self.calls = []
+        self.private_connections = private_connections
 
     def request(self, url, *, body=None, audience=azure.ARM):
         assert body is None and audience == azure.ARM
@@ -31,6 +34,8 @@ class Transport:
             return {"value": [{"id": DATABASE, "name": "default",
                 "type": "Microsoft.Cache/redisEnterprise/databases",
                 "properties": {"port": 10000, "clientProtocol": "Encrypted"}}]}
+        if path == CLUSTER + "/privateEndpointConnections":
+            return {"value": list(self.private_connections)}
         return {"value": []}
 
 
@@ -43,6 +48,34 @@ def test_redis_enterprise_parent_and_database_are_read_once():
     assert parent["status"] == "collected"
     assert child["status"] == "collected" and child["items"][0]["properties"]["port"] == 10000
     assert sum(urlsplit(url).path == CLUSTER + "/databases" for url in transport.calls) == 1
+    assert sum(urlsplit(url).path == CLUSTER + "/privateEndpointConnections" for url in transport.calls) == 1
     assert all(parse_qs(urlsplit(url).query).get("api-version") == ["2025-07-01"]
                for url in transport.calls if "redisEnterprise" in urlsplit(url).path
                and "diagnosticSettings" not in urlsplit(url).path)
+
+
+def _private(remote, status="Approved", provisioning="Succeeded"):
+    return {"id": CLUSTER + "/privateEndpointConnections/pec", "name": "pec",
+            "type": "Microsoft.Cache/redisEnterprise/privateEndpointConnections",
+            "properties": {"privateEndpoint": {"id": remote},
+                           "privateLinkServiceConnectionState": {"status": status},
+                           "provisioningState": provisioning}}
+
+
+def test_managed_redis_private_connection_exposure_with_public_access_disabled():
+    foreign = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/other/providers/Microsoft.Network/privateEndpoints/pe"
+    local = SCOPE + "/resourceGroups/rg/providers/Microsoft.Network/privateEndpoints/pe"
+    for connections, expected in (([_private(foreign)], "FAIL"), ([_private(local)], "PASS"),
+                                  ([_private(foreign, status="Pending")], "PASS"),
+                                  ([_private(foreign, provisioning="Creating")], "UNKNOWN"),
+                                  ([], "PASS")):
+        transport = Transport(connections)
+        snapshot = azure.collect({"scopes": [SUB], "options": {"retries": 0}},
+                                 ["redis_enterprise_cluster", "redis_enterprise_database"], transport=transport)
+        cluster = next(c for c in snapshot["collections"] if c["type"] == "redis_enterprise_cluster")
+        cluster["items"][0]["properties"]["publicNetworkAccess"] = "Disabled"
+        result = next(row for row in assess(snapshot, resources(snapshot))
+                      if row.resource["type"] == "redis_enterprise_cluster")
+        assert result.verdict() == expected
+        if expected == "FAIL":
+            assert result.external_ids == [foreign]

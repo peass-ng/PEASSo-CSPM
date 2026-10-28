@@ -236,6 +236,7 @@ EMBEDDED_LISTS = {
     "postgresql_single_server": (("configurations", "configurations", "2017-12-01"), ("firewallRules", "firewallRules", "2017-12-01")),
     "redis_cache": (("firewallRules", "firewallRules", "2024-11-01"),
                     ("privateEndpointConnections", "privateEndpointConnections", "2024-11-01")),
+    "redis_enterprise_cluster": (("privateEndpointConnections", "privateEndpointConnections", "2025-07-01"),),
     "mysql_single_server": (("configurations", "configurations", "2017-12-01"),),
     "web_pubsub": (("privateEndpointConnections", "privateEndpointConnections", "2024-03-01"),),
     "ml_workspace": (("privateEndpointConnections", "privateEndpointConnections", "2024-04-01"),
