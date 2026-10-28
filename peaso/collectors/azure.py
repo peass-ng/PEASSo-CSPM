@@ -236,7 +236,8 @@ EMBEDDED_LISTS = {
                                ("databases", "databases", "2021-11-01")),
     "storage_account": (("blobContainers", "blobServices/default/containers", "2023-05-01"), ("encryptionScopes", "encryptionScopes", "2023-05-01"),
                         ("eventSubscriptions", "providers/Microsoft.EventGrid/eventSubscriptions", "2022-06-15"),
-                        ("localUsers", "localUsers", "2023-05-01")),
+                        ("localUsers", "localUsers", "2023-05-01"),
+                        ("networkSecurityPerimeterConfigurations", "networkSecurityPerimeterConfigurations", "2026-04-01")),
     "arc_kubernetes_cluster": (("extensions", "providers/Microsoft.KubernetesConfiguration/extensions", "2023-05-01"),),
     "sql_server": (("serverAdministrators", "administrators", "2023-08-01"), ("azureADOnlyAuthentications", "azureADOnlyAuthentications", "2023-08-01"), ("virtualNetworkRules", "virtualNetworkRules", "2023-08-01"), ("firewallRules", "firewallRules", "2023-08-01"), ("securityAlertPolicies", "securityAlertPolicies", "2023-08-01")),
     "synapse_workspace": (("sqlPools", "sqlPools", "2021-06-01"), ("firewallRules", "firewallRules", "2021-06-01"),
@@ -331,6 +332,14 @@ def _network_platform_native_identity(row, scope, kind):
 def _child_rows(rows, parent_id, field):
     if any(not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].lower().startswith(parent_id.lower() + "/") for row in rows):
         raise ValueError("malformed or foreign embedded child identity")
+    if field == "networkSecurityPerimeterConfigurations":
+        for row in rows:
+            if (re.fullmatch(re.escape(parent_id + "/networkSecurityPerimeterConfigurations/") +
+                             r"[^/?#%\\\s]+", row["id"], re.I) is None or
+                    str(row.get("type", "")).casefold() !=
+                    "microsoft.storage/storageaccounts/networksecurityperimeterconfigurations" or
+                    not isinstance(row.get("properties"), dict)):
+                raise ValueError("foreign or malformed Storage effective perimeter configuration")
     if field == "httpRouteConfigs":
         seen = set()
         for row in rows:
@@ -671,6 +680,8 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
             specs.append(("functions", "functions", "2025-05-01"))
         if kind == "container_registry" and item.get("sku", {}).get("name") != "Premium":
             specs = [spec for spec in specs if spec[0] != "replications"]
+        if kind == "storage_account" and (item.get("properties") or {}).get("publicNetworkAccess") != "SecuredByPerimeter":
+            specs = [spec for spec in specs if spec[0] != "networkSecurityPerimeterConfigurations"]
         known = diagnostics.get(rid.casefold())
         if known is not None:
             item.setdefault("_coverage", {})["diagnosticSettings"] = {key: known[key] for key in ("status", "error") if key in known}
@@ -733,7 +744,7 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                                               "properties": {name: data for name, data in row["properties"].items() if name == "recurringScans"}})
                         yield projected
                         continue
-                    if field in ("backupJobs", "backupProtectedItems", "configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "slots", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors", "onlineEndpoints"):
+                    if field in ("backupJobs", "backupProtectedItems", "configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "slots", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors", "onlineEndpoints", "networkSecurityPerimeterConfigurations"):
                         distinct = []
                         for row in page:
                             identity = row.get("id") if isinstance(row, dict) else None

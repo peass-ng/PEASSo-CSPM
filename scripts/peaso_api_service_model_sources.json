@@ -1113,7 +1113,7 @@
     "peaso/collectors/aws_workload_detail_identity.py": "555dbc90c9d20a54b83fddd01037fff9f3ccaf92926f5f36234b70dab8873a2c",
     "peaso/collectors/aws_workload_image_secret_native_20261021.py": "96b3cfec475531d24b296bcbee89555bb16d8746694d042910b3f50dddfdd47e",
     "peaso/collectors/aws_workload_referenced_source_indicators.py": "2b1a31e2c90fac429cfdaaf0f50e1230b44daf82427af6cdee031f4f29187524",
-    "peaso/collectors/azure.py": "7e96e1dac2cbb1e2fee6d62ea5ac96c9c2b3b77d6724e27e8bf39cbd97ae7b1d",
+    "peaso/collectors/azure.py": "ffa694575eba7314d4da2951ee642f125558da8ee87fd09c7ed74befeef96a44",
     "peaso/collectors/azure_access_reviews_native.py": "11647049e6d04b1e9985ec51f9e890c02b0e8da66f67391979628a60e772bd6f",
     "peaso/collectors/azure_acr_image_parallel_20261026.py": "e6ce71fe678d1cbe7dd9390ac7f924f5340c950fdca45096b0323fa43399aeeb",
     "peaso/collectors/azure_acr_image_secret_indicators.py": "528640e64c665a79e9b045ecc028e5eccfae9ddd1f28e237ff73ae390ab54c9a",

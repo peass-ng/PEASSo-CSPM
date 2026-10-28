@@ -808,6 +808,78 @@ def test_storage_account_deny_default_retains_public_ip_rule_exposure():
         "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
 
 
+def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
+    from peaso.collectors import azure
+    from peaso.collectors.azure import _child_rows
+
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    container_id = account_id + "/blobServices/default/containers/public"
+    config_id = account_id + "/networkSecurityPerimeterConfigurations/association"
+    config = {"id": config_id,
+              "type": "Microsoft.Storage/storageAccounts/networkSecurityPerimeterConfigurations",
+              "properties": {"provisioningState": "Succeeded",
+                             "resourceAssociation": {"accessMode": "Enforced"},
+                             "profile": {"accessRules": [{"name": "internet",
+                                 "properties": {"direction": "Inbound", "addressPrefixes": ["8.8.8.0/24"]}}]}}}
+    assert _child_rows([config], account_id, "networkSecurityPerimeterConfigurations")[0]["id"] == config_id
+    with pytest.raises(ValueError):
+        _child_rows([{**config, "id": account_id + "/networkSecurityPerimeterConfigurations/../foreign"}],
+                    account_id, "networkSecurityPerimeterConfigurations")
+    url = ("https://management.azure.com" + account_id +
+           "/networkSecurityPerimeterConfigurations?api-version=2026-04-01")
+    calls = []
+
+    def request(current, **kwargs):
+        calls.append(current)
+        return {"value": [config]}
+
+    skip = tuple(field for field, _, _ in azure.EMBEDDED_LISTS["storage_account"]
+                 if field != "networkSecurityPerimeterConfigurations") + ("diagnosticSettings",)
+    item = {"id": account_id, "type": "Microsoft.Storage/storageAccounts",
+            "properties": {"publicNetworkAccess": "SecuredByPerimeter"}}
+    azure._embed(azure._Reader({}), request, [("storage_account", item)], skip=skip)
+    assert calls == [url]
+    assert item["_coverage"]["networkSecurityPerimeterConfigurations"]["status"] == "collected"
+    assert item["networkSecurityPerimeterConfigurations"][0]["id"] == config_id
+    calls.clear()
+    ordinary = {"id": account_id, "type": "Microsoft.Storage/storageAccounts",
+                "properties": {"publicNetworkAccess": "Enabled"}}
+    azure._embed(azure._Reader({}), request, [("storage_account", ordinary)], skip=skip)
+    assert calls == []
+
+    def check(configuration=config, *, status="collected"):
+        account = {"id": account_id, "properties": {
+            "publicNetworkAccess": "SecuredByPerimeter", "allowBlobPublicAccess": True,
+            "networkAcls": {"defaultAction": "Deny", "bypass": "None"},
+            "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}},
+            "networkSecurityPerimeterConfigurations": [configuration],
+            "_coverage": {"networkSecurityPerimeterConfigurations": {"status": status}}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [account]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": container_id, "parent_id": account_id,
+                        "properties": {"publicAccess": "Blob"}}]},
+        ])
+        rows = [row for row in assess(snap, resources(snap))
+                if row.resource["type"] in ("storage_account", "storage_container")]
+        return {row.resource["type"]: row for row in rows}
+
+    opened = check()
+    assert opened["storage_account"].verdict() == "FAIL"
+    assert opened["storage_container"].verdict() == "FAIL"
+    assert opened["storage_container"].data_exposure
+    assert opened["storage_account"].path[0]["public_ip_rules"][0]["source"] == "8.8.8.0/24"
+    private = {**config, "properties": {**config["properties"], "profile": {
+        "accessRules": [{"name": "private", "properties": {
+            "direction": "Inbound", "addressPrefixes": ["10.0.0.0/8"]}}]}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(private).values())
+    assert all(row.verdict() == "UNKNOWN" for row in check(status="partial").values())
+    learning = {**config, "properties": {**config["properties"],
+        "resourceAssociation": {"accessMode": "Learning"}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(learning).values())
+
+
 def test_storage_unrecognized_public_gate_stays_unknown_for_account_and_anonymous_blob():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
 

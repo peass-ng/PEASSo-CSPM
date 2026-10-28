@@ -5016,6 +5016,38 @@ def _azure_storage_endpoint_urls(props, service=None):
     return sorted(set(urls))
 
 
+def _azure_storage_perimeter_public_rules(account):
+    """Known public inbound CIDRs from the Storage RP effective perimeter read."""
+    data = account["data"]
+    coverage = (data.get("_coverage") or {}).get("networkSecurityPerimeterConfigurations") or {}
+    configs = data.get("networkSecurityPerimeterConfigurations")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(configs, list):
+        return []
+    public = []
+    for config in configs:
+        cp = config.get("properties") if isinstance(config, dict) else None
+        if not isinstance(cp, dict) or cp.get("provisioningState") != "Succeeded":
+            continue
+        association = cp.get("resourceAssociation")
+        profile = cp.get("profile")
+        if (not isinstance(association, dict) or association.get("accessMode") != "Enforced" or
+                not isinstance(profile, dict) or not isinstance(profile.get("accessRules"), list)):
+            continue
+        for rule in profile["accessRules"]:
+            rp = rule.get("properties") if isinstance(rule, dict) else None
+            if not isinstance(rp, dict) or rp.get("direction") != "Inbound":
+                continue
+            prefixes = rp.get("addressPrefixes")
+            if not isinstance(prefixes, list):
+                continue
+            for value in prefixes:
+                network = _cidr(value)
+                if network is not None and _azure_public_remainder([network], []):
+                    public.append({"configuration": config.get("id"), "rule": rule.get("name"),
+                                   "source": str(network)})
+    return public
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
@@ -5041,8 +5073,18 @@ def _azure_storage(snapshot, inventory, resource):
             return a
         return None
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
-        a.gap("firewall", "storage network security perimeter rules are not collected")
-        a.explicit = "UNKNOWN"
+        public_rules = _azure_storage_perimeter_public_rules(resource)
+        if public_rules:
+            a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
+                   access_mode="Enforced", source="Storage RP effective configuration")
+            a.addresses = _azure_storage_endpoint_urls(props)
+            if not a.addresses:
+                a.gap("inventory", "storage public endpoint URL is not collected")
+            a.ports = pset("tcp", 443, 443)
+            a.authenticated = props.get("allowBlobPublicAccess") is not True
+            return a
+        a.gap("firewall", "effective Storage perimeter inbound public-source rules are unavailable or do not establish a public source")
+        return a
     acls = props.get("networkAcls")
     if acls is None:
         acls = {}
@@ -5145,8 +5187,18 @@ def _azure_storage_container(snapshot, inventory, resource):
         a.ports = {}
         return a
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
-        a.gap("firewall", "storage network security perimeter rules are not collected")
-        a.explicit = "UNKNOWN"
+        public_rules = _azure_storage_perimeter_public_rules(account)
+        if public_rules:
+            a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
+                   access_mode="Enforced", source="Storage RP effective configuration")
+            a.addresses = _azure_storage_endpoint_urls(props, service="blob")
+            if not a.addresses:
+                a.gap("inventory", "public blob endpoint is not collected")
+            a.data_exposure = True
+            a.ports = pset("tcp", 443, 443)
+            return a
+        a.gap("firewall", "effective Storage perimeter inbound public-source rules are unavailable or do not establish a public source")
+        return a
     if props.get("publicNetworkAccess") is None:
         a.step("account_gate", "allow", public_network_access="Enabled (service default)")
     acls = props.get("networkAcls")
