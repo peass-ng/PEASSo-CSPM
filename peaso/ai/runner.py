@@ -51,9 +51,8 @@ def main():
     if stage not in ('network', 'priorities'):
         raise ValueError('unknown_ai_stage')
     root = Path.cwd()
-    if stage == 'priorities':
-        from .briefing import materialize_context
-        materialize_context(root)
+    from .briefing import materialize_context
+    materialize_context(root)
     from chack_agent import Chack, load_config
     from .prompting import access_instructions, agent_config_path
     auth_path = root / 'codex-auth.json'
