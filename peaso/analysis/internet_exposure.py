@@ -3485,6 +3485,53 @@ def gcp_secret_external_accessor_findings(snapshot, resources):
     return output
 
 
+def gcp_kms_external_decrypter_findings(snapshot, resources):
+    """Report direct cross-project key decrypt grants, not decrypted data."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    roles = ("roles/cloudkms.cryptoKeyDecrypter", "roles/cloudkms.cryptoKeyEncrypterDecrypter")
+    for resource in resources:
+        if resource["type"] != "kms_key" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        coverage = data.get("_coverage", {}).get("iamPolicy") if isinstance(data.get("_coverage"), dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = [grant for role in roles for grant in _gcp_cross_project_sa_grants(policy, project, role)]
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
+        first = (f"The Cloud KMS key {name} has {grant['role']} for {grant['member']} in its direct IAM policy."
+                 if unconditional else
+                 f"The Cloud KMS key {name} has a conditional {grant['role']} binding for {grant['member']}.")
+        evidence = {
+            "observed": "\n".join((first,
+                "That role includes cloudkms.cryptoKeyVersions.useToDecrypt on the key." if unconditional else
+                "The condition has no recorded request evaluation.",
+                "A service account from another GCP project may use this key to decrypt ciphertext if other controls allow it." if unconditional else
+                "If the condition is satisfied, that service account may use this key to decrypt ciphertext.",
+                "Project ownership, IAM denies, key-version state, and actual cryptographic use remain unresolved.")),
+            "direct_decrypter_grants": grants,
+            "permission": "cloudkms.cryptoKeyVersions.useToDecrypt",
+            "key_purpose": data.get("purpose"),
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct key decrypt-permission declaration only; key version state, IAM denies, ciphertext possession and successful decryption are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_kms_external_decrypter",
+                              "Cross-project Cloud KMS Decrypter grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
 # -------------------------------------------------------------------- Azure
 
 def _props(resource):
@@ -5894,6 +5941,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_artifact_public_reader_findings(snapshot, resources))
     output.extend(gcp_pubsub_public_grant_findings(snapshot, resources))
     output.extend(gcp_secret_external_accessor_findings(snapshot, resources))
+    output.extend(gcp_kms_external_decrypter_findings(snapshot, resources))
     return output
 
 

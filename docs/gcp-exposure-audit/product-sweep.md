@@ -164,7 +164,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **145 have no native pa
 | Security | [Certificate Manager](https://docs.cloud.google.com/certificate-manager/docs) | — | REVIEW REQUIRED |
 | Security | [Chrome Enterprise Premium](https://docs.cloud.google.com/chrome-enterprise-premium/docs) | — | REVIEW REQUIRED |
 | Security | [Cloud Asset Inventory](https://docs.cloud.google.com/asset-inventory/docs) | — | REVIEW REQUIRED |
-| Security | [Cloud KMS](https://docs.cloud.google.com/kms/docs) | IAM policy | REVIEW REQUIRED |
+| Security | [Cloud KMS](https://docs.cloud.google.com/kms/docs) | Direct cross-project key Decrypter grants; key-ring/ancestor and custom roles, IAM denies, key-version state and successful decryption unresolved | REVIEW REQUIRED |
 | Security | [Fraud Defense](https://docs.cloud.google.com/recaptcha/docs) | — | REVIEW REQUIRED |
 | Security | [Google SecOps](https://docs.cloud.google.com/chronicle/docs) | — | REVIEW REQUIRED |
 | Security | [Identity and Access Management (IAM)](https://docs.cloud.google.com/iam/docs) | principal exposure / workload identity provider to service-account IAM binding | REVIEW REQUIRED |

@@ -953,6 +953,35 @@ def test_gcp_secret_direct_cross_project_accessor_grant():
     assert findings() == []
 
 
+@pytest.mark.parametrize("role", ["roles/cloudkms.cryptoKeyDecrypter", "roles/cloudkms.cryptoKeyEncrypterDecrypter"])
+def test_gcp_kms_direct_cross_project_decrypter_grant(role):
+    key = {"name": "projects/p1/locations/global/keyRings/app/cryptoKeys/data", "purpose": "ENCRYPT_DECRYPT",
+           "iamPolicy": {"bindings": [{"role": role,
+                          "members": ["serviceAccount:reader@foreign-project.iam.gserviceaccount.com"]}]},
+           "_coverage": {"iamPolicy": {"status": "collected"}}}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("kms_key", [key], service="cloudkms")))["findings"]
+                if row["check_id"] == "analysis.gcp_kms_external_decrypter"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], key["name"])
+    assert rows[0]["evidence"]["permission"] == "cloudkms.cryptoKeyVersions.useToDecrypt"
+    key["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert findings()[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(findings()[0], key["name"])
+    key["iamPolicy"]["bindings"][0].pop("condition")
+    key["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:reader@p1.iam.gserviceaccount.com"]
+    assert findings() == []
+    key["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:reader@foreign-project.iam.gserviceaccount.com"]
+    key["iamPolicy"]["bindings"][0]["role"] = "roles/cloudkms.viewer"
+    assert findings() == []
+    key["iamPolicy"]["bindings"][0]["role"] = role
+    key["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert findings() == []
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}
