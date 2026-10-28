@@ -847,11 +847,12 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     azure._embed(azure._Reader({}), request, [("storage_account", ordinary)], skip=skip)
     assert calls == []
 
-    def check(configuration=config, *, status="collected", acls=None):
+    def check(configuration=config, *, status="collected", acls=None, endpoints=None):
         account = {"id": account_id, "properties": {
             "publicNetworkAccess": "SecuredByPerimeter", "allowBlobPublicAccess": True,
             "networkAcls": acls if acls is not None else {"defaultAction": "Deny", "bypass": "None"},
-            "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}},
+            "primaryEndpoints": endpoints if endpoints is not None else
+                {"blob": "https://a.blob.core.windows.net/"}},
             "networkSecurityPerimeterConfigurations": [configuration],
             "_coverage": {"networkSecurityPerimeterConfigurations": {"status": status}}}
         snap = make_snapshot("azure", [SCOPE], [
@@ -870,6 +871,10 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     assert opened["storage_container"].verdict() == "FAIL"
     assert opened["storage_container"].data_exposure
     assert opened["storage_account"].path[0]["public_ip_rules"][0]["source"] == "8.8.8.0/24"
+    unsupported = check(endpoints={"file": "https://a.file.core.windows.net/",
+                                   "web": "https://a.web.core.windows.net/"})
+    assert all(row.verdict() == "UNKNOWN" for row in unsupported.values())
+    assert unsupported["storage_account"].addresses == []
     for row in opened.values():
         observed = _observed(row, "FAIL")
         assert "effective Storage perimeter" in observed or "effective perimeter rule" in observed

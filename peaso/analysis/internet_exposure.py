@@ -5069,6 +5069,12 @@ def _azure_storage_perimeter_learning_fallback(account):
             isinstance(cp.get("profile"), dict) and isinstance(cp["profile"].get("accessRules"), list))
 
 
+def _azure_storage_perimeter_urls(props):
+    """NSP-supported Storage data services; Files and static website differ."""
+    return sorted({url for service in ("blob", "dfs", "queue", "table")
+                   for url in _azure_storage_endpoint_urls(props, service=service)})
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
@@ -5085,7 +5091,7 @@ def _azure_storage(snapshot, inventory, resource):
         instances, malformed_instances = _azure_storage_resource_instance_rules(acls)
         bypass = _azure_storage_bypass(acls)
         if instances or malformed_instances or bypass is None or bypass:
-            a.addresses = _azure_storage_endpoint_urls(props)
+            a.addresses = _azure_storage_perimeter_urls(props)
             a.step("disabled_public_exception", "unknown", public_network_access="Disabled",
                    resource_instance_rules=instances, trusted_service_bypass=sorted(bypass) if bypass else [],
                    malformed_exception=malformed_instances or bypass is None)
@@ -5109,7 +5115,7 @@ def _azure_storage(snapshot, inventory, resource):
                    subscription_rules=subscription_rules,
                    access_modes=sorted({rule["access_mode"] for rule in public_rules + subscription_rules}),
                    source="Storage RP effective configuration")
-            a.addresses = _azure_storage_endpoint_urls(props)
+            a.addresses = _azure_storage_perimeter_urls(props)
             if not a.addresses:
                 a.gap("inventory", "storage public endpoint URL is not collected")
             a.ports = pset("tcp", 443, 443)
