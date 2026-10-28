@@ -37581,6 +37581,73 @@ def _aws_medialive_input(snapshot, inventory, resource):
     return a
 
 
+def _aws_api_stage(snapshot_data, assessment, service):
+    """Check a cached API Gateway stage read without fetching during analysis."""
+    stages = snapshot_data.get("Stages")
+    operation = "apigateway:GetStages" if service == "rest" else "apigatewayv2:GetStages"
+    if not isinstance(stages, dict) or stages.get("collection_status") not in ("collected", "empty"):
+        assessment.gap("inventory", "API Gateway stage read unavailable", operation)
+        return None
+    rows = stages.get("items")
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        assessment.gap("inventory", "API Gateway stage list malformed", operation)
+        return None
+    active = []
+    for row in rows:
+        name = row.get("stageName") if service == "rest" else row.get("StageName")
+        deployment = row.get("deploymentId") if service == "rest" else row.get("DeploymentId")
+        auto = row.get("AutoDeploy") is True if service == "http" else False
+        if not isinstance(name, str) or not name:
+            assessment.gap("inventory", "API Gateway stage name missing", operation)
+            return None
+        if isinstance(deployment, str) and deployment or auto:
+            active.append(name)
+    assessment.step("deployment", "allow" if active else "block", stage_names=active,
+                    reason="no associated deployment or automatic deployment" if not active else "deployed stages collected")
+    return bool(active)
+
+
+def _aws_ssm_document_share(snapshot, inventory, resource):
+    """Assess public and foreign account grants on an owned SSM document."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    account = resource["scope"].split("/", 1)[0]
+    if data.get("Owner") not in (None, account):
+        return None
+    a = Assessment(resource, "data_share")
+    if data.get("Owner") != account:
+        a.gap("ownership", "SSM document owner not collected", "ssm:ListDocuments")
+        return a
+    permissions = data.get("Permissions")
+    if not isinstance(permissions, dict) or permissions.get("collection_status") != "collected":
+        a.gap("permissions", "SSM document share permissions not collected", "ssm:DescribeDocumentPermission")
+        return a
+    accounts = permissions.get("AccountIds")
+    if not isinstance(accounts, list) or not all(isinstance(value, str) and
+            (value.lower() == "all" or re.fullmatch(r"[0-9]{12}", value)) for value in accounts):
+        a.gap("permissions", "SSM document share account IDs malformed", "ssm:DescribeDocumentPermission")
+        return a
+    if any(value.lower() == "all" for value in accounts):
+        a.step("permissions", "allow", public_share=True)
+        a.data_exposure = True
+        a.ports = {}
+        return a
+    trusted = trusted_scopes(snapshot)["ids"] | {account}
+    foreign = sorted({value for value in accounts if value not in trusted})
+    if foreign:
+        a.step("permissions", "allow", external_accounts=foreign)
+        a.external_ids = foreign
+        a.kind = "external_share"
+        a.explicit = "FAIL"
+    elif permissions.get("NextToken"):
+        a.gap("permissions", "SSM document share permissions have more pages", "ssm:DescribeDocumentPermission")
+    else:
+        a.step("permissions", "block", grantee_count=len(accounts))
+        a.ports = {}
+    return a
+
+
 # --------------------------------------------------------------- dispatcher
 
 AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service", "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster", "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block", "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app", "rds_cluster", "rds_cluster_endpoint", "redshiftserverless_workgroup"]
@@ -37605,6 +37672,7 @@ GCP_TYPES.extend(['api_gateway_resource', 'apigee_route', 'application_integrati
 GCP_TYPES.extend(['access_level', 'access_policy', 'alloydb_user', 'backupdr_backup_plan', 'backupdr_backup_plan_association', 'backupdr_backup_vault', 'backupdr_management_server', 'bigtable_authorized_view', 'bigtable_backup', 'bigtable_instance', 'bigtable_logical_view', 'bigtable_materialized_view', 'bigtable_table', 'binary_authorization_attestor', 'binary_authorization_platform_policy', 'binary_authorization_policy', 'ca_certificate_template', 'ca_pool', 'dlp_exposure', 'dns_managed_zone', 'dns_policy', 'dns_response_policy', 'firestore_database', 'firestore_user_cred', 'fraud_defense_exposure', 'kms_key', 'kms_key_ring', 'media_cdn_keyset', 'media_cdn_origin', 'memorystore_instance', 'mesh_gateway', 'migration_connection_profile', 'migration_job', 'migration_private_connection', 'model_armor_exposure', 'multicloud_exposure', 'netapp_volume', 'network_connectivity_hub', 'network_connectivity_spoke', 'ngfw_intercept_association', 'ngfw_intercept_deployment_group', 'ngfw_intercept_endpoint_group', 'ngfw_mirroring_association', 'ngfw_mirroring_endpoint_group', 'redis_cluster', 'sac_exposure', 'secret', 'service_attachment', 'service_extension_exposure', 'service_perimeter', 'shared_vpc', 'sovereign_partner_exposure', 'spanner_backup', 'spanner_database', 'spanner_instance'])
 AWS_TYPES.extend(['lightsail_instance', 'lightsail_database', 'lightsail_load_balancer', 'lightsail_container_service', 'lightsail_bucket', 'lightsail_distribution', 'gamelift_ec2_compute'])
 AWS_TYPES.extend(['workspace_web_portal', 'quicksight_dashboard_share', 'mediaconnect_flow', 'medialive_input'])
+AWS_TYPES.append("ssm_document_metadata")
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "rds_cluster", "rds_cluster_endpoint", "redshift_cluster", "redshiftserverless_workgroup",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
@@ -37637,6 +37705,8 @@ EVALUATED["aws"].update(['lightsail_instance', 'lightsail_database', 'lightsail_
 
 EVALUATED["aws"].update(['workspace_web_portal', 'quicksight_dashboard_share', 'mediaconnect_flow', 'medialive_input'])
 
+EVALUATED["aws"].add("ssm_document_metadata")
+
 def assess(snapshot, resources):
     """Return [Assessment] for every asset with a public address/endpoint (cached per snapshot)."""
     context = _CONTEXT.get()
@@ -37662,7 +37732,7 @@ def assess(snapshot, resources):
             ipv6_rules.setdefault(parent, []).append(rule)
         extra["ipv6_rules"] = ipv6_rules
     handlers = {
-        "aws": {"mwaa_environment": _aws_mwaa_webserver, "pcs_cluster": _aws_pcs_public_endpoint, "mediapackage_origin_endpoint": _aws_mediapackage_v1_origin, "mediatailor_playback_configuration": _aws_mediatailor_playback, "workspace_web_portal": _aws_workspace_web_portal, "quicksight_dashboard_share": _aws_quicksight_dashboard_share, "mediaconnect_flow": _aws_mediaconnect_flow, "medialive_input": _aws_medialive_input, 'aoss_collection': _aws_aoss_collection, 'aoss_network_policy': _aws_aoss_network_policy, 'influxdb_cluster': _aws_influxdb, 'influxdb_instance': _aws_influxdb, 'lattice_vpc_association': _aws_lattice_foreign_vpc_association, 'machinelearning_model': _aws_machinelearning_endpoint, 'mailmanager_ingress_point': _aws_mailmanager_ingress, 'mailmanager_rule_route': _aws_mailmanager_rule_route, 'marketplace_entity': _aws_marketplace_entity, 'mediapackage_origin_endpoint': _aws_mediapackage_v1_origin, 'mediapackagev2_channel_listener': _aws_mediapackagev2_listener, 'mediapackagev2_harvest_job': _aws_mediapackagev2_harvest_job, 'mediatailor_playback_configuration': _aws_mediatailor_playback, 'mq_broker': _aws_mq_public_broker, 'msk_cluster': _aws_msk_public_brokers, 'mwaa_environment': _aws_mwaa_webserver, 'neptune_graph': _aws_neptune_graph, 'neptune_instance': _aws_neptune_instance, 'opensearch_connection': _aws_opensearch_connection, 'opensearch_ui_application': _aws_opensearch_ui_application, 'opensearch_vpc_endpoint_access': _aws_opensearch_vpc_endpoint_access, 'osis_endpoint_connection': _aws_osis_endpoint_connection, 'osis_pipeline': _aws_osis_pipeline, 'osis_pipeline_endpoint': _aws_osis_pipeline_endpoint, 'pcs_cluster': _aws_pcs_public_endpoint, 'redshift_endpoint_authorization': _aws_redshift_endpoint_authorization, 'refactor_application': _aws_refactor_application, 'refactor_service': _aws_refactor_service, 's3tables_lf_grant': _aws_s3tables_lf_grant, 'security_ir_recipient_route': _aws_security_ir_recipient_route, 'securitylake_exception_notification': _aws_securitylake_exception_notification, 'securitylake_subscriber': _aws_securitylake_subscriber, 'transfer_server': _aws_transfer_server, 'transfer_web_app': _aws_transfer_web_app, 'wellarchitected_share': _aws_wellarchitected_share,  'auditmanager_report_destination': _aws_auditmanager_report_destination, 'cleanrooms_collaboration_exposure': _aws_cleanrooms_collaboration, 'glue_dev_endpoint': _aws_glue_dev_endpoint,'appstream_image': _aws_appstream_image_share, 'backup_copy_job': _aws_backup_copy_job, 'backup_plan': _aws_backup_plan_foreign_copy, 'backup_vault': _aws_backup_vault_foreign_copy, 'cloud9_environment_share': _aws_cloud9_environment_share, 'eks_access_entry': _aws_eks_foreign_access_entry, 'imagebuilder_distribution': _aws_imagebuilder_distribution, 'omics_resource_share': _aws_omics_resource_share, 'redshift_datashare': _aws_redshift_datashare, 'servicecatalog_portfolio': _aws_servicecatalog_portfolio_share, 'transit_gateway_peering_attachment': _aws_tgw_foreign_attachment, 'wellarchitected_lens_share': _aws_wellarchitected_lens_share, 'wellarchitected_profile_share': _aws_wellarchitected_profile_share, 'wellarchitected_template_share': _aws_wellarchitected_template_share, 'wellarchitected_workload_share': _aws_wellarchitected_workload_share, 'workspaces_image': _aws_workspaces_image_share, "iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
+        "aws": {"ssm_document_metadata": _aws_ssm_document_share, "mwaa_environment": _aws_mwaa_webserver, "pcs_cluster": _aws_pcs_public_endpoint, "mediapackage_origin_endpoint": _aws_mediapackage_v1_origin, "mediatailor_playback_configuration": _aws_mediatailor_playback, "workspace_web_portal": _aws_workspace_web_portal, "quicksight_dashboard_share": _aws_quicksight_dashboard_share, "mediaconnect_flow": _aws_mediaconnect_flow, "medialive_input": _aws_medialive_input, 'aoss_collection': _aws_aoss_collection, 'aoss_network_policy': _aws_aoss_network_policy, 'influxdb_cluster': _aws_influxdb, 'influxdb_instance': _aws_influxdb, 'lattice_vpc_association': _aws_lattice_foreign_vpc_association, 'machinelearning_model': _aws_machinelearning_endpoint, 'mailmanager_ingress_point': _aws_mailmanager_ingress, 'mailmanager_rule_route': _aws_mailmanager_rule_route, 'marketplace_entity': _aws_marketplace_entity, 'mediapackage_origin_endpoint': _aws_mediapackage_v1_origin, 'mediapackagev2_channel_listener': _aws_mediapackagev2_listener, 'mediapackagev2_harvest_job': _aws_mediapackagev2_harvest_job, 'mediatailor_playback_configuration': _aws_mediatailor_playback, 'mq_broker': _aws_mq_public_broker, 'msk_cluster': _aws_msk_public_brokers, 'mwaa_environment': _aws_mwaa_webserver, 'neptune_graph': _aws_neptune_graph, 'neptune_instance': _aws_neptune_instance, 'opensearch_connection': _aws_opensearch_connection, 'opensearch_ui_application': _aws_opensearch_ui_application, 'opensearch_vpc_endpoint_access': _aws_opensearch_vpc_endpoint_access, 'osis_endpoint_connection': _aws_osis_endpoint_connection, 'osis_pipeline': _aws_osis_pipeline, 'osis_pipeline_endpoint': _aws_osis_pipeline_endpoint, 'pcs_cluster': _aws_pcs_public_endpoint, 'redshift_endpoint_authorization': _aws_redshift_endpoint_authorization, 'refactor_application': _aws_refactor_application, 'refactor_service': _aws_refactor_service, 's3tables_lf_grant': _aws_s3tables_lf_grant, 'security_ir_recipient_route': _aws_security_ir_recipient_route, 'securitylake_exception_notification': _aws_securitylake_exception_notification, 'securitylake_subscriber': _aws_securitylake_subscriber, 'transfer_server': _aws_transfer_server, 'transfer_web_app': _aws_transfer_web_app, 'wellarchitected_share': _aws_wellarchitected_share,  'auditmanager_report_destination': _aws_auditmanager_report_destination, 'cleanrooms_collaboration_exposure': _aws_cleanrooms_collaboration, 'glue_dev_endpoint': _aws_glue_dev_endpoint,'appstream_image': _aws_appstream_image_share, 'backup_copy_job': _aws_backup_copy_job, 'backup_plan': _aws_backup_plan_foreign_copy, 'backup_vault': _aws_backup_vault_foreign_copy, 'cloud9_environment_share': _aws_cloud9_environment_share, 'eks_access_entry': _aws_eks_foreign_access_entry, 'imagebuilder_distribution': _aws_imagebuilder_distribution, 'omics_resource_share': _aws_omics_resource_share, 'redshift_datashare': _aws_redshift_datashare, 'servicecatalog_portfolio': _aws_servicecatalog_portfolio_share, 'transit_gateway_peering_attachment': _aws_tgw_foreign_attachment, 'wellarchitected_lens_share': _aws_wellarchitected_lens_share, 'wellarchitected_profile_share': _aws_wellarchitected_profile_share, 'wellarchitected_template_share': _aws_wellarchitected_template_share, 'wellarchitected_workload_share': _aws_wellarchitected_workload_share, 'workspaces_image': _aws_workspaces_image_share, "iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
                 "lightsail_instance": _aws_lightsail_public_endpoint, "lightsail_database": _aws_lightsail_public_endpoint, "lightsail_load_balancer": _aws_lightsail_public_endpoint, "lightsail_container_service": _aws_lightsail_public_endpoint, "lightsail_bucket": _aws_lightsail_public_endpoint, "lightsail_distribution": _aws_lightsail_public_endpoint, "gamelift_ec2_compute": _aws_gamelift_fleet_public_ports,
                 "rds_instance": _aws_rds, "rds_cluster": _aws_rds_cluster_writer, "rds_cluster_endpoint": _aws_rds_cluster_endpoint,
                 "redshiftserverless_workgroup": _aws_redshift_serverless, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
