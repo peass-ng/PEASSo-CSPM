@@ -500,8 +500,34 @@ def _wildcard_subject(issuer, value):
     return ":" not in prefix or prefix.endswith(":") and prefix.count(":") == 1
 
 
+def _aws_saml_provider_state(snapshot, provider):
+    """True if listed, False if complete and absent, None if visibility is incomplete."""
+    match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):saml-provider/.+", str(provider))
+    if not match:
+        return None
+    def build():
+        inventory = {}
+        for row in snapshot.get("collections", []):
+            if row.get("type") != "iam_saml_provider":
+                continue
+            account = str(row.get("scope", "")).split("/", 1)[0]
+            entry = inventory.setdefault(account, {"states": [], "arns": set()})
+            entry["states"].append(row.get("status"))
+            entry["arns"].update(item["Arn"] for item in row.get("items", [])
+                                 if isinstance(item, dict) and isinstance(item.get("Arn"), str))
+        return inventory
+
+    inventory = _cache(snapshot, "aws_saml_provider_inventory", build)
+    account = inventory.get(match.group(1))
+    if account is None:
+        return None
+    if provider in account["arns"]:
+        return True
+    return False if all(state in ("collected", "empty") for state in account["states"]) else None
+
+
 def aws_federated_trust(snapshot, resource):
-    """Return (status, severity, evidence) for AWS web-identity trust, or None."""
+    """Return (status, severity, evidence) for AWS OIDC/SAML trust, or None."""
     document = resource["data"].get("AssumeRolePolicyDocument")
     if isinstance(document, str):
         from .iam import assume_role_document, document as parse
@@ -531,6 +557,21 @@ def aws_federated_trust(snapshot, resource):
                         and "ifexists" not in op.lower() and POSITIVE.match(op.lower())]
             problems = []
             if saml:
+                provider_state = _aws_saml_provider_state(snapshot, provider)
+                if provider_state is False:
+                    reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                    "issuer": issuer, "multi_tenant_issuer": False,
+                                    "conditions": copy.deepcopy(statement.get("Condition")),
+                                    "problems": [{"code": "saml_provider_absent", "severity": "low",
+                                                  "message": "A complete IAM provider inventory does not contain this SAML provider"}]})
+                    continue
+                if provider_state is None:
+                    reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                    "issuer": issuer, "multi_tenant_issuer": False,
+                                    "conditions": copy.deepcopy(statement.get("Condition")),
+                                    "problems": [{"code": "saml_provider_unknown", "severity": "review",
+                                                  "message": "IAM SAML provider inventory is missing or incomplete"}]})
+                    continue
                 audience = [(op, values) for op, key, values in conditions if key.lower() == "saml:aud"
                             and "ifexists" not in op.lower() and POSITIVE.match(op.lower())
                             and values and all(value and not any(c in value for c in "*?${}") for value in values)]

@@ -117,7 +117,8 @@ SAML = f"arn:aws:iam::{ACCOUNT}:saml-provider/Company"
 ])
 def test_saml_role_trust_classifies_issuer_wide_and_claim_scoped_access(condition, expected, codes):
     statement = trust({"Federated": SAML}, condition, "sts:AssumeRoleWithSAML")
-    found = findings(aws(coll("iam_role", [role([statement])])), "analysis.federated_trust")
+    found = findings(aws(coll("iam_role", [role([statement])]),
+                         coll("iam_saml_provider", [{"Arn": SAML}])), "analysis.federated_trust")
     assert len(found) == 1 and found[0]["status"] == expected
     assert {problem["code"] for review in found[0]["evidence"]["federated_trusts"]
             for problem in review["problems"]} == codes
@@ -128,6 +129,24 @@ def test_saml_provider_needs_matching_assume_role_action():
 
     statement = trust({"Federated": SAML}, None, "sts:AssumeRoleWithWebIdentity")
     assert aws_federated_trust(aws(coll("iam_role", [])), {"data": role([statement])}) is None
+
+
+def test_saml_trust_requires_provider_inventory_and_absent_provider_blocks():
+    statement = trust({"Federated": SAML}, None, "sts:AssumeRoleWithSAML")
+    role_row = coll("iam_role", [role([statement])])
+    absent = findings(aws(role_row, coll("iam_saml_provider", [])), "analysis.federated_trust")
+    assert len(absent) == 1 and absent[0]["status"] == "PASS"
+    assert absent[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "saml_provider_absent"
+
+    missing = findings(aws(role_row), "analysis.federated_trust")
+    assert len(missing) == 1 and missing[0]["status"] == "MANUAL"
+    assert missing[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "saml_provider_unknown"
+
+    partial = findings(aws(role_row, coll("iam_saml_provider", [], status="partial")), "analysis.federated_trust")
+    assert len(partial) == 1 and partial[0]["status"] == "MANUAL"
+
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    assert "iam_saml_provider" in REQUIRED_TYPES["aws"]["exposure"]
 
 
 @pytest.mark.parametrize("condition,expected", [
