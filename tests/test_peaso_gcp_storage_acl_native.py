@@ -214,8 +214,30 @@ def test_default_object_acl_future_upload_public_grant(mode,public,monkeypatch):
     findings=[f for f in report['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
     assert (len(findings)==1)==public
     if public:
-        assert findings[0]['status']=='FAIL'
+        assert findings[0]['status']=='UNKNOWN'
         assert findings[0]['evidence']['semantics'].startswith('Future object ACL template')
+        collection(snap,'bucket',SCOPE)['items'][0]['iamConfiguration']['publicAccessPrevention']='enforced'
+        snap.pop('snapshot_id',None)
+        blocked=[f for f in analyze(snap)['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
+        assert len(blocked)==1 and blocked[0]['status']=='UNKNOWN'
+        assert blocked[0]['evidence']['public_access_prevention']=='enforced'
+        collection(snap,'bucket',SCOPE)['items'][0]['iamConfiguration']['publicAccessPrevention']='inherited'
+        snap['collections'].append({'type':'org_policy_effective','scope':SCOPE,'status':'collected',
+                                    'items':[{'name':SCOPE+'/policies/storage.publicAccessPrevention',
+                                              'constraint':'storage.publicAccessPrevention',
+                                              'spec':{'rules':[{'enforce':True}]}}]})
+        inherited=[f for f in analyze(snap)['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
+        assert len(inherited)==1 and inherited[0]['status']=='UNKNOWN'
+        snap['collections'][-1]['items'][0]['spec']['rules'][0]['enforce']=False
+        allowed=[f for f in analyze(snap)['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
+        assert len(allowed)==1 and allowed[0]['status']=='FAIL'
+        bucket=collection(snap,'bucket',SCOPE)['items'][0]
+        bucket['ipFilter']={'mode':'Enabled','publicNetworkSource':{'allowedIpCidrRanges':[]}}
+        filtered=[f for f in analyze(snap)['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
+        assert len(filtered)==1 and filtered[0]['status']=='UNKNOWN'
+        assert filtered[0]['evidence']['ip_filter_public_network']=='public_blocked'
+        bucket['ipFilter']['publicNetworkSource']['allowedIpCidrRanges']=['8.8.8.0/24']
+        assert [f for f in analyze(snap)['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl'][0]['status']=='FAIL'
     else:
         third_party=[f for f in report['findings'] if f['check_id']=='analysis.principal_exposure'
                      and f['status']=='FAIL']
