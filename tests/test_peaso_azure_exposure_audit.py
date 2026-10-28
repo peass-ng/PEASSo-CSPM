@@ -1483,7 +1483,8 @@ def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncerta
         item = {"id": edge_id, "sku": {"name": "Standard_AzureFrontDoor"},
                 "properties": {}, "endpoints": [endpoint] if hostname else [],
                 "effectiveRoutes": routes, "securityPolicies": [],
-                "_coverage": {"effectiveRoutes": {"status": status}}}
+                "_coverage": {"effectiveRoutes": {"status": status},
+                              "securityPolicies": {"status": "empty"}}}
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE, "service": "cdn",
              "status": "collected", "items": [item]}])
@@ -1590,6 +1591,8 @@ def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
     assert decision(mode="Prevention", enabled="Enabled").verdict() == "UNKNOWN"
     assert decision(include=False).verdict() == "UNKNOWN"
     edge["_coverage"]["securityPolicies"] = {"status": "partial"}
+    assert decision(mode="Detection", enabled="Enabled").verdict() == "UNKNOWN"
+    edge["securityPolicies"] = []
     assert decision(mode="Detection", enabled="Enabled").verdict() == "UNKNOWN"
 
 

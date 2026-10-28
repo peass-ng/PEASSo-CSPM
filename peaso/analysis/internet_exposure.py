@@ -6102,10 +6102,10 @@ def _azure_public_edge(snapshot, inventory, resource):
     a.ports = ports
     if data.get("sku", {}).get("name") in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
         policies = data.get("securityPolicies")
+        policy_coverage = (data.get("_coverage") or {}).get("securityPolicies") or {}
+        if policy_coverage.get("status") not in ("collected", "empty"):
+            a.gap("policy", "edge security policy LIST is incomplete")
         if policies:
-            policy_coverage = (data.get("_coverage") or {}).get("securityPolicies") or {}
-            if policy_coverage.get("status") not in ("collected", "empty"):
-                a.gap("policy", "edge security policy LIST is incomplete")
             passive = []
             for policy in policies:
                 params = (policy.get("properties") or {}).get("parameters") if isinstance(policy, dict) else None
