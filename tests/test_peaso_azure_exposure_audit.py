@@ -170,6 +170,14 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
 
     assert ml_decision(public="Disabled").verdict() == "UNKNOWN"
     assert ml_decision(public="Disabled", endpoint_public="Disabled").verdict() == "PASS"
+    lingering = ml_decision(public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
+        {"value": "8.8.8.8/32"}]})
+    assert lingering.verdict() == "FAIL" and "https://score.example.test" in lingering.addresses
+    assert lingering.ports == {"tcp": ((443, 443),)}
+    assert ml_decision(public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
+        {"value": "10.0.0.0/8"}]}).verdict() == "UNKNOWN"
+    assert ml_decision(public="Disabled", endpoint_public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
+        {"value": "8.8.8.8/32"}]}).verdict() == "PASS"
     unknown = ml_decision()
     assert unknown.verdict() == "UNKNOWN" and "https://score.example.test" in unknown.addresses
     assert any("networkAcls" in gap["reason"] for gap in unknown.unresolved)

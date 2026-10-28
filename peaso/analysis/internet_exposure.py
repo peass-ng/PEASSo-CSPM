@@ -6246,6 +6246,22 @@ def _azure_ml_workspace(snapshot, inventory, resource):
                  or row["properties"].get("publicNetworkAccess") != "Disabled" for row in endpoints):
             a.gap("online_endpoint", "ML endpoint public gate could differ from disabled workspace gate")
             a.explicit = "UNKNOWN"
+            acls = props.get("networkAcls")
+            if isinstance(acls, dict) and acls.get("defaultAction") == "Deny":
+                public_ips, _ = _azure_storage_public_ip_rules(acls)
+                exposed = [row for row in endpoints if isinstance(row, dict)
+                           and isinstance(row.get("properties"), dict)
+                           and row["properties"].get("publicNetworkAccess") == "Enabled"]
+                if public_ips and exposed:
+                    for row in exposed:
+                        uri = row["properties"].get("scoringUri")
+                        if isinstance(uri, str) and uri:
+                            a.addresses.append(uri)
+                    a.step("online_endpoint_acl", "allow", online_endpoints=[row.get("id") for row in exposed],
+                           public_ip_rules=public_ips)
+                    a.notes.append("Azure ML selected-IP rules can continue to apply to online endpoints after workspace public access is disabled.")
+                    a.ports = pset("tcp", 443, 443)
+                    a.explicit = "FAIL"
         return a
     if access != "Enabled":
         a.gap("inventory", "ML workspace publicNetworkAccess is absent or unrecognized")
