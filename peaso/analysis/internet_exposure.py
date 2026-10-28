@@ -4769,17 +4769,38 @@ def _azure_aks(snapshot, inventory, resource):
 def _azure_storage_public_ip_rules(acls):
     """Classify public source ranges in the account's collected firewall rules."""
     public, unresolved = [], False
-    rules = acls.get("ipRules", [])
-    if not isinstance(rules, list):
-        return public, True
-    for rule in rules:
-        value = rule.get("value") if isinstance(rule, dict) else None
-        network = _cidr(value) if value else None
-        if network is None or (isinstance(rule, dict) and rule.get("action", "Allow") != "Allow"):
+    for field, family in (("ipRules", 4), ("ipv6Rules", 6)):
+        rules = acls.get(field, [])
+        if not isinstance(rules, list):
             unresolved = True
-        elif _azure_public_remainder([network], []):
-            public.append(value)
+            continue
+        for rule in rules:
+            value = rule.get("value") if isinstance(rule, dict) else None
+            network = _cidr(value) if value else None
+            if (network is None or network.version != family or
+                    (isinstance(rule, dict) and rule.get("action", "Allow") != "Allow")):
+                unresolved = True
+            elif _azure_public_remainder([network], []):
+                public.append(value)
     return public, unresolved
+
+
+def _azure_storage_published_public_ip_rules(props, public, service=None):
+    """IPv6 network rules require a recorded published IPv6 endpoint."""
+    ipv4, ipv6 = [], []
+    for value in public:
+        (ipv6 if _cidr(value).version == 6 else ipv4).append(value)
+    if not ipv6:
+        return public, False
+    endpoints = props.get("primaryEndpoints")
+    ipv6_endpoints = endpoints.get("ipv6Endpoints") if isinstance(endpoints, dict) else None
+    preference = props.get("dualStackEndpointPreference")
+    if (isinstance(preference, dict) and preference.get("publishIpv6Endpoint") is True
+            and isinstance(ipv6_endpoints, dict) and any(
+                isinstance(url, str) and url.startswith("https://")
+                for url in ([ipv6_endpoints.get(service)] if service else ipv6_endpoints.values()))):
+        return public, False
+    return ipv4, True
 
 
 def _azure_storage_resource_instance_rules(acls):
@@ -4829,16 +4850,18 @@ def _azure_storage(snapshot, inventory, resource):
     if acls.get("defaultAction", "Allow") not in ("Allow", "Deny"):
         a.gap("firewall", "storage account network ACL default action is unresolved")
         return a
+    public = []
     if acls.get("defaultAction", "Allow") == "Deny":
         public, unresolved = _azure_storage_public_ip_rules(acls)
+        public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public)
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
         subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
         if public or instances or subnets:
             a.step("network_rules", "allow", default_action="Deny", public_ip_rules=public,
                    resource_instance_rules=instances, virtual_network_rules=subnets)
-            if unresolved or unresolved_instances or unresolved_subnets:
+            if unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
                 a.notes.append("Other storage account network rule entries are malformed or incomplete")
-        elif unresolved or unresolved_instances or unresolved_subnets:
+        elif unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
             a.gap("firewall", "storage account IP, resource-instance or subnet rules are malformed or incomplete")
             a.ports = None
             return a
@@ -4847,7 +4870,11 @@ def _azure_storage(snapshot, inventory, resource):
                    ip_rules=len(as_list(acls.get("ipRules"))))
             a.ports = {}
             return a
-    a.addresses = sorted(v for v in (props.get("primaryEndpoints") or {}).values() if isinstance(v, str))[:4]
+    endpoint_set = props.get("primaryEndpoints") or {}
+    a.addresses = sorted(v for v in endpoint_set.values() if isinstance(v, str))[:4]
+    if any(_cidr(value).version == 6 for value in public):
+        a.addresses.extend(sorted(v for v in endpoint_set["ipv6Endpoints"].values()
+                                  if isinstance(v, str) and v.startswith("https://"))[:4])
     if not a.path:
         a.step("network_rules", "allow", default_action="Allow")
     a.ports = pset("tcp", 443, 443) if props.get("supportsHttpsTrafficOnly", True) else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
@@ -4892,14 +4919,15 @@ def _azure_storage_container(snapshot, inventory, resource):
         a.gap("firewall", "account network ACL default action is unavailable")
     elif acls["defaultAction"] == "Deny":
         public, unresolved = _azure_storage_public_ip_rules(acls)
+        public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public, service="blob")
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
         subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
         if public or instances or subnets:
             a.step("firewall", "allow", default_action="Deny", public_ip_rules=public,
                    resource_instance_rules=instances, virtual_network_rules=subnets)
-            if unresolved or unresolved_instances or unresolved_subnets:
+            if unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
                 a.notes.append("Other storage account network rule entries are malformed or incomplete")
-        elif unresolved or unresolved_instances or unresolved_subnets:
+        elif unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
             a.gap("firewall", "storage account IP, resource-instance or subnet rules are malformed or incomplete")
         else:
             a.step("firewall", "block", default_action="Deny")
@@ -4907,7 +4935,12 @@ def _azure_storage_container(snapshot, inventory, resource):
             return a
     else:
         a.step("firewall", "allow", default_action="Allow")
-    a.addresses = [v for v in (props.get("primaryEndpoints") or {}).values() if isinstance(v, str) and "blob" in v][:1]
+    endpoint_set = props.get("primaryEndpoints") or {}
+    a.addresses = [v for v in endpoint_set.values() if isinstance(v, str) and "blob" in v][:1]
+    if acls.get("defaultAction") == "Deny" and any(_cidr(value).version == 6 for value in public):
+        ipv6_blob = endpoint_set["ipv6Endpoints"].get("blob")
+        if isinstance(ipv6_blob, str) and ipv6_blob.startswith("https://"):
+            a.addresses.append(ipv6_blob)
     if not a.addresses:
         a.gap("inventory", "public blob endpoint is not collected")
     a.data_exposure = True
@@ -6778,6 +6811,19 @@ def _observed(assessment, status):
                 "The public SAS export path is unclear from these settings.\n"
                 "If public export is allowed, a valid SAS URL could expose stored data.")
     if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
+        ipv6_step = next((step for step in assessment.path if any(
+            _cidr(value).version == 6 for value in step.get("public_ip_rules", []))), None)
+        if ipv6_step is not None:
+            source = next(value for value in ipv6_step["public_ip_rules"] if _cidr(value).version == 6)
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            if assessment.resource["type"] == "storage_container":
+                return (f"The blob container {name} allows anonymous access, and its account publishes "
+                        f"an IPv6 blob endpoint with firewall source {source}.\n"
+                        "A request from that IPv6 source may reach the blob endpoint if the service responds.\n"
+                        "Anonymous blob reads could expose stored data; no request or contents were tested.")
+            return (f"The storage account {name} publishes an IPv6 endpoint and permits firewall source {source}.\n"
+                    "A request from that IPv6 source may reach the storage endpoint if the service responds.\n"
+                    "Data authorization and successful access were not tested.")
         instance_step = next((step for step in assessment.path
                               if step.get("resource_instance_rules") and not step.get("public_ip_rules")), None)
         if instance_step is not None:

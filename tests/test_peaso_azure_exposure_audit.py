@@ -664,6 +664,45 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
     assert account_and_container([], [{"id": "malformed", "state": "Succeeded"}])[1].verdict() == "UNKNOWN"
 
 
+def test_storage_published_ipv6_endpoint_rules_are_public_sources():
+    from peaso.collectors.azure import ENDPOINTS
+
+    assert ENDPOINTS["storage_account"] == ("Microsoft.Storage/storageAccounts", "2026-06-01")
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    ipv6_url = "https://a-ipv6.blob.core.windows.net/"
+
+    def account_and_container(rule, *, published=True, endpoint=True, ipv6_service="blob"):
+        props = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,
+                 "dualStackEndpointPreference": {"publishIpv6Endpoint": published},
+                 "networkAcls": {"defaultAction": "Deny", "ipv6Rules": [rule]},
+                 "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
+        if endpoint:
+            props["primaryEndpoints"]["ipv6Endpoints"] = {ipv6_service: ipv6_url}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "properties": props}]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id + "/blobServices/default/containers/public",
+                 "parent_id": account_id, "properties": {"publicAccess": "Blob"}}]},
+        ])
+        rows = assess(snap, resources(snap))
+        return (next(a for a in rows if a.resource["type"] == "storage_account"),
+                next(a for a in rows if a.resource["type"] == "storage_container"))
+
+    rule = {"value": "2606:4700:4700::1111/128", "action": "Allow"}
+    account, anonymous = account_and_container(rule)
+    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
+    assert ipv6_url in account.addresses and ipv6_url in anonymous.addresses
+    assert "publishes an IPv6 endpoint" in _observed(account, "FAIL")
+    assert "publishes an IPv6 blob endpoint" in _observed(anonymous, "FAIL")
+    assert account_and_container({"value": "fc00::/7", "action": "Allow"})[0].verdict() == "PASS"
+    assert account_and_container(rule, endpoint=False)[0].verdict() == "UNKNOWN"
+    assert account_and_container(rule, published=False)[1].verdict() == "UNKNOWN"
+    queue_only = account_and_container(rule, ipv6_service="queue")
+    assert queue_only[0].verdict() == "FAIL" and queue_only[1].verdict() == "UNKNOWN"
+    assert account_and_container({"value": "invalid"})[0].verdict() == "UNKNOWN"
+
+
 def test_sql_firewall_public_ip_range_is_exposure_but_private_range_is_not():
     server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
 

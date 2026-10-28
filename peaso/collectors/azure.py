@@ -111,7 +111,7 @@ ENDPOINTS = {
     "metric_alert": ("Microsoft.Insights/metricAlerts", "2018-03-01"),
     "scheduled_query_rule": ("Microsoft.Insights/scheduledQueryRules", "2021-08-01"),
     "action_group": ("Microsoft.Insights/actionGroups", "2023-01-01"),
-    "storage_account": ("Microsoft.Storage/storageAccounts", "2023-05-01"),
+    "storage_account": ("Microsoft.Storage/storageAccounts", "2026-06-01"),
     "sql_server": ("Microsoft.Sql/servers", "2023-08-01"),
     "aks_cluster": ("Microsoft.ContainerService/managedClusters", "2024-05-01"),
     "vault": ("Microsoft.KeyVault/vaults", "2023-07-01"),
