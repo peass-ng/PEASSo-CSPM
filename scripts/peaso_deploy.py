@@ -1945,7 +1945,17 @@ PREVIOUS_WORKFLOW_RUNTIME_SHA256 = "caed9a12c8d11c12e14d87cb74d1fdef83567648287c
 CURRENT_WORKFLOW_RUNTIME_SHA256 = "ecfaa71f9c9668d02e59571efa7a7b9e5daf6af1da9a22501a23611cf9e565a3"
 CURRENT_INDEXED_WORKFLOW_SHA256 = "361fef2318aef55d01ba351501cc79a4fa06884d368d380b714f2f42814e57ad"
 INDEXED_WORKFLOW_ADDITION = b'    PEASO_WORK_STATE_INDEX         = "work-state"\n    PEASO_SCHEDULE_TIME_INDEX      = "schedule-time"\n'
+# The d7 release added two explicit model-stage switches after the reviewed
+# native-final workflow source. Bind that exact two-line delta before trusting
+# the worker task definition; the rest of the workflow remains unchanged.
+NATIVE_FINAL_WORKFLOW_SHA256 = "9ae2bbe1a560be1f12251005ea8276c5bc92860fd1611f1a014f2ce9045cb039"
+AI_OFF_WORKFLOW_SHA256 = "6b0391ecb738e2af105056a4603e6afee47b82c5b2d68a3138c0df91e9772ea9"
+AI_OFF_WORKFLOW_ADDITION = (b'    PEASO_AI_HARDENING_AGENT_ENABLED     = "0"\n'
+                            b'    PEASO_AI_EXPOSURE_AGENT_ENABLED      = "0"\n')
 CURRENT_AI_RUNTIME_SHA256 = "0948bda88c41ea79fd25dc9c2faa656b7d71c9d29012024156017921122834a6"
+CAP12_AI_RUNTIME_SHA256 = "aabef9a8cfb1614e663763c6c35b95b61880562ca5ad06e912bfcaaa264516b4"
+CAP12_AI_RUNTIME_LINE = b'    PEASO_AI_MAX_CONCURRENCY         = "12"\n'
+CAP6_AI_RUNTIME_LINE = b'    PEASO_AI_MAX_CONCURRENCY         = "6"\n'
 # Reviewed production source-attestation successor: every Lambda and ECS task
 # imports peaso with PEASO_SOURCE_ATTESTATION=trusted, so production runs no
 # runtime source proofs; package_api and the worker image prove the exact bytes
@@ -1955,12 +1965,12 @@ SOURCE_ATTESTATION_SUCCESSOR = {
     "api.tf": ("c6bfe80b885b1544e1a25847507e6321d4d1b7323ae5224c4c0d59ae77fcc7f1",
                b'    # No runtime source proofs in production: package_api proves these exact\n    # Lambda bytes in always mode at build time, fail closed, and CI proves the commit.\n    PEASO_SOURCE_ATTESTATION = "trusted"\n',
                "ab8336af2ce98102c92abe6dfb6df9f4346cc8cee404e469c180c2aa4eb02787"),
-    "workflow.tf": ("cefec592f88499be2e26b00bf2ec18e30bbae59e423e4ec91500b16236ed105f",
+    "workflow.tf": ("aaf76056f63e917b2dac7866e64d626fca27b5b561bf2a7b89b9f6be27a62f23",
                b'    # The worker image also sets this after its always-mode build proof;\n    # restated here so no task definition can fall back to runtime proofs.\n    PEASO_SOURCE_ATTESTATION = "trusted"\n',
-               "361fef2318aef55d01ba351501cc79a4fa06884d368d380b714f2f42814e57ad"),
-    "ai_runtime.tf": ("da84f8d397059c0e707f6a1b9bb68535343bc6aae35cdc19fbbd66a9c8b5c086",
+               AI_OFF_WORKFLOW_SHA256),
+    "ai_runtime.tf": ("71b92edecfd2feaae5fa3250b6df099b25f85f8702d1e392881469b576103c13",
                b'    environment            = [{ name = "PEASO_SOURCE_ATTESTATION", value = "trusted" }] # no runtime source proofs in production\n',
-               "0948bda88c41ea79fd25dc9c2faa656b7d71c9d29012024156017921122834a6"),
+               CAP12_AI_RUNTIME_SHA256),
 }
 API_DELIVERY_SOURCE = {
     "api.tf": ("0ad8ba2e7e2a7868c7366c84a6693e8e5c3420382cfb2946e641dab878b35efe",
@@ -2859,6 +2869,22 @@ def deployment_expectations(data, plan):
             if hashlib.sha256(predecessor).hexdigest() != API_DELIVERY_SOURCE[name][0]:
                 raise RuntimeError("API S3 delivery successor does not reconstruct its predecessor")
             continue
+        if name == "workflow.tf" and current_digest == AI_OFF_WORKFLOW_SHA256:
+            restored = runtime_source(name, attested)
+            if restored.count(AI_OFF_WORKFLOW_ADDITION) != 1:
+                raise RuntimeError("AI-off workflow differs from reviewed stage switches")
+            restored = restored.replace(AI_OFF_WORKFLOW_ADDITION, b'', 1)
+            if hashlib.sha256(restored).hexdigest() != NATIVE_FINAL_WORKFLOW_SHA256:
+                raise RuntimeError("AI-off workflow does not reconstruct reviewed native-final source")
+            continue
+        if name == "ai_runtime.tf" and current_digest == CAP12_AI_RUNTIME_SHA256:
+            restored = runtime_source(name, attested)
+            if restored.count(CAP12_AI_RUNTIME_LINE) != 1:
+                raise RuntimeError("AI parallel budget differs from reviewed runtime")
+            restored = restored.replace(CAP12_AI_RUNTIME_LINE, CAP6_AI_RUNTIME_LINE, 1)
+            if hashlib.sha256(restored).hexdigest() != CURRENT_AI_RUNTIME_SHA256:
+                raise RuntimeError("AI parallel budget does not reconstruct reviewed source")
+            continue
         if name == "workflow.tf" and current_digest == CURRENT_INDEXED_WORKFLOW_SHA256:
             restored = runtime_source(name, attested)
             if restored.count(INDEXED_WORKFLOW_ADDITION) != 1:
@@ -2940,7 +2966,7 @@ def deployment_expectations(data, plan):
         "PEASO_STATE_DIR": "/tmp/peaso/state", "PEASO_IDENTITY_DIR": "/tmp/peaso/identity",
         "PEASO_SOURCE_VERSION": source,
     }
-    if tf_files.get("workflow.tf") == CURRENT_INDEXED_WORKFLOW_SHA256:
+    if tf_files.get("workflow.tf") in {CURRENT_INDEXED_WORKFLOW_SHA256, AI_OFF_WORKFLOW_SHA256}:
         common.update(PEASO_WORK_STATE_INDEX="work-state", PEASO_SCHEDULE_TIME_INDEX="schedule-time")
     attestation = {name for name, (digest, _, _) in SOURCE_ATTESTATION_SUCCESSOR.items() if attested.get(name) == digest}
     for stage, size in sizes.items():
@@ -2958,6 +2984,10 @@ def deployment_expectations(data, plan):
     workers = {stage: dict(common, AWS_DEFAULT_REGION="us-east-1", PEASO_TASK_VCPU=str(size["cpu"] / 1024),
                            PEASO_TASK_MEMORY_GIB=str(size["memory"] / 1024)) for stage, size in sizes.items()}
     workers["collector"]["PEASO_CREDENTIAL_SECRET_ARN"] = secret
+    if tf_files.get("workflow.tf") == AI_OFF_WORKFLOW_SHA256:
+        for environment in workers.values():
+            environment["PEASO_AI_HARDENING_AGENT_ENABLED"] = "0"
+            environment["PEASO_AI_EXPOSURE_AGENT_ENABLED"] = "0"
     if "workflow.tf" in attestation:
         for environment in workers.values():
             environment["PEASO_SOURCE_ATTESTATION"] = "trusted"

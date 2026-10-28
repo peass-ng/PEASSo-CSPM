@@ -223,11 +223,27 @@ def render_documents() -> dict[Path, bytes]:
     sources = {relative: hashlib.sha256(outputs.get(ROOT / relative, (ROOT / relative).read_bytes())).hexdigest()
                for relative in sorted(SOURCE_PATHS)}
     from peaso.checks import CHECK_ALIASES, CHECKS
+    from peaso.remediation import template as remediation_template
     from peaso.checks.catalog import description_for, framework_selector_index, framework_display_names
     description_ids = native_ids | analysis_ids | set(CHECK_ALIASES)
     reviewed_descriptions = {cid: description_for(cid) for cid in sorted(description_ids)}
+    # Archived alias findings are absent from the current check rows. Preserve
+    # their approved native templates in the verified API document itself.
+    alias_templates = {}
+    current_ids = {row["id"] for row in full["checks"]} | {check.id for check in CHECKS}
+    for cid in sorted(CHECK_ALIASES):
+        if cid in current_ids:
+            continue
+        candidate = remediation_template(cid)
+        if candidate is None:
+            continue
+        if any(remediation_template(cid, provider) != candidate
+               for provider in ("aws", "gcp", "azure", "k8s", "other")):
+            raise ValueError("Archived remediation alias varies by provider: " + cid)
+        alias_templates[cid] = candidate
     document = encoded({"schema_version": 1, "sources": sources, "full": full,
                         "descriptions": reviewed_descriptions,
+                        "remediation_aliases": alias_templates,
                         "native_kinds": {check.id: [check.provider, check.kind] for check in CHECKS},
                         "framework_expansion": {key: sorted(values) for key, values in sorted(framework_selector_index().items())},
                         "framework_display": framework_display_names(), "framework_aliases": FRAMEWORK_ALIASES,

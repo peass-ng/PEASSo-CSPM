@@ -147,6 +147,12 @@ def _load():
                 or not isinstance(value['framework_display'], dict)
                 or not isinstance(value['framework_aliases'], dict)):
             raise ValueError('reviewed presentation lookup schema')
+        aliases = value.get('remediation_aliases')
+        if (not isinstance(aliases, dict) or len(aliases) > 1000
+                or any(not isinstance(cid, str) or cid not in value['descriptions']
+                       or not isinstance(row, dict) or row.get('review_status') != 'approved'
+                       for cid, row in aliases.items())):
+            raise ValueError('archived remediation alias schema')
         kinds = value['native_kinds']
         if (not isinstance(kinds, dict) or not 0 < len(kinds) <= 20000
                 or any(not isinstance(cid, str) or cid not in value['descriptions']
@@ -271,7 +277,7 @@ def finding_service(finding):
 # Remediation presentation uses only the already verified API catalog. These
 # hashes bind the copied native-free helpers and the small analysis/special-case
 # inputs to the exact native-reviewed release source.
-_REMEDIATION_PRESENTATION_SOURCES = {'peaso/remediation.py': '32cec77aafda1498ff57831c11756c195985d8a26a02fc30879e232cf446081b', 'peaso/rulepacks/remediation_curated.json': 'b00eac2c6c2bae62a3d926ed42fd93fc219a31bc293bfc44594d736cd98634d7', 'peaso/checks/gcp_cloudsql_lockout_source_correction.py': '4c1b9a29c2863341beeb246a8e8d42900b40b12c129e290b55a3079bee7f7be7', 'peaso/checks/azure_vm_ssh_source_correction.py': '838902297b424837bdb6d8e845c1a53516a36d26a4ca6cf438d7cca66aca09a2', 'peaso/checks/azure_bulk_clarity_reviewed.py': '6c36caa185c2b483eb94185110aa8b514ddebefe56188e2d9e0dc1f921967d22'}
+_REMEDIATION_PRESENTATION_SOURCES = {'peaso/remediation.py': 'eec52bbff6d447f1512009bbb939656d22420a2d7f99622b0d183b05b5b54197', 'peaso/rulepacks/remediation_curated.json': 'b00eac2c6c2bae62a3d926ed42fd93fc219a31bc293bfc44594d736cd98634d7', 'peaso/checks/gcp_cloudsql_lockout_source_correction.py': '4c1b9a29c2863341beeb246a8e8d42900b40b12c129e290b55a3079bee7f7be7', 'peaso/checks/azure_vm_ssh_source_correction.py': '838902297b424837bdb6d8e845c1a53516a36d26a4ca6cf438d7cca66aca09a2', 'peaso/checks/azure_bulk_clarity_reviewed.py': '6c36caa185c2b483eb94185110aa8b514ddebefe56188e2d9e0dc1f921967d22'}
 _GCP_CLOUDSQL_CORRECTED_TEMPLATE = {'review_status': 'approved', 'summary': "Establish the full in-scope authentication-account inventory and approved lockout or rate-limiting controls. For supported managed MySQL built-in accounts, review instance password-policy enablement and each user's passwordPolicy.enableFailedAttemptsCheck and positive allowedFailedAttempts; verify other authentication paths separately without inferring a violation from missing metadata.", 'steps': ['Bind the complete in-scope customer login-account universe and each authentication path.', 'Review documented managed user lockout policies and independent rate limiting for unsupported paths.'], 'caveats': ['API-visible user policy is configuration evidence, not complete principal scope or an observed login test.'], 'references': [{'title': 'Cloud SQL user password policy API', 'url': 'https://docs.cloud.google.com/sql/docs/mysql/admin-api/rest/v1beta4/users'}], 'source_correction': {'version': 'peaso-source-correction-v1', 'status': 'source_erratum_successor', 'prior_frozen_signed_spec_sha256': 'e8a00a7a5e39d325f24a58ee7d6d5068554e680193c1447bdc3e803ed686f6ef', 'prior_frozen_status': 'historical_superseded_for_this_check', 'current_canonical_spec_sha256': '7f007ab89daf6fcd67916ec56fdd29b35aff32d0770f3317d33c809e83a16c1d', 'current_predicate_sha256': '057392fce746b44c8ea9af339e86aae1899e0270808f050e7a3dfb0eac0eb8f5', 'source_url': 'https://docs.cloud.google.com/sql/docs/mysql/admin-api/rest/v1beta4/users', 'framework_id': 'ccc_gcp', 'requirement_ids': ['CCC.RDMS.CN02.AR01'], 'original_requirement': 'When repeated failed login attempts are made in a short timeframe, the account must be locked out or rate-limited to prevent further login attempts.', 'criterion_scope': 'Original account lockout or rate limiting: configured PASS is limited to the explicitly approved customer-account boundary, exactly matched to the complete API-visible roster; native witness alone does not establish that boundary or provider-internal/runtime protection'}}
 _AZURE_SSH_WRONG_PROVIDER_FALLBACK = {'caveats': ['This corrected historical source profile prefers no bootstrap keys; key presence is not a vulnerability or a guest-runtime observation.'], 'cli': [], 'field_binding': {'fields': ['Complete paged Microsoft.Compute/virtualMachines GET and instanceView: properties.storageProfile.osDisk.osType, properties.osProfile.linuxConfiguration.ssh.publicKeys[] and PowerState status.', 'Complete scoped vm inventory and explicit ssh.publicKeys array'], 'kind': 'vm', 'target': 'resource'}, 'references': [{'title': 'Azure VM SSH keys', 'url': 'https://learn.microsoft.com/azure/virtual-machines/linux/ssh-from-windows'}], 'review_status': 'approved', 'steps': ['Review the configured bootstrap public keys under this legacy profile; preserve a working administrative access method.'], 'summary': 'Review the configured bootstrap public keys under this legacy profile; preserve a working administrative access method.'}
 
@@ -348,6 +354,10 @@ def template_for(check_id, provider=None):
     row = value['_by_id'].get(check_id)
     if row is None and check_id in value['native_kinds']:
         row = _archived_remediation_rows().get(check_id)
+    if row is None:
+        alias = value.get('remediation_aliases', {}).get(check_id)
+        if isinstance(alias, dict) and alias.get('review_status') == 'approved':
+            return deepcopy(alias)
     details = row.get('remediation_details') if isinstance(row, dict) else None
     if not isinstance(details, dict):
         return None

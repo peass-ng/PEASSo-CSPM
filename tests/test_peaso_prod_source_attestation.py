@@ -28,8 +28,8 @@ def test_successor_reconstructs_the_reviewed_predecessors():
     restored = deploy.source_attestation_predecessors(dict(current, **{"other.tf": "x"}))
     assert restored["other.tf"] == "x"
     assert restored["api.tf"] == deploy.API_DELIVERY_SOURCE["api.tf"][2]
-    assert restored["workflow.tf"] == deploy.CURRENT_INDEXED_WORKFLOW_SHA256
-    assert restored["ai_runtime.tf"] == deploy.CURRENT_AI_RUNTIME_SHA256
+    assert restored["workflow.tf"] == deploy.AI_OFF_WORKFLOW_SHA256
+    assert restored["ai_runtime.tf"] == deploy.CAP12_AI_RUNTIME_SHA256
     for name in current:
         assert hashlib.sha256(deploy.runtime_source(name, current)).hexdigest() == restored[name]
 

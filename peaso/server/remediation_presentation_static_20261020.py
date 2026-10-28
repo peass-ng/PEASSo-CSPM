@@ -226,10 +226,56 @@ def exposure_action(evidence, status):
         return "Collect the missing configuration before deciding whether access needs to change."
     if status == "PASS":
         return "Keep the access restrictions in place."
+    if evidence.get("exposure_kind") == "external_log_stream":
+        return "Review the CloudWatch Logs subscription destination; remove or redirect an unintended external export."
+    if evidence.get("exposure_kind") == "public_registry":
+        return "Review whether this ECR Public repository is intended; remove or migrate it if its images should be private."
+    if evidence.get("exposure_kind") == "external_registry_share":
+        return "Restrict the ECR repository policy to the accounts and roles that need image pull access."
+    if evidence.get("exposure_kind") == "external_registry_policy_pull":
+        return "Restrict the ECR registry policy's image-pull actions to intended accounts and repositories."
+    if evidence.get("exposure_kind") == "external_registry_template_pull":
+        return "Restrict the ECR creation template's repository policy before it is applied to new repositories."
+    if evidence.get("exposure_kind") == "external_redshift_snapshot_share":
+        return "Revoke Redshift manual snapshot restore access for accounts that should not receive the snapshot, and review its KMS key access."
+    if evidence.get("exposure_kind") == "external_redshift_serverless_snapshot_share":
+        return "Revoke Redshift Serverless snapshot restore access for accounts that should not receive the snapshot, and review its KMS key access."
+    if evidence.get("exposure_kind") == "external_cluster_snapshot_share":
+        return "Restrict the DocumentDB or Neptune manual snapshot restore attribute to intended accounts, and review its KMS key access."
+    if evidence.get("exposure_kind") == "external_generic_policy_grant":
+        return "Restrict this resource policy to the intended AWS principals, actions and resource paths."
+    if evidence.get("exposure_kind") == "vpn_client_authorization":
+        return "Restrict the Client VPN authorization rule to intended user groups and destination networks, and review its route and security controls."
+    if evidence.get("exposure_kind") == "external_secret_grant":
+        return "Restrict the secret resource policy and customer KMS key policy to the intended readers."
+    if evidence.get("exposure_kind") == "external_queue_receive":
+        return "Restrict the SQS queue policy and any customer KMS key policy to the intended message consumers."
+    if evidence.get("exposure_kind") == "external_topic_subscription":
+        return "Review the SNS topic subscription owner and remove subscriptions that should not receive topic messages."
+    if evidence.get("exposure_kind") == "external_topic_subscribe_grant":
+        return "Restrict the SNS topic policy's Subscribe grant to intended accounts and endpoint conditions."
+    if evidence.get("exposure_kind") == "external_kms_decrypt_grant":
+        return "Restrict the KMS key policy's Decrypt grant to the accounts and roles that need it."
+    if evidence.get("exposure_kind") == "external_kms_grant":
+        return "Review and revoke the KMS grant if this foreign grantee should not decrypt with the key."
+    if evidence.get("exposure_kind") == "external_lambda_invoke":
+        return "Restrict the Lambda function or alias policy's InvokeFunction grant to intended callers."
+    if evidence.get("exposure_kind") == "external_layer_share":
+        return "Restrict the Lambda layer version policy's GetLayerVersion grant to intended accounts."
+    if evidence.get("exposure_kind") == "external_network":
+        source = evidence.get("source") if isinstance(evidence.get("source"), dict) else {}
+        if source.get("resource_type") == "transit_gateway_attachment":
+            return "Review whether the route to this foreign Transit Gateway attachment is needed; remove unnecessary routes or attachments."
+        return "Review whether this VPC peering route and external account connection are needed; remove unnecessary routes or peering."
     if evidence.get("exposure_kind") == "external_share" or evidence.get("external_scope_ids"):
+        source = evidence.get("source") if isinstance(evidence.get("source"), dict) else {}
+        if source.get("resource_type") == "ec2_image":
+            return "Restrict AMI launch permission to the accounts, organizations or OUs that need it."
         return "Restrict snapshot restore access to the accounts that need it."
     if evidence.get("data_exposure"):
         source = evidence.get("source") if isinstance(evidence.get("source"), dict) else {}
+        if source.get("resource_type") == "ec2_image":
+            return "Remove public AMI launch permission if broad sharing is unnecessary."
         if source.get("resource_type") in ("rds_snapshot", "rds_cluster_snapshot"):
             return "Remove public snapshot restore access; share only with the accounts that need it."
         return "If public data access is unnecessary, restrict the granting policy or ACL to the readers that need it."
