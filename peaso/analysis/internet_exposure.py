@@ -1657,7 +1657,7 @@ def _aws_client_vpn_endpoint(snapshot, inventory, resource):
     if protocol not in ("tcp", "udp") or port not in (443, 1194):
         a.gap("inventory", "Client VPN transport protocol or port is malformed")
         return a
-    a.endpoint = dns.removeprefix("*.")
+    a.endpoint = dns
     a.ports = pset(protocol, port, port)
     a.authenticated = True
     a.step("managed_vpn_listener", "allow", dns_name=a.endpoint, protocol=protocol, port=port)

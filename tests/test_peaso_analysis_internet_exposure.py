@@ -119,7 +119,7 @@ def test_aws_client_vpn_managed_listener_and_inactive_state():
     assert result["status"] == "FAIL"
     assert result["evidence"]["exposed_ports"] == ["tcp/1194"]
     assert result["evidence"]["authenticated_endpoint"] is True
-    assert result["evidence"]["path"][0]["dns_name"] == "cvpn-endpoint-1.prod.clientvpn.us-east-1.amazonaws.com"
+    assert result["evidence"]["path"][0]["dns_name"] == endpoint["DnsName"]
 
     inactive = copy.deepcopy(endpoint)
     inactive["Status"]["Code"] = "pending-associate"
