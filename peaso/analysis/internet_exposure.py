@@ -10542,6 +10542,109 @@ def _azure_private_dns_link(snapshot, inventory, resource):
     return a
 
 
+def _azure_relay(snapshot, inventory, resource):
+    """Relay public listeners, anonymous clients, SAS rights and private shares.
+
+    Listener protocols: https://learn.microsoft.com/en-us/azure/azure-relay/relay-port-settings
+    """
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    data = resource["data"]
+    exposure = data.get("relayExposure")
+    coverage = (data.get("_coverage") or {}).get("relayExposure")
+    if not isinstance(exposure, dict) or not isinstance(coverage, dict) or coverage.get("status") != "collected":
+        a.gap("inventory", "Relay exposure child inventory incomplete")
+        return a
+    props = exposure.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Relay namespace properties missing")
+        return a
+    if props.get("provisioningState") in ("Deleting", "Failed"):
+        a.step("namespace_state", "block", state=props["provisioningState"])
+        a.ports = {}
+        return a
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "Relay namespace provisioning state unresolved")
+    endpoint = props.get("serviceBusEndpoint")
+    if isinstance(endpoint, str) and endpoint.startswith("https://"):
+        a.addresses = [endpoint]
+        a.endpoint = endpoint
+    else:
+        a.gap("inventory", "Relay namespace endpoint missing")
+    connections = props.get("privateEndpointConnections")
+    private_unknown = not isinstance(connections, list)
+    parent = re.match(r"/subscriptions/([^/]+)/", str(data.get("id", "")), re.I)
+    for row in connections if isinstance(connections, list) else []:
+        remote = row.get("privateEndpointId") if isinstance(row, dict) else None
+        match = re.match(r"/subscriptions/([^/]+)/", remote, re.I) if isinstance(remote, str) else None
+        status = row.get("status") if isinstance(row, dict) else None
+        if status == "Approved" and row.get("provisioningState") == "Succeeded" and match and parent:
+            if match.group(1).casefold() != parent.group(1).casefold():
+                a.external_ids.append(remote)
+        elif status == "Approved" or status not in ("Pending", "Rejected", "Disconnected"):
+            private_unknown = True
+    if a.external_ids:
+        a.step("private_link_share", "allow", outside_private_endpoints=sorted(set(a.external_ids)))
+        a.ports = pset("tcp", 443, 443)
+        a.explicit = "FAIL"
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        if not a.external_ids:
+            a.ports = {}
+            if private_unknown:
+                a.explicit = "UNKNOWN"
+        return a
+    if access == "SecuredByPerimeter":
+        a.gap("firewall", "Relay network security perimeter access is unresolved")
+        if not a.external_ids:
+            a.explicit = "UNKNOWN"
+        return a
+    if access not in ("Enabled", None):
+        a.gap("inventory", "Relay public network setting unresolved")
+        return a
+    a.step("public_network_access", "allow", value=access or "Enabled (service default)")
+    a.ports = pset("tcp", 443, 443)
+    if private_unknown:
+        a.notes.append("Relay private endpoint inventory is incomplete; public listener remains exposed")
+    namespace_rules = exposure.get("authorizationRules")
+    hybrids = exposure.get("hybridConnections")
+    wcf = exposure.get("wcfRelays")
+    if not all(isinstance(rows, list) for rows in (namespace_rules, hybrids, wcf)):
+        a.gap("inventory", "Relay entity or SAS rule inventory incomplete")
+        return a
+    rules = [{"id": row["id"], "rights": row["rights"]} for row in namespace_rules]
+    for kind, entities in (("hybrid", hybrids), ("wcf", wcf)):
+        for entity in entities:
+            details = entity["properties"]
+            count = details.get("listenerCount")
+            if count is None:
+                a.notes.append("Relay listener count unavailable for " + entity["id"])
+            if type(count) is int and count > 0:
+                if kind == "wcf":
+                    if details.get("relayType") == "NetTcp":
+                        for port in (5671, 9352, 9353):
+                            a.ports = union(a.ports, pset("tcp", port, port))
+                    elif details.get("relayType") == "Http":
+                        for port in ((443, 9351) if details.get("requiresTransportSecurity") is True else
+                                     (80, 9350, 9351) if details.get("requiresTransportSecurity") is False else
+                                     (80, 443, 9350, 9351)):
+                            a.ports = union(a.ports, pset("tcp", port, port))
+                    else:
+                        a.notes.append("WCF relay binding protocol unresolved for " + entity["id"])
+                a.step("relay_listener", "allow", entity_id=entity["id"], listener_count=count,
+                       relay_type=details.get("relayType", "HybridConnection"))
+            if details.get("requiresClientAuthorization") is False:
+                a.authenticated = False
+                a.step("client_authorization", "allow", entity_id=entity["id"], anonymous_clients=True)
+            for rule in entity["authorizationRules"]:
+                rules.append({"id": rule["id"], "rights": rule["rights"]})
+    if rules:
+        a.step("sas_authorization", "conditional", rules=rules)
+        a.notes.append("SAS rule rights are known; issued tokens and recipients are not exposed by LIST APIs")
+    return a
+
+
 def _azure_traffic_manager(snapshot, inventory, resource):
     """Detect a public DNS referral from one collected Traffic Manager profile."""
     a = Assessment(resource, "public_dns")
@@ -11321,7 +11424,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11337,7 +11440,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -11432,6 +11535,7 @@ def assess(snapshot, resources):
                   "traffic_manager_profile": _azure_traffic_manager,
                   "notification_hub_namespace": _azure_notification_hub,
                   "private_dns_link": _azure_private_dns_link,
+                  "relay_namespace": _azure_relay,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,

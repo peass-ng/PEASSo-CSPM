@@ -75,6 +75,7 @@ from peaso.snapshot import make_snapshot
 from peaso.check_services import service_for
 from . import azure_network_catalog
 from . import azure_notification_hubs_native
+from . import azure_relay_native
 
 ARM = "https://management.azure.com"
 GRAPH = "https://graph.microsoft.com"
@@ -4061,6 +4062,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_acr_image_vulnerabilities_20261021.collect(reader, transport, scopes, wanted, options)
         azure_ai_services_native.collect(reader, request, scopes, wanted)
         azure_notification_hubs_native.collect(reader, request, scopes, wanted)
+        azure_relay_native.collect(reader, request, scopes, wanted)
         azure_disclosure_native.collect(reader, transport, scopes, options,
                                         credential_context_id, customer_context_id)
         from .azure_effective_routes_native import collect as collect_effective_routes
