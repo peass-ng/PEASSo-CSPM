@@ -493,7 +493,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     result['stage_inputs'] = {'hardening': [], 'exposure': []}
     reviewed = result['reviews']['hardening'] + result['reviews']['exposure']
     result['coverage'] = {'hardening': len(hardening), 'exposure': len(exposure) + len(duplicates),
-                          'reviewed': len(reviewed), 'total': len(reviewed)}
+                          'reviewed': len(reviewed), 'native_final': len(reviewed),
+                          'model_reviewed': 0, 'total': len(reviewed)}
     try:
         from peaso.storage.runtime import stores
         settings = Settings()
