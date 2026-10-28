@@ -1906,6 +1906,26 @@ def test_gcp_live_gke_ingress_inventory_candidate_and_gap():
     assert not exposure(gcp(gcoll("gke_exposure_ingress", [marker], service="kubernetes")))
 
 
+def test_gcp_live_gke_host_bound_pod_candidate_and_gap():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    assert "gke_exposure_pod" in GCP_TYPES
+    assert "gke_exposure_pod" in plan_collection({
+        "connector": {"provider": "gcp"}, "categories": ["exposure"]})
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    pod = {"name": cluster + "/namespaces/default/pods/web", "cluster": cluster,
+           "hostNetwork": True, "hostPorts": [{"hostPort": 8080, "protocol": "TCP"}],
+           "nodeName": "node-a", "hostIP": "34.1.2.3", "phase": "Running"}
+    result = one(gcp(gcoll("gke_exposure_pod", [pod], service="kubernetes")), "gke_exposure_pod")
+    assert result["status"] == "UNKNOWN" and "8080" in str(result["evidence"])
+    pod["phase"] = "Succeeded"
+    assert not exposure(gcp(gcoll("gke_exposure_pod", [pod], service="kubernetes")))
+    marker = {"name": cluster + "/podInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
+    assert one(gcp(gcoll("gke_exposure_pod", [marker], service="kubernetes")),
+               "gke_exposure_pod")["status"] == "UNKNOWN"
+
+
 def test_gcp_nonuniform_bucket_missing_acl_inventory_is_unknown():
     bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False},
               "publicAccessPrevention": "not_enforced"}, "iamPolicy": {"bindings": []}}

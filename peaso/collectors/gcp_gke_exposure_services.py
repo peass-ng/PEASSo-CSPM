@@ -14,11 +14,12 @@ from urllib.parse import urlencode
 
 from .gcp_gke_literal_secret_indicators import (
     CLUSTER, LOCATION, MAX_CALLS, MAX_HTTP_BYTES, MAX_READ_BYTES, PAGE_SIZE, PROJECT,
-    SELECTION, cluster_binding, existing_bearer, _failure,
+    DNS_NAME, SELECTION, cluster_binding, existing_bearer, _failure,
 )
 
 KIND = "gke_exposure_service"
 INGRESS_KIND = "gke_exposure_ingress"
+POD_KIND = "gke_exposure_pod"
 MAX_SECONDS = 120
 MAX_SERVICES = 10000
 ANNOTATIONS = frozenset({
@@ -185,7 +186,7 @@ class ServiceReader:
                 raise ValueError("GKE Service type")
             namespace, name, uid = meta.get("namespace"), meta.get("name"), meta.get("uid")
             if (not isinstance(namespace, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", namespace)
-                    or not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", name)
+                    or not isinstance(name, str) or not DNS_NAME.fullmatch(name)
                     or not isinstance(uid, str) or not 1 <= len(uid) <= 128):
                 raise ValueError("GKE Service identity")
             self.budget["resources"] += 1
@@ -283,7 +284,7 @@ class IngressReader(ServiceReader):
                 raise ValueError("GKE Ingress metadata/spec/status")
             namespace, name, uid = meta.get("namespace"), meta.get("name"), meta.get("uid")
             if (not isinstance(namespace, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", namespace)
-                    or not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", name)
+                    or not isinstance(name, str) or not DNS_NAME.fullmatch(name)
                     or not isinstance(uid, str) or not 1 <= len(uid) <= 128):
                 raise ValueError("GKE Ingress identity")
             self.budget["resources"] += 1
@@ -318,13 +319,87 @@ class IngressReader(ServiceReader):
         return {"items": rows, "continue": token, "resourceVersion": version}
 
 
+class PodReader(ServiceReader):
+    PATH = "/api/v1/pods"
+    OPERATION = "gke-exposure-pods-list"
+
+    def project_list(self, data, path):
+        if (not isinstance(data, dict) or data.get("apiVersion") != "v1"
+                or data.get("kind") != "PodList" or not isinstance(data.get("items"), list)
+                or len(data["items"]) > PAGE_SIZE or not isinstance(data.get("metadata"), dict)):
+            raise ValueError("GKE Pod list shape")
+        version = data["metadata"].get("resourceVersion")
+        token = data["metadata"].get("continue", "")
+        if (not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", version)
+                or not isinstance(token, str) or len(token.encode()) > 4096):
+            raise ValueError("GKE Pod list continuity")
+        rows = []
+        for pod in data["items"]:
+            if not isinstance(pod, dict) or pod.get("apiVersion") != "v1" or pod.get("kind") != "Pod":
+                raise ValueError("GKE Pod resource shape")
+            meta, spec, status = pod.get("metadata"), pod.get("spec"), pod.get("status", {})
+            if not isinstance(meta, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
+                raise ValueError("GKE Pod metadata/spec/status")
+            namespace, name, uid = meta.get("namespace"), meta.get("name"), meta.get("uid")
+            if (not isinstance(namespace, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", namespace)
+                    or not isinstance(name, str) or not DNS_NAME.fullmatch(name)
+                    or not isinstance(uid, str) or not 1 <= len(uid) <= 128):
+                raise ValueError("GKE Pod identity")
+            self.budget["resources"] += 1
+            if self.budget["resources"] > MAX_SERVICES:
+                raise ValueError("GKE Pod count bound")
+            host_network = spec.get("hostNetwork", False)
+            if type(host_network) is not bool:
+                raise ValueError("GKE Pod hostNetwork")
+            node = spec.get("nodeName")
+            if node is not None and (not isinstance(node, str) or len(node) > 253):
+                raise ValueError("GKE Pod nodeName")
+            phase = status.get("phase")
+            if phase is not None and phase not in ("Pending", "Running", "Succeeded", "Failed", "Unknown"):
+                raise ValueError("GKE Pod phase")
+            host_ip = status.get("hostIP")
+            if host_ip is not None and (not isinstance(host_ip, str) or len(host_ip) > 253):
+                raise ValueError("GKE Pod hostIP")
+            ports = []
+            for field in ("containers", "initContainers"):
+                containers = spec.get(field, [])
+                if not isinstance(containers, list) or len(containers) > 100:
+                    raise ValueError("GKE Pod containers")
+                for container in containers:
+                    if not isinstance(container, dict):
+                        raise ValueError("GKE Pod container")
+                    declared = container.get("ports", [])
+                    if not isinstance(declared, list) or len(declared) > 100:
+                        raise ValueError("GKE Pod ports")
+                    for port in declared:
+                        if not isinstance(port, dict):
+                            raise ValueError("GKE Pod port shape")
+                        host_port = port.get("hostPort", 0)
+                        if type(host_port) is not int or not 0 <= host_port <= 65535:
+                            raise ValueError("GKE Pod hostPort")
+                        if host_port:
+                            protocol = port.get("protocol", "TCP")
+                            if protocol not in ("TCP", "UDP", "SCTP"):
+                                raise ValueError("GKE Pod protocol")
+                            ports.append({"hostPort": host_port, "protocol": protocol,
+                                          "containerKind": field})
+            rows.append({"name": f"{self.binding['selection']}/namespaces/{namespace}/pods/{name}",
+                "cluster": self.binding["selection"], "namespace": namespace, "kubernetesName": name,
+                "uid": uid, "hostNetwork": host_network, "hostPorts": ports,
+                "nodeName": node, "phase": phase, "hostIP": host_ip,
+                "clusterEndpoint": self.binding["endpoint"],
+                "clusterCaSha256": self.binding["ca_sha256"],
+                "endpointTrust": self.binding.get("endpointTrust", "cluster_ca")})
+        return {"items": rows, "continue": token, "resourceVersion": version}
+
+
 def dependent_jobs(collector, kind=KIND):
     if kind not in collector.needed:
         return []
-    if kind not in (KIND, INGRESS_KIND):
+    if kind not in (KIND, INGRESS_KIND, POD_KIND):
         return []
-    reader_type = ServiceReader if kind == KIND else IngressReader
-    resource_label = "service" if kind == KIND else "ingress"
+    reader_type = {KIND: ServiceReader, INGRESS_KIND: IngressReader, POD_KIND: PodReader}[kind]
+    resource_label = {KIND: "service", INGRESS_KIND: "ingress", POD_KIND: "pod"}[kind]
     jobs = []
     for scope in collector.scopes:
         if not isinstance(scope, str) or not re.fullmatch(r"projects/" + PROJECT, scope):

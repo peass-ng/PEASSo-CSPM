@@ -191,3 +191,27 @@ def test_ingress_projection_and_inventory_marker(monkeypatch):
     rows = [item for page, _ in services.dependent_jobs(collector, services.INGRESS_KIND)[0][3]() for item in page]
     assert len(rows) == 2 and rows[-1]["inventoryStatus"] == "collected"
     assert rows[-1]["ingressCount"] == 1
+
+
+def test_pod_projection_keeps_only_host_network_facts():
+    binding = {"selection": "projects/p1/locations/r1/clusters/c1", "endpoint": "34.1.2.3",
+               "ca_sha256": "abc"}
+    reader = services.PodReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
+    pod = {"apiVersion": "v1", "kind": "Pod", "metadata": {
+        "name": "web-1", "namespace": "default", "uid": "pod-uid",
+        "annotations": {"private.example/token": "secret"}},
+        "spec": {"hostNetwork": True, "nodeName": "node-a", "containers": [{
+            "name": "app", "image": "private-image", "env": [{"value": "password"}],
+            "ports": [{"containerPort": 8080, "hostPort": 8080, "protocol": "TCP"}]}]},
+        "status": {"phase": "Running", "hostIP": "34.1.2.3", "podIP": "10.1.2.3"}}
+    data = {"apiVersion": "v1", "kind": "PodList", "metadata": {"resourceVersion": "12"},
+            "items": [pod]}
+    row = reader.project_list(data, reader.PATH)["items"][0]
+    assert row["hostNetwork"] is True and row["hostPorts"] == [{
+        "hostPort": 8080, "protocol": "TCP", "containerKind": "containers"}]
+    assert row["hostIP"] == "34.1.2.3" and row["nodeName"] == "node-a"
+    for secret in ("secret", "password", "private-image", "10.1.2.3"):
+        assert secret not in str(row)
+    pod["spec"]["containers"][0]["ports"][0]["hostPort"] = -1
+    with pytest.raises(ValueError, match="hostPort"):
+        reader.project_list(data, reader.PATH)

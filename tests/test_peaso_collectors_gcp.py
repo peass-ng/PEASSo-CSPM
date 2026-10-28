@@ -609,7 +609,7 @@ def test_native_service_coverage_and_configuration_fixture():
     # Content-only inventories require a separately named, opted-in request.
     from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
     organization_network_types = {kind for kind, plan in PRIVATE_SERVICES.items() if plan.get('scope_kind') == 'organizations'}
-    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress"})
+    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod"})
     transport = NativeDataFixtureTransport(resolve)
     result = gcp.GCPCollector(connector(kinds, scopes=["projects/p-one01"], cloud_identity_customers=["Cfixture"], regions=["r"],
         sw51_policy={'scope': 'projects/p-one01', 'status': 'collected', 'approved_asset_types': ['compute.googleapis.com/Instance']}),
@@ -1066,6 +1066,21 @@ def test_gke_exposure_ingress_job_runs_after_cluster_inventory(monkeypatch):
     assert len(rows) == 2
     assert any(row.get("inventoryStatus") == "collected" and row["ingressCount"] == 1 for row in rows)
     assert any(row.get("ingressClassName") == "gce" for row in rows)
+
+
+def test_gke_exposure_pod_job_runs_after_cluster_inventory(monkeypatch):
+    from peaso.collectors import gcp_gke_exposure_services as services
+    monkeypatch.setattr(services, "cluster_binding", lambda _, scope, selection: {
+        "selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    monkeypatch.setattr(services.PodReader, "pages", lambda self: iter([([{
+        "name": self.binding["selection"] + "/namespaces/default/pods/web",
+        "cluster": self.binding["selection"], "hostNetwork": True}], "pod-request")]))
+    result, _ = snapshot(["gke_exposure_pod"], lambda r: {
+        "clusters": [{"name": "c1", "location": "r1"}]} if r["url"].endswith("/locations/-/clusters") else {"items": []})
+    rows = collection(result, "gke_exposure_pod")["items"]
+    assert len(rows) == 2
+    assert any(row.get("inventoryStatus") == "collected" and row["podCount"] == 1 for row in rows)
+    assert any(row.get("hostNetwork") is True for row in rows)
 
 
 def test_sanitize_drops_inline_environment_and_project_metadata_values():
