@@ -5376,6 +5376,18 @@ def _azure_ml_workspace(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "managed_endpoint")
     a.authenticated = True
+    def record_scoring_auth(endpoint):
+        fields = endpoint.get("properties") if isinstance(endpoint, dict) else None
+        mode = fields.get("authMode") if isinstance(fields, dict) else None
+        if mode in ("Key", "AMLToken", "AADToken"):
+            a.step("scoring_authentication", "conditional", online_endpoint=endpoint.get("id"),
+                   auth_mode=mode, access_requirement={"Key": "endpoint key",
+                                                  "AMLToken": "Azure ML token",
+                                                  "AADToken": "Entra identity with score/action RBAC"}[mode])
+            if mode != "AADToken":
+                a.notes.append("Scoring credential or token recipients are not inventoried.")
+        else:
+            a.notes.append("Online endpoint scoring authentication mode is unavailable or unrecognized.")
     access = props.get("publicNetworkAccess")
     if access == "Disabled":
         a.step("public_network_access", "block", public_network_access=access)
@@ -5389,6 +5401,9 @@ def _azure_ml_workspace(snapshot, inventory, resource):
                  or row["properties"].get("publicNetworkAccess") != "Disabled" for row in endpoints):
             a.gap("online_endpoint", "ML endpoint public gate could differ from disabled workspace gate")
             a.explicit = "UNKNOWN"
+            for row in endpoints:
+                if isinstance(row, dict) and isinstance(row.get("properties"), dict) and row["properties"].get("publicNetworkAccess") == "Enabled":
+                    record_scoring_auth(row)
             acls = props.get("networkAcls")
             if isinstance(acls, dict) and acls.get("defaultAction") == "Deny":
                 public_ips, _ = _azure_storage_public_ip_rules(acls)
@@ -5421,6 +5436,7 @@ def _azure_ml_workspace(snapshot, inventory, resource):
                 a.gap("online_endpoint", "ML online endpoint properties are malformed")
                 continue
             if fields.get("publicNetworkAccess") == "Enabled":
+                record_scoring_auth(endpoint)
                 uri = fields.get("scoringUri")
                 if isinstance(uri, str) and uri:
                     a.addresses.append(uri)
