@@ -1,4 +1,5 @@
 {
+  "aws_alias_function_url_review": "AWS Exposure alias-qualified Lambda Function URL: one read-only GetFunctionUrlConfig and GetPolicy per collected alias through the existing per-scan single-flight cache; collected alias ARN and URL FunctionArn are checked. Internet exposure adds lambda_alias handling with no new direct API SDK client call; 30 direct client sites and 15 reviewed API service names remain unchanged.",
   "azure_refresh_capture_closure_review": "Azure refresh includes both ACR images/leaks only when both were selected originally, preserving shared capture authority without provenance relabeling; no new SDK clients/services.",
   "collection_coverage_review": "Scope-bound collection status/count summaries for AI reviewers, indexed once per fingerprint/batch preparation; explicit empty inventory conserved, unavailable/truncated data not interpreted as absence. No native objects, provider errors or new SDK operations.30 direct SDK sites/15 services unchanged.",
   "composed_registry_auth_review": "Exact bounded registry_auth public routing fix plus curated finite inverse closure on c7e3, original50/predecessor ZIP conserved; root Azure refresh closure and startup spans preserved.30 SDK clients/15 services unchanged.",
@@ -51,7 +52,7 @@
     "peaso/analysis/exposure_dedup.py": "3f53a526fad4cf98cd210b84263f3965cea9b6b2918a3bdd9c53711ae9186604",
     "peaso/analysis/finding_clarity.py": "788c5d03f22d0313445f70f62284b25c7cf55cb9af9b0124ff7e72e11ef02fdb",
     "peaso/analysis/iam.py": "3637a0b143447bb0ebeb4e033b487decb9bb70521b83cfd04aefe9286406a44b",
-    "peaso/analysis/internet_exposure.py": "8167a3ec383d1310ff59f351a028038da11878337221687dc0db4df92d4f3a54",
+    "peaso/analysis/internet_exposure.py": "2a9ba468b972cd8b797bebfadc53575b32dc93ce06b63bc8fcaaab2633e9a185",
     "peaso/analysis/k8s_impersonation_index.py": "2d0997edeeba3070871416eb2a9bca36c3a857fa864e524f8ff4c99b107df06e",
     "peaso/analysis/k8s_network_links.py": "bb00a52b7db319afef3e8f7be8984c614a04d41e2311a16e6550b8b72dc73c33",
     "peaso/analysis/k8s_workload_index.py": "5c5781407dd1e2934e92d05c5a2126588c56cb2e26f2338d1e8289c823e6d463",
@@ -1041,7 +1042,7 @@
     "peaso/collectors/aws_facts_cb_ca.py": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe",
     "peaso/collectors/aws_facts_compute_edge.py": "3b70c41b331834265c153f2dead4953a858eeac74e93b8bc39b3a7c9bfbf35d8",
     "peaso/collectors/aws_facts_data_identity.py": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0",
-    "peaso/collectors/aws_facts_ext.py": "8938eadcfd9531e72c16b8de5a4c9a84da855f3efe09831efba69c854a5f66e7",
+    "peaso/collectors/aws_facts_ext.py": "23ead20f34fc137547db5844fb403c8847032132d762af0d2965a62ed5284762",
     "peaso/collectors/aws_facts_gap.py": "edc56fe1a1dc77e9cec2321f41b1fd665b003807125c8f37b88d6f35296e6fbf",
     "peaso/collectors/aws_facts_swc.py": "02976f331c75a7e2ead54148129901fbec1ffed7f3001f1bf170401842b0e26b",
     "peaso/collectors/aws_facts_v4_holds.py": "9b4649912a5d3b3e89445e10f8db83aed0c35da3820d09216c3dbfc7ea48083a",
@@ -1823,7 +1824,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1713,
-  "python_source_sha256": "417a65dcd91684af856bfc826b2ddfa4b7224a50137d78b181fee381b27794e7",
+  "python_source_sha256": "09935831518a4f23aa0030c263f76963332303829c3df6aeeaaec8db8cc5e8f2",
   "review_context": "Targeted AWS tag-compliance GetResources HTTP 504 retry in scan-local read pool. Bounded to two additional attempts, physical call cap and deadline, no new SDK client service. Exposure gap source closure remains 30 literal API client sites using the same reviewed service allowlist.",
   "source_commit": "04de9153478b44055b554fac56fe673e5f851776",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

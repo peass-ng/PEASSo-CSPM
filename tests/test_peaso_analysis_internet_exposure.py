@@ -458,6 +458,33 @@ def test_lambda_function_url_requires_both_public_invocation_actions_for_new_url
     assert one(aws(coll("lambda_function", [wildcard], service="lambda")), "lambda_function")["status"] == "FAIL"
 
 
+def test_lambda_alias_url_uses_qualified_policy_and_keeps_failed_reads_unknown():
+    base = lambda_function(auth="AWS_IAM")
+    alias_arn = base["FunctionArn"] + ":live"
+    alias = {"id": alias_arn, "AliasArn": alias_arn, "FunctionName": "f", "FunctionArn": base["FunctionArn"],
+             "Name": "live", "FunctionUrl": {**lambda_function()["FunctionUrl"], "FunctionArn": alias_arn},
+             "Policy": {"collection_status": "collected", "Policy": {"Version": "2012-10-17", "Statement": [
+                 {"Effect": "Allow", "Principal": "*", "Action": "lambda:InvokeFunctionUrl", "Resource": alias_arn},
+                 {"Effect": "Allow", "Principal": "*", "Action": "lambda:InvokeFunction", "Resource": alias_arn}]}}}
+
+    def row(value):
+        return one(aws(coll("lambda_function", [base], service="lambda"),
+                       coll("lambda_alias", [value], service="lambda")), "lambda_alias")
+
+    assert row(alias)["status"] == "FAIL"
+    assert one(aws(coll("lambda_function", [base], service="lambda"),
+                   coll("lambda_alias", [alias], service="lambda")), "lambda_function")["status"] == "PASS"
+    wrong_arn = copy.deepcopy(alias)
+    wrong_arn["Policy"]["Policy"]["Statement"][0]["Resource"] = base["FunctionArn"]
+    assert row(wrong_arn)["status"] == "PASS"
+    denied = {**alias, "FunctionUrl": {"collection_status": "denied"}}
+    assert row(denied)["status"] == "UNKNOWN"
+    malformed = {**alias, "FunctionUrl": {"collection_status": "collected", "FunctionUrl": alias["FunctionUrl"]["FunctionUrl"]}}
+    assert row(malformed)["status"] == "UNKNOWN"
+    foreign_alias = {**alias, "FunctionUrl": {**alias["FunctionUrl"], "FunctionArn": base["FunctionArn"]}}
+    assert row(foreign_alias)["status"] == "UNKNOWN"
+
+
 def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():
     api = {"id": "a1b2", "name": "api", "endpointConfiguration": {"types": ["REGIONAL"]},
            "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}

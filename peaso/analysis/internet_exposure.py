@@ -945,16 +945,23 @@ def _aws_eks(snapshot, inventory, resource):
 def _aws_lambda_url(snapshot, inventory, resource):
     data = resource["data"]
     url = data.get("FunctionUrl")
-    if not isinstance(url, dict) or url.get("absent") or url.get("AuthType") is None:
-        if isinstance(url, dict) and url.get("collection_status") not in (None, "collected", "empty"):
-            a = Assessment(resource, "function_url")
-            a.gap("inventory", f"function URL config {url.get('collection_status')}", "lambda get_function_url_config")
-            return a
+    if not isinstance(url, dict):
         return None
+    if url.get("collection_status") == "empty" and url.get("absent") is True:
+        return None
+    if url.get("collection_status") != "collected" or url.get("AuthType") not in ("NONE", "AWS_IAM"):
+        a = Assessment(resource, "function_url")
+        a.gap("inventory", f"function URL config {url.get('collection_status', 'not collected')} or auth type unresolved",
+              "lambda:GetFunctionUrlConfig")
+        return a
+    if (resource["type"] == "lambda_alias" and url.get("FunctionArn") != data.get("AliasArn")) or not isinstance(url.get("FunctionUrl"), str):
+        a = Assessment(resource, "function_url")
+        a.gap("inventory", "function URL endpoint or alias identity unresolved", "lambda:GetFunctionUrlConfig")
+        return a
     a = Assessment(resource, "function_url")
     a.addresses = [url.get("FunctionUrl")] if url.get("FunctionUrl") else []
     a.ports = pset("tcp", 443, 443)
-    if url.get("AuthType") != "NONE":
+    if url.get("AuthType") == "AWS_IAM":
         a.step("authorization", "allow", auth_type=url.get("AuthType"))
         a.authenticated = True
         a.explicit = "PASS"
@@ -5689,7 +5696,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
-             "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
+             "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
@@ -5708,7 +5715,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
              "component_configuration", *sorted(K8S_ROUTE_TYPES)]
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
-                     "opensearch_domain", "eks_cluster", "lambda_function", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
+                     "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
                      "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
@@ -5745,7 +5752,8 @@ def assess(snapshot, resources):
     handlers = {
         "aws": {"instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
                 "rds_instance": _aws_rds, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
-                "lambda_function": _aws_lambda_url, "rest_api": _aws_rest_api, "http_api": _aws_http_api, "bucket": _aws_bucket,
+                "lambda_function": _aws_lambda_url, "lambda_alias": _aws_lambda_url,
+                "rest_api": _aws_rest_api, "http_api": _aws_http_api, "bucket": _aws_bucket,
                 "rds_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBSnapshotAttributesResult", "DBSnapshotAttributes"), "snapshot"),
                 "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot"),
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),

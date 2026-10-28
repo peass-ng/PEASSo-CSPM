@@ -72,6 +72,7 @@ NATIVE_IDS = {kind: "id" for kind in SPECS}
 GLOBAL_TYPES = {"route53_record_set"}
 READ_ACTIONS = {
     ("lambda", "list_functions"), ("lambda", "list_layer_versions"), ("lambda", "get_layer_version_policy"),
+    ("lambda", "get_function_url_config"), ("lambda", "get_policy"),
     ("lambda", "get_function_configuration"), ("lambda", "get_runtime_management_config"),
     ("ecr", "get_registry_policy"), ("ecr", "describe_pull_through_cache_rules"), ("ecr", "describe_repository_creation_templates"),
     ("eks", "list_clusters"), ("eks", "describe_access_entry"), ("eks", "list_associated_access_policies"),
@@ -295,8 +296,24 @@ def _aliases(requests, session, region, account):
             if not isinstance(alias, dict) or not isinstance(alias.get("AliasArn"), str):
                 failure = failure or ("malformed", {"code": "malformed_alias"})
                 continue
+            alias_name = alias.get("Name")
+            if (not isinstance(alias_name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", alias_name)
+                    or alias_name.isdigit() or alias["AliasArn"] != str(function.get("FunctionArn")) + ":" + alias_name):
+                failure = failure or ("malformed", {"code": "lambda_alias_identity_mismatch"})
+                continue
             row = _pick(alias, ("AliasArn", "Name", "FunctionVersion", "RoutingConfig"))
             row.update({"FunctionName": name, "FunctionArn": function.get("FunctionArn"), "id": alias["AliasArn"]})
+            url = requests.detail(session, "lambda", region, "get_function_url_config",
+                                  FunctionName=name, Qualifier=alias_name, absent=("ResourceNotFoundException",))
+            if url.get("collection_status") == "collected" and url.get("FunctionArn") != alias["AliasArn"]:
+                url = {"collection_status": "malformed", "error": {"code": "lambda_alias_url_identity_mismatch"}}
+            row["FunctionUrl"] = url
+            if url.get("collection_status") == "collected":
+                policy = requests.detail(session, "lambda", region, "get_policy",
+                                         FunctionName=name, Qualifier=alias_name, absent=("ResourceNotFoundException",))
+                if "Policy" in policy:
+                    policy["Policy"] = _aws()._policy(policy["Policy"])
+                row["Policy"] = policy
             items.append(row)
     return _finish(items, failure)
 

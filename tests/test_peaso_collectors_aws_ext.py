@@ -121,17 +121,39 @@ def test_aliases_and_event_source_mappings(stub):
     lam.add_response("list_functions", {"Functions": [{"FunctionName": "app", "FunctionArn": FN}]})
     lam.add_response("list_aliases", {"Aliases": [{"AliasArn": FN + ":live", "Name": "live", "FunctionVersion": "3",
         "RoutingConfig": {"AdditionalVersionWeights": {"4": 0.1}}}]}, {"FunctionName": "app"})
+    lam.add_client_error("get_function_url_config", "ResourceNotFoundException",
+                         expected_params={"FunctionName": "app", "Qualifier": "live"})
     lam.add_response("list_event_source_mappings", {"EventSourceMappings": [{"UUID": "11111111-2222-3333-4444-555555555555", "FunctionArn": FN, "State": "Enabled",
         "EventSourceArn": f"arn:aws:sqs:{REGION}:{OTHER}:q", "FilterCriteria": {"Filters": [{"Pattern": "{\"secret\":[\"x\"]}"}]},
         "SourceAccessConfigurations": [{"Type": "BASIC_AUTH", "URI": f"arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:s"}],
         "SelfManagedEventSource": {"Endpoints": {"KAFKA_BOOTSTRAP_SERVERS": ["b-1:9092"]}}}]})
     aliases = run("lambda_alias", session)
     assert aliases.status == "collected" and aliases.items[0]["id"] == FN + ":live" and aliases.items[0]["FunctionName"] == "app"
+    assert aliases.items[0]["FunctionUrl"]["absent"] is True
     esm = run("lambda_event_source_mapping", session)
     row = esm.items[0]
     assert esm.status == "collected" and row["id"] == "11111111-2222-3333-4444-555555555555" and row["FilterCount"] == 1
     assert row["SelfManagedEventSource"] == {"EndpointTypes": ["KAFKA_BOOTSTRAP_SERVERS"]}
     assert "Pattern" not in json.dumps(row) and "b-1:9092" not in json.dumps(row)
+
+
+def test_alias_url_and_policy_are_cached_read_only_facts(stub):
+    session, add = stub
+    lam = add("lambda")
+    lam.add_response("list_functions", {"Functions": [{"FunctionName": "app", "FunctionArn": FN}]})
+    lam.add_response("list_aliases", {"Aliases": [{"AliasArn": FN + ":live", "Name": "live", "FunctionVersion": "3"}]},
+                     {"FunctionName": "app"})
+    lam.add_response("get_function_url_config", {"FunctionArn": FN + ":live", "AuthType": "NONE",
+                     "FunctionUrl": "https://abc.lambda-url.us-east-1.on.aws/",
+                     "CreationTime": "2026-01-01T00:00:00Z", "LastModifiedTime": "2026-01-01T00:00:00Z"},
+                     {"FunctionName": "app", "Qualifier": "live"})
+    policy = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": "*",
+              "Action": ["lambda:InvokeFunctionUrl", "lambda:InvokeFunction"], "Resource": FN + ":live"}]}
+    lam.add_response("get_policy", {"Policy": json.dumps(policy)}, {"FunctionName": "app", "Qualifier": "live"})
+    read = run("lambda_alias", session)
+    assert read.status == "collected"
+    assert read.items[0]["FunctionUrl"]["FunctionArn"] == FN + ":live"
+    assert read.items[0]["Policy"]["Policy"] == policy
 
 
 def test_lambda_env_var_names_only_and_runtime_management(stub):
