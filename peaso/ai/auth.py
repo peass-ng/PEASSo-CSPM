@@ -119,11 +119,19 @@ def codex_available(store, identity_dir, user):
 
 def require_local_codex(settings, store, user):
     from .crypto import AICipher
-    from .providers import resolve_access, review_disabled
+    from .providers import ERROR_KEY, resolve_access, review_disabled
     if review_disabled(store, user):
         return
     try:
-        resolve_access(store, AICipher(settings.identity_dir), user, auth_mode=settings.auth_mode)
+        # A previous attempt can leave an encrypted error even after the
+        # current credential becomes usable. Revalidate the current selection
+        # at every admission. Only the exact error observed before that fresh
+        # validation may be cleared; a concurrent newer failure still blocks.
+        prior_error = store.ai_state(user, ERROR_KEY) if user else None
+        resolve_access(store, AICipher(settings.identity_dir), user,
+                       auth_mode=settings.auth_mode, ignore_recorded_error=True)
+        if prior_error and not store.set_ai_state(user, ERROR_KEY, None, prior_error):
+            raise RuntimeError('AI configuration changed during admission')
     except Exception:
         raise HTTPException(409, 'AI checks require a valid AI configuration. Configure a provider, model and thinking effort in Settings, or disable AI for this scan.')
     if settings.auth_mode == 'local':

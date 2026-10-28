@@ -326,14 +326,14 @@ def launch_error(access):
     return error
 
 
-def resolve_access(store, cipher, user, *, auth_mode='local', token_resolver=None, verify=True, attach_guard=True, ignore_error=False):
+def resolve_access(store, cipher, user, *, auth_mode='local', token_resolver=None, verify=True, attach_guard=True, ignore_error=False, ignore_recorded_error=False):
     from .auth import default_token, personal_token
     token_resolver = token_resolver or personal_token
     try:
         if review_disabled(store, user):
             raise ReviewDisabled('AI review is disabled for every scan in your settings.')
         warning = configuration_error(store, cipher, user)
-        if warning and not ignore_error:
+        if warning and not (ignore_error or ignore_recorded_error):
             raise ConfigurationError(warning['message'])
         raw = store.ai_state(user, STATE_KEY) if user else None
         if raw:
