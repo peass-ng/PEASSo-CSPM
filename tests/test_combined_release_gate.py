@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import ast
 import gzip
 import json
 import os
@@ -362,3 +363,20 @@ def test_materializer_check_mode_is_current_and_writes_nothing():
     assert run.returncode == 0, run.stdout + run.stderr
     assert json.loads(run.stdout) == {"stale": [], "checked": len(watched)}
     assert {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in watched} == before
+
+
+def test_finding_detail_presentation_sources_match_reviewed_native_source():
+    from peaso.server.materialized_catalog import _presentation_sources_valid, template_for
+    from peaso.server.evidence_static import verify_closure
+
+    _presentation_sources_valid.cache_clear()
+    _presentation_sources_valid()
+    verify_closure.cache_clear()
+    verify_closure()
+    native = ast.parse((ROOT / "peaso/remediation.py").read_text())
+    static = ast.parse((ROOT / "peaso/server/remediation_presentation_static_20261020.py").read_text())
+    for name in ("_bounded", "identity_bindings", "bind_command", "exposure_action", "exposure_details"):
+        left = next(node for node in native.body if isinstance(node, ast.FunctionDef) and node.name == name)
+        right = next(node for node in static.body if isinstance(node, ast.FunctionDef) and node.name == name)
+        assert ast.dump(left, include_attributes=False) == ast.dump(right, include_attributes=False), name
+    assert template_for("aws.a.cloudwatch.cross_account_role_absent", "aws") is not None
