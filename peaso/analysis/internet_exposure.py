@@ -5106,7 +5106,10 @@ def _azure_firewall(snapshot, inventory, resource):
         for rule in as_list(cp.get("rules")):
             if not isinstance(rule, dict):
                 continue
-            sources = [_cidr(value) for value in as_list(rule.get("sourceAddresses"))]
+            sources = []
+            for value in as_list(rule.get("sourceAddresses")):
+                parsed = _azure_restriction_sources(value)
+                sources.extend(parsed if parsed else [None])
             group_refs = rule.get("sourceIpGroups")
             if group_refs is None:
                 group_refs = []

@@ -935,6 +935,10 @@ def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     candidate = firewall_decision([rule])
     assert candidate.verdict() == "UNKNOWN" and candidate.ports == {"tcp": ((443, 443),)}
     assert any(gap["layer"] == "backend" for gap in candidate.unresolved)
+    wildcard = firewall_decision([{**rule, "sourceAddresses": ["*"]}])
+    assert wildcard.verdict() == "UNKNOWN" and wildcard.ports == {"tcp": ((443, 443),)}
+    assert not any(gap["layer"] == "policy" for gap in wildcard.unresolved)
+    assert firewall_decision([{**rule, "sourceAddresses": ["10.0.0.0/8"]}]).verdict() == "PASS"
     assert firewall_decision([]).verdict() == "PASS"
     assert firewall_decision([], policy="/policy").verdict() == "UNKNOWN"
 
