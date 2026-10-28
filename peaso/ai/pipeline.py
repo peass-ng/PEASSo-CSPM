@@ -566,11 +566,18 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
 
 def selected_stages(selectors, stages=None):
     """Choose only the AI work requested for this assessment."""
+    # The hosted worker can retire these two model agents independently while
+    # retaining Network and Priorities. Default-on preserves local behavior;
+    # production sets both switches to 0 in the task definition.
+    disabled = {stage for stage, variable in (
+        ('hardening', 'PEASO_AI_HARDENING_AGENT_ENABLED'),
+        ('exposure', 'PEASO_AI_EXPOSURE_AGENT_ENABLED'))
+        if os.getenv(variable, '1') == '0'}
     if stages is not None:
         selected = set(stages)
         if 'priorities' in selected:
             selected |= {'hardening', 'exposure', 'network'}
-        return frozenset(selected)
+        return frozenset(selected - disabled)
     categories = set(selectors.get('categories') or ())
     if not categories:
         categories = {'hardening', 'exposure', 'network'}
@@ -583,7 +590,7 @@ def selected_stages(selectors, stages=None):
         selected.add('network')
     if selectors.get('ai_priorities_enabled', True):
         selected.add('priorities')
-    return frozenset(selected)
+    return frozenset(selected - disabled)
 
 
 def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None, context=None,
@@ -603,6 +610,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     if not selectors.get('ai_enabled', True):
         result['reason'] = 'disabled_for_scan'
         return result
+    hardening_native_only = os.getenv('PEASO_AI_HARDENING_AGENT_ENABLED', '1') == '0'
+    exposure_native_only = os.getenv('PEASO_AI_EXPOSURE_AGENT_ENABLED', '1') == '0'
     k8s_native_exposure = (report.get('provider') == 'k8s' and 'exposure' in selected
                            and selectors.get('ai_k8s_exposure_enabled') is not True)
     if k8s_native_exposure and selected == {'exposure'}:
@@ -641,22 +650,23 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             return result
         hardening, exposure, duplicates = inputs(report)
         from .native_final import admitted_check_ids, partition, reviews as native_reviews
-        native_hardening, ai_hardening = partition(
-            hardening, admitted_check_ids() if 'hardening' in selected else frozenset())
-        if report['provider'] == 'gcp':
+        native_hardening, ai_hardening = ((hardening, []) if hardening_native_only else partition(
+            hardening, admitted_check_ids() if 'hardening' in selected else frozenset()))
+        if report['provider'] == 'gcp' and not hardening_native_only:
             from .gcp_native_final import admitted_check_ids as gcp_admitted
             from .gcp_native_final import partition as gcp_partition
             gcp_native_hardening, ai_hardening = gcp_partition(
                 ai_hardening, gcp_admitted() if 'hardening' in selected else frozenset(),
                 report.get('coverage'))
             native_hardening += gcp_native_hardening
-        from .k8s_native_final import admitted_check_ids as k8s_admitted_check_ids
-        from .k8s_native_final import partition as k8s_partition
-        k8s_native_hardening, ai_hardening = k8s_partition(
-            ai_hardening, k8s_admitted_check_ids() if 'hardening' in selected else frozenset(),
-            report.get('coverage'))
-        native_hardening += k8s_native_hardening
-        if report['provider'] == 'azure' and 'hardening' in selected:
+        if not hardening_native_only:
+            from .k8s_native_final import admitted_check_ids as k8s_admitted_check_ids
+            from .k8s_native_final import partition as k8s_partition
+            k8s_native_hardening, ai_hardening = k8s_partition(
+                ai_hardening, k8s_admitted_check_ids() if 'hardening' in selected else frozenset(),
+                report.get('coverage'))
+            native_hardening += k8s_native_hardening
+        if report['provider'] == 'azure' and 'hardening' in selected and not hardening_native_only:
             from .native_final_azure import admitted_check_ids as admitted_azure_check_ids
             from .native_final_azure import partition as partition_azure
             azure_native, ai_hardening = partition_azure(
@@ -665,14 +675,14 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result['reviews']['hardening'] = native_reviews(native_hardening)
         result['native_final'] = {'hardening': [row['id'] for row in native_hardening]}
         result['duplicates'] = duplicates
-        if k8s_native_exposure:
+        if k8s_native_exposure or exposure_native_only:
             result['reviews']['exposure'] = native_exposure_reviews(exposure, duplicates)
         from .progressive_kinds import review_group_signatures
         result['review_group_signatures'] = {
             'hardening': review_group_signatures(hardening) if 'hardening' in selected else {}}
         result['stage_inputs'] = {
             'hardening': sorted(row['id'] for row in ai_hardening),
-            'exposure': sorted(row['id'] for row in exposure),
+            'exposure': [] if exposure_native_only else sorted(row['id'] for row in exposure),
         }
         entries = []
         reference = snapshot.get('metadata', {}).get('ai_access_reference')
@@ -785,7 +795,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         # Independent reviewers can start as each section becomes complete.
         # Priorities below wait for the selected reviewer calls to settle.
         missing_hardening = [row for row in ai_hardening if row['id'] not in reusable_reviews['hardening']]
-        missing_exposure = [] if k8s_native_exposure else [row for row in exposure if row['id'] not in reusable_reviews['exposure']]
+        missing_exposure = [] if k8s_native_exposure or exposure_native_only else [row for row in exposure if row['id'] not in reusable_reviews['exposure']]
         if not pending & {'hardening', 'exposure', 'network'}:
             fresh, failed_stage = {}, False
         elif pending == {'hardening', 'exposure', 'network', 'priorities'}:

@@ -25,6 +25,8 @@ locals {
     PEASO_SOURCE_VERSION                 = var.source_version
     PEASO_HARDENING_NATIVE_FINAL_ENABLED = "1"
     PEASO_HARDENING_NATIVE_FINAL_SHA256  = "3385bf6a9e56df7f7f289558680ac351de323dd319c264a3f44129e8c383466d"
+    PEASO_AI_HARDENING_AGENT_ENABLED     = "0"
+    PEASO_AI_EXPOSURE_AGENT_ENABLED      = "0"
     # The worker image also sets this after its always-mode build proof;
     # restated here so no task definition can fall back to runtime proofs.
     PEASO_SOURCE_ATTESTATION = "trusted"

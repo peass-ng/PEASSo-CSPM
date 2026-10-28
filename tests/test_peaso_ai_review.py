@@ -447,6 +447,32 @@ def test_native_final_skips_only_exact_hardening_check_and_reaches_priorities(en
     assert data == original
 
 
+@pytest.mark.parametrize('provider', ['aws', 'gcp', 'azure', 'k8s'])
+def test_hosted_agent_switches_send_native_reviews_to_priorities_for_every_cloud(environment, monkeypatch, provider):
+    monkeypatch.setenv('PEASO_AI_HARDENING_AGENT_ENABLED', '0')
+    monkeypatch.setenv('PEASO_AI_EXPOSURE_AGENT_ENABLED', '0')
+    data = report()
+    data['provider'] = provider
+    for row in data['findings']:
+        row['provider'] = provider
+    called = []
+
+    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
+        called.append(stage)
+        assert stage == 'priorities'
+        assert {row['finding_id']: row['verdict'] for row in reviews} == {'h1': 'FAIL', 'e1': 'FAIL'}
+        assert {row['id'] for row in findings} == {'h1', 'e1'}
+        return {'actions': [], 'limitations': []}
+
+    monkeypatch.setattr(pipeline, 'invoke', invoke)
+    result = pipeline.review_scan(data, {}, {'categories': ['hardening', 'exposure'],
+        'ai_network_enabled': False}, tenant='alice', artifacts=environment[2])
+    assert called == ['priorities']
+    assert result['status'] == 'completed'
+    assert result['coverage']['reviewed'] == 2
+    assert result['stage_inputs'] == {'hardening': [], 'exposure': []}
+
+
 def test_gcp_native_final_preserves_priorities_finding_ids(environment, monkeypatch):
     from peaso.ai import gcp_native_final
     data = report()

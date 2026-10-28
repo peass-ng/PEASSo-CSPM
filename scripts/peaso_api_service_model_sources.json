@@ -41,7 +41,7 @@
     "peaso/ai/native_final_coverage.py": "a78aa8314c4875ccd1ae8c2277a2a7202c4cafc17d743ab324a20cb34ae8f578",
     "peaso/ai/network.py": "f8da3a90c6fbc0e2c2bb8fa40f2007bf45abdfa149b37c92d8b7b693f5ebd6fd",
     "peaso/ai/output_validation.py": "bebdce6232ccc056823646411197a12741ff5462f48050c0c8a1b2dab241314f",
-    "peaso/ai/pipeline.py": "4e9bf8a4677c977e81fe8c84db913407264f3cc6c871ebfd566ba429ff4cc467",
+    "peaso/ai/pipeline.py": "bad0cc065470009e8e80d8b68af6d2f0dbee4841dab199ed24b27e3a91a30c76",
     "peaso/ai/progressive_kinds.py": "de2d82a19d7777034a9f4e47e5165e99b6a371fab3eb6ad1ab8982e207d6ecb6",
     "peaso/ai/prompting.py": "4e6c4f13dce2947dc23f037c5a95ebbf0d4efc6ba9a5ed97182a73ac3a2f2914",
     "peaso/ai/providers.py": "78f90d57bb66f3e637f4d7c2d532f24b638904617e217e41e1392a1d802150db",
@@ -1619,7 +1619,7 @@
     "peaso/privesc/schema.py": "e0c936be6e05470d310f3309240e0c56fa9b2ad59a5f077b8a25697f039c28cb",
     "peaso/privesc/versioned_catalog.py": "e2110ca182f1c15de2205201787520d2a5c7355a09c683389b094b874f4a6a84",
     "peaso/progress.py": "795477ca9c1c79f0cbecb67bd9ac0e3327c7984e4bdae105c5fe649a163974da",
-    "peaso/progressive_analyzer.py": "613f7bb14db961a16045ef3fd6824e685736f0af658cb80ed7f7a8326354d161",
+    "peaso/progressive_analyzer.py": "2a2a1eb0c87c6f99459a7115ca549413d358f406ce2a084b4130a9ca2fda20b1",
     "peaso/provider_followup_observations_20261021.py": "84d18fb252d53059c2ea486e98e8b3301e79bc1f9bdee24a4d063570c109c313",
     "peaso/public_audit.py": "1be2b9ffa06ccabeef5fc7d27af06ed2a57474adabe10156f8b58a9f5d631e43",
     "peaso/rawv2_private_source_successor_20261021.py": "80406875bd042731f0e18d4f43ca2c43ca692106ed8f7c45e92490c402dd69c6",
@@ -1832,8 +1832,8 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1717,
-  "python_source_sha256": "6820d355f09942891c8e9ee1d9491233e874db446958ee7233de380930106fe8",
-  "review_context": "Integrated scoped complete-coverage guard for default-off GCP and K8s native-final partitions. One added pure coverage module and three changed AI modules require exact check evaluation plus complete kind/dependency collection before substitution. Azure two-pair receipt remains exact-byte bound and gate default off. No credential factory or direct API client changes: 1717 Python files, 30 direct SDK client sites across 12 used services in reviewed 15-service allowlist.",
+  "python_source_sha256": "6b9cae06f3e46fd2a195028372f4b87db2d70b926a24b85930f972540f067a4b",
+  "review_context": "Hosted production retires Hardening and Exposure model stages for all four providers via two exact worker environment switches set to 0. Network and Priorities model stages remain; all native FAIL reviews feed Priorities and progressive early Hardening/Exposure claims are skipped. Two Python source files changed, no SDK client or credential factory behavior. Source closure is 1717 files and 30 direct client sites across 12 used services in reviewed 15-service allowlist.",
   "source_commit": "04de9153478b44055b554fac56fe673e5f851776",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
 }

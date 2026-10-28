@@ -388,6 +388,8 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
                 if checkpoint_sections is not None:
                     eligible = []
                     for stage in STAGES:
+                        if stage not in selected_stages(selectors):
+                            continue
                         # A higher revision can supersede a live durable claim.
                         # Keep the running child's handle until it settles so
                         # every child remains bounded, heartbeated and drained.
@@ -421,7 +423,8 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
                                 LOGGER.warning("Progressive AI stage %s could not start", stage, exc_info=False)
                                 continue
                             active[stage] = (revision, task)
-                if (wave_enabled and job["status"] == "collecting"
+                if (wave_enabled and 'hardening' in selected_stages(selectors)
+                        and job["status"] == "collecting"
                         and len(active) < max_workers and
                         not any(stage.startswith("hardening_w_") for stage in active)
                         and key != wave_checked_key):
