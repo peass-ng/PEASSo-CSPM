@@ -82,6 +82,7 @@ from . import azure_cost_exports_native
 from . import azure_managed_application_definitions_native
 from . import azure_attestation_native
 from . import azure_domain_services_native
+from . import azure_defender_automations_native
 from . import azure_nginx_native
 from . import azure_webpubsub_hubs_native
 
@@ -329,6 +330,9 @@ def _arm_parent_native_type(row, kind):
     value = row["type"]
     # The official 2016-03-01 LogProfiles List example explicitly returns "".
     if kind == "monitor_log_profile" and value == "":
+        return
+    # The Security Contacts LIST example returns the singular resource type.
+    if kind == "security_contact" and isinstance(value, str) and value.casefold() == "microsoft.security/securitycontact":
         return
     if not isinstance(value, str) or value.casefold() != expected.casefold():
         raise ValueError("native ARM parent type contradicts selected endpoint")
@@ -1218,7 +1222,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "certificate_issuance", *azure_nsg_ingress_native.NATIVE_TYPES,
     *azure_wave_compute_native.NATIVE_TYPES,
     *azure_wave_network_controls.NATIVE_TYPES,
-    "subscription", "tenant", "management_group", "cost_export", "managed_application_definition", "attestation_provider", "entra_domain_service", "resource_graph", "activity_log", "activity_log_coverage",
+    "subscription", "tenant", "management_group", "cost_export", "managed_application_definition", "attestation_provider", "entra_domain_service", "defender_automation", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
@@ -2476,6 +2480,8 @@ def _selected(options, requirements):
         selected.update(("vnet", "subnet", "nsg", "directory_domain"))
     if "powerbi_capacity" in selected:
         selected.add("directory_domain")
+    if "security_contact" in selected:
+        selected.add("directory_domain")
     if selected.intersection(("directory_group_pim_policy", "directory_group_pim_owner_policy",
                               "directory_group_eligibility_schedule", "directory_group_eligibility_instance")):
         selected.add("directory_group")
@@ -3196,7 +3202,7 @@ def collect(connector, requirements=None, *, transport=None):
                             if not _remaining_service_parent_identity(item, scope, kind, remaining_service_seen):
                                 continue
                             _remaining_services_private_links(item, kind)
-                            if kind in ("security_contact", "security_setting", "security_assessment", "log_analytics_workspace") and str(item.get("type", "")).casefold() != ENDPOINTS[kind][0].casefold():
+                            if kind in ("security_contact", "security_setting", "security_assessment", "log_analytics_workspace") and str(item.get("type", "")).casefold() not in ((ENDPOINTS[kind][0].casefold(), "microsoft.security/securitycontact") if kind == "security_contact" else (ENDPOINTS[kind][0].casefold(),)):
                                 raise ValueError("native monitoring type differs from selected inventory")
                             if kind in ("easm_workspace", "monitor_log_profile", "arc_kubernetes_cluster", "integration_service_environment", "databricks_workspace"):
                                 identity = rid.casefold()
@@ -3562,6 +3568,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_managed_application_definitions_native.collect(reader, request, wanted)
         azure_attestation_native.collect(reader, request, scopes, wanted)
         azure_domain_services_native.collect(reader, request, scopes, wanted)
+        azure_defender_automations_native.collect(reader, request, scopes, wanted)
         _collect_managed_application_jit(reader, request, embedded_parents)
         _collect_servicebus_entity_rules(reader, request, embedded_parents)
         _collect_gallery_versions(reader, request, embedded_parents)

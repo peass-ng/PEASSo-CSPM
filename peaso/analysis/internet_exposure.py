@@ -11303,6 +11303,108 @@ def _azure_cost_export(snapshot, inventory, resource):
     return a
 
 
+def _azure_security_contact(snapshot, inventory, resource):
+    """Defender alerts addressed outside verified tenant domains."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("isEnabled") is False:
+        a.step("contact", "block", reason="security contact disabled")
+        a.explicit = "PASS"
+        return a
+    if props.get("isEnabled") is not True:
+        a.gap("configuration", "security contact enablement unavailable")
+        return a
+    emails = props.get("emails")
+    sources = props.get("notificationsSources")
+    if not isinstance(emails, str) or not isinstance(sources, list):
+        a.gap("inventory", "security contact recipient or notification sources unavailable")
+        return a
+    recipients = [email.strip() for email in re.split(r"[;,]", emails) if email.strip()]
+    roles = props.get("notificationsByRole")
+    if not sources:
+        a.gap("configuration", "security contact notification source behavior unavailable")
+        return a
+    if not recipients:
+        if isinstance(roles, dict) and roles.get("state") == "Off":
+            a.step("alert_delivery", "block", reason="no explicit recipients and role notifications disabled")
+            a.explicit = "PASS"
+        else:
+            a.gap("authorization", "role-based notifications may reach external subscription principals")
+        return a
+    if inventory.state("directory_domain") not in ("collected", "empty"):
+        a.gap("inventory", "verified tenant domains unavailable")
+        return a
+    owned = {str(row["data"].get("id", "")).casefold() for row in inventory.items("directory_domain")
+             if row["data"].get("isVerified") is True}
+    if not owned:
+        a.gap("inventory", "tenant has no verified domain evidence")
+        return a
+    foreign = sorted({email for email in recipients if "@" in email and
+                      email.rsplit("@", 1)[-1].casefold() not in owned})
+    malformed = [email for email in recipients if "@" not in email]
+    if foreign:
+        a.external_ids = foreign
+        a.step("alert_delivery", "allow", off_tenant_domain_emails=foreign,
+               sources=sorted({str(row.get("sourceType")) for row in sources if isinstance(row, dict)}))
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    if malformed:
+        a.gap("authorization", "contact contains recipients without email domains")
+    if not foreign and not malformed:
+        a.gap("authorization", "same-domain mailbox ownership is not proven")
+    return a
+
+
+def _azure_defender_automation(snapshot, inventory, resource):
+    """Configured security-event exports to another subscription."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    if props.get("isEnabled") is False:
+        a.step("automation", "block", reason="automation disabled")
+        a.explicit = "PASS"
+        return a
+    if props.get("isEnabled") is not True:
+        a.gap("configuration", "automation enablement unavailable")
+        return a
+    actions = props.get("actions")
+    sources = props.get("sources")
+    if not isinstance(actions, list) or not isinstance(sources, list):
+        a.gap("inventory", "automation actions or sources unavailable")
+        return a
+    if not actions or not sources:
+        a.step("event_export", "block", reason="no action or source")
+        a.explicit = "PASS"
+        return a
+    source_match = re.match(r"/subscriptions/([^/]+)(?:/|$)", resource["scope"], re.I)
+    if source_match is None:
+        a.gap("inventory", "source subscription unavailable")
+        return a
+    targets = []
+    for action in actions:
+        target = action.get("resourceId") if isinstance(action, dict) else None
+        target_match = re.match(r"/subscriptions/([^/]+)(?:/|$)", target or "", re.I)
+        if target_match is None:
+            a.gap("inventory", "automation action target unavailable")
+            continue
+        if target_match.group(1).casefold() != source_match.group(1).casefold():
+            targets.append({"id": target, "type": action.get("actionType")})
+    if targets:
+        a.external_ids = sorted({row["id"] for row in targets})
+        a.step("event_export", "allow", cross_subscription_destinations=targets,
+               event_sources=sorted({str(row.get("eventSource")) for row in sources if isinstance(row, dict)}))
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    else:
+        a.gap("authorization", "same-subscription destination downstream readers not assessed here")
+    return a
+
+
 def _azure_nginx(snapshot, inventory, resource):
     """Public NGINX frontends with ports derived from active configuration files."""
     a = Assessment(resource, "public_endpoint")
@@ -12679,7 +12781,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12694,7 +12796,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12809,6 +12911,8 @@ def assess(snapshot, resources):
                   "subscription": _azure_subscription,
                   "powerbi_capacity": _azure_powerbi_capacity,
                   "cost_export": _azure_cost_export,
+                  "security_contact": _azure_security_contact,
+                  "defender_automation": _azure_defender_automation,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
