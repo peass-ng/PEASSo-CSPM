@@ -4715,11 +4715,30 @@ def _azure_app_service(snapshot, inventory, resource, configs):
     a = Assessment(resource, "web_app")
     enabled_hosts = props.get("enabledHostNames")
     if isinstance(enabled_hosts, list):
-        a.addresses = sorted({host for host in enabled_hosts if isinstance(host, str) and
-                              host and ".scm." not in host.lower()})
+        host_types = {}
+        for state in as_list(props.get("hostNameSslStates")):
+            if not isinstance(state, dict) or not isinstance(state.get("name"), str):
+                continue
+            name = state["name"].casefold()
+            kind = state.get("hostType")
+            if name in host_types and host_types[name] != kind:
+                host_types[name] = None
+            else:
+                host_types[name] = kind
+        main_hosts, scm_hosts = [], []
+        for host in enabled_hosts:
+            if not isinstance(host, str) or not host:
+                continue
+            kind = host_types.get(host.casefold(), "Repository" if ".scm." in host.casefold() else "Standard")
+            if kind == "Standard":
+                main_hosts.append(host)
+            elif kind == "Repository":
+                scm_hosts.append(host)
+        a.addresses = sorted(set(main_hosts))
     else:
         a.addresses = [host for host in as_list(props.get("defaultHostName"))
                        if isinstance(host, str) and host]
+        scm_hosts = []
     public_access = props.get("publicNetworkAccess")
     if str(public_access).lower() == "disabled":
         a.step("public_network_access", "block", public_network_access="Disabled")
@@ -4795,8 +4814,6 @@ def _azure_app_service(snapshot, inventory, resource, configs):
                ase_id=ase_id, internal_load_balancing_mode=ase_mode)
     if main == "block":
         a.addresses = []
-    scm_hosts = [h for h in as_list(props.get("enabledHostNames"))
-                 if isinstance(h, str) and ".scm." in h.lower()]
     if scm == "allow" and not scm_hosts:
         scm, scm_detail = "unknown", {**scm_detail, "reason": "SCM hostname is not recorded in enabledHostNames"}
     if scm == "allow":

@@ -470,6 +470,35 @@ def test_app_service_main_hostname_uses_recorded_enabled_names():
     assert scm.verdict() == "FAIL" and scm.addresses == ["app.scm.azurewebsites.net"]
 
 
+def test_app_service_hostname_type_selects_independent_main_and_scm_restrictions():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    main_host = "main.example.com"
+    scm_host = "deployment.example.com"
+
+    def check(host_type, *, main_action="Deny", scm_action="Allow"):
+        site = {"publicNetworkAccess": "Enabled", "enabledHostNames": [main_host, scm_host],
+                "hostNameSslStates": [{"name": main_host, "hostType": "Standard"},
+                                      {"name": scm_host, "hostType": host_type}]}
+        config = {"ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": main_action,
+                  "scmIpSecurityRestrictionsUseMain": False, "scmIpSecurityRestrictions": [],
+                  "scmIpSecurityRestrictionsDefaultAction": scm_action}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id, "properties": site}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id + "/config/web", "parent_id": site_id, "properties": config}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "app_service")
+
+    repository = check("Repository")
+    assert repository.verdict() == "FAIL"
+    assert repository.addresses == [scm_host]
+    assert repository.path[-1]["scm_hosts"] == [scm_host]
+    assert check("Repository", scm_action="Deny").verdict() == "PASS"
+    assert check("unexpected").verdict() == "UNKNOWN"
+    assert check("unexpected", main_action="Allow").addresses == [main_host]
+
+
 def test_app_service_service_tag_and_vnet_rules_preserve_public_source_priority():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     tag = {"name": "AzureFrontDoor.Backend", "properties": {"addressPrefixes": ["8.8.8.0/24"]}}
