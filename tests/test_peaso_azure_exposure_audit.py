@@ -731,6 +731,39 @@ def test_anonymous_blob_requires_container_and_account_gates():
         "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
 
 
+def test_storage_static_website_is_anonymous_with_blob_public_access_disabled():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    web_url = "https://a.z5.web.core.windows.net/"
+
+    def decision(*, enabled=True, acl=None, public="Enabled", web=True):
+        props = {"publicNetworkAccess": public, "allowBlobPublicAccess": False,
+                 "networkAcls": acl if acl is not None else {"defaultAction": "Allow", "bypass": "None"},
+                 "primaryEndpoints": {"web": web_url} if web else {}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "properties": props}]},
+            {"type": "storage_service", "scope": account_id + "/blobServices",
+             "service": "storage", "status": "collected", "items": [{
+                 "id": account_id + "/blobServices/default", "properties": {
+                     "staticWebsite": {"enabled": enabled}}}]}])
+        return next((row for row in assess(snap, resources(snap))
+                     if row.resource["type"] == "storage_account"), None)
+
+    site = decision()
+    assert site is not None and site.verdict() == "FAIL" and site.data_exposure
+    assert web_url in site.addresses
+    assert "serves $web anonymously" in _observed(site, "FAIL")
+    assert len(_observed(site, "FAIL").splitlines()) == 3
+    assert not decision(enabled=False).data_exposure
+    assert not decision(web=False).data_exposure
+    ip_acl = {"defaultAction": "Deny", "bypass": "None",
+              "ipRules": [{"value": "8.8.8.8/32", "action": "Allow"}]}
+    assert decision(acl=ip_acl).data_exposure
+    blocked = decision(acl={"defaultAction": "Deny", "bypass": "None"})
+    assert blocked.verdict() == "PASS" and not blocked.data_exposure
+    assert decision(public="Disabled") is None
+
+
 def test_storage_account_deny_default_retains_public_ip_rule_exposure():
     base = {"publicNetworkAccess": "Enabled", "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"},
             "supportsHttpsTrafficOnly": True}

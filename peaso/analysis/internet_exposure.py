@@ -5083,6 +5083,20 @@ def _azure_storage(snapshot, inventory, resource):
         a.authenticated = True
         a.step("anonymous_access", "authenticated_only", allow_blob_public_access=props.get("allowBlobPublicAccess"),
                shared_key_access=props.get("allowSharedKeyAccess"))
+    blob_service = inventory.get("storage_service", str(resource["data"].get("id", "")) + "/blobServices/default")
+    website = _props(blob_service).get("staticWebsite") if blob_service is not None else None
+    web_urls = _azure_storage_endpoint_urls(props, service="web")
+    web_public_rules, _ = _azure_storage_published_public_ip_rules(props, public, service="web")
+    if (isinstance(website, dict) and website.get("enabled") is True and web_urls and
+            props.get("publicNetworkAccess") != "SecuredByPerimeter" and
+            (acls.get("defaultAction", "Allow") == "Allow" or web_public_rules)):
+        a.data_exposure = True
+        a.addresses.extend(url for url in web_urls if url not in a.addresses)
+        a.step("static_website", "allow", web_endpoints=web_urls, anonymous=True,
+               source="ARM blobServices/default staticWebsite.enabled and storage web endpoints")
+        a.notes.append("Static website $web reads are anonymous even when allowBlobPublicAccess is false")
+    elif isinstance(website, dict) and website.get("enabled") is True and not web_urls:
+        a.notes.append("Static website enabled but web endpoint URL is not collected")
     return a
 
 
@@ -7069,7 +7083,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
-               "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "sql_ipv6_firewall_rule", "managed_identity_federated_credential",
+               "app_service_config", "aks_cluster", "storage_account", "storage_container", "storage_service", "sql_server", "sql_firewall_rule", "sql_ipv6_firewall_rule", "managed_identity_federated_credential",
                "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -7464,6 +7478,14 @@ def _observed(assessment, status):
         return (first + "\n"
                 "The public SAS export path is unclear from these settings.\n"
                 "If public export is allowed, a valid SAS URL could expose stored data.")
+    if assessment.resource["type"] == "storage_account" and status == "FAIL":
+        website = next((step for step in assessment.path if step["layer"] == "static_website"), None)
+        if website is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The storage account {name} has an enabled static website at "
+                    f"{website['web_endpoints'][0]} and its network rules admit a public source.\n"
+                    "Azure Storage serves $web anonymously even if account blob public access is disabled.\n"
+                    "The site endpoint is recorded in ARM; DNS delivery, a successful read, and contents were not tested.")
     if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
         ipv6_step = next((step for step in assessment.path if any(
             _cidr(value).version == 6 for value in step.get("public_ip_rules", []))), None)
