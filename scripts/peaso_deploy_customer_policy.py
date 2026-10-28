@@ -276,7 +276,7 @@ PRESERVED_TEMPLATE_READ_ACTIONS = frozenset({("cloudformation", "list_stacks")})
 # declares this read so unsupported inventory stays explicit, but no IAM action
 # can make the unavailable SDK request run. Revisit when the runtime ships it.
 UNAVAILABLE_SDK_METADATA_OPERATIONS = frozenset({("eventbridgev2", "list_event_buses")})
-SERVICE_PREFIXES = {'elbv2': 'elasticloadbalancing', 'elb': 'elasticloadbalancing', 'docdb': 'rds', 'neptune': 'rds', 'opensearch': 'es', 's3control': 's3', 'efs': 'elasticfilesystem', 'apigatewayv2': 'apigateway', 'sso-admin': 'sso', 'accessanalyzer': 'access-analyzer', 'emr': 'elasticmapreduce', 'bedrock-agent': 'bedrock', 'sesv2': 'ses', 'stepfunctions': 'states', 'supplychain': 'scn'}
+SERVICE_PREFIXES = {'elbv2': 'elasticloadbalancing', 'elb': 'elasticloadbalancing', 'docdb': 'rds', 'neptune': 'rds', 'opensearch': 'es', 's3control': 's3', 'efs': 'elasticfilesystem', 'apigatewayv2': 'apigateway', 'sso-admin': 'sso', 'accessanalyzer': 'access-analyzer', 'emr': 'elasticmapreduce', 'bedrock-agent': 'bedrock', 'sesv2': 'ses', 'stepfunctions': 'states', 'supplychain': 'scn', 'eventbridgev2': 'events'}
 SERVICE_PREFIXES['resourcegroupstaggingapi'] = 'tag'
 SERVICE_PREFIXES['opensearchserverless'] = 'aoss'
 SERVICE_PREFIXES['cloudhsmv2'] = 'cloudhsm'
@@ -306,6 +306,10 @@ GATEWAY_PATHS = {
     ("apigatewayv2", "get_authorizers"): ("/apis/*/authorizers",),
     ("apigateway", "get_client_certificate"): ("/clientcertificates/*",),
     ("apigateway", "get_deployment"): ("/restapis/*/deployments/*",),
+    # ExportApi is an HTTP GET on this exact OAS30 resource. The collector
+    # pins a stage and projects route authorization before caching the result.
+    # https://docs.aws.amazon.com/apigateway/latest/developerguide/arn-format-reference.html
+    ("apigatewayv2", "export_api"): ("/apis/*/exports/OAS30",),
 }
 # Reviewed companion permissions AWS documents for one SDK call (reference-verified like any action).
 DEPENDENT_ACTIONS = {("wafv2", "get_web_acl_for_resource"): ("cognito-idp:GetWebACLForResource",)}
@@ -393,7 +397,56 @@ VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(IAM_REPORT_READ_REFERENCES)
 # the AWS managed SecurityAudit policy (iam:GenerateServiceLastAccessedDetails explicitly).
 READ_OPERATION_EXCEPTIONS = frozenset({("cloudtrail", "lookup_events"), ("iam", "generate_service_last_accessed_details"),
     ("iam", "simulate_principal_policy"), ("ec2", "search_transit_gateway_routes"),
-    ("braket", "search_devices")})
+    ("braket", "search_devices"), ("apigatewayv2", "export_api")})
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | {"apigateway:ListPortals"}
+ACTION_ALIASES[("apigatewayv2", "list_portals")] = "apigateway:ListPortals"
+for _operation in ("describe_budgets", "describe_notifications_for_budget",
+                   "describe_subscribers_for_notification"):
+    # AWS maps these three read APIs to ViewBudget, not their SDK names.
+    ACTION_ALIASES[("budgets", _operation)] = "budgets:ViewBudget"
+    DEPENDENT_ACTIONS[("budgets", _operation)] = ("aws-portal:ViewBilling",)
+ACTION_ALIASES[("backupsearch", "get_search_result_export_job")] = "backup-search:GetSearchResultExportJob"
+ACTION_ALIASES[("backupsearch", "list_search_result_export_jobs")] = "backup-search:ListSearchResultExportJobs"
+# Reviewed exact read actions for the combined Exposure inventory. Each action is
+# tied to the AWS Service Authorization Reference; no action wildcard is admitted.
+BIG_WAVE_EXPOSURE_READ_REFERENCES = {
+    'appconfig:GetConfigurationProfile': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:GetExtension': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:GetExtensionAssociation': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:ListApplications': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:ListConfigurationProfiles': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:ListExtensionAssociations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appflow:DescribeFlow': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appflow.html',
+    'appflow:ListFlows': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appflow.html',
+    'athena:BatchGetQueryExecution': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_athena.html',
+    'athena:ListQueryExecutions': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_athena.html',
+    'auditmanager:GetAssessment': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_auditmanager.html',
+    'auditmanager:GetSettings': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_auditmanager.html',
+    'auditmanager:ListAssessments': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_auditmanager.html',
+    'autoscaling:DescribeLifecycleHooks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_autoscaling.html',
+    'autoscaling:DescribeNotificationConfigurations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_autoscaling.html',
+    'aws-portal:ViewBilling': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_aws-portal.html',
+    'backup-search:GetSearchResultExportJob': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_backupsearch.html',
+    'backup-search:ListSearchResultExportJobs': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_backupsearch.html',
+    'bedrock-agentcore:GetGateway': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html',
+    'budgets:ViewBudget': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_budgets.html',
+    'cloudsearch:DescribeDomainEndpointOptions': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudsearch.html',
+    'cloudtrail:DescribeQuery': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudtrail.html',
+    'cloudtrail:ListQueries': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudtrail.html',
+    'codepipeline:ListWebhooks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_codepipeline.html',
+    'codestar-notifications:DescribeNotificationRule': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_codestar-notifications.html',
+    'codestar-notifications:ListNotificationRules': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_codestar-notifications.html',
+    'cognito-idp:DescribeUserPoolDomain': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cognito-idp.html',
+    'config:DescribeConfigRules': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_config.html',
+    'config:DescribeConformancePacks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_config.html',
+    'config:DescribeOrganizationConfigRules': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_config.html',
+    'config:DescribeOrganizationConformancePacks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_config.html',
+    'ds:DescribeTrusts': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_ds.html',
+    'dsql:GetCluster': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_dsql.html',
+    'elasticfilesystem:DescribeReplicationConfigurations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_efs.html',
+}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(BIG_WAVE_EXPOSURE_READ_REFERENCES)
+
 
 
 @lru_cache(maxsize=256)
@@ -407,6 +460,15 @@ def _sdk_operation_names(service):
             'get_kx_cluster': 'GetKxCluster',
             'list_kx_clusters': 'ListKxClusters',
             'list_kx_environments': 'ListKxEnvironments',
+        }
+    # The pinned botocore predates the Custom Event Bus client. These three
+    # exact read operations are published by the EventBridgeV2 API and map to
+    # the EventBridge `events:` IAM namespace. No other operation is admitted.
+    if service == 'eventbridgev2':
+        return {
+            'get_resource_policy': 'GetResourcePolicy',
+            'list_resource_policies': 'ListResourcePolicies',
+            'list_subscribers': 'ListSubscribers',
         }
     import botocore.session
     from botocore import xform_name
@@ -518,6 +580,32 @@ EXPOSURE_METADATA_READ_REFERENCES = {
 }
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | set(EXPOSURE_METADATA_READ_REFERENCES)
 
+# Finite read-only additions from the second exposure sweep. The EventBridgeV2
+# SDK namespace authorizes through the existing EventBridge `events:` prefix.
+# Each URL is the service's action/resource authorization table; operations
+# absent from this map still fail closed in iam_action().
+EXPOSURE_SWEEP_READ_REFERENCES = {
+    **dict.fromkeys({'events:GetResourcePolicy', 'events:ListResourcePolicies', 'events:ListSubscribers'},
+        'https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-custom-bus-access-actions.html'),
+    'gamelift:DescribeFleetPortSettings': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_gamelift.html',
+    **dict.fromkeys({'glacier:GetVaultLock', 'glacier:GetVaultNotifications', 'glacier:ListJobs'},
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_glacier.html'),
+    **dict.fromkeys({'globalaccelerator:ListCrossAccountAttachments', 'globalaccelerator:ListCustomRoutingAccelerators',
+        'globalaccelerator:ListCustomRoutingEndpointGroups', 'globalaccelerator:ListCustomRoutingListeners'},
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_globalaccelerator.html'),
+    **dict.fromkeys({'iot:DescribeDomainConfiguration', 'iot:DescribeEndpoint', 'iot:GetTopicRule',
+        'iot:ListDomainConfigurations', 'iot:ListTopicRules'},
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_iot.html'),
+    'lakeformation:GetDataLakeSettings': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_lakeformation.html',
+    'lightsail:GetDistributions': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_lightsail.html',
+    **dict.fromkeys({'rum:GetAppMonitor', 'rum:ListRumMetricsDestinations'},
+        'https://docs.aws.amazon.com/cloudwatchrum/latest/APIReference/API_Operations.html'),
+    **dict.fromkeys({'servicediscovery:ListInstances', 'servicediscovery:ListNamespaces',
+        'servicediscovery:ListServices'},
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_servicediscovery.html'),
+}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(EXPOSURE_SWEEP_READ_REFERENCES)
+
 # These endpoint-bound EC2 List reads support the client-vpn-endpoint resource.
 # Keep them outside the broad configuration statement so the customer role
 # only grants them for endpoints in its own account.
@@ -579,6 +667,9 @@ NATIVE_METADATA_STATEMENTS = {
     ("lambda", "list_tags"): {"Sid": "NativeLambdaFunctionTagsRead", "Effect": "Allow", "Action": "lambda:ListTags", "Resource": {"Fn::Sub": "arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:*"}},
 }
 NATIVE_METADATA_STATEMENTS.update({
+    ("apigatewayv2", "list_portals"): {"Sid": "NativeApiGatewayPortalInventoryRead", "Effect": "Allow",
+        "Action": "apigateway:ListPortals",
+        "Resource": {"Fn::Sub": "arn:${AWS::Partition}:apigateway:*:${AWS::AccountId}:/portals/*"}},
     ("mediapackagev2", "list_harvest_jobs"): {"Sid":"NativeMediaPackageHarvestRead","Effect":"Allow","Action":"mediapackagev2:ListHarvestJobs","Resource":{"Fn::Sub":"arn:${AWS::Partition}:mediapackagev2:*:${AWS::AccountId}:channelGroup/*"}},
     ("route53resolver", "list_firewall_domain_lists"): {"Sid":"NativeResolverDomainListsRead","Effect":"Allow","Action":"route53resolver:ListFirewallDomainLists","Resource":"*"},
     ("sagemaker", "list_endpoints"): {"Sid":"NativeSageMakerEndpointInventoryRead","Effect":"Allow","Action":"sagemaker:ListEndpoints","Resource":"*"},
@@ -657,6 +748,32 @@ DATA_REGION_METADATA_STATEMENTS = {('outposts', 'list_outposts'): {'Sid': 'Nativ
                                                    'Resource': {'Fn::Sub': 'arn:${AWS::Partition}:redshift-serverless:*:${AWS::AccountId}:recoverypoint/*'}}}
 NATIVE_METADATA_STATEMENTS.update(DATA_REGION_METADATA_STATEMENTS)
 NATIVE_METADATA_RESOURCE_REFERENCES += DATA_REGION_METADATA_RESOURCE_REFERENCES
+
+# Actions whose AWS authorization tables name a resource are kept out of the
+# account-wide inventory statement. Wildcards below are limited to the
+# customer's own account and the one documented resource type.
+EXPOSURE_SWEEP_SCOPED_READS = {
+    ('eventbridgev2', 'get_resource_policy'): ('events:GetResourcePolicy', 'arn:${AWS::Partition}:events:*:${AWS::AccountId}:event-busv2/*'),
+    ('eventbridgev2', 'list_resource_policies'): ('events:ListResourcePolicies', 'arn:${AWS::Partition}:events:*:${AWS::AccountId}:event-busv2/*'),
+    ('gamelift', 'describe_fleet_port_settings'): ('gamelift:DescribeFleetPortSettings', 'arn:${AWS::Partition}:gamelift:*:${AWS::AccountId}:fleet/*'),
+    ('glacier', 'get_vault_lock'): ('glacier:GetVaultLock', 'arn:${AWS::Partition}:glacier:*:${AWS::AccountId}:vaults/*'),
+    ('glacier', 'get_vault_notifications'): ('glacier:GetVaultNotifications', 'arn:${AWS::Partition}:glacier:*:${AWS::AccountId}:vaults/*'),
+    ('glacier', 'list_jobs'): ('glacier:ListJobs', 'arn:${AWS::Partition}:glacier:*:${AWS::AccountId}:vaults/*'),
+    ('globalaccelerator', 'list_custom_routing_endpoint_groups'): ('globalaccelerator:ListCustomRoutingEndpointGroups', 'arn:${AWS::Partition}:globalaccelerator::${AWS::AccountId}:accelerator/*/listener/*'),
+    ('globalaccelerator', 'list_custom_routing_listeners'): ('globalaccelerator:ListCustomRoutingListeners', 'arn:${AWS::Partition}:globalaccelerator::${AWS::AccountId}:accelerator/*'),
+    ('iot', 'describe_domain_configuration'): ('iot:DescribeDomainConfiguration', 'arn:${AWS::Partition}:iot:*:${AWS::AccountId}:domainconfiguration/*'),
+    ('iot', 'get_topic_rule'): ('iot:GetTopicRule', 'arn:${AWS::Partition}:iot:*:${AWS::AccountId}:rule/*'),
+    ('rum', 'get_app_monitor'): ('rum:GetAppMonitor', 'arn:${AWS::Partition}:rum:*:${AWS::AccountId}:appmonitor/*'),
+    ('rum', 'list_rum_metrics_destinations'): ('rum:ListRumMetricsDestinations', 'arn:${AWS::Partition}:rum:*:${AWS::AccountId}:appmonitor/*'),
+    ('servicediscovery', 'list_instances'): ('servicediscovery:ListInstances', 'arn:${AWS::Partition}:servicediscovery:*:${AWS::AccountId}:service/*'),
+}
+for (_service, _operation), (_action, _resource) in EXPOSURE_SWEEP_SCOPED_READS.items():
+    NATIVE_METADATA_STATEMENTS[(_service, _operation)] = {
+        'Sid': 'ExposureSweep' + _action.split(':', 1)[1] + 'Read',
+        'Effect': 'Allow', 'Action': _action,
+        'Resource': {'Fn::Sub': _resource},
+    }
+NATIVE_METADATA_RESOURCE_REFERENCES += sorted(set(EXPOSURE_SWEEP_READ_REFERENCES.values()))
 NATIVE_METADATA_ACTIONS = frozenset(action for statement in NATIVE_METADATA_STATEMENTS.values()
     for action in ([statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"]))
 
@@ -951,6 +1068,24 @@ def split_policy(policy):
                     documents[-2:] = [combined]
                     extra = shifted_extra
                     break
+        if policy_size(extra) > IAM_MANAGED_POLICY_LIMIT:
+            # Pack exact scoped companion statements into unused space in the
+            # ordinary read partitions. The combined Exposure reads otherwise
+            # need a ninth generated attachment, above the customer role cap.
+            remaining = list(extra["Statement"])
+            largest_first = sorted(remaining, key=lambda statement: policy_size(
+                {"Version": "2012-10-17", "Statement": [statement]}), reverse=True)
+            for document in reversed(documents):
+                for statement in largest_first:
+                    if statement not in remaining:
+                        continue
+                    candidate = {"Version": "2012-10-17", "Statement": document["Statement"] + [statement]}
+                    if policy_size(candidate) <= IAM_MANAGED_POLICY_LIMIT:
+                        document["Statement"].append(statement)
+                        remaining.remove(statement)
+                if policy_size({"Version": "2012-10-17", "Statement": remaining}) <= IAM_MANAGED_POLICY_LIMIT:
+                    break
+            extra = {"Version": "2012-10-17", "Statement": remaining}
         if policy_size(extra) > IAM_MANAGED_POLICY_LIMIT or len(documents) + 1 > IAM_MANAGED_POLICIES_PER_ROLE:
             raise ValueError("WAF association metadata exceeds existing IAM policy budgets")
         return documents + [extra]
@@ -1071,6 +1206,20 @@ def refresh(root: Path, *, read_actions=None, include_credential_report_generati
         "Description": "Collector role ARN shown by the CSPM connector setup",
     }
     role["AssumeRolePolicyDocument"]["Statement"][0]["Principal"]["AWS"] = {"Ref": "CollectorRoleArn"}
+    # Remove the redundant broad Access Analyzer attachment before deciding
+    # whether an exact API Gateway statement must move inline. The complete
+    # collector reads must already be present in the reviewed custom policy.
+    analyzer_managed = "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess"
+    if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
+        from peaso.collectors.aws import READ_ACTIONS
+        required = {iam_action(service, operation) for service, operation in READ_ACTIONS
+                    if service == "accessanalyzer"}
+        explicit = {action for document in documents for statement in document["Statement"]
+                    for action in ([statement["Action"]] if isinstance(statement["Action"], str)
+                                   else statement["Action"])}
+        if required <= explicit:
+            role["ManagedPolicyArns"] = [arn for arn in role.get("ManagedPolicyArns", [])
+                                         if arn != analyzer_managed]
     # Keep the exact scoped API Gateway statement inline if one additional
     # ordinary read partition would exceed the role's attachment quota.
     gateway_inline_name = "CspmApiGatewayConfigurationRead"
@@ -1087,20 +1236,6 @@ def refresh(root: Path, *, read_actions=None, include_credential_report_generati
     aggregate = sum(policy_size(item["PolicyDocument"]) for item in inline)
     if aggregate > IAM_INLINE_ROLE_LIMIT:
         raise ValueError("Customer role aggregate inline policies exceed 10240-character limit")
-    # The explicit reviewed policy grants every Access Analyzer collector read.
-    # The broad AWS managed policy is redundant and would exceed the default
-    # ten-attachment role quota when the new exposure reads need eight documents.
-    analyzer_managed = "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess"
-    if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
-        from peaso.collectors.aws import READ_ACTIONS
-        required = {iam_action(service, operation) for service, operation in READ_ACTIONS
-                    if service == "accessanalyzer"}
-        explicit = {action for document in documents for statement in document["Statement"]
-                    for action in ([statement["Action"]] if isinstance(statement["Action"], str)
-                                   else statement["Action"])}
-        if required <= explicit:
-            role["ManagedPolicyArns"] = [arn for arn in role.get("ManagedPolicyArns", [])
-                                         if arn != analyzer_managed]
     if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
         raise ValueError("Customer role exceeds the attached managed-policy quota")
     if inline:
