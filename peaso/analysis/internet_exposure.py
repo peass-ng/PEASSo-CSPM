@@ -12029,6 +12029,39 @@ def _azure_managed_application_definition(snapshot, inventory, resource):
     return a
 
 
+def _azure_attestation_provider(snapshot, inventory, resource):
+    """Public attestation API reachability from ARM provider state."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    access = props.get("publicNetworkAccess")
+    status = props.get("status")
+    host = props.get("attestHost")
+    if access == "Disabled":
+        a.ports = {}
+        a.step("public_network_access", "block", setting=access)
+        if props.get("trustModel") == "Isolated":
+            a.gap("authorization", "isolated policy signer private-key holders cannot be enumerated")
+        return a
+    if access != "Enabled":
+        a.gap("listener", "attestation public network access setting unavailable")
+        a.explicit = "UNKNOWN"
+        return a
+    if status != "Ready" or not isinstance(host, str) or not host:
+        a.gap("inventory", "ready status or attestation endpoint unavailable")
+        a.explicit = "UNKNOWN"
+        return a
+    a.addresses = [host]
+    a.ports = pset("tcp", 443, 443)
+    a.step("public_network_access", "allow", setting=access, endpoint_host=host)
+    if props.get("tpmAttestationAuthentication") == "Disabled":
+        a.step("tpm_authentication", "allow", setting="Disabled")
+    if props.get("trustModel") == "Isolated":
+        a.gap("authorization", "isolated policy signer private-key holders cannot be enumerated")
+    a.explicit = "FAIL"
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -12557,7 +12590,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12572,7 +12605,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12681,6 +12714,7 @@ def assess(snapshot, resources):
                   "stream_analytics_job": _azure_stream_analytics_job,
                   "managed_application": _azure_managed_application,
                   "managed_application_definition": _azure_managed_application_definition,
+                  "attestation_provider": _azure_attestation_provider,
                   "management_group": _azure_management_group,
                   "subscription": _azure_subscription,
                   "powerbi_capacity": _azure_powerbi_capacity,
