@@ -5819,7 +5819,13 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         elif not ip_rules and props.get("isVirtualNetworkFilterEnabled") is False:
             a.step("firewall", "allow", reason="no IP or VNet access list")
         elif not ip_rules:
-            a.gap("firewall", "Cosmos VNet access list may restrict public sources")
+            vnet_rules = props.get("virtualNetworkRules")
+            bypass_ids = props.get("networkAclBypassResourceIds")
+            if (props.get("isVirtualNetworkFilterEnabled") is True and vnet_rules == []
+                    and props.get("networkAclBypass") == "None" and bypass_ids == []):
+                a.step("firewall", "block", reason="empty IP and VNet allow lists with no network ACL bypass")
+            else:
+                a.gap("firewall", "Cosmos VNet access list or network ACL bypass is unresolved")
         else:
             public_ips, azure_tenants, malformed = [], False, False
             for rule in ip_rules:
@@ -5839,7 +5845,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 a.gap("firewall", "Cosmos IP rule or network ACL bypass is unresolved"
                       if malformed or props.get("networkAclBypass") not in (None, "None")
                       else "Cosmos nonpublic IP rule requires source validation")
-        a.ports = pset("tcp", port, port)
+        a.ports = {} if a.blocked_by == "firewall" else pset("tcp", port, port)
         if not endpoint:
             a.gap("inventory", "Cosmos public endpoint address is not collected")
         return a
