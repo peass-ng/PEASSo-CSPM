@@ -3077,6 +3077,9 @@ def gcp_public_policy_findings(snapshot, resources):
                 if member in ("allUsers", "allAuthenticatedUsers") and isinstance(role, str):
                     declarations.append({"role": role, "member": member,
                                          "condition": binding.get("condition")})
+        if resource["type"] == "artifact_repository":
+            # The permission-specific finding below owns these exact grants.
+            declarations = [row for row in declarations if row["role"] != "roles/artifactregistry.reader"]
         if not declarations:
             continue
         unconditional = [row for row in declarations if not row["condition"]]
@@ -3244,6 +3247,48 @@ def gcp_scheduler_oidc_target_findings(snapshot, resources):
         }
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_scheduler_oidc_target",
                               "Cloud Scheduler token-bearing HTTP target", "high", evidence, status="FAIL"))
+    return output
+
+
+def gcp_artifact_public_reader_findings(snapshot, resources):
+    """Report direct public Artifact Registry Reader grants, not artifact access."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "artifact_repository" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        envelope = data.get("_coverage")
+        coverage = envelope.get("iamPolicy") if isinstance(envelope, dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        grants = []
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict) or binding.get("role") != "roles/artifactregistry.reader":
+                continue
+            for member in as_list(binding.get("members")):
+                if member in ("allUsers", "allAuthenticatedUsers"):
+                    grants.append({"member": member, "role": binding["role"],
+                                   "condition": binding.get("condition")})
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        evidence = {
+            "observed": ("The collected Artifact Registry repository IAM policy grants Reader to a public principal."
+                         if unconditional else "The collected Artifact Registry repository IAM policy has a conditional public Reader grant."),
+            "direct_reader_grants": grants,
+            "permission": "artifactregistry.repositories.downloadArtifacts",
+            "repository_format": data.get("format"),
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct public read-permission declaration only; IAM denies, repository contents, endpoint requests and successful downloads are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_artifact_public_reader",
+                              "Public Artifact Registry Reader grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
     return output
 
 
@@ -5605,6 +5650,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_bigtable_external_reader_findings(snapshot, resources))
     output.extend(gcp_source_repository_external_reader_findings(snapshot, resources))
     output.extend(gcp_scheduler_oidc_target_findings(snapshot, resources))
+    output.extend(gcp_artifact_public_reader_findings(snapshot, resources))
     return output
 
 

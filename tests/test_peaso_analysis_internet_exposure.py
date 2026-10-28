@@ -803,6 +803,35 @@ def test_gcp_scheduler_oidc_http_target_declaration_keeps_uri_path_private():
     assert findings() == []
 
 
+def test_gcp_artifact_registry_public_reader_grant():
+    repo = {"name": "projects/p1/locations/us-central1/repositories/packages", "format": "DOCKER",
+            "iamPolicy": {"bindings": [{"role": "roles/artifactregistry.reader", "members": ["allUsers"]}]},
+            "_coverage": {"iamPolicy": {"status": "collected"}}}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("artifact_repository", [repo], service="artifactregistry")))["findings"]
+                if row["check_id"] == "analysis.gcp_artifact_public_reader"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert not any(row["check_id"] == "analysis.gcp_public_iam" for row in
+                   analyze(gcp(gcoll("artifact_repository", [repo], service="artifactregistry")))["findings"])
+    assert rows[0]["evidence"]["permission"] == "artifactregistry.repositories.downloadArtifacts"
+    assert "successful downloads are not established" in rows[0]["evidence"]["semantics"]
+    repo["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert findings()[0]["status"] == "UNKNOWN"
+    repo["iamPolicy"]["bindings"][0].pop("condition")
+    repo["iamPolicy"]["bindings"][0]["members"] = ["allAuthenticatedUsers"]
+    assert findings()[0]["status"] == "FAIL"
+    repo["iamPolicy"]["bindings"][0]["role"] = "roles/artifactregistry.viewer"
+    assert findings() == []
+    assert any(row["check_id"] == "analysis.gcp_public_iam" for row in
+               analyze(gcp(gcoll("artifact_repository", [repo], service="artifactregistry")))["findings"])
+    repo["iamPolicy"]["bindings"][0]["role"] = "roles/artifactregistry.reader"
+    repo["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert findings() == []
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

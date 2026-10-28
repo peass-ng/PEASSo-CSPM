@@ -44,7 +44,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **146 have no native pa
 | App development | [App Hub](https://docs.cloud.google.com/app-hub/docs) | — | REVIEW REQUIRED |
 | App development | [Application Integration](https://docs.cloud.google.com/application-integration/docs) | — | REVIEW REQUIRED |
 | App development | [Artifact Analysis](https://docs.cloud.google.com/artifact-analysis/docs) | — | REVIEW REQUIRED |
-| App development | [Artifact Registry](https://docs.cloud.google.com/artifact-registry/docs) | IAM policy | REVIEW REQUIRED |
+| App development | [Artifact Registry](https://docs.cloud.google.com/artifact-registry/docs) | artifact_repository direct public Reader IAM grant and generic public IAM; inherited/custom roles, mode and artifacts unresolved | REVIEW REQUIRED |
 | App development | [Cloud Build](https://docs.cloud.google.com/build/docs) | — | REVIEW REQUIRED |
 | App development | [Cloud Code](https://docs.cloud.google.com/code/docs) | — | REVIEW REQUIRED |
 | App development | [Cloud Deploy](https://docs.cloud.google.com/deploy/docs) | — | REVIEW REQUIRED |
