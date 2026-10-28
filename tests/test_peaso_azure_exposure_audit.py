@@ -205,6 +205,20 @@ def test_application_gateway_public_frontend_requires_observed_address():
     assert mixed_blocked.verdict() == "UNKNOWN"
 
 
+def test_load_balancer_public_ip_prefix_frontend_is_outbound_only():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    lb_id = base + "/loadBalancers/lb"
+    frontend = lb_id + "/frontendIPConfigurations/outbound"
+    prefix = base + "/publicIPPrefixes/prefix"
+    snapshot = make_snapshot("azure", [SCOPE], [{"type": "load_balancer", "scope": SCOPE,
+        "service": "network", "status": "collected", "items": [{"id": lb_id,
+            "sku": {"name": "Standard"}, "properties": {
+                "frontendIPConfigurations": [{"id": frontend,
+                    "properties": {"publicIPPrefix": {"id": prefix}}}],
+                "outboundRules": [{"properties": {"frontendIPConfigurations": [{"id": frontend}]}}]}}]}])
+    assert not any(row.resource["type"] == "load_balancer" for row in assess(snapshot, resources(snapshot)))
+
+
 @pytest.mark.parametrize("kind,field", [
     ("container_registry", "networkRuleSet"), ("cognitive_account", "networkAcls")])
 def test_managed_endpoint_parent_public_ip_rules(kind, field):
