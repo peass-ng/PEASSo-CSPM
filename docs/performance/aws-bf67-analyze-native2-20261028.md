@@ -181,3 +181,19 @@ RSS was 1.447 GB and 1.810 GB respectively; each pair shares one high-water
 mark, so variant memory cannot be separated. No cloud/API calls were made.
 The focused ECS scheduled-task and AWS follow-up privesc suites passed 129/129;
 the 1,717-file API source gate retained its 30 direct SDK sites.
+
+## Bounded S3 upload concurrency
+
+The hosted bf67 receipt attributed 130.679 s summed wall time to 2,511 S3
+puts. The report artifact batch now defaults to eight upload workers instead
+of four, while retaining its 16 MiB pending-byte cap and the rule that the
+manifest waits for all referenced artifacts. In two paired local latency
+replays of 200 compressed finding artifacts plus a manifest, with 50 ms
+simulated S3 latency per put, four workers took 2.900 and 2.911 s wall;
+eight took 1.503 and 1.491 s. Process CPU was 0.127–0.138 s across the
+four runs. Peak RSS ranged from 25.6–28.8 MB without a consistent worker
+effect. Each run made 201 simulated puts with the same encoded body-map
+SHA-256 `ccc624c319cec29f0584af6d65039531c6084d7976b1466e96bc38b7d8799b03`;
+the manifest was last. No cloud/API calls occurred. This isolates latency
+overlap and does not establish a production wall-time improvement, where
+serialization, compression and network behavior may differ.

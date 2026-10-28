@@ -1686,7 +1686,7 @@
     "peaso/snapshot_public_identity.py": "8c8c5fd67ff9f8b3b3865a2a36d4ca06e179343a02223c97534b81c9e9fe6f63",
     "peaso/source_attestation_mode.py": "78d0cee51654af24aedc9a62a0935e69733dc8f43b390af531391d8a92ad733b",
     "peaso/storage/__init__.py": "5df86931d2b4f39b1b6702fd7b5d5b039af98e54de29e2d98c307689f5d8531d",
-    "peaso/storage/artifacts.py": "441bf14807858c31fb8c028ebbff01a96585c2e6a6a5dd21fce0bc1b33d9a1a7",
+    "peaso/storage/artifacts.py": "9f5fcf2bbc83ea8b53fa31122d894a189d02a217f1a1a299ea140f9d79d409c0",
     "peaso/storage/attack_history_artifacts.py": "b4434cca2978752d87b1b12c8c63fbb16c359ac6e1867543b153dd475020d5d0",
     "peaso/storage/attack_history_ledger.py": "2ae11a5c0c0973cabd5ccbf9f698e8eae954ed5bfcfcfbf4b98ae1ecf5779607",
     "peaso/storage/attack_history_sqlite.py": "a73f6ac13b56e7112e1787b4e59ccde6c0b1fc1a6c81f699d6a4d25980def262",
@@ -1832,7 +1832,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1717,
-  "python_source_sha256": "0f35462adf0c4da22aac5ffec8fc1f7c41111663f6832b3417709142e39b2d74",
+  "python_source_sha256": "4468b01d6d7b22b5a5a9eed2eab58038259937656250b14fed9ad5b4b1a7b0d1",
   "review_context": "Hosted production disables Hardening and Exposure model stages for all four providers. Native FAIL reviews are explicitly marked native_final in AI API and excluded from finding overlay; model_reviewed coverage remains zero for those stages. Network and Priorities model agents remain and progressive disabled stages do not launch. Three runtime Python files changed from pushed main: pipeline, progressive scheduler and review presentation; no SDK client or credential source change. 1717 Python files and 30 direct client sites across 12 used services in the reviewed 15-service allowlist.",
   "source_commit": "04de9153478b44055b554fac56fe673e5f851776",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

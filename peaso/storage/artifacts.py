@@ -258,7 +258,7 @@ class S3Artifacts:
             self.client.put_object(Bucket=self.bucket, Key="artifacts/" + reference, Body=body, ContentType=content_type, **encoding, **encryption)
             _runtime_bytes("artifact.s3.put", len(body))
 
-    def batch(self, *, workers=4, max_pending_bytes=16 * 1024 * 1024):
+    def batch(self, *, workers=8, max_pending_bytes=16 * 1024 * 1024):
         """Bounded uploads; a manifest is written only after all prior writes succeed."""
         return _S3WriteBatch(self, workers, max_pending_bytes)
 
