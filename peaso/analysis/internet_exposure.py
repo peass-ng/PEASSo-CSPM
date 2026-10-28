@@ -10673,6 +10673,57 @@ def _azure_lighthouse_assignment(snapshot, inventory, resource):
     return a
 
 
+def _azure_managed_application(snapshot, inventory, resource):
+    """Assess publisher management of a customer-owned managed application."""
+    a = Assessment(resource, "external_share")
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "managed application is not in a proven succeeded state")
+        return a
+    mode = props.get("managementMode")
+    if mode == "Unmanaged":
+        a.step("delegation", "block", reason="customer-managed application")
+        a.ports = {}
+        return a
+    if mode != "Managed":
+        a.gap("inventory", "managed application management mode is missing or unknown")
+        return a
+    grants = props.get("authorizations")
+    if not isinstance(grants, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get("principalId"), str)
+        or not row["principalId"] or not isinstance(row.get("roleDefinitionId"), str)
+        or not row["roleDefinitionId"] for row in grants
+    ):
+        a.gap("inventory", "publisher authorizations are missing or malformed")
+        return a
+    if not grants:
+        a.step("delegation", "block", reason="no publisher principals authorized")
+        a.ports = {}
+        return a
+    publisher = props.get("publisherTenantId")
+    subscription = str(native_id(resource)).split("/resourceGroups/", 1)[0]
+    owners = (snapshot.get("metadata") or {}).get("subscription_tenants") or {}
+    owner = next((value for key, value in owners.items() if str(key).casefold() == subscription.casefold()), None)
+    if not isinstance(publisher, str) or not publisher or not isinstance(owner, str) or not owner:
+        a.gap("inventory", "publisher or verified customer tenant is missing")
+        return a
+    if publisher.casefold() == owner.casefold():
+        a.step("delegation", "block", reason="publisher and customer tenants match")
+        a.ports = {}
+        return a
+    a.external_ids = [publisher]
+    a.step("delegation", "allow", publisher_tenant=publisher, customer_tenant=owner,
+           roles=[row["roleDefinitionId"] for row in grants])
+    jit = props.get("jitAccessPolicy")
+    if not isinstance(jit, dict) or type(jit.get("jitAccessEnabled")) is not bool:
+        a.gap("inventory", "publisher just-in-time access policy is absent or malformed")
+    elif jit["jitAccessEnabled"]:
+        a.gap("inventory", "just-in-time publisher access activation is not observed")
+    else:
+        a.data_exposure = True
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -11201,7 +11252,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11216,7 +11267,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11325,6 +11376,7 @@ def assess(snapshot, resources):
                   "data_share_invitation": _azure_data_share_recipient,
                   "data_share_provider_subscription": _azure_data_share_recipient,
                   "lighthouse_assignment": _azure_lighthouse_assignment,
+                  "managed_application": _azure_managed_application,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
@@ -11364,6 +11416,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "managed_application":
+        return ("Azure Managed Application delegates access to its publisher" if status == "FAIL" else
+                "Azure Managed Application publisher access unresolved" if status == "UNKNOWN" else
+                "Azure Managed Application grants no foreign publisher access")
     if assessment.resource["type"] == "lighthouse_assignment":
         return ("Azure Lighthouse grants a managing tenant access" if status == "FAIL" else
                 "Azure Lighthouse delegation unresolved" if status == "UNKNOWN" else
@@ -11451,6 +11507,15 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "managed_application":
+        if status == "FAIL":
+            return ("The succeeded customer-managed resource has publisher-managed mode, a foreign publisher tenant, "
+                    "authorized principals, and just-in-time access disabled. The publisher can manage its managed resource group; "
+                    "specific operations and data reads depend on the granted roles.")
+        if status == "PASS":
+            return "The application is customer-managed, has no publisher principal grant, or belongs to the same verified tenant."
+        return ("The publisher grant, customer tenant, application state, or just-in-time activation is unresolved. "
+                "The collected response does not prove current foreign publisher access.")
     if assessment.resource["type"] == "lighthouse_assignment":
         if status == "FAIL":
             return ("A succeeded Lighthouse registration assignment links to a succeeded expanded definition for a different managing tenant.\n"

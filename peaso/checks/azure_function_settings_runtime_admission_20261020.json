@@ -43,7 +43,7 @@
   "sources": {
     "peaso/checks/azure_function_settings_review_20261020.py": "1d4fd3f8e729a058ca94699ea38a879263287dc1dc09d9719fb07d6c206d3659",
     "peaso/checks/azure_function_settings_admission_20261020.py": "24b7dd28da17888fbdbafabd5ab1347bcff88b0d1a01b48a2813dededa636704",
-    "peaso/checks/azure_function_settings_admission_20261020.json": "b78a07d72ab8ee89fe467aca868182bf62cc33fd89b41d89cce04ba3516292e5",
+    "peaso/checks/azure_function_settings_admission_20261020.json": "41495837f05d4877ebb86cc8db226f44dd77a162be0efcde83f73c9407da9a3b",
     "peaso/checks/azure_function_settings_descriptions_20261020.json": "386aa50eca911b4d12671fabc54a983332bd683c55cfa5b410adeacb310364e7",
     "peaso/collectors/azure_function_settings_declarations_20261020.py": "fba106883b1fce7b517dfea87f60f6e84509da0378caddd126ef625b01c46863",
     "peaso/checks/azure_function_settings_native_cases_20261020.json.gz": "4a9337b0aab54eef315e31ecf28167b3be45ce97f066234479ed2f21a7dac209",

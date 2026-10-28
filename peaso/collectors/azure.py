@@ -120,6 +120,7 @@ ENDPOINTS = {
     "app_configuration": ("Microsoft.AppConfiguration/configurationStores", "2024-06-01"),
     "data_factory": ("Microsoft.DataFactory/factories", "2018-06-01"),
     "data_share_account": ("Microsoft.DataShare/accounts", "2021-08-01"),
+    "managed_application": ("Microsoft.Solutions/applications", "2019-07-01"),
     "devtest_lab": ("Microsoft.DevTestLab/labs", "2018-09-15"),
     "api_management": ("Microsoft.ApiManagement/service", "2024-05-01"),
     "analysis_server": ("Microsoft.AnalysisServices/servers", "2017-08-01"),
@@ -311,6 +312,40 @@ def _arm_parent_native_type(row, kind):
         return
     if not isinstance(value, str) or value.casefold() != expected.casefold():
         raise ValueError("native ARM parent type contradicts selected endpoint")
+
+
+def _managed_application_metadata(row):
+    """Retain delegation facts without application parameters or outputs."""
+    properties = row.get("properties")
+    if not isinstance(properties, dict):
+        raise ValueError("managed application properties are missing")
+    kept = {key: row[key] for key in ("id", "name", "type", "location") if key in row}
+    scalar_fields = ("provisioningState", "publisherTenantId", "managementMode", "managedResourceGroupId")
+    if any(key in properties and not isinstance(properties[key], str) for key in scalar_fields):
+        raise ValueError("malformed managed application delegation field")
+    safe = {key: properties[key] for key in scalar_fields if key in properties}
+    grants = properties.get("authorizations")
+    if isinstance(grants, list):
+        if any(not isinstance(grant, dict) or any(
+                key in grant and not isinstance(grant[key], str)
+                for key in ("principalId", "roleDefinitionId")) for grant in grants):
+            raise ValueError("malformed managed application authorization")
+        safe["authorizations"] = [
+            {key: grant[key] for key in ("principalId", "roleDefinitionId") if key in grant}
+            for grant in grants]
+    elif "authorizations" in properties:
+        raise ValueError("malformed managed application authorizations")
+    policy = properties.get("jitAccessPolicy")
+    if isinstance(policy, dict):
+        if "jitAccessEnabled" in policy and type(policy["jitAccessEnabled"]) is not bool:
+            raise ValueError("malformed managed application JIT policy")
+        safe["jitAccessPolicy"] = {"jitAccessEnabled": policy["jitAccessEnabled"]} if "jitAccessEnabled" in policy else {}
+    elif "jitAccessPolicy" in properties:
+        raise ValueError("malformed managed application JIT policy")
+    kept["properties"] = safe
+    kept["_provenance"] = {"source_operation": "Applications_ListBySubscription", "api_version": "2019-07-01", "read_only": True,
+                            "representation": "delegation_metadata"}
+    return kept
 
 
 def _network_platform_native_identity(row, scope, kind):
@@ -2235,7 +2270,9 @@ class _Reader:
                     normalized = identifier.lower() if service != "kubernetes" else identifier
                     if normalized not in items and self.budget.max_items is not None and len(items) >= self.budget.max_items:
                         raise AzureReadError("resource_limit")
-                    projected = item if service == "kubernetes" else _metadata_only(item, kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
+                    projected = item if service == "kubernetes" else _metadata_only(
+                        _managed_application_metadata(item) if kind == "managed_application" else item,
+                        kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
                     if kind == "app_service":
                         projected = azure_functions_runtime_native.safe_site_inventory(projected)
                     if kind in azure_alert_routing_native.CONTRACTS:
@@ -2390,6 +2427,8 @@ def _selected(options, requirements):
         selected.add("resource_group")
     if "lighthouse_assignment" in selected:
         selected.update(("resource_group", "subscription"))
+    if "managed_application" in selected:
+        selected.add("subscription")
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -3080,6 +3119,12 @@ def collect(connector, requirements=None, *, transport=None):
                             if not isinstance(rid, str) or not _policy_assignment_scope_allowed(kind, scope, rid):
                                 raise ValueError("resource outside selected subscription")
                             _arm_parent_native_type(item, kind)
+                            if kind == "managed_application":
+                                expected = re.escape(scope) + r"/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Solutions/applications/[^/?#%\\\s]+"
+                                if (re.fullmatch(expected, rid, re.I) is None
+                                        or str(item.get("type", "")).casefold() != "microsoft.solutions/applications"
+                                        or not isinstance(item.get("properties"), dict)):
+                                    raise ValueError("malformed managed application identity or properties")
                             _network_platform_native_identity(item, scope, kind)
                             _database_crypto_parent_identity(item, scope, kind)
                             if not _remaining_service_parent_identity(item, scope, kind, remaining_service_seen):
