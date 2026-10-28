@@ -10363,6 +10363,110 @@ def _azure_public_edge(snapshot, inventory, resource):
     return a
 
 
+def _azure_notification_hub(snapshot, inventory, resource):
+    """Assess namespace public rights without exposing SAS or PNS credentials."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    data = resource["data"]
+    props = data.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Notification Hubs namespace properties missing")
+        return a
+    if props.get("enabled") is False or props.get("status") in ("Suspended", "Deleting"):
+        a.step("namespace_state", "block", status=props.get("status"), enabled=props.get("enabled"))
+        a.ports = {}
+        return a
+    connections = props.get("privateEndpointConnections")
+    private_unknown = not isinstance(connections, list)
+    parent_subscription = str(data.get("id", "")).split("/")[2:3]
+    for connection in connections if isinstance(connections, list) else []:
+        if not isinstance(connection, dict):
+            private_unknown = True
+            continue
+        state = connection.get("status")
+        remote = connection.get("privateEndpointId")
+        if state == "Approved" and connection.get("provisioningState") == "Succeeded":
+            remote_subscription = remote.split("/")[2:3] if isinstance(remote, str) else []
+            if not remote_subscription:
+                private_unknown = True
+            elif not parent_subscription or remote_subscription[0].casefold() != parent_subscription[0].casefold():
+                a.external_ids.append(remote)
+        elif state == "Approved":
+            private_unknown = True
+        elif state is None:
+            private_unknown = True
+    if a.external_ids:
+        a.step("private_link_share", "allow", outside_private_endpoints=sorted(a.external_ids))
+        a.ports = pset("tcp", 443, 443)
+        a.explicit = "FAIL"
+    public = props.get("publicNetworkAccess")
+    if public == "Disabled":
+        a.step("public_network_access", "block", public_network_access=public)
+        if not a.external_ids:
+            a.ports = {}
+            if private_unknown:
+                a.explicit = "UNKNOWN"
+        return a
+    if public != "Enabled":
+        a.gap("inventory", "Notification Hubs public network setting unresolved")
+        return a
+    endpoint = props.get("serviceBusEndpoint")
+    if isinstance(endpoint, str) and endpoint:
+        a.addresses = [endpoint]
+        a.endpoint = endpoint
+    else:
+        a.gap("inventory", "Notification Hubs service endpoint missing")
+    acls = props.get("networkAcls")
+    if not isinstance(acls, dict):
+        a.gap("firewall", "Notification Hubs network ACLs missing")
+        return a
+    public_rule = acls.get("publicNetworkRule")
+    ip_rules = acls.get("ipRules")
+    if not isinstance(public_rule, dict) or not isinstance(public_rule.get("rights"), list) or not isinstance(ip_rules, list):
+        a.gap("firewall", "Notification Hubs public and IP rules incomplete")
+        return a
+    open_rights = set(public_rule["rights"])
+    for rule in ip_rules:
+        if not isinstance(rule, dict) or not isinstance(rule.get("rights"), list):
+            a.gap("firewall", "Notification Hubs IP rule malformed")
+            return a
+        try:
+            network = ipaddress.ip_network(rule["ipMask"], strict=False)
+        except (KeyError, TypeError, ValueError):
+            a.gap("firewall", "Notification Hubs IP mask malformed")
+            return a
+        if _azure_public_remainder([network], []):
+            open_rights.update(rule["rights"])
+    if open_rights:
+        a.step("firewall", "allow", public_rights=sorted(open_rights))
+        a.ports = pset("tcp", 443, 443)
+    else:
+        a.step("firewall", "block", reason="no public Internet rights")
+        if not a.external_ids:
+            a.ports = {}
+            if private_unknown:
+                a.explicit = "UNKNOWN"
+    namespace_rules = data.get("authorizationRules")
+    hubs = data.get("hubs")
+    if not isinstance(namespace_rules, list) or not isinstance(hubs, list):
+        a.gap("inventory", "Notification Hubs SAS rule inventory incomplete")
+    else:
+        rules = [{"id": row["id"], "rights": row["rights"]} for row in namespace_rules]
+        for hub in hubs:
+            for row in hub["authorizationRules"]:
+                rules.append({"id": row["id"], "rights": row["rights"]})
+        if rules:
+            a.step("sas_authorization", "conditional", rules=rules)
+            a.notes.append("SAS rule rights are known; issued tokens and key recipients are not exposed by the list API.")
+    providers = set(props.get("pushProviders") or [])
+    if isinstance(hubs, list):
+        providers.update(name for hub in hubs if isinstance(hub, dict)
+                         for name in hub.get("pushProviders", []))
+    if providers:
+        a.step("third_party_push_provider", "configured", providers=sorted(providers))
+    return a
+
+
 def _azure_traffic_manager(snapshot, inventory, resource):
     """Detect a public DNS referral from one collected Traffic Manager profile."""
     a = Assessment(resource, "public_dns")
@@ -11142,7 +11246,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11158,7 +11262,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -11251,6 +11355,7 @@ def assess(snapshot, resources):
                   "azure_firewall": _azure_firewall,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "traffic_manager_profile": _azure_traffic_manager,
+                  "notification_hub_namespace": _azure_notification_hub,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
