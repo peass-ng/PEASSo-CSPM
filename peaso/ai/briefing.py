@@ -1,12 +1,18 @@
 """Compact prioritization overview with indexed, lossless local evidence lookup."""
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
 import gzip
 import stat
 from collections import Counter, defaultdict
+
+try:
+    import orjson
+except ImportError:
+    orjson = None
 
 RISK = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
 REJECTED = {'PASS', 'NOT_APPLICABLE', 'EMPTY'}
@@ -15,7 +21,26 @@ MAX_CONTEXT_BYTES = 4 * 1024 * 1024 * 1024
 
 
 def encode(value, *, canonical=False):
+    if orjson is not None and not canonical:
+        try:
+            encoded = orjson.dumps(value, default=str, option=orjson.OPT_PASSTHROUGH_DATETIME)
+            # orjson maps NaN and Infinity to null; retain Python JSON values
+            # when a record actually contains a nonfinite float.
+            if b'null' not in encoded or not nonfinite(value):
+                return encoded.decode()
+        except (TypeError, ValueError):
+            pass
     return json.dumps(value, ensure_ascii=False, separators=(',', ':'), default=str, sort_keys=canonical)
+
+
+def nonfinite(value):
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if isinstance(value, dict):
+        return any(nonfinite(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(nonfinite(item) for item in value)
+    return False
 
 
 def compact(value, depth=0):

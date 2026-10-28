@@ -1,11 +1,12 @@
 """Prioritization compaction preserves evidence, uncertainty and exact lookups."""
 import json
+import datetime
 from pathlib import Path
 import sqlite3
 import subprocess
 import sys
 
-from peaso.ai.briefing import build
+from peaso.ai.briefing import build, encode
 from peaso.ai.pipeline import private_json
 
 
@@ -43,6 +44,19 @@ def fixture():
 def read(root, *args):
     result = subprocess.run([sys.executable, 'context.py', *args], cwd=root, text=True, capture_output=True, check=True)
     return json.loads(result.stdout)
+
+
+def test_context_encoder_preserves_json_values_and_canonical_hash_inputs():
+    values = [
+        {'name': 'München', 'nested': [1, 1.25, None, True, {'escaped': 'a"b\\c'}]},
+        {'nonfinite': [float('nan'), float('inf'), -float('inf')]},
+        {'captured_at': datetime.datetime(2026, 10, 28, 5, 0)},
+    ]
+    for value in values:
+        baseline = json.dumps(value, ensure_ascii=False, separators=(',', ':'), default=str)
+        assert json.loads(encode(value)) == json.loads(baseline)
+        assert encode(value, canonical=True) == json.dumps(value, ensure_ascii=False,
+                                                             separators=(',', ':'), default=str, sort_keys=True)
 
 
 def test_priorities_keeps_native_failed_hardening_and_exposure_in_every_lookup(tmp_path):
