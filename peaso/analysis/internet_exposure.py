@@ -4138,6 +4138,24 @@ def _azure_app_restriction_decision(cp, prefix):
     return ("unknown" if unresolved else "allow" if reachable else "block"), detail
 
 
+def _azure_app_ase_mode(inventory, props):
+    profile = props.get("hostingEnvironmentProfile")
+    ase_id = profile.get("id") if isinstance(profile, dict) else None
+    if not ase_id and props.get("serverFarmId"):
+        plan = inventory.get("app_service_plan", props["serverFarmId"])
+        profile = _props(plan).get("hostingEnvironmentProfile") if plan else None
+        ase_id = profile.get("id") if isinstance(profile, dict) else None
+    if not ase_id:
+        return None, None
+    ase = inventory.get("app_service_environment", ase_id)
+    if ase is None:
+        return "unknown", ase_id
+    mode = _props(ase).get("internalLoadBalancingMode")
+    if mode not in ("None", "Web", "Publishing", "Web, Publishing"):
+        return "unknown", ase_id
+    return mode, ase_id
+
+
 def _azure_app_service(snapshot, inventory, resource, configs):
     props = _props(resource)
     a = Assessment(resource, "web_app")
@@ -4147,12 +4165,30 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.step("public_network_access", "block", public_network_access="Disabled")
         a.ports = {}
         return a
-    if public_access is None and as_list(props.get("privateEndpointConnections")):
-        a.gap("inventory", "publicNetworkAccess is unset while private endpoint connections are present; public default is unresolved")
+    if public_access is None:
+        connections = as_list(props.get("privateEndpointConnections"))
+        site_id = str(resource["data"].get("id", ""))
+        has_endpoint = bool(site_id) and any(isinstance(row, dict) and isinstance(row.get("id"), str) and
+                           re.fullmatch(re.escape(site_id) + r"/privateEndpointConnections/[^/]+",
+                                        row["id"], re.I) for row in connections)
+        if has_endpoint:
+            a.step("public_network_access", "block", public_network_access="default(Disabled)",
+                   reason="unset access with a recorded private endpoint")
+            a.ports = {}
+            return a
+        if connections:
+            a.gap("inventory", "privateEndpointConnections contain no valid site child identity")
     if public_access is not None and str(public_access).lower() != "enabled":
         a.gap("inventory", "App Service publicNetworkAccess value is unrecognized")
     ports = pset("tcp", 443, 443) if props.get("httpsOnly") else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
     a.step("public_network_access", "allow", public_network_access=props.get("publicNetworkAccess", "default(Enabled)"))
+    ase_mode, ase_id = _azure_app_ase_mode(inventory, props)
+    if ase_mode == "Web, Publishing":
+        a.step("hosting_environment", "block", ase_id=ase_id, internal_load_balancing_mode=ase_mode)
+        a.ports = {}
+        return a
+    if ase_mode == "unknown":
+        a.gap("inventory", "App Service Environment ingress mode is not collected or recognized")
     config = configs.get(str(resource["data"].get("id", "")).lower())
     if config is None:
         a.gap("access_restrictions", "site config (main and SCM restrictions) not collected", "Microsoft.Web/sites/config/web")
@@ -4170,6 +4206,15 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         scm_detail["uses_main_rules"] = False
     else:
         scm, scm_detail = "unknown", {"reason": "scmIpSecurityRestrictionsUseMain is not recorded as a boolean"}
+    if ase_mode == "Web":
+        main, main_detail = "block", {**main_detail, "internal_ase": ase_id}
+    elif ase_mode == "Publishing":
+        scm, scm_detail = "block", {**scm_detail, "internal_ase": ase_id}
+    if ase_id:
+        a.step("hosting_environment", "unknown" if ase_mode == "unknown" else "allow",
+               ase_id=ase_id, internal_load_balancing_mode=ase_mode)
+    if main == "block":
+        a.addresses = []
     scm_hosts = [h for h in as_list(props.get("enabledHostNames"))
                  if isinstance(h, str) and ".scm." in h.lower()]
     if scm == "allow" and not scm_hosts:
@@ -5815,7 +5860,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "media_cdn_service", "target_pool", "target_instance",
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
-AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
+AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
                "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",

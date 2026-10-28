@@ -319,6 +319,45 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow"}, scm_hostname=False).verdict() == "FAIL"
 
 
+def test_app_service_private_endpoint_default_and_ase_surface_modes():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    plan_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/serverfarms/plan"
+    ase_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/hostingEnvironments/ase"
+
+    def verdict(mode=None, *, private=False, access="Enabled", include_ase=True):
+        site = {"defaultHostName": "app.azurewebsites.net", "enabledHostNames": [
+            "app.azurewebsites.net", "app.scm.azurewebsites.net"], "publicNetworkAccess": access,
+            "serverFarmId": plan_id}
+        if private:
+            site["privateEndpointConnections"] = [{"id": site_id + "/privateEndpointConnections/pe"}]
+        collections = [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id, "properties": site}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id + "/config/web", "parent_id": site_id, "properties": {
+                 "ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": "Allow",
+                 "scmIpSecurityRestrictionsUseMain": False, "scmIpSecurityRestrictions": [],
+                 "scmIpSecurityRestrictionsDefaultAction": "Allow"}}]},
+            {"type": "app_service_plan", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": plan_id, "properties": {"hostingEnvironmentProfile": {"id": ase_id}}}]},
+            {"type": "app_service_environment", "scope": SCOPE, "service": "web",
+             "status": "collected" if include_ase else "partial", "items": [
+                 {"id": ase_id, "properties": {"internalLoadBalancingMode": mode}}] if include_ase else []},
+        ]
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+
+    assert verdict("None").verdict() == "FAIL"
+    assert verdict("Web").verdict() == "FAIL"  # SCM remains public.
+    assert verdict("Web").addresses == ["app.scm.azurewebsites.net"]
+    assert verdict("Publishing").verdict() == "FAIL"  # Main site remains public.
+    assert verdict("Publishing").addresses == ["app.azurewebsites.net"]
+    assert verdict("Web, Publishing").verdict() == "PASS"
+    assert verdict(None).verdict() == "UNKNOWN"
+    assert verdict("None", include_ase=False).verdict() == "UNKNOWN"
+    assert verdict("None", private=True, access=None).verdict() == "PASS"
+
+
 def test_anonymous_blob_requires_container_and_account_gates():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
     container = {"id": account_id + "/blobServices/default/containers/public",
