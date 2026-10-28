@@ -147,6 +147,7 @@ ENDPOINTS = {
     "managed_identity": ("Microsoft.ManagedIdentity/userAssignedIdentities", "2023-01-31"),
     "managed_application": ("Microsoft.Solutions/applications", "2019-07-01"),
     "powerbi_capacity": ("Microsoft.PowerBIDedicated/capacities", "2021-01-01"),
+    "playwright_workspace": ("Microsoft.LoadTestService/playwrightWorkspaces", "2025-09-01"),
     "container_registry": ("Microsoft.ContainerRegistry/registries", "2023-07-01"),
     "cosmos_account": ("Microsoft.DocumentDB/databaseAccounts", "2024-05-15"),
     "purview_account": ("Microsoft.Purview/accounts", "2021-12-01"),

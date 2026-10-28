@@ -342,6 +342,17 @@ def full_detail(value, kind, version):
 
 def list_detail(value, kind):
     """Attest alert LISTs; retain action-group configuration as metadata only."""
+    if kind == "playwright_workspace":
+        props = value.get("properties")
+        if (str(value.get("type", "")).casefold() != "microsoft.loadtestservice/playwrightworkspaces"
+                or not isinstance(props, dict)):
+            raise ValueError("Playwright workspace LIST identity or properties unavailable")
+        return {**{key: value[key] for key in ("id", "name", "type", "location") if key in value},
+                "properties": {key: props.get(key) for key in
+                               ("dataplaneUri", "localAuth", "provisioningState")},
+                "_provenance": {"source_operation": "PlaywrightWorkspaces_ListBySubscription",
+                                "api_version": "2025-09-01", "read_only": True,
+                                "representation": "metadata"}}
     if kind == "purview_account":
         props = value.get("properties")
         if not isinstance(props, dict):
