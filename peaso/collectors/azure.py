@@ -2460,6 +2460,9 @@ def _selected(options, requirements):
         selected.add("directory_service_principal")
     if "directory_membership" in selected:
         selected.add("directory_group")
+    if "management_group" in selected:
+        selected.update(("role_assignment", "role_definition", "directory_user",
+                         "directory_group", "directory_service_principal", "directory_membership"))
     if selected.intersection(("directory_group_pim_policy", "directory_group_pim_owner_policy",
                               "directory_group_eligibility_schedule", "directory_group_eligibility_instance")):
         selected.add("directory_group")

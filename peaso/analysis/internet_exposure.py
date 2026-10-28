@@ -24,7 +24,7 @@ import re
 from urllib.parse import urlsplit
 from peaso.snapshot import freeze
 
-from .common import RANK, _CONTEXT, as_list, finding, native_id, node, node_id, relationship, source, stable_id
+from .common import RANK, _CONTEXT, as_list, externality, finding, native_id, node, node_id, relationship, source, stable_id
 
 CHECK = "analysis.internet_exposure"
 TITLE = "Asset reachable from the internet"
@@ -11105,6 +11105,80 @@ def _azure_lighthouse(snapshot, inventory, resource):
     return a
 
 
+def _azure_management_group(snapshot, inventory, resource):
+    """External Azure RBAC principals granted at a management-group scope."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    group_id = native_id(resource)
+    if (inventory.state("role_assignment", group_id) not in ("collected", "empty")
+            or inventory.state("role_assignment", "/") not in ("collected", "empty")):
+        a.gap("authorization", "management-group or tenant-root role assignments not completely collected")
+        return a
+    assignments = []
+    for row in inventory.items("role_assignment"):
+        props = row["data"].get("properties") or {}
+        if isinstance(props, dict) and str(props.get("scope", "")).casefold() in (str(group_id).casefold(), "/"):
+            assignments.append((row, props))
+    if not assignments:
+        a.step("role_assignments", "block", reason="no direct management-group role assignments")
+        return a
+    from .iam import _azure_external_group_members
+    key = "azure_management_group_member_resolver"
+    if key not in inventory.network_cache:
+        all_resources = [row for rows in inventory.by_type.values() for row in rows]
+        inventory.network_cache[key] = _azure_external_group_members(snapshot, all_resources)
+    members = inventory.network_cache[key]
+    foreign, uncertain = [], []
+    for assignment, props in assignments:
+        principal = props.get("principalId")
+        role_id = props.get("roleDefinitionId")
+        if not isinstance(principal, str) or not principal or not isinstance(role_id, str) or not role_id:
+            uncertain.append(str(native_id(assignment)))
+            continue
+        identities = [(principal, externality(snapshot, principal))]
+        if props.get("principalType") == "Group":
+            identities.extend((member, "external") for member in members(principal))
+            membership_scope = resource["scope"] + "/groups/" + principal
+            if (inventory.state("directory_membership", membership_scope) not in ("collected", "empty")
+                    or inventory.state("directory_membership") not in ("collected", "empty")):
+                uncertain.append({"assignment_id": native_id(assignment),
+                                  "reason": "group membership incomplete"})
+        definition = inventory.get("role_definition", role_id)
+        if definition is None:
+            uncertain.append(str(native_id(assignment)))
+            continue
+        permissions = (definition["data"].get("properties") or {}).get("permissions")
+        if not isinstance(permissions, list):
+            uncertain.append(str(native_id(assignment)))
+            continue
+        grants = any(isinstance(block, dict) and any(isinstance(block.get(field), list) and block[field]
+                    for field in ("actions", "dataActions")) for block in permissions)
+        if not grants:
+            continue
+        exclusions = any(isinstance(block, dict) and any(block.get(field) for field in
+                         ("notActions", "notDataActions")) for block in permissions)
+        for identity, classification in identities:
+            if classification == "external":
+                record = {"assignment_id": native_id(assignment), "principal_id": identity,
+                          "role_definition_id": role_id, "condition": props.get("condition")}
+                if props.get("condition") or exclusions:
+                    uncertain.append(record)
+                else:
+                    foreign.append(record)
+            elif classification == "unknown":
+                uncertain.append({"assignment_id": native_id(assignment), "principal_id": identity})
+    if foreign:
+        a.external_ids = sorted({record["principal_id"] for record in foreign})
+        a.step("management_group_rbac", "allow", grants=foreign)
+        a.explicit = "FAIL"
+    if uncertain:
+        a.gap("authorization", "management-group principal, role, or condition unresolved")
+    if not foreign and not uncertain:
+        a.step("management_group_rbac", "block", reason="no observed external role grant")
+    return a
+
+
 def _azure_nginx(snapshot, inventory, resource):
     """Public NGINX frontends with ports derived from active configuration files."""
     a = Assessment(resource, "public_endpoint")
@@ -12309,7 +12383,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "managed_application", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "managed_application", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12324,7 +12398,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "management_group",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12432,6 +12506,7 @@ def assess(snapshot, resources):
                   "netapp_volume": _azure_netapp_volume,
                   "stream_analytics_job": _azure_stream_analytics_job,
                   "managed_application": _azure_managed_application,
+                  "management_group": _azure_management_group,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
