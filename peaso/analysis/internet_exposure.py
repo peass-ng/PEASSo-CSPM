@@ -1683,16 +1683,16 @@ def _aws_cloudfront(snapshot, inventory, resource):
             if isinstance(oac, dict) and oac.get("collection_status") == "collected":
                 behavior = oac.get("SigningBehavior")
                 if oac.get("Id") == oac_id and behavior in ("always", "never", "no-override"):
-                    a.step("origin_auth", "allow_declaration" if behavior == "always" else "unresolved",
+                    a.step("origin_auth", "allow_declaration" if behavior in ("always", "no-override") else "unresolved",
                            origin_id=origin["Id"], origin_access_control_id=oac_id,
                            signing_behavior=behavior, signing_protocol=oac.get("SigningProtocol"),
                            origin_type=oac.get("OriginAccessControlOriginType"),
-                           semantics="Observed OAC signing configuration; origin authorization and response require separate evidence")
+                           semantics="Observed OAC signing configuration; no-override signs requests without a viewer Authorization header; origin response requires separate evidence")
                 else:
                     a.gap("origin_auth", "CloudFront OAC signing configuration malformed", "cloudfront:GetOriginAccessControl")
             hostname = origin.get("DomainName")
             if (isinstance(oac, dict) and oac.get("collection_status") == "collected"
-                    and oac.get("Id") == oac_id and oac.get("SigningBehavior") == "always"
+                    and oac.get("Id") == oac_id and oac.get("SigningBehavior") in ("always", "no-override")
                     and oac.get("SigningProtocol") == "sigv4" and oac.get("OriginAccessControlOriginType") == "lambda"
                     and isinstance(origin.get("CustomOriginConfig"), dict) and isinstance(hostname, str)
                     and re.fullmatch(r"[a-z0-9-]+\.lambda-url\.[a-z0-9-]+\.on\.aws", hostname)
@@ -1731,7 +1731,7 @@ def _aws_cloudfront(snapshot, inventory, resource):
                                    origin_type="lambda_function_url", function_arn=function_arn,
                                    principal="cloudfront.amazonaws.com", source_arn=distribution_arn,
                                    actions=sorted(actions),
-                                   semantics="Collected qualified Lambda policy grants both URL invocation actions to this distribution; function response is not established")
+                                   semantics="Collected qualified Lambda policy grants both URL invocation actions to this distribution; no-override requires a viewer request without Authorization; function response is not established")
             bucket_host = (re.fullmatch(r"(.+)\.s3(?:[.-][a-z]{2}(?:-[a-z]+)+-\d+)?\.amazonaws\.com", hostname)
                            if isinstance(hostname, str) else None)
             bucket_name = bucket_host.group(1) if bucket_host else None
@@ -1746,7 +1746,7 @@ def _aws_cloudfront(snapshot, inventory, resource):
             if any(isinstance(statement, dict) and statement.get("Effect") == "Deny" for statement in statements):
                 continue
             if (isinstance(oac, dict) and oac.get("collection_status") == "collected"
-                    and oac.get("Id") == oac_id and oac.get("SigningBehavior") == "always"
+                    and oac.get("Id") == oac_id and oac.get("SigningBehavior") in ("always", "no-override")
                     and oac.get("SigningProtocol") == "sigv4" and oac.get("OriginAccessControlOriginType") == "s3"
                     and isinstance(s3_config, dict) and not identity and isinstance(distribution_arn, str)):
                 object_arn = f"arn:{partition}:s3:::{bucket_name}/*"
@@ -1766,7 +1766,7 @@ def _aws_cloudfront(snapshot, inventory, resource):
                     a.step("origin_policy", "allow_declaration", origin_id=origin["Id"], bucket=bucket_name,
                            principal="cloudfront.amazonaws.com", source_arn=distribution_arn,
                            action="s3:GetObject", resource=object_arn,
-                           semantics="Collected bucket policy grants this distribution's always-signed S3 OAC request; object existence, ACL, KMS and response are not established")
+                           semantics="Collected bucket policy grants a request signed by this distribution's S3 OAC; no-override requires a viewer request without Authorization; object existence, ACL, KMS and response are not established")
                     break
             if not match or oac_id:
                 continue

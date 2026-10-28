@@ -640,6 +640,8 @@ def test_aws_cloudfront_oac_requires_observed_signing_and_exact_distribution_pol
                and step["source_arn"] == distribution_arn for step in steps())
     oac["SigningBehavior"] = "never"
     assert not any(step["layer"] == "origin_policy" for step in steps())
+    oac["SigningBehavior"] = "no-override"
+    assert any(step["layer"] == "origin_policy" for step in steps())
     oac["SigningBehavior"] = "always"
     statement["Condition"]["StringEquals"]["AWS:SourceArn"] = distribution_arn.replace("D1", "D2")
     assert not any(step["layer"] == "origin_policy" for step in steps())
@@ -693,6 +695,8 @@ def test_aws_cloudfront_lambda_url_oac_requires_exact_host_and_both_policy_actio
     function["FunctionUrl"]["FunctionUrl"] = f"https://{host}/"
     oac["SigningBehavior"] = "never"
     assert not grants()
+    oac["SigningBehavior"] = "no-override"
+    assert len(grants()) == 1
     oac["SigningBehavior"] = "always"
     alias_arn = function_arn + ":live"
     function["AliasArn"] = alias_arn
