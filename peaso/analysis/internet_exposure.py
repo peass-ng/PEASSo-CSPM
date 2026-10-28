@@ -3481,6 +3481,64 @@ def gcp_scheduler_oidc_target_findings(snapshot, resources):
     return output
 
 
+def gcp_pubsub_oidc_push_findings(snapshot, resources):
+    """Surface token-bearing push configuration without asserting delivery."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "pubsub_subscription" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        push = data.get("pushConfig")
+        if not isinstance(push, dict):
+            continue
+        endpoint = push.get("pushEndpoint")
+        token = push.get("oidcToken")
+        if not isinstance(endpoint, str) or not isinstance(token, dict):
+            continue
+        account = token.get("serviceAccountEmail")
+        if not isinstance(account, str) or not account:
+            continue
+        try:
+            parsed = urlsplit(endpoint)
+            host, port = parsed.hostname, parsed.port
+        except ValueError:
+            continue
+        if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password:
+            continue
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if "." not in host or host.lower() == "localhost":
+                continue
+        else:
+            if not address.is_global:
+                continue
+        if port is not None and not 1 <= port <= 65535:
+            continue
+        origin_host = f"[{host.lower()}]" if ":" in host else host.lower()
+        origin = f"{parsed.scheme}://{origin_host}" + (f":{port}" if port else "")
+        name = data.get("name", native_id(resource))
+        state = data.get("state")
+        evidence = {
+            "observed": "\n".join((
+                f"The Pub/Sub subscription {name} has push endpoint origin {origin} and state {state or 'unrecorded'}.",
+                f"Its pushConfig.oidcToken.serviceAccountEmail is {account}.",
+                "Pub/Sub may attach an OIDC token for that account when pushing subscription messages.",
+                "If the recipient is outside the owner's control, its operators could receive message data and the token; ownership and delivery remain unresolved.")),
+            "target_origin": origin,
+            "service_account": account,
+            "subscription_state": state,
+            "source": source(snapshot, resource, "pushConfig"),
+            "risk_state": "observed",
+            "semantics": "Configured token-bearing push only; endpoint ownership, generated token, message contents, delivery and recipient use are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_pubsub_oidc_push",
+                              "Pub/Sub token-bearing push endpoint", "high", evidence, status="FAIL"))
+    return output
+
+
 def gcp_artifact_public_reader_findings(snapshot, resources):
     """Report direct public Artifact Registry Reader grants, not artifact access."""
     if snapshot["provider"] != "gcp":
@@ -6172,6 +6230,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_source_repository_external_reader_findings(snapshot, resources))
     output.extend(gcp_cloud_tasks_external_enqueuer_findings(snapshot, resources))
     output.extend(gcp_scheduler_oidc_target_findings(snapshot, resources))
+    output.extend(gcp_pubsub_oidc_push_findings(snapshot, resources))
     output.extend(gcp_artifact_public_reader_findings(snapshot, resources))
     output.extend(gcp_pubsub_public_grant_findings(snapshot, resources))
     output.extend(gcp_secret_external_accessor_findings(snapshot, resources))

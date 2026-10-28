@@ -51,7 +51,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **145 have no native pa
 | App development | [Cloud Scheduler](https://docs.cloud.google.com/scheduler/docs) | scheduler_job enabled HTTP target with configured OIDC token; ownership, delivery and other target paths unresolved | REVIEW REQUIRED |
 | App development | [Cloud Shell](https://docs.cloud.google.com/shell/docs) | — | REVIEW REQUIRED |
 | App development | [Cloud Source Repositories](https://docs.cloud.google.com/source-repositories/docs) | source_repository direct cross-project Reader IAM grant; inherited/custom roles and ownership unresolved | REVIEW REQUIRED |
-| App development | [Cloud Tasks](https://docs.cloud.google.com/tasks/docs) | cloudtasks_queue direct cross-project Enqueuer IAM grant; queue HTTP override is reduced to a boolean and task targets remain unjoined | REVIEW REQUIRED |
+| App development | [Cloud Tasks](https://docs.cloud.google.com/tasks/docs) | cloudtasks_queue direct cross-project Enqueuer IAM grant; queue HTTP override is reduced to a boolean, collector projection has a reviewed-source hash gate, and task targets remain unjoined | REVIEW REQUIRED |
 | App development | [Cloud Workstations](https://docs.cloud.google.com/workstations/docs) | workstation / workstation_cluster | REVIEW REQUIRED |
 | App development | [Developer Connect](https://docs.cloud.google.com/developer-connect/docs) | — | REVIEW REQUIRED |
 | App development | [Developer Device Platform](https://docs.cloud.google.com/developer-device-platform) | — | REVIEW REQUIRED |
@@ -94,7 +94,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **145 have no native pa
 | Data analytics and pipelines | [Managed Service for Apache Kafka](https://docs.cloud.google.com/managed-service-for-apache-kafka/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Managed Service for Apache Spark](https://docs.cloud.google.com/managed-spark/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Manufacturing Data Engine](https://docs.cloud.google.com/manufacturing-data-engine/docs) | — | REVIEW REQUIRED |
-| Data analytics and pipelines | [Pub/Sub](https://docs.cloud.google.com/pubsub/docs) | Topic public Publisher and subscription public Subscriber direct IAM grants; inherited/custom roles, IAM denies, conditions, API authentication and successful message access unresolved | REVIEW REQUIRED |
+| Data analytics and pipelines | [Pub/Sub](https://docs.cloud.google.com/pubsub/docs) | Topic public Publisher and subscription public Subscriber direct IAM grants; subscription OIDC push endpoint configuration; inherited/custom roles, IAM denies, conditions, endpoint ownership and successful message access unresolved | REVIEW REQUIRED |
 | Databases | [AlloyDB](https://docs.cloud.google.com/alloydb/docs) | alloydb_instance public IP / Data API executeSql declaration | REVIEW REQUIRED |
 | Databases | [AlloyDB Omni](https://docs.cloud.google.com/alloydb/omni/docs) | — | REVIEW REQUIRED |
 | Databases | [Bigtable](https://docs.cloud.google.com/bigtable/docs) | bigtable_table direct cross-project Reader IAM grant; other scopes, roles and ownership unresolved | REVIEW REQUIRED |

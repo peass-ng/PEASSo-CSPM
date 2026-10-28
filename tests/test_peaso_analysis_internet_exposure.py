@@ -713,6 +713,7 @@ def assert_gcp_observed_style(finding, resource_name):
     assert lines[0].startswith("The ") and resource_name in lines[0]
     assert all(line.endswith(".") for line in lines)
     assert any(" may " in line or " could " in line for line in lines)
+    assert " may " in lines[-1] or " could " in lines[-1]
     assert not any(word in observed.lower() for word in ("scan", "check", "test"))
 
 
@@ -960,6 +961,31 @@ def test_gcp_scheduler_oidc_http_target_declaration_keeps_uri_path_private():
     assert findings() == []
     job["httpTarget"]["uri"] = "https://api.example.com/path"
     job["httpTarget"].pop("oidcToken")
+    assert findings() == []
+
+
+def test_gcp_pubsub_oidc_push_records_only_target_origin_and_data_impact():
+    subscription = {"name": "projects/p1/subscriptions/customer-events", "state": "ACTIVE",
+                    "pushConfig": {"pushEndpoint": "https://api.example.com/private-capability?token=hidden",
+                                   "oidcToken": {"serviceAccountEmail": "push@p1.iam.gserviceaccount.com",
+                                                 "audience": "https://api.example.com/private-capability"}}}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("pubsub_subscription", [subscription], service="pubsub")))["findings"]
+                if row["check_id"] == "analysis.gcp_pubsub_oidc_push"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], subscription["name"])
+    evidence = rows[0]["evidence"]
+    assert evidence["target_origin"] == "https://api.example.com"
+    assert evidence["service_account"] == "push@p1.iam.gserviceaccount.com"
+    assert "message data" in evidence["observed"].splitlines()[-1]
+    assert "private-capability" not in str(evidence) and "hidden" not in str(evidence)
+    subscription["pushConfig"]["pushEndpoint"] = "https://10.0.0.1/push"
+    assert findings() == []
+    subscription["pushConfig"]["pushEndpoint"] = "https://api.example.com/push"
+    subscription["pushConfig"].pop("oidcToken")
     assert findings() == []
 
 
