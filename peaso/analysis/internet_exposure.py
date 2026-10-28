@@ -21,6 +21,7 @@ from collections import Counter
 from functools import lru_cache
 import json
 import re
+from datetime import datetime
 from urllib.parse import urlsplit
 from peaso.snapshot import freeze
 
@@ -11976,6 +11977,70 @@ def _azure_purview_ediscovery_case_member(snapshot, inventory, resource):
     return a
 
 
+def _azure_sentinel_automation_rule(snapshot, inventory, resource):
+    """Incident or alert payload routed to a foreign Logic App playbook."""
+    a = Assessment(resource, "data_export")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    if data.get("enabled") is False:
+        a.explicit = "PASS"
+        return a
+    if data.get("enabled") is not True:
+        a.gap("authorization", "Sentinel automation enabled state unavailable")
+        return a
+    expiration = data.get("expiration_time_utc")
+    if expiration is not None:
+        try:
+            end = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+            observed = datetime.fromisoformat(snapshot["created_at"].replace("Z", "+00:00"))
+            if end.tzinfo is None or observed.tzinfo is None:
+                raise ValueError("timezone unavailable")
+        except (ValueError, TypeError, KeyError):
+            a.gap("authorization", "Sentinel automation expiration unresolved")
+            return a
+        if end <= observed:
+            a.explicit = "PASS"
+            return a
+    source = re.match(r"^/subscriptions/([^/]+)/", data.get("workspace_id") or "", re.I)
+    if source is None:
+        a.gap("inventory", "Sentinel workspace subscription unavailable")
+        return a
+    source_tenant = (snapshot.get("metadata") or {}).get("tenant_id")
+    playbooks = data.get("playbooks")
+    if not isinstance(playbooks, list):
+        a.gap("authorization", "Sentinel playbook actions unavailable")
+        return a
+    foreign = []
+    for row in playbooks:
+        if not isinstance(row, dict):
+            a.gap("authorization", "Sentinel playbook target malformed")
+            continue
+        target = row.get("resource_id")
+        tenant = row.get("tenant_id")
+        subscription = re.match(r"^/subscriptions/([^/]+)/", target or "", re.I)
+        if subscription is None:
+            a.gap("authorization", "Sentinel playbook subscription unavailable")
+            continue
+        if subscription.group(1).casefold() != source.group(1).casefold() or (
+            isinstance(tenant, str) and isinstance(source_tenant, str) and tenant.casefold() != source_tenant.casefold()):
+            foreign.append(target)
+        else:
+            a.gap("destination", "local playbook downstream recipients unresolved")
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("foreign_playbook", "allow", playbook_ids=a.external_ids,
+               data="triggering Sentinel incident or alert payload")
+        a.data_exposure = True
+        a.explicit = "FAIL"
+    elif not playbooks and not data.get("unknown_action"):
+        a.explicit = "PASS"
+    elif data.get("unknown_action"):
+        a.gap("authorization", "unrecognized Sentinel automation action")
+    return a
+
+
 def _azure_nginx(snapshot, inventory, resource):
     """Public NGINX frontends with ports derived from active configuration files."""
     a = Assessment(resource, "public_endpoint")
@@ -13352,7 +13417,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -13367,7 +13432,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -13500,6 +13565,7 @@ def assess(snapshot, resources):
                   "purview_metadata_policy": _azure_purview_metadata_policy,
                   "purview_unified_policy": _azure_purview_unified_policy,
                   "purview_ediscovery_case_member": _azure_purview_ediscovery_case_member,
+                  "sentinel_automation_rule": _azure_sentinel_automation_rule,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,

@@ -89,6 +89,7 @@ from . import azure_easm_connections_native
 from . import azure_purview_metadata_policy_native
 from . import azure_purview_unified_policy_native
 from . import azure_purview_ediscovery_native
+from . import azure_sentinel_automation_exposure
 from . import azure_nginx_native
 from . import azure_webpubsub_hubs_native
 
@@ -1249,7 +1250,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "devops_project", *azure_devops_pipeline_native.NATIVE_TYPES, *azure_access_reviews_native.NATIVE_TYPES, *azure_arm_metadata_native.NATIVE_TYPES, *azure_monitor_inventory_native.NATIVE_TYPES, *azure_aks_workloads_native.NATIVE_TYPES, "azure_detection_telemetry", "entra_diagnostic_setting", *azure_storage_backup_native.NATIVE_TYPES,
     *azure_defender_network_native.NATIVE_TYPES, *azure_adaptive_network_native.NATIVE_TYPES, *azure_entra_user_native.NATIVE_TYPES, "directory_user_group_membership", "sql_managed_instance_administrator", "intune_diagnostic_setting",
     "storage_local_user", "sql_backup_short_term_policy", "eventgrid_subscription",
-    *azure_vault_key_versions_native.NATIVE_TYPES, *azure_iot_policy_native.NATIVE_TYPES, *azure_function_limits_native.NATIVE_TYPES, *azure_functions_runtime_native.NATIVE_TYPES, *azure_secret_versions_native.NATIVE_TYPES, *azure_storage_recovery_metadata_native.NATIVE_TYPES, "sentinel_workspace", *azure_incident_inventory_native.NATIVE_TYPES, *azure_security_correlation_native.NATIVE_TYPES, *azure_apim_diagnostic_evidence_native.NATIVE_TYPES, *azure_storage_blob_keys_native.NATIVE_TYPES, *azure_audit_storage_native.NATIVE_TYPES, "assessment_metadata",
+    *azure_vault_key_versions_native.NATIVE_TYPES, *azure_iot_policy_native.NATIVE_TYPES, *azure_function_limits_native.NATIVE_TYPES, *azure_functions_runtime_native.NATIVE_TYPES, *azure_secret_versions_native.NATIVE_TYPES, *azure_storage_recovery_metadata_native.NATIVE_TYPES, "sentinel_workspace", azure_sentinel_automation_exposure.KIND, *azure_incident_inventory_native.NATIVE_TYPES, *azure_security_correlation_native.NATIVE_TYPES, *azure_apim_diagnostic_evidence_native.NATIVE_TYPES, *azure_storage_blob_keys_native.NATIVE_TYPES, *azure_audit_storage_native.NATIVE_TYPES, "assessment_metadata",
     azure_app_settings_secret_indicators.KIND, azure_acr_image_secret_indicators.KIND, azure_acr_image_vulnerabilities_20261021.KIND, azure_selected_aks_image_20261021.KIND, azure_selected_aks_image_20261021.VULN_KIND, azure_selected_configuration_secret_indicators.KIND,
     *azure_ai_services_native.NATIVE_TYPES,
     *azure_public_edge_native.NATIVE_TYPES, *azure_storage_lifecycle_native.NATIVE_TYPES, *azure_key_rotation_evidence_native.NATIVE_TYPES, "frontdoor_and_cdn_endpoint", "afd_profile", "afd_domain", "afd_route", "afd_security_policy",
@@ -2510,6 +2511,8 @@ def _selected(options, requirements):
         selected.update(("directory_user", "directory_group", "directory_service_principal", "directory_membership"))
     if azure_purview_ediscovery_native.MEMBERS in selected:
         selected.update((azure_purview_ediscovery_native.CASES, "directory_user"))
+    if azure_sentinel_automation_exposure.KIND in selected:
+        selected.add("log_analytics_workspace")
     if selected.intersection(azure_external_id_extensions_native.KINDS):
         selected.update(azure_external_id_extensions_native.KINDS)
         selected.add("directory_domain")
@@ -4124,6 +4127,7 @@ def collect(connector, requirements=None, *, transport=None):
             tenant_id=getattr(transport, "tenant", None) or auth.get("tenant_id"),
             tenant_verified=bool(getattr(transport, "verified_tenant", None)))
         azure_sentinel_metadata_native.collect(reader, request, scopes, wanted)
+        azure_sentinel_automation_exposure.collect(reader, request, wanted)
         azure_incident_inventory_native.collect(reader, scopes, wanted)
         azure_iot_policy_native.collect(reader, request, scopes, wanted, options)
         azure_storage_recovery_metadata_native.collect(reader, request, scopes, wanted, options)
