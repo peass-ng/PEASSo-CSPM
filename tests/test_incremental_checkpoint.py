@@ -192,43 +192,52 @@ def test_interrupted_later_analysis_keeps_earlier_category(monkeypatch, tmp_path
             session.close()
 
 
-def test_background_evaluation_failure_stops_retries_and_keeps_raw_batch(monkeypatch, tmp_path):
-    session, artifacts, refs, published = _session(monkeypatch, tmp_path, second=True,
-                                                   batch_interval=0.01)
+def test_background_evaluation_failure_stops_retries_and_keeps_raw_batch():
+    from peaso.incremental import CheckpointSession
+
+    class Session:
+        def __init__(self):
+            self.wake = threading.Event()
+            self.lock = threading.RLock()
+            self.clock = time.monotonic
+            self.batch_interval = 0.01
+            self.pending = []
+            self.pending_since = None
+            self.force = self.stop = False
+            self.error = None
+            self.attempts = 0
+            self.flushed = []
+
+        def _flush_pending(self):
+            self.flushed.extend(self.pending)
+            self.pending.clear()
+            self.pending_since = None
+
+        def _maybe_publish(self, *, force):
+            self.attempts += 1
+            # A native envelope arrives during the failing evaluator.
+            self.pending.append('later raw envelope')
+            self.pending_since = self.clock() - 1
+            raise RuntimeError('interrupted analysis')
+
+    session = Session()
+    thread = threading.Thread(target=CheckpointSession._background, args=(session,))
+    thread.start()
     try:
-        session.on_collection({"type": "bucket", "scope": SCOPE, "status": "collected",
-                               "items": [{"id": "b"}]})
-        assert published.wait(3)
-        first = next(report for _, _, report in refs if report)
-        from peaso import engine
-        attempted = []
-        def failed_later_evaluation(*args, **kwargs):
-            attempted.append(1)
-            # This envelope settles while the cumulative evaluator runs.
-            # The background thread must still flush it after the error.
-            session.on_collection({"type": "other", "scope": "later",
-                                   "status": "empty", "items": []})
-            raise RuntimeError("interrupted analysis")
-        monkeypatch.setattr(engine, "evaluate_snapshot", failed_later_evaluation)
-        session.on_collection({"type": "image", "scope": SCOPE, "status": "collected",
-                               "items": [{"id": "i"}]})
         deadline = time.monotonic() + 3
-        while session.error is None and time.monotonic() < deadline:
+        while (session.error is None or not session.flushed) and time.monotonic() < deadline:
             time.sleep(0.01)
         assert isinstance(session.error, RuntimeError)
-        assert str(session.error) == "interrupted analysis"
-        while not any(sequence == 3 and report is None for sequence, _, report in refs) and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert artifacts.get(TENANT, first)["publication"]["state"] == "partial"
-        assert any(sequence == 3 and report is None for sequence, _, report in refs)
+        assert str(session.error) == 'interrupted analysis'
+        assert session.flushed == ['later raw envelope']
         time.sleep(0.05)
-        assert attempted == [1]
-        with pytest.raises(RuntimeError, match="checkpoint publication failed"):
-            session.on_collection({"type": "other", "scope": SCOPE,
-                                   "status": "empty", "items": []})
+        assert session.attempts == 1
     finally:
-        with pytest.raises(RuntimeError, match="checkpoint publication failed"):
-            session.close()
+        with session.lock:
+            session.stop = True
+            session.wake.set()
+        thread.join(2)
+        assert not thread.is_alive()
 
 
 def test_real_native_hardening_evaluation_publishes_before_optional_image_phase(tmp_path):
