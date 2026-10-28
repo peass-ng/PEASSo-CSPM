@@ -91,6 +91,7 @@ READ_ACTIONS.update({
     ("cognito-idp", "describe_risk_configuration"),
     ("cognito-identity", "describe_identity_pool"), ("route53", "get_query_logging_config"), ("route53", "list_query_logging_configs"),
     ("codebuild", "batch_get_projects"), ("codebuild", "batch_get_sandboxes"), ("mq", "describe_broker"),
+    ("mq", "describe_shared_resources"), ("mq", "describe_configuration_revision"),
     ("efs", "describe_backup_policy"), ("efs", "describe_file_system_policy"),
     ("ssm", "describe_document_permission"), ("ssm", "describe_maintenance_window_tasks"), ("ssm", "get_service_setting"),
     ("apigateway", "get_stages"), ("apigatewayv2", "get_stages"),
@@ -562,6 +563,23 @@ def _enricher(kind):
                         config["error"] = {"code": "codebuild_project_detail_incomplete"}
             elif kind == "mq_broker":
                 item["Configuration"] = _detail(requests, session, region, "mq", "describe_broker", BrokerId=item["BrokerId"])
+                if item.get("EngineType") == "RABBITMQ":
+                    from .aws_network_inventory import MetadataSession
+                    item["SharedResources"] = _read_list(
+                        requests, MetadataSession(session), region, "mq", "describe_shared_resources",
+                        "SharedResources", _tokens=("NextToken", "NextToken"), BrokerId=item["BrokerId"])
+                elif item.get("EngineType") == "ACTIVEMQ":
+                    config = item["Configuration"]
+                    assigned = config.get("Configurations") if isinstance(config, dict) else None
+                    current = assigned.get("Current") if isinstance(assigned, dict) else None
+                    if (isinstance(current, dict) and isinstance(current.get("Id"), str)
+                            and type(current.get("Revision")) is int and current["Revision"] > 0):
+                        from .aws_network_inventory import MetadataSession
+                        item["AppliedNetworkConnectors"] = _detail(
+                            requests, MetadataSession(session), region, "mq", "describe_configuration_revision",
+                            ConfigurationId=current["Id"], ConfigurationRevision=str(current["Revision"]))
+                    else:
+                        item["AppliedNetworkConnectors"] = {"collection_status": "not_collected"}
             elif kind == "efs_file_system":
                 item["BackupPolicy"] = _detail(requests, session, region, "efs", "describe_backup_policy", FileSystemId=item["FileSystemId"])
                 item["Policy"] = _detail(requests, session, region, "efs", "describe_file_system_policy", FileSystemId=item["FileSystemId"])

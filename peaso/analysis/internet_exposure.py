@@ -4250,62 +4250,59 @@ def _aws_appstream_image_share(snapshot, inventory, resource):
 
 
 def _aws_redshift_datashare(snapshot, inventory, resource):
-    """Assess producer-visible foreign Redshift datashare consumers."""
+    """Producer-authorized or active datashare access for a foreign consumer."""
     from .trust import trusted_scopes
 
     data = resource["data"]
     a = Assessment(resource, "external_redshift_datashare")
     account, _, region = str(resource.get("scope", "")).partition("/")
     partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    arn = data.get("DataShareArn")
-    match = (re.fullmatch(r"arn:" + re.escape(partition) + r":redshift:" + re.escape(region) +
-                          r":" + re.escape(account) + r":datashare:([A-Za-z0-9-]+)/[^/]+", arn)
-             if isinstance(arn, str) else None)
-    producer_arns = ({f"arn:{partition}:redshift:{region}:{account}:namespace:{match.group(1)}",
-                      f"arn:{partition}:redshift-serverless:{region}:{account}:namespace/{match.group(1)}"}
-                     if match else set())
-    if match is None or data.get("ProducerArn") not in producer_arns:
-        a.gap("inventory", "Datashare and producer namespace are not attributable to the scoped account")
+    arn, producer = data.get("DataShareArn"), data.get("ProducerArn")
+    match = re.fullmatch(r"arn:" + partition + r":redshift:" + re.escape(region) + ":" +
+                        re.escape(account) + r":datashare:([0-9a-fA-F-]{36})/[^/]+", arn) if isinstance(arn, str) else None
+    if match is None or producer != f"arn:{partition}:redshift:{region}:{account}:namespace:{match.group(1)}":
+        a.gap("inventory", "Redshift datashare producer identity is not attributable to the scoped account")
         return a
     associations = data.get("DataShareAssociations")
     if not isinstance(associations, list):
-        a.gap("inventory", "Datashare consumer associations were not collected")
+        a.gap("inventory", "Redshift datashare associations are incomplete")
         return a
     trusted = trusted_scopes(snapshot)["ids"]
-    external, uncertain = [], False
-    for row in associations:
-        if not isinstance(row, dict):
+    foreign, uncertain = {}, False
+    for association in associations:
+        if not isinstance(association, dict):
             uncertain = True
             continue
-        consumer, status = row.get("ConsumerIdentifier"), row.get("Status")
-        if status in {"DEAUTHORIZED", "REJECTED"}:
+        identifier, status = association.get("ConsumerIdentifier"), association.get("Status")
+        if status in {"DEAUTHORIZED", "REJECTED", "PENDING_AUTHORIZATION"}:
             continue
-        if not isinstance(consumer, str):
+        if not isinstance(identifier, str):
             uncertain = True
             continue
-        if re.fullmatch(r"[0-9]{12}", consumer):
-            recipient = consumer
+        if re.fullmatch(r"[0-9]{12}", identifier):
+            consumer = identifier
         else:
-            recipient_match = re.fullmatch(r"arn:" + re.escape(partition) +
-                                           r":(?:redshift:[a-z0-9-]+:([0-9]{12}):namespace:|"
-                                           r"redshift-serverless:[a-z0-9-]+:([0-9]{12}):namespace/)[A-Za-z0-9-]+", consumer)
-            recipient = (recipient_match.group(1) or recipient_match.group(2)) if recipient_match else "AWS Data Exchange" if consumer == "ADX" else None
-        if recipient is None or status not in {"ACTIVE", "AUTHORIZED"}:
+            parts = identifier.split(":", 5)
+            consumer = parts[4] if (len(parts) == 6 and parts[0] == "arn" and
+                parts[1] == partition and re.fullmatch(r"[0-9]{12}", parts[4])) else None
+        if consumer in trusted:
+            continue
+        if consumer is None:
             uncertain = True
-        elif recipient == "AWS Data Exchange" or recipient not in trusted:
-            external.append({"consumer": consumer, "account": recipient, "status": status,
-                             "writes_allowed": row.get("ProducerAllowedWrites") is True})
-    if external:
+            continue
+        if status in {"AUTHORIZED", "ACTIVE"}:
+            foreign[consumer] = status
+        else:
+            uncertain = True
+    if foreign:
+        a.external_ids = sorted(foreign)
         a.explicit = "FAIL"
-        a.authenticated = True
-        a.external_ids = sorted({row["account"] for row in external})
-        a.step("datashare_consumer", "allow", datashare_arn=arn, external_consumers=external)
-        a.gap("consumer", "Consumer association, object grants and actual queries are not fully observed")
-        if uncertain:
-            a.gap("inventory", "Other datashare consumer associations are unresolved")
+        a.step("datashare_authorization", "allow", datashare_arn=arn, consumer_status=foreign,
+               allows_public_consumer_cluster=data.get("AllowPubliclyAccessibleConsumers") is True)
+        a.gap("consumer", "Consumer database creation and actual data queries were not observed")
         return a
-    if uncertain:
-        a.gap("authorization", "Datashare consumer association status or identity is unresolved")
+    if uncertain or data.get("ManagedBy"):
+        a.gap("association", "Datashare consumer identity, authorization status or managed distribution is unresolved")
         return a
     return None
 
@@ -7411,14 +7408,27 @@ def _aws_sns_foreign_subscription(snapshot, inventory, resource):
             not isinstance(protocol, str) or not protocol):
         a.gap("inventory", "SNS topic subscription identity is not attributable to the scoped topic")
         return a
+    if subscription != "PendingConfirmation" and (not isinstance(subscription, str) or not re.fullmatch(
+            r"arn:" + partition + r":sns:" + re.escape(region) + ":" + owner + ":" +
+            re.escape(topic_match.group(1)) + r":[0-9a-fA-F-]{36}", subscription)):
+        a.gap("inventory", "SNS subscription ARN does not match its owner and topic")
+        return a
     if owner in trusted_scopes(snapshot)["ids"]:
+        endpoint_scope = data.get("EndpointScope")
+        if subscription == "PendingConfirmation":
+            return None
+        if endpoint_scope == "foreign_aws_account":
+            a.gap("delivery", "Subscription endpoint belongs to another AWS account; delivery authorization was not observed")
+            return a
+        if endpoint_scope in ("public_ip", "dns", "external_delivery_candidate"):
+            a.gap("endpoint", "Confirmed subscription may deliver to an internet or third-party endpoint; endpoint ownership was not observed")
+            return a
+        if endpoint_scope in ("local_name", "unknown_aws_account"):
+            a.gap("endpoint", "Subscription endpoint ownership or reachability is unresolved")
+            return a
         return None
     if subscription == "PendingConfirmation":
         a.gap("confirmation", "Foreign-owned SNS subscription has not been confirmed")
-        return a
-    if (not isinstance(subscription, str) or not re.fullmatch(r"arn:" + partition + r":sns:" +
-            re.escape(region) + ":" + owner + ":" + re.escape(topic_match.group(1)) + r":[0-9a-fA-F-]{36}", subscription)):
-        a.gap("inventory", "SNS subscription ARN does not match its foreign owner and topic")
         return a
     a.external_ids = [owner]
     a.explicit = "FAIL"
@@ -24763,6 +24773,1943 @@ def _backup_vault_owner(arn):
     return match.group(1) if match else None
 
 
+def _aws_neptune_graph(snapshot, inventory, resource):
+    """Public Neptune Analytics listener from one cached ListGraphs page stream."""
+    data = resource["data"]
+    public = data.get("publicConnectivity")
+    if public is False:
+        return None
+    a = Assessment(resource, "database")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    graph_id, arn = data.get("id"), data.get("arn")
+    if (not isinstance(graph_id, str) or not graph_id or
+            arn != f"arn:{partition}:neptune-graph:{region}:{account}:graph/{graph_id}"):
+        a.gap("inventory", "Neptune Analytics graph identity is not attributable to the scoped account")
+        return a
+    if type(public) is not bool:
+        a.gap("inventory", "Neptune Analytics public connectivity was not collected",
+              "neptune-graph:ListGraphs.publicConnectivity")
+        return a
+    status = data.get("status")
+    if status not in ("AVAILABLE", "UPDATING"):
+        if status in ("CREATING", "DELETING", "FAILED"):
+            return None
+        a.gap("inventory", "Neptune Analytics graph state is unresolved", "neptune-graph:ListGraphs.status")
+        return a
+    host = data.get("endpoint")
+    if not isinstance(host, str) or not host or ":" in host or "/" in host:
+        a.gap("listener", "Neptune Analytics graph endpoint was not collected or malformed",
+              "neptune-graph:ListGraphs.endpoint")
+        return a
+    a.addresses = [host]
+    a.ports = pset("tcp", 443, 443)
+    a.step("service_endpoint", "allow", public_connectivity=True, host=host)
+    a.authenticated = True
+    return a
+
+
+def _aws_machinelearning_endpoint(snapshot, inventory, resource):
+    """Public HTTPS real-time prediction endpoint for an owned Amazon ML model."""
+    data = resource["data"]
+    status = data.get("EndpointStatus")
+    if status == "NONE":
+        return None
+    a = Assessment(resource, "managed_service")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    ident = data.get("MLModelId")
+    arn = data.get("NetworkResourceId")
+    if (not isinstance(ident, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", ident) or
+            arn != f"arn:{partition}:machinelearning:{region}:{account}:mlmodel/{ident}"):
+        a.gap("inventory", "Amazon ML model identity is not attributable to the scanned account")
+        return a
+    if status != "READY":
+        a.gap("listener", "Amazon ML real-time endpoint is not in a ready state",
+              "machinelearning:DescribeMLModels.EndpointInfo.EndpointStatus")
+        return a
+    host = data.get("EndpointHost")
+    if (not isinstance(host, str) or not host or "/" in host or ":" in host or "@" in host):
+        a.gap("listener", "Amazon ML ready endpoint HTTPS host was not collected",
+              "machinelearning:DescribeMLModels.EndpointInfo.EndpointUrl")
+        return a
+    a.addresses = [host]
+    a.ports = pset("tcp", 443, 443)
+    a.authenticated = True
+    a.step("service_endpoint", "allow", endpoint_status=status, host=host)
+    return a
+
+
+def _aws_neptune_instance(snapshot, inventory, resource):
+    """Neptune public instance endpoint with VPC route, NACL and SG gates."""
+    data = resource["data"]
+    attrs = data.get("NetworkAttributes")
+    facts = {row.get("path"): row.get("value") for row in attrs if isinstance(row, dict)} if isinstance(attrs, list) else {}
+    public = facts.get("PubliclyAccessible")
+    if public is False:
+        return None
+    a = Assessment(resource, "database")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    instance_id, arn = data.get("DBInstanceIdentifier"), data.get("DBInstanceArn")
+    if (not isinstance(instance_id, str) or not instance_id or
+            arn != f"arn:{partition}:rds:{region}:{account}:db:{instance_id}"):
+        a.gap("inventory", "Neptune instance identity is not attributable to the scoped account")
+        return a
+    if type(public) is not bool:
+        a.gap("inventory", "Neptune instance PubliclyAccessible flag was not collected",
+              "neptune:DescribeDBInstances.PubliclyAccessible")
+        return a
+    host, port = facts.get("Endpoint.Address"), facts.get("Endpoint.Port")
+    if not isinstance(host, str) or not host or "/" in host or ":" in host:
+        a.gap("listener", "Neptune public endpoint host is missing or malformed",
+              "neptune:DescribeDBInstances.Endpoint.Address")
+        return a
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "Neptune public endpoint port is missing or malformed",
+              "neptune:DescribeDBInstances.Endpoint.Port")
+        return a
+    a.addresses = [host]
+    a.step("listener", "allow", port=port)
+    groups = [value for path, value in facts.items()
+              if re.fullmatch(r"VpcSecurityGroups\[\d+\]\.VpcSecurityGroupId", str(path))
+              and isinstance(value, str)]
+    subnets = [value for path, value in facts.items()
+               if re.fullmatch(r"DBSubnetGroup\.Subnets\[\d+\]\.SubnetIdentifier", str(path))
+               and isinstance(value, str)]
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, pset("tcp", port, port),
+                            native_id(resource), vpc_id=facts.get("DBSubnetGroup.VpcId"),
+                            narrow_public=True, public_host_witness=True)
+    state = data.get("DBInstanceStatus")
+    if state not in (None, "available"):
+        a.notes.append(f"Neptune instance status {state}")
+    a.authenticated = True
+    return a
+
+
+def _aws_influxdb(snapshot, inventory, resource):
+    """InfluxDB instance or cluster listener through its declared VPC path."""
+    kind = resource["type"]
+    data = resource["data"]
+    details = data.get("NetworkDetails")
+    details = details if isinstance(details, dict) else {}
+    if kind == "influxdb_cluster":
+        attrs = data.get("NetworkAttributes")
+        details = ({row.get("path"): row.get("value") for row in attrs if isinstance(row, dict)}
+                   if isinstance(attrs, list) else {})
+        details = {**details, "id": data.get("id"), "arn": data.get("arn")}
+    public = details.get("publiclyAccessible")
+    if public is False:
+        return None
+    a = Assessment(resource, "database")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    identity, arn = data.get("id"), data.get("arn")
+    suffix = "db-cluster" if kind == "influxdb_cluster" else "db-instance"
+    if (not isinstance(identity, str) or not identity or
+            arn != f"arn:{partition}:timestream-influxdb:{region}:{account}:{suffix}/{identity}" or
+            details.get("id") != identity or details.get("arn") != arn):
+        a.gap("inventory", "InfluxDB identity is not attributable to the scoped account")
+        return a
+    operation = "GetDbCluster" if kind == "influxdb_cluster" else "GetDbInstance"
+    if type(public) is not bool:
+        a.gap("inventory", "InfluxDB public-access flag is missing", f"timestream-influxdb:{operation}.publiclyAccessible")
+        return a
+    host = details.get("endpoint")
+    if not isinstance(host, str) or not re.fullmatch(r"[A-Za-z0-9.-]+", host):
+        a.gap("listener", "InfluxDB public endpoint host is missing or malformed", f"timestream-influxdb:{operation}.endpoint")
+        return a
+    a.addresses = [host]
+    reader = details.get("readerEndpoint")
+    if kind == "influxdb_cluster" and reader is not None:
+        if not isinstance(reader, str) or not re.fullmatch(r"[A-Za-z0-9.-]+", reader):
+            a.gap("listener", "InfluxDB reader endpoint host is malformed", f"timestream-influxdb:{operation}.readerEndpoint")
+            return a
+        a.addresses.append(reader)
+    port = details.get("port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "InfluxDB public endpoint port is missing or malformed", f"timestream-influxdb:{operation}.port")
+        return a
+    subnets, groups = details.get("vpcSubnetIds"), details.get("vpcSecurityGroupIds")
+    if (not isinstance(subnets, list) or not subnets or
+            any(not isinstance(value, str) or not value for value in subnets) or
+            not isinstance(groups, list) or not groups or
+            any(not isinstance(value, str) or not value for value in groups)):
+        a.gap("inventory", "InfluxDB subnet or security group IDs are incomplete", f"timestream-influxdb:{operation}")
+        return a
+    a.step("listener", "allow", port=port)
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, pset("tcp", port, port), native_id(resource),
+                            narrow_public=True, public_host_witness=True)
+    a.authenticated = True
+    if details.get("status") not in (None, "AVAILABLE"):
+        a.notes.append(f"InfluxDB status {details['status']}")
+    return a
+
+
+def _aws_oam_link(snapshot, inventory, resource):
+    """Source-account telemetry shared with a foreign OAM monitoring sink."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_observability_link")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn, sink, types = data.get("Arn"), data.get("SinkArn"), data.get("ResourceTypes")
+    link_prefix = f"arn:{partition}:oam:{region}:{account}:link/"
+    if not isinstance(arn, str) or not arn.startswith(link_prefix) or len(arn) <= len(link_prefix):
+        a.gap("inventory", "OAM source link identity is not attributable to the scoped account")
+        return a
+    match = re.fullmatch(r"arn:" + re.escape(partition) + r":oam:" + re.escape(region) +
+                         r":([0-9]{12}):sink/[A-Za-z0-9-]+", str(sink))
+    if not match or not isinstance(types, list) or any(not isinstance(item, str) for item in types):
+        a.gap("inventory", "OAM monitoring sink or shared resource types are unresolved",
+              "oam:ListLinks")
+        return a
+    owner = match.group(1)
+    if owner in trusted_scopes(snapshot)["ids"] or not types:
+        return None
+    a.external_ids = [owner]
+    a.explicit = "FAIL"
+    a.data_exposure = True
+    a.step("observability_link", "allow", source_link=arn, monitoring_account=owner,
+           resource_types=sorted(set(types)))
+    return a
+
+
+def _aws_security_ir_recipient_route(snapshot, inventory, resource):
+    """Potential case or membership notifications to configured email recipients."""
+    data = resource["data"]
+    a = Assessment(resource, "security_ir_notification_route")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    kind, arn = data.get("RouteType"), data.get("ResourceArn")
+    prefix = f"arn:{partition}:security-ir:{region}:{account}:{kind}/"
+    if kind not in ("case", "membership") or not isinstance(arn, str) or not arn.startswith(prefix) or len(arn) <= len(prefix):
+        a.gap("inventory", "Security Incident Response recipient resource is not attributable to the scoped account")
+        return a
+    if kind == "case" and data.get("CaseStatus") == "Closed":
+        return None
+    if kind == "membership" and data.get("MembershipStatus") in ("Cancelled", "Terminated"):
+        return None
+    if kind == "case" and data.get("CaseStatus") not in (
+            "Submitted", "Acknowledged", "Detection and Analysis", "Containment, Eradication and Recovery",
+            "Post-incident Activities", "Ready to Close"):
+        a.gap("inventory", "Security Incident Response case status is unresolved")
+        return a
+    if kind == "membership" and data.get("MembershipStatus") != "Active":
+        a.gap("inventory", "Security Incident Response membership status is unresolved")
+        return a
+    count, domains = data.get("RecipientCount"), data.get("RecipientDomains")
+    if (data.get("RecipientCoverage") != "collected" or not isinstance(count, int) or count < 0 or
+            not isinstance(domains, list) or any(not isinstance(domain, str) or not domain for domain in domains)):
+        a.gap("inventory", "Security Incident Response recipients were not completely collected")
+        return a
+    if count == 0:
+        return None
+    a.step("notification", "configured", resource_arn=arn, recipient_count=count,
+           recipient_domains=domains)
+    a.data_exposure = True
+    a.gap("inventory", "Recipient domain does not establish whether a mailbox is owned by a third party")
+    return a
+
+
+def _aws_securitylake_subscriber(snapshot, inventory, resource):
+    """Security Lake data grant and notification route to a subscriber."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "securitylake_subscriber")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn = data.get("subscriberArn")
+    prefix = f"arn:{partition}:securitylake:{region}:{account}:subscriber/"
+    if not isinstance(arn, str) or not arn.startswith(prefix) or len(arn) <= len(prefix):
+        a.gap("inventory", "Security Lake subscriber identity is not owned by the scoped account")
+        return a
+    status = data.get("subscriberStatus")
+    if status == "DEACTIVATED":
+        return None
+    if status not in ("ACTIVE", "READY"):
+        a.gap("inventory", "Security Lake subscriber is not confirmed active")
+        return a
+    if status == "READY":
+        a.gap("inventory", "Security Lake subscriber readiness does not establish active delivery")
+    access, count = data.get("AccessTypes"), data.get("SourceCount")
+    if (not isinstance(access, list) or any(not isinstance(x, str) for x in access) or
+            not isinstance(count, int) or count < 0):
+        a.gap("inventory", "Security Lake subscriber access types or source scope are incomplete")
+        return a
+    if any(x not in ("S3", "LAKEFORMATION") for x in access):
+        a.gap("inventory", "Security Lake subscriber access type is not reviewed")
+        return a
+    principal = data.get("Principal")
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign = isinstance(principal, str) and re.fullmatch(r"[0-9]{12}", principal) and principal not in trusted
+    if foreign and access and count > 0:
+        a.external_ids = [principal]
+        a.data_exposure = True
+        a.step("subscriber_grant", "allow", subscriber_arn=arn, account=principal,
+               access_types=access, source_count=count)
+        if status == "ACTIVE":
+            a.explicit = "FAIL"
+        a.gap("authorization", "Subscriber acceptance, S3/Lake Formation policy and actual data use are not observed")
+    elif principal not in trusted and access and count > 0:
+        a.gap("inventory", "Security Lake subscriber principal is not an attributable AWS account")
+    notice, target = data.get("NotificationType"), data.get("NotificationTarget")
+    if notice == "HTTPS":
+        if not isinstance(target, str) or not target:
+            a.gap("inventory", "Security Lake notification HTTPS host is unavailable")
+        else:
+            a.step("notification", "configured", target_host=target)
+            a.gap("inventory", "HTTPS notification destination ownership and delivery are unresolved")
+    elif notice == "AWS_RESOURCE":
+        parts = target.split(":", 5) if isinstance(target, str) else []
+        if len(parts) != 6 or parts[0] != "arn" or parts[1] != partition or not re.fullmatch(r"[0-9]{12}", parts[4]):
+            a.gap("inventory", "Security Lake notification target ownership is unresolved")
+        elif parts[4] not in trusted:
+            a.external_ids = sorted(set(a.external_ids) | {parts[4]})
+            a.step("notification", "configured", target_arn=target, target_account=parts[4])
+            a.gap("inventory", "Notification delivery and target policy are unresolved")
+    elif notice != "NONE":
+        a.gap("inventory", "Security Lake notification destination is unresolved")
+    return a if a.path or a.unresolved else None
+
+
+def _aws_securitylake_exception_notification(snapshot, inventory, resource):
+    """Potential delivery of Security Lake exception details outside the account."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "securitylake_exception_notification")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    expected = f"arn:{partition}:securitylake:{region}:{account}:data-lake/default/exception-subscription"
+    if data.get("NetworkResourceId") != expected:
+        a.gap("inventory", "Security Lake exception subscription is not owned by the scoped account")
+        return a
+    kind, target = data.get("DestinationType"), data.get("Destination")
+    if kind in ("EMAIL", "PHONE", "HTTPS"):
+        a.step("exception_notification", "configured", protocol=data.get("Protocol"),
+               destination_type=kind, **({"destination_domain": target} if kind != "PHONE" else {}))
+        a.gap("inventory", "Exception notification recipient ownership and delivery are unresolved")
+    elif kind == "AWS_RESOURCE":
+        parts = target.split(":", 5) if isinstance(target, str) else []
+        if len(parts) != 6 or parts[0] != "arn" or parts[1] != partition or not re.fullmatch(r"[0-9]{12}", parts[4]):
+            a.gap("inventory", "Security Lake exception destination account is unresolved")
+        elif parts[4] not in trusted_scopes(snapshot)["ids"]:
+            a.external_ids = [parts[4]]
+            a.step("exception_notification", "configured", target_arn=target, target_account=parts[4])
+            a.gap("inventory", "Exception notification delivery is not observed")
+        else:
+            return None
+    else:
+        a.gap("inventory", "Security Lake exception destination is unresolved")
+    return a
+
+
+def _aws_osis_pipeline(snapshot, inventory, resource):
+    """Public OpenSearch Ingestion listener from cached safe pipeline detail."""
+    data = resource["data"]
+    a = Assessment(resource, "ingestion_pipeline")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    name, arn = data.get("PipelineName"), data.get("PipelineArn")
+    if not isinstance(name, str) or not name or arn != f"arn:{partition}:osis:{region}:{account}:pipeline/{name}":
+        a.gap("inventory", "OpenSearch Ingestion pipeline identity is not attributable to the scoped account")
+        return a
+    detail = data.get("NetworkDetails")
+    if not isinstance(detail, dict) or detail.get("PipelineArn") != arn:
+        a.gap("inventory", "OpenSearch Ingestion detail read is missing or inconsistent", "osis:GetPipeline")
+        return a
+    mode = detail.get("NetworkMode")
+    if mode == "PRIVATE":
+        return None
+    if mode != "PUBLIC":
+        a.gap("inventory", "OpenSearch Ingestion source network mode is unresolved", "osis:GetPipeline")
+        return a
+    status = detail.get("Status")
+    if status in ("STOPPED", "DELETING", "CREATE_FAILED", "START_FAILED"):
+        return None
+    if status not in ("ACTIVE", "UPDATING"):
+        a.gap("inventory", "OpenSearch Ingestion pipeline is not confirmed active", "osis:GetPipeline.Status")
+        return a
+    hosts = detail.get("IngestHosts")
+    if not isinstance(hosts, list) or not hosts or any(not isinstance(h, str) or not h for h in hosts):
+        a.gap("listener", "OpenSearch Ingestion public ingest hosts were not collected", "osis:GetPipeline.IngestEndpointUrls")
+        return a
+    a.addresses = hosts
+    a.ports = pset("tcp", 443, 443)
+    a.authenticated = True
+    a.step("service_endpoint", "allow", network_mode="PUBLIC", hosts=hosts)
+    return a
+
+
+def _aws_osis_endpoint_connection(snapshot, inventory, resource):
+    """Active foreign VPC endpoint connected to an owned ingestion pipeline."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_ingestion_connection")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn, owner, endpoint = data.get("PipelineArn"), data.get("VpcEndpointOwner"), data.get("EndpointId")
+    if (not isinstance(arn, str) or not arn.startswith(f"arn:{partition}:osis:{region}:{account}:pipeline/") or
+            not isinstance(endpoint, str) or not endpoint):
+        a.gap("inventory", "OpenSearch Ingestion endpoint connection is not attributable to an owned pipeline")
+        return a
+    if not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner):
+        a.gap("inventory", "OpenSearch Ingestion endpoint owner is unresolved")
+        return a
+    if owner in trusted_scopes(snapshot)["ids"]:
+        return None
+    status = data.get("Status")
+    if status in ("REVOKED", "DELETING", "CREATE_FAILED"):
+        return None
+    a.external_ids = [owner]
+    a.step("pipeline_endpoint_connection", "allow" if status == "ACTIVE" else "unknown",
+           pipeline_arn=arn, endpoint_id=endpoint, endpoint_owner=owner, status=status)
+    if status == "ACTIVE":
+        a.explicit = "FAIL"
+    else:
+        a.gap("inventory", "OpenSearch Ingestion endpoint connection is not confirmed active")
+    return a
+
+
+def _aws_osis_pipeline_endpoint(snapshot, inventory, resource):
+    """Owned VPC endpoint targeting a pipeline in a foreign account."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "foreign_ingestion_pipeline")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    endpoint, arn = data.get("EndpointId"), data.get("PipelineArn")
+    match = re.fullmatch(r"arn:" + re.escape(partition) + r":osis:" + re.escape(region) +
+                         r":([0-9]{12}):pipeline/[A-Za-z0-9-]+", str(arn))
+    if not isinstance(endpoint, str) or not endpoint or not match:
+        a.gap("inventory", "OpenSearch Ingestion VPC endpoint target is unresolved")
+        return a
+    owner = match.group(1)
+    if owner in trusted_scopes(snapshot)["ids"]:
+        return None
+    status = data.get("Status")
+    if status in ("REVOKED", "DELETING", "CREATE_FAILED"):
+        return None
+    a.external_ids = [owner]
+    a.step("foreign_pipeline_endpoint", "unknown", endpoint_id=endpoint,
+           pipeline_arn=arn, pipeline_owner=owner, status=status)
+    a.gap("backend", "Delivery of records to the foreign ingestion pipeline is not observed")
+    return a
+
+
+def _aws_osis_sink(snapshot, inventory, resource):
+    """Candidate delivery to a bucket or HTTPS sink outside owned inventory."""
+    data = resource["data"]
+    detail = data.get("NetworkDetails")
+    if not isinstance(detail, dict) or detail.get("Status") not in ("ACTIVE", "UPDATING"):
+        return None
+    a = Assessment(resource, "external_ingestion_sink")
+    if detail.get("PipelineArn") != data.get("PipelineArn"):
+        a.gap("inventory", "OpenSearch Ingestion sink detail does not match its listing")
+        return a
+    targets, coverage = detail.get("SinkTargets"), detail.get("SinkCoverage")
+    if not isinstance(targets, list) or coverage not in ("collected", "partial", "unresolved"):
+        a.gap("inventory", "OpenSearch Ingestion sink projection is incomplete", "osis:GetPipeline")
+        return a
+
+    def host(value):
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = urlsplit(value if "://" in value else "https://" + value)
+            return parsed.hostname.lower() if parsed.hostname else None
+        except ValueError:
+            return None
+
+    owned_buckets = {row["data"].get("Name") for row in inventory.items("bucket")
+                     if row["scope"].split("/")[0] == resource["scope"].split("/")[0]}
+    owned_hosts = set()
+    for row in (*inventory.items("opensearch_domain"), *inventory.items("aoss_collection")):
+        if row["scope"].split("/")[0] != resource["scope"].split("/")[0]:
+            continue
+        body = row["data"]
+        for value in (body.get("Endpoint"), body.get("collectionEndpoint"),
+                      *(body.get("Endpoints", {}).values() if isinstance(body.get("Endpoints"), dict) else ())):
+            normalized = host(value)
+            if normalized:
+                owned_hosts.add(normalized)
+    owned_lambdas = {row["data"].get("FunctionArn") for row in inventory.items("lambda_function")
+                     if row["scope"].split("/")[0] == resource["scope"].split("/")[0]}
+    external = []
+    for target in targets:
+        if not isinstance(target, dict) or target.get("type") not in ("bucket", "host", "lambda") or not isinstance(target.get("value"), str):
+            a.gap("inventory", "OpenSearch Ingestion sink target is malformed")
+            return a
+        kind, value = target["type"], target["value"]
+        owned = owned_buckets if kind == "bucket" else owned_hosts if kind == "host" else owned_lambdas
+        if value not in owned:
+            external.append({"type": kind, "value": value})
+    if not external and coverage == "collected":
+        return None
+    if external:
+        a.step("sink_destination", "unknown", destinations=external)
+    a.gap("backend", "OpenSearch Ingestion sink ownership or delivery is not established",
+          "osis:GetPipeline.PipelineConfigurationBody" if coverage != "collected" else None)
+    return a
+
+
+def _aws_redshift_serverless_workgroup(snapshot, inventory, resource):
+    """Public Redshift Serverless SQL endpoint through its VPC path."""
+    data = resource["data"]
+    if data.get("publiclyAccessible") is False:
+        return None
+    a = Assessment(resource, "database")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    name, ident, arn = (data.get(key) for key in ("workgroupName", "workgroupId", "workgroupArn"))
+    if (not isinstance(name, str) or not name or not isinstance(ident, str) or not ident or
+            arn != f"arn:{partition}:redshift-serverless:{region}:{account}:workgroup/{ident}"):
+        a.gap("inventory", "Redshift Serverless workgroup identity is not attributable to the scoped account")
+        return a
+    if data.get("publiclyAccessible") is not True:
+        a.gap("inventory", "Redshift Serverless public-access flag is missing", "redshift-serverless:ListWorkgroups")
+        return a
+    endpoint = data.get("endpoint")
+    if not isinstance(endpoint, dict) or not isinstance(endpoint.get("address"), str) or not endpoint["address"]:
+        a.gap("inventory", "Redshift Serverless public endpoint address is missing", "redshift-serverless:ListWorkgroups")
+        return a
+    a.addresses = [endpoint["address"]]
+    port = endpoint.get("port")
+    if type(port) is not int or not 1 <= port <= 65535 or ("port" in data and data["port"] != port):
+        a.gap("listener", "Redshift Serverless endpoint port is missing or inconsistent", "redshift-serverless:ListWorkgroups")
+        return a
+    a.step("listener", "allow", port=port)
+    subnets, groups = data.get("subnetIds"), data.get("securityGroupIds")
+    if (not isinstance(subnets, list) or not subnets or any(not isinstance(value, str) or not value for value in subnets) or
+            not isinstance(groups, list) or not groups or any(not isinstance(value, str) or not value for value in groups)):
+        a.gap("inventory", "Redshift Serverless workgroup subnet or security group IDs are incomplete", "redshift-serverless:ListWorkgroups")
+        return a
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, pset("tcp", port, port), native_id(resource),
+                            narrow_public=True, public_host_witness=True)
+    if data.get("status") not in (None, "AVAILABLE"):
+        a.notes.append(f"Workgroup status {data['status']}")
+    return a
+
+
+def _aws_redshift_serverless_cross_account_vpc(snapshot, inventory, resource):
+    """A workgroup's cross-account VPC list lacks the grantee account ID."""
+    data = resource["data"]
+    vpcs = data.get("crossAccountVpcs")
+    if not isinstance(vpcs, list) or not vpcs:
+        return None
+    a = Assessment(resource, "external_redshift_serverless_vpc")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    ident = data.get("workgroupId")
+    if (not isinstance(ident, str) or not ident or
+            data.get("workgroupArn") != f"arn:{partition}:redshift-serverless:{region}:{account}:workgroup/{ident}" or
+            any(not isinstance(vpc, str) or (vpc != "*" and not re.fullmatch(r"vpc-[0-9a-fA-F]+", vpc)) for vpc in vpcs)):
+        a.gap("inventory", "Redshift Serverless cross-account VPC metadata is malformed")
+        return a
+    a.step("cross_account_vpcs", "allow", workgroup_arn=data["workgroupArn"], allowed_vpcs=sorted(set(vpcs)))
+    a.gap("grantee", "ListWorkgroups does not identify the account that owns these allowed VPCs")
+    return a
+
+
+def _aws_transfer_server(snapshot, inventory, resource):
+    """Transfer Family public or Elastic-IP-backed VPC server endpoint."""
+    data = resource["data"]
+    a = Assessment(resource, "transfer_server")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    server_id, arn = data.get("ServerId"), data.get("Arn")
+    if (not isinstance(server_id, str) or not re.fullmatch(r"s-[0-9a-f]+", server_id) or
+            arn != f"arn:{partition}:transfer:{region}:{account}:server/{server_id}"):
+        a.gap("inventory", "Transfer server identity is not attributable to the scoped account")
+        return a
+    detail = data.get("Server")
+    if not isinstance(detail, dict) or detail.get("collection_status") != "collected":
+        a.gap("inventory", "Transfer server detail is incomplete", "transfer:DescribeServer")
+        return a
+    if detail.get("Arn") != arn or detail.get("ServerId") != server_id:
+        a.gap("inventory", "Transfer server detail identity differs from its listing")
+        return a
+    endpoint_type = detail.get("EndpointType")
+    protocols = detail.get("Protocols")
+    if not isinstance(protocols, list) or not protocols or any(value not in {"SFTP", "FTPS", "FTP", "AS2"} for value in protocols):
+        a.gap("inventory", "Transfer server protocols are incomplete", "transfer:DescribeServer")
+        return a
+    if endpoint_type == "PUBLIC":
+        if "SFTP" not in protocols:
+            a.gap("listener", "Public Transfer endpoint protocol is not documented as SFTP")
+            return a
+        a.ports = pset("tcp", 22, 22)
+        a.explicit = "FAIL"
+        a.step("service_endpoint", "allow", endpoint_type="PUBLIC", server_id=server_id,
+               protocols=protocols, documented_port=22)
+        a.gap("authentication", "Client authentication and any successful file transfer were not observed")
+    elif endpoint_type == "VPC":
+        endpoint = detail.get("EndpointDetails")
+        if not isinstance(endpoint, dict):
+            a.gap("inventory", "Transfer VPC endpoint details are incomplete", "transfer:DescribeServer")
+            return a
+        allocations = endpoint.get("AddressAllocationIds", [])
+        if not isinstance(allocations, list):
+            a.gap("inventory", "Transfer endpoint Elastic IP allocation list is malformed")
+            return a
+        if not allocations:
+            return None
+        addresses = {}
+        for allocation in allocations:
+            matches = [row["data"] for row in inventory.items("elastic_ip") if row["scope"] == resource["scope"]
+                       and row["data"].get("AllocationId") == allocation]
+            if len(matches) != 1 or not _public_ip(matches[0].get("PublicIp")):
+                a.gap("public_ip", "Transfer endpoint Elastic IP allocation was not resolved", "ec2:DescribeAddresses")
+                return a
+            addresses[allocation] = matches[0]["PublicIp"]
+        a.addresses = list(dict.fromkeys(addresses.values()))
+        subnets, groups = endpoint.get("SubnetIds"), endpoint.get("SecurityGroupIds")
+        if (not isinstance(subnets, list) or not subnets or any(not isinstance(value, str) or not value for value in subnets) or
+                not isinstance(groups, list) or not groups or any(not isinstance(value, str) or not value for value in groups)):
+            a.gap("inventory", "Transfer VPC endpoint subnet or security groups are incomplete")
+            return a
+        ports = {}
+        if "SFTP" in protocols:
+            for port in (22, 2222, 2223, 22000):
+                ports = union(ports, pset("tcp", port, port))
+        if "FTPS" in protocols or "FTP" in protocols:
+            ports = union(ports, pset("tcp", 21, 21))
+        if "AS2" in protocols:
+            ports = union(ports, pset("tcp", 5080, 5080))
+        a.step("service_endpoint", "allow", endpoint_type="VPC", server_id=server_id,
+               protocols=protocols, allocation_ids=sorted(addresses))
+        a.ports = _aws_vpc_path(inventory, a, subnets, groups, ports, native_id(resource),
+                                vpc_id=endpoint.get("VpcId"), narrow_public=True, public_host_witness=True)
+    elif endpoint_type == "VPC_ENDPOINT":
+        return None
+    else:
+        a.gap("inventory", "Transfer endpoint type is missing or unrecognized", "transfer:DescribeServer")
+        return a
+    if detail.get("State") != "ONLINE":
+        a.dormant = True
+        a.notes.append("Transfer server is not currently online; retained endpoint configuration applies after restart")
+    return a
+
+
+def _aws_transfer_web_app(snapshot, inventory, resource):
+    """Transfer Family public HTTPS web app endpoint."""
+    data = resource["data"]
+    a = Assessment(resource, "transfer_web_app")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    web_app_id, arn = data.get("WebAppId"), data.get("Arn")
+    if (not isinstance(web_app_id, str) or not re.fullmatch(r"webapp-[0-9a-f]{17}", web_app_id) or
+            arn != f"arn:{partition}:transfer:{region}:{account}:webapp/{web_app_id}"):
+        a.gap("inventory", "Transfer web app identity is not attributable to the scoped account")
+        return a
+    detail = data.get("WebApp")
+    if not isinstance(detail, dict) or detail.get("collection_status") != "collected":
+        a.gap("inventory", "Transfer web app detail is incomplete", "transfer:DescribeWebApp")
+        return a
+    if detail.get("Arn") != arn or detail.get("WebAppId") != web_app_id:
+        a.gap("inventory", "Transfer web app detail identity differs from its listing")
+        return a
+    endpoint_type = detail.get("EndpointType")
+    if endpoint_type == "VPC":
+        return None
+    if endpoint_type != "PUBLIC":
+        a.gap("inventory", "Transfer web app endpoint type is missing or unrecognized", "transfer:DescribeWebApp")
+        return a
+    endpoint = detail.get("WebAppEndpoint") or detail.get("AccessEndpoint")
+    parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+    if parsed is None or parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        a.gap("listener", "Transfer public web app endpoint URL is incomplete", "transfer:DescribeWebApp")
+        return a
+    a.addresses = [parsed.hostname]
+    a.ports = pset("tcp", 443, 443)
+    a.explicit = "FAIL"
+    a.step("service_endpoint", "allow", endpoint_type="PUBLIC", web_app_id=web_app_id, host=parsed.hostname)
+    a.gap("authentication", "Identity Center authorization and successful file access were not observed")
+    return a
+
+
+def _aws_msk_public_brokers(snapshot, inventory, resource):
+    """Provisioned MSK public brokers, filtered by their subnet and security groups."""
+    data = resource["data"]
+    a = Assessment(resource, "msk_public_brokers")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn = data.get("ClusterArn")
+    if (not isinstance(arn, str) or not arn.startswith(f"arn:{partition}:kafka:{region}:{account}:cluster/") or
+            data.get("ClusterType") not in {"PROVISIONED", "SERVERLESS"}):
+        a.gap("inventory", "MSK cluster identity or type is not attributable to the scoped account")
+        return a
+    if data["ClusterType"] == "SERVERLESS":
+        return None
+    provisioned = data.get("Provisioned")
+    broker = provisioned.get("BrokerNodeGroupInfo") if isinstance(provisioned, dict) else None
+    connectivity = broker.get("ConnectivityInfo") if isinstance(broker, dict) else None
+    public = connectivity.get("PublicAccess") if isinstance(connectivity, dict) else None
+    mode = public.get("Type") if isinstance(public, dict) else None
+    if mode == "DISABLED":
+        return None
+    if mode != "SERVICE_PROVIDED_EIPS":
+        a.gap("inventory", "MSK broker public access setting is incomplete", "kafka:ListClustersV2")
+        return a
+    bootstrap = data.get("PublicBootstrapBrokers")
+    if not isinstance(bootstrap, dict) or bootstrap.get("collection_status") != "collected":
+        a.gap("inventory", "MSK public bootstrap broker read is incomplete", "kafka:GetBootstrapBrokers")
+        return a
+    port_fields = (("BootstrapBrokerStringPublicTls", 9194, 4),
+                   ("BootstrapBrokerStringPublicSaslScram", 9196, 4),
+                   ("BootstrapBrokerStringPublicSaslIam", 9198, 4),
+                   ("BootstrapBrokerStringIpv6", 20092, 6),
+                   ("BootstrapBrokerStringTlsIpv6", 20094, 6),
+                   ("BootstrapBrokerStringSaslScramIpv6", 20096, 6),
+                   ("BootstrapBrokerStringSaslIamIpv6", 20098, 6))
+    addresses, ports = set(), {4: {}, 6: {}}
+    for field, port, family in port_fields:
+        value = bootstrap.get(field)
+        if value is None or value == "":
+            continue
+        if not isinstance(value, str):
+            a.gap("listener", "MSK public bootstrap broker list is malformed", "kafka:GetBootstrapBrokers")
+            return a
+        for token in value.split(","):
+            host, separator, supplied_port = token.strip().rpartition(":")
+            if (separator != ":" or supplied_port != str(port) or
+                    not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", host)):
+                a.gap("listener", "MSK public bootstrap broker host or port is malformed", "kafka:GetBootstrapBrokers")
+                return a
+            addresses.add(host)
+        ports[family] = union(ports[family], pset("tcp", port, port))
+    if not addresses:
+        a.gap("listener", "MSK public access is enabled but no public bootstrap broker was returned", "kafka:GetBootstrapBrokers")
+        return a
+    subnets = broker.get("ClientSubnets") if isinstance(broker, dict) else None
+    groups = broker.get("SecurityGroups") if isinstance(broker, dict) else None
+    if (not isinstance(subnets, list) or not subnets or any(not isinstance(x, str) or not x for x in subnets) or
+            not isinstance(groups, list) or not groups or any(not isinstance(x, str) or not x for x in groups)):
+        a.gap("inventory", "MSK broker subnet or security group inventory is incomplete", "kafka:ListClustersV2")
+        return a
+    a.addresses = sorted(addresses)
+    a.step("service_endpoint", "allow", public_access=mode, broker_hosts=a.addresses)
+    for family in (4, 6):
+        if ports[family]:
+            a.ports = union(a.ports or {}, _aws_vpc_path(inventory, a, subnets, groups, ports[family],
+                            native_id(resource), family=family, narrow_public=True, public_host_witness=True))
+    a.gap("authentication", "Kafka client authentication, ACLs and successful topic access were not observed")
+    if data.get("State") != "ACTIVE":
+        a.dormant = True
+        a.notes.append("MSK cluster is not currently active; retained public configuration applies after activation")
+    return a
+
+
+def _aws_mq_public_broker(snapshot, inventory, resource):
+    """Assess Amazon MQ's advertised public broker ports through its VPC path."""
+    data = resource["data"]
+    a = Assessment(resource, "mq_public_broker")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    broker_id, arn = data.get("BrokerId"), data.get("BrokerArn")
+    if (not isinstance(broker_id, str) or not broker_id or not isinstance(arn, str) or
+            not re.fullmatch(r"arn:" + partition + r":mq:" + re.escape(region) + ":" +
+                             re.escape(account) + r":broker:[^:]+:" + re.escape(broker_id), arn)):
+        a.gap("inventory", "Amazon MQ broker identity is not attributable to the scoped account")
+        return a
+    config = data.get("Configuration")
+    if not isinstance(config, dict) or config.get("collection_status") != "collected":
+        a.gap("inventory", "Amazon MQ broker detail read is incomplete", "mq:DescribeBroker")
+        return a
+    if config.get("BrokerArn") != arn or config.get("BrokerId") != broker_id:
+        a.gap("inventory", "Amazon MQ broker detail does not match its list identity")
+        return a
+    public = config.get("PubliclyAccessible")
+    if public is False:
+        return None
+    if public is not True:
+        a.gap("inventory", "Amazon MQ public accessibility is unavailable", "mq:DescribeBroker")
+        return a
+    instances = config.get("BrokerInstances")
+    if not isinstance(instances, list) or not instances:
+        a.gap("listener", "Amazon MQ public broker endpoints are unavailable", "mq:DescribeBroker")
+        return a
+    suffix = f".mq.{region}." + ("amazonaws.com.cn" if partition == "aws-cn" else "amazonaws.com")
+    addresses, ports = set(), {}
+    for instance in instances:
+        if not isinstance(instance, dict) or not isinstance(instance.get("Endpoints"), list):
+            a.gap("listener", "Amazon MQ broker instance endpoints are malformed", "mq:DescribeBroker")
+            return a
+        for endpoint in instance["Endpoints"] + ([instance["ConsoleURL"]] if isinstance(instance.get("ConsoleURL"), str) else []):
+            try:
+                parsed = urlsplit(endpoint)
+                host = parsed.hostname
+                port = parsed.port or (443 if parsed.scheme in {"https", "wss"} else None)
+            except (TypeError, ValueError):
+                host, port = None, None
+            if (not isinstance(host, str) or not host.endswith(suffix) or not host[:-len(suffix)] or
+                    parsed.scheme not in {"ssl", "amqps", "https", "wss", "mqtt", "stomp", "tcp"} or
+                    not isinstance(port, int) or not 1 <= port <= 65535 or
+                    parsed.username or parsed.password):
+                a.gap("listener", "Amazon MQ broker endpoint host or port is unverified", "mq:DescribeBroker")
+                return a
+            addresses.add(host)
+            ports = union(ports, pset("tcp", port, port))
+    if not ports:
+        a.gap("listener", "Amazon MQ public broker has no advertised endpoint ports", "mq:DescribeBroker")
+        return a
+    subnets, groups = config.get("SubnetIds"), config.get("SecurityGroups")
+    if (not isinstance(subnets, list) or not subnets or not all(isinstance(x, str) and x for x in subnets) or
+            not isinstance(groups, list) or not groups or not all(isinstance(x, str) and x for x in groups)):
+        a.gap("inventory", "Amazon MQ broker subnet or security group IDs are unavailable", "mq:DescribeBroker")
+        return a
+    a.addresses = sorted(addresses)
+    a.step("service_endpoint", "allow", public_access=True, broker_hosts=a.addresses)
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, ports, native_id(resource),
+                            narrow_public=True, public_host_witness=True)
+    a.gap("authentication", "Broker users, engine authorization and successful message access were not observed")
+    if config.get("BrokerState") != "RUNNING":
+        a.dormant = True
+        a.notes.append("Amazon MQ broker is not currently running")
+    return a
+
+
+def _aws_mq_shared_resource(snapshot, inventory, resource):
+    """Private RabbitMQ network links can carry Shovel or Federation traffic."""
+    data = resource["data"]
+    shared = data.get("SharedResources")
+    if data.get("EngineType") != "RABBITMQ" or not isinstance(shared, dict):
+        return None
+    a = Assessment(resource, "mq_private_resource_path")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn = data.get("BrokerArn")
+    if (not isinstance(arn, str) or not arn.startswith(f"arn:{partition}:mq:{region}:{account}:broker:") or
+            not isinstance(data.get("BrokerId"), str) or not arn.endswith(":" + data["BrokerId"])):
+        a.gap("inventory", "RabbitMQ broker identity is not attributable to the scoped account")
+        return a
+    if shared.get("collection_status") not in {"collected", "empty"}:
+        a.gap("inventory", "RabbitMQ shared-resource read is incomplete", "mq:DescribeSharedResources")
+        return a
+    rows = shared.get("items")
+    if not isinstance(rows, list):
+        a.gap("inventory", "RabbitMQ shared-resource response is malformed")
+        return a
+    active, pending = [], False
+    for row in rows:
+        if not isinstance(row, dict) or row.get("Type") not in {"RESOURCE", "RESOURCE_SHARE"}:
+            a.gap("inventory", "RabbitMQ shared-resource identity is malformed")
+            return a
+        if row["Type"] != "RESOURCE":
+            continue
+        resource_arn = row.get("ResourceArn")
+        if not isinstance(resource_arn, str) or not resource_arn.startswith("arn:"):
+            a.gap("inventory", "RabbitMQ shared resource ARN is unavailable")
+            return a
+        if row.get("Status") == "AVAILABLE":
+            active.append(resource_arn)
+        elif row.get("Status") in {"SETUP_IN_PROGRESS", "PENDING_CREATE", "PENDING_DELETE", "DELETION_IN_PROGRESS"}:
+            pending = True
+        elif row.get("Status") != "ERROR":
+            a.gap("inventory", "RabbitMQ shared resource state is unknown")
+            return a
+    if not active and not pending:
+        return None
+    if active:
+        a.step("private_network", "configured", resource_arns=sorted(set(active)))
+    if pending:
+        a.gap("network", "RabbitMQ shared resource is pending")
+    a.gap("backend", "Shovel or Federation configuration and message delivery are unavailable from AWS APIs")
+    return a
+
+
+def _aws_mq_network_connector(snapshot, inventory, resource):
+    """Applied ActiveMQ connectors may forward messages to an external broker."""
+    data = resource["data"]
+    applied = data.get("AppliedNetworkConnectors")
+    if data.get("EngineType") != "ACTIVEMQ" or not isinstance(applied, dict):
+        return None
+    a = Assessment(resource, "mq_network_connector")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn = data.get("BrokerArn")
+    if (not isinstance(arn, str) or not arn.startswith(f"arn:{partition}:mq:{region}:{account}:broker:") or
+            not isinstance(data.get("BrokerId"), str) or not arn.endswith(":" + data["BrokerId"])):
+        a.gap("inventory", "ActiveMQ broker identity is not attributable to the scoped account")
+        return a
+    config = data.get("Configuration")
+    assigned = config.get("Configurations") if isinstance(config, dict) else None
+    current = assigned.get("Current") if isinstance(assigned, dict) else None
+    if (applied.get("collection_status") != "collected" or not isinstance(current, dict) or
+            applied.get("ConfigurationId") != current.get("Id")):
+        a.gap("inventory", "Applied ActiveMQ configuration revision was not collected", "mq:DescribeConfigurationRevision")
+        return a
+    connectors = applied.get("NetworkConnectors")
+    if not isinstance(connectors, list) or type(applied.get("ConnectorParseComplete")) is not bool:
+        a.gap("inventory", "ActiveMQ network connector projection is malformed")
+        return a
+    owned = set()
+    for broker in inventory.items("mq_broker"):
+        broker_config = broker["data"].get("Configuration")
+        instances = broker_config.get("BrokerInstances") if isinstance(broker_config, dict) else None
+        for instance in instances if isinstance(instances, list) else []:
+            for endpoint in instance.get("Endpoints", []) if isinstance(instance, dict) else []:
+                try:
+                    parsed = urlsplit(endpoint)
+                    if parsed.hostname and parsed.port:
+                        owned.add((parsed.hostname.lower(), parsed.port))
+                except (TypeError, ValueError):
+                    continue
+    external = []
+    for connector in connectors:
+        if (not isinstance(connector, dict) or not isinstance(connector.get("Host"), str) or
+                type(connector.get("Port")) is not int or not 1 <= connector["Port"] <= 65535 or
+                type(connector.get("Duplex")) is not bool):
+            a.gap("inventory", "ActiveMQ network connector endpoint is malformed")
+            return a
+        if (connector["Host"], connector["Port"]) not in owned:
+            external.append(connector)
+    if not external and applied["ConnectorParseComplete"]:
+        return None
+    if external:
+        a.step("network_connector", "configured", remote_brokers=external)
+        a.addresses = sorted({row["Host"] for row in external})
+    if not applied["ConnectorParseComplete"]:
+        a.gap("inventory", "Some ActiveMQ connector URIs could not be projected")
+    a.gap("backend", "Remote broker ownership, authentication and message delivery were not observed")
+    return a
+
+
+def _aws_mailmanager_ingress(snapshot, inventory, resource):
+    """Public Mail Manager SMTP listener; private VPC ingress is excluded."""
+    data = resource["data"]
+    a = Assessment(resource, "mailmanager_ingress")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    ingress_id = data.get("IngressPointId")
+    if (not isinstance(ingress_id, str) or not re.fullmatch(r"inp-[A-Za-z0-9]+", ingress_id) or
+            data.get("IngressPointArn") != f"arn:{partition}:ses:{region}:{account}:mailmanager-ingress-point/{ingress_id}"):
+        a.gap("inventory", "Mail Manager ingress identity is not attributable to the scoped account")
+        return a
+    coverage = data.get("_coverage")
+    detail = coverage.get("network_detail") if isinstance(coverage, dict) else None
+    if isinstance(detail, dict) and detail.get("status") not in {"collected", "empty"}:
+        a.gap("inventory", "Mail Manager ingress detail is incomplete", "mailmanager:GetIngressPoint")
+        return a
+    network = data.get("NetworkConfiguration")
+    if isinstance(network, dict) and "PrivateNetworkConfiguration" in network:
+        return None
+    if isinstance(network, dict) and network and "PublicNetworkConfiguration" not in network:
+        a.gap("inventory", "Mail Manager ingress network type is unrecognized", "mailmanager:GetIngressPoint")
+        return a
+    host = data.get("ARecord")
+    if not isinstance(host, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", host):
+        a.gap("listener", "Mail Manager public SMTP DNS record is incomplete", "mailmanager:GetIngressPoint")
+        return a
+    kind = data.get("Type")
+    if kind not in {"OPEN", "AUTH", "MTLS"}:
+        a.gap("inventory", "Mail Manager ingress authentication type is incomplete", "mailmanager:GetIngressPoint")
+        return a
+    if data.get("Status") in {"CLOSED", "FAILED"}:
+        return None
+    a.addresses = [host]
+    a.ports = pset("tcp", 25, 25)
+    if kind == "AUTH":
+        a.ports = union(a.ports, pset("tcp", 587, 587))
+    a.explicit = "FAIL"
+    a.step("service_endpoint", "allow", host=host, ingress_type=kind)
+    a.gap("traffic_policy", "SMTP traffic policy and successful message acceptance were not observed")
+    if kind != "OPEN":
+        a.gap("authentication", "SMTP client authentication was not observed")
+    if data.get("Status") != "ACTIVE":
+        a.dormant = True
+        a.notes.append("Mail Manager ingress is not currently active; configured listener applies after activation")
+    return a
+
+
+def _aws_mediapackagev2_listener(snapshot, inventory, resource):
+    """AWS-hosted MediaPackage v2 channel ingest and origin playback listeners."""
+    data = resource["data"]
+    a = Assessment(resource, "mediapackagev2_listener")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    group, channel, arn = data.get("ChannelGroupName"), data.get("ChannelName"), data.get("ChannelArn")
+    if (not isinstance(group, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", group) or
+            not isinstance(channel, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", channel) or
+            arn != f"arn:{partition}:mediapackagev2:{region}:{account}:channelGroup/{group}/channel/{channel}"):
+        a.gap("inventory", "MediaPackage v2 channel is not attributable to the scoped account")
+        return a
+    expected_suffix = f".mediapackagev2.{region}." + ("amazonaws.com.cn" if partition == "aws-cn" else "amazonaws.com")
+    expected_api_suffix = f".mediapackagev2.{region}.api.aws"
+    hosts = []
+    for field in ("Ingest", "Playback"):
+        part = data.get(field)
+        if not isinstance(part, dict) or part.get("collection_status") != "collected":
+            a.gap("inventory", f"MediaPackage v2 {field.lower()} listener read is incomplete")
+            continue
+        sources = [{"Hosts": part.get("Hosts")}] if field == "Ingest" else part.get("Endpoints")
+        if not isinstance(sources, list):
+            a.gap("inventory", f"MediaPackage v2 {field.lower()} endpoints are malformed")
+            continue
+        for endpoint in sources:
+            entries = endpoint.get("Hosts") if isinstance(endpoint, dict) else None
+            if not isinstance(entries, list):
+                a.gap("inventory", "MediaPackage v2 endpoint hosts are malformed")
+                continue
+            if field == "Playback" and (not isinstance(endpoint.get("OriginEndpointArn"), str) or
+                    not endpoint["OriginEndpointArn"].startswith(arn + "/originEndpoint/")):
+                a.gap("inventory", "MediaPackage v2 origin endpoint identity is malformed")
+                continue
+            for entry in entries:
+                host = entry.get("Host") if isinstance(entry, dict) else None
+                port = entry.get("Port") if isinstance(entry, dict) else None
+                if (not isinstance(host, str) or not (host.endswith(expected_suffix) or host.endswith(expected_api_suffix)) or
+                        not isinstance(port, int) or port != 443):
+                    a.gap("inventory", "MediaPackage v2 endpoint host is not a verified AWS HTTPS listener")
+                    continue
+                hosts.append({"kind": field.lower(), "host": host, "port": port})
+    if not hosts:
+        return a if a.unresolved else None
+    a.addresses = sorted({entry["host"] for entry in hosts})
+    a.ports = pset("tcp", 443, 443)
+    a.explicit = "FAIL"
+    a.step("service_endpoint", "allow", channel_arn=arn, listeners=hosts)
+    a.gap("authorization", "Channel and origin endpoint policies control ingest and playback authorization")
+    return a
+
+
+def _aws_mediapackagev2_harvest_job(snapshot, inventory, resource):
+    """A harvest job can export an origin clip to an S3 bucket."""
+    data = resource["data"]
+    a = Assessment(resource, "mediapackagev2_harvest_export")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    group, channel, origin, name = (data.get(key) for key in
+                                    ("ChannelGroupName", "ChannelName", "OriginEndpointName", "HarvestJobName"))
+    if (any(not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value)
+            for value in (group, channel, origin, name)) or
+            data.get("Arn") != (f"arn:{partition}:mediapackagev2:{region}:{account}:channelGroup/{group}/"
+                                f"channel/{channel}/originEndpoint/{origin}/harvestJob/{name}")):
+        a.gap("inventory", "MediaPackage v2 harvest job is not attributable to the scoped account")
+        return a
+    status = data.get("Status")
+    if status in {"FAILED", "CANCELLED"}:
+        return None
+    if status not in {"QUEUED", "IN_PROGRESS", "COMPLETED"}:
+        a.gap("inventory", "MediaPackage v2 harvest status is unavailable")
+        return a
+    bucket = data.get("BucketName")
+    if not isinstance(bucket, str) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+        a.gap("inventory", "MediaPackage v2 harvest destination bucket is malformed")
+        return a
+    a.step("export", "configured", harvest_job_arn=data["Arn"], bucket=bucket, status=status)
+    owned = any(item["scope"].split("/", 1)[0] == account and item["data"].get("Name") == bucket
+                for item in inventory.items("bucket"))
+    if owned and inventory.state("bucket", f"{account}/global") in {"collected", "empty"}:
+        return None
+    a.gap("destination_owner", "Harvest S3 bucket ownership or delivery is not established", "s3:ListAllMyBuckets")
+    return a
+
+
+def _aws_mailmanager_rule_route(snapshot, inventory, resource):
+    """Candidate external delivery from an attached Mail Manager rule set."""
+    data = resource["data"]
+    a = Assessment(resource, "external_mail_route")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    ingress_id = data.get("IngressPointId")
+    if (not isinstance(ingress_id, str) or not re.fullmatch(r"inp-[A-Za-z0-9]+", ingress_id) or
+            data.get("IngressPointArn") != f"arn:{partition}:ses:{region}:{account}:mailmanager-ingress-point/{ingress_id}"):
+        a.gap("inventory", "Mail Manager rule route cannot be attributed to an owned ingress point")
+        return a
+    rule_set = data.get("RuleSet")
+    if not isinstance(rule_set, dict) or rule_set.get("collection_status") != "collected":
+        a.gap("inventory", "Mail Manager attached rule set is incomplete", "ses:GetRuleSet")
+        return a
+    rule_id = rule_set.get("RuleSetId")
+    if (not isinstance(rule_id, str) or not rule_id or
+            rule_set.get("RuleSetArn") != f"arn:{partition}:ses:{region}:{account}:mailmanager-rule-set/{rule_id}" or
+            not isinstance(rule_set.get("Rules"), list)):
+        a.gap("inventory", "Mail Manager rule set identity or actions are malformed")
+        return a
+    relay_rows = data.get("Relays", [])
+    if not isinstance(relay_rows, list):
+        a.gap("inventory", "Mail Manager relay inventory is malformed")
+        return a
+    relays = {row.get("RelayId"): row for row in relay_rows if isinstance(row, dict)}
+    candidates = []
+    for rule in rule_set["Rules"]:
+        actions = rule.get("Actions") if isinstance(rule, dict) else None
+        if not isinstance(actions, list):
+            a.gap("inventory", "Mail Manager rule actions are malformed")
+            return a
+        for action in actions:
+            if not isinstance(action, dict):
+                a.gap("inventory", "Mail Manager rule action is malformed")
+                return a
+            if action.get("Type") == "Send":
+                candidates.append({"action": "Send", "destination": "dynamic internet recipients"})
+            elif action.get("Type") == "Bounce":
+                candidates.append({"action": "Bounce", "destination": "dynamic internet sender"})
+            elif action.get("Type") == "Relay":
+                relay_id = action.get("RelayId")
+                relay = relays.get(relay_id)
+                if (not isinstance(relay_id, str) or not isinstance(relay, dict) or
+                        relay.get("collection_status") != "collected" or
+                        relay.get("RelayArn") != f"arn:{partition}:ses:{region}:{account}:mailmanager-smtp-relay/{relay_id}" or
+                        not isinstance(relay.get("ServerName"), str) or
+                        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", relay["ServerName"]) or
+                        not isinstance(relay.get("ServerPort"), int) or not 1 <= relay["ServerPort"] <= 65535):
+                    a.gap("inventory", "Mail Manager referenced SMTP relay is incomplete", "ses:GetRelay")
+                    return a
+                candidates.append({"action": "Relay", "host": relay["ServerName"], "port": relay["ServerPort"]})
+            elif action.get("Type") in {"Archive", "WriteToS3", "DeliverToMailbox", "DeliverToQBusiness",
+                                        "PublishToSns", "InvokeLambda"}:
+                target_field = {"Archive": "ArchiveId", "WriteToS3": "S3Bucket",
+                                "DeliverToMailbox": "MailboxArn", "DeliverToQBusiness": "ApplicationId",
+                                "PublishToSns": "TopicArn", "InvokeLambda": "FunctionArn"}[action["Type"]]
+                target = action.get(target_field)
+                if not isinstance(target, str) or not target:
+                    a.gap("inventory", "Mail Manager downstream action target is incomplete")
+                    return a
+                candidates.append({"action": action["Type"], "destination": target})
+            elif action.get("Type") not in {"Drop", "AddHeader", "ReplaceRecipient"}:
+                a.gap("inventory", "Mail Manager rule action is unreviewed")
+                return a
+    if not candidates:
+        return None
+    a.step("rule_actions", "allow", ingress_point_arn=data["IngressPointArn"],
+           rule_set_arn=rule_set["RuleSetArn"], candidates=candidates)
+    a.gap("authorization", "Rule conditions, traffic policy, downstream access, recipient ownership and successful delivery are unresolved")
+    if data.get("Status") != "ACTIVE":
+        a.dormant = True
+        a.notes.append("Mail Manager ingress is not currently active; configured rule actions apply after activation")
+    return a
+
+
+def _aws_opensearch_vpc_endpoint_access(snapshot, inventory, resource):
+    """Owned private-domain network grants for foreign endpoint creators."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "opensearch_foreign_vpc_endpoint_access")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    name, arn = data.get("DomainName"), data.get("DomainArn")
+    if not isinstance(name, str) or arn != f"arn:{partition}:es:{region}:{account}:domain/{name}":
+        a.gap("inventory", "OpenSearch endpoint grant domain is not owned by the scoped account")
+        return a
+    if data.get("AccessCoverage") not in ("collected", "empty"):
+        a.gap("inventory", "OpenSearch VPC endpoint access list is incomplete", "es:ListVpcEndpointAccess")
+        return a
+    entries = data.get("AuthorizedPrincipals")
+    if not isinstance(entries, list):
+        a.gap("inventory", "OpenSearch VPC endpoint principals are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign, uncertain = [], False
+    for entry in entries:
+        if not isinstance(entry, dict):
+            uncertain = True
+            continue
+        kind, principal = entry.get("PrincipalType"), entry.get("Principal")
+        if kind == "AWS_ACCOUNT" and isinstance(principal, str) and re.fullmatch(r"[0-9]{12}", principal):
+            if principal not in trusted:
+                foreign.append(principal)
+        elif kind == "AWS_SERVICE":
+            # Service principals need service-specific association evidence.
+            uncertain = True
+        else:
+            uncertain = True
+    if foreign:
+        a.external_ids = sorted(set(foreign))
+        a.step("endpoint_authorization", "allow", domain_arn=arn, foreign_accounts=a.external_ids)
+        a.gap("inventory", "Endpoint creation, network path and domain data policy are not observed")
+        return a
+    if uncertain:
+        a.gap("inventory", "OpenSearch endpoint principal scope is unresolved")
+        return a
+    return None
+
+
+def _aws_opensearch_ui_application(snapshot, inventory, resource):
+    """Public OpenSearch UI listener and cross-account data-source candidates."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "opensearch_ui_application")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    ident, arn = data.get("id"), data.get("arn")
+    if not isinstance(ident, str) or arn != f"arn:{partition}:opensearch:{region}:{account}:application/{ident}":
+        a.gap("inventory", "OpenSearch UI application is not owned by the scoped account")
+        return a
+    if data.get("status") in ("DELETING", "FAILED", "DELETED"):
+        return None
+    if data.get("status") not in ("ACTIVE", "UPDATING"):
+        a.gap("inventory", "OpenSearch UI application is not confirmed active")
+        return a
+    host = data.get("EndpointHost")
+    if not isinstance(host, str) or not host:
+        a.gap("inventory", "OpenSearch UI endpoint host is unavailable", "es:GetApplication")
+    else:
+        a.addresses = [host]
+        a.ports = pset("tcp", 443, 443)
+        a.authenticated = True
+        a.explicit = "FAIL"
+        a.step("service_endpoint", "allow", host=host, port=443,
+               semantics="AWS-hosted OpenSearch UI is public by default; IAM network conditions may restrict use")
+    sources = data.get("DataSources")
+    trusted = trusted_scopes(snapshot)["ids"]
+    foreign = []
+    if not isinstance(sources, list):
+        a.gap("inventory", "OpenSearch UI data-source list is incomplete", "es:GetApplication")
+    else:
+        for source in sources:
+            target = source.get("dataSourceArn") if isinstance(source, dict) else None
+            parts = target.split(":", 5) if isinstance(target, str) else []
+            if len(parts) != 6 or parts[0] != "arn" or parts[1] != partition or not re.fullmatch(r"[0-9]{12}", parts[4]):
+                a.gap("inventory", "OpenSearch UI data-source identity is unresolved")
+                continue
+            if parts[4] not in trusted:
+                foreign.append({"account": parts[4], "data_source_arn": target})
+    if foreign:
+        a.external_ids = sorted({item["account"] for item in foreign})
+        a.step("data_source", "configured", foreign_sources=foreign)
+        a.gap("authorization", "Cross-account source role, domain policy and actual query access are unresolved")
+    admins = data.get("AdminPrincipals")
+    if not isinstance(admins, list):
+        a.gap("authorization", "OpenSearch UI administrator assignment is unresolved")
+    else:
+        for principal in admins:
+            if not isinstance(principal, str):
+                a.gap("authorization", "OpenSearch UI administrator identity is malformed")
+                continue
+            match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):role/.+", principal)
+            if match and match.group(1) not in trusted:
+                a.external_ids = sorted(set(a.external_ids) | {match.group(1)})
+                a.step("admin_assignment", "configured", foreign_account=match.group(1))
+                a.gap("authorization", "Cross-account role assumption and application access are unresolved")
+    return a
+
+
+def _aws_opensearch_connection(snapshot, inventory, resource):
+    """Accepted cross-cluster search connection involving a foreign domain."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "opensearch_cross_cluster_connection")
+    account = str(resource.get("scope", "")).split("/", 1)[0]
+    direction, status = data.get("Direction"), data.get("StatusCode")
+    if direction not in ("inbound", "outbound"):
+        a.gap("inventory", "OpenSearch connection direction is unresolved")
+        return a
+    if status in ("REJECTED", "REJECTING", "DELETING", "DELETED"):
+        return None
+    if status != "ACTIVE":
+        a.gap("inventory", "OpenSearch cross-cluster connection is not confirmed active")
+        return a
+    local_info, remote_info = data.get("LocalDomainInfo"), data.get("RemoteDomainInfo")
+    local = local_info.get("AWSDomainInformation") if isinstance(local_info, dict) else None
+    remote = remote_info.get("AWSDomainInformation") if isinstance(remote_info, dict) else None
+    if (not isinstance(local, dict) or not isinstance(remote, dict) or local.get("OwnerId") != account or
+            not isinstance(remote.get("OwnerId"), str) or
+            not re.fullmatch(r"[0-9]{12}", remote["OwnerId"])):
+        a.gap("inventory", "OpenSearch connection domain ownership is unresolved")
+        return a
+    owner = remote["OwnerId"]
+    if owner in trusted_scopes(snapshot)["ids"]:
+        return None
+    a.external_ids = [owner]
+    a.step("cross_cluster_connection", "allow", direction=direction,
+           local_domain=local.get("DomainName"), remote_account=owner,
+           remote_domain=remote.get("DomainName"))
+    if direction == "inbound":
+        a.explicit = "FAIL"
+        a.data_exposure = True
+    else:
+        a.gap("authorization", "Remote search results and actual query use are not observed")
+    return a
+
+
+def _aws_aoss_network_policy(snapshot, inventory, resource):
+    """Report declared public OpenSearch Serverless network rules."""
+    data = resource["data"]
+    a = Assessment(resource, "aoss_public_network_policy")
+    rules = data.get("NetworkPolicy")
+    if not isinstance(rules, list) or not rules:
+        a.gap("inventory", "OpenSearch Serverless network policy rules are unavailable",
+              "aoss:GetSecurityPolicy")
+        return a
+    public = []
+    for rule in rules:
+        if not isinstance(rule, dict) or type(rule.get("AllowFromPublic")) is not bool:
+            a.gap("policy", "OpenSearch Serverless public access flag is malformed")
+            return a
+        entries = rule.get("Rules")
+        if not isinstance(entries, list) or not entries:
+            a.gap("policy", "OpenSearch Serverless target rules are unavailable")
+            return a
+        for entry in entries:
+            if (not isinstance(entry, dict) or entry.get("ResourceType") not in ("collection", "dashboard") or
+                    not isinstance(entry.get("Resource"), list) or not entry["Resource"] or
+                    any(not isinstance(value, str) or not value.startswith("collection/") or
+                        not value.removeprefix("collection/") for value in entry["Resource"])):
+                a.gap("policy", "OpenSearch Serverless target rule is malformed")
+                return a
+            if rule["AllowFromPublic"]:
+                public.append({"endpoint_type": entry["ResourceType"], "patterns": entry["Resource"]})
+    if public:
+        a.authenticated = True
+        a.dormant = True  # A policy pattern can match only future collections.
+        a.step("network_policy", "allow", public_rules=public)
+        a.gap("inventory", "Public policy pattern alone does not prove an active collection endpoint")
+    else:
+        a.step("network_policy", "block", public_access=False)
+    return a
+
+
+def _aws_aoss_collection(snapshot, inventory, resource):
+    """Join active Serverless endpoint hosts to effective public network rules."""
+    from fnmatch import fnmatchcase
+
+    data = resource["data"]
+    if data.get("status") != "ACTIVE":
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    ident, name = data.get("id"), data.get("name")
+    if (not isinstance(ident, str) or not isinstance(name, str) or
+            data.get("arn") != f"arn:{partition}:aoss:{region}:{account}:collection/{ident}"):
+        a.gap("inventory", "OpenSearch Serverless collection identity is not owned")
+        return a
+    if data.get("_coverage", {}).get("network_detail", {}).get("status"):
+        a.gap("inventory", "OpenSearch Serverless collection endpoint detail is incomplete",
+              "aoss:BatchGetCollection")
+        return a
+    policy_state = inventory.state("aoss_network_policy", resource["scope"])
+    public = set()
+    matched = []
+    for policy in inventory.items("aoss_network_policy"):
+        if policy["scope"] != resource["scope"]:
+            continue
+        rules = policy["data"].get("NetworkPolicy")
+        if not isinstance(rules, list) or not rules:
+            a.gap("policy", "OpenSearch Serverless network policy detail is unavailable")
+            continue
+        for rule in rules:
+            if not isinstance(rule, dict) or type(rule.get("AllowFromPublic")) is not bool:
+                a.gap("policy", "OpenSearch Serverless network rule is malformed")
+                continue
+            for entry in as_list(rule.get("Rules")):
+                if not isinstance(entry, dict) or entry.get("ResourceType") not in ("collection", "dashboard"):
+                    a.gap("policy", "OpenSearch Serverless target rule is malformed")
+                    continue
+                patterns = entry.get("Resource")
+                if not isinstance(patterns, list) or any(not isinstance(v, str) or not v.startswith("collection/") for v in patterns):
+                    a.gap("policy", "OpenSearch Serverless target pattern is malformed")
+                    continue
+                if rule["AllowFromPublic"] and any(fnmatchcase(f"collection/{name}", pattern) for pattern in patterns):
+                    public.add(entry["ResourceType"])
+                    matched.append({"policy": policy["data"].get("name"), "endpoint_type": entry["ResourceType"],
+                                    "patterns": patterns})
+    if public:
+        suffix = "amazonaws.com.cn" if region.startswith("cn-") else "amazonaws.com"
+        for endpoint_type, field in (("collection", "collectionEndpoint"), ("dashboard", "dashboardEndpoint")):
+            if endpoint_type not in public:
+                continue
+            endpoint = data.get(field)
+            try:
+                parsed = urlsplit(endpoint)
+                valid = parsed.scheme == "https" and parsed.hostname == f"{ident}.{region}.aoss.{suffix}" and not parsed.username
+            except (TypeError, ValueError):
+                valid = False
+            if not valid:
+                a.gap("inventory", f"OpenSearch Serverless {field} is missing or malformed", "aoss:BatchGetCollection")
+                return a
+            a.addresses.append(endpoint)
+        a.ports = pset("tcp", 443, 443)
+        a.authenticated = True
+        a.step("network_policy", "allow", public_rules=matched,
+               semantics="Network reachability only; data access still requires authorization")
+        return a
+    if policy_state not in ("collected", "empty") or a.unresolved:
+        a.gap("policy", "OpenSearch Serverless network policy inventory is incomplete",
+              "aoss:ListSecurityPolicies/GetSecurityPolicy")
+    else:
+        a.step("network_policy", "block", public_access=False)
+    return a
+
+
+def _aws_redshift_endpoint_authorization(snapshot, inventory, resource):
+    """Owner-granted Redshift PrivateLink endpoint permission for a foreign account."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_redshift_endpoint_authorization")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    cluster, grantor, grantee = (data.get(key) for key in ("ClusterIdentifier", "Grantor", "Grantee"))
+    if (not isinstance(cluster, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,62}", cluster) or
+            grantor != account or not isinstance(grantee, str) or not re.fullmatch(r"[0-9]{12}", grantee) or
+            data.get("id") != f"{account}/{region}/redshift-endpoint/{cluster}/{grantee}"):
+        a.gap("inventory", "Redshift endpoint authorization identity or grantor is unresolved")
+        return a
+    if grantee in trusted_scopes(snapshot)["ids"]:
+        return None
+    status = data.get("Status")
+    if status == "Revoking":
+        a.gap("authorization", "Foreign Redshift endpoint grant is still being revoked")
+        return a
+    if status != "Authorized":
+        a.gap("authorization", "Redshift endpoint authorization state is unresolved")
+        return a
+    all_vpcs, vpcs = data.get("AllowedAllVPCs"), data.get("AllowedVPCs")
+    if all_vpcs is not True and (not isinstance(vpcs, list) or not vpcs):
+        a.gap("vpc", "No allowed VPC is proved for the foreign endpoint grant")
+        return a
+    if isinstance(vpcs, list) and any(not isinstance(vpc, str) or not re.fullmatch(r"vpc-[0-9a-fA-F]+", vpc) for vpc in vpcs):
+        a.gap("vpc", "Allowed VPC identifiers are malformed")
+        return a
+    a.external_ids = [grantee]
+    a.explicit = "FAIL"
+    a.step("endpoint_authorization", "allow", cluster=cluster, grantee=grantee,
+           all_grantee_vpcs=all_vpcs is True, allowed_vpcs=vpcs if isinstance(vpcs, list) else [],
+           endpoint_count=data.get("EndpointCount"))
+    a.gap("endpoint", "Endpoint security groups, database credentials and successful connection were not observed")
+    return a
+
+
+def _aws_wellarchitected_share(snapshot, inventory, resource):
+    """Owned Well-Architected share accepted by a foreign AWS principal."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_share")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    arn, share_id = data.get("ResourceArn"), data.get("ShareId")
+    if (data.get("OwnerAccount") != account or
+            not isinstance(arn, str) or
+            not arn.startswith(f"arn:{partition}:wellarchitected:{region}:{account}:") or
+            not isinstance(share_id, str) or not re.fullmatch(r"[0-9a-f]{32}", share_id) or
+            data.get("NetworkResourceId") != f"{arn}/share/{share_id}" or
+            data.get("ResourceType") not in {"workload", "lens", "profile", "template"}):
+        a.gap("inventory", "Well-Architected share is not attributable to an owned resource")
+        return a
+    status = data.get("Status")
+    if status in {"REJECTED", "REVOKED", "EXPIRED", "FAILED"}:
+        return None
+    if status not in {"ACCEPTED", "ASSOCIATED", "PENDING", "ASSOCIATING"}:
+        a.gap("share", "Well-Architected share status is unresolved", "wellarchitected:List*Shares")
+        return a
+    principal = data.get("SharedWith")
+    trusted = trusted_scopes(snapshot)["ids"]
+    if principal == "*":
+        foreign = True
+    elif isinstance(principal, str) and re.fullmatch(r"[0-9]{12}", principal):
+        foreign = principal not in trusted
+    elif isinstance(principal, str):
+        match = re.fullmatch(r"arn:" + partition + r":iam::([0-9]{12}):(?:root|(?:user|role)/.+)", principal)
+        if match:
+            foreign = match.group(1) not in trusted
+        else:
+            a.gap("principal", "Well-Architected organization, OU or principal scope is unresolved")
+            return a
+    else:
+        a.gap("principal", "Well-Architected share principal was not collected")
+        return a
+    if not foreign:
+        return None
+    if status in {"PENDING", "ASSOCIATING"}:
+        a.gap("acceptance", "Foreign Well-Architected share is not yet accepted", "wellarchitected:List*Shares.Status")
+        return a
+    a.external_ids = [principal]
+    a.authenticated = True
+    a.explicit = "FAIL"
+    a.step("share", "allow", resource_type=data["ResourceType"], principal=principal,
+           status=status, permission=data.get("PermissionType"))
+    return a
+
+
+def _aws_mwaa_webserver(snapshot, inventory, resource):
+    """An owned MWAA environment with a public Airflow webserver route."""
+    data = resource["data"]
+    a = Assessment(resource, "mwaa_webserver")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    name, arn = data.get("Name"), data.get("Arn")
+    if (not isinstance(name, str) or not name or
+            arn != f"arn:{partition}:airflow:{region}:{account}:environment/{name}" or
+            data.get("NetworkResourceId") != arn):
+        a.gap("inventory", "MWAA environment is not attributable to the scanned account")
+        return a
+    mode, status = data.get("WebserverAccessMode"), data.get("Status")
+    if status in {"DELETING", "DELETED", "CREATE_FAILED"} or mode == "PRIVATE_ONLY":
+        return None
+    if mode not in {"PUBLIC_ONLY", "PUBLIC_AND_PRIVATE"}:
+        a.gap("inventory", "MWAA webserver network mode is unresolved", "mwaa:GetEnvironment")
+        return a
+    host = data.get("WebserverHost")
+    suffix = f".{region}.airflow.amazonaws.com" if partition != "aws-cn" else f".{region}.airflow.amazonaws.com.cn"
+    if not isinstance(host, str) or not host.endswith(suffix):
+        a.gap("listener", "MWAA public webserver hostname is unresolved", "mwaa:GetEnvironment.WebserverUrl")
+        return a
+    if status not in {"AVAILABLE", "UPDATING", "UPDATE_FAILED", "MAINTENANCE"}:
+        a.gap("listener", "MWAA public webserver is not in a confirmed serving state")
+        return a
+    a.addresses = [host]
+    a.ports = pset("tcp", 443, 443)
+    a.authenticated = True
+    a.explicit = "FAIL"
+    a.step("service_endpoint", "allow", host=host, port=443, mode=mode, status=status)
+    return a
+
+
+def _aws_pcs_public_endpoint(snapshot, inventory, resource):
+    """Public IPs advertised by an owned Parallel Computing Service cluster."""
+    import ipaddress
+
+    data = resource["data"]
+    a = Assessment(resource, "pcs_public_endpoint")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    cluster_id, arn = data.get("id"), data.get("arn")
+    if (not isinstance(cluster_id, str) or not cluster_id or
+            arn != f"arn:{partition}:pcs:{region}:{account}:cluster/{cluster_id}" or
+            data.get("NetworkResourceId") != arn):
+        a.gap("inventory", "PCS cluster is not attributable to the scanned account")
+        return a
+    if data.get("status") in {"DELETING", "DELETED", "CREATE_FAILED"}:
+        return None
+    attributes = data.get("NetworkAttributes")
+    if not isinstance(attributes, list):
+        a.gap("inventory", "PCS endpoint inventory is unresolved", "pcs:GetCluster.endpoints")
+        return a
+    endpoints = {}
+    for row in attributes:
+        if not isinstance(row, dict):
+            continue
+        match = re.fullmatch(r"endpoints\[([0-9]+)\]\.(type|port|publicIpAddress|ipv6Address)", str(row.get("path", "")))
+        if match:
+            endpoints.setdefault(int(match.group(1)), {})[match.group(2)] = row.get("value")
+    exposed = []
+    for endpoint in endpoints.values():
+        for field in ("publicIpAddress", "ipv6Address"):
+            address = endpoint.get(field)
+            if not isinstance(address, str) or not address:
+                continue
+            try:
+                if not ipaddress.ip_address(address).is_global:
+                    continue
+            except ValueError:
+                a.gap("inventory", "PCS advertised public address is malformed")
+                continue
+            try:
+                port = int(endpoint.get("port"))
+            except (TypeError, ValueError):
+                a.gap("listener", "PCS public endpoint port is unresolved")
+                continue
+            if 1 <= port <= 65535:
+                exposed.append({"address": address, "port": port, "type": endpoint.get("type")})
+            else:
+                a.gap("listener", "PCS public endpoint port is invalid")
+    if not exposed:
+        return a if a.unresolved else None
+    a.addresses = sorted({entry["address"] for entry in exposed})
+    a.ports = {"tcp": sorted({(entry["port"], entry["port"]) for entry in exposed})}
+    a.step("service_endpoint", "allow", endpoints=exposed)
+    a.gap("security_group", "PCS public endpoint path depends on cluster security groups and subnet routes")
+    return a
+
+
+def _aws_mediapackage_v1_origin(snapshot, inventory, resource):
+    """Public playback URL exposed by a MediaPackage V1 origin endpoint."""
+    data = resource["data"]
+    a = Assessment(resource, "mediapackage_origin")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    ident, arn = data.get("Id"), data.get("Arn")
+    if (not isinstance(ident, str) or not ident or
+            arn != f"arn:{partition}:mediapackage:{region}:{account}:origin_endpoints/{ident}" or
+            data.get("NetworkResourceId") != arn):
+        a.gap("inventory", "MediaPackage origin is not attributable to the scanned account")
+        return a
+    if data.get("Origination") == "DENY":
+        return None
+    host = data.get("Host")
+    suffix = f".mediapackage.{region}.amazonaws.com" + (".cn" if partition == "aws-cn" else "")
+    if not isinstance(host, str) or not host.endswith(suffix):
+        a.gap("listener", "MediaPackage origin playback host is unresolved", "mediapackage:ListOriginEndpoints")
+        return a
+    a.addresses = [host]
+    a.ports = pset("tcp", 443, 443)
+    a.authenticated = bool(data.get("CdnAuthorization"))
+    a.step("service_endpoint", "allow", host=host, port=443,
+           origination=data.get("Origination"), cdn_authorization=a.authenticated)
+    whitelist = data.get("Whitelist")
+    if whitelist is None or any(item in {"0.0.0.0/0", "::/0"} for item in whitelist):
+        a.explicit = "FAIL"
+    else:
+        a.gap("authorization", "MediaPackage origin whitelist limits client reachability")
+    return a
+
+
+def _aws_mediatailor_playback(snapshot, inventory, resource):
+    """AWS-hosted MediaTailor personalized playback URL."""
+    data = resource["data"]
+    a = Assessment(resource, "mediatailor_playback")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    name, arn = data.get("Name"), data.get("PlaybackConfigurationArn")
+    if (not isinstance(name, str) or not name or
+            arn != f"arn:{partition}:mediatailor:{region}:{account}:playbackConfiguration/{name}" or
+            data.get("NetworkResourceId") != arn):
+        a.gap("inventory", "MediaTailor playback configuration is not attributable to the scanned account")
+        return a
+    hosts = data.get("PlaybackHosts")
+    suffix = f".mediatailor.{region}.amazonaws.com" + (".cn" if partition == "aws-cn" else "")
+    if not isinstance(hosts, list) or not hosts or any(not isinstance(host, str) or not host.endswith(suffix) for host in hosts):
+        a.gap("listener", "MediaTailor playback endpoint is unresolved", "mediatailor:ListPlaybackConfigurations")
+        return a
+    a.addresses = sorted(set(hosts))
+    a.ports = pset("tcp", 443, 443)
+    a.explicit = "FAIL"
+    a.step("service_endpoint", "allow", hosts=a.addresses, port=443)
+    if data.get("AdDecisionHost"):
+        a.gap("destination", "Ad decision server recipient ownership is unresolved")
+    return a
+
+
+def _aws_lattice_foreign_vpc_association(snapshot, inventory, resource):
+    """An active consumer VPC association against an owned service network."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    status = data.get("status")
+    if status == "CREATE_FAILED":
+        return None
+    a = Assessment(resource, "external_lattice_vpc")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    network_arn = data.get("serviceNetworkArn")
+    network_id = data.get("serviceNetworkId")
+    if (not isinstance(network_id, str) or not re.fullmatch(r"sn-[0-9a-z]{17}", network_id) or
+            network_arn != f"arn:{partition}:vpc-lattice:{region}:{account}:servicenetwork/{network_id}" or
+            not isinstance(data.get("vpcId"), str) or not re.fullmatch(r"vpc-[0-9a-fA-F]+", data["vpcId"])):
+        a.gap("inventory", "Lattice VPC association cannot be attributed to an owned service network")
+        return a
+    creator = data.get("createdBy")
+    if not isinstance(creator, str) or not re.fullmatch(r"[0-9]{12}", creator):
+        a.gap("inventory", "Lattice VPC association creator account is incomplete")
+        return a
+    if creator in trusted_scopes(snapshot)["ids"]:
+        return None
+    if status != "ACTIVE":
+        a.gap("association", "Lattice foreign VPC association is not confirmed active")
+        return a
+    kinds = ("lattice_service_association", "lattice_resource_association")
+    active = []
+    for kind in kinds:
+        for row in inventory.items(kind):
+            body = row["data"]
+            if (row["scope"] == resource["scope"] and body.get("serviceNetworkArn") == network_arn and
+                    body.get("status") == "ACTIVE"):
+                target = body.get("serviceArn") if kind == "lattice_service_association" else body.get("resourceConfigurationArn")
+                if isinstance(target, str) and target.startswith(f"arn:{partition}:vpc-lattice:{region}:{account}:"):
+                    active.append(target)
+    if not active:
+        if all(inventory.state(kind, resource["scope"]) in {"collected", "empty"} for kind in kinds):
+            return None
+        a.gap("inventory", "Lattice service and resource association inventory is incomplete")
+        return a
+    a.external_ids = [creator]
+    a.step("association", "allow", creator_account=creator, vpc_id=data["vpcId"],
+           service_network_arn=network_arn, associated_resources=sorted(set(active)))
+    a.gap("authorization", "Lattice auth policies, target filtering and actual client requests are not resolved")
+    return a
+
+
+def _aws_marketplace_entity(snapshot, inventory, resource):
+    """Public seller listings and scoped buyer visibility from owned entities."""
+    from peaso.collectors.aws_marketplace_exposure import ENTITY_TYPES
+
+    data = resource["data"]
+    a = Assessment(resource, "marketplace_listing")
+    account, _, scope_region = str(resource.get("scope", "")).partition("/")
+    arn, entity_type = data.get("EntityArn"), data.get("EntityType")
+    if scope_region != "global" or not isinstance(entity_type, str) or entity_type not in ENTITY_TYPES or not isinstance(arn, str):
+        a.gap("inventory", "Marketplace entity identity or global scope is malformed")
+        return a
+    match = re.fullmatch(r"arn:(aws|aws-cn|aws-us-gov):aws-marketplace:([^:]+):" +
+                         re.escape(account) + r":AWSMarketplace/" + re.escape(entity_type) + r"/[^/]+", arn)
+    if not match or match.group(2) != {"aws": "us-east-1", "aws-cn": "cn-north-1",
+                                         "aws-us-gov": "us-gov-west-1"}[match.group(1)]:
+        a.gap("inventory", "Marketplace entity ARN is not owned in the central Catalog Region")
+        return a
+    if entity_type == "Offer":
+        state, buyers = data.get("State"), data.get("BuyerAccounts")
+        if state == "Draft":
+            return None
+        if state != "Released" or not isinstance(buyers, list) or any(
+                not isinstance(buyer, str) or not re.fullmatch(r"[0-9]{12}", buyer) for buyer in buyers):
+            a.gap("inventory", "Marketplace offer state or buyer account list is incomplete")
+            return a
+        from .trust import trusted_scopes
+        foreign = sorted(set(buyers) - trusted_scopes(snapshot)["ids"])
+        if foreign:
+            a.external_ids = foreign
+            a.step("offer", "configured", entity_arn=arn, buyer_accounts=foreign)
+            a.gap("buyer_access", "Buyer acceptance and offer entitlement are not observed")
+            return a
+        if not buyers:
+            a.gap("buyer_access", "Released offer targeting is not resolved from buyer accounts")
+            return a
+        return None
+    if entity_type == "ResaleAuthorization":
+        status, reseller = data.get("Status"), data.get("ResellerAccountId")
+        if status == "Draft":
+            return None
+        if not isinstance(reseller, str) or not re.fullmatch(r"[0-9]{12}", reseller):
+            a.gap("inventory", "Marketplace reseller account is unavailable")
+            return a
+        from .trust import trusted_scopes
+        if reseller in trusted_scopes(snapshot)["ids"]:
+            return None
+        a.external_ids = [reseller]
+        a.step("resale_authorization", "configured", entity_arn=arn, reseller_account=reseller, status=status)
+        if status == "Active":
+            a.explicit = "FAIL"
+        else:
+            a.gap("authorization", "Resale authorization status and effective reseller access are unresolved")
+        return a
+    listing_types = {"AmiProduct", "ContainerProduct", "DataProduct", "SaaSProduct",
+                     "MachineLearningProduct", "Solution"}
+    if entity_type not in listing_types:
+        return None  # Other entity sharing is assessed through its policy and RAM associations.
+    visibility = data.get("Visibility")
+    if not isinstance(visibility, str):
+        a.gap("inventory", "Marketplace entity visibility was not returned by ListEntities")
+        return a
+    visibility = visibility.upper()
+    if visibility == "PUBLIC":
+        a.step("listing", "allow", entity_arn=arn, visibility=visibility)
+        a.external_ids = ["*"]
+        a.explicit = "FAIL"
+        return a
+    if visibility in {"LIMITED", "RESTRICTED"}:
+        a.step("listing", "configured", entity_arn=arn, visibility=visibility)
+        a.gap("buyer_access", "Allowlisted buyers or existing subscribers are not enumerated")
+        return a
+    if visibility == "DRAFT":
+        return None
+    a.gap("inventory", "Marketplace listing visibility has an unreviewed value")
+    return a
+
+
+def _aws_s3tables_lf_grant(snapshot, inventory, resource):
+    """Observed Lake Formation grant on an owned S3 table bucket catalog."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_s3tables_lakeformation_grant")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    bucket_arn = data.get("BucketArn")
+    if (not isinstance(bucket_arn, str) or not bucket_arn.startswith(
+            f"arn:{partition}:s3tables:{region}:{account}:bucket/")):
+        a.gap("inventory", "Lake Formation grant is not tied to an owned S3 table bucket")
+        return a
+    principal = data.get("Principal")
+    if not isinstance(principal, str):
+        a.gap("policy", "Lake Formation principal is unavailable")
+        return a
+    match = re.fullmatch(r"arn:" + re.escape(partition) + r":iam::([0-9]{12}):(?:root|(?:role|user)/.+)", principal)
+    owner = principal if re.fullmatch(r"[0-9]{12}", principal) else match.group(1) if match else None
+    if owner is None:
+        a.gap("policy", "Lake Formation principal account is not attributable")
+        return a
+    if owner in trusted_scopes(snapshot)["ids"]:
+        return None
+    permissions = data.get("Permissions")
+    if not isinstance(permissions, list) or not permissions or any(not isinstance(p, str) for p in permissions):
+        a.gap("policy", "Lake Formation grant permissions are unavailable")
+        return a
+    if data.get("ConditionPresent"):
+        a.gap("policy", "Lake Formation grant condition is unresolved")
+        return a
+    a.external_ids = [owner]
+    a.authenticated = True
+    tag_policy = data.get("Resource", {}).get("LFTagPolicy")
+    if isinstance(tag_policy, dict):
+        a.step("lakeformation_tag_policy", "configured", bucket_arn=bucket_arn,
+               principal=principal, permissions=permissions,
+               resource_type=tag_policy.get("ResourceType"),
+               expression_named=bool(tag_policy.get("ExpressionName")),
+               expression_present=tag_policy.get("ExpressionPresent") is True)
+        a.gap("policy", "LF-tag expression is not joined to an existing S3 table or namespace")
+        return a
+    a.explicit = "FAIL"
+    a.step("lakeformation_grant", "allow", bucket_arn=bucket_arn, principal=principal,
+           permissions=permissions, resource=data.get("Resource"))
+    a.gap("acceptance", "Recipient RAM acceptance, IAM permissions and use were not observed")
+    return a
+
+
+def _refactor_attribute(data, path):
+    attributes = data.get("NetworkAttributes")
+    matches = [entry.get("value") for entry in attributes if isinstance(entry, dict) and
+               entry.get("path") == path] if isinstance(attributes, list) else []
+    return matches[0] if len(matches) == 1 and isinstance(matches[0], str) else None
+
+
+def _aws_refactor_application(snapshot, inventory, resource):
+    """A regional Refactor Spaces API Gateway proxy is internet hosted."""
+    data = resource["data"]
+    a = Assessment(resource, "refactor_spaces_proxy")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    environment, application = data.get("EnvironmentId"), data.get("ApplicationId")
+    if (not isinstance(environment, str) or not re.fullmatch(r"env-[0-9A-Za-z]{10}", environment) or
+            not isinstance(application, str) or not re.fullmatch(r"app-[0-9A-Za-z]{10}", application) or
+            data.get("OwnerAccountId") != account or
+            data.get("Arn") != (f"arn:{partition}:refactor-spaces:{region}:{account}:"
+                                f"environment/{environment}/application/{application}")):
+        a.gap("inventory", "Refactor Spaces application is not attributable to the scoped account")
+        return a
+    state = data.get("State")
+    if state in {"FAILED", "DELETING"}:
+        return None
+    if state != "ACTIVE":
+        a.gap("inventory", "Refactor Spaces application is not yet active")
+        return a
+    endpoint_type = _refactor_attribute(data, "ApiGatewayProxy.EndpointType")
+    if endpoint_type == "PRIVATE":
+        return None
+    if endpoint_type != "REGIONAL":
+        a.gap("inventory", "Refactor Spaces proxy endpoint type is unavailable")
+        return a
+    api_id = _refactor_attribute(data, "ApiGatewayProxy.ApiGatewayId")
+    host = data.get("ProxyHost")
+    suffix = "amazonaws.com.cn" if partition == "aws-cn" else "amazonaws.com"
+    expected = f"{api_id}.execute-api.{region}.{suffix}"
+    if not isinstance(api_id, str) or not re.fullmatch(r"[a-z0-9]{10}", api_id) or host != expected:
+        a.gap("inventory", "Regional Refactor Spaces proxy host is not verified against its API Gateway ID")
+        return a
+    a.addresses = [host]
+    a.ports = pset("tcp", 443, 443)
+    a.explicit = "FAIL"
+    a.step("service_endpoint", "allow", application_arn=data["Arn"], host=host, endpoint_type=endpoint_type)
+    a.gap("authorization", "API Gateway resource policy and backend acceptance were not resolved")
+    return a
+
+
+def _aws_refactor_service(snapshot, inventory, resource):
+    """A configured public URL backend may route requests to a third party."""
+    data = resource["data"]
+    a = Assessment(resource, "refactor_spaces_url_backend")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    environment, application, service = (data.get(key) for key in
+                                         ("EnvironmentId", "ApplicationId", "ServiceId"))
+    if (not isinstance(environment, str) or not re.fullmatch(r"env-[0-9A-Za-z]{10}", environment) or
+            not isinstance(application, str) or not re.fullmatch(r"app-[0-9A-Za-z]{10}", application) or
+            not isinstance(service, str) or not re.fullmatch(r"svc-[0-9A-Za-z]{10}", service) or
+            data.get("OwnerAccountId") != account or
+            data.get("Arn") != (f"arn:{partition}:refactor-spaces:{region}:{account}:"
+                                f"environment/{environment}/application/{application}/service/{service}")):
+        a.gap("inventory", "Refactor Spaces service is not attributable to the scoped account")
+        return a
+    if data.get("State") in {"FAILED", "DELETING"}:
+        return None
+    if data.get("State") != "ACTIVE":
+        a.gap("inventory", "Refactor Spaces service is not yet active")
+        return a
+    endpoint_type = data.get("EndpointType") or _refactor_attribute(data, "EndpointType")
+    if endpoint_type == "LAMBDA":
+        return None
+    if endpoint_type != "URL":
+        a.gap("inventory", "Refactor Spaces service endpoint type is unavailable")
+        return a
+    value = _refactor_attribute(data, "UrlEndpoint.Url")
+    try:
+        url = urlsplit(value)
+        host = url.hostname
+        port = url.port or (443 if url.scheme == "https" else 80)
+    except (TypeError, ValueError):
+        host = None
+    if not isinstance(host, str) or url.scheme not in {"http", "https"}:
+        a.gap("inventory", "Refactor Spaces URL backend host is unavailable")
+        return a
+    try:
+        address = ipaddress.ip_address(host)
+        if not address.is_global:
+            return None
+    except ValueError:
+        if "." not in host or host.endswith((".local", ".internal")):
+            return None
+    route_state = inventory.state("refactor_route", resource.get("scope"))
+    if route_state not in {"collected", "empty"}:
+        a.gap("route", "Refactor Spaces route inventory is incomplete", "refactor-spaces:ListRoutes")
+        return a
+    active, pending = [], False
+    for route in inventory.items("refactor_route"):
+        if route.get("scope") != resource.get("scope"):
+            continue
+        row = route.get("data", {})
+        if (row.get("EnvironmentId"), row.get("ApplicationId"), row.get("ServiceId")) != (environment, application, service):
+            continue
+        route_id = row.get("RouteId")
+        if (not isinstance(route_id, str) or not re.fullmatch(r"rte-[0-9A-Za-z]{10}", route_id) or
+                row.get("OwnerAccountId") != account or
+                row.get("Arn") != (f"arn:{partition}:refactor-spaces:{region}:{account}:"
+                                   f"environment/{environment}/application/{application}/route/{route_id}") or
+                row.get("RouteType") not in {"DEFAULT", "URI_PATH"}):
+            a.gap("route", "Refactor Spaces route identity or type is unverified")
+            return a
+        if row.get("State") == "ACTIVE":
+            active.append(row["Arn"])
+        elif row.get("State") in {"CREATING", "UPDATING"}:
+            pending = True
+        elif row.get("State") not in {"INACTIVE", "FAILED", "DELETING"}:
+            a.gap("route", "Refactor Spaces route state is unavailable")
+            return a
+    if not active:
+        if pending:
+            a.gap("route", "Refactor Spaces service route is pending")
+            return a
+        return None
+    a.addresses = [host]
+    a.ports = pset("tcp", port, port)
+    a.step("backend", "configured", service_arn=data["Arn"], host=host, port=port,
+           active_routes=sorted(active))
+    a.gap("backend", "Public URL backend ownership and successful delivery were not observed")
+    return a
+
+
+def _aws_sns_platform_endpoint(snapshot, inventory, resource):
+    """A configured mobile endpoint can receive direct publishes outside SNS."""
+    data = resource["data"]
+    a = Assessment(resource, "external_sns_mobile_push")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    app = data.get("PlatformApplicationArn")
+    match = re.fullmatch(r"arn:" + partition + r":sns:" + re.escape(region) + ":" +
+                         re.escape(account) + r":app/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)", app) if isinstance(app, str) else None
+    endpoint = data.get("EndpointArn")
+    if (match is None or not isinstance(endpoint, str) or not re.fullmatch(
+            r"arn:" + partition + r":sns:" + re.escape(region) + ":" + re.escape(account) +
+            r":endpoint/" + re.escape(match.group(1)) + "/" + re.escape(match.group(2)) +
+            r"/[0-9a-fA-F-]{36}", endpoint) or type(data.get("Enabled")) is not bool):
+        a.gap("inventory", "SNS platform endpoint is not attributable to an owned application")
+        return a
+    if not data["Enabled"]:
+        return None
+    a.step("mobile_push", "configured", platform_application_arn=app, endpoint_arn=endpoint)
+    a.gap("delivery", "Enabled device endpoint can receive direct publishes; recipient ownership and delivery were not observed")
+    return a
+
+
 # --------------------------------------------------------------- dispatcher
 
 AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service", "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster", "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block", "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app", "rds_cluster", "rds_cluster_endpoint", "redshiftserverless_workgroup"]
@@ -24784,6 +26731,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 GCP_TYPES.extend(['app_engine_domain_mapping', 'app_engine_firewall_rule', 'app_engine_iap_policy', 'app_engine_instance', 'app_engine_service', 'app_engine_version', 'cloudtasks_queue', 'cloudtasks_task', 'developerconnect_git_repository_link', 'eventarc_channel', 'eventarc_channel_connection', 'eventarc_enrollment', 'eventarc_message_bus', 'eventarc_pipeline', 'eventarc_trigger', 'pubsub_subscription', 'scheduler_job', 'workflow_source', 'workflows_workflow'])
 AWS_TYPES.extend(['appstream_image', 'auditmanager_framework_share', 'backup_copy_job', 'backup_plan', 'backup_vault', 'cleanrooms_table_share', 'cloud9_environment_share', 'dataexchange_data_grant', 'ds_directory_share', 'ec2_fpga_image', 'eks_access_entry', 'imagebuilder_distribution', 'lakeformation_table_grant', 'lakeformation_tag_policy_grant', 'license_manager_distributed_grant', 'network_interface_permission', 'omics_resource_share', 'quicksight_public_dashboard', 'redshift_datashare', 's3_access_grant_share', 'securitylake_subscriber_share', 'servicecatalog_portfolio', 'transit_gateway_peering_attachment', 'wellarchitected_lens_share', 'wellarchitected_profile_share', 'wellarchitected_template_share', 'wellarchitected_workload_share', 'workdocs_document_share', 'workspaces_connection_alias_share', 'workspaces_image'])
 AWS_TYPES.extend(['agentcore_gateway', 'apigatewayv2_portal', 'appconfig_configuration_profile', 'appconfig_extension_association', 'appflow_flow', 'appstream_image', 'athena_query_export', 'athena_workgroup', 'auditmanager_report_destination', 'autoscaling_group', 'backup_search_export', 'budget_notification_recipients', 'cleanrooms_collaboration_exposure', 'cloudformation_stack_instance', 'cloudmap_public_service', 'cloudsearch_domain_endpoint', 'cloudtrail', 'cloudtrail_query_export', 'codebuild_project', 'codepipeline_pipeline', 'codepipeline_webhook', 'codestar_notification_rule', 'cognito_identity_pool', 'cognito_user_pool_endpoint', 'config_aggregation_authorization', 'config_conformance_pack_delivery', 'config_delivery_channel', 'config_organization_pack_delivery', 'config_organization_rule_lambda_delivery', 'config_rule_lambda_delivery', 'datasync_task', 'dax_cluster', 'directory_service_directory', 'dms_endpoint', 'dsql_cluster', 'ecs_task_network', 'efs_replication', 'eks_access_entry', 'elastic_beanstalk_environment', 'elasticache_serverless_cache', 'eventbridge_api_destination', 'eventbridge_bus', 'eventbridge_custom_bus', 'eventbridge_pipe_exposure', 'eventbridge_rule', 'firehose_delivery_stream', 'glacier_vault_notification', 'globalaccelerator_cross_account_attachment', 'globalaccelerator_custom_routing_accelerator', 'globalaccelerator_custom_routing_listener', 'glue_dev_endpoint', 'http_api_deployed_route', 'imagebuilder_distribution', 'iot_credentials_endpoint', 'iot_data_domain', 'iot_topic_rule', 'lakeformation_permission', 'lakeformation_settings', 'oam_link', 'rum_app_monitor_endpoint', 'scheduler_schedule', 'synthetics_canary'])
+AWS_TYPES.extend(['aoss_collection', 'aoss_network_policy', 'influxdb_cluster', 'influxdb_instance', 'lattice_vpc_association', 'machinelearning_model', 'mailmanager_ingress_point', 'mailmanager_rule_route', 'marketplace_entity', 'mediapackage_origin_endpoint', 'mediapackagev2_channel_listener', 'mediapackagev2_harvest_job', 'mediatailor_playback_configuration', 'mq_broker', 'msk_cluster', 'mwaa_environment', 'neptune_graph', 'neptune_instance', 'oam_link', 'opensearch_connection', 'opensearch_ui_application', 'opensearch_vpc_endpoint_access', 'osis_endpoint_connection', 'osis_pipeline', 'osis_pipeline_endpoint', 'pcs_cluster', 'redshift_datashare', 'redshift_endpoint_authorization', 'refactor_application', 'refactor_route', 'refactor_service', 's3tables_lf_grant', 'security_ir_recipient_route', 'securitylake_exception_notification', 'securitylake_subscriber', 'sns_platform_endpoint', 'transfer_server', 'transfer_web_app', 'wellarchitected_share'])
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "rds_cluster", "rds_cluster_endpoint", "redshift_cluster", "redshiftserverless_workgroup",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
@@ -24807,6 +26755,8 @@ EVALUATED["aws"].update(['auditmanager_framework_share', 'cleanrooms_table_share
 
 EVALUATED["aws"].update(['agentcore_gateway', 'apigatewayv2_portal', 'appconfig_configuration_profile', 'appconfig_extension_association', 'appflow_flow', 'appstream_image', 'athena_query_export', 'athena_workgroup', 'auditmanager_report_destination', 'autoscaling_group', 'backup_search_export', 'budget_notification_recipients', 'cleanrooms_collaboration_exposure', 'cloudformation_stack_instance', 'cloudmap_public_service', 'cloudsearch_domain_endpoint', 'cloudtrail', 'cloudtrail_query_export', 'codebuild_project', 'codepipeline_pipeline', 'codepipeline_webhook', 'codestar_notification_rule', 'cognito_identity_pool', 'cognito_user_pool_endpoint', 'config_aggregation_authorization', 'config_conformance_pack_delivery', 'config_delivery_channel', 'config_organization_pack_delivery', 'config_organization_rule_lambda_delivery', 'config_rule_lambda_delivery', 'datasync_task', 'dax_cluster', 'directory_service_directory', 'dms_endpoint', 'dsql_cluster', 'ecs_task_network', 'eks_access_entry', 'elastic_beanstalk_environment', 'elasticache_serverless_cache', 'eventbridge_bus', 'eventbridge_custom_bus', 'eventbridge_pipe_exposure', 'eventbridge_rule', 'firehose_delivery_stream', 'glacier_job_notification', 'glacier_vault_notification', 'globalaccelerator_cross_account_attachment', 'globalaccelerator_custom_routing_accelerator', 'glue_dev_endpoint', 'imagebuilder_distribution', 'iot_credentials_endpoint', 'iot_data_domain', 'iot_topic_rule', 'lakeformation_permission', 'lakeformation_settings', 'oam_link', 'rum_app_monitor_endpoint', 'scheduler_schedule', 'synthetics_canary'])
 
+EVALUATED["aws"].update(['aoss_collection', 'aoss_network_policy', 'influxdb_cluster', 'influxdb_instance', 'lattice_vpc_association', 'machinelearning_model', 'mailmanager_ingress_point', 'mailmanager_rule_route', 'marketplace_entity', 'mediapackage_origin_endpoint', 'mediapackagev2_channel_listener', 'mediapackagev2_harvest_job', 'mediatailor_playback_configuration', 'mq_broker', 'msk_cluster', 'mwaa_environment', 'neptune_graph', 'neptune_instance', 'oam_link', 'opensearch_connection', 'opensearch_ui_application', 'opensearch_vpc_endpoint_access', 'osis_endpoint_connection', 'osis_pipeline', 'osis_pipeline_endpoint', 'pcs_cluster', 'redshift_datashare', 'redshift_endpoint_authorization', 'refactor_application', 'refactor_service', 's3tables_lf_grant', 'security_ir_recipient_route', 'securitylake_exception_notification', 'securitylake_subscriber', 'sns_platform_endpoint', 'transfer_server', 'transfer_web_app', 'wellarchitected_share'])
+
 def assess(snapshot, resources):
     """Return [Assessment] for every asset with a public address/endpoint (cached per snapshot)."""
     context = _CONTEXT.get()
@@ -24827,7 +26777,7 @@ def assess(snapshot, resources):
             rules.setdefault(parent, []).append(rule)
         extra["rules"] = rules
     handlers = {
-        "aws": { 'auditmanager_report_destination': _aws_auditmanager_report_destination, 'cleanrooms_collaboration_exposure': _aws_cleanrooms_collaboration, 'glue_dev_endpoint': _aws_glue_dev_endpoint,'appstream_image': _aws_appstream_image_share, 'backup_copy_job': _aws_backup_copy_job, 'backup_plan': _aws_backup_plan_foreign_copy, 'backup_vault': _aws_backup_vault_foreign_copy, 'cloud9_environment_share': _aws_cloud9_environment_share, 'eks_access_entry': _aws_eks_foreign_access_entry, 'imagebuilder_distribution': _aws_imagebuilder_distribution, 'omics_resource_share': _aws_omics_resource_share, 'redshift_datashare': _aws_redshift_datashare, 'servicecatalog_portfolio': _aws_servicecatalog_portfolio_share, 'transit_gateway_peering_attachment': _aws_tgw_foreign_attachment, 'wellarchitected_lens_share': _aws_wellarchitected_lens_share, 'wellarchitected_profile_share': _aws_wellarchitected_profile_share, 'wellarchitected_template_share': _aws_wellarchitected_template_share, 'wellarchitected_workload_share': _aws_wellarchitected_workload_share, 'workspaces_image': _aws_workspaces_image_share, "iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
+        "aws": {'aoss_collection': _aws_aoss_collection, 'aoss_network_policy': _aws_aoss_network_policy, 'influxdb_cluster': _aws_influxdb, 'influxdb_instance': _aws_influxdb, 'lattice_vpc_association': _aws_lattice_foreign_vpc_association, 'machinelearning_model': _aws_machinelearning_endpoint, 'mailmanager_ingress_point': _aws_mailmanager_ingress, 'mailmanager_rule_route': _aws_mailmanager_rule_route, 'marketplace_entity': _aws_marketplace_entity, 'mediapackage_origin_endpoint': _aws_mediapackage_v1_origin, 'mediapackagev2_channel_listener': _aws_mediapackagev2_listener, 'mediapackagev2_harvest_job': _aws_mediapackagev2_harvest_job, 'mediatailor_playback_configuration': _aws_mediatailor_playback, 'mq_broker': _aws_mq_public_broker, 'msk_cluster': _aws_msk_public_brokers, 'mwaa_environment': _aws_mwaa_webserver, 'neptune_graph': _aws_neptune_graph, 'neptune_instance': _aws_neptune_instance, 'opensearch_connection': _aws_opensearch_connection, 'opensearch_ui_application': _aws_opensearch_ui_application, 'opensearch_vpc_endpoint_access': _aws_opensearch_vpc_endpoint_access, 'osis_endpoint_connection': _aws_osis_endpoint_connection, 'osis_pipeline': _aws_osis_pipeline, 'osis_pipeline_endpoint': _aws_osis_pipeline_endpoint, 'pcs_cluster': _aws_pcs_public_endpoint, 'redshift_endpoint_authorization': _aws_redshift_endpoint_authorization, 'refactor_application': _aws_refactor_application, 'refactor_service': _aws_refactor_service, 's3tables_lf_grant': _aws_s3tables_lf_grant, 'security_ir_recipient_route': _aws_security_ir_recipient_route, 'securitylake_exception_notification': _aws_securitylake_exception_notification, 'securitylake_subscriber': _aws_securitylake_subscriber, 'transfer_server': _aws_transfer_server, 'transfer_web_app': _aws_transfer_web_app, 'wellarchitected_share': _aws_wellarchitected_share,  'auditmanager_report_destination': _aws_auditmanager_report_destination, 'cleanrooms_collaboration_exposure': _aws_cleanrooms_collaboration, 'glue_dev_endpoint': _aws_glue_dev_endpoint,'appstream_image': _aws_appstream_image_share, 'backup_copy_job': _aws_backup_copy_job, 'backup_plan': _aws_backup_plan_foreign_copy, 'backup_vault': _aws_backup_vault_foreign_copy, 'cloud9_environment_share': _aws_cloud9_environment_share, 'eks_access_entry': _aws_eks_foreign_access_entry, 'imagebuilder_distribution': _aws_imagebuilder_distribution, 'omics_resource_share': _aws_omics_resource_share, 'redshift_datashare': _aws_redshift_datashare, 'servicecatalog_portfolio': _aws_servicecatalog_portfolio_share, 'transit_gateway_peering_attachment': _aws_tgw_foreign_attachment, 'wellarchitected_lens_share': _aws_wellarchitected_lens_share, 'wellarchitected_profile_share': _aws_wellarchitected_profile_share, 'wellarchitected_template_share': _aws_wellarchitected_template_share, 'wellarchitected_workload_share': _aws_wellarchitected_workload_share, 'workspaces_image': _aws_workspaces_image_share, "iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
                 "rds_instance": _aws_rds, "rds_cluster": _aws_rds_cluster_writer, "rds_cluster_endpoint": _aws_rds_cluster_endpoint,
                 "redshiftserverless_workgroup": _aws_redshift_serverless, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
                 "lambda_function": _aws_lambda_url, "lambda_alias": _aws_lambda_url,
@@ -24869,6 +26819,7 @@ def assess(snapshot, resources):
                 "secret": _aws_secret_foreign_read,
                 "sqs_queue": _aws_sqs_foreign_receive,
                 "sns_topic_subscription": _aws_sns_foreign_subscription,
+                "sns_platform_endpoint": _aws_sns_platform_endpoint,
                 "sns_topic": _aws_sns_subscribe_grant,
                 "kms_key": _aws_kms_foreign_decrypt,
                 "kms_grant": _aws_kms_foreign_grant,
@@ -24996,6 +26947,21 @@ def assess(snapshot, resources):
             current.gap("inventory", f"malformed native fact: {type(exc).__name__}")
         if current is not None:
             output.append(current)
+        if provider == "aws" and resource["type"] == "mq_broker":
+            shared = _aws_mq_shared_resource(snapshot, inventory, resource)
+            if shared is not None:
+                output.append(shared)
+            connector = _aws_mq_network_connector(snapshot, inventory, resource)
+            if connector is not None:
+                output.append(connector)
+        if provider == "aws" and resource["type"] == "osis_pipeline":
+            sink = _aws_osis_sink(snapshot, inventory, resource)
+            if sink is not None:
+                output.append(sink)
+        if provider == "aws" and resource["type"] == "redshiftserverless_workgroup":
+            sharing = _aws_redshift_serverless_cross_account_vpc(snapshot, inventory, resource)
+            if sharing is not None:
+                output.append(sharing)
         if provider == "aws" and resource["type"] in ("lambda_function", "lambda_alias"):
             direct = _aws_lambda_direct_invoke(snapshot, inventory, resource)
             if direct is not None:
@@ -25017,10 +26983,19 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.kind == "external_s3tables_lakeformation_grant":
+        return ("S3 table bucket catalog grants foreign Lake Formation permissions" if status == "FAIL"
+                else "S3 table bucket Lake Formation grant unresolved")
     if assessment.kind == "vpn_client_authorization":
         return "Client VPN authorizes all clients to destination network" if status == "FAIL" else "Client VPN authorization unresolved"
     if assessment.kind == "external_generic_policy_grant":
         return "Resource policy grants foreign account access" if status == "FAIL" else "Foreign resource-policy grant unresolved"
+    if assessment.kind == "external_redshift_datashare":
+        return "Redshift datashare authorizes foreign consumer" if status == "FAIL" else "Redshift datashare consumer unresolved"
+    if assessment.kind == "external_redshift_endpoint_authorization":
+        return "Redshift endpoint access granted to foreign account" if status == "FAIL" else "Redshift endpoint grant unresolved"
+    if assessment.kind == "external_redshift_serverless_vpc":
+        return "Redshift Serverless VPC sharing grantee unresolved"
     if assessment.kind == "external_cluster_snapshot_share":
         service = "DocumentDB" if assessment.resource["type"] == "docdb_cluster_snapshot" else "Neptune"
         return (service + " snapshot grants public restore access" if "*" in assessment.external_ids else
@@ -25097,6 +27072,26 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.kind == "foreign_ingestion_pipeline":
+        return ("This account owns a VPC endpoint targeting an ingestion pipeline in a foreign account.\n"
+                "The endpoint can carry records if authorized clients send them; actual delivery is unobserved.")
+    if assessment.kind == "external_ingestion_sink":
+        return ("The ingestion pipeline has a configured sink outside the observed owned inventory, "
+                "or its sink configuration is incomplete.\n"
+                "The destination owner and successful record delivery are unresolved.")
+    if assessment.kind == "external_ingestion_connection":
+        if status == "FAIL":
+            return ("A VPC endpoint owned by a foreign account is active on the ingestion pipeline.\n"
+                    "Its clients can send records if their IAM permissions and network path allow it.")
+        return ("A foreign VPC endpoint connection is listed, but its state or ownership is incomplete.\n"
+                "Whether it can send records to the ingestion pipeline is unresolved.")
+    if assessment.kind == "external_observability_link":
+        if status == "FAIL":
+            return ("The source account links observability data to a foreign monitoring account.\n"
+                    "That account can view the linked telemetry types through its sink.\n"
+                    "Metrics, logs or traces may contain data from this account.")
+        return ("The observability link owner, sink, or shared telemetry types are incomplete.\n"
+                "Whether this account shares telemetry with a foreign account is unresolved.")
     invalid_ranges = next((step.get("invalid_source_ranges") for step in assessment.path
                            if step.get("layer") == "source_ranges" and step.get("decision") == "unknown"), None)
     if assessment.resource["provider"] == "k8s" and assessment.kind in {"service", "ingress"} and invalid_ranges:
@@ -25977,7 +27972,7 @@ def internet_findings(snapshot, resources, *, related_snapshots=()):
                                   if assessment.kind == "external_network" else
                                   "Declared-configuration path model from 0.0.0.0/0; no traffic was sent.")}
         severity = ("critical" if assessment.kind == "external_cluster_snapshot_share" and assessment.data_exposure and status == "FAIL" else
-                    "high" if assessment.kind in ("external_share", "external_cluster_snapshot_share", "external_network", "public_registry", "external_log_stream", "external_registry_share", "external_registry_policy_pull", "external_redshift_snapshot_share", "external_redshift_serverless_snapshot_share", "external_secret_grant", "external_queue_receive", "external_topic_subscription", "external_topic_subscribe_grant", "external_kms_decrypt_grant", "external_kms_grant", "external_lambda_invoke", "external_layer_share") and status == "FAIL" else assessment.adjusted_severity())
+                    "high" if assessment.kind in ("external_share", "external_cluster_snapshot_share", "external_network", "public_registry", "external_log_stream", "external_registry_share", "external_registry_policy_pull", "external_redshift_datashare", "external_redshift_endpoint_authorization", "external_redshift_snapshot_share", "external_redshift_serverless_snapshot_share", "external_secret_grant", "external_queue_receive", "external_topic_subscription", "external_topic_subscribe_grant", "external_kms_decrypt_grant", "external_kms_grant", "external_lambda_invoke", "external_layer_share") and status == "FAIL" else assessment.adjusted_severity())
         current = finding(snapshot, assessment.resource, "exposure", CHECK, _title(assessment, status), severity, evidence, status=status)
         current["remediation"] = exposure_action(evidence, status)
         current["id"] = stable_id("exposure", CHECK, node_id(assessment.resource), node_id(assessment.origin), assessment.kind)

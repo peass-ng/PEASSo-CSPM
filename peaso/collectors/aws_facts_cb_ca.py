@@ -63,6 +63,7 @@ SPECS = {
     "lightsail_static_ip": ("lightsail", "get_static_ips", "staticIps"),
     "sfn_state_machine": ("stepfunctions", "list_state_machines", "stateMachines"),
     "transfer_server": ("transfer", "list_servers", "Servers"),
+    "transfer_web_app": ("transfer", "list_web_apps", "WebApps"),
     "transfer_connector": ("transfer", "list_connectors", "Connectors"),
     "ses_email_identity": ("sesv2", "list_email_identities", "EmailIdentities"),
     "sns_subscription": ("sns", "list_subscriptions", "Subscriptions"),
@@ -126,7 +127,7 @@ NATIVE_IDS = {
     "glacier_vault": "VaultARN", "media_store_container": "ARN", "s3_access_point": "AccessPointArn", "s3_directory_bucket": "Name",
     "storagegateway_gateway": "GatewayARN", "storagegateway_file_share": "FileShareARN", "backup_selection": "id",
     "lightsail_instance": "arn", "lightsail_database": "arn", "lightsail_static_ip": "arn",
-    "sfn_state_machine": "stateMachineArn", "transfer_server": "Arn", "transfer_connector": "Arn",
+    "sfn_state_machine": "stateMachineArn", "transfer_server": "Arn", "transfer_web_app": "Arn", "transfer_connector": "Arn",
     "ses_email_identity": "IdentityName", "sns_subscription": "id",
     "sagemaker_notebook_instance": "NotebookInstanceArn", "sagemaker_notebook_lifecycle_config": "NotebookInstanceLifecycleConfigArn",
     "sagemaker_studio_lifecycle_config": "StudioLifecycleConfigArn",
@@ -307,6 +308,32 @@ def _msk_compatible_versions(requests, session, region, account):
                 compatible = {"collection_status": "collected", "items": [_pick(row, ("SourceVersion", "TargetVersions")) for row in versions]}
         rows.append({"ClusterArn": arn, "CompatibleVersions": compatible})
     return _result(rows, clusters.status, clusters.error)
+
+
+def _msk_public_bootstrap(requests, session, region, items):
+    """Read public bootstrap hosts only for provisioned clusters with public access enabled."""
+    keys = ("BootstrapBrokerStringPublicTls", "BootstrapBrokerStringPublicSaslScram",
+            "BootstrapBrokerStringPublicSaslIam", "BootstrapBrokerStringIpv6",
+            "BootstrapBrokerStringTlsIpv6", "BootstrapBrokerStringSaslScramIpv6",
+            "BootstrapBrokerStringSaslIamIpv6")
+    output = []
+    for original in items:
+        item = copy.deepcopy(original)
+        broker = (item.get("Provisioned") or {}).get("BrokerNodeGroupInfo")
+        connectivity = broker.get("ConnectivityInfo") if isinstance(broker, dict) else None
+        public = connectivity.get("PublicAccess") if isinstance(connectivity, dict) else None
+        if isinstance(public, dict) and public.get("Type") == "SERVICE_PROVIDED_EIPS":
+            arn = item.get("ClusterArn")
+            if not isinstance(arn, str) or not arn:
+                item["PublicBootstrapBrokers"] = {"collection_status": "malformed", "error": {"code": "missing_cluster_arn"}}
+            else:
+                response = requests.detail(session, "kafka", region, "get_bootstrap_brokers", ClusterArn=arn)
+                if _failed(response):
+                    item["PublicBootstrapBrokers"] = _pick(response, ("collection_status", "error"))
+                else:
+                    item["PublicBootstrapBrokers"] = {**_pick(response, keys), "collection_status": "collected"}
+        output.append(item)
+    return output
 
 
 def _chunks(values, size):
@@ -1070,11 +1097,13 @@ _CONTAINERS = {
     "s3_directory_bucket": ("Lifecycle", "s3", "get_bucket_lifecycle_configuration", "Bucket", "Name", ("NoSuchLifecycleConfiguration",), ("Rules", "TransitionDefaultMinimumObjectSize")),
     "transfer_server": ("Server", "transfer", "describe_server", "ServerId", "ServerId", (), ("Arn", "ServerId", "Domain", "EndpointType", "EndpointDetails", "IdentityProviderType",
         "LoggingRole", "StructuredLogDestinations", "Protocols", "ProtocolDetails", "SecurityPolicyName", "State", "Certificate")),
+    "transfer_web_app": ("WebApp", "transfer", "describe_web_app", "WebAppId", "WebAppId", (),
+        ("Arn", "WebAppId", "EndpointType", "AccessEndpoint", "WebAppEndpoint", "DescribedEndpointDetails")),
     "transfer_connector": ("Connector", "transfer", "describe_connector", "ConnectorId", "ConnectorId", (), ("Arn", "ConnectorId", "Url", "AccessRole", "LoggingRole", "SecurityPolicyName")),
     "ses_email_identity": ("Identity", "sesv2", "get_email_identity", "EmailIdentity", "IdentityName", (), ("IdentityType", "FeedbackForwardingStatus", "VerifiedForSendingStatus",
         "VerificationStatus", "DkimAttributes", "MailFromAttributes", "Policies", "ConfigurationSetName")),
 }
-_CONTAINER_ROOTS = {"transfer_server": "Server", "transfer_connector": "Connector"}
+_CONTAINER_ROOTS = {"transfer_server": "Server", "transfer_web_app": "WebApp", "transfer_connector": "Connector"}
 _EXTRA_ARGUMENTS = {"glacier_vault": {"accountId": "-"}}
 
 
@@ -1470,6 +1499,7 @@ def _analyzer_findings(requests, session, region, items):
 ENRICHERS = {kind: _merge_enricher(kind) for kind in _MERGES if kind != "network_firewall"}
 ENRICHERS.update({kind: _container_enricher(kind) for kind in _CONTAINERS})
 ENRICHERS.update({
+    "msk_cluster": _msk_public_bootstrap,
     "network_firewall": _network_firewall,
     "network_firewall_policy": _firewall_document("describe_firewall_policy", "FirewallPolicyArn", "FirewallPolicyResponse", "FirewallPolicy"),
     "network_firewall_rule_group": _firewall_document("describe_rule_group", "RuleGroupArn", "RuleGroupResponse", "RuleGroup"),

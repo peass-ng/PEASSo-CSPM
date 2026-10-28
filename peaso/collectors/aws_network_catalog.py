@@ -94,7 +94,9 @@ class MetadataClient:
              ("emr-serverless", "get_application"): "application",
              ("elasticbeanstalk", "describe_configuration_settings"): "ConfigurationSettings",
              ("lightsail", "get_container_services"): "containerServices",
-             ("vpc-lattice", "get_listener"): None, ("vpc-lattice", "get_rule"): None}
+             ("vpc-lattice", "get_listener"): None, ("vpc-lattice", "get_rule"): None,
+             ("timestream-influxdb", "get_db_instance"): None,
+             ("timestream-influxdb", "list_db_instances"): "items"}
 
     def __init__(self, native, service):
         self.native, self.service = native, service
@@ -112,6 +114,48 @@ class MetadataClient:
             body = response.get(root) if root and isinstance(response, dict) else response
             if not isinstance(body, (dict, list)):
                 return {}  # Ordinary detail handling records malformed coverage.
+            if self.service == "timestream-influxdb":
+                fields = ("id", "arn", "status", "endpoint", "readerEndpoint", "port",
+                          "publiclyAccessible", "networkType", "vpcSubnetIds",
+                          "vpcSecurityGroupIds", "dbClusterId")
+                def project(row):
+                    return {key: row[key] for key in fields if key in row} if isinstance(row, dict) else {}
+                projected = [project(row) for row in body] if isinstance(body, list) else project(body)
+                return ({root: projected} if root else projected) | {
+                    key: response[key] for key in ("nextToken",) if key in response}
+            if (self.service, name) == ("osis", "get_pipeline"):
+                from urllib.parse import urlsplit
+                from .aws_osis_sinks import project_sinks
+                base = project_network_data(body)
+                sinks = project_sinks(body.get("PipelineConfigurationBody"))
+                endpoints = body.get("IngestEndpointUrls")
+                if not isinstance(endpoints, list):
+                    return {"Pipeline": base | {"PipelineName": body.get("PipelineName"),
+                                               "PipelineArn": body.get("PipelineArn"),
+                                               "Status": body.get("Status"), "NetworkMode": "UNKNOWN",
+                                               "SinkTargets": sinks["targets"], "SinkCoverage": sinks["status"]}}
+                hosts = []
+                for endpoint in endpoints:
+                    if not isinstance(endpoint, str):
+                        return {}
+                    try:
+                        parsed = urlsplit(endpoint if "://" in endpoint else "https://" + endpoint)
+                        valid = (parsed.scheme == "https" and parsed.hostname and not parsed.username
+                                 and not parsed.password and parsed.port in (None, 443))
+                    except ValueError:
+                        valid = False
+                    if not valid:
+                        return {}
+                    hosts.append(parsed.hostname.lower())
+                vpc = body.get("VpcEndpoints")
+                private = bool(vpc) or bool(body.get("VpcEndpointService"))
+                return {"Pipeline": base | {"PipelineName": body.get("PipelineName"),
+                                            "PipelineArn": body.get("PipelineArn"),
+                                            "Status": body.get("Status"),
+                                            "NetworkMode": "PRIVATE" if private else "PUBLIC",
+                                            "IngestHosts": sorted(set(hosts)),
+                                            "SinkTargets": sinks["targets"],
+                                            "SinkCoverage": sinks["status"]}}
             projected = project_network_data(body)
             if (self.service, name) == ("apprunner", "describe_service") and isinstance(projected, dict):
                 instance = body.get("InstanceConfiguration")
@@ -164,6 +208,10 @@ def quicksight_connections(requests, session, region, account):
 
 def lightsail_containers(requests, session, region, account):
     return requests.pages(MetadataSession(session), "lightsail", region, "get_container_services", "containerServices")
+
+
+def influxdb_instances(requests, session, region, account):
+    return requests.pages(MetadataSession(session), "timestream-influxdb", region, "list_db_instances", "items")
 
 
 def lattice_routes(kind):
@@ -300,6 +348,16 @@ def detail_enricher(kind):
             body = body.get(root) if isinstance(body, dict) and root else body
             if isinstance(body, dict):
                 row["NetworkDetails"] = project_network_data(body)
+                if kind in {"influxdb_instance", "influxdb_cluster"}:
+                    row["NetworkDetails"].update({key: body[key] for key in
+                        ("id", "arn", "status", "endpoint", "readerEndpoint", "port",
+                         "publiclyAccessible", "networkType", "vpcSubnetIds",
+                         "vpcSecurityGroupIds", "dbClusterId") if key in body})
+                if kind == "osis_pipeline":
+                    row["NetworkDetails"].update({key: body[key] for key in
+                        ("PipelineName", "PipelineArn", "Status", "NetworkMode", "IngestHosts",
+                         "SinkTargets", "SinkCoverage")
+                        if key in body})
                 if kind == "app_runner_service":
                     for attribute in ("AutoDeploymentsEnabled", "ImageIdentifier"):
                         value = body.get(attribute)
@@ -406,5 +464,6 @@ ENRICHERS["lattice_target_group"] = enrich_lattice_target_group
 FETCHERS = {kind: accelerator_children(kind) for kind in GLOBAL_TYPES}
 FETCHERS.update({"quicksight_vpc_connection": quicksight_connections,
                  "lightsail_container_service": lightsail_containers,
+                 "influxdb_instance": influxdb_instances,
                  **{kind: lattice_routes(kind) for kind in {"lattice_listener", "lattice_listener_rule"}},
                  **{kind: eks_children(kind) for kind in {"eks_nodegroup", "eks_fargate_profile"}}})

@@ -93,6 +93,14 @@
       "nextToken"
     ]
   },
+  "aoss_collection": {
+    "identity": "id",
+    "key": "collectionSummaries",
+    "operation": "list_collections",
+    "retained_fields": ["arn", "name", "status"],
+    "service": "opensearchserverless",
+    "tokens": ["nextToken", "nextToken"]
+  },
   "aoss_network_policy": {
     "constants": {
       "type": "network"
@@ -1906,6 +1914,13 @@
       "NextToken"
     ]
   },
+  "machinelearning_model": {
+    "identity": "MLModelId",
+    "key": "Results",
+    "operation": "describe_ml_models",
+    "service": "machinelearning",
+    "tokens": ["NextToken", "NextToken"]
+  },
   "mailmanager_ingress_point": {
     "detail": {
       "arguments": {
@@ -2236,6 +2251,16 @@
       "NextToken"
     ]
   },
+  "neptune_graph": {
+    "identity": "arn",
+    "key": "graphs",
+    "operation": "list_graphs",
+    "service": "neptune-graph",
+    "tokens": [
+      "nextToken",
+      "nextToken"
+    ]
+  },
   "neptune_instance": {
     "identity": "DBInstanceArn",
     "key": "DBInstances",
@@ -2421,6 +2446,16 @@
     "key": "VpcEndpointSummaryList",
     "operation": "list_vpc_endpoints",
     "service": "opensearch",
+    "tokens": [
+      "NextToken",
+      "NextToken"
+    ]
+  },
+  "oam_link": {
+    "identity": "Arn",
+    "key": "Items",
+    "operation": "list_links",
+    "service": "oam",
     "tokens": [
       "NextToken",
       "NextToken"
@@ -2693,6 +2728,48 @@
         },
         "key": "EnvironmentSummaryList",
         "operation": "list_environments",
+        "tokens": [
+          "NextToken",
+          "NextToken"
+        ]
+      }
+    ],
+    "service": "migration-hub-refactor-spaces",
+    "tokens": [
+      "NextToken",
+      "NextToken"
+    ]
+  },
+  "refactor_route": {
+    "arguments": {
+      "ApplicationIdentifier": "ApplicationIdentifier",
+      "EnvironmentIdentifier": "EnvironmentIdentifier"
+    },
+    "identity": "Arn",
+    "key": "RouteSummaryList",
+    "operation": "list_routes",
+    "parents": [
+      {
+        "arguments": {},
+        "exports": {
+          "EnvironmentIdentifier": "EnvironmentId"
+        },
+        "key": "EnvironmentSummaryList",
+        "operation": "list_environments",
+        "tokens": [
+          "NextToken",
+          "NextToken"
+        ]
+      },
+      {
+        "arguments": {
+          "EnvironmentIdentifier": "EnvironmentIdentifier"
+        },
+        "exports": {
+          "ApplicationIdentifier": "ApplicationId"
+        },
+        "key": "ApplicationSummaryList",
+        "operation": "list_applications",
         "tokens": [
           "NextToken",
           "NextToken"

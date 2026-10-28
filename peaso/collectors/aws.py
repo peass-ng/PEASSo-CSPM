@@ -3516,6 +3516,8 @@ EXTENSION_MODULES += ("peaso.collectors.aws_bedrock_security_metadata",
 EXTENSION_MODULES += ("peaso.collectors.aws_ai_recheck_facts_20261020",)
 
 EXTENSION_MODULES += ("peaso.collectors.aws_network_inventory",)
+EXTENSION_MODULES += ("peaso.collectors.aws_wellarchitected_shares",)
+EXTENSION_MODULES += ("peaso.collectors.aws_media_legacy_exposure",)
 for _extension in EXTENSION_MODULES:
     _load_metadata_extension(_extension)
 

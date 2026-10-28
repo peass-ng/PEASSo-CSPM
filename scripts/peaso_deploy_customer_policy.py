@@ -22,6 +22,15 @@ VERIFIED_ACTIONS = frozenset(('access-analyzer:ListAnalyzers', 'access-analyzer:
 # Reviewed metadata-only reads: IAM ListPolicies and EMR ListInstances.
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | {"iam:ListPolicies", "iam:GetPolicyVersion", "elasticmapreduce:ListInstances"}
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | {"amplify:ListBranches"}
+WELLARCHITECTED_SHARE_READS = frozenset({
+    "wellarchitected:ListLenses", "wellarchitected:ListLensShares",
+    "wellarchitected:ListProfiles", "wellarchitected:ListProfileShares",
+    "wellarchitected:ListReviewTemplates", "wellarchitected:ListTemplateShares",
+    "wellarchitected:ListWorkloadShares",
+})
+# https://docs.aws.amazon.com/service-authorization/latest/reference/list_wellarchitected.html
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | WELLARCHITECTED_SHARE_READS
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | {"mediapackage:ListOriginEndpoints", "mediatailor:ListPlaybackConfigurations"}
 # The Grafana workspace list is followed by a workspace-scoped, metadata-only
 # service-account list. It exposes role and disabled state, never token values.
 # https://docs.aws.amazon.com/service-authorization/latest/reference/list_grafana.html
@@ -75,7 +84,8 @@ NETWORK_SERVICE_READ_REFERENCES = {
         'https://docs.aws.amazon.com/service-authorization/latest/reference/list_vpc-lattice.html'),
     'route53:GetHostedZone': 'https://docs.aws.amazon.com/Route53/latest/APIReference/API_GetHostedZone.html',
     'quicksight:ListVPCConnections': 'https://docs.aws.amazon.com/quicksight/latest/APIReference/API_ListVPCConnections.html',
-    **dict.fromkeys({'timestream-influxdb:ListDbInstances', 'timestream-influxdb:GetDbInstance'},
+    **dict.fromkeys({'timestream-influxdb:ListDbInstances', 'timestream-influxdb:GetDbInstance',
+                     'timestream-influxdb:ListDbClusters', 'timestream-influxdb:GetDbCluster'},
         'https://docs.aws.amazon.com/service-authorization/latest/reference/list_timestream-influxdb.html'),
     **dict.fromkeys({'osis:ListPipelines', 'osis:GetPipeline'},
         'https://docs.aws.amazon.com/service-authorization/latest/reference/list_osis.html'),
@@ -113,6 +123,10 @@ NETWORK_SERVICE_READ_REFERENCES = {
 _NATIVE_NETWORK_IAM = json.loads((Path(__file__).resolve().parents[1] / 'peaso/collectors/aws_network_inventory_iam.json').read_text())
 NETWORK_SERVICE_READ_REFERENCES.update({action: row['source'] for action, row in _NATIVE_NETWORK_IAM['actions'].items()})
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(NETWORK_SERVICE_READ_REFERENCES)
+INLINE_SECURITY_IR_READS = frozenset({
+    ('security-ir', 'get_case'), ('security-ir', 'get_membership'),
+    ('security-ir', 'list_cases'), ('security-ir', 'list_memberships'),
+})
 # AWS EC2 service authorization lists both as route-table metadata reads.
 # SearchTransitGatewayRoutes is an exact read-only exception to the usual
 # Get/List/Describe operation-name rule.
@@ -491,8 +505,15 @@ EXPOSURE_METADATA_READ_REFERENCES = {
     'workspaces:DescribeWorkspaceImages': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_workspaces.html',
     'cloudfront:GetCloudFrontOriginAccessIdentity': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudfront.html',
     'cloudfront:GetOriginAccessControl': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudfront.html',
+    'kafka:GetBootstrapBrokers': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_kafka.html',
+    'mediapackagev2:GetChannel': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_mediapackagev2.html',
+    'mediapackagev2:ListHarvestJobs': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_mediapackagev2.html',
+    'ses:GetRelay': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_mailmanager.html',
+    'ses:GetRuleSet': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_mailmanager.html',
     'logs:DescribeAccountPolicies': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_logs.html',
     'sns:ListSubscriptionsByTopic': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_sns.html',
+    'sns:ListPlatformApplications': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_sns.html',
+    'sns:ListEndpointsByPlatformApplication': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_sns.html',
 }
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | set(EXPOSURE_METADATA_READ_REFERENCES)
 
@@ -557,6 +578,7 @@ NATIVE_METADATA_STATEMENTS = {
     ("lambda", "list_tags"): {"Sid": "NativeLambdaFunctionTagsRead", "Effect": "Allow", "Action": "lambda:ListTags", "Resource": {"Fn::Sub": "arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:*"}},
 }
 NATIVE_METADATA_STATEMENTS.update({
+    ("mediapackagev2", "list_harvest_jobs"): {"Sid":"NativeMediaPackageHarvestRead","Effect":"Allow","Action":"mediapackagev2:ListHarvestJobs","Resource":{"Fn::Sub":"arn:${AWS::Partition}:mediapackagev2:*:${AWS::AccountId}:channelGroup/*"}},
     ("route53resolver", "list_firewall_domain_lists"): {"Sid":"NativeResolverDomainListsRead","Effect":"Allow","Action":"route53resolver:ListFirewallDomainLists","Resource":"*"},
     ("sagemaker", "list_endpoints"): {"Sid":"NativeSageMakerEndpointInventoryRead","Effect":"Allow","Action":"sagemaker:ListEndpoints","Resource":"*"},
     ("sagemaker", "describe_endpoint"): {"Sid":"NativeSageMakerEndpointMetadataRead","Effect":"Allow","Action":"sagemaker:DescribeEndpoint","Resource":{"Fn::Sub":"arn:${AWS::Partition}:sagemaker:*:${AWS::AccountId}:endpoint/*"}},
@@ -756,6 +778,8 @@ VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(ADDITIONAL_PRIVESC_METADATA_REFE
 # Exact existing collector metadata reads. AWS classifies each as Read or List;
 # the FinSpace grants were already present in the signed customer template.
 EXACT_COLLECTOR_READ_REFERENCES = {
+    'lakeformation:ListPermissions': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_lakeformation.html',
+    'redshift:DescribeEndpointAuthorization': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_redshift.html',
     'amplify:ListDomainAssociations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_amplify.html',
     'rds:DescribeDBClusterEndpoints': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_rds.html',
     'elasticloadbalancing:DescribeInstanceHealth': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_elb.html',
@@ -789,6 +813,17 @@ def build_policy(read_actions=None, *, include_credential_report_generation=None
         if (service, operation) == EVIDENCE_OPERATION:
             continue
         action = iam_action(service, operation)
+        if action in {"mq:DescribeSharedResources", "mq:DescribeConfigurationRevision", "oam:ListLinks",
+                      "es:ListVpcEndpointAccess", "es:ListApplications", "es:GetApplication",
+                      "securitylake:ListSubscribers", "securitylake:GetDataLakeExceptionSubscription",
+                      "machinelearning:DescribeMLModels"}:
+            # The attached AWS ReadOnlyAccess policy already grants these reads.
+            # Keep this one read out of the size-bound custom policy.
+            continue
+        if (service, operation) in INLINE_SECURITY_IR_READS:
+            # Four exact metadata reads fit the role's inline-policy quota;
+            # the managed-policy attachment quota is already full.
+            continue
         if (service, operation) in CONTROLTOWER_STATEMENTS:
             continue  # Exact multi-action authorization sets appended below.
         if (service, operation) in NATIVE_METADATA_STATEMENTS:
@@ -885,10 +920,17 @@ def split_policy(policy):
     """Split the logical policy into customer-managed documents, each within the 6144-character limit.
 
     Only the explicit action list is partitioned; no wildcard or broader grant is introduced."""
-    known_companions = [s for rows in WAF_ASSOCIATION_STATEMENTS.values() for s in rows] + NATIVE_METADATA_REVIEWED_STATEMENTS + [s for rows in CONTROLTOWER_STATEMENTS.values() for s in rows]
+    # Keep the existing credential-report grant intact while using the
+    # remaining space in the companion document for this fixed statement.
+    credential_report = {"Sid": "CredentialReportEvidenceGeneration", "Effect": "Allow",
+                         "Action": "iam:GenerateCredentialReport", "Resource": "*"}
+    known_companions = ([s for rows in WAF_ASSOCIATION_STATEMENTS.values() for s in rows] +
+                        NATIVE_METADATA_REVIEWED_STATEMENTS +
+                        [s for rows in CONTROLTOWER_STATEMENTS.values() for s in rows])
     companions = [s for s in policy["Statement"] if s in known_companions]
     if companions:
-        original = {**policy, "Statement": [s for s in policy["Statement"] if s not in known_companions]}
+        companions += [s for s in policy["Statement"] if s == credential_report]
+        original = {**policy, "Statement": [s for s in policy["Statement"] if s not in companions]}
         documents = split_policy(original) if original["Statement"] else []
         extra = {"Version": "2012-10-17", "Statement": companions}
         # A small scoped read can be moved beside the companion statements to
