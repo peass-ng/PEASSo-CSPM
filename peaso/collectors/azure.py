@@ -860,6 +860,23 @@ def _function_trigger_rows(rows, site_id):
     return safe
 
 
+def _app_configuration_private_link_metadata(row):
+    """Retain private endpoint ownership and approval, omitting free-form descriptions."""
+    props = row.get("properties")
+    if not isinstance(props, dict) or not isinstance(props.get("privateEndpointConnections"), list):
+        return row
+    projected = []
+    for connection in props["privateEndpointConnections"]:
+        details = connection.get("properties") if isinstance(connection, dict) else None
+        endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+        state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+        projected.append({"id": connection.get("id"), "name": connection.get("name"), "type": connection.get("type"),
+                          "properties": {"privateEndpoint": {"id": endpoint.get("id")} if isinstance(endpoint, dict) else None,
+                                         "privateLinkServiceConnectionState": {"status": state.get("status")} if isinstance(state, dict) else None,
+                                         "provisioningState": details.get("provisioningState") if isinstance(details, dict) else None}})
+    return {**row, "properties": {**props, "privateEndpointConnections": projected}}
+
+
 def _embed(reader, request, parents, diagnostics=None, skip=()):
     """Bound independent child reads; never fabricate empty on denied/partial.
 
@@ -1261,7 +1278,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
-    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook", "cost_export",
+    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook", "cost_export", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -1294,7 +1311,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "analysis_server", "private_link_service"})
+                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration"})
 
 
 def _canonicalize_embedded(collections):
@@ -2561,6 +2578,8 @@ def _selected(options, requirements):
         selected.update(("acat_report", "acat_webhook"))
     if "cost_export" in selected:
         selected.update(("resource_group", "management_group"))
+    if selected.intersection(("app_configuration", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group")):
+        selected.update(("app_configuration", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group"))
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -3301,6 +3320,8 @@ def collect(connector, requirements=None, *, transport=None):
                             _remaining_services_private_links(result, kind)
                             if kind in FULL_GET_KINDS:
                                 result = azure_swc.full_detail(result, kind, version)
+                            if kind == "app_configuration":
+                                result = _app_configuration_private_link_metadata(result)
                             if kind == "mongo_cluster":
                                 result = azure_mongo_cluster_metadata.project(result)
                             if kind in ("frontdoor", "cdn_profile"):
@@ -3366,6 +3387,244 @@ def collect(connector, requirements=None, *, transport=None):
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
+        if "app_configuration_event_subscription" in wanted:
+            event_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "app_configuration" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for store in collection["items"]:
+                    rid = store.get("id")
+                    if not isinstance(rid, str):
+                        continue
+                    def events(rid=rid):
+                        endpoint = rid + "/providers/Microsoft.EventGrid/eventSubscriptions"
+                        seen = set()
+                        for page in reader.pages(request, ARM + endpoint + "?api-version=2025-02-15"):
+                            projected = []
+                            for row in page:
+                                identity = row.get("id") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                if (not isinstance(identity, str) or re.fullmatch(re.escape(endpoint) + r"/[^/?#%\\\s]+", identity, re.I) is None
+                                        or identity.casefold() in seen or not isinstance(props, dict)):
+                                    raise ValueError("foreign or malformed App Configuration event subscription")
+                                seen.add(identity.casefold())
+                                wrapped = props.get("deliveryWithResourceIdentity")
+                                destination = wrapped.get("destination") if isinstance(wrapped, dict) else props.get("destination")
+                                if not isinstance(destination, dict):
+                                    raise ValueError("App Configuration event destination unavailable")
+                                dest_props = destination.get("properties")
+                                if not isinstance(dest_props, dict):
+                                    raise ValueError("App Configuration event destination properties unavailable")
+                                url = dest_props.get("endpointBaseUrl") or dest_props.get("endpointUrl")
+                                parts = urlsplit(url) if isinstance(url, str) else None
+                                if parts is not None and (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password):
+                                    raise ValueError("malformed App Configuration event webhook URL")
+                                resource_id = dest_props.get("resourceId")
+                                if resource_id is not None and (not isinstance(resource_id, str) or re.fullmatch(r"/subscriptions/[^?#%\\\s]+", resource_id, re.I) is None):
+                                    raise ValueError("malformed App Configuration event destination resource")
+                                action_groups = dest_props.get("actionGroups") or []
+                                if not isinstance(action_groups, list) or any(not isinstance(group, str) or re.fullmatch(r"/subscriptions/[^?#%\\\s]+", group, re.I) is None for group in action_groups):
+                                    raise ValueError("malformed App Configuration event action groups")
+                                dead = props.get("deadLetterWithResourceIdentity") or props.get("deadLetterDestination")
+                                if isinstance(dead, dict) and "deadLetterDestination" in dead:
+                                    dead = dead["deadLetterDestination"]
+                                dead_props = dead.get("properties") if isinstance(dead, dict) else None
+                                dead_id = dead_props.get("resourceId") if isinstance(dead_props, dict) else None
+                                if dead_id is not None and (not isinstance(dead_id, str) or re.fullmatch(r"/subscriptions/[^?#%\\\s]+", dead_id, re.I) is None):
+                                    raise ValueError("malformed App Configuration dead-letter destination")
+                                projected.append({"id": identity, "type": "Microsoft.EventGrid/eventSubscriptions",
+                                                  "properties": {"provisioningState": props.get("provisioningState"),
+                                                                 "expirationTimeUtc": props.get("expirationTimeUtc"),
+                                                                 "endpointType": destination.get("endpointType"),
+                                                                 "destinationHost": parts.hostname if parts else None,
+                                                                 "destinationScheme": parts.scheme if parts else None,
+                                                                 "destinationResourceId": resource_id,
+                                                                 "actionGroupIds": action_groups,
+                                                                 "deadLetterResourceId": dead_id}})
+                            yield projected
+                    event_jobs.append(("app_configuration_event_subscription", rid, "Microsoft.EventGrid", events))
+            reader.run(event_jobs)
+            if "app_configuration_event_action_group" in wanted:
+                # Foreign group IDs already prove external delivery. Inspect local groups.
+                group_ids = sorted({group for collection in reader.collections
+                                    if collection["type"] == "app_configuration_event_subscription" and collection["status"] in ("collected", "partial")
+                                    for event in collection["items"] for group in event["properties"].get("actionGroupIds", [])
+                                    if group.casefold().startswith("/subscriptions/" + collection["scope"].split("/")[2].casefold() + "/")})
+                group_jobs = []
+                for group_id in group_ids:
+                    def action_group(group_id=group_id):
+                        value = reader.call(request, ARM + group_id + "?api-version=2021-09-01")
+                        if (not isinstance(value, dict) or str(value.get("id", "")).casefold() != group_id.casefold()
+                                or not isinstance(value.get("properties"), dict)):
+                            raise ValueError("malformed App Configuration event action group")
+                        props = value["properties"]
+                        channels, resource_subscriptions, webhook_hosts = [], [], []
+                        unresolved = False
+                        for field, channel in (("emailReceivers", "email"), ("smsReceivers", "sms"),
+                                               ("voiceReceivers", "voice"), ("azureAppPushReceivers", "mobile_push")):
+                            rows = props.get(field) or []
+                            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                                raise ValueError("malformed action-group receiver list")
+                            if any(row.get("status") in (None, "Enabled") for row in rows):
+                                channels.append(channel)
+                        for field in ("webhookReceivers", "secureWebhookReceivers"):
+                            rows = props.get(field) or []
+                            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                                raise ValueError("malformed action-group webhook list")
+                            for row in rows:
+                                url = row.get("serviceUri")
+                                parts = urlsplit(url) if isinstance(url, str) else None
+                                if parts is None or parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
+                                    unresolved = True
+                                else:
+                                    webhook_hosts.append(parts.hostname)
+                        for field, key in (("azureFunctionReceivers", "functionAppResourceId"),
+                                           ("logicAppReceivers", "resourceId"),
+                                           ("automationRunbookReceivers", "automationAccountId")):
+                            rows = props.get(field) or []
+                            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                                raise ValueError("malformed action-group Azure receiver list")
+                            for row in rows:
+                                match = re.match(r"^/subscriptions/([^/]+)/", row.get(key), re.I) if isinstance(row.get(key), str) else None
+                                if match is None:
+                                    unresolved = True
+                                else:
+                                    resource_subscriptions.append(match.group(1))
+                        event_hubs = props.get("eventHubReceivers") or []
+                        if not isinstance(event_hubs, list):
+                            raise ValueError("malformed action-group Event Hub receiver list")
+                        for row in event_hubs:
+                            if not isinstance(row, dict) or not isinstance(row.get("subscriptionId"), str):
+                                unresolved = True
+                            else:
+                                resource_subscriptions.append(row["subscriptionId"])
+                        if any(props.get(field) for field in ("itsmReceivers", "armRoleReceivers")):
+                            unresolved = True
+                        yield [{"id": group_id, "properties": {"enabled": props.get("enabled", True),
+                                "channels": channels, "webhookHosts": sorted(set(webhook_hosts)),
+                                "resourceSubscriptions": sorted(set(resource_subscriptions)),
+                                "unresolvedReceivers": unresolved}}]
+                    group_jobs.append(("app_configuration_event_action_group", group_id, "Microsoft.Insights", action_group))
+                reader.run(group_jobs)
+        if "app_configuration_private_connection" in wanted:
+            connection_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "app_configuration" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for store in collection["items"]:
+                    rid = store.get("id")
+                    if not isinstance(rid, str):
+                        continue
+                    def private_connections(store=store, rid=rid):
+                        props = store.get("properties")
+                        rows = props.get("privateEndpointConnections") if isinstance(props, dict) else None
+                        if not isinstance(rows, list) or (props.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status") == "malformed":
+                            raise ValueError("App Configuration private endpoint references unavailable")
+                        seen, projected = set(), []
+                        for row in rows:
+                            identity = row.get("id") if isinstance(row, dict) else None
+                            details = row.get("properties") if isinstance(row, dict) else None
+                            endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+                            endpoint_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+                            state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+                            if (not isinstance(identity, str) or re.fullmatch(re.escape(rid + "/privateEndpointConnections/") + r"[^/?#%\\\s]+", identity, re.I) is None
+                                    or identity.casefold() in seen or not isinstance(endpoint_id, str)
+                                    or re.fullmatch(r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Network/privateEndpoints/[^/?#%\\\s]+", endpoint_id, re.I) is None):
+                                raise ValueError("malformed App Configuration private endpoint identity")
+                            seen.add(identity.casefold())
+                            projected.append({"id": identity, "type": "Microsoft.AppConfiguration/configurationStores/privateEndpointConnections",
+                                              "properties": {"privateEndpointId": endpoint_id,
+                                                             "status": state.get("status") if isinstance(state, dict) else None,
+                                                             "provisioningState": details.get("provisioningState")}})
+                        yield projected
+                    connection_jobs.append(("app_configuration_private_connection", rid, "Microsoft.AppConfiguration", private_connections))
+            reader.run(connection_jobs)
+        if "app_configuration_nsp" in wanted:
+            nsp_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "app_configuration" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for store in collection["items"]:
+                    rid = store.get("id")
+                    if not isinstance(rid, str):
+                        continue
+                    def app_configuration_nsp(rid=rid):
+                        endpoint = rid + "/networkSecurityPerimeterConfigurations"
+                        seen = set()
+                        for page in reader.pages(request, ARM + endpoint + "?api-version=2025-08-01-preview"):
+                            projected = []
+                            for row in page:
+                                identity = row.get("id") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                if (not isinstance(identity, str) or re.fullmatch(
+                                        re.escape(endpoint) + r"/[^/?#%\\\s]+", identity, re.I) is None
+                                        or identity.casefold() in seen or not isinstance(props, dict)
+                                        or str(row.get("type", "")).casefold() != "microsoft.appconfiguration/configurationstores/networksecurityperimeterconfigurations"):
+                                    raise ValueError("foreign or malformed App Configuration NSP identity")
+                                seen.add(identity.casefold())
+                                association = props.get("resourceAssociation")
+                                perimeter = props.get("networkSecurityPerimeter")
+                                perimeter_id = perimeter.get("id") if isinstance(perimeter, dict) else None
+                                if perimeter_id is not None and (not isinstance(perimeter_id, str) or re.fullmatch(
+                                        r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Network/networkSecurityPerimeters/[^/?#%\\\s]+", perimeter_id, re.I) is None):
+                                    raise ValueError("malformed App Configuration perimeter identity")
+                                profile = props.get("profile")
+                                rules = profile.get("accessRules") if isinstance(profile, dict) else None
+                                inbound = []
+                                if isinstance(rules, list):
+                                    for rule in rules:
+                                        rule_props = rule.get("properties") if isinstance(rule, dict) else None
+                                        if not isinstance(rule_props, dict):
+                                            raise ValueError("malformed App Configuration NSP access rule")
+                                        if rule_props.get("direction") != "Inbound":
+                                            continue
+                                        prefixes = rule_props.get("addressPrefixes") or []
+                                        subscriptions = rule_props.get("subscriptions") or []
+                                        perimeters = rule_props.get("networkSecurityPerimeters") or []
+                                        if (not isinstance(prefixes, list) or any(not isinstance(v, str) for v in prefixes)
+                                                or not isinstance(subscriptions, list) or any(not isinstance(v, dict) or not isinstance(v.get("id"), str) for v in subscriptions)
+                                                or not isinstance(perimeters, list) or any(not isinstance(v, dict) or not isinstance(v.get("id"), str) for v in perimeters)):
+                                            raise ValueError("malformed App Configuration NSP inbound rule")
+                                        inbound.append({"addressPrefixes": prefixes,
+                                                        "subscriptions": [v["id"] for v in subscriptions],
+                                                        "perimeterIds": [v["id"] for v in perimeters]})
+                                projected.append({"id": identity, "type": row["type"],
+                                                  "properties": {"provisioningState": props.get("provisioningState"),
+                                                                 "hasProvisioningIssues": bool(props.get("provisioningIssues")),
+                                                                 "perimeterId": perimeter_id,
+                                                                 "accessMode": association.get("accessMode") if isinstance(association, dict) else None,
+                                                                 "inboundRules": inbound if isinstance(rules, list) else None}})
+                            yield projected
+                    nsp_jobs.append(("app_configuration_nsp", rid, "Microsoft.AppConfiguration", app_configuration_nsp))
+            reader.run(nsp_jobs)
+            if "app_configuration_nsp_membership" in wanted:
+                perimeter_ids = sorted({item["properties"]["perimeterId"] for collection in reader.collections
+                                        if collection["type"] == "app_configuration_nsp" and collection["status"] in ("collected", "partial")
+                                        for item in collection["items"] if item["properties"].get("perimeterId")})
+                membership_jobs = []
+                for perimeter_id in perimeter_ids:
+                    def memberships(perimeter_id=perimeter_id):
+                        endpoint = perimeter_id + "/resourceAssociations"
+                        seen = set()
+                        for page in reader.pages(request, ARM + endpoint + "?api-version=2025-05-01"):
+                            projected = []
+                            for row in page:
+                                identity = row.get("id") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                protected = props.get("privateLinkResource") if isinstance(props, dict) else None
+                                protected_id = protected.get("id") if isinstance(protected, dict) else None
+                                if (not isinstance(identity, str) or re.fullmatch(re.escape(endpoint) + r"/[^/?#%\\\s]+", identity, re.I) is None
+                                        or identity.casefold() in seen or not isinstance(protected_id, str)
+                                        or re.fullmatch(r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/[^/?#%\\\s]+/[^/?#%\\\s]+/[^/?#%\\\s]+", protected_id, re.I) is None):
+                                    raise ValueError("malformed App Configuration perimeter membership")
+                                seen.add(identity.casefold())
+                                projected.append({"id": identity, "properties": {"protectedResourceId": protected_id,
+                                                  "accessMode": props.get("accessMode"),
+                                                  "provisioningState": props.get("provisioningState"),
+                                                  "hasProvisioningIssues": props.get("hasProvisioningIssues")}})
+                            yield projected
+                    membership_jobs.append(("app_configuration_nsp_membership", perimeter_id, "Microsoft.Network", memberships))
+                reader.run(membership_jobs)
         if "cost_export" in wanted:
             def billing_export_scopes():
                 account_url = ARM + "/providers/Microsoft.Billing/billingAccounts?api-version=2024-04-01&includeAll=true"

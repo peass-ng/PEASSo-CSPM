@@ -9719,9 +9719,137 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
             namespace_rules = child["properties"]
             if public is None:
                 public = namespace_rules.get("publicNetworkAccess")
+    if kind == "app_configuration":
+        private_connection_unknown = inventory.state("app_configuration_private_connection", native_id(resource)) not in ("collected", "empty")
+        nsp_state = inventory.state("app_configuration_nsp", native_id(resource))
+        if nsp_state not in ("collected", "empty"):
+            a.gap("inventory", "App Configuration network security perimeter configuration list is incomplete")
+            return a
+        if nsp_state == "collected":
+            configurations = [row for row in inventory.items("app_configuration_nsp")
+                              if str(row.get("scope", "")).casefold() == str(native_id(resource)).casefold()]
+            if len(configurations) != 1:
+                a.gap("inventory", "App Configuration has ambiguous network security perimeter configurations")
+                return a
+            nsp = _props(configurations[0])
+            mode = nsp.get("accessMode")
+            if mode in ("Learning", "Audit") and isinstance(public, str) and public.casefold() == "enabled":
+                a.ports = pset("tcp", 443, 443)
+                a.step("public_network_access", "allow", public_network_access=public,
+                       reason="transition mode retains resource public access rules")
+                return a
+            if mode in ("Enforced", "Learning", "Audit") and (mode == "Enforced" or
+                    isinstance(public, str) and public.casefold() in ("disabled", "securedbyperimeter")):
+                if (nsp.get("provisioningState") != "Accepted" or nsp.get("hasProvisioningIssues") is not False
+                        or not isinstance(nsp.get("inboundRules"), list)):
+                    a.gap("inventory", "App Configuration enforced perimeter profile is not settled")
+                    return a
+                public_prefixes, external_subscriptions = [], []
+                member_unknown = False
+                own = str(native_id(resource)).split("/", 3)[2]
+                for rule in nsp["inboundRules"]:
+                    if not isinstance(rule, dict):
+                        a.gap("inventory", "App Configuration perimeter inbound rule is malformed")
+                        return a
+                    for prefix in rule.get("addressPrefixes", []):
+                        network = _cidr(prefix)
+                        if network is None:
+                            a.gap("inventory", "App Configuration perimeter IP prefix is malformed")
+                            return a
+                        if _azure_public_remainder([network], []):
+                            public_prefixes.append(prefix)
+                    for subscription in rule.get("subscriptions", []):
+                        match = re.fullmatch(r"/subscriptions/([^/]+)", subscription, re.I)
+                        if match is None:
+                            a.gap("inventory", "App Configuration perimeter subscription rule is malformed")
+                            return a
+                        if match.group(1).casefold() != own.casefold():
+                            external_subscriptions.append(match.group(1))
+                    for perimeter in rule.get("perimeterIds", []):
+                        match = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/networkSecurityPerimeters/[^/]+", perimeter, re.I)
+                        if match is None:
+                            a.gap("inventory", "App Configuration inbound perimeter identity is malformed")
+                            return a
+                        if match.group(1).casefold() != own.casefold():
+                            external_subscriptions.append(match.group(1))
+                perimeter_id = nsp.get("perimeterId")
+                if not isinstance(perimeter_id, str):
+                    member_unknown = True
+                else:
+                    membership_state = inventory.state("app_configuration_nsp_membership", perimeter_id)
+                    if membership_state not in ("collected", "empty"):
+                        member_unknown = True
+                    else:
+                        members = [row for row in inventory.items("app_configuration_nsp_membership")
+                                   if str(row.get("scope", "")).casefold() == perimeter_id.casefold()]
+                        for member in members:
+                            member_props = _props(member)
+                            protected = member_props.get("protectedResourceId")
+                            match = re.match(r"^/subscriptions/([^/]+)/", protected, re.I) if isinstance(protected, str) else None
+                            if match is None:
+                                member_unknown = True
+                            elif match.group(1).casefold() != own.casefold():
+                                if (member_props.get("provisioningState") == "Succeeded"
+                                        and member_props.get("hasProvisioningIssues") == "no"
+                                        and member_props.get("accessMode") in ("Enforced", "Learning", "Audit")):
+                                    external_subscriptions.append(match.group(1))
+                                else:
+                                    member_unknown = True
+                if public_prefixes or external_subscriptions:
+                    a.ports = pset("tcp", 443, 443)
+                    a.external_ids = sorted(set(external_subscriptions))
+                    a.step("perimeter_inbound", "allow", public_ip_rules=public_prefixes,
+                           external_subscriptions=a.external_ids)
+                elif member_unknown:
+                    a.gap("authorization", "App Configuration perimeter membership is incomplete or unresolved")
+                else:
+                    a.ports = {}
+                    a.step("perimeter_inbound", "block", reason="no public IP or foreign-subscription inbound rule")
+                    if private_connection_unknown:
+                        a.explicit = "UNKNOWN"
+                        a.gap("authorization", "App Configuration private endpoint connection inventory is incomplete")
+                if not endpoint:
+                    a.gap("inventory", "App Configuration public endpoint address is not collected")
+                return a
+            if mode not in ("Learning", "Audit"):
+                a.gap("inventory", "App Configuration perimeter association mode is unresolved")
+                return a
+            a.gap("inventory", "App Configuration transition perimeter or store public setting is unresolved")
+            return a
+        if isinstance(public, str) and public.casefold() == "securedbyperimeter":
+            a.ports = {}
+            a.step("perimeter_inbound", "block", reason="no perimeter association and public access secured by perimeter")
+            if private_connection_unknown:
+                a.explicit = "UNKNOWN"
+                a.gap("authorization", "App Configuration private endpoint connection inventory is incomplete")
+            return a
+        if isinstance(public, str) and public.casefold() == "automatic":
+            connections = props.get("privateEndpointConnections")
+            if not isinstance(connections, list) or (props.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status") == "malformed":
+                a.gap("inventory", "App Configuration private endpoint state for Automatic public access is unavailable")
+                return a
+            if not connections:
+                a.ports = pset("tcp", 443, 443)
+                a.step("public_network_access", "allow", reason="Automatic mode has no private endpoint")
+                return a
+            if any(isinstance(connection, dict) and isinstance(connection.get("properties"), dict)
+                   and connection["properties"].get("provisioningState") == "Succeeded"
+                   and (connection["properties"].get("privateLinkServiceConnectionState") or {}).get("status") == "Approved"
+                   for connection in connections):
+                a.ports = {}
+                a.step("public_network_access", "block", reason="Automatic mode has an approved private endpoint")
+                if private_connection_unknown:
+                    a.explicit = "UNKNOWN"
+                    a.gap("authorization", "App Configuration private endpoint connection inventory is incomplete")
+                return a
+            a.gap("inventory", "App Configuration private endpoint is not settled for Automatic public access")
+            return a
     if isinstance(public, str) and public.lower() == "disabled":
         a.step("public_network_access", "block", public_network_access=public)
         a.ports = {}
+        if kind == "app_configuration" and private_connection_unknown:
+            a.explicit = "UNKNOWN"
+            a.gap("authorization", "App Configuration private endpoint connection inventory is incomplete")
         if kind in ("vault", "managed_hsm"):
             acls = props.get("networkAcls")
             bypass = acls.get("bypass", "AzureServices") if isinstance(acls, dict) else None
@@ -10709,6 +10837,140 @@ def _azure_acat_report(snapshot, inventory, resource):
     return a
 
 
+def _azure_app_configuration_private_connection(snapshot, inventory, resource):
+    """Approved foreign private endpoints create a cross-subscription network path."""
+    a = Assessment(resource, "external_share")
+    a.ports = {}
+    props = _props(resource)
+    target = props.get("privateEndpointId")
+    source = str(native_id(resource))
+    source_match = re.match(r"^/subscriptions/([^/]+)/", source, re.I)
+    target_match = re.match(r"^/subscriptions/([^/]+)/", target, re.I) if isinstance(target, str) else None
+    if source_match is None or target_match is None:
+        a.gap("inventory", "App Configuration private endpoint owner is unavailable")
+        return a
+    status, provisioning = props.get("status"), props.get("provisioningState")
+    if status in ("Rejected", "Disconnected"):
+        a.step("private_endpoint", "block", connection_status=status)
+    elif status == "Approved" and provisioning == "Succeeded":
+        if source_match.group(1).casefold() != target_match.group(1).casefold():
+            a.data_exposure = True
+            a.external_ids = [target_match.group(1)]
+            a.step("private_endpoint", "allow", destination_subscription=target_match.group(1))
+        else:
+            a.step("private_endpoint", "same_source", reason="consumer belongs to store subscription")
+    else:
+        a.gap("inventory", "App Configuration private endpoint approval or provisioning is unresolved")
+    return a
+
+
+def _azure_app_configuration_event_subscription(snapshot, inventory, resource):
+    """Assess delivery of App Configuration key-change metadata to another owner."""
+    a = Assessment(resource, "external_event_delivery")
+    a.ports = {}
+    props = _props(resource)
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "App Configuration event subscription active state is unresolved")
+        return a
+    expiration = props.get("expirationTimeUtc")
+    if expiration is not None:
+        try:
+            until = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+            observed = datetime.fromisoformat(snapshot["created_at"].replace("Z", "+00:00"))
+            if until.tzinfo is None or observed.tzinfo is None:
+                raise ValueError("timezone missing")
+        except (TypeError, ValueError, KeyError):
+            a.gap("inventory", "App Configuration event expiration is malformed")
+            return a
+        if until <= observed:
+            a.step("event_subscription", "block", reason="subscription expired")
+            return a
+    source = str(native_id(resource))
+    own = re.match(r"^/subscriptions/([^/]+)/", source, re.I)
+    if own is None:
+        a.gap("inventory", "App Configuration event source subscription is unavailable")
+        return a
+    destination_type = props.get("endpointType")
+    destination_id = props.get("destinationResourceId")
+    destination_host = props.get("destinationHost")
+    foreign = []
+    if destination_type == "WebHook":
+        if not isinstance(destination_host, str) or not destination_host or props.get("destinationScheme") not in ("http", "https"):
+            a.gap("inventory", "App Configuration webhook host is unavailable")
+        else:
+            a.data_exposure = True
+            a.external_ids = [destination_host]
+            a.step("event_destination", "allow", destination_type=destination_type, receiver_host=destination_host)
+    elif destination_type in ("AzureFunction", "EventHub", "HybridConnection", "NamespaceTopic",
+                              "ServiceBusQueue", "ServiceBusTopic", "StorageQueue"):
+        match = re.match(r"^/subscriptions/([^/]+)/", destination_id, re.I) if isinstance(destination_id, str) else None
+        if match is None:
+            a.gap("inventory", "App Configuration event destination ownership is unavailable")
+        elif match.group(1).casefold() != own.group(1).casefold():
+            foreign.append(match.group(1))
+    elif destination_type == "MonitorAlert":
+        groups = props.get("actionGroupIds")
+        if not isinstance(groups, list) or not groups:
+            a.gap("inventory", "App Configuration event action groups are unavailable")
+        for group in groups if isinstance(groups, list) else []:
+            match = re.match(r"^/subscriptions/([^/]+)/", group, re.I) if isinstance(group, str) else None
+            if match is None:
+                a.gap("inventory", "App Configuration event action-group ownership is unavailable")
+            elif match.group(1).casefold() != own.group(1).casefold():
+                foreign.append(match.group(1))
+            elif inventory.state("app_configuration_event_action_group", group) not in ("collected", "empty"):
+                a.gap("inventory", "App Configuration event action group was not collected")
+            else:
+                action = inventory.get("app_configuration_event_action_group", group)
+                if action is None:
+                    a.gap("inventory", "App Configuration event action group is unavailable")
+                    continue
+                receiver = _props(action)
+                if receiver.get("enabled") is False:
+                    continue
+                if receiver.get("enabled") is not True:
+                    a.gap("inventory", "App Configuration event action-group enabled state is unavailable")
+                    continue
+                hosts = receiver.get("webhookHosts")
+                channels = receiver.get("channels")
+                subscriptions = receiver.get("resourceSubscriptions")
+                if not all(isinstance(value, list) for value in (hosts, channels, subscriptions)):
+                    a.gap("inventory", "App Configuration event action-group receivers are unavailable")
+                    continue
+                if hosts or channels:
+                    a.data_exposure = True
+                    a.external_ids.extend(hosts or channels)
+                    a.step("action_group", "allow", receiver_hosts=hosts, receiver_channels=channels)
+                foreign.extend(value for value in subscriptions if isinstance(value, str) and value.casefold() != own.group(1).casefold())
+                if receiver.get("unresolvedReceivers") is True:
+                    a.gap("inventory", "App Configuration event action group has unresolved receivers")
+                elif receiver.get("unresolvedReceivers") is not False:
+                    a.gap("inventory", "App Configuration event action-group receiver completeness is unavailable")
+    else:
+        a.gap("inventory", "App Configuration event destination type is unsupported")
+    dead_id = props.get("deadLetterResourceId")
+    if dead_id is not None:
+        match = re.match(r"^/subscriptions/([^/]+)/", dead_id, re.I) if isinstance(dead_id, str) else None
+        if match is None:
+            a.gap("inventory", "App Configuration dead-letter ownership is unavailable")
+        elif match.group(1).casefold() != own.group(1).casefold():
+            foreign.append(match.group(1))
+    if foreign:
+        a.data_exposure = True
+        a.external_ids = sorted(set(a.external_ids + foreign))
+        a.step("event_destination", "allow", destination_type=destination_type,
+               foreign_subscriptions=sorted(set(foreign)))
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    elif a.data_exposure:
+        a.external_ids = sorted(set(a.external_ids))
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    elif not a.unresolved and not a.data_exposure:
+        a.step("event_destination", "same_source", reason="delivery destinations remain in source subscription")
+    return a
+
+
 def _azure_cost_export(snapshot, inventory, resource):
     """Cost exports can deliver billing data to a different subscription."""
     a = Assessment(resource, "external_report_delivery")
@@ -11544,7 +11806,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11559,7 +11821,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "analysis_server", "private_link_service",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11672,6 +11934,8 @@ def assess(snapshot, resources):
                   "acat_report": _azure_acat_report,
                   "acat_webhook": _azure_acat_webhook,
                   "cost_export": _azure_cost_export,
+                  "app_configuration_private_connection": _azure_app_configuration_private_connection,
+                  "app_configuration_event_subscription": _azure_app_configuration_event_subscription,
                   "lighthouse_assignment": _azure_lighthouse_assignment,
                   "managed_application": _azure_managed_application,
                   "managed_grafana": _azure_managed_grafana,
@@ -11714,6 +11978,18 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "app_configuration_event_subscription":
+        return ("App Configuration sends events to an external destination" if status == "FAIL" else
+                "App Configuration event destination unresolved" if status == "UNKNOWN" else
+                "App Configuration event destination has no detected foreign owner")
+    if assessment.resource["type"] == "app_configuration_private_connection":
+        return ("App Configuration grants a foreign private endpoint access" if status == "FAIL" else
+                "App Configuration private endpoint access unresolved" if status == "UNKNOWN" else
+                "App Configuration private endpoint has no foreign approval")
+    if assessment.resource["type"] == "app_configuration":
+        return ("App Configuration permits public or cross-subscription access" if status == "FAIL" else
+                "App Configuration network access unresolved" if status == "UNKNOWN" else
+                "App Configuration has no detected public or cross-subscription access")
     if assessment.resource["type"] == "cost_export":
         return ("Cost Management export targets another subscription" if status == "FAIL" else
                 "Cost Management export destination ownership unresolved" if status == "UNKNOWN" else
@@ -11823,6 +12099,24 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "app_configuration_event_subscription":
+        if status == "FAIL":
+            return "An active App Configuration event subscription targets a webhook host or an Azure resource in another subscription. Event metadata may be delivered; webhook paths and tokens are not retained."
+        if status == "PASS":
+            return "The event subscription has expired or its configured Azure destinations are in the source subscription."
+        return "The event destination, its recipient ownership, action-group recipients, or subscription state is unresolved."
+    if assessment.resource["type"] == "app_configuration_private_connection":
+        if status == "FAIL":
+            return "The store approved a private endpoint in another subscription; the connection is provisioned. Application authentication still applies."
+        if status == "PASS":
+            return "The private endpoint is in the store's subscription or its connection is rejected or disconnected."
+        return "The private endpoint owner, approval, or provisioning state is unresolved."
+    if assessment.resource["type"] == "app_configuration":
+        if status == "FAIL":
+            return "The store allows public access, or its enforced perimeter has an inbound public-IP or cross-subscription rule. Client authentication still applies."
+        if status == "PASS":
+            return "The collected store and perimeter settings block public inbound access under the evaluated rule set."
+        return "The store's public access or effective perimeter association and inbound rules are incomplete or unresolved."
     if assessment.resource["type"] == "cost_export":
         if status == "FAIL":
             return "The configured billing-data export destination is a storage account in another subscription."
