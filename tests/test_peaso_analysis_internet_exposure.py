@@ -747,6 +747,32 @@ def test_gcp_composer_airflow_web_server_network_allowlist():
     assert assessment()["status"] == "UNKNOWN"
 
 
+def test_gcp_source_repository_direct_cross_project_reader_grant():
+    repo = {"name": "projects/p1/repos/application", "iamPolicy": {"bindings": [{
+        "role": "roles/source.reader", "members": ["serviceAccount:builder@foreign-project.iam.gserviceaccount.com"]}]},
+        "_coverage": {"iamPolicy": {"status": "collected"}}}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("source_repository", [repo], service="sourcerepo")))["findings"]
+                if row["check_id"] == "analysis.gcp_source_repository_external_reader"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert rows[0]["evidence"]["permission"] == "source.repos.get"
+    assert rows[0]["evidence"]["direct_reader_grants"][0]["service_account_project"] == "foreign-project"
+    repo["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert findings()[0]["status"] == "UNKNOWN"
+    repo["iamPolicy"]["bindings"][0].pop("condition")
+    repo["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:builder@p1.iam.gserviceaccount.com"]
+    assert findings() == []
+    repo["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:builder@foreign-project.iam.gserviceaccount.com"]
+    repo["iamPolicy"]["bindings"][0]["role"] = "roles/source.viewer"
+    assert findings() == []
+    repo["iamPolicy"]["bindings"][0]["role"] = "roles/source.reader"
+    repo["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert findings() == []
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

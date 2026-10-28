@@ -3093,6 +3093,22 @@ def gcp_public_policy_findings(snapshot, resources):
     return output
 
 
+def _gcp_cross_project_sa_grants(policy, project, role):
+    grants = []
+    for binding in as_list(policy.get("bindings")):
+        if not isinstance(binding, dict) or binding.get("role") != role:
+            continue
+        for member in as_list(binding.get("members")):
+            if not isinstance(member, str) or not member.startswith("serviceAccount:"):
+                continue
+            match = re.fullmatch(r"[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com",
+                                 member.removeprefix("serviceAccount:"))
+            if match and match.group(1) != project:
+                grants.append({"member": member, "service_account_project": match.group(1),
+                               "role": role, "condition": binding.get("condition")})
+    return grants
+
+
 def gcp_bigtable_external_reader_findings(snapshot, resources):
     """Report exact direct table-reader grants to another GCP project's SA."""
     if snapshot["provider"] != "gcp":
@@ -3111,18 +3127,7 @@ def gcp_bigtable_external_reader_findings(snapshot, resources):
         project = resource["scope"].removeprefix("projects/")
         if not project or project == resource["scope"]:
             continue
-        grants = []
-        for binding in as_list(policy.get("bindings")):
-            if not isinstance(binding, dict) or binding.get("role") != "roles/bigtable.reader":
-                continue
-            for member in as_list(binding.get("members")):
-                if not isinstance(member, str) or not member.startswith("serviceAccount:"):
-                    continue
-                match = re.fullmatch(r"[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com",
-                                     member.removeprefix("serviceAccount:"))
-                if match and match.group(1) != project:
-                    grants.append({"member": member, "service_account_project": match.group(1),
-                                   "role": binding["role"], "condition": binding.get("condition")})
+        grants = _gcp_cross_project_sa_grants(policy, project, "roles/bigtable.reader")
         if not grants:
             continue
         unconditional = [grant for grant in grants if not grant["condition"]]
@@ -3151,6 +3156,43 @@ def gcp_bigtable_external_reader_findings(snapshot, resources):
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_bigtable_external_reader",
                               "Cross-project Bigtable table reader grant", "high" if unconditional else "info",
                               evidence, status=status))
+    return output
+
+
+def gcp_source_repository_external_reader_findings(snapshot, resources):
+    """Report direct source clone/fetch grants to a cross-project service account."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "source_repository" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        envelope = data.get("_coverage")
+        coverage = envelope.get("iamPolicy") if isinstance(envelope, dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = _gcp_cross_project_sa_grants(policy, project, "roles/source.reader")
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        evidence = {
+            "observed": ("The collected source repository IAM policy grants Source Repository Reader to a service account from another project."
+                         if unconditional else "The collected source repository IAM policy has a conditional Source Repository Reader grant to a service account from another project."),
+            "direct_reader_grants": grants,
+            "permission": "source.repos.get",
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct IAM grant to clone, fetch and browse only; project ownership, inherited IAM, denies and successful reads are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_source_repository_external_reader",
+                              "Cross-project source repository reader grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
     return output
 
 
@@ -5510,6 +5552,7 @@ def internet_findings(snapshot, resources):
     output.extend(coverage_findings(snapshot, resources))
     output.extend(gcp_public_policy_findings(snapshot, resources))
     output.extend(gcp_bigtable_external_reader_findings(snapshot, resources))
+    output.extend(gcp_source_repository_external_reader_findings(snapshot, resources))
     return output
 
 
