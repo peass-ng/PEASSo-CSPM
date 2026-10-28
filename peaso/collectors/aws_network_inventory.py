@@ -13,6 +13,8 @@ NATIVE_IDS = dict.fromkeys(PLANS, 'NetworkResourceId')
 READS = {}
 READ_IDENTITIES = {}
 DETAIL_ENRICHERS = {
+    'dsql_cluster': {'service': 'dsql', 'operation': 'get_cluster', 'key': None,
+        'arguments': {'identifier': 'identifier'}},
     'mskconnect_connector': {'service': 'kafkaconnect', 'operation': 'describe_connector', 'key': None,
         'arguments': {'connectorArn': 'connectorArn'}},
     'quicksight_vpc_connection': {'service': 'quicksight', 'operation': 'describe_vpc_connection', 'key': 'VPCConnection',
@@ -96,6 +98,8 @@ class MetadataClient:
                 body = {key: value for key, value in body.items() if key not in
                     {'IpRestrictionRuleMap', 'VpcIdRestrictionRuleMap', 'VpcEndpointIdRestrictionRuleMap'}} | {'NetworkAttributes': facts}
             projected = projected_metadata(body, identity_fields=READ_IDENTITIES.get((self.service, operation), ()))
+            if self.service == 'dsql' and operation == 'get_cluster' and isinstance(body, dict):
+                projected = {key: body[key] for key in ('identifier', 'arn', 'status', 'endpoint') if key in body}
             if self.service == 'devicefarm' and operation == 'get_run' and isinstance(body, dict):
                 # GetRun calls this ARN appUpload, so the generic network
                 # projection omits it. Keep only a same-project upload ARN;

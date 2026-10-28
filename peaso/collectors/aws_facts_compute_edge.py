@@ -15,6 +15,7 @@ SPECS = {
     "launch_configuration": ("autoscaling", "describe_launch_configurations", "LaunchConfigurations"),
     "ecs_service": ("ecs", "describe_services", None),
     "ecs_task_set": ("ecs", "describe_services", None),
+    "ecs_task_network": ("ecs", "list_tasks", "taskArns"),
     "ecs_account_setting": ("ecs", "list_account_settings", "settings"),
     "appstream_fleet": ("appstream", "describe_fleets", "Fleets"),
     "appstream_image": ("appstream", "describe_images", "Images"),
@@ -24,6 +25,8 @@ SPECS = {
     "apigateway_domain_name": ("apigateway", "get_domain_names", "items"),
     "apigatewayv2_domain_name": ("apigatewayv2", "get_domain_names", "Items"),
     "appsync_graphql_api": ("appsync", "list_graphql_apis", "graphqlApis"),
+    "appsync_event_api": ("appsync", "list_apis", "apis"),
+    "appsync_domain": ("appsync", "list_domain_names", "domainNameConfigs"),
     "directconnect_connection": ("directconnect", "describe_connections", "connections"),
     "directconnect_virtual_interface": ("directconnect", "describe_virtual_interfaces", "virtualInterfaces"),
     "managed_prefix_list": ("ec2", "describe_managed_prefix_lists", "PrefixLists"),
@@ -37,8 +40,8 @@ SPECS = {
     "wafregional_rule_group": ("waf-regional", "list_rule_groups", "RuleGroups"),
 }
 NATIVE_IDS = {
-    "launch_configuration": "LaunchConfigurationARN", "ecs_service": "serviceArn", "ecs_task_set": "taskSetArn", "ecs_account_setting": "name",
-    "appstream_fleet": "Arn", "appstream_image": "Arn", "appstream_app_block": "Arn", "appstream_app_block_builder_association": "AppBlockBuilderName", "elastic_beanstalk_environment": "EnvironmentArn", "apigateway_domain_name": "domainName", "apigatewayv2_domain_name": "DomainName", "appsync_graphql_api": "arn",
+    "launch_configuration": "LaunchConfigurationARN", "ecs_service": "serviceArn", "ecs_task_set": "taskSetArn", "ecs_task_network": "taskArn", "ecs_account_setting": "name",
+    "appstream_fleet": "Arn", "appstream_image": "Arn", "appstream_app_block": "Arn", "appstream_app_block_builder_association": "AppBlockBuilderName", "elastic_beanstalk_environment": "EnvironmentArn", "apigateway_domain_name": "domainName", "apigatewayv2_domain_name": "DomainName", "appsync_graphql_api": "arn", "appsync_event_api": "apiArn", "appsync_domain": "domainNameArn",
     "directconnect_connection": "connectionId", "directconnect_virtual_interface": "virtualInterfaceId", "managed_prefix_list": "PrefixListId",
     "wafv2_web_acl": "ARN", "wafv2_rule_group": "ARN", "waf_web_acl": "WebACLId", "waf_rule": "RuleId", "waf_rule_group": "RuleGroupId",
     "wafregional_web_acl": "WebACLId", "wafregional_rule": "RuleId", "wafregional_rule_group": "RuleGroupId",
@@ -47,7 +50,7 @@ NATIVE_IDS = {
 GLOBAL_TYPES = {"waf_web_acl", "waf_rule", "waf_rule_group"}
 READ_ACTIONS = {(service, operation) for service, operation, expression in SPECS.values()}
 READ_ACTIONS.update({
-    ("ecs", "list_clusters"), ("ecs", "list_services"), ("ecs", "describe_task_definition"),
+    ("ecs", "list_clusters"), ("ecs", "list_services"), ("ecs", "describe_task_definition"), ("ecs", "describe_tasks"),
     ("appstream", "list_associated_stacks"),
     ("appstream", "describe_image_permissions"),
     ("elasticbeanstalk", "describe_configuration_settings"),
@@ -59,6 +62,7 @@ READ_ACTIONS.update({
     ("elb", "describe_instance_health"),
     ("elbv2", "describe_target_group_attributes"),
     ("appsync", "get_api_cache"), ("eks", "describe_addon"), ("lambda", "get_function_configuration"),
+    ("appsync", "get_api_association"),
     ("elbv2", "describe_rules"), ("logs", "describe_delivery_sources"), ("logs", "describe_deliveries"),
     ("ec2", "get_managed_prefix_list_entries"), ("ec2", "describe_image_attribute"),
     ("cloudfront", "get_cloud_front_origin_access_identity"),
@@ -80,7 +84,8 @@ _UNSUPPORTED_TYPE = ("WAFInvalidParameterException", "WAFInvalidOperationExcepti
 _BEANSTALK_OPTIONS = {("aws:elasticbeanstalk:cloudwatch:logs", "StreamLogs"), ("aws:elasticbeanstalk:managedactions", "ManagedActionsEnabled"),
                       ("aws:elasticbeanstalk:healthreporting:system", "SystemType"),
                       ("aws:elasticbeanstalk:hostmanager", "LogPublicationControl"),
-                      ("aws:elasticbeanstalk:environment", "LoadBalancerType")}
+                      ("aws:elasticbeanstalk:environment", "LoadBalancerType"),
+                      ("aws:elasticbeanstalk:sns:topics", "Notification Topic ARN")}
 _SECRET_KEYS = {"authKey", "customerRouterConfig", "macSecKeys", "LockToken", "UserData"}
 
 
@@ -239,6 +244,68 @@ def _ecs_task_set(requests, session, region, account):
     return _result(rows, "collected" if rows else "empty")
 
 
+def _ecs_task_network(requests, session, region, account):
+    """Bind running ECS tasks to their managed task ENIs without container data."""
+    clusters = requests.pages(session, "ecs", region, "list_clusters", "clusterArns")
+    if not _usable(clusters):
+        return _fail(clusters)
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    rows, failed = [], None
+    for cluster in clusters.items:
+        if not isinstance(cluster, str) or not cluster.startswith(f"arn:{partition}:ecs:{region}:{account}:cluster/"):
+            failed = failed or _result([], "malformed", {"code": "ecs_cluster_identity_invalid"})
+            continue
+        task_arns = requests.pages(session, "ecs", region, "list_tasks", "taskArns", cluster=cluster,
+                                   desiredStatus="RUNNING")
+        if not _usable(task_arns):
+            failed = failed or task_arns
+            continue
+        for offset in range(0, len(task_arns.items), 100):
+            wanted = task_arns.items[offset:offset + 100]
+            if any(not isinstance(arn, str) or not arn.startswith(f"arn:{partition}:ecs:{region}:{account}:task/")
+                   for arn in wanted):
+                failed = failed or _result([], "malformed", {"code": "ecs_task_identity_invalid"})
+                continue
+            try:
+                response = requests.call(session, "ecs", region, "describe_tasks", cluster=cluster, tasks=wanted)
+            except Exception as exc:
+                error = _failure(exc)
+                failed = failed or _result([], error.status, {"code": error.code})
+                continue
+            tasks, failures = response.get("tasks"), response.get("failures", [])
+            if (not isinstance(tasks, list) or not isinstance(failures, list) or failures or
+                    {task.get("taskArn") for task in tasks if isinstance(task, dict)} != set(wanted)):
+                failed = failed or _result([], "partial", {"code": "ecs_describe_tasks_incomplete"})
+                continue
+            for task in tasks:
+                if task.get("clusterArn") != cluster or task.get("lastStatus") != "RUNNING":
+                    failed = failed or _result([], "partial", {"code": "ecs_task_state_mismatch"})
+                    continue
+                attachments = task.get("attachments") or []
+                eni_ids = []
+                for attachment in attachments:
+                    if not isinstance(attachment, dict) or attachment.get("type") != "ElasticNetworkInterface":
+                        continue
+                    if attachment.get("status") != "ATTACHED":
+                        failed = failed or _result([], "partial", {"code": "ecs_task_eni_not_attached"})
+                        continue
+                    details = attachment.get("details") or []
+                    eni_ids.extend(detail.get("value") for detail in details if isinstance(detail, dict)
+                                   and detail.get("name") == "networkInterfaceId")
+                if not eni_ids:
+                    if task.get("launchType") == "FARGATE":
+                        failed = failed or _result([], "partial", {"code": "ecs_fargate_eni_unavailable"})
+                    continue  # EC2 host/bridge tasks use their instance's assessed network path.
+                if len(eni_ids) != 1 or not isinstance(eni_ids[0], str) or not re.fullmatch(r"eni-[a-z0-9]+", eni_ids[0]):
+                    failed = failed or _result([], "malformed", {"code": "ecs_task_eni_invalid"})
+                    continue
+                rows.append({"taskArn": task["taskArn"], "clusterArn": cluster,
+                             "NetworkInterfaceId": eni_ids[0], "launchType": task.get("launchType")})
+    if failed:
+        return _fail(failed, rows)
+    return _result(rows, "collected" if rows else "empty")
+
+
 def _ecs_account_setting(requests, session, region, account):
     return requests.pages(session, "ecs", region, "list_account_settings", "settings", name="defaultLogDriverMode", effectiveSettings=True)
 
@@ -391,19 +458,17 @@ def _appstream_fleets(requests, session, region, items):
 def _appstream_images(requests, session, region, items):
     output = []
     for item in items:
-        image = _pick(item, ("Arn", "Name", "State", "Visibility", "ImageType", "ImageBuilderSupported",
-                             "ImagePermissions", "SupportedInstanceFamilies", "Platform"))
-        name = image.get("Name") if isinstance(image, dict) else None
-        if (isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", name) and
-                image.get("Visibility") == "PRIVATE"):
+        current = _pick(item, ("Arn", "Name", "State", "Visibility", "ImageType", "ImageBuilderSupported",
+                               "ImagePermissions", "SupportedInstanceFamilies", "Platform"))
+        arn = current.get("Arn")
+        name = current.get("Name")
+        # DescribeImages also returns AWS public and other accounts' shared images.
+        owner = arn.split(":", 5)[4] if isinstance(arn, str) and arn.startswith("arn:") and len(arn.split(":", 5)) == 6 else None
+        if isinstance(owner, str) and owner.isdigit() and len(owner) == 12 and current.get("Visibility") == "PRIVATE" and isinstance(name, str) and name:
             read = requests.pages(session, "appstream", region, "describe_image_permissions",
-                                  "SharedImagePermissionsList", Name=name, _tokens=("NextToken", "NextToken"))
-            image["SharedPermissions"] = _child(read, lambda row: {
-                **_pick(row, ("sharedAccountId",)),
-                "imagePermissions": _pick(row.get("imagePermissions"), ("allowFleet", "allowImageBuilder")),
-            } if isinstance(row, dict) else row)
-            image["SharedPermissions"]["Name"] = name
-        output.append(image)
+                                  "SharedImagePermissionsList", Name=name)
+            current["SharedImagePermissions"] = _child(read, lambda row: _pick(row, ("sharedAccountId", "imagePermissions")))
+        output.append(current)
     return output
 
 
@@ -548,6 +613,21 @@ def _appsync_cache(requests, session, region, items):
     for item in items:
         item = copy.deepcopy(item)
         item["ApiCache"] = _metadata(requests.detail(session, "appsync", region, "get_api_cache", apiId=item["apiId"], absent=("NotFoundException",)))
+        output.append(item)
+    return output
+
+
+def _appsync_domain_association(requests, session, region, items):
+    output = []
+    for original in items:
+        item = copy.deepcopy(original)
+        name = item.get("domainName")
+        if not isinstance(name, str) or not name or "/" in name or "?" in name:
+            item["ApiAssociation"] = {"collection_status": "malformed"}
+        else:
+            response = requests.detail(session, "appsync", region, "get_api_association",
+                                       domainName=name, absent=("NotFoundException",))
+            item["ApiAssociation"] = _metadata(response)
         output.append(item)
     return output
 
@@ -881,7 +961,7 @@ def _waf_classic(kind, service):
 
 
 FETCHERS = {
-    "ecs_service": _ecs_service, "ecs_task_set": _ecs_task_set, "ecs_account_setting": _ecs_account_setting,
+    "ecs_service": _ecs_service, "ecs_task_set": _ecs_task_set, "ecs_task_network": _ecs_task_network, "ecs_account_setting": _ecs_account_setting,
     "elastic_beanstalk_environment": _beanstalk_environments,
     "directconnect_connection": _directconnect("describe_connections", "connections"),
     "directconnect_virtual_interface": _directconnect("describe_virtual_interfaces", "virtualInterfaces"),
@@ -907,6 +987,7 @@ ENRICHERS = {
     "apigatewayv2_domain_name": _http_api_domain_mappings,
     "http_api": _http_api,
     "appsync_graphql_api": _appsync_cache,
+    "appsync_domain": _appsync_domain_association,
     "managed_prefix_list": _prefix_list_entries,
     "load_balancer": _load_balancer_rules,
     "classic_load_balancer": _classic_instance_health,

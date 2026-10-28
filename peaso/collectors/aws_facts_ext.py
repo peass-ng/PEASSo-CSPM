@@ -39,10 +39,15 @@ from datetime import datetime
 import hashlib
 import json
 import re
+from urllib.parse import urlsplit
 
 OK = ("collected", "empty")
 
 SPECS = {
+    'agentcore_gateway': ("bedrock-agentcore-control", "list_gateways", "items"),
+    'auditmanager_report_destination': ("auditmanager", "list_assessments", "assessmentMetadata"),
+    'cleanrooms_collaboration_exposure': ("cleanrooms", "list_memberships", "membershipSummaries"),
+    'eventbridge_pipe_exposure': ("pipes", "list_pipes", "Pipes"),
     "transit_gateway_peering_attachment": ("ec2", "describe_transit_gateway_peering_attachments", "TransitGatewayPeeringAttachments"),
     "lambda_layer_version": ("lambda", "list_layers", "Layers"),
     "lambda_version": ("lambda", "list_versions_by_function", "Versions"),
@@ -70,6 +75,21 @@ SPECS = {
     "grafana_workspace": ("grafana", "list_workspaces", "workspaces"),
     "gamelift_ec2_compute": ("gamelift", "list_fleets", "FleetIds"),
     "iot_role_alias": ("iot", "list_role_aliases", "roleAliases"),
+    "iot_credentials_endpoint": ("iot", "describe_endpoint", None),
+    "iot_data_domain": ("iot", "list_domain_configurations", "domainConfigurations"),
+    "iot_topic_rule": ("iot", "list_topic_rules", "rules"),
+    "cognito_user_pool_endpoint": ("cognito-idp", "list_user_pools", "UserPools"),
+    "apigatewayv2_portal": ("apigatewayv2", "list_portals", "Items"),
+    "appflow_flow": ("appflow", "list_flows", "flows"),
+    "cloudmap_public_service": ("servicediscovery", "list_namespaces", "Namespaces"),
+    "cloudsearch_domain_endpoint": ("cloudsearch", "describe_domains", "DomainStatusList"),
+    "rum_app_monitor_endpoint": ("rum", "list_app_monitors", "AppMonitorSummaries"),
+    "config_aggregation_authorization": ("config", "describe_aggregation_authorizations", "AggregationAuthorizations"),
+    "config_conformance_pack_delivery": ("config", "describe_conformance_packs", "ConformancePackDetails"),
+    "config_organization_pack_delivery": ("config", "describe_organization_conformance_packs", "OrganizationConformancePacks"),
+    "config_rule_lambda_delivery": ("config", "describe_config_rules", "ConfigRules"),
+    "config_organization_rule_lambda_delivery": ("config", "describe_organization_config_rules", "OrganizationConfigRules"),
+    "backup_search_export": ("backupsearch", "list_search_result_export_jobs", "ExportJobs"),
     "devicefarm_upload": ("devicefarm", "list_uploads", "uploads"),
     "devicefarm_device_pool": ("devicefarm", "list_device_pools", "devicePools"),
     "quicksight_user": ("quicksight", "list_users", "UserList"),
@@ -100,6 +120,14 @@ SPECS = {
 NATIVE_IDS = {kind: "id" for kind in SPECS}
 GLOBAL_TYPES = {"route53_record_set"}
 READ_ACTIONS = {
+    ('auditmanager', 'get_assessment'),
+    ('auditmanager', 'get_settings'),
+    ('auditmanager', 'list_assessments'),
+    ('bedrock-agentcore-control', 'get_gateway'),
+    ('bedrock-agentcore-control', 'list_gateways'),
+    ('imagebuilder', 'list_distribution_configurations'),
+    ('pipes', 'describe_pipe'),
+    ('pipes', 'list_pipes'),
     ("ec2", "describe_client_vpn_authorization_rules"),
     ("ec2", "describe_transit_gateway_peering_attachments"),
     ("lambda", "list_functions"), ("lambda", "list_layer_versions"), ("lambda", "list_versions_by_function"), ("lambda", "get_layer_version_policy"),
@@ -114,6 +142,8 @@ READ_ACTIONS = {
     ("kms", "list_keys"), ("kms", "describe_key"),
     ("cognito-identity", "get_identity_pool_roles"),
     ("cognito-idp", "list_identity_providers"), ("cognito-idp", "get_user_pool_mfa_config"), ("cognito-idp", "list_groups"),
+    ("cognito-idp", "describe_user_pool"), ("cognito-idp", "describe_user_pool_domain"),
+    ("cognito-idp", "list_user_pool_clients"), ("cognito-idp", "describe_user_pool_client"),
     ("opensearch", "describe_inbound_connections"),
     ("route53", "list_hosted_zones"),
     ("cloudformation", "list_stack_sets"),
@@ -128,6 +158,15 @@ READ_ACTIONS = {
     ("gamelift", "describe_fleet_attributes"), ("gamelift", "list_compute"),
     ("devicefarm", "list_projects"), ("devicefarm", "get_device_pool_compatibility"),
     ("iot", "describe_role_alias"),
+    ("iot", "describe_endpoint"),
+    ("iot", "describe_domain_configuration"),
+    ("iot", "get_topic_rule"),
+    ("iot", "list_topic_rule_destinations"),
+    ("appflow", "describe_flow"),
+    ("servicediscovery", "list_services"), ("servicediscovery", "list_instances"),
+    ("cloudsearch", "describe_service_access_policies"), ("cloudsearch", "describe_domain_endpoint_options"),
+    ("rum", "get_app_monitor"), ("rum", "get_resource_policy"), ("rum", "list_rum_metrics_destinations"),
+    ("backupsearch", "get_search_result_export_job"),
     ("sso-admin", "list_instances"), ("sso-admin", "list_permission_sets"),
     ("sso-admin", "list_accounts_for_provisioned_permission_set"), ("identitystore", "list_groups"),
     ("cloud9", "list_environments"), ("cloud9", "describe_environments"),
@@ -206,6 +245,629 @@ def _iot_role_aliases(requests, session, region, account):
             failure = failure or ("malformed", {"code": "malformed_iot_role_alias_detail"})
             continue
         rows.append({"RoleAlias": name, "RoleAliasArn": arn, "RoleArn": role_arn, "id": arn})
+    return _finish(rows, failure)
+
+
+def _iot_credentials_endpoint(requests, session, region, account):
+    aliases = requests.pages(session, "iot", region, "list_role_aliases", "roleAliases",
+                             _tokens=("marker", "nextMarker"))
+    if aliases.status not in OK:
+        return _finish([], _cause(aliases))
+    if not aliases.items:
+        return _finish([], None)
+    if any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_=,@-]{1,128}", name)
+           for name in aliases.items):
+        return _finish([], ("malformed", {"code": "malformed_iot_role_alias"}))
+    detail = requests.detail(session, "iot", region, "describe_endpoint",
+                             endpointType="iot:CredentialProvider")
+    if detail.get("collection_status") != "collected":
+        return _finish([], (detail.get("collection_status") or "unknown",
+                            {"code": "iot_credentials_endpoint_unavailable"}))
+    address = detail.get("endpointAddress")
+    if not isinstance(address, str) or not re.fullmatch(r"[A-Za-z0-9.-]{1,253}", address) or "." not in address:
+        return _finish([], ("malformed", {"code": "malformed_iot_credentials_endpoint"}))
+    return _finish([{"id": f"{account}/{region}/iot:CredentialProvider",
+                     "EndpointAddress": address, "RoleAliasCount": len(aliases.items)}], None)
+
+
+def _iot_data_domains(requests, session, region, account):
+    read = requests.pages(session, "iot", region, "list_domain_configurations", "domainConfigurations",
+                          _tokens=("marker", "nextMarker"), serviceType="DATA")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    for summary in read.items:
+        name = summary.get("domainConfigurationName") if isinstance(summary, dict) else None
+        arn = summary.get("domainConfigurationArn") if isinstance(summary, dict) else None
+        if (not isinstance(name, str) or not name or not isinstance(arn, str) or
+                not arn.startswith(f"arn:{_partition(region)}:iot:{region}:{account}:domainconfiguration/")):
+            failure = failure or ("malformed", {"code": "iot_data_domain_identity_invalid"})
+            continue
+        detail = requests.detail(session, "iot", region, "describe_domain_configuration",
+                                 domainConfigurationName=name)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status", "unknown"),
+                                  {"code": "iot_data_domain_detail_unavailable"})
+            continue
+        if detail.get("domainConfigurationName") != name or detail.get("domainConfigurationArn") != arn:
+            failure = failure or ("malformed", {"code": "iot_data_domain_detail_identity_invalid"})
+            continue
+        authorizer = detail.get("authorizerConfig")
+        rows.append({"id": arn, "DomainConfigurationArn": arn, "DomainConfigurationName": name,
+                     "DomainName": detail.get("domainName"),
+                     "Status": detail.get("domainConfigurationStatus"),
+                     "DomainType": detail.get("domainType"),
+                     "ServiceType": detail.get("serviceType") or summary.get("serviceType") or "DATA",
+                     "AuthenticationType": detail.get("authenticationType"),
+                     "ApplicationProtocol": detail.get("applicationProtocol"),
+                     "DefaultAuthorizerName": authorizer.get("defaultAuthorizerName") if isinstance(authorizer, dict) else None,
+                     "AllowAuthorizerOverride": authorizer.get("allowAuthorizerOverride") if isinstance(authorizer, dict) else None})
+    return _finish(rows, failure)
+
+
+def _iot_action_destinations(rule, *, on_error=False, http_destinations=None):
+    actions = rule if isinstance(rule, list) else []
+    destinations = []
+    for action in actions:
+        if not isinstance(action, dict):
+            destinations.append({"Kind": "unknown", "OnError": on_error})
+            continue
+        for kind, config in action.items():
+            row = {"Kind": kind, "OnError": on_error}
+            if not isinstance(config, dict):
+                row["Unresolved"] = True
+            elif kind in ("http", "salesforce", "openSearch", "elasticsearch"):
+                value = config.get("url" if kind in ("http", "salesforce") else "endpoint")
+                row["DynamicUrl"] = isinstance(value, str) and "${" in value
+                try:
+                    parsed = urlsplit(value) if isinstance(value, str) else None
+                except ValueError:
+                    parsed = None
+                row["TargetHost"] = (parsed.hostname if parsed and parsed.scheme == "https" and
+                    parsed.hostname and "${" not in parsed.hostname and not parsed.username and not parsed.password else None)
+                if kind == "http":
+                    confirmation = config.get("confirmationUrl")
+                    try:
+                        confirmed = urlsplit(confirmation) if isinstance(confirmation, str) and "${" not in confirmation else None
+                    except ValueError:
+                        confirmed = None
+                    row["ConfirmationHost"] = confirmed.hostname if confirmed and confirmed.scheme == "https" and not confirmed.username and not confirmed.password else None
+                    if http_destinations is None:
+                        row["DestinationStatus"] = "UNKNOWN"
+                    else:
+                        matches = []
+                        for destination in http_destinations:
+                            summary = destination.get("httpUrlSummary") if isinstance(destination, dict) else None
+                            prefix = summary.get("confirmationUrl") if isinstance(summary, dict) else None
+                            if not isinstance(prefix, str) or not isinstance(value, str) or not value.startswith(prefix):
+                                continue
+                            try:
+                                confirmed_url = urlsplit(prefix)
+                                target_url = urlsplit(value)
+                                same_port = confirmed_url.port == target_url.port
+                            except ValueError:
+                                continue
+                            if (confirmed_url.scheme == target_url.scheme == "https" and
+                                    confirmed_url.hostname == target_url.hostname and
+                                    same_port and
+                                    confirmed_url.username is None and target_url.username is None and
+                                    confirmed_url.password is None and target_url.password is None):
+                                matches.append(destination.get("status"))
+                        row["DestinationStatus"] = "ENABLED" if "ENABLED" in matches else "UNCONFIRMED" if not matches else "DISABLED"
+            elif kind == "s3":
+                row["BucketName"] = config.get("bucketName")
+                row["CannedAcl"] = config.get("cannedAcl")
+            elif kind in ("sns", "lambda"):
+                row["TargetArn"] = config.get("targetArn" if kind == "sns" else "functionArn")
+            elif kind in ("kafka", "influxDB"):
+                row["DestinationArn"] = config.get("destinationArn")
+            elif kind == "sqs":
+                queue_url = config.get("queueUrl")
+                try:
+                    parsed = urlsplit(queue_url) if isinstance(queue_url, str) else None
+                except ValueError:
+                    parsed = None
+                match = re.fullmatch(r"/([0-9]{12})/[^/]+", parsed.path) if parsed and parsed.scheme == "https" else None
+                row["TargetAccount"] = match.group(1) if match else None
+            destinations.append(row)
+    return destinations
+
+
+def _iot_topic_rules(requests, session, region, account):
+    read = requests.pages(session, "iot", region, "list_topic_rules", "rules",
+                          _tokens=("nextToken", "nextToken"))
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure, http_destinations = [], None, None
+    for summary in read.items:
+        name = summary.get("ruleName") if isinstance(summary, dict) else None
+        arn = summary.get("ruleArn") if isinstance(summary, dict) else None
+        if (not isinstance(name, str) or not name or not isinstance(arn, str) or
+                not arn.startswith(f"arn:{_partition(region)}:iot:{region}:{account}:rule/")):
+            failure = failure or ("malformed", {"code": "iot_topic_rule_identity_invalid"})
+            continue
+        detail = requests.detail(session, "iot", region, "get_topic_rule", ruleName=name)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status", "unknown"),
+                                  {"code": "iot_topic_rule_detail_unavailable"})
+            continue
+        rule = detail.get("rule")
+        if detail.get("ruleArn") != arn or not isinstance(rule, dict) or rule.get("ruleName") != name:
+            failure = failure or ("malformed", {"code": "iot_topic_rule_detail_identity_invalid"})
+            continue
+        all_actions = ((rule.get("actions") if isinstance(rule.get("actions"), list) else []) +
+                       ([rule["errorAction"]] if rule.get("errorAction") else []))
+        if http_destinations is None and any(isinstance(action, dict) and "http" in action for action in all_actions):
+            destination_read = requests.pages(session, "iot", region, "list_topic_rule_destinations",
+                                              "destinationSummaries", _tokens=("nextToken", "nextToken"))
+            http_destinations = destination_read.items if destination_read.status in OK else False
+        destinations = _iot_action_destinations(rule.get("actions"),
+            http_destinations=http_destinations if isinstance(http_destinations, list) else None)
+        if rule.get("errorAction"):
+            destinations.extend(_iot_action_destinations([rule["errorAction"]], on_error=True,
+                http_destinations=http_destinations if isinstance(http_destinations, list) else None))
+        rows.append({"id": arn, "RuleArn": arn, "RuleName": name,
+                     "RuleDisabled": rule.get("ruleDisabled"), "ActionDestinations": destinations})
+    return _finish(rows, failure)
+
+
+def _cognito_user_pool_endpoints(requests, session, region, account):
+    pools = requests.pages(session, "cognito-idp", region, "list_user_pools", "UserPools",
+                           _tokens=("NextToken", "NextToken"), MaxResults=60)
+    if pools.status not in OK:
+        return _finish([], _cause(pools))
+    rows, failure = [], None
+    for summary in pools.items:
+        pool_id = summary.get("Id") if isinstance(summary, dict) else None
+        if not isinstance(pool_id, str) or not re.fullmatch(rf"{re.escape(region)}_[A-Za-z0-9]+", pool_id):
+            failure = failure or ("malformed", {"code": "cognito_user_pool_id_invalid"})
+            continue
+        detail = requests.detail(session, "cognito-idp", region, "describe_user_pool", UserPoolId=pool_id)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status") or "unknown", {"code": "cognito_user_pool_detail_unavailable"})
+            continue
+        config = detail.get("UserPool")
+        arn = f"arn:{_partition(region)}:cognito-idp:{region}:{account}:userpool/{pool_id}"
+        if not isinstance(config, dict) or config.get("Id") != pool_id or config.get("Arn") != arn:
+            failure = failure or ("malformed", {"code": "cognito_user_pool_detail_identity_invalid"})
+            continue
+        clients = requests.pages(session, "cognito-idp", region, "list_user_pool_clients", "UserPoolClients",
+                                 _tokens=("NextToken", "NextToken"), UserPoolId=pool_id, MaxResults=60)
+        if clients.status not in OK:
+            failure = failure or _cause(clients)
+        public_clients, callback_hosts, client_complete, other_callbacks = 0, set(), clients.status in OK, 0
+        supported_providers = set()
+        for client in clients.items:
+            client_id = client.get("ClientId") if isinstance(client, dict) else None
+            if not isinstance(client_id, str) or not client_id:
+                failure = failure or ("malformed", {"code": "cognito_user_pool_client_id_invalid"})
+                client_complete = False
+                continue
+            client_detail = requests.detail(session, "cognito-idp", region, "describe_user_pool_client",
+                                            UserPoolId=pool_id, ClientId=client_id)
+            if client_detail.get("collection_status") != "collected":
+                failure = failure or (client_detail.get("collection_status") or "unknown",
+                                      {"code": "cognito_user_pool_client_detail_unavailable"})
+                client_complete = False
+                continue
+            client_config = client_detail.get("UserPoolClient")
+            if not isinstance(client_config, dict) or client_config.get("UserPoolId") != pool_id or client_config.get("ClientId") != client_id:
+                failure = failure or ("malformed", {"code": "cognito_user_pool_client_detail_invalid"})
+                client_complete = False
+                continue
+            if client_config.get("ClientSecretPresent") is False:
+                public_clients += 1
+            elif client_config.get("ClientSecretPresent") is not True:
+                failure = failure or ("malformed", {"code": "cognito_user_pool_client_secret_state_invalid"})
+                client_complete = False
+            for provider in client_config.get("SupportedIdentityProviders") or []:
+                if isinstance(provider, str) and provider != "COGNITO":
+                    supported_providers.add(provider)
+            oauth_enabled = client_config.get("AllowedOAuthFlowsUserPoolClient") is True and any(
+                flow in ("code", "implicit") for flow in client_config.get("AllowedOAuthFlows") or [])
+            for callback in client_config.get("CallbackURLs") or []:
+                if not oauth_enabled:
+                    continue
+                try:
+                    parsed = urlsplit(callback) if isinstance(callback, str) else None
+                except ValueError:
+                    parsed = None
+                if (parsed and parsed.scheme == "https" and parsed.hostname and
+                        parsed.username is None and parsed.password is None):
+                    callback_hosts.add(parsed.hostname)
+                else:
+                    other_callbacks += 1
+        providers = None
+        if supported_providers:
+            providers = requests.pages(session, "cognito-idp", region, "list_identity_providers", "Providers",
+                                       _tokens=("NextToken", "NextToken"), UserPoolId=pool_id, MaxResults=60)
+            if providers.status not in OK:
+                failure = failure or _cause(providers)
+        provider_types = {provider.get("ProviderName"): provider.get("ProviderType") for provider in providers.items
+                          if isinstance(provider, dict) and isinstance(provider.get("ProviderName"), str)} if providers else {}
+        federated_types = sorted({provider_types.get(name) or "UNKNOWN" for name in supported_providers})
+        domains = []
+        for kind, name in (("PREFIX", config.get("Domain")), ("CUSTOM", config.get("CustomDomain"))):
+            if name is None:
+                continue
+            if not isinstance(name, str) or not name or len(name) > 253:
+                failure = failure or ("malformed", {"code": "cognito_user_pool_domain_invalid"})
+                continue
+            found = requests.detail(session, "cognito-idp", region, "describe_user_pool_domain", Domain=name)
+            if found.get("collection_status") != "collected":
+                failure = failure or (found.get("collection_status") or "unknown", {"code": "cognito_user_pool_domain_unavailable"})
+                domains.append({"Kind": kind, "Name": name, "Status": "UNKNOWN"})
+                continue
+            description = found.get("DomainDescription")
+            if (not isinstance(description, dict) or description.get("Domain") != name or
+                    description.get("UserPoolId") != pool_id or description.get("AWSAccountId") not in (None, account)):
+                failure = failure or ("malformed", {"code": "cognito_user_pool_domain_identity_invalid"})
+                domains.append({"Kind": kind, "Name": name, "Status": "UNKNOWN"})
+                continue
+            domains.append({"Kind": kind, "Name": name, "Status": description.get("Status")})
+        signup = config.get("AdminCreateUserConfig")
+        rows.append({"id": arn, "UserPoolArn": arn, "UserPoolId": pool_id,
+                     "AppClientCount": len(clients.items) if clients.status in OK else None,
+                     "PublicAppClientCount": public_clients if client_complete else None,
+                     "OAuthCallbackHosts": sorted(callback_hosts),
+                     "OtherOAuthCallbackCount": other_callbacks,
+                     "FederatedProviderTypes": federated_types if client_complete and
+                         (providers is None or providers.status in OK) else None,
+                     "SelfSignup": signup.get("AllowAdminCreateUserOnly") is False if isinstance(signup, dict) and
+                         type(signup.get("AllowAdminCreateUserOnly")) is bool else None,
+                     "Domains": domains})
+    return _finish(rows, failure)
+
+
+def _apigatewayv2_portals(requests, session, region, account):
+    read = requests.pages(session, "apigatewayv2", region, "list_portals", "Items",
+                          _tokens=("NextToken", "NextToken"))
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    for portal in read.items:
+        portal_id = portal.get("PortalId") if isinstance(portal, dict) else None
+        arn = portal.get("PortalArn") if isinstance(portal, dict) else None
+        expected = f"arn:{_partition(region)}:apigateway:{region}:{account}:/portals/{portal_id}"
+        if (not isinstance(portal_id, str) or not re.fullmatch(r"[a-z0-9]{10,30}", portal_id) or
+                arn != expected):
+            failure = failure or ("malformed", {"code": "apigatewayv2_portal_identity_invalid"})
+            continue
+        endpoint = portal.get("EndpointConfiguration")
+        authorization = portal.get("Authorization")
+        if not isinstance(endpoint, dict) or not isinstance(authorization, dict):
+            failure = failure or ("malformed", {"code": "apigatewayv2_portal_configuration_invalid"})
+            continue
+        auth_type = "NONE" if "None" in authorization else "COGNITO" if "CognitoConfig" in authorization else "UNKNOWN"
+        preview = portal.get("Preview")
+        preview_url = preview.get("PreviewUrl") if isinstance(preview, dict) else None
+        try:
+            parsed_preview = urlsplit(preview_url) if isinstance(preview_url, str) else None
+        except ValueError:
+            parsed_preview = None
+        preview_host = (parsed_preview.hostname if parsed_preview and parsed_preview.scheme == "https" and
+                        parsed_preview.username is None and parsed_preview.password is None else None)
+        products = portal.get("IncludedPortalProductArns")
+        foreign_products, product_owner_unknown = set(), False
+        for product in products if isinstance(products, list) else []:
+            parts = product.split(":", 5) if isinstance(product, str) else []
+            if (len(parts) != 6 or parts[0:2] != ["arn", _partition(region)] or parts[2] != "apigateway" or
+                    parts[3] != region or not re.fullmatch(r"[0-9]{12}", parts[4]) or
+                    not re.fullmatch(r"/portalproducts/[a-z0-9]{10,30}", parts[5])):
+                product_owner_unknown = True
+            elif parts[4] != account:
+                foreign_products.add(parts[4])
+        rows.append({"id": arn, "PortalArn": arn, "PortalId": portal_id,
+                     "PublishStatus": portal.get("PublishStatus"),
+                     "DefaultDomain": endpoint.get("PortalDefaultDomainName"),
+                     "CustomDomain": endpoint.get("DomainName"),
+                     "AuthType": auth_type,
+                     "IncludedProductCount": len(products) if isinstance(products, list) else None,
+                     "IncludedForeignProductAccounts": sorted(foreign_products),
+                     "IncludedProductOwnershipUnknown": product_owner_unknown or products is None,
+                     "PreviewStatus": preview.get("PreviewStatus") if isinstance(preview, dict) else None,
+                     "PreviewHost": preview_host})
+    return _finish(rows, failure)
+
+
+def _appflow_flows(requests, session, region, account):
+    read = requests.pages(session, "appflow", region, "list_flows", "flows",
+                          _tokens=("nextToken", "nextToken"))
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    for summary in read.items:
+        name = summary.get("flowName") if isinstance(summary, dict) else None
+        arn = summary.get("flowArn") if isinstance(summary, dict) else None
+        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][\w!@#.-]{1,255}", name) or
+                arn != f"arn:{_partition(region)}:appflow:{region}:{account}:flow/{name}"):
+            failure = failure or ("malformed", {"code": "appflow_flow_identity_invalid"})
+            continue
+        detail = requests.detail(session, "appflow", region, "describe_flow", flowName=name)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status") or "unknown", {"code": "appflow_flow_detail_unavailable"})
+            continue
+        if detail.get("flowName") != name or detail.get("flowArn") != arn:
+            failure = failure or ("malformed", {"code": "appflow_flow_detail_identity_invalid"})
+            continue
+        destinations = []
+        raw_destinations = detail.get("destinationFlowConfigList")
+        if not isinstance(raw_destinations, list):
+            failure = failure or ("malformed", {"code": "appflow_flow_destinations_unavailable"})
+            raw_destinations = []
+        for destination in raw_destinations:
+            if not isinstance(destination, dict) or not isinstance(destination.get("connectorType"), str):
+                destinations.append({"ConnectorType": "UNKNOWN"})
+                continue
+            kind = destination["connectorType"]
+            props = destination.get("destinationConnectorProperties")
+            config = props.get(kind) if isinstance(props, dict) else None
+            row = {"ConnectorType": kind, "ConnectorLabelPresent": bool(destination.get("connectorLabel"))}
+            if kind in ("S3", "Upsolver"):
+                row["BucketName"] = config.get("bucketName") if isinstance(config, dict) else None
+            elif kind in ("Redshift", "Snowflake"):
+                row["IntermediateBucketName"] = config.get("intermediateBucketName") if isinstance(config, dict) else None
+            elif kind == "EventBridge":
+                row["EventBus"] = config.get("object") if isinstance(config, dict) else None
+            if isinstance(config, dict) and isinstance(config.get("errorHandlingConfig"), dict):
+                row["ErrorBucketName"] = config["errorHandlingConfig"].get("bucketName")
+            destinations.append(row)
+        trigger = detail.get("triggerConfig")
+        rows.append({"id": arn, "FlowArn": arn, "FlowName": name, "FlowStatus": detail.get("flowStatus"),
+                     "TriggerType": trigger.get("triggerType") if isinstance(trigger, dict) else None,
+                     "SourceConnectorType": (detail.get("sourceFlowConfig") or {}).get("connectorType"),
+                     "Destinations": destinations})
+    return _finish(rows, failure)
+
+
+def _cloudmap_public_services(requests, session, region, account):
+    namespaces = requests.pages(session, "servicediscovery", region, "list_namespaces", "Namespaces",
+                                _tokens=("NextToken", "NextToken"))
+    if namespaces.status not in OK:
+        return _finish([], _cause(namespaces))
+    rows, failure = [], None
+    for namespace in namespaces.items:
+        if not isinstance(namespace, dict) or namespace.get("Type") != "DNS_PUBLIC":
+            continue
+        namespace_id, name, namespace_arn = namespace.get("Id"), namespace.get("Name"), namespace.get("Arn")
+        if (not isinstance(namespace_id, str) or not re.fullmatch(r"ns-[A-Za-z0-9]+", namespace_id) or
+                not isinstance(name, str) or not name or
+                namespace_arn != f"arn:{_partition(region)}:servicediscovery:{region}:{account}:namespace/{namespace_id}" or
+                namespace.get("ResourceOwner") not in (None, account)):
+            failure = failure or ("malformed", {"code": "cloudmap_public_namespace_identity_invalid"})
+            continue
+        services = requests.pages(session, "servicediscovery", region, "list_services", "Services",
+                                  _tokens=("NextToken", "NextToken"),
+                                  Filters=[{"Name": "NAMESPACE_ID", "Values": [namespace_id], "Condition": "EQ"}])
+        if services.status not in OK:
+            failure = failure or _cause(services)
+        for service in services.items:
+            service_id = service.get("Id") if isinstance(service, dict) else None
+            service_arn = service.get("Arn") if isinstance(service, dict) else None
+            config = service.get("DnsConfig") if isinstance(service, dict) else None
+            if (not isinstance(service_id, str) or not re.fullmatch(r"srv-[A-Za-z0-9]+", service_id) or
+                    service_arn != f"arn:{_partition(region)}:servicediscovery:{region}:{account}:service/{service_id}" or
+                    not isinstance(config, dict) or config.get("NamespaceId") != namespace_id or
+                    service.get("ResourceOwner") not in (None, account)):
+                failure = failure or ("malformed", {"code": "cloudmap_public_service_identity_invalid"})
+                continue
+            instances = requests.pages(session, "servicediscovery", region, "list_instances", "Instances",
+                                       _tokens=("NextToken", "NextToken"), ServiceId=service_id)
+            if instances.status not in OK:
+                failure = failure or _cause(instances)
+            records = config.get("DnsRecords")
+            types = sorted({record.get("Type") for record in records if isinstance(record, dict) and
+                            isinstance(record.get("Type"), str)}) if isinstance(records, list) else []
+            projected_instances = []
+            for instance in instances.items:
+                attributes = instance.get("Attributes") if isinstance(instance, dict) else None
+                if not isinstance(attributes, dict):
+                    failure = failure or ("malformed", {"code": "cloudmap_public_instance_attributes_invalid"})
+                    continue
+                projected_instances.append({"Ipv4": attributes.get("AWS_INSTANCE_IPV4"),
+                                            "Ipv6": attributes.get("AWS_INSTANCE_IPV6"),
+                                            "Cname": attributes.get("AWS_INSTANCE_CNAME"),
+                                            "Alias": attributes.get("AWS_ALIAS_DNS_NAME"),
+                                            "Port": attributes.get("AWS_INSTANCE_PORT"),
+                                            "CreatedByAccount": instance.get("CreatedByAccount")})
+            rows.append({"id": service_arn, "ServiceArn": service_arn, "ServiceName": service.get("Name"),
+                         "NamespaceArn": namespace_arn, "NamespaceName": name, "DnsRecordTypes": types,
+                         "CreatedByAccount": service.get("CreatedByAccount"),
+                         "Instances": projected_instances if instances.status in OK else None})
+    return _finish(rows, failure)
+
+
+def _cloudsearch_domain_endpoints(requests, session, region, account):
+    """Collect deployed CloudSearch endpoints, access policy and HTTPS setting."""
+    detail = requests.detail(session, "cloudsearch", region, "describe_domains")
+    if detail.get("collection_status") != "collected":
+        status = detail.get("collection_status", "malformed")
+        return _finish([], (status, {"code": (detail.get("error") or {}).get("code", "cloudsearch_domains_unavailable")}))
+    domains = detail.get("DomainStatusList")
+    if not isinstance(domains, list):
+        return _finish([], ("malformed", {"code": "cloudsearch_domains_malformed"}))
+    rows, failure = [], None
+    for domain in domains:
+        if not isinstance(domain, dict) or domain.get("Deleted") is True:
+            continue
+        name, arn = domain.get("DomainName"), domain.get("ARN")
+        if (not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,27}", name) or
+                arn != f"arn:{_partition(region)}:cloudsearch:{region}:{account}:domain/{name}"):
+            failure = failure or ("malformed", {"code": "cloudsearch_domain_identity_invalid"})
+            continue
+        policy = requests.detail(session, "cloudsearch", region, "describe_service_access_policies",
+                                 DomainName=name, Deployed=True)
+        options = requests.detail(session, "cloudsearch", region, "describe_domain_endpoint_options",
+                                  DomainName=name, Deployed=True)
+        policy_status = _status(policy)
+        if policy.get("collection_status") == "collected":
+            access = policy.get("AccessPolicies")
+            if isinstance(access, dict):
+                policy_status["Options"] = access.get("Options")
+                policy_status["State"] = (access.get("Status") or {}).get("State")
+            else:
+                failure = failure or ("malformed", {"code": "cloudsearch_access_policy_malformed"})
+        else:
+            failure = failure or (policy.get("collection_status", "malformed"),
+                                  {"code": (policy.get("error") or {}).get("code", "cloudsearch_access_policy_unavailable")})
+        endpoint_status = _status(options)
+        if options.get("collection_status") == "collected":
+            endpoint = options.get("DomainEndpointOptions")
+            endpoint_status["EnforceHTTPS"] = (endpoint.get("Options") or {}).get("EnforceHTTPS") if isinstance(endpoint, dict) else None
+        else:
+            failure = failure or (options.get("collection_status", "malformed"),
+                                  {"code": (options.get("error") or {}).get("code", "cloudsearch_endpoint_options_unavailable")})
+        rows.append({"id": arn, "ARN": arn, "DomainName": name, "Created": domain.get("Created"),
+                     "Processing": domain.get("Processing"),
+                     "SearchEndpoint": (domain.get("SearchService") or {}).get("Endpoint") if isinstance(domain.get("SearchService"), dict) else None,
+                     "DocumentEndpoint": (domain.get("DocService") or {}).get("Endpoint") if isinstance(domain.get("DocService"), dict) else None,
+                     "DeployedPolicy": policy_status, "EndpointOptions": endpoint_status})
+    return _finish(rows, failure)
+
+
+def _rum_app_monitor_endpoints(requests, session, region, account):
+    """Read RUM monitor ingestion configuration, policy and metrics recipients."""
+    monitors = requests.pages(session, "rum", region, "list_app_monitors", "AppMonitorSummaries",
+                              _tokens=("NextToken", "NextToken"))
+    if monitors.status not in OK:
+        return _finish([], _cause(monitors))
+    rows, failure = [], None
+    for summary in monitors.items:
+        name = summary.get("Name") if isinstance(summary, dict) else None
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_#-][A-Za-z0-9._#-]{0,254}", name):
+            failure = failure or ("malformed", {"code": "rum_monitor_name_invalid"})
+            continue
+        detail = requests.detail(session, "rum", region, "get_app_monitor", Name=name)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status", "malformed"),
+                                  {"code": (detail.get("error") or {}).get("code", "rum_monitor_unavailable")})
+            continue
+        monitor = detail.get("AppMonitor")
+        if (not isinstance(monitor, dict) or monitor.get("Name") != name or
+                not isinstance(monitor.get("Id"), str) or monitor.get("Id") != summary.get("Id") or
+                not re.fullmatch(r"[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", monitor["Id"])):
+            failure = failure or ("malformed", {"code": "rum_monitor_identity_invalid"})
+            continue
+        policy = requests.detail(session, "rum", region, "get_resource_policy", Name=name)
+        policy_row = _status(policy)
+        if policy.get("collection_status") == "collected":
+            policy_row["PolicyDocument"] = policy.get("PolicyDocument")
+        elif not policy.get("absent"):
+            failure = failure or (policy.get("collection_status", "malformed"),
+                                  {"code": (policy.get("error") or {}).get("code", "rum_policy_unavailable")})
+        destinations = requests.pages(session, "rum", region, "list_rum_metrics_destinations", "Destinations",
+                                      _tokens=("NextToken", "NextToken"), AppMonitorName=name)
+        if destinations.status not in OK:
+            failure = failure or _cause(destinations)
+        config = monitor.get("AppMonitorConfiguration") or {}
+        if not isinstance(config, dict):
+            failure = failure or ("malformed", {"code": "rum_monitor_configuration_invalid"})
+            config = {}
+        rows.append({"id": f"arn:{_partition(region)}:rum:{region}:{account}:appmonitor/{name}",
+                     "Name": name, "Id": monitor["Id"], "State": monitor.get("State"),
+                     "IdentityPoolId": config.get("IdentityPoolId"), "GuestRoleArn": config.get("GuestRoleArn"),
+                     "ResourcePolicy": policy_row,
+                     "MetricsDestinations": _child(destinations, [_pick(d, ("Destination", "DestinationArn", "IamRoleArn"))
+                                                               for d in destinations.items if isinstance(d, dict)])})
+    return _finish(rows, failure)
+
+
+def _config_delivery_edges(kind):
+    """Project only Config cross-account authorization and delivery targets."""
+    operation, expression = {
+        "config_aggregation_authorization": ("describe_aggregation_authorizations", "AggregationAuthorizations"),
+        "config_conformance_pack_delivery": ("describe_conformance_packs", "ConformancePackDetails"),
+        "config_organization_pack_delivery": ("describe_organization_conformance_packs", "OrganizationConformancePacks"),
+        "config_rule_lambda_delivery": ("describe_config_rules", "ConfigRules"),
+        "config_organization_rule_lambda_delivery": ("describe_organization_config_rules", "OrganizationConfigRules"),
+    }[kind]
+
+    def fetch(requests, session, region, account):
+        read = requests.pages(session, "config", region, operation, expression, _tokens=("NextToken", "NextToken"))
+        if read.status not in OK:
+            return _finish([], _cause(read))
+        rows, failure = [], None
+        for item in read.items:
+            if not isinstance(item, dict):
+                failure = failure or ("malformed", {"code": "config_delivery_item_invalid"})
+                continue
+            if kind == "config_aggregation_authorization":
+                arn = item.get("AggregationAuthorizationArn")
+                recipient, target_region = item.get("AuthorizedAccountId"), item.get("AuthorizedAwsRegion")
+                if (not re.fullmatch(r"[0-9]{12}", str(recipient or "")) or
+                        not isinstance(target_region, str) or not target_region or
+                        (arn is not None and (not isinstance(arn, str) or not arn.startswith(f"arn:{_partition(region)}:config:")))):
+                    failure = failure or ("malformed", {"code": "config_aggregation_identity_invalid"})
+                    continue
+                row = {**_pick(item, ("AggregationAuthorizationArn", "AuthorizedAccountId", "AuthorizedAwsRegion")),
+                       "id": f"{account}/{region}/config-authorization/{recipient}/{target_region}"}
+            elif kind == "config_conformance_pack_delivery":
+                arn = item.get("ConformancePackArn")
+                if not isinstance(arn, str) or not arn.startswith(f"arn:{_partition(region)}:config:{region}:{account}:"):
+                    failure = failure or ("malformed", {"code": "config_pack_identity_invalid"})
+                    continue
+                row = {**_pick(item, ("ConformancePackArn", "ConformancePackName", "DeliveryS3Bucket")), "id": arn}
+            elif kind == "config_organization_pack_delivery":
+                arn = item.get("OrganizationConformancePackArn")
+                if not isinstance(arn, str) or not arn.startswith(f"arn:{_partition(region)}:config:{region}:{account}:"):
+                    failure = failure or ("malformed", {"code": "config_organization_pack_identity_invalid"})
+                    continue
+                row = {**_pick(item, ("OrganizationConformancePackArn", "OrganizationConformancePackName", "DeliveryS3Bucket")), "id": arn}
+            elif kind == "config_organization_rule_lambda_delivery":
+                arn = item.get("OrganizationConfigRuleArn")
+                if not isinstance(arn, str) or not arn.startswith(f"arn:{_partition(region)}:config:{region}:{account}:"):
+                    failure = failure or ("malformed", {"code": "config_organization_rule_identity_invalid"})
+                    continue
+                metadata = item.get("OrganizationCustomRuleMetadata")
+                row = {**_pick(item, ("OrganizationConfigRuleArn", "OrganizationConfigRuleName")),
+                       "LambdaFunctionArn": metadata.get("LambdaFunctionArn") if isinstance(metadata, dict) else None,
+                       "id": arn}
+            else:
+                arn = item.get("ConfigRuleArn")
+                if not isinstance(arn, str) or not arn.startswith(f"arn:{_partition(region)}:config:{region}:{account}:"):
+                    failure = failure or ("malformed", {"code": "config_rule_identity_invalid"})
+                    continue
+                source = item.get("Source")
+                if not isinstance(source, dict):
+                    failure = failure or ("malformed", {"code": "config_rule_source_invalid"})
+                    continue
+                row = {**_pick(item, ("ConfigRuleArn", "ConfigRuleName", "ConfigRuleState")),
+                       "Source": _pick(source, ("Owner", "SourceIdentifier")), "id": arn}
+            rows.append(row)
+        return _finish(rows, failure)
+    return fetch
+
+
+def _backup_search_exports(requests, session, region, account):
+    """Export-job status and bucket only; no search terms or result paths."""
+    exports = requests.pages(session, "backupsearch", region, "list_search_result_export_jobs", "ExportJobs",
+                             _tokens=("NextToken", "NextToken"))
+    if exports.status not in OK:
+        return _finish([], _cause(exports))
+    rows, failure = [], None
+    for summary in exports.items:
+        job_id = summary.get("ExportJobIdentifier") if isinstance(summary, dict) else None
+        arn = summary.get("ExportJobArn") if isinstance(summary, dict) else None
+        if (not isinstance(job_id, str) or not job_id or
+                arn != f"arn:{_partition(region)}:backup-search:{region}:{account}:search-export-job/{job_id}"):
+            failure = failure or ("malformed", {"code": "backup_search_export_identity_invalid"})
+            continue
+        detail = requests.detail(session, "backupsearch", region, "get_search_result_export_job",
+                                 ExportJobIdentifier=job_id)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status", "malformed"),
+                                  {"code": (detail.get("error") or {}).get("code", "backup_search_export_unavailable")})
+            continue
+        if detail.get("ExportJobIdentifier") != job_id or detail.get("ExportJobArn") != arn:
+            failure = failure or ("malformed", {"code": "backup_search_export_detail_mismatch"})
+            continue
+        spec = detail.get("ExportSpecification")
+        s3 = spec.get("s3ExportSpecification") if isinstance(spec, dict) else None
+        if not isinstance(s3, dict) or not isinstance(s3.get("DestinationBucket"), str):
+            failure = failure or ("malformed", {"code": "backup_search_export_destination_invalid"})
+            continue
+        rows.append({"id": arn, "ExportJobArn": arn, "ExportJobIdentifier": job_id,
+                     "Status": detail.get("Status"), "DestinationBucket": s3["DestinationBucket"]})
     return _finish(rows, failure)
 
 
@@ -1839,7 +2501,131 @@ def _workspaces_connection_aliases(requests, session, region, account):
     return _finish(items, failure)
 
 
+def _imagebuilder_distributions(requests, session, region, account):
+    """Retain distribution recipients only; drop AMI tags, names and parameter paths."""
+    read = requests.pages(session, "imagebuilder", region, "list_distribution_configurations",
+                          "distributionConfigurationSummaryList")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    prefix = f"arn:{_partition(region)}:imagebuilder:{region}:{account}:distribution-configuration/"
+    for summary in read.items:
+        arn = summary.get("arn") if isinstance(summary, dict) else None
+        if not isinstance(arn, str) or not arn.startswith(prefix):
+            failure = failure or ("malformed", {"code": "imagebuilder_distribution_identity_invalid"})
+            continue
+        detail = requests.detail(session, "imagebuilder", region, "get_distribution_configuration",
+                                 distributionConfigurationArn=arn)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status") or "not_collected",
+                                  {"code": "imagebuilder_distribution_detail_unavailable"})
+            continue
+        config = detail.get("distributionConfiguration")
+        if not isinstance(config, dict) or config.get("arn") != arn or not isinstance(config.get("distributions"), list):
+            failure = failure or ("malformed", {"code": "imagebuilder_distribution_detail_invalid"})
+            continue
+        destinations = []
+        for distribution in config["distributions"]:
+            if not isinstance(distribution, dict):
+                failure = failure or ("malformed", {"code": "imagebuilder_distribution_region_invalid"})
+                continue
+            ami = distribution.get("amiDistributionConfiguration")
+            launch = ami.get("launchPermission") if isinstance(ami, dict) else None
+            destinations.append({"Region": distribution.get("region"),
+                "TargetAccountIds": ami.get("targetAccountIds", []) if isinstance(ami, dict) else [],
+                "LaunchUserIds": launch.get("userIds", []) if isinstance(launch, dict) else [],
+                "LaunchUserGroups": launch.get("userGroups", []) if isinstance(launch, dict) else [],
+                "LaunchOrganizationArns": launch.get("organizationArns", []) if isinstance(launch, dict) else [],
+                "LaunchOrganizationalUnitArns": launch.get("organizationalUnitArns", []) if isinstance(launch, dict) else [],
+                "LaunchTemplateAccountIds": [x.get("accountId") for x in (distribution.get("launchTemplateConfigurations") or [])
+                                             if isinstance(x, dict)],
+                "SsmParameterAccountIds": [x.get("amiAccountId") for x in (distribution.get("ssmParameterConfigurations") or [])
+                                            if isinstance(x, dict) and x.get("amiAccountId")],
+                "S3ExportBucket": (distribution.get("s3ExportConfiguration") or {}).get("s3Bucket")
+                                  if isinstance(distribution.get("s3ExportConfiguration"), dict) else None})
+        rows.append({"id": arn, "Arn": arn, "Distributions": destinations,
+                     "_provenance": {"source_operation": "imagebuilder:GetDistributionConfiguration", "read_only": True}})
+    return _finish(rows, failure)
+
+
+def _agentcore_gateways(requests, session, region, account):
+    """Project gateway URL and inbound auth state without JWT settings or interceptor content."""
+    read = requests.pages(session, "bedrock-agentcore-control", region, "list_gateways", "items")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    for summary in read.items:
+        gateway_id = summary.get("gatewayId") if isinstance(summary, dict) else None
+        if not isinstance(gateway_id, str) or not gateway_id:
+            failure = failure or ("malformed", {"code": "agentcore_gateway_id_invalid"})
+            continue
+        detail = requests.detail(session, "bedrock-agentcore-control", region, "get_gateway",
+                                 gatewayIdentifier=gateway_id)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status") or "not_collected",
+                                  {"code": "agentcore_gateway_detail_unavailable"})
+            continue
+        arn = f"arn:{_partition(region)}:bedrock-agentcore:{region}:{account}:gateway/{gateway_id}"
+        if detail.get("gatewayId") != gateway_id or detail.get("gatewayArn") != arn:
+            failure = failure or ("malformed", {"code": "agentcore_gateway_identity_invalid"})
+            continue
+        rows.append({"id": arn, "GatewayArn": arn, "GatewayUrl": detail.get("gatewayUrl"),
+                     "Status": detail.get("status"), "AuthorizerType": detail.get("authorizerType"),
+                     "HasInterceptor": bool(detail.get("interceptorConfigurations")),
+                     "PolicyEngineMode": (detail.get("policyEngineConfiguration") or {}).get("mode")
+                                         if isinstance(detail.get("policyEngineConfiguration"), dict) else None,
+                     "WebAclArn": detail.get("webAclArn"),
+                     "_provenance": {"source_operation": "bedrock-agentcore-control:GetGateway", "read_only": True}})
+    return _finish(rows, failure)
+
+
+def _eventbridge_pipes(requests, session, region, account):
+    """Keep Pipe destination identities, not filter patterns, input templates or credentials."""
+    read = requests.pages(session, "pipes", region, "list_pipes", "Pipes")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    for summary in read.items:
+        name = summary.get("Name") if isinstance(summary, dict) else None
+        arn = f"arn:{_partition(region)}:pipes:{region}:{account}:pipe/{name}"
+        if not isinstance(name, str) or not name or summary.get("Arn") != arn:
+            failure = failure or ("malformed", {"code": "eventbridge_pipe_identity_invalid"})
+            continue
+        detail = requests.detail(session, "pipes", region, "describe_pipe", Name=name)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status") or "not_collected",
+                                  {"code": "eventbridge_pipe_detail_unavailable"})
+            continue
+        if detail.get("Arn") != arn or detail.get("Name") != name:
+            failure = failure or ("malformed", {"code": "eventbridge_pipe_detail_identity_invalid"})
+            continue
+        log = detail.get("LogConfiguration") or {}
+        source = detail.get("SourceParameters") or {}
+        dead_letters = []
+        for key in ("DynamoDBStreamParameters", "KinesisStreamParameters"):
+            part = source.get(key) if isinstance(source, dict) else None
+            dlq = part.get("DeadLetterConfig") if isinstance(part, dict) else None
+            if isinstance(dlq, dict) and isinstance(dlq.get("Arn"), str):
+                dead_letters.append(dlq["Arn"])
+        rows.append({"id": arn, "Arn": arn, "Name": name,
+                     "CurrentState": detail.get("CurrentState"), "DesiredState": detail.get("DesiredState"),
+                     "TargetArn": detail.get("Target"), "EnrichmentArn": detail.get("Enrichment"),
+                     "DeadLetterArns": dead_letters,
+                     "LogFirehoseArn": (log.get("FirehoseLogDestination") or {}).get("DeliveryStreamArn")
+                                       if isinstance(log.get("FirehoseLogDestination"), dict) else None,
+                     "LogBucketOwner": (log.get("S3LogDestination") or {}).get("BucketOwner")
+                                       if isinstance(log.get("S3LogDestination"), dict) else None,
+                     "LogBucketName": (log.get("S3LogDestination") or {}).get("BucketName")
+                                      if isinstance(log.get("S3LogDestination"), dict) else None,
+                     "_provenance": {"source_operation": "pipes:DescribePipe", "read_only": True}})
+    return _finish(rows, failure)
+
+
 FETCHERS = {
+    'agentcore_gateway': _agentcore_gateways,
+    'auditmanager_report_destination': _auditmanager_destinations,
+    'cleanrooms_collaboration_exposure': _cleanrooms_collaborations,
+    'eventbridge_pipe_exposure': _eventbridge_pipes,
     "transit_gateway_peering_attachment": _transit_gateway_peering,
     "lambda_layer_version": _layer_versions,
     "lambda_version": _versions,
@@ -1867,6 +2653,21 @@ FETCHERS = {
     "grafana_workspace": _grafana_workspaces,
     "gamelift_ec2_compute": _gamelift_ec2_computes,
     "iot_role_alias": _iot_role_aliases,
+    "iot_credentials_endpoint": _iot_credentials_endpoint,
+    "iot_data_domain": _iot_data_domains,
+    "iot_topic_rule": _iot_topic_rules,
+    "cognito_user_pool_endpoint": _cognito_user_pool_endpoints,
+    "apigatewayv2_portal": _apigatewayv2_portals,
+    "appflow_flow": _appflow_flows,
+    "cloudmap_public_service": _cloudmap_public_services,
+    "cloudsearch_domain_endpoint": _cloudsearch_domain_endpoints,
+    "rum_app_monitor_endpoint": _rum_app_monitor_endpoints,
+    "config_aggregation_authorization": _config_delivery_edges("config_aggregation_authorization"),
+    "config_conformance_pack_delivery": _config_delivery_edges("config_conformance_pack_delivery"),
+    "config_organization_pack_delivery": _config_delivery_edges("config_organization_pack_delivery"),
+    "config_rule_lambda_delivery": _config_delivery_edges("config_rule_lambda_delivery"),
+    "config_organization_rule_lambda_delivery": _config_delivery_edges("config_organization_rule_lambda_delivery"),
+    "backup_search_export": _backup_search_exports,
     "devicefarm_upload": _devicefarm_project_children("devicefarm_upload"),
     "devicefarm_device_pool": _devicefarm_project_children("devicefarm_device_pool"),
     "quicksight_user": _quicksight_users,

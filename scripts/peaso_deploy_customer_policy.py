@@ -447,6 +447,10 @@ VERIFIED_ACTIONS = VERIFIED_ACTIONS | set(RECHECK_METADATA_READ_REFERENCES)
 # Exact metadata and list actions introduced by the Exposure A/B collectors.
 # Each action is listed in its provider's AWS service authorization reference.
 EXPOSURE_METADATA_READ_REFERENCES = {
+    'appsync:GetApiAssociation': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appsync.html',
+    'appsync:ListApis': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appsync.html',
+    'appsync:ListDomainNames': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appsync.html',
+    'backup:ListRestoreAccessBackupVaults': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_backup.html',
     'appstream:DescribeImagePermissions': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appstream.html',
     'auditmanager:ListAssessmentFrameworkShareRequests': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_auditmanager.html',
     'backup:ListCopyJobs': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_backup.html',

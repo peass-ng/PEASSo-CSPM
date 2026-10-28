@@ -89,6 +89,7 @@ SPECS = {
     "macie_session": ("macie2", "get_macie_session", None),
     "macie2_classification_job": ("macie2", "list_classification_jobs", "items"),
     "ram_resource_share": ("ram", "get_resource_shares", "resourceShares"),
+    "oam_link": ("oam", "list_links", "Items"),
     "rolesanywhere_trust_anchor": ("rolesanywhere", "list_trust_anchors", "trustAnchors"),
     "resourceexplorer2_index": ("resource-explorer-2", "list_indexes", "Indexes"),
     "ssm_resource_compliance_summary": ("ssm", "list_resource_compliance_summaries", "ResourceComplianceSummaryItems"),
@@ -104,6 +105,9 @@ SPECS = {
     "trustedadvisor_check": ("support", "describe_trusted_advisor_checks", "checks"),
     "s3_multi_region_access_point": ("s3control", "list_multi_region_access_points", "AccessPoints"),
     "globalaccelerator_accelerator": ("globalaccelerator", "list_accelerators", "Accelerators"),
+    "globalaccelerator_custom_routing_accelerator": ("globalaccelerator", "list_custom_routing_accelerators", "Accelerators"),
+    "globalaccelerator_custom_routing_listener": ("globalaccelerator", "list_custom_routing_listeners", "Listeners"),
+    "globalaccelerator_cross_account_attachment": ("globalaccelerator", "list_cross_account_attachments", "CrossAccountAttachments"),
     "ssmincidents_account": ("ssm-incidents", "list_replication_sets", "replicationSetArns"),
 }
 NATIVE_IDS = {
@@ -134,16 +138,22 @@ NATIVE_IDS = {
     "securityhub_organization_admin_account": "AccountId", "inspector2_account_status": "id", "inspector2_finding": "findingArn",
     "inspector2_coverage": "id", "macie_session": "id", "macie2_classification_job": "jobId", "ram_resource_share": "resourceShareArn",
     "rolesanywhere_trust_anchor": "trustAnchorArn", "resourceexplorer2_index": "Arn", "ssm_resource_compliance_summary": "id",
+    "oam_link": "Arn",
     "wellarchitected_workload": "WorkloadArn",
     "organization": "id", "organization_policy": "Id", "iam_organization_features": "id", "route53_domain": "DomainName",
     "shield_subscription": "id", "shield_protection": "Id", "trustedadvisor_support": "id", "trustedadvisor_check": "id",
-    "s3_multi_region_access_point": "Alias", "globalaccelerator_accelerator": "AcceleratorArn", "ssmincidents_account": "id",
+    "s3_multi_region_access_point": "Alias", "globalaccelerator_accelerator": "AcceleratorArn",
+    "globalaccelerator_custom_routing_accelerator": "AcceleratorArn", "globalaccelerator_custom_routing_listener": "ListenerArn",
+    "globalaccelerator_cross_account_attachment": "AttachmentArn", "ssmincidents_account": "id",
 }
 GLOBAL_TYPES = {"organization", "organization_policy", "iam_organization_features", "route53_domain", "shield_subscription",
                 "shield_protection", "trustedadvisor_support", "trustedadvisor_check", "s3_multi_region_access_point",
-                "globalaccelerator_accelerator", "ssmincidents_account"}
+                "globalaccelerator_accelerator", "globalaccelerator_custom_routing_accelerator",
+                "globalaccelerator_custom_routing_listener", "globalaccelerator_cross_account_attachment", "ssmincidents_account"}
 READ_ACTIONS = {(service, operation) for service, operation, expression in SPECS.values()}
 READ_ACTIONS.update({
+    ("globalaccelerator", "list_custom_routing_accelerators"),
+    ("globalaccelerator", "list_custom_routing_endpoint_groups"),
     ("kafka", "get_compatible_kafka_versions"),
     ("ec2", "describe_launch_template_versions"), ("ec2", "describe_instances"), ("ec2", "describe_vpc_endpoint_service_permissions"),
     ("ec2", "describe_vpc_endpoint_connections"),
@@ -920,6 +930,52 @@ def _incident_manager(requests, session, region, account):
     return _result([{"id": f"ssm-incidents/{account}", "AccountId": account, "ReplicationSets": replication, "ResponsePlans": _listing(plans)}])
 
 
+def _custom_routing_listeners(requests, session, region, account):
+    """Join custom listeners to the protocols of their endpoint groups."""
+    home = _home(region, "us-west-2")
+    roots = requests.pages(session, "globalaccelerator", home, "list_custom_routing_accelerators",
+                          "Accelerators", _tokens=("NextToken", "NextToken"))
+    if roots.status not in _OK:
+        return roots
+    rows, failure = [], None
+    for root in roots.items:
+        arn = root.get("AcceleratorArn") if isinstance(root, dict) else None
+        if not isinstance(arn, str):
+            failure = failure or ("malformed", {"code": "custom_routing_accelerator_identity_missing"})
+            continue
+        listeners = requests.pages(session, "globalaccelerator", home, "list_custom_routing_listeners",
+                                   "Listeners", _tokens=("NextToken", "NextToken"), AcceleratorArn=arn)
+        if listeners.status not in _OK:
+            failure = failure or _cause(listeners)
+        for listener in listeners.items:
+            listener_arn = listener.get("ListenerArn") if isinstance(listener, dict) else None
+            if not isinstance(listener_arn, str):
+                failure = failure or ("malformed", {"code": "custom_routing_listener_identity_missing"})
+                continue
+            groups = requests.pages(session, "globalaccelerator", home, "list_custom_routing_endpoint_groups",
+                                    "EndpointGroups", _tokens=("NextToken", "NextToken"), ListenerArn=listener_arn)
+            if groups.status not in _OK:
+                failure = failure or _cause(groups)
+            malformed = any(not isinstance(group, dict) or
+                            not isinstance(group.get("EndpointGroupArn"), str) or
+                            not group["EndpointGroupArn"].startswith(listener_arn + "/endpoint-group/") or
+                            not isinstance(group.get("DestinationDescriptions"), list) or
+                            any(not isinstance(description, dict) or
+                                not isinstance(description.get("Protocols"), list) or
+                                any(protocol not in ("TCP", "UDP") for protocol in description["Protocols"])
+                                for description in group["DestinationDescriptions"])
+                            for group in groups.items)
+            if malformed:
+                failure = failure or ("malformed", {"code": "custom_routing_endpoint_group_malformed"})
+            protocols = sorted({protocol for group in groups.items if isinstance(group, dict) and isinstance(group.get("DestinationDescriptions"), list)
+                                for description in group["DestinationDescriptions"] if isinstance(description, dict) and isinstance(description.get("Protocols"), list)
+                                for protocol in description["Protocols"] if isinstance(protocol, str)})
+            rows.append({"ListenerArn": listener_arn, "AcceleratorArn": arn,
+                         "PortRanges": listener.get("PortRanges"), "Protocols": protocols,
+                         "EndpointGroupsStatus": "malformed" if malformed else groups.status})
+    return _finish(rows, failure)
+
+
 FETCHERS = {
     "sagemaker_app": _sagemaker_apps,
     "braket_device": _braket_devices,
@@ -942,6 +998,7 @@ FETCHERS = {
     "kinesis_stream": _kinesis_streams,
     "macie_session": _macie_session,
     "ram_resource_share": _ram_shares,
+    "oam_link": _paged("oam_link", _tokens=("NextToken", "NextToken")),
     "rolesanywhere_trust_anchor": _trust_anchors,
     "s3_access_point": _s3_access_points,
     "sns_subscription": _sns_subscriptions,
@@ -962,6 +1019,9 @@ FETCHERS = {
     "trustedadvisor_check": _trusted_advisor_checks,
     "s3_multi_region_access_point": _home_paged("s3_multi_region_access_point", "us-west-2", _tokens=("NextToken", "NextToken"), with_account=True),
     "globalaccelerator_accelerator": _home_paged("globalaccelerator_accelerator", "us-west-2"),
+    "globalaccelerator_custom_routing_accelerator": _home_paged("globalaccelerator_custom_routing_accelerator", "us-west-2", _tokens=("NextToken", "NextToken")),
+    "globalaccelerator_custom_routing_listener": _custom_routing_listeners,
+    "globalaccelerator_cross_account_attachment": _home_paged("globalaccelerator_cross_account_attachment", "us-west-2", _tokens=("NextToken", "NextToken")),
     "ssmincidents_account": _incident_manager,
 }
 

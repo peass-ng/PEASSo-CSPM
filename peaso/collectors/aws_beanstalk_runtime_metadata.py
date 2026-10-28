@@ -190,8 +190,15 @@ def enrich_environment(requests, session, region, item, configuration_response):
     names = [lb['Name'] for lb in lbs]
     if len(names) != len(set(names)):
         return item
+    instances = resources.get('Instances')
+    if instances is not None and (not isinstance(instances, list) or any(not isinstance(instance, dict) or
+            not re.fullmatch(r'i-[0-9a-f]+', instance.get('Id', '') if isinstance(instance.get('Id'), str) else '')
+            for instance in instances)):
+        return item
     item['EnvironmentResources'] = {'collection_status': 'collected', 'EnvironmentName': item['EnvironmentName'],
-        'LoadBalancers': [{'Name': name} for name in names], 'source_operation': 'elasticbeanstalk:DescribeEnvironmentResources'}
+        'LoadBalancers': [{'Name': name} for name in names],
+        'Instances': [{'Id': instance['Id']} for instance in instances] if isinstance(instances, list) else None,
+        'source_operation': 'elasticbeanstalk:DescribeEnvironmentResources'}
     if options is None:
         return item
     # AWS documents classic as the default only on complete configuration.

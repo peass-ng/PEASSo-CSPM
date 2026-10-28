@@ -1,14 +1,80 @@
 """Deployed REST methods and effective stage WAF associations, without invocation."""
 from __future__ import annotations
 
+import json
 import re
 from urllib.parse import quote
 
 SPECS = {'rest_api_method': ('apigateway', 'get_deployment', None),
+         'http_api_deployed_route': ('apigatewayv2', 'export_api', None),
          'stage_waf_association': ('wafv2', 'get_web_acl_for_resource', None)}
-NATIVE_IDS = {'rest_api_method': 'id', 'stage_waf_association': 'stageArn'}
+NATIVE_IDS = {'rest_api_method': 'id', 'http_api_deployed_route': 'id', 'stage_waf_association': 'stageArn'}
 READ_ACTIONS = {('apigateway', 'get_rest_apis'), ('apigateway', 'get_stages'),
-                ('apigateway', 'get_deployment'), ('wafv2', 'get_web_acl_for_resource')}
+                ('apigateway', 'get_deployment'), ('apigatewayv2', 'export_api'),
+                ('wafv2', 'get_web_acl_for_resource')}
+PROJECTION_OPERATIONS = {('apigatewayv2', 'export_api')}
+
+
+def validate_request(service, operation, arguments):
+    from .aws import ReadFailure
+    if ((service, operation) != ('apigatewayv2', 'export_api') or
+            set(arguments) != {'ApiId', 'StageName', 'OutputType', 'Specification', 'IncludeExtensions'} or
+            not isinstance(arguments['ApiId'], str) or not re.fullmatch(r'[a-z0-9]{1,32}', arguments['ApiId']) or
+            not isinstance(arguments['StageName'], str) or
+            not re.fullmatch(r'\$default|[A-Za-z0-9_-]{1,128}', arguments['StageName']) or
+            arguments['OutputType'] != 'JSON' or arguments['Specification'] != 'OAS30' or
+            arguments['IncludeExtensions'] is not True):
+        raise ReadFailure('not_collected', 'invalid_apigateway_stage_export_request')
+
+
+def project_response(response, service, operation, arguments):
+    """Discard OpenAPI schemas, examples, integrations and free text before caching."""
+    from .aws import ReadFailure
+    validate_request(service, operation, arguments)
+    body = response.get('body') if isinstance(response, dict) else None
+    if not isinstance(body, (bytes, str)) or len(body) > 16_000_000:
+        raise ReadFailure('malformed', 'apigateway_stage_export_body_invalid')
+    try:
+        document = json.loads(body)
+    except (TypeError, ValueError):
+        raise ReadFailure('malformed', 'apigateway_stage_export_json_invalid') from None
+    paths = document.get('paths') if isinstance(document, dict) else None
+    if not isinstance(paths, dict):
+        raise ReadFailure('malformed', 'apigateway_stage_export_paths_invalid')
+    global_security = document.get('security', [])
+    if not isinstance(global_security, list):
+        raise ReadFailure('malformed', 'apigateway_stage_export_security_invalid')
+    components = document.get('components', {})
+    schemes = components.get('securitySchemes', {}) if isinstance(components, dict) else {}
+    routes = []
+    for path, methods in paths.items():
+        if not isinstance(path, str) or not path.startswith('/') or not isinstance(methods, dict):
+            raise ReadFailure('malformed', 'apigateway_stage_export_route_invalid')
+        for method, operation_body in methods.items():
+            if method not in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace', 'x-amazon-apigateway-any-method'}:
+                continue
+            if not isinstance(operation_body, dict):
+                raise ReadFailure('malformed', 'apigateway_stage_export_route_invalid')
+            auth = operation_body.get('x-amazon-apigateway-auth')
+            security = operation_body.get('security', global_security)
+            if auth is not None:
+                kind = auth.get('type') if isinstance(auth, dict) else None
+                authorization = kind.upper() if isinstance(kind, str) and kind.upper() in {'NONE', 'AWS_IAM'} else 'UNKNOWN'
+            elif isinstance(security, list):
+                if not security or any(requirement == {} for requirement in security):
+                    authorization = 'NONE'
+                elif (isinstance(schemes, dict) and all(isinstance(requirement, dict) and requirement and
+                        all(isinstance(schemes.get(name), dict) and schemes[name].get('type') in
+                            {'http', 'apiKey', 'oauth2', 'openIdConnect'} for name in requirement)
+                        for requirement in security)):
+                    authorization = 'AUTHENTICATED'
+                else:
+                    authorization = 'UNKNOWN'
+            else:
+                authorization = 'UNKNOWN'
+            routes.append({'resourcePath': path, 'httpMethod': 'ANY' if method.startswith('x-amazon-') else method.upper(),
+                           'authorizationType': authorization})
+    return {'Routes': routes}
 
 
 def _result(rows=(), status=None, code=None):
@@ -83,6 +149,35 @@ def deployed_methods(requests, session, region, account):
     return _result(rows)
 
 
+def deployed_http_routes(requests, session, region, account):
+    from .aws_b_services import FETCHERS
+    read = FETCHERS['http_api_stage'](requests, session, region, account)
+    if read.status not in ('collected', 'empty'):
+        return _result([], read.status, (read.error or {}).get('code'))
+    rows = []
+    for stage in read.items:
+        if stage.get('ParentProtocolType') != 'HTTP':
+            continue
+        api, name, arn = stage.get('ParentApiId'), stage.get('StageName'), stage.get('id')
+        if (not isinstance(api, str) or not isinstance(name, str) or not isinstance(arn, str) or
+                not arn.endswith(f'/apis/{api}/stages/{name}')):
+            return _result(rows, 'partial' if rows else 'malformed', 'apigateway_http_stage_identity_invalid')
+        if stage.get('AutoDeploy') is not True and not stage.get('DeploymentId'):
+            continue
+        export = requests.detail(session, 'apigatewayv2', region, 'export_api',
+            _metadata_profile='aws-apigateway-stage-route-metadata-v1', ApiId=api, StageName=name,
+            OutputType='JSON', Specification='OAS30', IncludeExtensions=True)
+        if export.get('collection_status') != 'collected':
+            return _result(rows, 'partial' if rows else export.get('collection_status', 'unknown'),
+                           (export.get('error') or {}).get('code'))
+        for route in export.get('Routes', []):
+            rows.append({'id': arn + '/deployed-route/' + quote(route['resourcePath'] + '/' + route['httpMethod'], safe=''),
+                'stageArn': arn, 'apiId': api, 'stageName': name, 'resourcePath': route['resourcePath'],
+                'httpMethod': route['httpMethod'], 'authorizationType': route['authorizationType'],
+                '_provenance': {'source_operation': 'ExportApi', 'read_only': True, 'stage_export': True}})
+    return _result(rows)
+
+
 def stage_waf(requests, session, region, account):
     stages, failure = _stages(requests, session, region, account)
     if failure:
@@ -110,4 +205,5 @@ def stage_waf(requests, session, region, account):
     return _result(rows)
 
 
-FETCHERS = {'rest_api_method': deployed_methods, 'stage_waf_association': stage_waf}
+FETCHERS = {'rest_api_method': deployed_methods, 'http_api_deployed_route': deployed_http_routes,
+            'stage_waf_association': stage_waf}
