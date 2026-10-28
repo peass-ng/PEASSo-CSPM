@@ -1733,7 +1733,7 @@
     "peaso/server/models.py": "580c4815277872eb6dd2e132a64899ed65dc5421fdbf117b3b3230f75b48fb41",
     "peaso/server/native_policy_validation.py": "c84159d8cc96b092aeea28db399c31a6c7b09bff90502e9b3e76cb2bb79791bd",
     "peaso/server/native_policy_validation_static_20261020.py": "73f591a82788f8bff65e8dd3018b6ed25a2f817b77a4cf4656706f2019063a29",
-    "peaso/server/privesc_display_catalog.py": "841838a40dbca04128ed210324d717def18d18e10af496c15abb17fcd26e90c6",
+    "peaso/server/privesc_display_catalog.py": "804a6acf9e9b27f7ec92cd0c6d2759ac344d9c3526869e3f3bee8a6f81a63f66",
     "peaso/server/remediation_presentation_static_20261020.py": "7f05b85ebfa4c448d067fdd0d64e4240c3a055daef59f321a3d9e93e5b960cd6",
     "peaso/server/report_projection_static_20261020.py": "3cf5a252b1c5108467a211ff211d24dd17ca535a3b24c38e9e586a5e30484b7a",
     "peaso/server/scan_names.py": "bc807595f0006516ba2996df566ab0705d2bafb64afed85e39b1366414114a74",
