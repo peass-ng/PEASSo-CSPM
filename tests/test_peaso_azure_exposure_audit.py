@@ -1439,6 +1439,28 @@ def test_nsg_specific_public_source_respects_per_source_priority():
     assert _nsg_allowed(nsg)[0] == {"tcp": ((22, 22),)}
 
 
+def test_nsg_ipv6_public_rule_priority_and_source_asg_boundary():
+    def rule(name, source, access, priority, **extra):
+        return {"name": name, "properties": {"priority": priority,
+            "direction": "Inbound", "access": access, "protocol": "Tcp",
+            "sourceAddressPrefix": source, "destinationAddressPrefix": "*",
+            "destinationPortRange": "443", **extra}}
+
+    owner = {"data": {"properties": {"securityRules": [
+        rule("deny-v4", "0.0.0.0/0", "Deny", 100),
+        rule("allow-v6", "::/0", "Allow", 200)]}}}
+    assert _nsg_allowed(owner)[0] == {"tcp": ((443, 443),)}
+    owner["data"]["properties"]["securityRules"].insert(
+        1, rule("deny-v6", "::/0", "Deny", 150))
+    assert _nsg_allowed(owner)[0] == {}
+    owner["data"]["properties"]["securityRules"] = [
+        rule("internal-asg", "*", "Allow", 100,
+             sourceApplicationSecurityGroups=[{"id": "/groups/clients"}])]
+    allowed, matched = _nsg_allowed(owner)
+    assert allowed == {}
+    assert not any(row.get("unresolved_public_source") for row in matched)
+
+
 def test_nsg_unresolved_public_source_tag_cannot_prove_closed_path():
     nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
