@@ -491,6 +491,10 @@ def test_aws_redshift_public_cluster_uses_collected_subnet_route_and_acl():
     assert row(aws_network(sg_rules=rules))["status"] == "FAIL"
     assert row(aws_network(sg_rules=rules, igw=False))["status"] == "PASS"
     assert row(aws_network(sg_rules=rules), include_group=False)["status"] == "UNKNOWN"
+    del cluster["Endpoint"]["Port"]
+    unresolved = row(aws_network(sg_rules=rules))
+    assert unresolved["status"] == "UNKNOWN" and unresolved["evidence"]["exposed_ports"] == []
+    assert any(gap["layer"] == "listener" for gap in unresolved["evidence"]["unresolved"])
 
 
 @pytest.mark.parametrize("kind,field,permission,operation", [

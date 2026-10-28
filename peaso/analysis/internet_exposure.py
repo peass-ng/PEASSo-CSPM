@@ -867,7 +867,10 @@ def _aws_redshift(snapshot, inventory, resource):
     a = Assessment(resource, "database")
     endpoint = data.get("Endpoint") if isinstance(data.get("Endpoint"), dict) else {}
     a.addresses = [endpoint.get("Address")] if endpoint.get("Address") else []
-    port = endpoint.get("Port", 5439)
+    port = endpoint.get("Port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "Redshift endpoint port not collected", "redshift:DescribeClusters")
+        return a
     a.step("listener", "allow", port=port)
     groups = [g.get("VpcSecurityGroupId") for g in as_list(data.get("VpcSecurityGroups")) if isinstance(g, dict)]
     name = data.get("ClusterSubnetGroupName")
