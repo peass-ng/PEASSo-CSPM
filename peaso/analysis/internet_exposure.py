@@ -8586,8 +8586,9 @@ def gcp_default_object_acl_findings(snapshot, resources):
         if data.get("entity") not in ("allUsers", "allAuthenticatedUsers") or data.get("role") not in ("READER", "OWNER"):
             continue
         buckets = buckets_by_key.get((resource.get("scope"), data.get("bucket")), [])
-        prevention = ((buckets[0].get("iamConfiguration") or {}).get("publicAccessPrevention")
-                      if len(buckets) == 1 else None)
+        bucket = buckets[0] if len(buckets) == 1 else {}
+        config = bucket.get("iamConfiguration")
+        prevention = config.get("publicAccessPrevention") if isinstance(config, dict) else None
         if prevention == "inherited":
             scope = resource.get("scope")
             policies = prevention_by_scope.get(scope, [])
@@ -8599,15 +8600,31 @@ def gcp_default_object_acl_findings(snapshot, resources):
                     prevention = "enforced" if rules and rules[0]["enforce"] else "not_enforced"
         blocked = prevention == "enforced"
         unresolved_prevention = prevention not in ("enforced", "not_enforced")
-        definite = not blocked and not unresolved_prevention
+        ip_filter = bucket.get("ipFilter")
+        filter_state = "disabled"
+        if ip_filter is not None:
+            if not isinstance(ip_filter, dict):
+                filter_state = "unresolved"
+            elif ip_filter.get("mode") == "Enabled":
+                public_source = ip_filter.get("publicNetworkSource")
+                ranges = public_source.get("allowedIpCidrRanges", []) if isinstance(public_source, dict) else [] if public_source is None else None
+                if not isinstance(ranges, list) or any(not isinstance(value, str) or _cidr(value) is None for value in ranges):
+                    filter_state = "unresolved"
+                else:
+                    filter_state = "public_allowed" if any(_public_source(value) for value in ranges) else "public_blocked"
+            elif ip_filter.get("mode") != "Disabled":
+                filter_state = "unresolved"
+        definite = not blocked and not unresolved_prevention and filter_state in ("disabled", "public_allowed")
         evidence = {"observed": "The bucket's default object ACL contains a public grant for future uploads.",
                     "bucket": data.get("bucket"), "principal": data["entity"], "role": data["role"],
                     "source": source(snapshot, resource, "entity"),
                     "risk_state": "observed_configuration" if definite else "unknown",
                     "public_access_prevention": prevention,
+                    "ip_filter_public_network": filter_state,
                     "semantics": "Future object ACL template only; bucket-level public access prevention currently overrides this grant. Existing object access is assessed separately."
                     if blocked else "Future object ACL template only; effective public access prevention is unresolved. Existing object access is assessed separately."
-                    if unresolved_prevention else "Future object ACL template only; effective public access prevention is not enforced. Existing object access is assessed separately."}
+                    if unresolved_prevention else "Future object ACL template only; bucket IP filtering blocks or has unresolved public-network access. Existing object access is assessed separately."
+                    if not definite else "Future object ACL template only; public access prevention is not enforced and bucket IP filtering permits a public-network source. Existing object access is assessed separately."}
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_public_default_object_acl",
                               "Public default object ACL", "high" if definite else "info", evidence,
                               status="FAIL" if definite else "UNKNOWN"))
