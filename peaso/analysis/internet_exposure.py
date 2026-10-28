@@ -11323,6 +11323,19 @@ def _azure_api_management(snapshot, inventory, resource):
 def _azure_redis(snapshot, inventory, resource):
     props = resource["data"].get("properties") or {}
     a = Assessment(resource, "database")
+    coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+    connections = resource["data"].get("privateEndpointConnections")
+    private_unknown = True
+    if coverage.get("status") in ("collected", "empty") and isinstance(connections, list):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+            resource["data"], {"privateEndpointConnections": connections})
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.explicit = "FAIL"
+        if private_unknown:
+            a.gap("private_link_share", "Redis private endpoint approval or ownership is unresolved")
+    else:
+        a.gap("private_link_share", "Redis private endpoint connections are not fully collected")
     subnet_id = props.get("subnetId")
     if isinstance(subnet_id, str) and re.search(r"/subnets/[^/]+$", subnet_id, re.IGNORECASE):
         # Premium VNet injection assigns a private address to the cache. The
@@ -11331,6 +11344,8 @@ def _azure_redis(snapshot, inventory, resource):
         a.step("network", "block", reason="VNet-injected Redis has no public listener",
                subnet_id=subnet_id)
         a.ports = {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         return a
     if subnet_id is not None:
         a.gap("inventory", "Redis subnetId is malformed; VNet injection cannot be established")
@@ -11339,6 +11354,8 @@ def _azure_redis(snapshot, inventory, resource):
     if access == "Disabled":
         a.step("public_network_access", "block", value=access)
         a.ports = {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         return a
     if access != "Enabled":
         a.gap("inventory", "Redis public network access state is not explicit")
@@ -11387,6 +11404,8 @@ def _azure_redis(snapshot, inventory, resource):
             a.step("firewall", "block", reason="no rule admits a public IPv4 source")
             ports = {}
     a.ports = ports
+    if private_unknown and not a.external_ids and empty(ports):
+        a.explicit = "UNKNOWN"
     return a
 
 

@@ -1693,18 +1693,20 @@ def test_redis_public_listeners_preserve_firewall_uncertainty():
     assert any(gap["layer"] == "firewall" for gap in candidate.unresolved)
     non_tls = decision("redis_cache", {**base, "enableNonSslPort": True, "port": 6379})
     assert non_tls.ports == {"tcp": ((6379, 6380),)}
-    assert decision("redis_cache", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+    assert decision("redis_cache", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "UNKNOWN"
     assert decision("redis_cache", {**base, "publicNetworkAccess": None}).verdict() == "UNKNOWN"
     injected = decision("redis_cache", {**base, "subnetId":
         "/subscriptions/test/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/cache"})
-    assert injected.verdict() == "PASS" and injected.ports == {}
+    assert injected.verdict() == "UNKNOWN" and injected.ports == {}
     assert any(step["layer"] == "network" and step["decision"] == "block" for step in injected.path)
     assert decision("redis_cache", {**base, "subnetId": "malformed"}).verdict() == "UNKNOWN"
 
     def with_rules(rules, status="collected"):
         item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redis/cache",
                 "properties": base, "firewallRules": rules,
-                "_coverage": {"firewallRules": {"status": status}}}
+                "privateEndpointConnections": [],
+                "_coverage": {"firewallRules": {"status": status},
+                              "privateEndpointConnections": {"status": "empty"}}}
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "redis_cache", "scope": SCOPE, "service": "cache", "status": "collected",
              "items": [item]}])
