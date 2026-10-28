@@ -717,7 +717,10 @@ def test_sql_firewall_public_ip_range_is_exposure_but_private_range_is_not():
         return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "sql_server")
 
     assert sql_decision("8.8.8.8", "8.8.8.8").verdict() == "FAIL"
-    assert sql_decision("10.0.0.1", "10.0.0.9").verdict() == "PASS"
+    private_only = sql_decision("10.0.0.1", "10.0.0.9")
+    assert private_only.verdict() == "UNKNOWN"
+    assert any("database-level firewall rules" in gap["reason"] for gap in private_only.unresolved)
+    assert len(_observed(private_only, "UNKNOWN").splitlines()) == 3
     azure_services = sql_decision("0.0.0.0", "0.0.0.0")
     assert azure_services.verdict() == "FAIL"
     assert azure_services.path[-1]["open_rules"][0]["source"] == "any Azure tenant"
@@ -743,7 +746,7 @@ def test_sql_missing_public_gate_and_partial_firewall_pages_stay_unknown():
     assert decision(None, "collected", public).verdict() == "UNKNOWN"
     assert decision("Enabled", "partial", private).verdict() == "UNKNOWN"
     assert decision("Enabled", "partial", public).verdict() == "FAIL"
-    assert decision("Enabled", "collected", private).verdict() == "PASS"
+    assert decision("Enabled", "collected", private).verdict() == "UNKNOWN"
 
 
 def test_nsg_specific_public_source_respects_per_source_priority():

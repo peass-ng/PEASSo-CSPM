@@ -4984,6 +4984,9 @@ def _azure_sql(snapshot, inventory, resource, rules):
         a.notes.append("'Allow Azure services' admits resources in other Azure tenants; database authentication is separate")
     if state not in ("collected", "empty") and not open_rules:
         a.gap("firewall", f"SQL firewall rules {state}", "Microsoft.Sql/servers/firewallRules")
+    if not open_rules:
+        a.gap("firewall", "database-level firewall rules are not in ARM server firewall LIST",
+              "SQL data-plane sys.database_firewall_rules for each database")
     unresolved_rules = any(gap["layer"] == "firewall" for gap in a.unresolved)
     a.step("firewall", "allow" if open_rules else "unknown" if unresolved_rules else "block",
            open_rules=open_rules)
@@ -6738,6 +6741,13 @@ def _observed(assessment, status):
                      if status == "FAIL" else
                      "The regional public request path is unresolved by its VNet or inventory settings.\n")
                     + "API authorization, backend health, and successful requests were not tested.")
+    if assessment.resource["type"] == "sql_server" and status == "UNKNOWN" and any(
+            "database-level firewall rules" in gap["reason"] for gap in assessment.unresolved):
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        return (f"The Azure SQL server {name} has public network access enabled but no recorded "
+                "public-source server firewall rule.\n"
+                "Database-level firewall rules are not present in the ARM server rule inventory.\n"
+                "A database could still admit a public source; its SQL data-plane rules were not read.")
     if assessment.kind == "web_app":
         restriction = next((step for step in assessment.path if step["layer"] == "access_restrictions"), {})
         network = next((step for step in assessment.path if step["layer"] == "public_network_access"), {})
