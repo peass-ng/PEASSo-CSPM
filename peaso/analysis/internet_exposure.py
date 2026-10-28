@@ -399,7 +399,7 @@ def _aws_group_rules(group, family=4, narrow_public=False):
     return allowed, freeze(rules), prefix_lists
 
 
-def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4):
+def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_host_ports=None):
     if not subnet_id:
         assessment.gap("network_acl", "subnet unknown")
         return ports
@@ -444,6 +444,46 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4):
         inventory.network_cache[cache_key] = evaluate(False), evaluate(True)
     inbound, outbound = inventory.network_cache[cache_key]
     result = intersect(ports, inbound)
+    if public_host_ports and not empty(public_host_ports):
+        entries = sorted((e for e in as_list(acl["data"].get("Entries")) if isinstance(e, dict)),
+                         key=lambda e: int(e.get("RuleNumber", 32767)))
+        field = "Ipv6CidrBlock" if family == 6 else "CidrBlock"
+        hosts = sorted({str(network.network_address) for e in entries if not e.get("Egress")
+                        for network in [_cidr(e.get(field))] if network is not None
+                        and network.version == family and network.prefixlen == network.max_prefixlen
+                        and network.network_address.is_global})
+
+        def host_rules(host, egress):
+            address = ipaddress.ip_address(host)
+            allowed, decided = {}, {}
+            for entry in entries:
+                network = _cidr(entry.get(field))
+                if bool(entry.get("Egress")) is not egress or network is None or address not in network:
+                    continue
+                protocol = _proto(entry.get("Protocol"))
+                if protocol not in ("tcp", "udp", "all"):
+                    continue
+                port_range = entry.get("PortRange") if isinstance(entry.get("PortRange"), dict) else {}
+                rule = (pset(protocol, port_range.get("From", 0), port_range.get("To", 65535))
+                        if protocol in ("tcp", "udp") and port_range else pset(protocol))
+                fresh = subtract(rule, decided)
+                if entry.get("RuleAction") == "allow":
+                    allowed = union(allowed, fresh)
+                decided = union(decided, rule)
+            return allowed
+
+        witnesses = []
+        for host in hosts:
+            admitted = intersect(public_host_ports, host_rules(host, False))
+            return_ports = host_rules(host, True)
+            admitted = {protocol: intervals for protocol, intervals in admitted.items()
+                        if protocol in ("tcp", "udp") and not empty(intersect(return_ports, pset(protocol, 1024, 65535)))}
+            if not empty(admitted):
+                result = union(result, admitted)
+                witnesses.append({"source_ip": host, "ports": describe(admitted)})
+        if witnesses:
+            assessment.step("network_acl_host", "allow", acl=native_id(acl), subnet=subnet_id,
+                            public_host_witnesses=witnesses, address_family=family, at=where)
     if not empty(result) and empty(intersect(outbound, pset("tcp", 1024, 65535))) and result.get("tcp"):
         assessment.notes.append(f"NACL {native_id(acl)} egress to 0.0.0.0/0 does not allow TCP ephemeral ports; stateless return traffic may be dropped")
     assessment.step("network_acl", "allow" if not empty(result) else "block", acl=native_id(acl), subnet=subnet_id,
@@ -523,9 +563,12 @@ def _aws_vpc_bpa(inventory, subnet_id, vpc_id, assessment, where):
     return False
 
 
-def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, route=True, vpc_id=None, family=4, narrow_public=False):
+def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, route=True, vpc_id=None, family=4, narrow_public=False, public_host_witness=False):
     """route -> NACL -> SG for a set of candidate subnets; returns the reachable port set."""
+    public_host_ports = ports if public_host_witness and group_ids is None else None
     if group_ids is not None:
+        if public_host_witness:
+            public_host_ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family))
         ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family, narrow_public))
     if empty(ports):
         return ports
@@ -540,7 +583,8 @@ def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, ro
             continue
         if route and _aws_route(inventory, subnet_id, vpc, assessment, where, ipv6=family == 6) is False:
             continue
-        reachable = union(reachable, _aws_nacl(inventory, subnet_id, ports, assessment, where, family))
+        reachable = union(reachable, _aws_nacl(inventory, subnet_id, ports, assessment, where, family,
+                                              public_host_ports if public_host_witness else None))
     if empty(reachable) and assessment.blocked_by is None:
         assessment.step("subnets", "block", reason="no candidate subnet admits internet traffic")
     elif not empty(reachable):
@@ -702,7 +746,8 @@ def _aws_elbv2(snapshot, inventory, resource):
     groups = data.get("SecurityGroups")
     subnets = [z.get("SubnetId") for z in as_list(data.get("AvailabilityZones")) if isinstance(z, dict) and z.get("SubnetId")]
     a.ports = _aws_vpc_path(inventory, a, subnets, groups if data.get("Type") == "application" or groups else None, ports,
-                            native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True)
+                            native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True,
+                            public_host_witness=data.get("Type") == "application")
     if static_ipv6:
         a.ports = union(a.ports, _aws_vpc_path(inventory, a, subnets, groups if groups else None, ports,
                                              native_id(resource), route=False, vpc_id=data.get("VpcId"),

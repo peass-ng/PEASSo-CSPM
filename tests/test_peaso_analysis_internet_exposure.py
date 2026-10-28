@@ -223,6 +223,36 @@ def test_aws_load_balancer_narrow_public_sg_and_world_nacl():
     assert one(aws(*aws_network(sg_rules=private), coll("load_balancer", [lb], service="elbv2")), "load_balancer")["status"] == "PASS"
 
 
+def test_aws_alb_exact_public_nacl_host_witness_requires_same_source_and_world_sg():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/host/1",
+          "Scheme": "internet-facing", "Type": "application", "DNSName": "host.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS"}]}}
+    world_sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+                 "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    host_acl = [
+        {"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+         "CidrBlock": "8.8.8.8/32", "PortRange": {"From": 443, "To": 443}},
+        {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+         "CidrBlock": "8.8.8.8/32", "PortRange": {"From": 1024, "To": 65535}},
+    ]
+    def finding(rules=world_sg, entries=host_acl):
+        return one(aws(*aws_network(sg_rules=rules, nacl_entries=entries),
+                       coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+    witness = next(step for step in result["evidence"]["path"] if step["layer"] == "network_acl_host")
+    assert witness["public_host_witnesses"] == [{"source_ip": "8.8.8.8", "ports": ["tcp/443"]}]
+    mismatched_return = copy.deepcopy(host_acl)
+    mismatched_return[1]["CidrBlock"] = "9.9.9.9/32"
+    assert finding(entries=mismatched_return)["status"] == "PASS"
+    denied_first = copy.deepcopy(host_acl)
+    denied_first.insert(0, {**host_acl[0], "RuleNumber": 50, "RuleAction": "deny"})
+    assert finding(entries=denied_first)["status"] == "PASS"
+    narrow_sg = [{**world_sg[0], "IpRanges": [{"CidrIp": "9.9.9.9/32"}]}]
+    assert finding(rules=narrow_sg)["status"] == "PASS"
+
+
 def test_aws_nlb_static_public_ipv4_is_in_listener_evidence():
     lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/net/web/1",
           "Scheme": "internet-facing", "Type": "network", "DNSName": "nlb.example.com", "VpcId": "vpc-1",

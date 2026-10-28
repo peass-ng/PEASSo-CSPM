@@ -6,6 +6,8 @@ Baseline: clean `origin/main` `836a78ff52923cd8cab8ce5cf371014a8b23730f`. This i
 
 `peaso/analysis/internet_exposure.py:_aws_elbv2` now reads public `AvailabilityZones[].LoadBalancerAddresses[].IPv6Address` on internet-facing NLBs. An IPv6 address is included in listener evidence only when it is a globally routable address. The listener's IPv6 path is evaluated separately against collected IPv6 security-group and NACL rules. A private IPv6 address is excluded. This closes the NLB static IPv6 subcase of the public-address row; it does not close the entire row. The focused test checks an IPv6-only admitted path and closed SG/NACL paths.
 
+Second slice: `_aws_nacl` now accepts an exact globally routable `/32` or `/128` ingress host on an internet-facing **ALB** listener when the attached SG admits the world for that port and the same host has an egress NACL allowance for a TCP client port in `1024–65535`. Rule order and explicit Deny are applied for that host in both directions. Evidence retains the observed source IP, listener port, NACL ID and address family. This is a configuration witness for a possible client source/port pair, not proof of a completed connection. Wider source CIDRs and mismatched narrow SG/NACL sources remain open.
+
 ## Open vector rows
 
 There are still **13 PARTIAL**, **0 MISSING**, and **1 IMPOSSIBLE-FROM-API** rows in the predecessor table. The impossible row is issued but unobserved S3 presigned URLs: configuration APIs do not enumerate already-issued URLs. The exact remaining API-observable joins are:
@@ -14,11 +16,11 @@ There are still **13 PARTIAL**, **0 MISSING**, and **1 IMPOSSIBLE-FROM-API** row
 | --- | --- | --- |
 | EC2/ENI public path | PARTIAL | Managed ENI type and attachment, appliance/Gateway Load Balancer route targets, and source-specific IPv4/IPv6 SG, NACL and route witnesses. |
 | Public IPs/EIPs | PARTIAL | Other services' published address associations where their APIs expose them. NLB static IPv6 is now joined; DNS answers are not an inventory association. |
-| ALB/NLB/Classic listeners | PARTIAL | LB and target subnet ACL directions, source-specific ACL/SG variants, and other target types. |
-| API Gateway REST/HTTP | PARTIAL | Deployed route/method version, routing-rule conditions, and resource-policy action/resource/condition evaluation. |
+| ALB/NLB/Classic listeners | PARTIAL | Exact public NACL host with world SG is now witnessed for ALB. Wider and intersecting source-specific ACL/SG variants, NLB/Classic narrow NACL hosts, LB and target subnet ACL directions, and other target types remain. |
+| API Gateway REST/HTTP | PARTIAL | Deployed route/method version, routing-rule conditions, and resource-policy action/resource/condition evaluation. The cached routing-rule projection retains only `ConditionCount`, not `Conditions[]`; exact condition satisfiability needs that read-only projection expanded. |
 | CloudFront origins | PARTIAL | Origin/OAC/OAI/VPC-origin association to effective S3 or custom-origin policy and backend route. |
 | RDS/Redshift/OpenSearch/EKS | PARTIAL | OpenSearch narrow API/index resource and condition semantics and collected database/EKS authentication configuration. |
-| Lambda Function URLs | PARTIAL | Legacy URL policy behavior by creation date and other Lambda invoke surfaces. |
+| Lambda Function URLs | PARTIAL | Legacy URL policy behavior and other Lambda invoke surfaces. The collector has `GetFunctionUrlConfig.CreationTime` and `GetPolicy.Policy`, but [AWS's URL authorization documentation](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html) says both that new URLs require two actions starting in October 2025 and that missing either action returns 403. It does not identify a per-URL grandfathering flag or exact cutover instant, so creation date alone cannot prove a legacy one-action URL is invocable. |
 | VPN/peering/TGW/private endpoints | PARTIAL | VPN, peering and TGW route/attachment facts and observable appliance/Gateway Load Balancer associations. |
 | IAM trust/federation | PARTIAL | In-account caller identity policy, collected SCP/RCP boundaries, federation provider and claim conditions. |
 | Runtime principal | PARTIAL | NLB LB-subnet ACL, other source/target variants and registered target types joined to workload identity. |
