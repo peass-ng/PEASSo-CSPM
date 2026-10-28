@@ -874,6 +874,10 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
         "accessRules": [{"name": "private", "properties": {
             "direction": "Inbound", "addressPrefixes": ["10.0.0.0/8"]}}]}}}
     assert all(row.verdict() == "UNKNOWN" for row in check(private).values())
+    ipv6_only = {**config, "properties": {**config["properties"], "profile": {
+        "accessRules": [{"name": "ipv6", "properties": {
+            "direction": "Inbound", "addressPrefixes": ["2001:4860::/32"]}}]}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(ipv6_only).values())
     assert all(row.verdict() == "UNKNOWN" for row in check(status="partial").values())
     learning = {**config, "properties": {**config["properties"],
         "resourceAssociation": {"accessMode": "Learning"}}}

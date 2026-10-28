@@ -5042,7 +5042,7 @@ def _azure_storage_perimeter_public_rules(account):
                 prefixes = []
             for value in prefixes:
                 network = _cidr(value)
-                if network is not None and _azure_public_remainder([network], []):
+                if network is not None and network.version == 4 and _azure_public_remainder([network], []):
                     public.append({"configuration": config.get("id"), "rule": rule.get("name"),
                                    "source": str(network), "access_mode": association["accessMode"]})
             for value in as_list(rp.get("subscriptions")):
