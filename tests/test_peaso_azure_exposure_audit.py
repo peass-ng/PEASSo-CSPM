@@ -1451,6 +1451,12 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
     assert decision([]) == []
     assert decision([], status="partial")[0].verdict() == "UNKNOWN"
     assert decision([], external=None)[0].verdict() == "UNKNOWN"
+    for state in (None, "Updating", "Failed"):
+        unresolved_route = {**route, "properties": {**route["properties"],
+                            "provisioningState": state}}
+        row = decision([unresolved_route])[0]
+        assert row.verdict() == "UNKNOWN"
+        assert any(gap["layer"] == "inventory" for gap in row.unresolved)
     other = {**route, "properties": {**route["properties"],
                                      "rules": [{"targets": [{"containerApp": "other"}]}]}}
     assert decision([other]) == []

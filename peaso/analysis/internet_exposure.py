@@ -5256,13 +5256,17 @@ def _azure_container_app(snapshot, inventory, resource):
             app_name = str(resource["data"].get("id", "")).rsplit("/", 1)[-1].casefold()
             for route in as_list(environment["data"].get("httpRouteConfigs")):
                 route_props = route.get("properties") if isinstance(route, dict) else None
-                if not isinstance(route_props, dict) or route_props.get("provisioningState") != "Succeeded":
+                if not isinstance(route_props, dict):
+                    route_target_unresolved = True
                     continue
                 fqdn = route_props.get("fqdn")
                 for rule in as_list(route_props.get("rules")):
                     for target in as_list(rule.get("targets")) if isinstance(rule, dict) else []:
                         if (not isinstance(target, dict) or
                                 str(target.get("containerApp", "")).casefold() != app_name):
+                            continue
+                        if route_props.get("provisioningState") != "Succeeded":
+                            route_target_unresolved = True
                             continue
                         revision = target.get("revision")
                         label = target.get("label")
