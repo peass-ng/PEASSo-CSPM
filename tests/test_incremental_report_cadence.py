@@ -347,3 +347,25 @@ def test_new_section_publishes_immediately_during_active_content_tail(monkeypatc
         assert any(row['type'] == 'secret' for row in latest['collections'])
     finally:
         session.close()
+
+
+def test_large_aws_content_tail_defers_routine_markdown_but_keeps_explicit_partial(monkeypatch, tmp_path):
+    session, _, refs, now = manual_session(monkeypatch, tmp_path)
+    try:
+        commit(session, 0)
+        assert session._maybe_publish() is not None
+        session.on_content_tail(True)
+        for start in (64, 128, 192, 256):
+            commit(session, start)
+        session.section_dependencies['leaks'] = {'secret'}
+        now[0] = 100.0
+        session.on_collection({'type': 'secret', 'scope': SCOPE, 'status': 'empty', 'items': []})
+        with session.lock:
+            session._flush_pending()
+        assert len(session.collections) >= 256
+        assert session._maybe_publish() is None
+        assert len([row for row in refs if row[2]]) == 1
+        assert session.flush() is not None
+        assert len([row for row in refs if row[2]]) == 2
+    finally:
+        session.close()

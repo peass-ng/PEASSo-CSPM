@@ -546,6 +546,14 @@ class CheckpointSession:
                 categories.update(check["category"] for check in self.analysis_checks if check["id"] in ready_ids)
                 if "privesc" in ready_ids:
                     categories.add("privesc")
+                if (not force and self.provider == 'aws' and self.content_tail_active
+                        and len(self.collections) >= 256):
+                    # The collector has already committed a large inventory
+                    # in bounded raw batches. Rebuilding its cumulative
+                    # Markdown competes with the remaining image scan; the
+                    # analyzer publishes the complete final report. An
+                    # interrupted scan still forces its latest partial view.
+                    return None
                 if (not force and self.content_tail_active
                         and categories <= self.published_categories
                         and completed_sections <= self.published_sections):
