@@ -16,6 +16,10 @@ SNAPSHOT_ID = 'sha256:08597df6a1b6f6199eab1c8018409c969bcd9eff2e81b6c2f0bb2bdf76
 BASE_COMMIT = 'f204f3a5b25991390cb6baf2572710c4da8342bd'
 SOURCE_PROOF_SHA256 = '3048285a3e2c832171538ead574fe6df915e54f9b0875a7458210f3365178c0a'
 SOURCE_PROOF = Path(__file__).resolve().parents[2] / 'docs/ai-review/native-final-azure-source-audit-v2.json'
+SAVED_RECEIPT = Path(__file__).resolve().parents[2] / 'docs/ai-review/native-final-azure-saved-replay-v2.json'
+SAVED_RECEIPT_SHA256 = '43dd2d85ffa361328f62ebd88a45949d73e3a3a21e5c5f19b98df58cd0c3455f'
+HOSTED_RECEIPT = Path(__file__).resolve().parents[2] / 'docs/ai-review/native-final-azure-hosted-v2.json'
+HOSTED_RECEIPT_SHA256 = '0dd4e19823345c12b1b0ecfd1bd26c63416e2569892693a39a325ae7b279fa2b'
 
 
 def _source_proof():
@@ -47,6 +51,50 @@ def _digest(value):
     return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
 
 
+def _qualified_receipts():
+    """Bind saved parity and two hosted pairs to exact shipped public bytes."""
+    try:
+        saved_raw = SAVED_RECEIPT.read_bytes()
+        hosted_raw = HOSTED_RECEIPT.read_bytes()
+        if (hashlib.sha256(saved_raw).hexdigest() != SAVED_RECEIPT_SHA256
+                or hashlib.sha256(hosted_raw).hexdigest() != HOSTED_RECEIPT_SHA256):
+            return False
+        saved = json.loads(saved_raw)
+        hosted = json.loads(hosted_raw)
+        if (saved.get('version') != 2 or saved.get('scan_id') != SOURCE_SCAN
+                or saved.get('selected_native_fail_count') != 274
+                or saved.get('saved_review_and_public_finding_action_parity') is not True
+                or hosted.get('version') != 1 or hosted.get('scan_id') != SOURCE_SCAN
+                or hosted.get('status') != 'hosted_measured_selected_quality_source_adjudicated'
+                or hosted.get('selected_native_fail_ids') != 274
+                or hosted.get('selected_baseline_unknown_distinct') != 33
+                or hosted.get('selected_baseline_unknown_adjudicated') != 33
+                or hosted.get('selected_baseline_unknown_pending') != 0
+                or hosted.get('priorities_hosted_action_parity_evaluated') is not False):
+            return False
+        rounds = hosted.get('rounds')
+        if (type(rounds) is not list or len(rounds) != 2
+                or {row.get('round') for row in rounds if type(row) is dict} != {1, 2}
+                or hosted.get('candidate_median_wall_seconds', float('inf')) >=
+                   hosted.get('baseline_median_wall_seconds', 0)):
+            return False
+        for row in rounds:
+            if (row.get('baseline_ai_ids') != 434 or row.get('candidate_ai_ids') != 160
+                    or row.get('native_fail_ids') != 274
+                    or row.get('combined_review_ids') != 434):
+                return False
+            baseline, candidate = row['baseline'], row['candidate']
+            if any(candidate[key] >= baseline[key] for key in
+                   ('model_calls', 'cpu_x_peak_rss_byte_seconds', 'wall_seconds')):
+                return False
+            if (candidate['input_tokens'] + candidate['output_tokens'] >=
+                    baseline['input_tokens'] + baseline['output_tokens']):
+                return False
+        return True
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
 def admitted_check_ids(path=MANIFEST):
     if os.getenv('PEASO_AZURE_HARDENING_NATIVE_FINAL_ENABLED') != '1':
         return frozenset()
@@ -72,8 +120,9 @@ def admitted_check_ids(path=MANIFEST):
         if (type(replay) is not dict or set(replay) != {
                 'status', 'saved_receipt_sha256', 'hosted_receipt_sha256'}
                 or replay['status'] != 'qualified'
-                or not _digest(replay['saved_receipt_sha256'])
-                or not _digest(replay['hosted_receipt_sha256'])):
+                or replay['saved_receipt_sha256'] != SAVED_RECEIPT_SHA256
+                or replay['hosted_receipt_sha256'] != HOSTED_RECEIPT_SHA256
+                or not _qualified_receipts()):
             return frozenset()
         checks = manifest['checks']
         if type(checks) is not list or len(checks) != len(EXPECTED):

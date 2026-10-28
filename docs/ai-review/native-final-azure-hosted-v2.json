@@ -1,0 +1,65 @@
+{
+  "adjudication_receipt_sha256": [
+    "99a046ae6f0cb356deac95791fb8fe6582b69d5362ef87076972cbcd5a2a3fc9",
+    "f9e821b6b6588a0d1848e73956eadb4703586c2263082a4797c7493048747cba"
+  ],
+  "baseline_median_wall_seconds": 532.3127597080002,
+  "candidate_median_wall_seconds": 361.868594562,
+  "paired_result_sha256": "6269102bf3c8f063dce08ddc16ea6c42032d6e846264b57ee25ded39b8188d16",
+  "priorities_hosted_action_parity_evaluated": false,
+  "rounds": [
+    {
+      "baseline": {
+        "cpu_x_peak_rss_byte_seconds": 214155772229.6279,
+        "input_tokens": 14950770,
+        "model_calls": 279,
+        "output_tokens": 84354,
+        "wall_seconds": 559.3377486659992
+      },
+      "baseline_ai_ids": 434,
+      "candidate": {
+        "cpu_x_peak_rss_byte_seconds": 71511732026.2779,
+        "input_tokens": 5355558,
+        "model_calls": 103,
+        "output_tokens": 40340,
+        "wall_seconds": 336.43136233300174
+      },
+      "candidate_ai_ids": 160,
+      "combined_review_ids": 434,
+      "combined_verdict_difference_count": 52,
+      "exact_review_difference_count": 176,
+      "native_fail_ids": 274,
+      "round": 1
+    },
+    {
+      "baseline": {
+        "cpu_x_peak_rss_byte_seconds": 140649571635.47852,
+        "input_tokens": 9979260,
+        "model_calls": 210,
+        "output_tokens": 83817,
+        "wall_seconds": 505.2877707500011
+      },
+      "baseline_ai_ids": 434,
+      "candidate": {
+        "cpu_x_peak_rss_byte_seconds": 73235694075.62547,
+        "input_tokens": 6633068,
+        "model_calls": 124,
+        "output_tokens": 39291,
+        "wall_seconds": 387.30582679099825
+      },
+      "candidate_ai_ids": 160,
+      "combined_review_ids": 434,
+      "combined_verdict_difference_count": 28,
+      "exact_review_difference_count": 170,
+      "native_fail_ids": 274,
+      "round": 2
+    }
+  ],
+  "scan_id": "a79ff6f9331246bd9e4f4bf6ba6fa207",
+  "selected_baseline_unknown_adjudicated": 33,
+  "selected_baseline_unknown_distinct": 33,
+  "selected_baseline_unknown_pending": 0,
+  "selected_native_fail_ids": 274,
+  "status": "hosted_measured_selected_quality_source_adjudicated",
+  "version": 1
+}

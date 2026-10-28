@@ -37,7 +37,7 @@
     "peaso/ai/k8s_native_final.py": "9ab233ab65269feb247eaaf9751d1bc6772801917859e48946dc721f2eb66e42",
     "peaso/ai/model_relay.py": "38b983c2a628e0b8d67aff0c58cdc3dabf5569262386c3124edfbd26b760cb6a",
     "peaso/ai/native_final.py": "49b4614bfc8f2023431032a54151ccb66bfc5b8eefc5d01e046bb287ff593471",
-    "peaso/ai/native_final_azure.py": "ddb8e5915648aed383db7bef7c9ba4d087e26bbfb92276e5525ecd2970cb6d74",
+    "peaso/ai/native_final_azure.py": "9d27b31033a24acb06f8241388ae567c56eff7adf72bba3b7fc1093787a5786c",
     "peaso/ai/network.py": "f8da3a90c6fbc0e2c2bb8fa40f2007bf45abdfa149b37c92d8b7b693f5ebd6fd",
     "peaso/ai/output_validation.py": "bebdce6232ccc056823646411197a12741ff5462f48050c0c8a1b2dab241314f",
     "peaso/ai/pipeline.py": "5bce82f97f3821ae0fecc4b25ee7e5adac162f6e2f5e78770d59600e261eff9d",
@@ -1831,8 +1831,8 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1716,
-  "python_source_sha256": "ccba6966f50c7fe243b138c3af94660cc540fb6ff9c2cdace5ac8c34f7d9e154",
-  "review_context": "Integrated reviewed AWS API Gateway routing-rule scoped customer permission and Azure stopped App Service/public-hostname gates; widened default-off K8s/GCP/Azure native-final source-bounded admission with hosted gates pending. Five current Python byte changes reviewed after dd07bc3c: three cloud native-final gate modules, internet exposure, and exact private collector successor receipt pin. Direct API SDK closure remains 30 literal client sites using the same 12 services within the reviewed 15-service allowlist; credential factories unchanged.",
+  "python_source_sha256": "8626fe78d6274589f27563dc439db0b0372e6f2ff76b139d94299e320a8b53e7",
+  "review_context": "Integrated reviewed AWS API Gateway routing-rule scoped customer permission and Azure stopped App Service/public-hostname gates; widened default-off K8s/GCP/Azure native-final source-bounded admission. Azure gate now binds exact shipped saved/hosted receipt bytes and two-pair quality/cost counters while remaining default off. Current source closure remains 1716 Python files, 30 direct API SDK client sites across 12 used services in reviewed 15-service allowlist; credential factories unchanged.",
   "source_commit": "04de9153478b44055b554fac56fe673e5f851776",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."
 }

@@ -60,6 +60,8 @@ REPRODUCTION_INPUT_PATTERNS = (
     # Runtime source proofs for the three default-off cloud native-final gates.
     'docs/ai-review/native-final-gcp-exercised-audit-v2.json',
     'docs/ai-review/native-final-azure-source-audit-v2.json',
+    'docs/ai-review/native-final-azure-saved-replay-v2.json',
+    'docs/ai-review/native-final-azure-hosted-v2.json',
     'outputs/k8s-native-final-hosted-v2.json',
     'tests/gcp_current_compute_iam_successor_20261027.py',
     'tests/gcp_current_dataflow_detector_successor_20261027.py',
@@ -2432,6 +2434,8 @@ def freeze_release(release_source=None):
     required_native_final = {
         'docs/ai-review/native-final-gcp-exercised-audit-v2.json',
         'docs/ai-review/native-final-azure-source-audit-v2.json',
+        'docs/ai-review/native-final-azure-saved-replay-v2.json',
+        'docs/ai-review/native-final-azure-hosted-v2.json',
         'outputs/k8s-native-final-hosted-v2.json',
     }
     if missing := required_native_final - source.keys():
@@ -2720,7 +2724,7 @@ assert os.getuid()==10001 and os.getgid()==10001
 release=json.loads(Path('/release.json').read_text())
 count=0
 for name,digest in release['files'].items():
-    if name.startswith(('peaso/','risk_rules/')) or name in {'bluepeass/__init__.py','bluepeass/k8s.py','bluepeass/k8s_risks.py','scripts/cloud_permission_risks.py','docs/ai-review/native-final-gcp-exercised-audit-v2.json','docs/ai-review/native-final-azure-source-audit-v2.json','outputs/k8s-native-final-hosted-v2.json'} or name in RUNTIME_ADMISSION_INPUTS:
+    if name.startswith(('peaso/','risk_rules/')) or name in {'bluepeass/__init__.py','bluepeass/k8s.py','bluepeass/k8s_risks.py','scripts/cloud_permission_risks.py','docs/ai-review/native-final-gcp-exercised-audit-v2.json','docs/ai-review/native-final-azure-source-audit-v2.json','docs/ai-review/native-final-azure-saved-replay-v2.json','docs/ai-review/native-final-azure-hosted-v2.json','outputs/k8s-native-final-hosted-v2.json'} or name in RUNTIME_ADMISSION_INPUTS:
         path=Path('/app')/name
         assert path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==digest,name
         count+=1
