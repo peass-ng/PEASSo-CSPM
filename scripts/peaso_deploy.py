@@ -57,6 +57,10 @@ RUNTIME_ADMISSION_INPUTS = {
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
+    # Runtime source proofs for the three default-off cloud native-final gates.
+    'docs/ai-review/native-final-gcp-exercised-audit-v2.json',
+    'docs/ai-review/native-final-azure-source-audit-v2.json',
+    'outputs/k8s-native-final-hosted-v2.json',
     'tests/gcp_current_compute_iam_successor_20261027.py',
     'tests/gcp_current_dataflow_detector_successor_20261027.py',
     'tests/k8s_current_metadata_detector_successor_20261027.py',
@@ -2422,6 +2426,16 @@ def freeze_release(release_source=None):
             except SyntaxError as error:
                 raise RuntimeError(f"Source Python changing or invalid: {relative}; retry after its owner finishes") from error
         source[str(relative)] = content
+    # Docker COPY requires these source-bound gate inputs even while all three
+    # cloud native-final switches are off. The K8s receipt is explicitly pending
+    # until the qualified hosted result replaces it in a reviewed release.
+    required_native_final = {
+        'docs/ai-review/native-final-gcp-exercised-audit-v2.json',
+        'docs/ai-review/native-final-azure-source-audit-v2.json',
+        'outputs/k8s-native-final-hosted-v2.json',
+    }
+    if missing := required_native_final - source.keys():
+        raise RuntimeError(f'Frozen source omits native-final runtime inputs: {sorted(missing)}')
     _omit_verified_duplicate_manifest(source, release_root)
     _omit_verified_reconstructible_privesc_history(source, release_root)
     identifier_file = deployment.value("private_identifiers_file")
@@ -2706,7 +2720,7 @@ assert os.getuid()==10001 and os.getgid()==10001
 release=json.loads(Path('/release.json').read_text())
 count=0
 for name,digest in release['files'].items():
-    if name.startswith(('peaso/','risk_rules/')) or name in {'bluepeass/__init__.py','bluepeass/k8s.py','bluepeass/k8s_risks.py','scripts/cloud_permission_risks.py'} or name in RUNTIME_ADMISSION_INPUTS:
+    if name.startswith(('peaso/','risk_rules/')) or name in {'bluepeass/__init__.py','bluepeass/k8s.py','bluepeass/k8s_risks.py','scripts/cloud_permission_risks.py','docs/ai-review/native-final-gcp-exercised-audit-v2.json','docs/ai-review/native-final-azure-source-audit-v2.json','outputs/k8s-native-final-hosted-v2.json'} or name in RUNTIME_ADMISSION_INPUTS:
         path=Path('/app')/name
         assert path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==digest,name
         count+=1
