@@ -4783,6 +4783,24 @@ def _azure_storage_resource_instance_rules(acls):
     return allowed, unresolved
 
 
+def _azure_storage_virtual_network_rules(acls):
+    """A succeeded subnet ACL can admit an Azure subnet from another tenant."""
+    rules = acls.get("virtualNetworkRules", [])
+    if not isinstance(rules, list):
+        return [], True
+    allowed = []
+    unresolved = False
+    for rule in rules:
+        subnet_id = rule.get("id") if isinstance(rule, dict) else None
+        if (not isinstance(subnet_id, str) or
+                not re.fullmatch(r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/virtualNetworks/[^/]+/subnets/[^/]+", subnet_id, re.I) or
+                rule.get("action", "Allow") != "Allow" or rule.get("state") != "Succeeded"):
+            unresolved = True
+            continue
+        allowed.append(subnet_id)
+    return allowed, unresolved
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
@@ -4798,13 +4816,14 @@ def _azure_storage(snapshot, inventory, resource):
     if acls.get("defaultAction", "Allow") == "Deny":
         public, unresolved = _azure_storage_public_ip_rules(acls)
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
-        if public or instances:
+        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
+        if public or instances or subnets:
             a.step("network_rules", "allow", default_action="Deny", public_ip_rules=public,
-                   resource_instance_rules=instances)
-            if unresolved or unresolved_instances:
+                   resource_instance_rules=instances, virtual_network_rules=subnets)
+            if unresolved or unresolved_instances or unresolved_subnets:
                 a.notes.append("Other storage account network rule entries are malformed or incomplete")
-        elif unresolved or unresolved_instances:
-            a.gap("firewall", "storage account IP or resource-instance rules are malformed or incomplete")
+        elif unresolved or unresolved_instances or unresolved_subnets:
+            a.gap("firewall", "storage account IP, resource-instance or subnet rules are malformed or incomplete")
             a.ports = None
             return a
         else:
@@ -4858,13 +4877,14 @@ def _azure_storage_container(snapshot, inventory, resource):
     elif acls["defaultAction"] == "Deny":
         public, unresolved = _azure_storage_public_ip_rules(acls)
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
-        if public or instances:
+        subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
+        if public or instances or subnets:
             a.step("firewall", "allow", default_action="Deny", public_ip_rules=public,
-                   resource_instance_rules=instances)
-            if unresolved or unresolved_instances:
+                   resource_instance_rules=instances, virtual_network_rules=subnets)
+            if unresolved or unresolved_instances or unresolved_subnets:
                 a.notes.append("Other storage account network rule entries are malformed or incomplete")
-        elif unresolved or unresolved_instances:
-            a.gap("firewall", "storage account IP or resource-instance rules are malformed or incomplete")
+        elif unresolved or unresolved_instances or unresolved_subnets:
+            a.gap("firewall", "storage account IP, resource-instance or subnet rules are malformed or incomplete")
         else:
             a.step("firewall", "block", default_action="Deny")
             a.ports = {}
@@ -6702,6 +6722,20 @@ def _observed(assessment, status):
                     "through its public endpoint.\n"
                     "Requests from that instance may reach the storage endpoint if the service responds.\n"
                     "Reading data still requires separate authorization or a public container ACL; neither was tested.")
+        subnet_step = next((step for step in assessment.path
+                            if step.get("virtual_network_rules") and not step.get("public_ip_rules")), None)
+        if subnet_step is not None:
+            subnet_id = subnet_step["virtual_network_rules"][0]
+            if assessment.resource["type"] == "storage_container":
+                return (f"The blob container {assessment.resource['data'].get('name', native_id(assessment.resource))} "
+                        f"allows anonymous access, and its account permits subnet {subnet_id} "
+                        "through the public endpoint.\n"
+                        "Requests from that subnet may reach the blob endpoint if its service endpoint and service respond.\n"
+                        "Anonymous blob reads could expose stored data; subnet ownership and successful access were not tested.")
+            return (f"The storage account {assessment.resource['data'].get('name', native_id(assessment.resource))} "
+                    f"permits subnet {subnet_id} through its public endpoint.\n"
+                    "Requests from that subnet may reach storage if its service endpoint and the service respond.\n"
+                    "Subnet ownership, data authorization, and successful access were not tested.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":

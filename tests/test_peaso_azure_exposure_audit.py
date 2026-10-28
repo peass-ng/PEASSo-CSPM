@@ -594,12 +594,13 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
     container = {"id": account_id + "/blobServices/default/containers/public",
                  "parent_id": account_id, "properties": {"publicAccess": "Blob"}}
 
-    def account_and_container(rules):
+    def account_and_container(rules, subnet_rules=None):
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
              "items": [{"id": account_id, "properties": {"publicNetworkAccess": "Enabled",
                  "allowBlobPublicAccess": True, "primaryEndpoints": {"blob": blob_url},
-                 "networkAcls": {"defaultAction": "Deny", "resourceAccessRules": rules}}}]},
+                 "networkAcls": {"defaultAction": "Deny", "resourceAccessRules": rules,
+                                 "virtualNetworkRules": subnet_rules or []}}}]},
             {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
              "items": [container]},
         ])
@@ -619,6 +620,16 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
     assert account_and_container([])[1].verdict() == "PASS"
     assert account_and_container([{"resourceId": rule["resourceId"]}])[0].verdict() == "UNKNOWN"
     assert account_and_container([{"resourceId": rule["resourceId"]}])[1].verdict() == "UNKNOWN"
+
+    foreign_subnet = "/subscriptions/foreign/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s"
+    account, anonymous = account_and_container([], [{"id": foreign_subnet, "state": "Succeeded"}])
+    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
+    assert account.path[0]["virtual_network_rules"] == [foreign_subnet]
+    assert "Subnet ownership, data authorization" in _observed(account, "FAIL")
+    assert "subnet ownership and successful access" in _observed(anonymous, "FAIL")
+    assert account_and_container([], [{"id": foreign_subnet, "state": "Failed"}])[0].verdict() == "UNKNOWN"
+    assert account_and_container([], [{"id": foreign_subnet}])[0].verdict() == "UNKNOWN"
+    assert account_and_container([], [{"id": "malformed", "state": "Succeeded"}])[1].verdict() == "UNKNOWN"
 
 
 def test_sql_firewall_public_ip_range_is_exposure_but_private_range_is_not():
