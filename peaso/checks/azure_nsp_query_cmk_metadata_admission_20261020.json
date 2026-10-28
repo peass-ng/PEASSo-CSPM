@@ -353,7 +353,7 @@
       "path": "peaso/collectors/azure.py",
       "qualname": "_Reader._read",
       "line": 1428,
-      "source_sha256": "67c2789201e7c37b069628e674bcb7fdf8395c58f03c757013f6a30cddacef92",
+      "source_sha256": "f8c6d22c04c983dede9dbf222a0ce31976b28e3d6e5cfdc16141772926632c03",
       "defaults": null,
       "kwdefaults": null
     },

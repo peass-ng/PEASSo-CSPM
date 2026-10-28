@@ -375,6 +375,51 @@ def _managed_grafana_metadata(row):
     return kept
 
 
+def _analysis_server_metadata(row):
+    """Keep Analysis Services ingress and admin metadata, never backup SAS URLs."""
+    props = row.get("properties")
+    if not isinstance(props, dict):
+        raise ValueError("Analysis Services properties are missing")
+    kept = {key: row[key] for key in ("id", "name", "type", "location") if key in row}
+    if any(key in props and not isinstance(props[key], str)
+           for key in ("state", "provisioningState", "serverFullName")):
+        raise ValueError("malformed Analysis Services state or endpoint")
+    endpoint = props.get("serverFullName")
+    if endpoint is not None:
+        parsed = urlsplit(endpoint)
+        if (parsed.scheme not in ("asazure", "aspaaseastus2") or not parsed.hostname
+                or parsed.username or parsed.password or parsed.query or parsed.fragment
+                or not re.fullmatch(r"/[A-Za-z][A-Za-z0-9]*", parsed.path)):
+            raise ValueError("malformed Analysis Services endpoint")
+    safe = {key: props[key] for key in ("state", "provisioningState", "serverFullName") if key in props}
+    settings = props.get("ipV4FirewallSettings")
+    if settings is not None:
+        if (not isinstance(settings, dict)
+                or "enablePowerBIService" in settings and type(settings["enablePowerBIService"]) is not bool
+                or not isinstance(settings.get("firewallRules", []), list)):
+            raise ValueError("malformed Analysis Services firewall")
+        rules = []
+        for rule in settings.get("firewallRules", []):
+            if (not isinstance(rule, dict)
+                    or any(not isinstance(rule.get(key), str) for key in ("rangeStart", "rangeEnd"))):
+                raise ValueError("malformed Analysis Services firewall rule")
+            rules.append({key: rule[key] for key in ("firewallRuleName", "rangeStart", "rangeEnd")
+                          if key in rule and isinstance(rule[key], str)})
+        safe["ipV4FirewallSettings"] = {"firewallRules": rules}
+        if "enablePowerBIService" in settings:
+            safe["ipV4FirewallSettings"]["enablePowerBIService"] = settings["enablePowerBIService"]
+    admins = props.get("asAdministrators")
+    if admins is not None:
+        if (not isinstance(admins, dict) or not isinstance(admins.get("members"), list)
+                or any(not isinstance(member, str) for member in admins["members"])):
+            raise ValueError("malformed Analysis Services administrators")
+        safe["asAdministrators"] = {"members": admins["members"]}
+    kept["properties"] = safe
+    kept["_provenance"] = {"source_operation": "Servers_GetDetails", "api_version": "2017-08-01",
+                            "read_only": True, "representation": "ingress_and_administrator_metadata"}
+    return kept
+
+
 def _network_platform_native_identity(row, scope, kind):
     """Validate real ARM types/identities before attaching native provenance."""
     expected = _NETWORK_PLATFORM_NATIVE_TYPES.get(kind)
@@ -1216,7 +1261,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment"})
+                            "integration_service_environment", "analysis_server"})
 
 
 def _canonicalize_embedded(collections):
@@ -2315,7 +2360,8 @@ class _Reader:
                         raise AzureReadError("resource_limit")
                     projected = item if service == "kubernetes" else _metadata_only(
                         _managed_application_metadata(item) if kind == "managed_application" else
-                        _managed_grafana_metadata(item) if kind == "managed_grafana" else item,
+                        _managed_grafana_metadata(item) if kind == "managed_grafana" else
+                        _analysis_server_metadata(item) if kind == "analysis_server" else item,
                         kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
                     if kind == "app_service":
                         projected = azure_functions_runtime_native.safe_site_inventory(projected)

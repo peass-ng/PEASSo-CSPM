@@ -10,9 +10,9 @@ CHANGES = {'peaso/checks/gcp_positive_conservation_shared_source_successor_20261
 # Exact successor tuple. Update these three pins together for an assessed runtime
 # successor; a caller cannot choose a new tuple through function arguments.
 CURRENT_CPU_MARGIN_SHA256 = {
-    'peaso/checks/gcp_positive_conservation_shared_source_successor_20261020.py': '31944d55b69d199492f393b48f411362fa6daa8525fe23a5e423cd51a3e7d4f6',
-    'peaso/checks/gcp_positive_conservation_source_bridge_20261020.json': '8967dd0f93af033c72b2f5800128f9f70c3d9975a443c4bc13ecf33f36a8a15d',
-    'peaso/gcp_positive_conservation_source_admission_successor_20261020.py': '7d5dd8d303b72766aa0c8d1e2839befbb0ec2201550692ef5a4a69467134f2f4',
+    'peaso/checks/gcp_positive_conservation_shared_source_successor_20261020.py': '513de29e84980aac1fe977508f1257f2e78f4c822b96f2862ab38604f9aeed2d',
+    'peaso/checks/gcp_positive_conservation_source_bridge_20261020.json': 'd1ea9d5d89d109674d7fa6c523ce13f1e430aeebcd53d850dba6c1ff327fc0b4',
+    'peaso/gcp_positive_conservation_source_admission_successor_20261020.py': '9778a103a93137aedb1436240a40c159d02d8fe6243f405aee0166251f227cd3',
 }
 PRE_RAWV2_FIXTURE = 'tests/fixtures/gcp_native_cpu_margin_pre_rawv2_20261021.json.gz'
 PRE_RAWV2_FIXTURE_SHA256 = '17597fd6b63779b9a65bde9585b1e96cc195e5c862445bac85b681a24f388a82'

@@ -30,7 +30,7 @@ PAGE_RECEIPT_SHA256 = '0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23db
 SOURCE_DELTA = 'peaso/checks/gcp_positive_conservation_source_delta_20261020.json'
 SOURCE_DELTA_SHA256 = '6f803d15053fdccf982ab20883b76a72a821ef98f703192eba25c3a05695d6d6'
 BRIDGE_RECEIPT = 'peaso/checks/gcp_positive_conservation_source_bridge_20261020.json'
-BRIDGE_RECEIPT_SHA256 = '8967dd0f93af033c72b2f5800128f9f70c3d9975a443c4bc13ecf33f36a8a15d'
+BRIDGE_RECEIPT_SHA256 = 'd1ea9d5d89d109674d7fa6c523ce13f1e430aeebcd53d850dba6c1ff327fc0b4'
 
 
 _MODULE_ARTIFACTS = ContextVar('gcp_positive_module_artifacts', default=None)

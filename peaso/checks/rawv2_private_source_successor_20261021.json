@@ -201,8 +201,8 @@
         }
       },
       "receipt": "peaso/checks/azure_function_settings_runtime_admission_20261020.json",
-      "receipt_sha256": "0dd368dcd2f4f80566749f35a9c0c18c83cbb3347738b6c660265ef3e3a34b43",
-      "source_sha256": "9816acc892d3d31fd0593b80d71a204edac9fbdeddd04276a07b63627cf57bdd"
+      "receipt_sha256": "239d2ad906d06d515eb39496a9d16cc0b4f6ac6740f7ecbfd87faf11dc0f60ba",
+      "source_sha256": "a9823cb9bdbc5391ab278ee220ad1c26bb64720ff2ef6576bf29342d2acda5b1"
     },
     "peaso/checks/azure_log_samples_admission_20261020.py": {
       "function_bindings": {
@@ -954,7 +954,7 @@
   },
   "private_helper_source_sha256": "15092e316c2331e03fdae7fad4dda5ed92310a1c15a827b0009fbcd54a11693a",
   "published_receipt": "peaso/checks/rawv2_public_source_successor_20261021.json",
-  "published_receipt_sha256": "7ce1c6a93234cf8c86388db317b3865899628a99e3d85ccfe84160073bdef4ef",
+  "published_receipt_sha256": "9eaa9194af6f4b9d30f3856ff0d6479c343c8de35df5f4ac80a38b3c5f11b45e",
   "scanner": "peaso/secret_scanning.py",
   "schema": "private_rawv2_source_successor_20261021",
   "top_functions": [

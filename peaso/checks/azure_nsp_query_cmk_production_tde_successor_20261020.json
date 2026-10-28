@@ -40,7 +40,7 @@
       "registered": false
     }
   ],
-  "prepared_receipt_sha256": "7751247606f7bdd4e43a1eaeadb671fcf6dd2fef1d41509c0fc28d5b93254a73",
+  "prepared_receipt_sha256": "cf1d3d3d7c18743fdc95a2b9691a2a61c20dbfd750052847b99231dd114520de",
   "helper_path": "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.py",
   "helper_sha256": "d5bce416ba201559c683ba1a2abc49d66346b3e430df9b1ad029d0e20c45a724",
   "functions": {
@@ -155,8 +155,8 @@
   ],
   "source_boundary": "Exact current collect/_selected body/code plus AST proof: only nested tde body changed from preserved immutable production predecessor. Original receipts, helpers, CASES and native fixtures remain byte-identical.",
   "predecessor_files": {
-    "peaso/checks/azure_nsp_query_cmk_production_admission_20261020.py": "7707595bedfee8f6d6dc1850e7b6cbf4c6dba262b53d74ce8119a379e1b6acd4",
-    "peaso/checks/azure_nsp_query_cmk_production_admission_20261020.json": "f557b99b91573610d8485920e37d4fa62d1b693a8eb6a0e66462a37668662150",
+    "peaso/checks/azure_nsp_query_cmk_production_admission_20261020.py": "5d2996168396b34683141dd95a9e01ceee7bc1f37ed9362c1f2c0cde2745aa4e",
+    "peaso/checks/azure_nsp_query_cmk_production_admission_20261020.json": "17a067ce24ab4f3c732d2d605168abe36cf4ccb6169c2948c18edb068a42b5a3",
     "peaso/checks/azure_nsp_query_cmk_production_cases_20261020.json": "0ba1cb3e3b5b670d056ab2f15090131a98cf802e14e872f54678347fbd361ca0"
   },
   "predecessor_pack": {

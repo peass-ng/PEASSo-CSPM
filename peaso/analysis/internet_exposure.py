@@ -9593,6 +9593,64 @@ _AZURE_MANAGED_ENDPOINTS = {
 }
 
 
+def _azure_analysis_server(snapshot, inventory, resource):
+    """Assess the Azure Analysis Services public client endpoint from full ARM GET."""
+    props = _props(resource)
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    state = props.get("state")
+    if state in ("Paused", "Suspended", "Deleting"):
+        a.step("listener", "block", server_state=state)
+        a.ports = {}
+        return a
+    if state not in ("Succeeded", "Active"):
+        a.gap("listener", "Analysis Services server running state is not established")
+        return a
+    endpoint = props.get("serverFullName")
+    if not isinstance(endpoint, str) or not endpoint.startswith(("asazure://", "aspaaseastus2://")):
+        a.gap("inventory", "Analysis Services client endpoint is not recorded")
+        return a
+    a.addresses.append(endpoint)
+    if (resource["data"].get("_provenance") or {}).get("source_operation") != "Servers_GetDetails":
+        a.gap("inventory", "Analysis Services firewall is not from full server GET")
+        return a
+    settings = props.get("ipV4FirewallSettings")
+    if settings is None:
+        # Microsoft documents firewall protection as off by default, with
+        # ipV4FirewallSettings absent until configured.
+        a.step("firewall", "allow", reason="no firewall configuration on full server detail")
+        a.ports = pset("tcp", 443, 443)
+        return a
+    if not isinstance(settings, dict) or not isinstance(settings.get("firewallRules"), list):
+        a.gap("firewall", "Analysis Services firewall rule inventory is incomplete")
+        return a
+    public_ranges, malformed = [], False
+    for rule in settings["firewallRules"]:
+        try:
+            start = ipaddress.IPv4Address(rule["rangeStart"])
+            end = ipaddress.IPv4Address(rule["rangeEnd"])
+            if start > end:
+                raise ValueError("reversed firewall range")
+            if _azure_public_remainder(ipaddress.summarize_address_range(start, end), []):
+                public_ranges.append({"start": str(start), "end": str(end)})
+        except (TypeError, KeyError, ValueError):
+            malformed = True
+    power_bi = settings.get("enablePowerBIService") is True
+    if public_ranges or power_bi:
+        a.step("firewall", "allow", public_ranges=public_ranges,
+               power_bi_service_allowed=power_bi)
+        a.ports = pset("tcp", 443, 443)
+        if malformed:
+            a.notes.append("Other firewall rules are malformed")
+    elif malformed or settings.get("enablePowerBIService") not in (True, False):
+        a.gap("firewall", "Analysis Services firewall rules or Power BI exception are unresolved")
+    else:
+        a.step("firewall", "block", reason="no public-source rule or Power BI exception")
+        a.ports = {}
+    a.notes.append("Model role membership is managed on the Analysis Services data plane")
+    return a
+
+
 def _azure_managed_endpoint(snapshot, inventory, resource):
     """Surface explicit public endpoint settings without inventing firewall joins."""
     props = _props(resource)
@@ -11317,7 +11375,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11332,7 +11390,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "analysis_server",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11426,6 +11484,7 @@ def assess(snapshot, resources):
                   "azure_firewall": _azure_firewall,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
+                  "analysis_server": _azure_analysis_server,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
                   "signalr_service": _azure_realtime_endpoint,

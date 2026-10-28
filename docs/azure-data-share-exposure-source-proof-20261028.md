@@ -1,7 +1,7 @@
 # Azure Data Share exposure source proof
 
 The reviewed Azure collector SHA-256 after this change is
-`206fd8e06cb09380506df8f9f07f07857ba617f02890ee7791a12ecd77892234`.
+`caeefdfca66b7f5915cbee23928b56ecb05734a1dce9df8f49d76d0ec48ea4fd`.
 
 The collector uses paged, read-only ARM LISTs for
 [accounts](https://learn.microsoft.com/en-us/rest/api/datashare/accounts/list-by-subscription?view=rest-datashare-2021-08-01),
