@@ -13,7 +13,7 @@ _SECRET_FIELDS = {
     "aws": {"aws_access_key_id", "aws_secret_access_key", "aws_session_token"},
     "gcp": {"token", "subject_token"},
     "azure": {"token", "arm_token", "graph_token", "vault_token", "storage_token",
-              "logs_token", "databricks_account_token", "client_secret",
+              "logs_token", "databricks_account_token", "databricks_workspace_token_secret", "client_secret",
               "certificate_data", "client_certificate", "certificate_password",
               "federated_token"},
     "k8s": {"token", "client_cert_data", "client_key_data"},
@@ -57,6 +57,14 @@ def _boundary(auth, provider):
         raise StoreError(422, "Connector authentication is invalid")
     value = {key: item for key, item in auth.items()
              if key not in _SECRET_FIELDS[provider]}
+    if provider == "azure" and "databricks_workspace_token_secret" in auth:
+        from peaso.collectors.azure_databricks_workspace_ip_native import validate_auth
+        try:
+            validate_auth(auth)
+        except ValueError:
+            raise StoreError(422, "Connector authentication is invalid") from None
+        value["databricks_workspace_token_secret"] = sorted(
+            rid.casefold() for rid in auth["databricks_workspace_token_secret"])
     if provider == "gcp" and "sa_json" in value:
         try:
             service_account = value["sa_json"]

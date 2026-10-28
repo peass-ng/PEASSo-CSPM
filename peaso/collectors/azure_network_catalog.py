@@ -9,7 +9,7 @@ ENDPOINTS = {
     "container_app": ("Microsoft.App/containerApps", "2024-03-01"),
     "container_app_environment": ("Microsoft.App/managedEnvironments", "2024-03-01"),
     "container_app_job": ("Microsoft.App/jobs", "2024-03-01"),
-    "redis_enterprise_cluster": ("Microsoft.Cache/redisEnterprise", "2025-07-01"),
+    "redis_enterprise_cluster": ("Microsoft.Cache/redisEnterprise", "2026-10-01-preview"),
     "local_network_gateway": ("Microsoft.Network/localNetworkGateways", "2023-09-01"),
     "network_connection": ("Microsoft.Network/connections", "2023-09-01"),
     "expressroute_circuit": ("Microsoft.Network/expressRouteCircuits", "2023-09-01"),

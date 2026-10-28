@@ -912,6 +912,37 @@ def _collect_servicebus_entity_rules(reader, request, parents):
                     entity["authorizationRules"] = rule_read["items"]
 
 
+def _collect_eventhub_entity_rules(reader, request, parents):
+    """Read SAS rights for Event Hubs already observed in a namespace."""
+    for kind, namespace in parents:
+        if kind != "eventhub_namespace":
+            continue
+        rid = namespace["id"]
+        for entity in namespace.get("eventHubs", []):
+            entity_id = entity.get("id") if isinstance(entity, dict) else None
+            if (not isinstance(entity_id, str) or re.fullmatch(
+                    re.escape(rid + "/eventhubs/") + r"[^/?#%\\\s]+", entity_id, re.I) is None
+                    or str(entity.get("type", "")).casefold() != "microsoft.eventhub/namespaces/eventhubs"
+                    or not isinstance(entity.get("name"), str)
+                    or entity["name"].casefold() != entity_id.rsplit("/", 1)[-1].casefold()):
+                namespace.setdefault("_coverage", {})["eventHubs"] = {"status": "malformed"}
+                continue
+            rule_url = ARM + entity_id + "/authorizationRules?api-version=2026-01-01"
+            def list_rules(rule_url=rule_url, entity_id=entity_id):
+                seen = set()
+                for page in reader.pages(request, rule_url):
+                    projected = _child_rows(page, entity_id, "authorizationRules")
+                    if any(row["id"].casefold() in seen for row in projected):
+                        raise ValueError("duplicate Event Hub rule across pages")
+                    seen.update(row["id"].casefold() for row in projected)
+                    yield projected
+            read = reader._read(("eventhub_entity_rules", entity_id, "Microsoft.Resources", list_rules))
+            entity.setdefault("_coverage", {})["authorizationRules"] = {
+                key: read[key] for key in ("status", "error") if key in read}
+            if read["status"] in ("collected", "empty") or read["items"]:
+                entity["authorizationRules"] = read["items"]
+
+
 def _collect_hsm_local_assignments(reader, request, transport, parents):
     """Read Managed HSM local RBAC at broad and observed key scopes."""
     for kind, hsm in parents:
@@ -1090,7 +1121,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
 FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm", "vm_scale_set", "nic", "vnet", "nsg", "route_table", "storage_account", "security_pricing", "web_application_firewall_policy",
     "frontdoor", "cdn_profile", "frontdoor_waf_policy",
                             "hdinsight_cluster", "firewall_policy", "log_analytics_cluster",
-                            "image_template", "compute_gallery",
+                            "image_template", "compute_gallery", "redis_enterprise_cluster",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
                             "integration_service_environment"})
@@ -1739,6 +1770,14 @@ class AzureTransport:
 
     def request_databricks(self, url):
         return azure_databricks_native.request_metadata(url, self.auth)
+
+    def request_databricks_workspace_ip(self, host, workspace_id, path, token):
+        from . import azure_databricks_workspace_ip_native
+        return azure_databricks_workspace_ip_native.request_policy(host, workspace_id, path, token)
+
+    def request_databricks_ingress(self, path):
+        from . import azure_databricks_ingress_native
+        return azure_databricks_ingress_native.request_policy(path, self.auth)
 
     def close(self):
         cache = getattr(self, "response_cache", None)
@@ -2576,6 +2615,8 @@ def collect(connector, requirements=None, *, transport=None):
     azure_selected_aks_image_20261021.selected_targets(options, connector.get('scopes', []), options.get('_azure_aks_image_named_checks', []))
     azure_acr_image_vulnerabilities_20261021.selected_targets(options, connector.get('scopes', []))
     azure_databricks_native.validate_auth(auth)
+    from . import azure_databricks_workspace_ip_native
+    azure_databricks_workspace_ip_native.validate_auth(auth)
     azure_databricks_native.normalize(options)
     wanted = _selected(options, requirements)
     if auto_app_settings and azure_app_settings_secret_indicators.KIND in wanted:
@@ -2592,6 +2633,9 @@ def collect(connector, requirements=None, *, transport=None):
         metadata_only_selection = not wanted or bool(requirements and set(requirements) == {package_source.KIND})
     if "databricks_account_workspace" in wanted:
         wanted.add("databricks_workspace")
+    elif ("databricks_workspace" in wanted and auth.get("databricks_account_token")
+          and azure_databricks_native.normalize(options)):
+        wanted.add("databricks_account_workspace")
     from . import azure_disclosure_native
     wanted |= azure_disclosure_native.required_types(options)
     from . import azure_identity_intune_native
@@ -3379,6 +3423,7 @@ def collect(connector, requirements=None, *, transport=None):
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
         _collect_servicebus_entity_rules(reader, request, embedded_parents)
+        _collect_eventhub_entity_rules(reader, request, embedded_parents)
         _collect_gallery_versions(reader, request, embedded_parents)
         if "managed_hsm" in wanted:
             _collect_hsm_local_assignments(reader, request, transport, embedded_parents)
@@ -3906,6 +3951,9 @@ def collect(connector, requirements=None, *, transport=None):
         azure_aks_legacy_projection_review_20261020.collect_diagnostics(reader, request, scopes, wanted)
         azure_aks_legacy_projection_review_20261020.collect_hsm_categories(reader, request, scopes, wanted)
         azure_databricks_native.collect(reader, request, transport, scopes, wanted, options, auth)
+        from . import azure_databricks_ingress_native
+        azure_databricks_ingress_native.collect(reader, transport, scopes, wanted, options, auth)
+        azure_databricks_workspace_ip_native.collect(reader, transport, scopes, wanted, auth)
         azure_devops_git_native.collect(reader, request, transport, scopes, wanted, options, auth)
         azure_devops_pipeline_native.collect(reader, request, transport, scopes, wanted, options, auth)
         from .azure_docker_assessment_native import collect as collect_docker_assessment_metadata

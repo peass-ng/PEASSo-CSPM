@@ -300,9 +300,11 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
 
 def test_redis_enterprise_managed_redis_database_listener_gates():
     cluster = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redisEnterprise/cache"
-    def evaluate(access, child_status="collected", database_port=10000):
+    def evaluate(access, child_status="collected", database_port=10000, firewall=None):
         item = {"id": cluster, "properties": {"publicNetworkAccess": access,
-                "hostName": "cache.westus.redis.azure.net"}}
+                "hostName": "cache.westus.redis.azure.net", "firewallRules": [] if firewall is None else firewall}}
+        if firewall == "missing":
+            del item["properties"]["firewallRules"]
         database = {"id": cluster + "/databases/default", "properties": {
             "port": database_port, "clientProtocol": "Encrypted"}}
         snap = make_snapshot("azure", [SCOPE], [
@@ -323,6 +325,13 @@ def test_redis_enterprise_managed_redis_database_listener_gates():
     assert evaluate("Enabled", child_status="partial", database_port=None).verdict() == "UNKNOWN"
     assert evaluate("Enabled", database_port=None).verdict() == "UNKNOWN"
     assert evaluate(None).verdict() == "UNKNOWN"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "8.8.8.8/32"}]).verdict() == "FAIL"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "10.0.0.0/8"}]).verdict() == "PASS"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "2001:4860::/32"}]).verdict() == "FAIL"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "bad"}]).verdict() == "UNKNOWN"
+    assert evaluate("Enabled", firewall="missing").verdict() == "UNKNOWN"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "bad"},
+                                        {"sourceAddressPrefix": "8.8.8.8/32"}]).verdict() == "FAIL"
 
 
 def test_databricks_arm_public_gate_keeps_external_ingress_policy_unknown():
@@ -1733,6 +1742,17 @@ def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
         "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "None",
         "networkAclBypassResourceIds": []})
     assert closed.verdict() == "PASS" and closed.ports == {}
+    own_subnet = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/s"
+    vnet_only = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [{"id": own_subnet}], "networkAclBypass": "None",
+        "networkAclBypassResourceIds": []})
+    assert vnet_only.verdict() == "PASS" and vnet_only.ports == {}
+    foreign_subnet = own_subnet.replace(SCOPE, "/subscriptions/other")
+    foreign_vnet = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [{"id": foreign_subnet}], "networkAclBypass": "None",
+        "networkAclBypassResourceIds": []})
+    assert foreign_vnet.verdict() == "UNKNOWN"
+    assert any(step.get("cross_subscription_subnet_ids") == [foreign_subnet] for step in foreign_vnet.path)
     assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
         "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "AzureServices",
         "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"

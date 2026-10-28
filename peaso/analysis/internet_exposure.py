@@ -9652,7 +9652,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
-    if kind == "servicebus_namespace":
+    if kind in ("servicebus_namespace", "eventhub_namespace"):
         local_auth = props.get("disableLocalAuth")
         coverage = (resource["data"].get("_coverage") or {}).get("authorizationRules") or {}
         rules = resource["data"].get("authorizationRules")
@@ -9669,7 +9669,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         if local_auth is False:
             entity_rules = []
             complete = True
-            for field in ("queues", "topics"):
+            for field in (("queues", "topics") if kind == "servicebus_namespace" else ("eventHubs",)):
                 entities = resource["data"].get(field)
                 list_status = (resource["data"].get("_coverage") or {}).get(field, {}).get("status")
                 if list_status not in ("collected", "empty") or not isinstance(entities, list):
@@ -9687,8 +9687,46 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 a.step("sas_entity_authorization", "conditional", rules=entity_rules,
                        inventory_complete=complete)
             if not complete:
-                a.notes.append("Queue or topic SAS rule inventory is incomplete.")
+                a.notes.append("Queue or topic SAS rule inventory is incomplete."
+                               if kind == "servicebus_namespace"
+                               else "Event Hub entity SAS rule inventory is incomplete.")
     if kind == "container_registry":
+        if props.get("adminUserEnabled") is True:
+            a.step("registry_admin_credentials", "conditional", admin_user_enabled=True)
+            a.notes.append("Registry admin credentials are enabled; their holders are not inventoried.")
+        token_coverage = (resource["data"].get("_coverage") or {}).get("tokens") or {}
+        map_coverage = (resource["data"].get("_coverage") or {}).get("scopeMaps") or {}
+        tokens, maps = resource["data"].get("tokens"), resource["data"].get("scopeMaps")
+        if (token_coverage.get("status") in ("collected", "empty") and isinstance(tokens, list)
+                and map_coverage.get("status") in ("collected", "empty") and isinstance(maps, list)):
+            scope_maps = {row["id"].casefold(): row for row in maps
+                          if isinstance(row, dict) and isinstance(row.get("id"), str)}
+            active_tokens, unresolved = [], False
+            for token in tokens:
+                token_props = token.get("properties") if isinstance(token, dict) else None
+                if not isinstance(token_props, dict):
+                    unresolved = True
+                    continue
+                if str(token_props.get("status", "")).casefold() == "disabled":
+                    continue
+                if str(token_props.get("status", "")).casefold() != "enabled":
+                    unresolved = True
+                    continue
+                map_id = token_props.get("scopeMapId")
+                scope_map = scope_maps.get(map_id.casefold()) if isinstance(map_id, str) else None
+                actions = (scope_map.get("properties") or {}).get("actions") if scope_map else None
+                if not isinstance(actions, list) or any(not isinstance(action, str) for action in actions):
+                    unresolved = True
+                    continue
+                active_tokens.append({"name": token.get("name"), "scope_map": map_id,
+                                      "actions": actions})
+            if active_tokens:
+                a.step("registry_tokens", "conditional", enabled_tokens=active_tokens)
+                a.notes.append("Enabled registry tokens grant their scope-map actions to valid password holders; holders and password state are not inventoried.")
+            if unresolved:
+                a.notes.append("Some registry token scope-map rights are unresolved.")
+        else:
+            a.notes.append("Registry token or scope-map inventory is incomplete.")
         anonymous = props.get("anonymousPullEnabled")
         if anonymous is True:
             a.authenticated = False
@@ -9771,9 +9809,26 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         elif not ip_rules:
             vnet_rules = props.get("virtualNetworkRules")
             bypass_ids = props.get("networkAclBypassResourceIds")
-            if (props.get("isVirtualNetworkFilterEnabled") is True and vnet_rules == []
+            if (props.get("isVirtualNetworkFilterEnabled") is True and isinstance(vnet_rules, list)
                     and props.get("networkAclBypass") == "None" and bypass_ids == []):
-                a.step("firewall", "block", reason="empty IP and VNet allow lists with no network ACL bypass")
+                subnet_ids = []
+                for rule in vnet_rules:
+                    subnet_id = rule.get("id") if isinstance(rule, dict) else None
+                    if (not isinstance(subnet_id, str) or not re.fullmatch(
+                            r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/"
+                            r"virtualNetworks/[^/]+/subnets/[^/]+", subnet_id, re.IGNORECASE)):
+                        break
+                    subnet_ids.append(subnet_id)
+                if len(subnet_ids) == len(vnet_rules):
+                    a.step("firewall", "block", reason="only subnet service-endpoint sources are allowed")
+                    outside = [sid for sid in subnet_ids
+                               if sid.split("/", 3)[2].casefold() != resource["scope"].split("/", 3)[2].casefold()]
+                    if outside:
+                        a.step("vnet_acl", "conditional", cross_subscription_subnet_ids=outside)
+                        a.gap("authorization", "cross-subscription Cosmos subnet ownership and effective access are unresolved")
+                        a.explicit = "UNKNOWN"
+                else:
+                    a.gap("firewall", "Cosmos VNet subnet rule is malformed")
             else:
                 a.gap("firewall", "Cosmos VNet access list or network ACL bypass is unresolved")
         else:
@@ -10183,6 +10238,18 @@ def _azure_ml_workspace(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "managed_endpoint")
     a.authenticated = True
+    def record_scoring_auth(endpoint):
+        fields = endpoint.get("properties") if isinstance(endpoint, dict) else None
+        mode = fields.get("authMode") if isinstance(fields, dict) else None
+        if mode in ("Key", "AMLToken", "AADToken"):
+            a.step("scoring_authentication", "conditional", online_endpoint=endpoint.get("id"),
+                   auth_mode=mode, access_requirement={"Key": "endpoint key",
+                                                  "AMLToken": "Azure ML token",
+                                                  "AADToken": "Entra identity with score/action RBAC"}[mode])
+            if mode != "AADToken":
+                a.notes.append("Scoring credential or token recipients are not inventoried.")
+        else:
+            a.notes.append("Online endpoint scoring authentication mode is unavailable or unrecognized.")
     access = props.get("publicNetworkAccess")
     if access == "Disabled":
         a.step("public_network_access", "block", public_network_access=access)
@@ -10196,6 +10263,9 @@ def _azure_ml_workspace(snapshot, inventory, resource):
                  or row["properties"].get("publicNetworkAccess") != "Disabled" for row in endpoints):
             a.gap("online_endpoint", "ML endpoint public gate could differ from disabled workspace gate")
             a.explicit = "UNKNOWN"
+            for row in endpoints:
+                if isinstance(row, dict) and isinstance(row.get("properties"), dict) and row["properties"].get("publicNetworkAccess") == "Enabled":
+                    record_scoring_auth(row)
             acls = props.get("networkAcls")
             if isinstance(acls, dict) and acls.get("defaultAction") == "Deny":
                 public_ips, _ = _azure_storage_public_ip_rules(acls)
@@ -10228,6 +10298,7 @@ def _azure_ml_workspace(snapshot, inventory, resource):
                 a.gap("online_endpoint", "ML online endpoint properties are malformed")
                 continue
             if fields.get("publicNetworkAccess") == "Enabled":
+                record_scoring_auth(endpoint)
                 uri = fields.get("scoringUri")
                 if isinstance(uri, str) and uri:
                     a.addresses.append(uri)
@@ -10259,6 +10330,53 @@ def _azure_ml_workspace(snapshot, inventory, resource):
     return a
 
 
+def _databricks_public_witness(rules, enabled, lists, denies=()):
+    """Return a concrete global IPv4 source allowed by both collected layers."""
+    try:
+        allow = [ipaddress.ip_network(cidr) for item in lists
+                 if enabled and item.get('enabled') is True and item.get('list_type') == 'ALLOW'
+                 for cidr in item.get('ip_addresses', [])]
+        block = [ipaddress.ip_network(cidr) for item in lists
+                 if enabled and item.get('enabled') is True and item.get('list_type') == 'BLOCK'
+                 for cidr in item.get('ip_addresses', [])]
+        contexts = [(rule['origin'], [ipaddress.ip_network(cidr) for cidr in rule['ranges']]) for rule in rules]
+        denied = [(rule['origin'], [ipaddress.ip_network(cidr) for cidr in rule['ranges']]) for rule in denies]
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return None
+    if any(network.version != 4 for network in
+           (*allow, *block, *(n for _, nets in (*contexts, *denied) for n in nets))):
+        return None
+    # Every access decision is constant between the endpoints of its CIDRs.
+    # Include Python's special-use IPv4 boundaries so is_global is constant
+    # within each interval too (including its narrow public exceptions).
+    boundaries = {0, 1 << 32}
+    special = getattr(ipaddress._IPv4Constants, '_private_networks', ())
+    special = (*special, getattr(ipaddress._IPv4Constants, '_public_network',
+                                ipaddress.ip_network('100.64.0.0/10')),
+               *getattr(ipaddress._IPv4Constants, '_private_networks_exceptions', ()))
+    for network in (*allow, *block, *(n for _, nets in (*contexts, *denied) for n in nets), *special):
+        boundaries.add(int(network.network_address))
+        boundaries.add(int(network.broadcast_address) + 1)
+    for value in sorted(boundaries):
+        if value == 1 << 32:
+            continue
+        address = ipaddress.IPv4Address(value)
+        if not address.is_global:
+            continue
+        if enabled and (any(address in network for network in block)
+                        or allow and not any(address in network for network in allow)):
+            continue
+        if any(mode == 'all' or mode == 'include' and any(address in network for network in networks)
+               or mode == 'exclude' and not any(address in network for network in networks)
+               for mode, networks in denied):
+            continue
+        if any(mode == 'all' or mode == 'include' and any(address in network for network in networks)
+               or mode == 'exclude' and not any(address in network for network in networks)
+               for mode, networks in contexts):
+            return str(address)
+    return None
+
+
 def _azure_databricks_workspace(snapshot, inventory, resource):
     """Use the ARM workspace public gate without guessing Databricks ingress policies."""
     props = _props(resource)
@@ -10274,7 +10392,90 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
     elif access == "Enabled":
         a.step("public_network_access", "allow", public_network_access=access)
         a.ports = pset("tcp", 443, 443)
-        a.gap("policy", "Databricks workspace IP access lists and account context-based ingress policy are not in the ARM workspace response")
+        ingress = [row['data'] for row in inventory.items('databricks_workspace_ingress_policy')
+                   if str(native_id(row)).casefold() == str(native_id(resource)).casefold()]
+        restricted_rules = None
+        if len(ingress) != 1 or ingress[0].get('policyStatus') != 'collected':
+            a.gap('policy', 'Databricks workspace context-based ingress policy unavailable')
+        elif (ingress[0].get('restriction_mode') == 'RESTRICTED_ACCESS'
+              and ingress[0].get('allow_rule_count') == 0):
+            a.step('workspace_context_ingress', 'block', restriction_mode='RESTRICTED_ACCESS', allow_rule_count=0)
+            a.ports = {}
+        elif ingress[0].get('restriction_mode') == 'FULL_ACCESS':
+            a.step('workspace_context_ingress', 'allow', restriction_mode='FULL_ACCESS')
+        elif ingress[0].get('restriction_mode') == 'RESTRICTED_ACCESS':
+            restricted_rules = ingress[0]
+        else:
+            a.gap('policy', 'Databricks context ingress rules require identity, source and destination matching')
+        policies = [row for row in inventory.items('databricks_workspace_ip_policy')
+                    if str(native_id(row)).casefold() == str(native_id(resource)).casefold()]
+        ip_policy = None
+        if len(policies) != 1 or policies[0]['data'].get('policyStatus') != 'collected':
+            a.gap('policy', 'Databricks workspace IP access lists unavailable or uncollected')
+        else:
+            policy = policies[0]['data']
+            enabled = policy.get('ipAccessListsEnabled')
+            lists = policy.get('ipAccessLists')
+            if (type(enabled) is not bool or not isinstance(lists, list)
+                    or any(not isinstance(item, dict) or type(item.get('enabled')) is not bool
+                           or item.get('list_type') not in ('ALLOW', 'BLOCK')
+                           or not isinstance(item.get('ip_addresses'), list)
+                           or any((network := _cidr(cidr)) is None or network.version != 4
+                                  for cidr in item['ip_addresses']) for item in lists)):
+                a.gap('policy', 'Databricks workspace IP access lists malformed')
+            else:
+                active = [item for item in lists if isinstance(item, dict) and item.get('enabled') is True]
+                ip_policy = (enabled, active)
+                allow = [item for item in active if item.get('list_type') == 'ALLOW']
+                block = [item for item in active if item.get('list_type') == 'BLOCK']
+                if enabled and any('0.0.0.0/0' in item.get('ip_addresses', []) for item in block):
+                    a.step('workspace_ip_access_lists', 'block', active_allow_lists=len(allow), active_block_lists=len(block))
+                    a.ports = {}
+                elif enabled and allow and all(
+                        isinstance(item.get('ip_addresses'), list) and all(
+                            (network := _cidr(cidr)) is not None and network.version == 4 and any(
+                                network.subnet_of(ipaddress.ip_network(private)) for private in
+                                ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
+                            for cidr in item['ip_addresses']) for item in allow):
+                    a.step('workspace_ip_access_lists', 'block', active_allow_lists=len(allow), active_block_lists=len(block))
+                    a.ports = {}
+                else:
+                    witness = _databricks_public_witness([{'origin': 'all', 'ranges': []}], enabled, active)
+                    if witness:
+                        a.step('workspace_ip_access_lists', 'allow', enabled=enabled,
+                               active_allow_lists=len(allow), active_block_lists=len(block), public_source_ip=witness)
+                    else:
+                        a.gap('policy', 'Databricks IP lists do not establish a surviving public source')
+        if restricted_rules is not None:
+            found = False
+            for target, rule_key, deny_key, ignored_key in (
+                    ('workspace_ui', 'public_ui_rules', 'public_ui_denies', 'ui_ignored_deny_count'),
+                    ('workspace_api', 'public_api_rules', 'public_api_denies', 'api_ignored_deny_count')):
+                rules = restricted_rules.get(rule_key)
+                denies = restricted_rules.get(deny_key)
+                ignored = restricted_rules.get(ignored_key)
+                if (ip_policy is None or not isinstance(rules, list) or not isinstance(denies, list)
+                        or type(ignored) is not int
+                        or restricted_rules.get('deny_rule_count') != len(denies) + ignored):
+                    continue
+                for rule in rules:
+                    for principal in (('users', 'service_principals') if target == 'workspace_api' else ('users',)):
+                        if rule.get('identity') not in ('both', principal):
+                            continue
+                        applicable = [deny for deny in denies if deny.get('identity') in ('both', principal)]
+                        witness = _databricks_public_witness([rule], *ip_policy, applicable)
+                        if witness:
+                            detail = {'api_scope': rule['scope']} if target == 'workspace_api' else {}
+                            a.step('workspace_context_ingress', 'allow', restriction_mode='RESTRICTED_ACCESS',
+                                   destination=target, public_source_ip=witness, principal_type=principal, **detail)
+                            found = True
+                            break
+                    if found:
+                        break
+                if found:
+                    break
+            if not found:
+                a.gap('policy', 'Databricks context ingress rules require identity, source and destination matching')
         if not a.addresses:
             a.gap("inventory", "Databricks workspaceUrl is unavailable")
     else:
@@ -10591,6 +10792,28 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
         a.gap("inventory", "Redis Enterprise publicNetworkAccess is absent or unrecognized")
         return a
     a.step("public_network_access", "allow", value=access)
+    firewall = props.get("firewallRules")
+    if not isinstance(firewall, list):
+        a.gap("firewall", "Redis Enterprise cluster firewall rules are not observed")
+    elif not firewall:
+        a.step("firewall", "allow", reason="no configured cluster firewall rules")
+    else:
+        public, malformed = False, False
+        for rule in firewall:
+            prefix = rule.get("sourceAddressPrefix") if isinstance(rule, dict) else None
+            network = _cidr(prefix) if isinstance(prefix, str) else None
+            if network is None:
+                malformed = True
+            else:
+                public |= _azure_public_remainder([network], [])
+        if public:
+            a.step("firewall", "allow", reason="rule admits a public source")
+        elif malformed:
+            a.gap("firewall", "Redis Enterprise cluster firewall rule has an unresolved source")
+        else:
+            a.step("firewall", "block", reason="no rule admits a public source")
+            a.ports = {}
+            return a
     hostname = props.get("hostName")
     if isinstance(hostname, str) and hostname:
         a.addresses.append(hostname)
@@ -10614,7 +10837,8 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
         a.gap("inventory", "Redis Enterprise database child inventory or listener port is incomplete")
     if ports:
         a.ports = ports
-        a.explicit = "FAIL"
+        if not any(gap["layer"] == "firewall" for gap in a.unresolved):
+            a.explicit = "FAIL"
     elif status in ("collected", "empty") and not malformed:
         a.step("listener", "block", reason="no database listener in complete child inventory")
         a.ports = {}
@@ -12333,6 +12557,7 @@ def federated_findings(snapshot, resources):
     from .trust import aws_federated_trust, azure_federated_credential, gcp_wif_provider
     handlers = {("aws", "iam_role"): aws_federated_trust, ("gcp", "workload_identity_provider"): gcp_wif_provider,
                 ("azure", "managed_identity_federated_credential"): azure_federated_credential,
+                ("azure", "directory_federated_credential"): azure_federated_credential,
                 ("azure", "directory_application_federated_credential"): azure_federated_credential}
     output = []
     for resource in resources:

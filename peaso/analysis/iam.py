@@ -753,6 +753,125 @@ def _azure_gallery_rbac_reviews(snapshot, resources, group_members):
     return output
 
 
+def _azure_ml_scoring_rbac_reviews(snapshot, resources, group_members):
+    """Join observed outside identities to mode-specific online endpoint grants."""
+    endpoints = []
+    for workspace in resources:
+        if workspace["type"] != "ml_workspace":
+            continue
+        for endpoint in workspace["data"].get("onlineEndpoints", []):
+            if not isinstance(endpoint, dict) or not isinstance(endpoint.get("properties"), dict):
+                continue
+            endpoint_id = endpoint.get("id")
+            mode = endpoint["properties"].get("authMode")
+            if (not isinstance(endpoint_id, str) or re.fullmatch(
+                    re.escape(str(native_id(workspace)) + "/onlineEndpoints/") + r"[^/?#%\\\s]+",
+                    endpoint_id, re.I) is None
+                    or mode not in ("AADToken", "AMLToken", "Key")):
+                continue
+            action = "microsoft.machinelearningservices/workspaces/onlineendpoints/" + {
+                "AADToken": "score/action", "AMLToken": "token/action", "Key": "listkeys/action"}[mode]
+            endpoints.append((workspace, endpoint_id.casefold(), mode, action))
+    if not endpoints:
+        return []
+    definitions = {_azure_role_guid(row["data"].get("name") or native_id(row)): row
+                   for row in resources if row["type"] == "role_definition"}
+    denials = [row for row in resources if row["type"] == "deny_assignment"]
+
+    def broad_action_deny(endpoint_id, mode, action):
+        field, exclusion = (("dataActions", "notDataActions") if mode == "AADToken"
+                            else ("actions", "notActions"))
+        for deny in denials:
+            props = deny["data"].get("properties") or {}
+            if not isinstance(props, dict):
+                continue
+            scope, principals, excluded = (props.get("scope"), props.get("principals"),
+                                           props.get("excludePrincipals", []))
+            if (not isinstance(scope, str) or not isinstance(principals, list)
+                    or not isinstance(excluded, list) or excluded or props.get("condition")):
+                continue
+            scope = scope.casefold().rstrip("/")
+            if (not scope or not (endpoint_id == scope or endpoint_id.startswith(scope + "/"))
+                    or props.get("doNotApplyToChildScopes") not in (None, False)
+                    and endpoint_id != scope):
+                continue
+            if not any(isinstance(principal, dict)
+                       and str(principal.get("id", "")).casefold() == "00000000-0000-0000-0000-000000000000"
+                       and principal.get("type") == "SystemDefined" for principal in principals):
+                continue
+            for block in props.get("permissions") or []:
+                if (not isinstance(block, dict) or block.get("condition")
+                        or not isinstance(block.get(field), list)
+                        or not isinstance(block.get(exclusion, []), list)):
+                    continue
+                if (any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                        for pattern in block[field])
+                        and not any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                    for pattern in block.get(exclusion, []))):
+                    return deny
+        return None
+
+    output, seen = [], set()
+    for assignment in resources:
+        if assignment["type"] != "role_assignment":
+            continue
+        props = assignment["data"].get("properties") or {}
+        scope, principal = props.get("scope"), props.get("principalId")
+        if not isinstance(scope, str) or not isinstance(principal, str):
+            continue
+        scope = scope.casefold().rstrip("/")
+        if not scope.startswith("/"):
+            continue
+        targets = [(workspace, endpoint_id, mode, action)
+                   for workspace, endpoint_id, mode, action in endpoints
+                   if endpoint_id == scope or endpoint_id.startswith(scope + "/")]
+        if not targets:
+            continue
+        definition = definitions.get(_azure_role_guid(props.get("roleDefinitionId")))
+        if definition is None:
+            continue
+        permissions = (definition["data"].get("properties") or {}).get("permissions") or []
+        principals = [(principal, None, None)]
+        if props.get("principalType") == "Group":
+            principals.extend((member, path, membership)
+                              for member, (path, membership) in group_members(principal).items())
+        for workspace, endpoint_id, mode, action in targets:
+            granted = any(isinstance(block, dict)
+                          and any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                  for pattern in as_list(block.get("actions")) + as_list(block.get("dataActions")))
+                          and not any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                      for pattern in as_list(block.get("notActions")) + as_list(block.get("notDataActions")))
+                          for block in permissions)
+            if not granted:
+                continue
+            for identity, group_path, membership in principals:
+                if externality(snapshot, identity) != "external":
+                    continue
+                key = (str(native_id(assignment)).casefold(), endpoint_id, identity.casefold(), action)
+                if key in seen:
+                    continue
+                seen.add(key)
+                condition = props.get("condition")
+                deny = broad_action_deny(endpoint_id, mode, action)
+                evidence = {"source": source(snapshot, assignment, "properties.roleDefinitionId"),
+                    "role_definition_source": source(snapshot, definition, "properties.permissions"),
+                    "workspace_id": native_id(workspace), "online_endpoint_id": endpoint_id,
+                    "auth_mode": mode, "required_action": action, "assignment_scope": scope,
+                    "principal_id": identity, "via_group": principal if group_path else None,
+                    "group_path": group_path,
+                    "membership_source": source(snapshot, membership, "id") if membership else None,
+                    "condition": condition,
+                    "effective_access": "blocked_for_online_endpoint_action" if deny else "unknown",
+                    "deny_source": source(snapshot, deny, "properties.permissions") if deny else None,
+                    "uncertainty": "Other credential and network paths remain separate." if deny else
+                                   "Deny assignments, PIM activation, network access, and runtime authorization may narrow declared access."}
+                output.append(finding(snapshot, assignment, "exposure", "analysis.azure_ml_scoring_rbac_share",
+                    "Azure ML online endpoint action blocked by deny assignment" if deny else
+                    "Review external Azure ML online scoring grant", "info" if deny else "medium", evidence,
+                    status="PASS" if deny else "MANUAL" if condition else "FAIL"))
+    return output
+
+
 def review_findings(snapshot, resources, *, include_manual_only=True):
     resources = list(resources)
     external_group_members = _azure_external_group_members(snapshot, resources) if snapshot["provider"] == "azure" else None
@@ -810,6 +929,7 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
                 "Review public or external principal declarations", severity, evidence, status=status))
     if external_group_members:
         output.extend(_azure_gallery_rbac_reviews(snapshot, resources, external_group_members))
+        output.extend(_azure_ml_scoring_rbac_reviews(snapshot, resources, external_group_members))
     return output
 
 
