@@ -63,10 +63,11 @@ No cloud/API calls were made. Focused Markdown tests passed 108/108.
 
 A local S3 adapter used the real serializer, batch, gzip, and file upload
 paths, but discarded upload bodies instead of calling AWS. One saved-report
-publication took 114.60 s wall / 86.27 s process CPU under host load and
-peaked at 1.835 GB RSS. It issued 2,057 simulated puts carrying 260,615,658
-bytes; 2,034 objects were gzipped. Compression spans summed to 21.11 s wall /
-7.20 s thread CPU; simulated upload read spans summed to 0.04 s wall. The
+publication, with its grouping prepared as in the current evaluator, took
+89.72 s wall / 60.72 s process CPU under host load and peaked at 2.362 GB
+RSS. It issued 1,637 simulated puts carrying 243,005,150 bytes; 1,614
+objects were gzipped. Compression spans summed to 23.71 s wall / 6.82 s
+thread CPU; simulated upload read spans summed to 0.02 s wall. The
 upload simulation made zero cloud/API calls and cannot model S3 latency.
 The old production bf67 receipt measured 130.679 s of SDK put wall summed
 across 2,511 calls in two publications, some of which overlap through the
@@ -97,3 +98,65 @@ was 1.801 GB and cannot attribute memory to either variant. API calls were
 zero. The relevant native-check and native-final source-audit tests passed
 55/55. The audited check implementation file is unchanged; this change
 only caches its immutable per-scope helper result.
+
+## Content, reachability and other clouds
+
+The exact ten content selectors from the hosted request were not in the saved
+snapshot. As a proxy, a separate AWS replay selected all 18 known AWS content
+checks. Those checks took 1.93 s wall / 1.01 s CPU after inventory preparation;
+the full content-only replay took 25.84 / 13.78 s under contention and produced
+4,891 findings. EC2 user-data indicators used 0.59 s CPU and selected
+configuration content indicators 0.39 s; the other 16 checks shared about
+0.03 s. Matching over captured content is therefore small compared with
+inventory preparation on this snapshot. No collection or API calls occurred.
+
+Native Analyze builds a network graph and a scoped network snapshot; the
+explicit reachability evaluators are called from server query endpoints, not
+from the scan evaluator. On bf67, network graph build used 0.42 s wall /
+0.26 s CPU in the detailed replay. Network AI input preparation used
+2.37 / 2.05 s and selected 1,410 inventory resources; the publication's
+network snapshot projection used 0.03 / 0.03 s for 32 collections. These
+local calls made zero cloud/API requests.
+
+Saved private GCP, Azure, and K8s snapshots were also replayed. Their scale
+and selectors differ from bf67, and wall times reflect shared-host contention.
+
+| Provider | Resources / findings | Native evaluation wall / CPU | Local publication wall / CPU | Peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| GCP | 41,072 / 2,310 | 92.96 / 29.22 s | 11.82 / 9.06 s | 0.510 GiB |
+| Azure | 13,058 / 2,716 | 23.80 / 18.06 s | 6.50 / 4.39 s | 0.662 GiB |
+| K8s | 901 / 6,788 | 22.41 / 16.26 s | 2.22 / 1.69 s | 0.553 GiB |
+
+GCP's largest measured phase CPU was privesc (4.19 s) followed by native
+checks (3.22 s); Markdown used 6.84 s CPU in publication. Azure native checks
+used 1.45 s CPU and analysis 1.05 s; Markdown used 2.32 s. K8s native checks
+used 1.21 s CPU and Markdown 0.91 s. Each replay made zero cloud/API calls.
+The saved K8s exposure fixture with only 14 resources was also profiled, but
+the 901-resource sample above is the better cross-cloud comparison.
+
+## Native/final Markdown reuse when rendered input is unchanged
+
+The analyzer publishes a native checkpoint, then a final report after Network
+and Priorities AI. Markdown does not render `ai` metadata or publication state.
+The publisher now hashes every other sanitized report field and reuses the
+durable native Markdown reference if the final rendering inputs are identical
+on the same snapshot and job. Network findings, review overlays, changed
+resources, or other rendered changes produce a fresh export. Hashing one
+top-level field at a time bounds the temporary serialization to the largest
+field; this was 113 MB on the saved grouped report and took 1.36 s CPU.
+
+A local two-publication replay used the saved bf67 report with an AI-only
+final state and a capture store that hashes, then discards, artifact bodies.
+The previous publisher wrote two identical 861,244,352-byte Markdown files
+(SHA-256 `07a43140fd87abc093f208ab7c336ca122fd7a70ac8c3b8c91b0c874f4d1867a`).
+The new publisher wrote one identical file and referenced it from both
+manifests. The pair used 100.98→58.06 s process CPU and 165.73→73.37 s wall;
+wall was highly affected by other host jobs. Artifact puts fell 1,696→1,695,
+with zero cloud/API calls in the capture store. Measured peak RSS was
+1.466→2.724 GB across separate contended processes, so a memory benefit is
+not established; the signature adds bounded temporary memory. This is a
+conditional gain: a final report with new Network findings or effective
+review changes still renders and uploads its own Markdown. Focused
+publication tests passed 11/11. A broader suite passed 44/57; the 13 worker
+handoff failures never reached publication and one was reproduced on the
+unchanged publisher.
