@@ -37,4 +37,8 @@ Azure Exposure AI stays enabled. Native removal requires zero observable PARTIAL
 
 The NIC slices resolve one exact dropped public return route and preserve uncertainty from a collected subnet UDR when effective routes are absent. Appliance and incomplete effective paths remain open within the NIC row. The row count stays **19 PARTIAL, 0 MISSING** because its other listed effective-path facts remain unresolved.
 
+## App Service SCM handoff
+
+The SCM restriction slice is committed as `b4c6cb01` (integrated equivalent `98efe174`). Recorded `scmIpSecurityRestrictionsUseMain`, separate SCM rules and default action, and an observed SCM hostname now decide the declared public-source SCM path. Missing decisive SCM facts stay `UNKNOWN`. The App Service row and overall ledger remain **PARTIAL: 19 observable rows, 0 MISSING**; an allowed SCM listener does not establish deployment authorization or successful traffic. Issued bearer SAS/URLs remain `IMPOSSIBLE-FROM-API`. Claude Azure fixer `term_71811cda` owns all remaining Azure rows. Azure Exposure AI remains enabled pending zero observable gaps and keyed same-snapshot replay.
+
 Source for App Service rule semantics: [Microsoft App Service access restrictions](https://learn.microsoft.com/en-us/azure/app-service/overview-access-restrictions) and [multi-source and header rule guidance](https://learn.microsoft.com/en-us/azure/app-service/app-service-ip-restrictions).
