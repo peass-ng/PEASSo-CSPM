@@ -46,6 +46,13 @@ def test_repaired_exposure_functions_keep_service_bounded_source():
     for name, (required, foreign) in profiles.items():
         assert name in definitions, f"missing reviewed exposure evaluator: {name}"
         body = ast.get_source_segment(source, definitions[name])
+        # Some reviewed handlers dispatch between recorded API representations.
+        # Inspect their service-specific delegates as part of the evaluator.
+        delegates = [node for helper, node in definitions.items()
+                     if helper.startswith(name + "_") and any(
+                         isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                         and call.func.id == helper for call in ast.walk(definitions[name]))]
+        body += "\n" + "\n".join(ast.get_source_segment(source, node) for node in delegates)
         assert all(token in body for token in required), f"{name} lost its service inputs"
         assert not any(token in body for token in foreign), f"{name} contains foreign service source"
     policy = definitions["_public_policy"]
