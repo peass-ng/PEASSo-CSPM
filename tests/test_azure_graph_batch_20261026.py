@@ -84,7 +84,7 @@ class FakeGraph(AzureTransport):
 
 
 import pytest
-from peaso.collectors import azure_graph_batch
+from peaso.collectors import azure_graph_batch_exposure as azure_graph_batch
 
 WANTED = ["directory_owner", "directory_administrative_unit_member", "directory_federated_credential",
           "directory_app_role_assignment", "directory_membership"]

@@ -22408,7 +22408,8 @@ def _azure_cost_export(snapshot, inventory, resource):
 
 def _azure_managed_application(snapshot, inventory, resource):
     data = resource["data"]
-    if "jitRequests" in data or "jitRequests" in (data.get("_coverage") or {}):
+    if ((data.get("_provenance") or {}).get("representation") == "metadata" or
+            "jitRequests" in data or "jitRequests" in (data.get("_coverage") or {})):
         return _azure_managed_application_recorded(snapshot, inventory, resource)
     return _azure_managed_application_current(snapshot, inventory, resource)
 
