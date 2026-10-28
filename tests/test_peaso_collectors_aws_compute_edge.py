@@ -410,7 +410,7 @@ def test_load_balancer_http_listener_rules(sdk):
     stub = add("elbv2")
     stub.add_response("describe_rules", {"Rules": [{"RuleArn": "r1", "IsDefault": False, "Actions": [
         {"Type": "authenticate-oidc", "Order": 1, "AuthenticateOidcConfig": {"Issuer": "i", "AuthorizationEndpoint": "a", "TokenEndpoint": "t",
-         "UserInfoEndpoint": "u", "ClientId": "c", "ClientSecret": "s3cr3t"}}], "Conditions": []}], "NextMarker": "m"}, {"ListenerArn": LISTENER})
+         "UserInfoEndpoint": "u", "ClientId": "c", "ClientSecret": "s3cr3t", "OnUnauthenticatedRequest": "allow"}}], "Conditions": []}], "NextMarker": "m"}, {"ListenerArn": LISTENER})
     stub.add_response("describe_rules", {"Rules": [{"RuleArn": "r2", "IsDefault": True, "Actions": [
         {"Type": "redirect", "RedirectConfig": {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}]}]}, {"ListenerArn": LISTENER, "Marker": "m"})
     base = {"LoadBalancerArn": LB, "LoadBalancerName": "web", "Type": "application", "Scheme": "internal", "Listeners": {"collection_status": "collected", "items": [
@@ -419,10 +419,30 @@ def test_load_balancer_http_listener_rules(sdk):
     item = edge.ENRICHERS["load_balancer"](aws.Requests({}), session, REGION, [base])[0]
     assert "s3cr3t" not in json.dumps(item)
     assert len(item["Listeners"]["items"][0]["Rules"]["items"]) == 2
+    auth_action = item["Listeners"]["items"][0]["Rules"]["items"][0]["Actions"][0]
+    assert auth_action["UnauthenticatedRequestMode"] == "allow"
+    assert auth_action["UnauthenticatedRequestModeSource"] == "DescribeRules"
     # The collected default rule redirects, but the listener DefaultActions
     # still forward and the conditional rule has no terminal routing action.
     # Such inconsistent/incomplete evidence cannot establish HTTPS assurance.
     assert status("aws.c2b.elbv2.http_listeners_redirect_https", item) == "UNKNOWN"
+
+
+def test_load_balancer_auth_rule_projects_documented_default_mode_only(sdk):
+    session, add = sdk
+    add("elbv2").add_response("describe_rules", {"Rules": [{"RuleArn": "default", "IsDefault": True,
+        "Actions": [{"Type": "authenticate-cognito", "Order": 1,
+                     "AuthenticateCognitoConfig": {"UserPoolArn": f"arn:aws:cognito-idp:{REGION}:{ACCOUNT}:userpool/p",
+                                                    "UserPoolClientId": "client", "UserPoolDomain": "domain"}},
+                    {"Type": "forward", "Order": 2, "TargetGroupArn": "arn:tg"}]}]}, {"ListenerArn": LISTENER})
+    base = {"LoadBalancerArn": LB, "Type": "application", "Listeners": {"collection_status": "collected",
+            "items": [{"ListenerArn": LISTENER, "Protocol": "HTTPS", "Port": 443,
+                       "DefaultActions": [{"Type": "authenticate-cognito"}, {"Type": "forward"}]}]}}
+    projected = edge.ENRICHERS["load_balancer"](aws.Requests({}), session, REGION, [base])[0]
+    action = projected["Listeners"]["items"][0]["Rules"]["items"][0]["Actions"][0]
+    assert action["UnauthenticatedRequestMode"] == "authenticate"
+    assert action["UnauthenticatedRequestModeSource"] == "documented_default"
+    assert "UserPoolClientId" not in json.dumps(projected)
 
 
 def test_cloudfront_v2_log_deliveries(sdk):
@@ -473,6 +493,29 @@ def test_cloudfront_oac_configuration_cached_and_projected(sdk):
     assert result[0]["OriginAccessControls"]["OAC1"] == {
         "collection_status": "collected", "Id": "OAC1", "SigningBehavior": "always",
         "SigningProtocol": "sigv4", "OriginAccessControlOriginType": "s3"}
+
+
+def test_cloudfront_continuous_deployment_policy_cached_and_redacted(sdk):
+    session, add = sdk
+    logs = add("logs")
+    logs.add_response("describe_delivery_sources", {"deliverySources": []}, {})
+    logs.add_response("describe_deliveries", {"deliveries": []}, {})
+    cloudfront = add("cloudfront")
+    cloudfront.add_response("get_continuous_deployment_policy", {
+        "ContinuousDeploymentPolicy": {"Id": "POLICY1", "LastModifiedTime": "2026-01-01T00:00:00Z",
+            "ContinuousDeploymentPolicyConfig": {"Enabled": True,
+                "StagingDistributionDnsNames": {"Quantity": 1, "Items": ["staging.cloudfront.net"]},
+                "TrafficConfig": {"Type": "SingleHeader", "SingleHeaderConfig": {
+                    "Header": "aws-cf-cd-test", "Value": "private-test-value"}}}}}, {"Id": "POLICY1"})
+    rows = [{"Id": name, "Config": {"DistributionConfig": {
+        "ContinuousDeploymentPolicyId": "POLICY1"}}} for name in ("D1", "D2")]
+    projected = edge.ENRICHERS["cloudfront_distribution"](aws.Requests({}), session, REGION, rows)
+    assert projected[0]["ContinuousDeploymentPolicy"] == projected[1]["ContinuousDeploymentPolicy"]
+    policy = projected[0]["ContinuousDeploymentPolicy"]
+    assert policy["collection_status"] == "collected" and policy["HeaderConditionPresent"] is True
+    assert policy["StagingDistributionDnsNames"]["Items"] == ["staging.cloudfront.net"]
+    assert "private-test-value" not in json.dumps(projected)
+    assert "aws-cf-cd-test" not in json.dumps(projected)
 
 
 def test_cloudfront_oai_canonical_user_cached_and_projected(sdk):

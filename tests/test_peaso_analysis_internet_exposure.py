@@ -20,6 +20,23 @@ def coll(kind, items, scope=SCOPE, status=None, service="ec2"):
         # Existing ELBv2 fixtures represent serving load balancers unless a test overrides State.
         items = [{**item, "State": item.get("State", {"Code": "active"}),
                   "IpAddressType": item.get("IpAddressType", "ipv4")} for item in items]
+    if kind == "network_interface":
+        # Direct-ENI fixtures model an attached interface unless a test overrides Status.
+        items = [{**item, "Status": item.get("Status", "in-use")} for item in items]
+    if kind in ("rds_instance", "redshift_cluster"):
+        # Database fixtures model serving instances unless a test overrides the lifecycle state.
+        field = "DBInstanceStatus" if kind == "rds_instance" else "ClusterStatus"
+        items = [{**item, field: item.get(field, "available")} for item in items]
+    if kind == "eks_cluster":
+        items = [{**item, "Cluster": {**item.get("Cluster", {}),
+                  "cluster": {**item.get("Cluster", {}).get("cluster", {}),
+                              "status": item.get("Cluster", {}).get("cluster", {}).get("status", "ACTIVE")}}}
+                 for item in items]
+    if kind == "opensearch_domain":
+        for item in items:
+            status_data = item.get("Domain", {}).get("DomainStatus")
+            if isinstance(status_data, dict):
+                status_data.setdefault("DomainProcessingStatus", "Active")
     return {"type": kind, "scope": scope, "service": service, "status": status or ("collected" if items else "empty"), "items": items}
 
 
@@ -67,7 +84,8 @@ def aws_network(sg_rules=None, nacl_entries=None, igw=True, extra=()):
     return [
         coll("vpc", [{"VpcId": "vpc-1", "CidrBlock": "10.0.0.0/16"}]),
         coll("subnet", [{"SubnetId": "subnet-1", "VpcId": "vpc-1", "CidrBlock": "10.0.1.0/24"}]),
-        coll("route_table", [{"RouteTableId": "rtb-1", "VpcId": "vpc-1", "Associations": [{"SubnetId": "subnet-1"}], "Routes": routes}]),
+        coll("route_table", [{"RouteTableId": "rtb-1", "VpcId": "vpc-1", "Associations": [
+            {"SubnetId": "subnet-1", "AssociationState": {"State": "associated"}}], "Routes": routes}]),
         coll("network_acl", [{"NetworkAclId": "acl-1", "VpcId": "vpc-1", "Associations": [{"SubnetId": "subnet-1"}], "Entries": nacl_entries}]),
         coll("security_group", [{"GroupId": "sg-1", "VpcId": "vpc-1", "IpPermissions": sg_rules}]),
         *extras]
@@ -880,6 +898,106 @@ def test_opensearch_dualstack_endpoint_v2_and_missing_host():
     assert not exposure(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
 
 
+def test_opensearch_enabled_custom_endpoint_is_an_observed_alternate_host():
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    options = {"CustomEndpointEnabled": True, "CustomEndpoint": "search.example.com", "EnforceHTTPS": True}
+    status = {"DomainName": "search", "ARN": arn, "Endpoint": "search.es.amazonaws.com",
+              "DomainEndpointOptions": options,
+              "AccessPolicies": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                  "Action": "es:ESHttpGet", "Resource": arn + "/*"}]}}
+    item = {"DomainName": "search", "Domain": {"collection_status": "collected", "DomainStatus": status}}
+    def finding():
+        return one(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["search.es.amazonaws.com"]
+    alternate = next(step for step in result["evidence"]["path"] if step["layer"] == "alternate_endpoint")
+    assert alternate["decision"] == "allow_declaration"
+    assert alternate["source"] == "opensearch:DescribeDomain.DomainEndpointOptions"
+    del status["Endpoint"]
+    unresolved_dns = finding()
+    assert unresolved_dns["status"] == "UNKNOWN" and unresolved_dns["evidence"]["public_addresses"] == []
+    assert "route53:ListResourceRecordSets or external DNS" in unresolved_dns["evidence"]["collector_facts_needed"]
+    status["Endpoint"] = "search.es.amazonaws.com"
+    options["CustomEndpointEnabled"] = False
+    assert finding()["evidence"]["public_addresses"] == ["search.es.amazonaws.com"]
+    options["CustomEndpointEnabled"] = True
+    options["CustomEndpoint"] = "https://not-a-host/path"
+    unresolved = finding()
+    assert unresolved["status"] == "UNKNOWN"
+    assert unresolved["evidence"]["public_addresses"] == ["search.es.amazonaws.com"]
+    assert "opensearch:DescribeDomain.DomainEndpointOptions.CustomEndpoint" in unresolved["evidence"]["collector_facts_needed"]
+    status["DomainEndpointOptions"] = None
+    assert finding()["status"] == "FAIL"
+
+
+@pytest.mark.parametrize("primary,dual,expected,addresses", [
+    ("https://search.example.com/path", None, "UNKNOWN", []),
+    ("search.example.com", "https://search.aos.us-east-1.on.aws/path", "FAIL", ["search.example.com"]),
+])
+def test_opensearch_service_endpoint_requires_hostname_shape(primary, dual, expected, addresses):
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    status = {"DomainName": "search", "ARN": arn, "Endpoint": primary,
+              "AccessPolicies": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                  "Action": "es:ESHttpGet", "Resource": arn + "/*"}]}}
+    if dual is not None:
+        status.update({"IPAddressType": "dualstack", "EndpointV2": dual})
+    finding = one(aws(coll("opensearch_domain", [{"DomainName": "search", "Domain": {
+        "collection_status": "collected", "DomainStatus": status}}], service="opensearch")), "opensearch_domain")
+    assert finding["status"] == expected
+    assert finding["evidence"]["public_addresses"] == addresses
+    field = "EndpointV2" if dual is not None else "Endpoint"
+    assert f"opensearch:DescribeDomain.DomainStatus.{field}" in finding["evidence"]["collector_facts_needed"]
+
+
+def test_opensearch_observed_suspended_or_transitional_domain_state():
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    status = {"DomainName": "search", "ARN": arn, "Endpoint": "search.example.com",
+              "AccessPolicies": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                  "Action": "es:ESHttpGet", "Resource": arn + "/*"}]}}
+    item = {"DomainName": "search", "Domain": {"collection_status": "collected", "DomainStatus": status}}
+    def finding():
+        return one(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
+    assert finding()["status"] == "FAIL"
+    status["DomainProcessingStatus"] = "Isolated"
+    assert finding()["status"] == "PASS"
+    status["DomainProcessingStatus"] = "Creating"
+    assert finding()["status"] == "UNKNOWN"
+    status["DomainProcessingStatus"] = "Deleting"
+    assert finding()["status"] == "UNKNOWN"
+    status["DomainProcessingStatus"] = "Active"
+    status["Created"] = False
+    assert finding()["status"] == "UNKNOWN"
+    status["Created"] = True
+    status["Deleted"] = True
+    assert finding()["status"] == "PASS"
+
+
+@pytest.mark.parametrize("state", [None, "Modifying", "UpgradingEngineVersion", "Active"])
+def test_opensearch_current_endpoint_requires_active_processing_state(state):
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    status = {"DomainName": "search", "ARN": arn, "Endpoint": "search.example.com",
+              "AccessPolicies": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                  "Action": "es:ESHttpGet", "Resource": arn + "/*"}]}}
+    collection = coll("opensearch_domain", [{"DomainName": "search", "Domain": {
+        "collection_status": "collected", "DomainStatus": status}}], service="opensearch")
+    if state is None:
+        del status["DomainProcessingStatus"]
+    else:
+        status["DomainProcessingStatus"] = state
+    finding = one(aws(collection), "opensearch_domain")
+    assert finding["status"] == ("FAIL" if state == "Active" else "UNKNOWN")
+    if state != "Active":
+        assert "opensearch:DescribeDomain.DomainProcessingStatus" in finding["evidence"]["collector_facts_needed"]
+
+
+def test_opensearch_missing_describe_domain_status_is_unresolved():
+    row = {"DomainName": "search", "Domain": {"collection_status": "denied"}}
+    result = one(aws(coll("opensearch_domain", [row], service="opensearch")), "opensearch_domain")
+    assert result["status"] == "UNKNOWN"
+    assert "opensearch:DescribeDomain.DomainStatus" in result["evidence"]["collector_facts_needed"]
+
+
 def test_aws_instance_open_ssh_fails_with_path_evidence():
     result = one(aws(*aws_network(), instance()), "instance")
     assert result["status"] == "FAIL" and result["severity"] == "high"
@@ -997,6 +1115,74 @@ def test_aws_no_igw_route_passes_and_private_sg_passes():
     assert result["status"] == "PASS" and result["evidence"]["blocked_by"] == "security_group"
 
 
+@pytest.mark.parametrize("permissions", [None, [None], []])
+def test_aws_attached_sg_needs_complete_inbound_permission_list(permissions):
+    network = aws_network()
+    group = next(row for row in network if row["type"] == "security_group")["items"][0]
+    if permissions is None:
+        del group["IpPermissions"]
+    else:
+        group["IpPermissions"] = permissions
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == ("PASS" if permissions == [] else "UNKNOWN")
+    if permissions != []:
+        assert "ec2:DescribeSecurityGroups.SecurityGroups[].IpPermissions" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("changes,fact", [
+    ({"IpProtocol": None}, "IpProtocol"),
+    ({"IpProtocol": "invalid"}, "IpProtocol"),
+    ({"FromPort": None}, "FromPort|ToPort"),
+    ({"ToPort": None}, "FromPort|ToPort"),
+    ({"FromPort": 100, "ToPort": 22}, "FromPort|ToPort"),
+])
+def test_aws_attached_sg_rule_requires_protocol_and_tcp_ports(changes, fact):
+    network = aws_network()
+    rule = next(row for row in network if row["type"] == "security_group")["items"][0]["IpPermissions"][0]
+    for field, value in changes.items():
+        if value is None:
+            del rule[field]
+        else:
+            rule[field] = value
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert f"ec2:DescribeSecurityGroups.SecurityGroups[].IpPermissions[].{fact}" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("field,ranges,fact", [
+    ("IpRanges", {}, "IpRanges[].CidrIp"),
+    ("IpRanges", [None], "IpRanges[].CidrIp"),
+    ("IpRanges", [{"CidrIp": "bad-cidr"}], "IpRanges[].CidrIp"),
+    ("Ipv6Ranges", [{"CidrIpv6": "0.0.0.0/0"}], "Ipv6Ranges[].CidrIpv6"),
+])
+def test_aws_attached_sg_rule_malformed_source_range_is_unknown(field, ranges, fact):
+    network = aws_network()
+    rule = next(row for row in network if row["type"] == "security_group")["items"][0]["IpPermissions"][0]
+    rule[field] = ranges
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert f"ec2:DescribeSecurityGroups.SecurityGroups[].IpPermissions[].{fact}" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("prefixes", [{}, [None], [{"PrefixListId": ""}]])
+def test_aws_attached_sg_rule_malformed_prefix_source_is_unknown(prefixes):
+    network = aws_network()
+    rule = next(row for row in network if row["type"] == "security_group")["items"][0]["IpPermissions"][0]
+    rule["PrefixListIds"] = prefixes
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert "ec2:DescribeSecurityGroups.SecurityGroups[].IpPermissions[].PrefixListIds[].PrefixListId" in finding["evidence"]["collector_facts_needed"]
+
+
+def test_aws_attached_sg_rule_without_any_observed_source_field_is_unknown():
+    network = aws_network()
+    rule = next(row for row in network if row["type"] == "security_group")["items"][0]["IpPermissions"][0]
+    del rule["IpRanges"]
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert "ec2:DescribeSecurityGroups.SecurityGroups[].IpPermissions[].IpRanges|Ipv6Ranges|PrefixListIds|UserIdGroupPairs" in finding["evidence"]["collector_facts_needed"]
+
+
 def test_aws_missing_route_or_public_access_block_read_is_unknown():
     for missing_type, source in (("route_table", "ec2:DescribeRouteTables"),
                                  ("vpc_block_public_access_options", "ec2:DescribeVpcBlockPublicAccessOptions")):
@@ -1007,14 +1193,170 @@ def test_aws_missing_route_or_public_access_block_read_is_unknown():
         assert source in result["evidence"]["collector_facts_needed"]
 
 
-def test_aws_missing_nacl_association_or_entries_is_unknown():
-    for acl in (coll("network_acl", [], status="denied"),
-                coll("network_acl", [{"NetworkAclId": "acl-1", "VpcId": "vpc-1",
-                    "Associations": [{"SubnetId": "subnet-1"}]}])):
-        network = [c for c in aws_network() if c["type"] != "network_acl"] + [acl]
-        result = one(aws(*network, instance()), "instance")
-        assert result["status"] == "UNKNOWN"
-        assert "ec2:DescribeNetworkAcls" in result["evidence"]["collector_facts_needed"]
+def test_aws_igw_default_route_requires_observed_active_state():
+    network = aws_network()
+    route = next(row for row in network if row["type"] == "route_table")["items"][0]["Routes"][1]
+    assert one(aws(*network, instance()), "instance")["status"] == "FAIL"
+    del route["State"]
+    unresolved = one(aws(*network, instance()), "instance")
+    assert unresolved["status"] == "UNKNOWN"
+    assert "ec2:DescribeRouteTables.Routes[].State" in unresolved["evidence"]["collector_facts_needed"]
+    route["State"] = "blackhole"
+    assert one(aws(*network, instance()), "instance")["status"] == "PASS"
+
+
+def test_aws_missing_route_list_differs_from_observed_empty_route_list():
+    network = aws_network()
+    table = next(row for row in network if row["type"] == "route_table")["items"][0]
+    del table["Routes"]
+    unresolved = one(aws(*network, instance()), "instance")
+    assert unresolved["status"] == "UNKNOWN"
+    assert "ec2:DescribeRouteTables.RouteTables[].Routes" in unresolved["evidence"]["collector_facts_needed"]
+    table["Routes"] = []
+    assert one(aws(*network, instance()), "instance")["status"] == "PASS"
+    table["Routes"] = [None]
+    assert one(aws(*network, instance()), "instance")["status"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize("vpc_id", [None, "vpc-other"])
+def test_aws_route_table_vpc_identity_must_match_candidate(vpc_id):
+    network = aws_network()
+    table = next(row for row in network if row["type"] == "route_table")["items"][0]
+    if vpc_id is None:
+        del table["VpcId"]
+    else:
+        table["VpcId"] = vpc_id
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert "ec2:DescribeRouteTables.RouteTables[].VpcId" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("association_state", [None, "associating", "disassociated", "associated"])
+def test_aws_route_table_requires_associated_subnet_state(association_state):
+    network = aws_network()
+    association = next(row for row in network if row["type"] == "route_table")["items"][0]["Associations"][0]
+    if association_state is None:
+        del association["AssociationState"]
+    else:
+        association["AssociationState"]["State"] = association_state
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == ("FAIL" if association_state == "associated" else "UNKNOWN")
+    if association_state != "associated":
+        assert "ec2:DescribeRouteTables.RouteTables[].Associations[].AssociationState.State" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("other_associations", [None, [None], []])
+def test_aws_main_route_table_fallback_requires_complete_association_lists(other_associations):
+    network = aws_network()
+    tables = next(row for row in network if row["type"] == "route_table")["items"]
+    tables[0]["Associations"] = [{"Main": True, "AssociationState": {"State": "associated"}}]
+    other = {"RouteTableId": "rtb-other", "VpcId": "vpc-1", "Routes": []}
+    if other_associations is not None:
+        other["Associations"] = other_associations
+    tables.append(other)
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == ("FAIL" if other_associations == [] else "UNKNOWN")
+    if other_associations != []:
+        assert "ec2:DescribeRouteTables.RouteTables[].Associations" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("subnet_vpc", [None, "vpc-other", "absent"])
+def test_aws_candidate_subnet_vpc_identity_must_match_asset(subnet_vpc):
+    network = aws_network()
+    subnet_collection = next(row for row in network if row["type"] == "subnet")
+    if subnet_vpc == "absent":
+        subnet_collection["items"] = []
+    elif subnet_vpc is None:
+        del subnet_collection["items"][0]["VpcId"]
+    else:
+        subnet_collection["items"][0]["VpcId"] = subnet_vpc
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert "ec2:DescribeSubnets.Subnets[].VpcId" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("acl,fact", [
+    (coll("network_acl", [], status="denied"), "ec2:DescribeNetworkAcls.NetworkAcls[].Associations[].SubnetId"),
+    (coll("network_acl", [{"NetworkAclId": "acl-1", "VpcId": "vpc-1",
+        "Associations": [{"SubnetId": "subnet-1"}]}]), "ec2:DescribeNetworkAcls"),
+])
+def test_aws_missing_nacl_association_or_entries_is_unknown(acl, fact):
+    network = [c for c in aws_network() if c["type"] != "network_acl"] + [acl]
+    result = one(aws(*network, instance()), "instance")
+    assert result["status"] == "UNKNOWN"
+    assert fact in result["evidence"]["collector_facts_needed"]
+
+
+def test_aws_default_acl_without_observed_subnet_association_is_unknown():
+    network = aws_network()
+    acl = next(row for row in network if row["type"] == "network_acl")["items"][0]
+    acl["IsDefault"] = True
+    acl["Associations"] = []
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert "ec2:DescribeNetworkAcls.NetworkAcls[].Associations[].SubnetId" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("nacl_vpc", [None, "vpc-other"])
+def test_aws_nacl_vpc_identity_must_match_candidate_subnet(nacl_vpc):
+    network = aws_network()
+    acl = next(row for row in network if row["type"] == "network_acl")["items"][0]
+    if nacl_vpc is None:
+        del acl["VpcId"]
+    else:
+        acl["VpcId"] = nacl_vpc
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert "ec2:DescribeNetworkAcls.NetworkAcls[].VpcId" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("action", [None, "malformed", "deny"])
+def test_aws_public_source_nacl_rule_requires_observed_action(action):
+    network = aws_network()
+    entry = next(row for row in network if row["type"] == "network_acl")["items"][0]["Entries"][0]
+    if action is None:
+        del entry["RuleAction"]
+    else:
+        entry["RuleAction"] = action
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == ("PASS" if action == "deny" else "UNKNOWN")
+    if action != "deny":
+        assert "ec2:DescribeNetworkAcls.NetworkAcls[].Entries[].RuleAction" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("field,value", [("RuleNumber", None), ("RuleNumber", "bad"),
+                                           ("Egress", None), ("Egress", "false")])
+def test_aws_public_source_nacl_rule_requires_order_and_direction(field, value):
+    network = aws_network()
+    entry = next(row for row in network if row["type"] == "network_acl")["items"][0]["Entries"][0]
+    if value is None:
+        del entry[field]
+    else:
+        entry[field] = value
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert f"ec2:DescribeNetworkAcls.NetworkAcls[].Entries[].{field}" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("changes,fact", [
+    ({"CidrBlock": "not-a-cidr"}, "CidrBlock"),
+    ({"CidrBlock": None}, "CidrBlock|Ipv6CidrBlock"),
+    ({"Protocol": None}, "Protocol"),
+    ({"Protocol": "invalid"}, "Protocol"),
+    ({"Protocol": "6"}, "PortRange"),
+    ({"Protocol": "6", "PortRange": {"From": 443, "To": 22}}, "PortRange"),
+])
+def test_aws_nacl_public_rule_requires_valid_match_fields(changes, fact):
+    network = aws_network()
+    entry = next(row for row in network if row["type"] == "network_acl")["items"][0]["Entries"][0]
+    for field, value in changes.items():
+        if value is None:
+            del entry[field]
+        else:
+            entry[field] = value
+    finding = one(aws(*network, instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert f"ec2:DescribeNetworkAcls.NetworkAcls[].Entries[].{fact}" in finding["evidence"]["collector_facts_needed"]
 
 
 def test_aws_public_instance_missing_subnet_association_is_unknown():
@@ -1076,6 +1418,32 @@ def test_aws_security_group_managed_prefix_list_world_entry():
     assert missing["status"] == "UNKNOWN"
 
 
+@pytest.mark.parametrize("entry", [None, {}, {"Cidr": "not-a-cidr"}])
+def test_aws_security_group_malformed_prefix_entry_is_unknown(entry):
+    rules = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+              "PrefixListIds": [{"PrefixListId": "pl-1"}]}]
+    prefix = coll("managed_prefix_list", [{"PrefixListId": "pl-1", "Entries": {
+        "collection_status": "collected", "items": [entry]}}])
+    finding = one(aws(*aws_network(sg_rules=rules, extra=[prefix]), instance()), "instance")
+    assert finding["status"] == "UNKNOWN"
+    assert "ec2:GetManagedPrefixListEntries.Entries[].Cidr" in finding["evidence"]["collector_facts_needed"]
+
+
+def test_aws_security_group_prefix_entries_require_observed_version_match():
+    rules = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+              "PrefixListIds": [{"PrefixListId": "pl-1"}]}]
+    prefix = coll("managed_prefix_list", [{"PrefixListId": "pl-1", "Version": 2,
+        "EntriesVersion": 1, "Entries": {"collection_status": "collected",
+                                        "items": [{"Cidr": "0.0.0.0/0"}]}}])
+    def finding():
+        return one(aws(*aws_network(sg_rules=rules, extra=[prefix]), instance()), "instance")
+    mismatch = finding()
+    assert mismatch["status"] == "UNKNOWN"
+    assert "ec2:DescribeManagedPrefixLists.Version,ec2:GetManagedPrefixListEntries.TargetVersion" in mismatch["evidence"]["collector_facts_needed"]
+    prefix["items"][0]["EntriesVersion"] = 2
+    assert finding()["status"] == "FAIL"
+
+
 def test_aws_instance_without_public_ip_is_not_assessed():
     assert not exposure(aws(*aws_network(), instance(public=False)))
 
@@ -1119,6 +1487,25 @@ def test_aws_standalone_eni_ipv6_igw_denial_blocks_public_path():
     assert not exposure(aws(*network, eni))
     eni["items"][0]["DenyAllIgwTraffic"] = False
     assert one(aws(*network, eni), "network_interface")["status"] == "FAIL"
+
+
+def test_aws_standalone_eni_requires_observed_in_use_status():
+    eni = {"NetworkInterfaceId": "eni-1", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+           "Association": {"PublicIp": "54.1.2.3"}, "Groups": [{"GroupId": "sg-1"}], "Status": "in-use"}
+    def finding():
+        return one(aws(*aws_network(), coll("network_interface", [eni])), "network_interface")
+    assert finding()["status"] == "FAIL"
+    eni["Status"] = "available"
+    detached = finding()
+    assert detached["status"] == "PASS" and detached["evidence"]["blocked_by"] == "attachment"
+    eni["Status"] = "attaching"
+    assert finding()["status"] == "UNKNOWN"
+    eni.pop("Status")
+    collection = coll("network_interface", [eni])
+    del collection["items"][0]["Status"]
+    unknown = one(aws(*aws_network(), collection), "network_interface")
+    assert unknown["status"] == "UNKNOWN"
+    assert "ec2:DescribeNetworkInterfaces.Status" in unknown["evidence"]["collector_facts_needed"]
 
 
 def test_aws_attached_eip_fills_missing_instance_public_association():
@@ -1167,6 +1554,25 @@ def test_aws_public_instance_requires_observed_lifecycle_state():
     assert finding()["status"] == "FAIL"
 
 
+@pytest.mark.parametrize("kind", ["instance", "network_interface"])
+def test_aws_public_ipv4_witness_requires_global_address(kind):
+    if kind == "instance":
+        item = instance()["items"][0]
+        interface = item["NetworkInterfaces"][0]
+    else:
+        item = {"NetworkInterfaceId": "eni-1", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+                "Groups": [{"GroupId": "sg-1"}], "Status": "in-use", "Association": {"PublicIp": "54.1.2.3"}}
+        interface = item
+    def findings():
+        return exposure(aws(*aws_network(), coll(kind, [item])))
+    assert findings()
+    for address in ("10.0.0.1", "203.0.113.5", "100.64.0.1"):
+        interface["Association"]["PublicIp"] = address
+        assert not findings()
+    interface["Association"]["PublicIp"] = "54.1.2.3"
+    assert findings()
+
+
 def test_aws_internet_facing_alb_listener_and_sg():
     lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/web/1", "Scheme": "internet-facing", "Type": "application",
           "DNSName": "web-1.us-east-1.elb.amazonaws.com", "VpcId": "vpc-1", "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
@@ -1179,6 +1585,70 @@ def test_aws_internet_facing_alb_listener_and_sg():
     assert not exposure(aws(*aws_network(sg_rules=rules), coll("load_balancer", [internal], service="elbv2")))
     unknown = copy.deepcopy(lb) | {"Listeners": {"collection_status": "denied", "items": []}}
     assert one(aws(*aws_network(sg_rules=rules), coll("load_balancer", [unknown], service="elbv2")), "load_balancer")["status"] == "UNKNOWN"
+
+
+def test_alb_public_listener_requires_subnet_igw_route_and_bpa_allowance():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
+          "Scheme": "internet-facing", "Type": "application", "DNSName": "web.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS"}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def finding(network):
+        return one(aws(*network, coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    assert finding(aws_network(sg_rules=sg))["status"] == "FAIL"
+    blocked = finding(aws_network(sg_rules=sg, igw=False))
+    assert blocked["status"] == "PASS" and blocked["evidence"]["blocked_by"] == "route"
+    missing_attachment = [row for row in aws_network(sg_rules=sg) if row["type"] != "internet_gateway"]
+    unresolved = finding(missing_attachment)
+    assert unresolved["status"] == "UNKNOWN"
+    assert "ec2:DescribeInternetGateways" in unresolved["evidence"]["collector_facts_needed"]
+    bpa = aws_network(sg_rules=sg)
+    options = next(row for row in bpa if row["type"] == "vpc_block_public_access_options")
+    options["items"][0]["VpcBlockPublicAccessOptions"]["InternetGatewayBlockMode"] = "block-ingress"
+    bpa.append(coll("vpc_block_public_access_exclusion", [], service="ec2"))
+    assert finding(bpa)["status"] == "PASS"
+
+
+def test_alb_default_auth_action_does_not_prove_all_rules_require_login():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
+          "Scheme": "internet-facing", "Type": "application", "DNSName": "web.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS",
+              "DefaultActions": [{"Type": "authenticate-oidc"}, {"Type": "forward"}],
+              "Rules": {"collection_status": "collected", "items": [{"IsDefault": False, "Priority": "1",
+                  "Conditions": [{"Field": "path-pattern"}], "Actions": [{"Type": "fixed-response"}]}]}}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    result = one(aws(*aws_network(sg_rules=sg), coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    assert result["status"] == "FAIL" and result["evidence"]["authenticated_endpoint"] is False
+    assert "elbv2:DescribeRules.Actions.Authenticate*Config.OnUnauthenticatedRequest" in result["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("conditional_mode,expected_auth", [("deny", True), ("allow", False), (None, False)])
+def test_alb_complete_rules_observe_universal_authentication_mode(conditional_mode, expected_auth):
+    arn = f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1"
+    default = [{"Type": "authenticate-oidc", "UnauthenticatedRequestMode": "authenticate"}, {"Type": "forward"}]
+    conditional = [{"Type": "authenticate-oidc"}, {"Type": "forward"}]
+    if conditional_mode is not None:
+        conditional[0]["UnauthenticatedRequestMode"] = conditional_mode
+    lb = {"LoadBalancerArn": arn, "Scheme": "internet-facing", "Type": "application",
+          "DNSName": "web.example.com", "VpcId": "vpc-1", "SecurityGroups": ["sg-1"],
+          "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS",
+              "DefaultActions": [{"Type": "authenticate-oidc"}, {"Type": "forward"}],
+              "Rules": {"collection_status": "collected", "items": [
+                  {"IsDefault": False, "Priority": "1", "Actions": conditional},
+                  {"IsDefault": True, "Priority": "default", "Actions": default}]}}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    finding = one(aws(*aws_network(sg_rules=sg), coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    assert finding["status"] == "FAIL"
+    assert finding["evidence"]["authenticated_endpoint"] is expected_auth
+    if conditional_mode is None:
+        assert "elbv2:DescribeRules.Actions.Authenticate*Config.OnUnauthenticatedRequest" in finding["evidence"]["collector_facts_needed"]
+    else:
+        step = next(step for step in finding["evidence"]["path"] if step["layer"] == "authentication")
+        assert step["decision"] == ("requires_auth" if expected_auth else "not_universal")
 
 
 def test_aws_elbv2_observed_state_gates_current_listener_path():
@@ -1237,6 +1707,21 @@ def test_aws_load_balancer_public_host_is_observed():
     assert finding("classic_load_balancer", classic, "elb")["status"] == "FAIL"
 
 
+@pytest.mark.parametrize("kind,service,fact", [
+    ("load_balancer", "elbv2", "elbv2:DescribeLoadBalancers.Scheme"),
+    ("classic_load_balancer", "elb", "elasticloadbalancing:DescribeLoadBalancers.Scheme"),
+])
+def test_aws_load_balancer_missing_scheme_is_unresolved(kind, service, fact):
+    row = ({"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
+            "Type": "application", "DNSName": "web.example.com"} if kind == "load_balancer" else
+           {"LoadBalancerName": "web", "DNSName": "classic.example.com"})
+    missing = one(aws(coll(kind, [row], service=service)), kind)
+    assert missing["status"] == "UNKNOWN"
+    assert fact in missing["evidence"]["collector_facts_needed"]
+    row["Scheme"] = "internal"
+    assert not exposure(aws(coll(kind, [row], service=service)))
+
+
 def test_aws_alb_address_family_uses_observed_ip_address_type():
     lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
           "Scheme": "internet-facing", "Type": "application", "DNSName": "web.example.com",
@@ -1251,7 +1736,10 @@ def test_aws_alb_address_family_uses_observed_ip_address_type():
         {"RuleNumber": 100, "Egress": True, "Protocol": "-1", "RuleAction": "allow", "Ipv6CidrBlock": "::/0"},
     ]
     def finding(rules, nacl):
-        return one(aws(*aws_network(sg_rules=rules, nacl_entries=nacl),
+        network = aws_network(sg_rules=rules, nacl_entries=nacl)
+        table = next(row for row in network if row["type"] == "route_table")
+        table["items"][0]["Routes"].append({"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"})
+        return one(aws(*network,
                        coll("load_balancer", [lb], service="elbv2")), "load_balancer")
     lb["IpAddressType"] = "dualstack-without-public-ipv4"
     assert finding([ipv4_sg], ipv6_acl)["status"] == "PASS"
@@ -1386,6 +1874,32 @@ def test_aws_nlb_and_classic_exact_public_nacl_host_witness(kind, with_sg):
     assert finding(mismatched)["status"] == "PASS"
 
 
+def test_nlb_public_listener_requires_subnet_igw_route_and_bpa_allowance():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/net/web/1",
+          "Scheme": "internet-facing", "Type": "network", "DNSName": "nlb.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": [], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "TCP"}]}}
+    def finding(network):
+        return one(aws(*network, coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    assert finding(aws_network())["status"] == "FAIL"
+    assert finding(aws_network(igw=False))["status"] == "PASS"
+    bpa = aws_network()
+    next(row for row in bpa if row["type"] == "vpc_block_public_access_options")["items"][0]["VpcBlockPublicAccessOptions"]["InternetGatewayBlockMode"] = "block-ingress"
+    bpa.append(coll("vpc_block_public_access_exclusion", [], service="ec2"))
+    assert finding(bpa)["status"] == "PASS"
+
+
+def test_classic_elb_vpc_public_listener_requires_subnet_igw_route():
+    lb = {"LoadBalancerName": "web", "Scheme": "internet-facing", "DNSName": "classic.example.com",
+          "VPCId": "vpc-1", "Subnets": ["subnet-1"], "SecurityGroups": ["sg-1"],
+          "ListenerDescriptions": [{"Listener": {"LoadBalancerPort": 443, "Protocol": "HTTPS"}}]}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def finding(network):
+        return one(aws(*network, coll("classic_load_balancer", [lb], service="elb")), "classic_load_balancer")
+    assert finding(aws_network(sg_rules=sg))["status"] == "FAIL"
+    assert finding(aws_network(sg_rules=sg, igw=False))["status"] == "PASS"
+
+
 def test_aws_nlb_exact_ipv6_nacl_host_witness():
     lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/net/v6host/1",
           "Scheme": "internet-facing", "Type": "network", "IpAddressType": "dualstack",
@@ -1402,7 +1916,10 @@ def test_aws_nlb_exact_ipv6_nacl_host_witness():
          "Ipv6CidrBlock": "2600:1f18:abcd::2/128", "PortRange": {"From": 1024, "To": 65535}},
     ]
     def finding(acl_entries):
-        return one(aws(*aws_network(sg_rules=sg, nacl_entries=acl_entries),
+        network = aws_network(sg_rules=sg, nacl_entries=acl_entries)
+        next(row for row in network if row["type"] == "route_table")["items"][0]["Routes"].append(
+            {"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"})
+        return one(aws(*network,
                        coll("load_balancer", [lb], service="elbv2")), "load_balancer")
     result = finding(entries)
     assert result["status"] == "FAIL"
@@ -1479,7 +1996,10 @@ def test_aws_nlb_static_ipv6_uses_ipv6_sg_and_nacl_path():
     nacl = [{"RuleNumber": 100, "Egress": direction, "Protocol": "-1", "RuleAction": "allow",
              "Ipv6CidrBlock": "::/0"} for direction in (False, True)]
     def finding(rules=sg, entries=nacl):
-        return one(aws(*aws_network(sg_rules=rules, nacl_entries=entries),
+        network = aws_network(sg_rules=rules, nacl_entries=entries)
+        next(row for row in network if row["type"] == "route_table")["items"][0]["Routes"].append(
+            {"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"})
+        return one(aws(*network,
                        coll("load_balancer", [lb], service="elbv2")), "load_balancer")
     result = finding()
     assert result["status"] == "FAIL"
@@ -1552,6 +2072,78 @@ def test_aws_database_missing_public_flag_is_unresolved(kind, service, fact):
     assert fact in finding["evidence"]["collector_facts_needed"]
     row["PubliclyAccessible"] = False
     assert not exposure(aws(coll(kind, [row], service=service)))
+
+
+@pytest.mark.parametrize("kind,service,port", [("rds_instance", "rds", 5432),
+                                             ("redshift_cluster", "redshift", 5439)])
+def test_aws_database_endpoint_address_requires_dns_hostname(kind, service, port):
+    row = {"PubliclyAccessible": True, "Endpoint": {"Address": "https://db.example.com/path", "Port": port},
+           "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}]}
+    if kind == "rds_instance":
+        row.update({"DBInstanceIdentifier": "db-1", "DBInstanceStatus": "available",
+                    "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}})
+        extra = []
+        fact = "rds:DescribeDBInstances.Endpoint.Address"
+    else:
+        row.update({"ClusterIdentifier": "cluster-1", "ClusterStatus": "available",
+                    "ClusterSubnetGroupName": "group-1"})
+        extra = [coll("redshift_subnet_group", [{"ClusterSubnetGroupName": "group-1", "VpcId": "vpc-1",
+                  "Subnets": [{"SubnetIdentifier": "subnet-1"}]}], service="redshift")]
+        fact = "redshift:DescribeClusters.Endpoint.Address"
+    sg = [{"IpProtocol": "tcp", "FromPort": port, "ToPort": port,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def finding():
+        return one(aws(*aws_network(sg_rules=sg), coll(kind, [row], service=service), *extra), kind)
+    malformed = finding()
+    assert malformed["status"] == "UNKNOWN" and malformed["evidence"]["public_addresses"] == []
+    assert fact in malformed["evidence"]["collector_facts_needed"]
+    row["Endpoint"]["Address"] = "db.example.com"
+    assert finding()["status"] == "FAIL"
+
+
+@pytest.mark.parametrize("kind,service,field,fact", [
+    ("rds_instance", "rds", "DBInstanceStatus", "rds:DescribeDBInstances.DBInstanceStatus"),
+    ("redshift_cluster", "redshift", "ClusterStatus", "redshift:DescribeClusters.ClusterStatus"),
+])
+def test_aws_database_missing_lifecycle_status_is_unresolved(kind, service, field, fact):
+    row = {"PubliclyAccessible": True, "Endpoint": {"Address": "db.example.com", "Port": 5432}}
+    collection = coll(kind, [row], service=service)
+    del collection["items"][0][field]
+    result = one(aws(collection), kind)
+    assert result["status"] == "UNKNOWN"
+    assert fact in result["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("kind,service,status,expected", [
+    ("rds_instance", "rds", "creating", "UNKNOWN"),
+    ("rds_instance", "rds", "modifying", "UNKNOWN"),
+    ("rds_instance", "rds", "available", "FAIL"),
+    ("redshift_cluster", "redshift", "creating", "UNKNOWN"),
+    ("redshift_cluster", "redshift", "resizing", "UNKNOWN"),
+    ("redshift_cluster", "redshift", "available, prep-for-resize", "FAIL"),
+    ("redshift_cluster", "redshift", "available, resize-cleanup", "FAIL"),
+])
+def test_aws_database_current_path_requires_observed_serving_status(kind, service, status, expected):
+    port = 5432 if kind == "rds_instance" else 5439
+    row = {"PubliclyAccessible": True, "Endpoint": {"Address": "db.example.com", "Port": port},
+           "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}]}
+    if kind == "rds_instance":
+        row.update({"DBInstanceIdentifier": "db-1", "DBInstanceStatus": status,
+                    "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}})
+        extra = []
+        fact = "rds:DescribeDBInstances.DBInstanceStatus"
+    else:
+        row.update({"ClusterIdentifier": "cluster-1", "ClusterStatus": status,
+                    "ClusterSubnetGroupName": "group-1"})
+        extra = [coll("redshift_subnet_group", [{"ClusterSubnetGroupName": "group-1", "VpcId": "vpc-1",
+                  "Subnets": [{"SubnetIdentifier": "subnet-1"}]}], service="redshift")]
+        fact = "redshift:DescribeClusters.ClusterStatus"
+    sg = [{"IpProtocol": "tcp", "FromPort": port, "ToPort": port,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    finding = one(aws(*aws_network(sg_rules=sg), coll(kind, [row], service=service), *extra), kind)
+    assert finding["status"] == expected
+    if expected == "UNKNOWN":
+        assert fact in finding["evidence"]["collector_facts_needed"]
 
 
 def test_aws_redshift_public_cluster_uses_collected_subnet_route_and_acl():
@@ -1766,6 +2358,62 @@ def test_aws_cloudfront_staging_distribution_has_no_direct_viewer_host_witness()
     assert one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront")), "cloudfront_distribution")["status"] == "FAIL"
 
 
+def test_cloudfront_staging_uses_deployed_primary_policy_and_primary_host():
+    primary_host, staging_host = "primary.cloudfront.net", "staging.cloudfront.net"
+    policy = {"collection_status": "collected", "Id": "P1", "Enabled": True,
+              "StagingDistributionDnsNames": {"Quantity": 1, "Items": [staging_host]},
+              "TrafficType": "SingleWeight", "Weight": 0.05, "HeaderConditionPresent": False}
+    primary = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/PRIMARY", "Id": "PRIMARY",
+               "DomainName": primary_host, "Status": "Deployed", "ContinuousDeploymentPolicy": policy,
+               "Config": {"collection_status": "collected", "DistributionConfig": {
+                   "Enabled": True, "ContinuousDeploymentPolicyId": "P1",
+                   "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only"}}}}
+    staging = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/STAGING", "Id": "STAGING",
+               "DomainName": staging_host, "Status": "Deployed", "Staging": True,
+               "Config": {"collection_status": "collected", "DistributionConfig": {
+                   "Enabled": True, "Staging": True,
+                   "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only"}}}}
+    def result():
+        rows = exposure(aws(coll("cloudfront_distribution", [primary, staging], service="cloudfront")))
+        return next(row for row in rows if row["status"] == "UNKNOWN" or any(
+            step["layer"] == "viewer_routing" for step in row["evidence"]["path"]))
+    routed = result()
+    assert routed["status"] == "FAIL" and routed["evidence"]["public_addresses"] == [primary_host]
+    assert any(step["layer"] == "viewer_routing" and step["policy_id"] == "P1"
+               for step in routed["evidence"]["path"])
+    policy["Weight"] = 0
+    assert result()["status"] == "UNKNOWN" and result()["evidence"]["public_addresses"] == []
+    policy["Weight"] = 0.05
+    policy["TrafficType"] = "SingleHeader"
+    policy["HeaderConditionPresent"] = True
+    assert result()["status"] == "FAIL"
+    policy["HeaderConditionPresent"] = False
+    assert result()["status"] == "UNKNOWN"
+    policy["TrafficType"] = "SingleWeight"
+    policy["StagingDistributionDnsNames"]["Items"] = ["other.cloudfront.net"]
+    assert result()["status"] == "UNKNOWN"
+    policy["StagingDistributionDnsNames"]["Items"] = [staging_host]
+    primary["Status"] = "InProgress"
+    assert result()["status"] == "UNKNOWN" and result()["evidence"]["public_addresses"] == []
+
+
+def test_cloudfront_tenant_only_distribution_has_no_direct_viewer_host_witness():
+    distribution = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1", "Id": "D1",
+                    "DomainName": "d123.cloudfront.net", "Status": "Deployed",
+                    "Config": {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+                        "ConnectionMode": "tenant-only", "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only"}}}}
+    def finding():
+        return one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront")), "cloudfront_distribution")
+    result = finding()
+    assert result["status"] == "UNKNOWN" and result["evidence"]["public_addresses"] == []
+    assert "cloudfront:ListDistributionTenants,cloudfront:GetConnectionGroup" in result["evidence"]["collector_facts_needed"]
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "viewer_routing")["decision"] == "allow_declaration"
+    distribution["Config"]["DistributionConfig"]["ConnectionMode"] = "direct"
+    assert finding()["status"] == "FAIL"
+    distribution["Config"]["DistributionConfig"]["ConnectionMode"] = "unexpected"
+    assert finding()["status"] == "UNKNOWN"
+
+
 def test_aws_cloudfront_signed_viewer_access_is_per_behavior_and_options_exception():
     base = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1", "Id": "D1",
             "DomainName": "d123.cloudfront.net", "Status": "Deployed"}
@@ -1773,7 +2421,7 @@ def test_aws_cloudfront_signed_viewer_access_is_per_behavior_and_options_excepti
               "AllowedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"]},
               "TrustedKeyGroups": {"Enabled": True, "Quantity": 1, "Items": ["key-group-1"]}}
     config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
-              "DefaultCacheBehavior": signed, "CacheBehaviors": {"Items": []}}}
+              "DefaultCacheBehavior": signed, "CacheBehaviors": {"Quantity": 0, "Items": []}}}
     def finding():
         return one(aws(coll("cloudfront_distribution", [{**base, "Config": config}], service="cloudfront")),
                    "cloudfront_distribution")
@@ -1782,13 +2430,39 @@ def test_aws_cloudfront_signed_viewer_access_is_per_behavior_and_options_excepti
     assert next(step for step in result["evidence"]["path"] if step["layer"] == "viewer_access")["signed_request_paths"] == ["<default>"]
     config["DistributionConfig"]["CacheBehaviors"]["Items"] = [{"PathPattern": "public/*", "ViewerProtocolPolicy": "https-only",
                                                                      "AllowedMethods": {"Items": ["GET", "HEAD"]}}]
+    config["DistributionConfig"]["CacheBehaviors"]["Quantity"] = 1
     assert finding()["evidence"]["authenticated_endpoint"] is False
     config["DistributionConfig"]["CacheBehaviors"]["Items"] = []
+    config["DistributionConfig"]["CacheBehaviors"]["Quantity"] = 0
     signed["AllowedMethods"]["Items"].append("OPTIONS")
     assert finding()["evidence"]["authenticated_endpoint"] is False
     signed["AllowedMethods"]["Items"] = ["GET", "HEAD"]
     signed["TrustedKeyGroups"]["Quantity"] = 2
     assert finding()["evidence"]["authenticated_endpoint"] is False
+    assert finding()["status"] == "UNKNOWN"
+    assert "cloudfront:GetDistributionConfig.TrustedKeyGroups/TrustedSigners" in finding()["evidence"]["collector_facts_needed"]
+    signed["TrustedKeyGroups"]["Quantity"] = 1
+    del signed["TrustedKeyGroups"]["Enabled"]
+    assert finding()["status"] == "UNKNOWN"
+    signed["TrustedKeyGroups"] = {"Enabled": False, "Quantity": 0}
+    assert finding()["status"] == "FAIL"
+
+
+def test_cloudfront_cache_behavior_count_mismatch_keeps_viewer_paths_unresolved():
+    distribution = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1", "Id": "D1",
+                    "DomainName": "d123.cloudfront.net", "Status": "Deployed",
+                    "Config": {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+                        "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only",
+                                                 "TrustedKeyGroups": {"Enabled": True, "Quantity": 1, "Items": ["key-1"]},
+                                                 "AllowedMethods": {"Items": ["GET", "HEAD"]}},
+                        "CacheBehaviors": {"Quantity": 1, "Items": []}}}}
+    def finding():
+        return one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront")), "cloudfront_distribution")
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert "cloudfront:GetDistributionConfig.CacheBehaviors" in result["evidence"]["collector_facts_needed"]
+    distribution["Config"]["DistributionConfig"]["CacheBehaviors"]["Quantity"] = 0
+    assert finding()["status"] == "FAIL"
 
 
 def test_aws_cloudfront_observed_oai_bucket_policy_grant_requires_used_origin_and_exact_principal():
@@ -2033,8 +2707,10 @@ def lambda_function(auth="NONE", policy=True):
         {"Effect": "Allow", "Principal": "*", "Action": "lambda:InvokeFunction", "Resource": "*",
          "Condition": {"Bool": {"lambda:InvokedViaFunctionUrl": "true"}}},
     ]
-    return {"FunctionArn": f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:f", "FunctionName": "f",
-            "FunctionUrl": {"collection_status": "collected", "AuthType": auth, "FunctionUrl": "https://abc.lambda-url.us-east-1.on.aws/",
+    arn = f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:f"
+    return {"FunctionArn": arn, "FunctionName": "f",
+            "FunctionUrl": {"collection_status": "collected", "AuthType": auth, "FunctionArn": arn,
+                            "FunctionUrl": "https://abc.lambda-url.us-east-1.on.aws/",
                             "CreationTime": "2026-01-01T00:00:00Z"},
             "Policy": {"collection_status": "collected", "Policy": {"Version": "2012-10-17", "Statement": statements}} if policy else {"collection_status": "empty", "absent": True}}
 
@@ -2045,6 +2721,46 @@ def test_lambda_function_url_auth_none():
     assert one(aws(coll("lambda_function", [lambda_function(auth="AWS_IAM")], service="lambda")), "lambda_function")["status"] == "PASS"
     denied = lambda_function() | {"Policy": {"collection_status": "denied"}}
     assert one(aws(coll("lambda_function", [denied], service="lambda")), "lambda_function")["status"] == "UNKNOWN"
+
+
+def test_lambda_function_url_missing_read_differs_from_observed_absence():
+    function = lambda_function()
+    function.pop("FunctionUrl")
+    missing = one(aws(coll("lambda_function", [function], service="lambda")), "lambda_function")
+    assert missing["status"] == "UNKNOWN"
+    assert "lambda:GetFunctionUrlConfig" in missing["evidence"]["collector_facts_needed"]
+    function["FunctionUrl"] = {"collection_status": "empty", "absent": True}
+    assert not exposure(aws(coll("lambda_function", [function], service="lambda")))
+
+
+@pytest.mark.parametrize("target_arn", [None, "other", "$LATEST"])
+def test_lambda_base_url_requires_matching_observed_function_arn(target_arn):
+    function = lambda_function()
+    if target_arn is None:
+        del function["FunctionUrl"]["FunctionArn"]
+    elif target_arn == "$LATEST":
+        function["FunctionUrl"]["FunctionArn"] = function["FunctionArn"] + ":$LATEST"
+    else:
+        function["FunctionUrl"]["FunctionArn"] = function["FunctionArn"].replace(":function:f", ":function:other")
+    finding = one(aws(coll("lambda_function", [function], service="lambda")), "lambda_function")
+    assert finding["status"] == ("FAIL" if target_arn == "$LATEST" else "UNKNOWN")
+    if target_arn != "$LATEST":
+        assert "lambda:GetFunctionUrlConfig.FunctionArn" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("endpoint", ["http://abc.lambda-url.us-east-1.on.aws/",
+                                      "https://abc.lambda-url.us-west-2.on.aws/",
+                                      "https://abc.example.com/",
+                                      "https://abc.lambda-url.us-east-1.on.aws:8443/",
+                                      "https://user:secret@abc.lambda-url.us-east-1.on.aws/",
+                                      "https://abc.lambda-url.us-east-1.on.aws/other"])
+def test_lambda_function_url_needs_observed_regional_https_host(endpoint):
+    function = lambda_function()
+    function["FunctionUrl"]["FunctionUrl"] = endpoint
+    result = one(aws(coll("lambda_function", [function], service="lambda")), "lambda_function")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["public_addresses"] == []
+    assert "lambda:GetFunctionUrlConfig.FunctionUrl" in result["evidence"]["collector_facts_needed"]
 
 
 def test_lambda_aws_iam_url_reports_exact_external_policy_declaration():
@@ -2221,6 +2937,19 @@ def test_lambda_published_version_direct_invoke_policy():
     assert result()[0]["evidence"]["external_scope_ids"] == ["444455556666"]
     assert result(BaseFunctionArn=base + ":other")[0]["status"] == "UNKNOWN"
     assert result(Policy={"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+def test_rest_api_endpoint_type_needs_collected_public_or_private_scope():
+    api = {"id": "a1b2", "Stages": {"collection_status": "empty", "items": []}}
+    def finding():
+        return one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")
+    missing = finding()
+    assert missing["status"] == "UNKNOWN"
+    assert "apigateway:GetRestApi.endpointConfiguration.types" in missing["evidence"]["collector_facts_needed"]
+    api["endpointConfiguration"] = {"types": ["PRIVATE", "REGIONAL"]}
+    assert finding()["status"] == "UNKNOWN"
+    api["endpointConfiguration"] = {"types": ["PRIVATE"]}
+    assert finding()["status"] == "PASS"
+    api["endpointConfiguration"] = {"types": ["REGIONAL"]}
+    assert finding()["status"] == "PASS"
 
 
 def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():
@@ -2275,9 +3004,21 @@ def test_rest_api_custom_domain_uses_only_the_mapped_deployment():
         return one(aws(coll("rest_api", [api], service="apigateway"),
                        coll("apigateway_domain_name", [domain], service="apigateway"),
                        coll("rest_api_method", methods, service="apigateway")), "rest_api")
-    assert row()["status"] == "PASS"
+    assert row()["status"] == "UNKNOWN"
+    assert "apigateway:GetStage stage-applied disableExecuteApiEndpoint (not exposed)" in row()["evidence"]["collector_facts_needed"]
     domain["BasePathMappings"]["items"][0]["stage"] = "dev"
     assert row()["status"] == "FAIL"
+
+
+def test_rest_api_live_disabled_default_flag_does_not_prove_stage_applied_block():
+    api = {"id": "rest1", "disableExecuteApiEndpoint": True,
+           "endpointConfiguration": {"types": ["REGIONAL"]},
+           "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
+    result = one(aws(coll("rest_api", [api], service="apigateway"),
+                     coll("apigateway_domain_name", [], service="apigateway")), "rest_api")
+    assert result["status"] == "UNKNOWN"
+    assert result["evidence"]["public_addresses"] == []
+    assert "apigateway:GetStage stage-applied disableExecuteApiEndpoint (not exposed)" in result["evidence"]["collector_facts_needed"]
 
 
 def test_api_gateway_requires_collected_deployed_stage():
@@ -2343,11 +3084,11 @@ def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
     assert row()["status"] == "UNKNOWN"  # Invalid priority cannot prove routing.
     domain["RoutingRules"]["items"][0]["Priority"] = 1
     domain["RoutingRules"]["items"][1]["Priority"] = 2
-    assert row()["status"] == "PASS"  # Earlier catch-all shadows the target rule.
+    assert row()["status"] == "UNKNOWN"  # Earlier catch-all shadows the custom rule; deployed default endpoint state is unknown.
     domain["RoutingRules"]["items"][0]["ConditionCount"] = 1
     assert row()["status"] == "UNKNOWN"  # Earlier conditional rule may shadow it.
     domain["RoutingRules"]["items"] = []
-    assert row()["status"] == "PASS"
+    assert row()["status"] == "UNKNOWN"
     domain["RoutingRules"] = {"collection_status": "denied"}
     assert row()["status"] == "UNKNOWN"
 
@@ -2375,19 +3116,19 @@ def test_api_gateway_custom_mapping_requires_its_own_active_stage():
     def rest_row():
         return one(aws(coll("rest_api", [rest], service="apigateway"),
                        coll("apigateway_domain_name", [rest_domain], service="apigateway"), deployed_rest(rest)), "rest_api")
-    assert rest_row()["status"] == "PASS"
+    assert rest_row()["status"] == "UNKNOWN"
     rest_domain["BasePathMappings"]["items"][0]["stage"] = "prod"
     assert rest_row()["status"] == "FAIL"
     rest_domain["routingMode"] = "ROUTING_RULE_THEN_API_MAPPING"
     rest_domain["RoutingRules"] = {"collection_status": "collected", "items": [{
         "RoutingRuleId": "rule-1", "Priority": 1, "ConditionCount": 0,
         "Actions": [{"InvokeApi": {"ApiId": "other", "Stage": "prod"}}]}]}
-    assert rest_row()["status"] == "PASS"  # The catch-all rule shadows the mapping.
+    assert rest_row()["status"] == "UNKNOWN"  # The catch-all shadows the mapping; deployed default endpoint state is unknown.
     rest_domain["RoutingRules"]["items"][0]["ConditionCount"] = 1
     assert rest_row()["status"] == "FAIL"  # The mapping handles requests that miss the rule.
     del rest_domain["routingMode"], rest_domain["RoutingRules"]
     rest_domain["BasePathMappings"] = {"collection_status": "empty", "items": []}
-    assert rest_row()["status"] == "PASS"
+    assert rest_row()["status"] == "UNKNOWN"
     http = {"ApiId": "http1", "DisableExecuteApiEndpoint": True, "ProtocolType": "HTTP",
             "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}],
             "Stages": {"collection_status": "collected", "items": [{"StageName": "prod", "AutoDeploy": True},
@@ -2397,11 +3138,12 @@ def test_api_gateway_custom_mapping_requires_its_own_active_stage():
     def http_row():
         return one(aws(coll("http_api", [http], service="apigatewayv2"),
                        coll("apigatewayv2_domain_name", [http_domain], service="apigatewayv2")), "http_api")
-    assert http_row()["status"] == "PASS"
+    assert http_row()["status"] == "UNKNOWN"
     http_domain["ApiMappings"]["items"][0]["Stage"] = "prod"
     assert http_row()["status"] == "UNKNOWN"
     http_domain["ApiMappings"] = {"collection_status": "empty", "items": []}
-    assert http_row()["status"] == "PASS"
+    assert http_row()["status"] == "UNKNOWN"
+    assert "apigatewayv2:GetStage stage-applied DisableExecuteApiEndpoint (not exposed)" in http_row()["evidence"]["collector_facts_needed"]
 
 
 def test_public_and_external_rds_snapshots():
@@ -2613,7 +3355,7 @@ def test_eks_public_endpoint_honours_cidrs():
     del missing_host["Cluster"]["cluster"]["endpoint"]
     unresolved = one(aws(coll("eks_cluster", [missing_host], service="eks")), "eks_cluster")
     assert unresolved["status"] == "UNKNOWN" and unresolved["evidence"]["public_addresses"] == []
-    assert "eks:DescribeCluster" in unresolved["evidence"]["collector_facts_needed"]
+    assert "eks:DescribeCluster.cluster.endpoint" in unresolved["evidence"]["collector_facts_needed"]
 
 
 def test_eks_missing_public_endpoint_flag_is_unresolved():
@@ -2627,6 +3369,38 @@ def test_eks_missing_public_endpoint_flag_is_unresolved():
     assert "eks:DescribeCluster.resourcesVpcConfig" in finding()["evidence"]["collector_facts_needed"]
     row["Cluster"]["cluster"]["resourcesVpcConfig"] = {"endpointPublicAccess": False}
     assert not exposure(aws(coll("eks_cluster", [row], service="eks")))
+
+
+@pytest.mark.parametrize("status", [None, "CREATING", "PENDING", "UPDATING", "DELETING", "FAILED"])
+def test_eks_nonactive_or_missing_cluster_status_is_unresolved(status):
+    row = {"name": "c", "Cluster": {"cluster": {"status": status,
+           "endpoint": "https://cluster.us-east-1.eks.amazonaws.com",
+           "resourcesVpcConfig": {"endpointPublicAccess": True, "publicAccessCidrs": ["0.0.0.0/0"]}}}}
+    finding = one(aws(coll("eks_cluster", [row], service="eks")), "eks_cluster")
+    assert finding["status"] == "UNKNOWN"
+    assert finding["evidence"]["public_addresses"] == []
+    assert "eks:DescribeCluster.cluster.status" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("cidrs", ["0.0.0.0/0", ["bad-cidr"], ["10.0.0.0/8", None]])
+def test_eks_malformed_public_cidr_list_is_unresolved(cidrs):
+    row = {"name": "c", "Cluster": {"cluster": {"endpoint": "https://x.eks.amazonaws.com",
+           "resourcesVpcConfig": {"endpointPublicAccess": True, "publicAccessCidrs": cidrs}}}}
+    finding = one(aws(coll("eks_cluster", [row], service="eks")), "eks_cluster")
+    assert finding["status"] == "UNKNOWN"
+    assert "eks:DescribeCluster.resourcesVpcConfig.publicAccessCidrs" in finding["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("endpoint", ["not-a-url", "http://x.eks.amazonaws.com",
+                                      "https://", "https://x.eks.amazonaws.com:8443",
+                                      "https://user:secret@x.eks.amazonaws.com"])
+def test_eks_public_endpoint_needs_valid_https_host(endpoint):
+    row = {"name": "c", "Cluster": {"cluster": {"endpoint": endpoint,
+           "resourcesVpcConfig": {"endpointPublicAccess": True, "publicAccessCidrs": ["0.0.0.0/0"]}}}}
+    finding = one(aws(coll("eks_cluster", [row], service="eks")), "eks_cluster")
+    assert finding["status"] == "UNKNOWN"
+    assert finding["evidence"]["public_addresses"] == []
+    assert "eks:DescribeCluster.cluster.endpoint" in finding["evidence"]["collector_facts_needed"]
 
 
 def test_eks_new_ipv6_endpoint_without_cidrs_has_dual_stack_public_default():

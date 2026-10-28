@@ -65,6 +65,7 @@ READ_ACTIONS.update({
     ("wafv2", "get_web_acl"), ("wafv2", "get_rule_group"), ("wafv2", "get_logging_configuration"), ("wafv2", "list_resources_for_web_acl"),
     ("cloudfront", "list_distributions_by_web_acl_id"),
     ("cloudfront", "get_origin_access_control"),
+    ("cloudfront", "get_continuous_deployment_policy"),
     ("waf", "get_web_acl"), ("waf", "get_rule"), ("waf", "get_logging_configuration"), ("waf", "list_activated_rules_in_rule_group"),
     ("waf-regional", "get_web_acl"), ("waf-regional", "get_rule"), ("waf-regional", "get_logging_configuration"),
     ("waf-regional", "list_activated_rules_in_rule_group"), ("waf-regional", "list_resources_for_web_acl"),
@@ -561,7 +562,17 @@ def _prefix_list_entries(requests, session, region, items):
 def _load_balancer_rules(requests, session, region, items):
     """DescribeRules for HTTP and HTTPS listeners of an application load balancer."""
     def action(row):
-        return _pick(row, ("Type", "Order", "TargetGroupArn", "RedirectConfig", "ForwardConfig", "FixedResponseConfig"))
+        projected = _pick(row, ("Type", "Order", "TargetGroupArn", "RedirectConfig", "ForwardConfig", "FixedResponseConfig"))
+        config_field = {"authenticate-oidc": "AuthenticateOidcConfig",
+                        "authenticate-cognito": "AuthenticateCognitoConfig"}.get(row.get("Type"))
+        if config_field:
+            config = row.get(config_field)
+            if isinstance(config, dict):
+                mode = config.get("OnUnauthenticatedRequest", "authenticate")
+                projected["UnauthenticatedRequestMode"] = mode if mode in ("allow", "deny", "authenticate") else "unresolved"
+                projected["UnauthenticatedRequestModeSource"] = (
+                    "documented_default" if "OnUnauthenticatedRequest" not in config else "DescribeRules")
+        return projected
 
     def rule(row):
         conditions = []
@@ -651,10 +662,36 @@ def _cloudfront_log_deliveries(requests, session, region, items):
     output = []
     oac_reads = {}
     oai_reads = {}
+    policy_reads = {}
     for item in items:
         item = copy.deepcopy(item)
         config = item.get("Config")
         distribution = config.get("DistributionConfig") if isinstance(config, dict) else None
+        policy_id = distribution.get("ContinuousDeploymentPolicyId") if isinstance(distribution, dict) else None
+        if isinstance(policy_id, str) and policy_id:
+            if policy_id not in policy_reads:
+                read = requests.detail(session, "cloudfront", home, "get_continuous_deployment_policy",
+                                       Id=policy_id, absent=("NoSuchContinuousDeploymentPolicy",))
+                policy = read.get("ContinuousDeploymentPolicy") if isinstance(read, dict) else None
+                settings = policy.get("ContinuousDeploymentPolicyConfig") if isinstance(policy, dict) else None
+                if read.get("collection_status") == "collected" and isinstance(settings, dict) and policy.get("Id") == policy_id:
+                    dns = settings.get("StagingDistributionDnsNames")
+                    traffic = settings.get("TrafficConfig")
+                    header = traffic.get("SingleHeaderConfig") if isinstance(traffic, dict) else None
+                    weight = traffic.get("SingleWeightConfig") if isinstance(traffic, dict) else None
+                    policy_reads[policy_id] = {"collection_status": "collected", "Id": policy_id,
+                        "Enabled": settings.get("Enabled"),
+                        "StagingDistributionDnsNames": _pick(dns, ("Quantity", "Items")) if isinstance(dns, dict) else None,
+                        "TrafficType": traffic.get("Type") if isinstance(traffic, dict) else None,
+                        "HeaderConditionPresent": (isinstance(header, dict)
+                            and isinstance(header.get("Header"), str)
+                            and header["Header"].lower().startswith("aws-cf-cd-")
+                            and isinstance(header.get("Value"), str) and bool(header["Value"])),
+                        "Weight": weight.get("Weight") if isinstance(weight, dict) else None}
+                else:
+                    policy_reads[policy_id] = {"collection_status": "malformed" if read.get("collection_status") == "collected" else read.get("collection_status"),
+                                               "error": read.get("error", {})}
+            item["ContinuousDeploymentPolicy"] = policy_reads[policy_id]
         origins = distribution.get("Origins") if isinstance(distribution, dict) else None
         origin_items = origins.get("Items") if isinstance(origins, dict) else None
         ids = {origin.get("OriginAccessControlId") for origin in origin_items or []

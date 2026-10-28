@@ -520,8 +520,10 @@ NATIVE_METADATA_STATEMENTS.update({
     ("sagemaker", "describe_endpoint"): {"Sid":"NativeSageMakerEndpointMetadataRead","Effect":"Allow","Action":"sagemaker:DescribeEndpoint","Resource":{"Fn::Sub":"arn:${AWS::Partition}:sagemaker:*:${AWS::AccountId}:endpoint/*"}},
     ("sagemaker", "list_monitoring_executions"): {"Sid":"NativeSageMakerMonitoringExecutionsRead","Effect":"Allow","Action":"sagemaker:ListMonitoringExecutions","Resource":"*"},
     ("apigatewayv2", "list_routing_rules"): {"Sid":"NativeApiGatewayRoutingRulesRead","Effect":"Allow","Action":"apigateway:ListRoutingRules","Resource":{"Fn::Sub":"arn:${AWS::Partition}:apigateway:*:${AWS::AccountId}:/domainnames/*/routingrules/*"}},
+    ("cloudfront", "get_continuous_deployment_policy"): {"Sid":"NativeCloudFrontContinuousDeploymentPolicyRead","Effect":"Allow","Action":"cloudfront:GetContinuousDeploymentPolicy","Resource":{"Fn::Sub":"arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:continuous-deployment-policy/*"}},
 })
 NATIVE_METADATA_RESOURCE_REFERENCES.append("https://docs.aws.amazon.com/service-authorization/latest/reference/list_apigatewayv2.html")
+NATIVE_METADATA_RESOURCE_REFERENCES.append("https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudfront.html")
 # Metadata only; no repository contents or mutation permissions.
 CODECOMMIT_REVIEW_REFERENCE = "https://docs.aws.amazon.com/service-authorization/latest/reference/list_codecommit.html"
 for _operation, _action in {
