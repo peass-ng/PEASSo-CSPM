@@ -17,7 +17,10 @@ def test_service_projection_keeps_network_fields_without_arbitrary_annotations()
     reader = services.ServiceReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
     service = {"apiVersion": "v1", "kind": "Service", "metadata": {
         "name": "web", "namespace": "default", "uid": "service-uid", "resourceVersion": "10",
-        "annotations": {"cloud.google.com/load-balancer-type": "External", "private.example/token": "secret"}},
+        "annotations": {"cloud.google.com/load-balancer-type": "External", "private.example/token": "secret",
+                        "service.kubernetes.io/backend-service": "k8s-be-web",
+                        "service.kubernetes.io/tcp-forwarding-rule": "k8s-fw-web",
+                        "service.kubernetes.io/l3-forwarding-rule": "k8s-fw-mixed"}},
         "spec": {"type": "LoadBalancer", "ports": [{"port": 443, "nodePort": 30443, "protocol": "TCP"}],
                  "loadBalancerSourceRanges": ["0.0.0.0/0"], "selector": {"app": "private"}},
         "status": {"loadBalancer": {"ingress": [{"ip": "34.5.6.7"}]}}}
@@ -26,6 +29,9 @@ def test_service_projection_keeps_network_fields_without_arbitrary_annotations()
     row = projected["items"][0]
     assert row["spec"]["type"] == "LoadBalancer"
     assert row["status"]["loadBalancer"]["ingress"] == [{"ip": "34.5.6.7"}]
+    assert row["annotations"]["service.kubernetes.io/backend-service"] == "k8s-be-web"
+    assert row["annotations"]["service.kubernetes.io/tcp-forwarding-rule"] == "k8s-fw-web"
+    assert row["annotations"]["service.kubernetes.io/l3-forwarding-rule"] == "k8s-fw-mixed"
     assert "selector" not in str(row) and "secret" not in str(row)
     service["spec"]["loadBalancerSourceRanges"] = "not-a-list"
     with pytest.raises(ValueError, match="address/range"):
@@ -36,6 +42,43 @@ def test_service_projection_keeps_network_fields_without_arbitrary_annotations()
     with pytest.raises(ValueError, match="Service type"):
         reader.project_list({"apiVersion": "v1", "kind": "ServiceList",
             "metadata": {"resourceVersion": "10"}, "items": [service]}, "/api/v1/services")
+    service["spec"]["type"] = "NodePort"
+    service["spec"]["ports"][0]["targetPort"] = {"secret": "private"}
+    with pytest.raises(ValueError, match="Service port value"):
+        reader.project_list({"apiVersion": "v1", "kind": "ServiceList",
+            "metadata": {"resourceVersion": "10"}, "items": [service]}, "/api/v1/services")
+    service["spec"]["ports"][0]["targetPort"] = 8080
+    service["spec"]["externalTrafficPolicy"] = "unrecognized"
+    with pytest.raises(ValueError, match="external traffic policy"):
+        reader.project_list({"apiVersion": "v1", "kind": "ServiceList",
+            "metadata": {"resourceVersion": "10"}, "items": [service]}, "/api/v1/services")
+
+
+def test_endpointslice_projection_keeps_ready_nodes_without_endpoint_addresses():
+    binding = {"selection": "projects/p1/locations/r1/clusters/c1", "endpoint": "34.1.2.3",
+               "ca_sha256": "abc"}
+    reader = services.EndpointSliceReader(SimpleNamespace(transport=None), binding, None,
+                                          {"resources": 0})
+    item = {"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+            "metadata": {"name": "web-abc", "namespace": "default", "uid": "slice-uid",
+                         "labels": {"kubernetes.io/service-name": "web", "private/token": "secret"}},
+            "addressType": "IPv4", "ports": [{"name": "http", "port": 8080, "protocol": "TCP"}],
+            "endpoints": [{"addresses": ["10.1.2.3"], "nodeName": "node-a", "conditions": {}},
+                          {"addresses": ["10.1.2.4"], "nodeName": "node-b",
+                           "conditions": {"ready": False}},
+                          {"addresses": ["10.1.2.5"], "nodeName": "node-c",
+                           "conditions": {"terminating": True}},
+                          {"addresses": ["10.1.2.6"], "nodeName": "node-d",
+                           "conditions": {"serving": False}}]}
+    data = {"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSliceList",
+            "metadata": {"resourceVersion": "12"}, "items": [item]}
+    row = reader.project_list(data, reader.PATH)["items"][0]
+    assert row["serviceName"] == "web" and row["readyEndpointCount"] == 1
+    assert row["readyNodeNames"] == ["node-a"] and row["ports"][0]["port"] == 8080
+    assert "10.1.2" not in str(row) and "secret" not in str(row)
+    item["endpoints"][0]["conditions"] = {"ready": "true"}
+    with pytest.raises(ValueError, match="conditions"):
+        reader.project_list(data, reader.PATH)
 
 
 def test_all_discovered_clusters_receive_service_inventory_markers(monkeypatch):
@@ -169,7 +212,10 @@ def test_ingress_projection_and_inventory_marker(monkeypatch):
     reader = services.IngressReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
     ingress = {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
         "metadata": {"name": "web", "namespace": "default", "uid": "ingress-uid",
-                     "annotations": {"private.example/token": "secret"}},
+                     "annotations": {"private.example/token": "secret", "kubernetes.io/ingress.class": "gce",
+                                     "ingress.kubernetes.io/forwarding-rule": "k8s-fw-web",
+                                     "ingress.kubernetes.io/target-proxy": "k8s-tp-web",
+                                     "ingress.kubernetes.io/url-map": "k8s-um-web"}},
         "spec": {"ingressClassName": "gce", "defaultBackend": {"service": {"name": "private-backend"}},
                  "rules": [{"host": "example.com", "http": {"paths": []}}]},
         "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}}}
@@ -178,6 +224,10 @@ def test_ingress_projection_and_inventory_marker(monkeypatch):
     row = reader.project_list(data, reader.PATH)["items"][0]
     assert row["hosts"] == ["example.com"] and row["hasDefaultBackend"] is True
     assert row["status"]["loadBalancer"]["ingress"] == [{"ip": "34.1.2.3"}]
+    assert row["annotations"] == {"kubernetes.io/ingress.class": "gce",
+                                  "ingress.kubernetes.io/forwarding-rule": "k8s-fw-web",
+                                  "ingress.kubernetes.io/target-proxy": "k8s-tp-web",
+                                  "ingress.kubernetes.io/url-map": "k8s-um-web"}
     assert "secret" not in str(row) and "private-backend" not in str(row)
     ingress["spec"]["rules"][0]["host"] = "x" * 254
     with pytest.raises(ValueError, match="Ingress rules"):
@@ -208,10 +258,127 @@ def test_pod_projection_keeps_only_host_network_facts():
             "items": [pod]}
     row = reader.project_list(data, reader.PATH)["items"][0]
     assert row["hostNetwork"] is True and row["hostPorts"] == [{
-        "hostPort": 8080, "protocol": "TCP", "containerKind": "containers"}]
+        "hostPort": 8080, "protocol": "TCP", "containerKind": "containers",
+        "portSource": "hostPort", "bindIP": "0.0.0.0"}]
     assert row["hostIP"] == "34.1.2.3" and row["nodeName"] == "node-a"
     for secret in ("secret", "password", "private-image", "10.1.2.3"):
         assert secret not in str(row)
     pod["spec"]["containers"][0]["ports"][0]["hostPort"] = -1
     with pytest.raises(ValueError, match="hostPort"):
         reader.project_list(data, reader.PATH)
+    pod["spec"]["containers"][0]["ports"][0]["hostPort"] = 0
+    row = reader.project_list(data, reader.PATH)["items"][0]
+    assert row["hostPorts"] == [{"hostPort": 8080, "protocol": "TCP",
+                                 "containerKind": "containers", "portSource": "hostNetwork",
+                                 "bindIP": "0.0.0.0"}]
+    pod["spec"]["containers"][0]["ports"][0]["hostIP"] = "127.0.0.1"
+    assert reader.project_list(data, reader.PATH)["items"][0]["hostPorts"][0]["bindIP"] == "127.0.0.1"
+    pod["spec"]["containers"][0]["ports"][0]["hostIP"] = "invalid"
+    with pytest.raises(ValueError, match="bind address"):
+        reader.project_list(data, reader.PATH)
+    pod["spec"]["containers"][0]["ports"][0].pop("hostIP")
+    pod["spec"]["hostNetwork"] = False
+    assert reader.project_list(data, reader.PATH)["items"][0]["hostPorts"] == []
+
+
+def test_node_projection_keeps_provider_and_addresses_only():
+    binding = {"selection": "projects/p1/locations/r1/clusters/c1", "endpoint": "34.1.2.3",
+               "ca_sha256": "abc"}
+    reader = services.NodeReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
+    node = {"apiVersion": "v1", "kind": "Node", "metadata": {
+        "name": "gke-node-1", "uid": "node-uid", "annotations": {"private/token": "secret"}},
+        "spec": {"providerID": "gce://p1/us-central1-a/gke-node-1", "taints": [{"value": "private"}]},
+        "status": {"addresses": [{"type": "ExternalIP", "address": "34.1.2.3"}],
+                   "capacity": {"private": "data"}}}
+    data = {"apiVersion": "v1", "kind": "NodeList", "metadata": {"resourceVersion": "12"},
+            "items": [node]}
+    row = reader.project_list(data, reader.PATH)["items"][0]
+    assert row["providerID"] == "gce://p1/us-central1-a/gke-node-1"
+    assert row["addresses"] == [{"type": "ExternalIP", "address": "34.1.2.3"}]
+    assert "secret" not in str(row) and "private" not in str(row)
+    pending = {"apiVersion": "v1", "kind": "Node", "metadata": {
+        "name": "gke-node-2", "uid": "pending-uid"}, "spec": {}, "status": {"addresses": []}}
+    data["items"].append(pending)
+    rows = reader.project_list(data, reader.PATH)["items"]
+    assert len(rows) == 2 and rows[1]["providerID"] is None
+    node["spec"]["providerID"] = "evil://p1/us-central1-a/gke-node-1"
+    with pytest.raises(ValueError, match="identity/provider"):
+        reader.project_list(data, reader.PATH)
+
+
+def test_gateway_and_httproute_project_only_network_routing_facts():
+    binding = {"selection": "projects/p1/locations/r1/clusters/c1", "endpoint": "34.1.2.3",
+               "ca_sha256": "abc"}
+    gateway_reader = services.GatewayReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
+    gateway = {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "Gateway",
+        "metadata": {"name": "web", "namespace": "default", "uid": "gateway-uid",
+                     "annotations": {"private/token": "secret",
+                                     "networking.gke.io/forwarding-rules": "gkegw-fr1",
+                                     "networking.gke.io/target-proxies": "gkegw-tp1",
+                                     "networking.gke.io/url-maps": "gkegw-url-map1"}},
+        "spec": {"gatewayClassName": "gke-l7-global-external-managed",
+                 "listeners": [{"name": "https", "port": 443, "protocol": "HTTPS",
+                                "hostname": "example.com", "tls": {"certificateRefs": [{"name": "secret"}]}}]},
+        "status": {"addresses": [{"type": "IPAddress", "value": "34.1.2.3"}],
+                   "conditions": [{"message": "private"}]}}
+    row = gateway_reader.project_list({"apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "GatewayList", "metadata": {"resourceVersion": "12"}, "items": [gateway]},
+        gateway_reader.PATH)["items"][0]
+    assert row["listeners"] == [{"name": "https", "port": 443, "protocol": "HTTPS",
+                                 "hostname": "example.com"}]
+    assert row["addresses"] == [{"type": "IPAddress", "value": "34.1.2.3"}]
+    assert row["annotations"] == {"networking.gke.io/forwarding-rules": "gkegw-fr1",
+                                  "networking.gke.io/target-proxies": "gkegw-tp1",
+                                  "networking.gke.io/url-maps": "gkegw-url-map1"}
+    assert "secret" not in str(row) and "private" not in str(row)
+    route_reader = services.HTTPRouteReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
+    route = {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute",
+        "metadata": {"name": "web-route", "namespace": "default", "uid": "route-uid", "generation": 3},
+        "spec": {"hostnames": ["example.com"], "parentRefs": [{"name": "web", "sectionName": "https"}],
+                 "rules": [{"matches": [{"path": {"value": "/private-token"}}],
+                            "backendRefs": [{"name": "web-service", "port": 8080}]}]},
+        "status": {"parents": [{"controllerName": "networking.gke.io/gateway",
+                                "parentRef": {"name": "web", "sectionName": "https"},
+                                "conditions": [{"type": "Accepted", "status": "True", "observedGeneration": 3,
+                                                "message": "private"},
+                                               {"type": "Reconciled", "status": "True", "observedGeneration": 3}]}]}}
+    projected = route_reader.project_list({"apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "HTTPRouteList", "metadata": {"resourceVersion": "12"}, "items": [route]},
+        route_reader.PATH)["items"][0]
+    assert projected["parentRefs"] == [{"name": "web", "sectionName": "https"}]
+    assert projected["backendRefs"] == [{"name": "web-service", "port": 8080}]
+    assert projected["generation"] == 3 and projected["parentStatus"][0]["conditions"] == [
+        {"type": "Accepted", "status": "True", "observedGeneration": 3},
+        {"type": "Reconciled", "status": "True", "observedGeneration": 3}]
+    assert "/private-token" not in str(projected) and "private" not in str(projected)
+    class_reader = services.GatewayClassReader(SimpleNamespace(transport=None), binding, None,
+                                               {"resources": 0})
+    gateway_class = {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "GatewayClass",
+                     "metadata": {"name": "gke-l7-global-external-managed", "uid": "class-uid",
+                                  "annotations": {"private/token": "secret"}},
+                     "spec": {"controllerName": "networking.gke.io/gateway",
+                              "parametersRef": {"name": "private"}}}
+    projected_class = class_reader.project_list({"apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "GatewayClassList", "metadata": {"resourceVersion": "12"}, "items": [gateway_class]},
+        class_reader.PATH)["items"][0]
+    assert projected_class["kubernetesName"] == "gke-l7-global-external-managed"
+    assert projected_class["controllerName"] == "networking.gke.io/gateway"
+    assert "private" not in str(projected_class) and "secret" not in str(projected_class)
+
+
+def test_gatewayclass_inventory_produces_complete_cluster_marker(monkeypatch):
+    scope = "projects/p1"
+    selection = scope + "/locations/r1/clusters/c1"
+    binding = {"selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"}
+    collector = SimpleNamespace(needed={services.GATEWAYCLASS_KIND}, scopes=[scope], transport=None,
+        collections={("gke_cluster", scope): {"status": "collected", "coverage_status": "collected",
+            "items": [{"name": "c1", "location": "r1"}], "source_requests": ["cluster-request"]}})
+    monkeypatch.setattr(services, "cluster_binding", lambda *_: binding)
+    class_row = {"name": selection + "/gatewayclasses/gke-l7-global-external-managed",
+                 "cluster": selection, "kubernetesName": "gke-l7-global-external-managed",
+                 "controllerName": "networking.gke.io/gateway"}
+    monkeypatch.setattr(services.GatewayClassReader, "pages", lambda self: iter([([class_row], "class-request")]))
+    rows = [item for page, _ in services.dependent_jobs(collector, services.GATEWAYCLASS_KIND)[0][3]()
+            for item in page]
+    assert rows[0] == class_row
+    assert rows[-1]["inventoryStatus"] == "collected" and rows[-1]["gatewayclassCount"] == 1

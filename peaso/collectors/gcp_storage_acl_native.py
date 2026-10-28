@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 NATIVE_TYPES=frozenset({'bucket_acl','object_acl','bucket_effective_iam'})
 READ_ROLES={'roles/storage.objectViewer','roles/storage.legacyBucketReader','roles/storage.legacyObjectReader','roles/viewer'}
-WRITE_ROLES={'roles/storage.objectCreator','roles/storage.objectAdmin','roles/storage.admin','roles/owner','roles/editor','roles/storage.legacyBucketWriter','roles/storage.legacyObjectOwner'}
+WRITE_ROLES={'roles/storage.objectCreator','roles/storage.objectUser','roles/storage.objectAdmin','roles/storage.admin','roles/owner','roles/editor','roles/storage.legacyBucketWriter','roles/storage.legacyBucketOwner','roles/storage.legacyObjectOwner'}
 PUBLIC={'allUsers','allAuthenticatedUsers'}
 
 
@@ -22,6 +22,21 @@ def _error(code):
 def _hash(value):
     try:return sha256(value.encode('utf-8')).hexdigest()
     except UnicodeError:raise _error('storage_metadata_invalid_utf8')
+
+
+def _principal_hint(entity):
+    project=re.fullmatch(r'project-(owners|editors|viewers)-([0-9]{1,20})',entity)
+    if project:
+        return {'principalKind':'project','principalTeam':project[1],'principalProject':project[2]}
+    for kind in ('user', 'group', 'domain'):
+        prefix=kind+'-'
+        if not entity.startswith(prefix):continue
+        value=entity[len(prefix):]
+        domain=value.rsplit('@',1)[-1] if kind!='domain' and value.count('@')==1 else value if kind=='domain' else ''
+        domain=domain.lower()
+        if re.fullmatch(r'(?=.{1,253}\Z)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+',domain):
+            return {'principalKind':kind,'principalDomain':domain}
+    return {}
 
 
 def _parents(collector,scope):
@@ -55,7 +70,9 @@ def _acl(raw,bucket,object_ref=None,object_name=None,generation=None):
         raise _error('storage_acl_entry_malformed')
     identity=entity if entity in PUBLIC else 'sha256:'+_hash(entity)
     name=bucket+'/acl/'+_hash(entity) if object_ref is None else bucket+'/objects/'+object_ref+'/acl/'+_hash(entity)
-    return {'name':name,'bucket':bucket,'entity':identity,'role':role,**({'objectRef':object_ref,'generation':generation} if object_ref else {})}
+    return {'name':name,'bucket':bucket,'entity':identity,'role':role,
+            **(_principal_hint(entity) if entity not in PUBLIC else {}),
+            **({'objectRef':object_ref,'generation':generation} if object_ref else {})}
 
 
 def _bucket_acl(collector,scope):
@@ -152,8 +169,8 @@ def _public_grants(policy,collector):
     for binding in bindings:
         if not isinstance(binding,dict) or not isinstance(binding.get('role'),str) or not binding['role'] or not isinstance(binding.get('members'),list) or any(not isinstance(m,str) or not m for m in binding['members']) or len(binding['members'])!=len(set(binding['members'])):
             raise _error('storage_iam_binding_malformed')
-        if 'condition' in binding:raise _error('storage_conditional_iam_unresolved')
         if not PUBLIC.intersection(binding['members']):continue
+        if 'condition' in binding:raise _error('storage_conditional_iam_unresolved')
         role=binding.get('role')
         matches=[item for _,item in collector.items('iam_role') if item.get('name')==role]
         permissions=[item.get('includedPermissions') for item in matches]
@@ -189,15 +206,34 @@ def _effective(collector,scope):
         access,write=_public_grants(bucket.get('iamPolicy',{}),collector)
         for request in coverage.get('source_requests',[]):yield [],request
         hierarchy=bucket.get('hierarchicalNamespace')
-        if hierarchy is not None and (not isinstance(hierarchy,dict) or hierarchy.get('enabled') is not False):
+        if hierarchy is not None and (not isinstance(hierarchy,dict) or type(hierarchy.get('enabled')) is not bool):
             raise _error('storage_hierarchical_folder_iam_unresolved')
-        if _uniform(bucket):
+        has_folder_inventory='managed_folder' in getattr(collector,'needed',())
+        folders=collector.collections.get(('managed_folder',scope)) if has_folder_inventory else None
+        if has_folder_inventory:
+            if (not isinstance(folders,dict) or folders.get('status') not in ('collected','empty')
+                    or folders.get('coverage_status') not in ('collected','empty')
+                    or not isinstance(folders.get('items'),list)):
+                raise _error('storage_managed_folder_iam_unresolved')
+            for folder in folders['items']:
+                if folder.get('bucket')!=bucket['name']:continue
+                policy=folder.get('iamPolicy')
+                folder_coverage=(folder.get('_coverage') or {}).get('iamPolicy')
+                if not isinstance(folder_coverage,dict) or folder_coverage.get('status')!='collected':
+                    raise _error('storage_managed_folder_iam_unresolved')
+                folder_access,folder_write=_public_grants(policy,collector)
+                access|=folder_access;write|=folder_write
+                for request in folder_coverage.get('source_requests',[]):yield [],request
+            for request in folders.get('source_requests',[]):yield [],request
+        elif hierarchy is not None and hierarchy.get('enabled') is True:
+            raise _error('storage_hierarchical_folder_iam_unresolved')
+        elif _uniform(bucket):
             for folders,request in collector.pages('https://storage.googleapis.com/storage/v1/b/'+quote(bucket['name'],safe='')+'/managedFolders',scope,
                 page_size_key='maxResults'):
                 yield [],request
                 if folders:raise _error('storage_managed_folder_iam_unresolved')
         row={'name':bucket['name'],'resolutionComplete':True,'publicAccess':access or inherited_access,'publicWrite':write or inherited_write,
-            'policyScopes':[node for node,p in policies], 'semantics':'Complete direct and ancestor IAM public-principal grant union; PAP does not erase raw grants'}
+            'policyScopes':[node for node,p in policies], 'semantics':'Complete direct, ancestor, and managed-folder IAM public-principal grant union; PAP does not erase raw grants'}
         for request in parent['source_requests'][-1:]:yield [row],request
 
 

@@ -3624,6 +3624,9 @@ def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     result = one(gcp(gcoll("bigquery_dataset", [public], service="bigquery")), "bigquery_dataset")
     assert result["status"] == "FAIL" and result["evidence"]["data_exposure"]
     assert result["evidence"]["authenticated_endpoint"]
+    public["access"][0]["role"] = "roles/bigquery.metadataViewer"
+    assert one(gcp(gcoll("bigquery_dataset", [public], service="bigquery")), "bigquery_dataset")["status"] == "UNKNOWN"
+    public["access"][0]["role"] = "READER"
     delegated = {"name": "projects/p1/datasets/source", "datasetReference": {"projectId": "p1", "datasetId": "source"},
                  "access": [{"view": {"projectId": "foreign", "datasetId": "views", "tableId": "v"}}]}
     result = one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")
@@ -3635,6 +3638,11 @@ def test_gcp_bigquery_legacy_acl_and_authorized_resource():
                                  "target_types": ["VIEWS"]}}]
     result = one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")
     assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["foreign"]
+    delegated["access"] = [{"routine": {"projectId": "foreign", "datasetId": "api", "routineId": "r"},
+                            "role": "roles/bigquery.routineMetadataViewer"}]
+    assert one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")["status"] == "UNKNOWN"
+    delegated["access"][0]["role"] = "roles/bigquery.routineDataViewer"
+    assert one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")["status"] == "FAIL"
 
 
 def test_gcp_authorized_resource_uses_scanned_project_id_and_number_boundary():
@@ -3926,6 +3934,9 @@ def test_gcp_authorized_resources_join_project_inherited_public_permissions():
     assert len(result.path[-1]["public_routines"]) == 1
     policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert assessment().verdict() == "UNKNOWN"
+    policy["bindings"][0].pop("condition")
+    policy["name"] = "projects/unrelated"
+    assert assessment().verdict() == "UNKNOWN"
 
 
 def test_gcp_authorized_view_joins_verified_ancestor_public_readers():
@@ -3972,15 +3983,26 @@ def test_gcp_authorized_routine_joins_verified_ancestor_public_invocation():
             {"role": "roles/bigquery.routineDataViewer", "members": ["allAuthenticatedUsers"]}]}],
         "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
     role = {"name": "roles/bigquery.routineDataViewer", "includedPermissions": ["bigquery.routines.get"]}
-    snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
-               gcoll("bigquery_routine_metadata", [routine], service="bigquery"),
-               gcoll("project", [project], service="cloudresourcemanager"),
-               gcoll("iam_role", [role], service="iam"))
-    items = resources(snap)
-    current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
-    result = _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
+                   gcoll("bigquery_routine_metadata", [routine], service="bigquery"),
+                   gcoll("project", [project], service="cloudresourcemanager"),
+                   gcoll("iam_role", [role], service="iam"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
     assert result.verdict() == "FAIL"
     assert result.path[-1]["public_routines"][0]["inherited_public"][0]["scope"] == "organizations/9"
+    assert result.path[-1]["public_routines"][0]["mutation_possible"] is True
+    source["access"][0]["role"] = "roles/bigquery.routineMetadataViewer"
+    assert assessment().verdict() == "UNKNOWN"
+    source["access"][0]["role"] = "roles/bigquery.routineDataViewer"
+    result = assessment()
+    assert result.verdict() == "FAIL" and result.path[-1]["public_routines"][0]["mutation_possible"] is False
+    source["access"][0]["role"] = "roles/bigquery.routineDataEditor"
+    result = assessment()
+    assert result.verdict() == "FAIL" and result.path[-1]["public_routines"][0]["mutation_possible"] is True
 
 
 def test_gcp_authorized_resources_join_direct_custom_role_permissions():
@@ -4544,6 +4566,32 @@ def test_gcp_collected_bucket_acl_public_read_and_pap():
     assert not any(row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL" for row in rows)
 
 
+def test_gcp_object_acl_exposure_keeps_exact_hashed_object_generation():
+    bucket = {"name": "sample-bucket", "iamConfiguration": {
+        "uniformBucketLevelAccess": {"enabled": False}, "publicAccessPrevention": "not_enforced"},
+        "iamPolicy": {"bindings": []},
+        "bucketAccessControls": {"status": "collected", "all_pages": True, "items": []},
+        "objectAccessControls": {"status": "collected", "all_pages": True,
+            "all_objects": True, "all_versions": True, "source_inventory": "object_acl",
+            "source_requests": ["request-1"],
+            "items": [{"entity": "allUsers", "role": "READER"},
+                      {"entity": "allUsers", "role": "READER"}]}}
+    native = [{"name": "sample-bucket/objects/" + ref + "/acl/public", "bucket": "sample-bucket",
+               "entity": "allUsers", "role": "READER", "objectRef": ref,
+               "generation": generation,
+               "_provenance": {"source_requests": ["request-1"]}}
+              for ref, generation in (("a" * 64, "123"), ("b" * 64, "456"))]
+    def result():
+        return one(gcp(gcoll("bucket", [bucket], service="storage"),
+                       gcoll("object_acl", native, service="storage")), "bucket")
+    evidence = str(result()["evidence"])
+    assert result()["status"] == "FAIL"
+    assert "a" * 64 in evidence and "b" * 64 in evidence
+    assert "123" in evidence and "456" in evidence
+    native[0]["_provenance"]["source_requests"] = ["foreign-request"]
+    assert "a" * 64 not in str(result()["evidence"])
+
+
 def test_gcp_live_gke_service_inventory_candidates_and_missing_cluster():
     from peaso.analysis.internet_exposure import GCP_TYPES
     from peaso.engine import plan_collection
@@ -4589,6 +4637,168 @@ def test_gcp_live_gke_ingress_inventory_candidate_and_gap():
     assert not exposure(gcp(gcoll("gke_exposure_ingress", [marker], service="kubernetes")))
 
 
+def test_gcp_loadbalancer_service_joins_controller_backend_cloud_edge(monkeypatch):
+    from types import SimpleNamespace
+    from peaso.analysis import internet_exposure as exposure_module
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_service
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    backend_ref = "https://compute.googleapis.com/compute/v1/projects/p1/regions/us-central1/backendServices/k8s-be-web"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "namespace": "default", "kubernetesName": "web",
+               "spec": {"type": "LoadBalancer", "ports": [{"port": 8080, "protocol": "TCP"}]},
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}},
+               "annotations": {"service.kubernetes.io/tcp-forwarding-rule": "k8s-fw-web",
+                               "service.kubernetes.io/backend-service": "k8s-be-web"}}
+    marker = {"name": cluster + "/serviceInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "serviceCount": 1}
+    forwarding = {"name": "k8s-fw-web", "loadBalancingScheme": "EXTERNAL",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "8080-8080",
+                  "backendService": backend_ref}
+    backend = {"name": "k8s-be-web", "selfLink": backend_ref}
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("tcp", 8080, 8080), path=[]))
+    def assessment():
+        snap = gcp(gcoll("gke_exposure_service", [service, marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding]), gcoll("backend_service", [backend]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "gke_exposure_service"
+                       and row["data"]["name"] == service["name"])
+        return _gcp_gke_exposure_service(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL"
+    assert describe(assessment().ports) == ["tcp/8080"]
+    monkeypatch.setattr(exposure_module, "_gcp_gke_nodeport_direct_node", lambda *args:
+                        pset("tcp", 30080, 30080))
+    assert describe(assessment().ports) == ["tcp/8080", "tcp/30080"]
+    monkeypatch.setattr(exposure_module, "_gcp_gke_nodeport_direct_node", lambda *args: None)
+    forwarding["IPAddress"] = "34.1.2.4"
+    assert assessment().verdict() == "UNKNOWN"
+    forwarding["IPAddress"] = "34.1.2.3"
+    forwarding["backendService"] = backend_ref.replace("k8s-be-web", "unrelated")
+    assert assessment().verdict() == "UNKNOWN"
+    forwarding["backendService"] = backend_ref
+    marker["inventoryStatus"] = "unavailable"
+    assert assessment().verdict() == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    service["annotations"].pop("service.kubernetes.io/tcp-forwarding-rule")
+    service["annotations"]["service.kubernetes.io/l3-forwarding-rule"] = "k8s-fw-web"
+    service["spec"]["ports"].append({"port": 8081, "protocol": "UDP"})
+    forwarding.update(IPProtocol="L3_DEFAULT", allPorts=True)
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("all"), path=[]))
+    assert describe(assessment().ports) == ["tcp/8080", "udp/8081"]
+    forwarding["allPorts"] = False
+    assert assessment().verdict() == "UNKNOWN"
+
+
+def test_gcp_l3_default_forwarding_rule_all_ports_includes_tcp_and_udp():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
+    from peaso.snapshot import resources
+    forwarding = {"name": "mixed", "loadBalancingScheme": "EXTERNAL", "IPAddress": "34.1.2.3",
+                  "IPProtocol": "L3_DEFAULT", "allPorts": True,
+                  "backendService": "https://compute.googleapis.com/compute/v1/projects/p1/regions/r1/backendServices/mixed"}
+    snap = gcp(gcoll("forwarding_rule", [forwarding]))
+    items = resources(snap)
+    rule = next(row for row in items if row["type"] == "forwarding_rule")
+    edge = _gcp_forwarding_rule(snap, Inventory(snap, items), rule)
+    assert intersect(edge.ports, pset("tcp", 8080, 8080))
+    assert intersect(edge.ports, pset("udp", 8081, 8081))
+
+
+def test_gcp_legacy_loadbalancer_service_joins_exact_target_pool(monkeypatch):
+    from types import SimpleNamespace
+    from peaso.analysis import internet_exposure as exposure_module
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_service
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    pool_ref = "https://compute.googleapis.com/compute/v1/projects/p1/regions/us-central1/targetPools/k8s-pool-web"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "spec": {"type": "LoadBalancer", "ports": [{"port": 8080, "protocol": "TCP"}]},
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}},
+               "annotations": {"service.kubernetes.io/tcp-forwarding-rule": "k8s-fw-web"}}
+    marker = {"name": cluster + "/serviceInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "serviceCount": 1}
+    forwarding = {"name": "k8s-fw-web", "loadBalancingScheme": "EXTERNAL",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "8080-8080", "target": pool_ref}
+    pool = {"name": "k8s-pool-web", "selfLink": pool_ref}
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("tcp", 8080, 8080), path=[]))
+    def assessment():
+        snap = gcp(gcoll("gke_exposure_service", [service, marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding]), gcoll("target_pool", [pool]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "gke_exposure_service"
+                       and row["data"]["name"] == service["name"])
+        return _gcp_gke_exposure_service(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL"
+    forwarding["target"] = pool_ref.replace("k8s-pool-web", "unrelated")
+    assert assessment().verdict() == "UNKNOWN"
+
+
+def test_gcp_ingress_joins_exact_controller_cloud_edge():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_ingress
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    base = "https://compute.googleapis.com/compute/v1/projects/p1/global"
+    proxy_ref = base + "/targetHttpProxies/k8s-tp-web"
+    map_ref = base + "/urlMaps/k8s-um-web"
+    backend_ref = base + "/backendServices/k8s-be-web"
+    ingress = {"name": cluster + "/namespaces/default/ingresses/web", "cluster": cluster,
+               "annotations": {"kubernetes.io/ingress.class": "gce",
+                               "ingress.kubernetes.io/forwarding-rule": "k8s-fw-web",
+                               "ingress.kubernetes.io/target-proxy": "k8s-tp-web",
+                               "ingress.kubernetes.io/url-map": "k8s-um-web"},
+               "hosts": ["example.com"],
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}}}
+    marker = {"name": cluster + "/ingressInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "ingressCount": 1}
+    forwarding = {"name": "k8s-fw-web", "loadBalancingScheme": "EXTERNAL_MANAGED",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "80-80",
+                  "target": proxy_ref}
+    proxy = {"name": "k8s-tp-web", "selfLink": proxy_ref, "urlMap": map_ref}
+    url_map = {"name": "k8s-um-web", "selfLink": map_ref, "defaultService": backend_ref}
+    backend = {"name": "k8s-be-web", "selfLink": backend_ref}
+    def assessment():
+        snap = gcp(gcoll("gke_exposure_ingress", [ingress, marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding]), gcoll("target_proxy", [proxy]),
+                   gcoll("url_map", [url_map]), gcoll("backend_service", [backend]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "gke_exposure_ingress"
+                       and row["data"]["name"] == ingress["name"])
+        return _gcp_gke_exposure_ingress(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL" and describe(result.ports) == ["tcp/80"]
+    assert result.path[-1]["forwarding_rule"] == "k8s-fw-web"
+    ingress["hosts"] = []
+    assert assessment().verdict() == "UNKNOWN"
+    ingress["hosts"] = ["example.com"]
+    ingress["annotations"].pop("ingress.kubernetes.io/forwarding-rule")
+    ingress["annotations"].pop("ingress.kubernetes.io/target-proxy")
+    ingress["annotations"].update({"ingress.kubernetes.io/https-forwarding-rule": "k8s-fs-web",
+                                   "ingress.kubernetes.io/https-target-proxy": "k8s-ts-web"})
+    forwarding.update(name="k8s-fs-web", portRange="443-443",
+                      target=base + "/targetHttpsProxies/k8s-ts-web")
+    proxy["selfLink"] = forwarding["target"]
+    assert assessment().verdict() == "FAIL" and describe(assessment().ports) == ["tcp/443"]
+    ingress["annotations"].update({"ingress.kubernetes.io/forwarding-rule": "k8s-fw-web",
+                                   "ingress.kubernetes.io/target-proxy": "k8s-tp-web"})
+    ingress["annotations"].pop("ingress.kubernetes.io/https-forwarding-rule")
+    ingress["annotations"].pop("ingress.kubernetes.io/https-target-proxy")
+    forwarding.update(name="k8s-fw-web", portRange="80-80", target=proxy_ref)
+    proxy["selfLink"] = proxy_ref
+    ingress["annotations"]["kubernetes.io/ingress.class"] = "gce-internal"
+    assert assessment().verdict() == "UNKNOWN"
+    ingress["annotations"]["kubernetes.io/ingress.class"] = "gce"
+    forwarding["target"] = base + "/targetHttpProxies/unrelated"
+    assert assessment().verdict() == "UNKNOWN"
+    forwarding["target"] = proxy_ref
+    marker["inventoryStatus"] = "unavailable"
+    assert assessment().verdict() == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    url_map["defaultService"] = base + "/backendServices/missing"
+    assert assessment().verdict() == "UNKNOWN"
+
+
 def test_gcp_live_gke_host_bound_pod_candidate_and_gap():
     from peaso.analysis.internet_exposure import GCP_TYPES
     from peaso.engine import plan_collection
@@ -4609,6 +4819,257 @@ def test_gcp_live_gke_host_bound_pod_candidate_and_gap():
                "gke_exposure_pod")["status"] == "UNKNOWN"
 
 
+def test_gcp_live_gke_node_inventory_is_supporting_evidence():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    assert "gke_exposure_node" in GCP_TYPES
+    assert "gke_exposure_node" in plan_collection({
+        "connector": {"provider": "gcp"}, "categories": ["exposure"]})
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    node = {"name": cluster + "/nodes/gke-node-1", "cluster": cluster,
+            "providerID": "gce://p1/us-central1-a/gke-node-1",
+            "addresses": [{"type": "ExternalIP", "address": "34.1.2.3"}]}
+    assert not exposure(gcp(gcoll("gke_exposure_node", [node], service="kubernetes")))
+    marker = {"name": cluster + "/nodeInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
+    assert one(gcp(gcoll("gke_exposure_node", [marker], service="kubernetes")),
+               "gke_exposure_node")["status"] == "UNKNOWN"
+
+
+def test_gcp_hostport_joins_exact_live_node_vm_and_effective_firewall():
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    pod = {"name": cluster + "/namespaces/default/pods/web", "cluster": cluster,
+           "hostNetwork": False, "hostPorts": [{"hostPort": 8080, "protocol": "TCP"}],
+           "nodeName": "node-a", "hostIP": "10.1.2.3", "phase": "Running"}
+    node = {"name": cluster + "/nodes/node-a", "cluster": cluster,
+            "kubernetesName": "node-a", "providerID": "gce://p1/us-central1-a/vm",
+            "addresses": [{"type": "InternalIP", "address": "10.1.2.3"},
+                          {"type": "ExternalIP", "address": "34.1.1.1"}]}
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-hostport", 1000, "allowed", ["8080"], ["web"])],
+                 "firewallPolicys": [], "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def result():
+        return one(gcp(gcoll("gke_exposure_pod", [pod], service="kubernetes"),
+                       gcoll("gke_exposure_node", [node], service="kubernetes"), vm,
+                       gcoll("instance_effective_firewall", [effective]),
+                       gcoll("firewall", [], status="denied")), "gke_exposure_pod")
+    assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/8080"]
+    pod["hostPorts"][0]["bindIP"] = "127.0.0.1"
+    assert result()["status"] == "UNKNOWN"
+    pod["hostPorts"][0]["bindIP"] = "10.1.2.3"
+    assert result()["status"] == "UNKNOWN"
+    vm["items"][0]["networkInterfaces"][0]["networkIP"] = "10.1.2.3"
+    assert result()["status"] == "FAIL"
+    vm["items"][0]["networkInterfaces"][0]["networkIP"] = "10.1.2.4"
+    assert result()["status"] == "UNKNOWN"
+    pod["hostPorts"][0]["bindIP"] = "0.0.0.0"
+    assert result()["status"] == "FAIL"
+    pod["hostNetwork"] = True
+    pod["hostPorts"][0]["portSource"] = "hostNetwork"
+    assert result()["status"] == "FAIL"
+    pod["hostNetwork"] = False
+    pod["hostPorts"][0].pop("portSource")
+    node["addresses"][1]["address"] = "34.1.1.2"
+    assert result()["status"] == "UNKNOWN"
+    node["addresses"][1]["address"] = "34.1.1.1"
+    effective["firewallPolicys"] = [{"type": "HIERARCHY", "name": "organizations/9/locations/global/firewallPolicies/1",
+                                    "rules": [{"priority": 100, "direction": "INGRESS", "action": "allow",
+                                               "match": {"srcIpRanges": ["0.0.0.0/0"]}}]}]
+    assert result()["status"] == "FAIL"
+    effective["firewallPolicys"] = [{"name": "unresolved-policy"}]
+    assert result()["status"] == "UNKNOWN"
+
+
+def test_gcp_nodeport_joins_ready_backend_node_vm_and_effective_firewall():
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "namespace": "default", "kubernetesName": "web",
+               "spec": {"type": "NodePort", "externalTrafficPolicy": "Local",
+                        "ports": [{"name": "http", "port": 80, "targetPort": 8080,
+                                   "nodePort": 30080, "protocol": "TCP"}]}}
+    service_marker = {"name": cluster + "/serviceInventory", "cluster": cluster,
+                      "inventoryStatus": "collected", "serviceCount": 1}
+    slice_row = {"name": cluster + "/namespaces/default/endpointslices/web-abc", "cluster": cluster,
+                 "namespace": "default", "serviceName": "web", "addressType": "IPv4",
+                 "ports": [{"name": "http", "port": 8080, "protocol": "TCP"}],
+                 "readyEndpointCount": 1, "readyNodeNames": ["node-a"]}
+    slice_marker = {"name": cluster + "/endpointsliceInventory", "cluster": cluster,
+                    "inventoryStatus": "collected", "endpointsliceCount": 1}
+    node = {"name": cluster + "/nodes/node-a", "cluster": cluster, "kubernetesName": "node-a",
+            "providerID": "gce://p1/us-central1-a/vm",
+            "addresses": [{"type": "ExternalIP", "address": "34.1.1.1"}]}
+    node_marker = {"name": cluster + "/nodeInventory", "cluster": cluster,
+                   "inventoryStatus": "collected", "nodeCount": 1}
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-nodeport", 1000, "allowed", ["30080"], ["web"])],
+                 "firewallPolicys": [], "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def result():
+        report = analyze(gcp(gcoll("gke_exposure_service", [service, service_marker], service="kubernetes"),
+                             gcoll("gke_exposure_endpointslice", [slice_row, slice_marker], service="kubernetes"),
+                             gcoll("gke_exposure_node", [node, node_marker], service="kubernetes"), vm,
+                             gcoll("instance_effective_firewall", [effective]),
+                             gcoll("firewall", [], status="denied")))
+        resource_id = next(row["id"] for row in report["resources"] if row["type"] == "gke_exposure_service"
+                           and row["data"]["name"] == service["name"])
+        return next(row for row in report["findings"] if row["check_id"] == CHECK
+                    and row["resource_id"] == resource_id)
+    assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/30080"]
+    service["spec"]["type"] = "LoadBalancer"
+    service["spec"]["allocateLoadBalancerNodePorts"] = False
+    assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/30080"]
+    service["spec"]["type"] = "NodePort"
+    slice_row["readyNodeNames"] = ["other-node"]
+    assert result()["status"] == "UNKNOWN"
+    service["spec"]["externalTrafficPolicy"] = "Cluster"
+    assert result()["status"] == "FAIL"
+    slice_row["ports"][0]["port"] = 8081
+    assert result()["status"] == "UNKNOWN"
+    slice_row["ports"][0]["port"] = 8080
+    slice_marker["inventoryStatus"] = "unavailable"
+    assert result()["status"] == "UNKNOWN"
+    slice_marker["inventoryStatus"] = "collected"
+    effective["firewallPolicys"] = [{"name": "unresolved-policy"}]
+    assert result()["status"] == "UNKNOWN"
+    effective["firewallPolicys"] = []
+    service_marker["inventoryStatus"] = "unavailable"
+    assert result()["status"] == "UNKNOWN"
+    service_marker["inventoryStatus"] = "collected"
+    service["spec"].update(type="ClusterIP", externalIPs=["34.1.1.1"])
+    effective["firewalls"] = [fw("allow-external-ip", 1000, "allowed", ["80"], ["web"])]
+    assert result()["status"] == "UNKNOWN"
+    service["spec"]["externalTrafficPolicy"] = "unrecognized"
+    assert result()["status"] == "UNKNOWN"
+
+
+def test_gcp_live_gke_gateway_and_httproute_candidates():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    selected = set(plan_collection({"connector": {"provider": "gcp"}, "categories": ["exposure"]}))
+    assert {"gke_exposure_gateway", "gke_exposure_gatewayclass", "gke_exposure_httproute"} <= set(GCP_TYPES) & selected
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    gateway = {"name": cluster + "/namespaces/default/gateways/web", "cluster": cluster,
+               "namespace": "default", "kubernetesName": "web",
+               "gatewayClassName": "gke-l7-global-external-managed",
+               "listeners": [{"name": "https", "port": 443, "protocol": "HTTPS"}],
+               "addresses": [{"type": "IPAddress", "value": "34.1.2.3"}]}
+    route = {"name": cluster + "/namespaces/default/httproutes/web", "cluster": cluster,
+             "hostnames": ["example.com"], "parentRefs": [{"name": "web"}],
+             "backendRefs": [{"name": "svc", "port": 8080}]}
+    result = one(gcp(gcoll("gke_exposure_gateway", [gateway], service="kubernetes")), "gke_exposure_gateway")
+    assert result["status"] == "UNKNOWN" and "tcp/443" in str(result["evidence"])
+    result = one(gcp(gcoll("gke_exposure_httproute", [route], service="kubernetes")), "gke_exposure_httproute")
+    assert result["status"] == "UNKNOWN" and "example.com" in str(result["evidence"])
+    marker = {"name": cluster + "/gatewayInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
+    assert one(gcp(gcoll("gke_exposure_gateway", [marker], service="kubernetes")),
+               "gke_exposure_gateway")["status"] == "UNKNOWN"
+
+
+def test_gcp_gateway_joins_exact_controller_cloud_edge():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_gateway, _gcp_gke_exposure_httproute
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    base = "https://compute.googleapis.com/compute/v1/projects/p1/global"
+    proxy_ref = base + "/targetHttpsProxies/gkegw-tp1"
+    map_ref = base + "/urlMaps/gkegw-url-map1"
+    backend_ref = base + "/backendServices/gkegw-be1"
+    gateway = {"name": cluster + "/namespaces/default/gateways/web", "cluster": cluster,
+               "namespace": "default", "kubernetesName": "web",
+               "gatewayClassName": "gke-l7-global-external-managed",
+               "listeners": [{"name": "https", "port": 443, "protocol": "HTTPS"}],
+               "addresses": [{"type": "IPAddress", "value": "34.1.2.3"}],
+               "annotations": {"networking.gke.io/forwarding-rules": "gkegw-fr1",
+                               "networking.gke.io/target-proxies": "gkegw-tp1",
+                               "networking.gke.io/url-maps": "gkegw-url-map1"}}
+    marker = {"name": cluster + "/gatewayInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "gatewayCount": 1}
+    gateway_class = {"name": cluster + "/gatewayclasses/gke-l7-global-external-managed",
+                     "cluster": cluster, "kubernetesName": "gke-l7-global-external-managed",
+                     "controllerName": "networking.gke.io/gateway"}
+    class_marker = {"name": cluster + "/gatewayclassInventory", "cluster": cluster,
+                    "inventoryStatus": "collected", "gatewayclassCount": 1}
+    forwarding = {"name": "gkegw-fr1", "loadBalancingScheme": "EXTERNAL_MANAGED",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "443-443",
+                  "target": proxy_ref}
+    proxy = {"name": "gkegw-tp1", "selfLink": proxy_ref, "urlMap": map_ref}
+    url_map = {"name": "gkegw-url-map1", "selfLink": map_ref, "defaultService": backend_ref}
+    backend = {"name": "gkegw-be1", "selfLink": backend_ref}
+    route = {"name": cluster + "/namespaces/default/httproutes/web", "cluster": cluster,
+             "namespace": "default", "generation": 3, "hostnames": ["example.com"],
+             "parentRefs": [{"name": "web", "sectionName": "https"}],
+             "backendRefs": [{"name": "app", "port": 8080}],
+             "parentStatus": [{"controllerName": "networking.gke.io/gateway",
+                               "parentRef": {"name": "web", "sectionName": "https"},
+                               "conditions": [{"type": "Accepted", "status": "True", "observedGeneration": 3},
+                                              {"type": "Reconciled", "status": "True", "observedGeneration": 3}]}]}
+    route_marker = {"name": cluster + "/httprouteInventory", "cluster": cluster,
+                    "inventoryStatus": "collected", "httprouteCount": 1}
+    extra = []
+    def assessment(kind="gke_exposure_gateway"):
+        snap = gcp(gcoll("gke_exposure_gateway", [gateway, marker], service="kubernetes"),
+                   gcoll("gke_exposure_gatewayclass", [gateway_class, class_marker], service="kubernetes"),
+                   gcoll("gke_exposure_httproute", [route, route_marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding, *extra]), gcoll("target_proxy", [proxy]),
+                   gcoll("url_map", [url_map]), gcoll("backend_service", [backend]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == kind
+                       and row["data"]["name"] == (gateway if kind == "gke_exposure_gateway" else route)["name"])
+        evaluator = _gcp_gke_exposure_gateway if kind == "gke_exposure_gateway" else _gcp_gke_exposure_httproute
+        return evaluator(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL" and describe(assessment().ports) == ["tcp/443"]
+    assert assessment().path[-1]["forwarding_rule"] == "gkegw-fr1"
+    assert assessment("gke_exposure_httproute").verdict() == "FAIL"
+    gateway["gatewayClassName"] = "gke-l7-rilb"
+    assert assessment().verdict() == "UNKNOWN"
+    gateway["gatewayClassName"] = "gke-l7-global-external-managed"
+    url_map["selfLink"] = base + "/urlMaps/unrelated"
+    assert assessment().verdict() == "UNKNOWN"
+    url_map["selfLink"] = map_ref
+    marker["inventoryStatus"] = "unavailable"
+    assert assessment().verdict() == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    gateway_class["controllerName"] = "unrelated.example/controller"
+    assert assessment().verdict() == "UNKNOWN"
+    gateway_class["controllerName"] = "networking.gke.io/gateway"
+    extra.append({**forwarding, "selfLink": base + "/forwardingRules/duplicate"})
+    assert assessment().verdict() == "UNKNOWN"
+    extra.clear()
+    route["parentStatus"][0]["conditions"][0]["observedGeneration"] = 2
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    route["parentStatus"][0]["conditions"][0]["observedGeneration"] = 3
+    route["parentRefs"][0]["sectionName"] = "http"
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    route["parentRefs"][0]["sectionName"] = "https"
+    route["parentStatus"][0]["conditions"].append(
+        {"type": "ResolvedRefs", "status": "False", "observedGeneration": 3})
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    route["parentStatus"][0]["conditions"].pop()
+    route["parentStatus"][0]["controllerName"] = "unrelated.example/controller"
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+
+
+def test_gcp_gke_endpointslice_inventory_gap_is_unknown():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    selected = set(plan_collection({"connector": {"provider": "gcp"}, "categories": ["exposure"]}))
+    assert "gke_exposure_endpointslice" in set(GCP_TYPES) & selected
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    marker = {"name": cluster + "/endpointsliceInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
+    assert one(gcp(gcoll("gke_exposure_endpointslice", [marker], service="kubernetes")),
+               "gke_exposure_endpointslice")["status"] == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    assert not [finding for finding in exposure(gcp(gcoll("gke_exposure_endpointslice", [marker],
+                                                       service="kubernetes")))
+                if finding["resource_type"] == "gke_exposure_endpointslice"]
+
+
 def test_gcp_nonuniform_bucket_missing_acl_inventory_is_unknown():
     bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False},
               "publicAccessPrevention": "not_enforced"}, "iamPolicy": {"bindings": []}}
@@ -4619,7 +5080,7 @@ def test_gcp_nonuniform_bucket_missing_acl_inventory_is_unknown():
     bucket["bucketAccessControls"] = {"status": "collected", "all_pages": True, "items": []}
     bucket["objectAccessControls"] = {"status": "collected", "all_pages": True,
                                        "all_objects": True, "all_versions": True, "items": []}
-    assert not exposure(gcp(gcoll("bucket", [bucket], service="storage")))
+    assert one(gcp(gcoll("bucket", [bucket], service="storage")), "bucket")["status"] == "UNKNOWN"
 
 
 def test_gcp_bucket_inherited_public_grant_and_effective_pap():
@@ -4642,6 +5103,28 @@ def test_gcp_bucket_inherited_public_grant_and_effective_pap():
     policy["spec"]["rules"].append({"enforce": False})
     assert assessment(gcoll("org_policy_effective", [policy], service="orgpolicy")).verdict() == "UNKNOWN"
     assert assessment().verdict() == "UNKNOWN"
+
+
+def test_gcp_bucket_requires_complete_negative_ancestor_iam_before_no_finding():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bucket
+    from peaso.snapshot import resources
+    bucket = {"name": "sample-bucket", "iamPolicy": {"bindings": []},
+              "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True},
+                                   "publicAccessPrevention": "not_enforced"}}
+    effective = {"name": "sample-bucket", "resolutionComplete": True, "publicAccess": False}
+    def assessment(*extra):
+        snap = gcp(gcoll("bucket", [bucket], service="storage"),
+                   gcoll("managed_folder", [], status="empty", service="storage"), *extra)
+        items = resources(snap)
+        return _gcp_bucket(snap, Inventory(snap, items), next(row for row in items if row["type"] == "bucket"))
+    missing = assessment()
+    assert missing is not None and missing.verdict() == "UNKNOWN"
+    assert missing.path[-1]["effective_iam_unresolved"] is True
+    assert assessment(gcoll("bucket_effective_iam", [effective], service="storage")) is None
+    effective["resolutionComplete"] = False
+    assert assessment(gcoll("bucket_effective_iam", [effective], service="storage")).verdict() == "UNKNOWN"
+    effective.update(resolutionComplete=True, publicAccess=True)
+    assert assessment(gcoll("bucket_effective_iam", [effective], service="storage")).verdict() == "FAIL"
 
 
 def test_gcp_bucket_ip_filter_blocks_direct_public_grant_without_public_network_range():
@@ -4691,7 +5174,7 @@ def test_gcp_bucket_custom_role_permissions_gate_public_object_exposure():
     assert assessment().verdict() == "UNKNOWN"
     bucket["iamPolicy"]["bindings"][0].pop("condition")
     role["includedPermissions"] = ["logging.logEntries.list"]
-    assert assessment() is None
+    assert assessment().verdict() == "UNKNOWN"  # Ancestor IAM remains uncollected.
     assert assessment(with_role=False).verdict() == "UNKNOWN"
 
 
@@ -4744,7 +5227,7 @@ def test_gcp_managed_folder_parent_prefix_and_incomplete_inventory():
     assert incomplete.verdict() == "UNKNOWN"
     assert incomplete.path[-1]["managed_folder_unresolved"] == [
         {"reason": "managed folder inventory incomplete"}]
-    assert assessment([], status="empty") is None
+    assert assessment([], status="empty").verdict() == "UNKNOWN"  # Ancestor IAM remains uncollected.
 
 
 @pytest.mark.parametrize("kind,record,expected", [

@@ -431,6 +431,10 @@ def principal_exposure(snapshot, resource, declared):
         else:
             from .common import externality
             classification = externality(snapshot, identity, tenant=tenant)
+            if kind == "acl_group_domain" and classification == "allowlisted":
+                # An owned email domain does not prove membership of a
+                # particular group whose address was intentionally hashed.
+                classification = "unknown"
         if classification in ("allowlisted", "provider_service"):
             continue
         entry = {"principal": identity, "classification": classification,
@@ -441,6 +445,9 @@ def principal_exposure(snapshot, resource, declared):
             if group_evidence is not None:
                 entry["group_membership"] = group_evidence
         verdict, reason = principal_verdict(snapshot, entry, fact, path)
+        if (snapshot["provider"] == "gcp" and resource.get("type") == "bigquery_dataset"
+                and path.startswith("access[") and fact.get("role") not in ("READER", "WRITER", "OWNER")):
+            verdict, reason = "UNKNOWN", "unrecognized_dataset_acl_role"
         if verdict == "FAIL" and reason == "public" and _aws_network_bound_policy(resource):
             verdict, reason = "MANUAL", "public_network_bound"
         if verdict is None:
@@ -450,7 +457,14 @@ def principal_exposure(snapshot, resource, declared):
             from .common import principal_scope
             entry["external_scope_id"] = tenant or principal_scope(snapshot["provider"], identity)
         if verdict == "UNKNOWN":
-            entry["unknown_reason"], entry["facts_needed"] = unknown_principal_context(snapshot, identity)
+            if reason == "unrecognized_dataset_acl_role":
+                entry["unknown_reason"] = reason
+                entry["facts_needed"] = ["valid BigQuery dataset access role from datasets.get"]
+            else:
+                entry["unknown_reason"], entry["facts_needed"] = unknown_principal_context(snapshot, identity)
+            if kind == "acl_group_domain":
+                entry["unknown_reason"] = "redacted_group_membership_unavailable"
+                entry["facts_needed"] = ["exact group identity and transitive membership outside ACL domain projection"]
         entries.append(entry)
     if not entries:
         return None
@@ -726,6 +740,21 @@ def gcp_wif_provider(snapshot, resource):
                     continue
                 policy = item.get("iamPolicy", item.get("policy", item if collection.get("type") == "iam_policy" else None))
                 matching(policy, item.get("name") or item.get("id"), direct_bindings)
+                inherited_coverage = ((item.get("_coverage") or {}).get("_inherited_iam_policies")
+                                      if isinstance(item.get("_coverage"), dict) else None)
+                if (collection.get("type") == "project" and item.get("name") == collection.get("scope")
+                        and isinstance(inherited_coverage, dict) and inherited_coverage.get("status") == "collected"
+                        and isinstance(item.get("_inherited_iam_policies"), list)):
+                    for inherited in item["_inherited_iam_policies"]:
+                        if not isinstance(inherited, dict):
+                            continue
+                        ancestor = inherited.get("ancestor")
+                        if (not isinstance(ancestor, str) or not re.fullmatch(r"(?:folders|organizations)/[0-9]+", ancestor)
+                                or inherited.get("name") != ancestor):
+                            continue
+                        found = []
+                        matching(inherited, item["name"], found)
+                        direct_bindings.extend({**binding, "inherited_from": ancestor} for binding in found)
     evidence["service_account_bindings"] = bindings
     evidence["direct_resource_bindings"] = direct_bindings
     grants = bindings + direct_bindings
@@ -743,11 +772,11 @@ def gcp_wif_provider(snapshot, resource):
     aws_account = evidence["aws_account"]
     if isinstance(aws_account, str) and re.fullmatch(r"[0-9]{12}", aws_account):
         allowlisted = explicit_allowlist(snapshot) if snapshot.get("provider") == "gcp" else set()
-        if aws_account not in allowlisted and any(binding["pool_wide"] and not binding["condition"] for binding in grants):
-            return "FAIL", "critical", {**evidence, "problem": "External AWS account can exchange tokens for an unconditional pool-wide IAM grant"}
+        if aws_account not in allowlisted and any(binding["condition"] is None for binding in grants):
+            return "FAIL", "critical", {**evidence, "problem": "External AWS account can exchange tokens for an unconditional IAM grant to this pool"}
         return "MANUAL", "medium", {**evidence, "problem": "AWS provider account and scoped or uncollected IAM grants require trust review"}
     if host in MULTI_TENANT_ISSUERS:
-        if any(binding["pool_wide"] and not binding["condition"] for binding in grants):
+        if any(binding["pool_wide"] and binding["condition"] is None for binding in grants):
             return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
     return "MANUAL", "medium", {**evidence, "problem": "No attributeCondition; every identity of the issuer can exchange tokens"}

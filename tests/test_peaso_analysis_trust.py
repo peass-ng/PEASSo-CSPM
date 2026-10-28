@@ -340,6 +340,8 @@ def test_gcp_wif_joins_exact_pool_service_account_impersonation_binding():
     assert status == "FAIL" and evidence["service_account_bindings"][0]["members"] == [member]
     account["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    account["iamPolicy"]["bindings"][0]["condition"] = {}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     account["iamPolicy"]["bindings"][0]["members"] = [member.replace("/p/*", "/another/*")]
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
@@ -360,11 +362,41 @@ def test_gcp_wif_direct_resource_grant_and_scoped_identity():
     policy["bindings"][0]["members"] = [member]
     policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0]["condition"] = {}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     policy["bindings"][0].pop("condition")
     policy["bindings"][0]["members"] = [member.replace("/p/*", "/other/*")]
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     provider["data"]["oidc"]["issuerUri"] = "https://token.actions.githubusercontent.com.attacker.example"
     policy["bindings"][0]["members"] = [member]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+
+
+def test_gcp_wif_joins_verified_inherited_project_policy():
+    from peaso.analysis.trust import gcp_wif_provider
+    pool = "projects/1/locations/global/workloadIdentityPools/p"
+    provider = {"data": {"name": pool + "/providers/gh",
+                         "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
+    member = "principalSet://iam.googleapis.com/" + pool + "/*"
+    ancestor = {"name": "folders/42", "ancestor": "folders/42", "collection_status": "collected",
+                "bindings": [{"role": "roles/storage.objectViewer", "members": [member]}]}
+    project = {"name": "projects/p1", "_inherited_iam_policies": [ancestor],
+               "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
+    snapshot = {"collections": [{"type": "project", "scope": "projects/p1", "status": "collected",
+                                 "items": [project]}]}
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "FAIL"
+    assert evidence["direct_resource_bindings"][0]["inherited_from"] == "folders/42"
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "collected"
+    ancestor["name"] = "folders/another"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    ancestor["name"] = "folders/42"
+    ancestor["bindings"][0]["condition"] = {}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    ancestor["bindings"][0].pop("condition")
+    snapshot["collections"][0]["scope"] = "projects/other"
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
 
@@ -404,9 +436,54 @@ def test_gcp_wif_external_aws_provider_with_pool_wide_grant():
     snapshot["metadata"].clear()
     policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0]["condition"] = {}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     policy["bindings"][0].pop("condition")
     policy["bindings"][0]["members"] = [member.replace("/*", "/subject/pinned")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.team/pinned")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    policy["bindings"].clear()
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+
+
+def test_gcp_unknown_dataset_acl_role_does_not_assert_public_or_foreign_grant():
+    dataset = {"name": "projects/p1/datasets/shared", "access": [
+        {"specialGroup": "allUsers", "role": "roles/bigquery.metadataViewer"},
+        {"userByEmail": "alice@foreign.example", "role": "roles/bigquery.metadataViewer"}]}
+    def result():
+        snapshot = make_snapshot("gcp", ["projects/p1"], [coll("bigquery_dataset", [dataset],
+            scope="projects/p1", service="bigquery")], created_at="2026-10-10T00:00:00+00:00",
+            metadata={"trusted_domains": ["owned.example"]})
+        return findings(snapshot, "analysis.principal_exposure")[0]
+    found = result()
+    assert found["status"] == "UNKNOWN" and found["evidence"]["reason"] == "unrecognized_dataset_acl_role"
+    dataset["access"][0]["role"] = "READER"
+    assert result()["status"] == "FAIL"
+
+
+def test_gcp_verified_inherited_iam_external_principal():
+    ancestor = {"name": "folders/42", "ancestor": "folders/42", "collection_status": "collected",
+                "bindings": [{"role": "roles/viewer", "members": ["allUsers", "user:alice@foreign.example"]}]}
+    project = {"name": "projects/p1", "_inherited_iam_policies": [ancestor],
+               "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
+    def result():
+        snapshot = make_snapshot("gcp", ["projects/p1"], [coll("project", [project], scope="projects/p1")],
+                                 created_at="2026-10-10T00:00:00+00:00", metadata={"trusted_domains": ["owned.example"]})
+        return findings(snapshot, "analysis.principal_exposure")
+    found = result()
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    evidence = found[0]["evidence"]
+    assert {entry["principal"] for entry in evidence["principals"]} == {"allUsers", "user:alice@foreign.example"}
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
+    assert not result()
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "collected"
+    ancestor["name"] = "folders/other"
+    assert not result()
+    ancestor["name"] = "folders/42"
+    ancestor["bindings"][0]["condition"] = {}
+    found = result()
+    assert len(found) == 1 and found[0]["status"] == "MANUAL"
 
 
 def test_gcp_public_binding_fails_and_project_sa_is_trusted():
@@ -516,3 +593,58 @@ def test_generic_resource_policy_endpoint_arn_is_network_bound():
         endpoint = {"ResourceArn": f"arn:aws:ec2:us-east-1:{ACCOUNT}:{suffix}", "Policy": document}
         found = principal(aws(coll("aws_resource_policy", [endpoint], service="ec2")))
         assert found is not None and found["status"] == "MANUAL"
+
+
+def test_gcp_grant_summary_retains_present_empty_condition():
+    from peaso.analysis.iam import _grants, grant_summary
+    binding = {"role": "roles/owner", "members": ["user:foreign@example.com"], "condition": {}}
+    resource = {"provider": "gcp", "type": "iam_policy", "data": {"bindings": [binding]}}
+    declared = _grants(resource)
+    assert declared[0]["conditional"] is True
+    assert grant_summary(declared)["conditional"] == 1
+    binding.pop("condition")
+    assert _grants(resource)[0]["conditional"] is False
+
+
+def test_gcp_private_storage_acl_domain_hint_detects_foreign_principals_without_identity():
+    from peaso.collectors.gcp_storage_acl_native import _acl
+    raw = {"bucket": "sample-bucket", "object": "private/file.txt", "generation": "123",
+           "entity": "user-person@foreign.example", "role": "READER"}
+    row = _acl(raw, "sample-bucket", "a" * 64, "private/file.txt", "123")
+    assert row["principalKind"] == "user" and row["principalDomain"] == "foreign.example"
+    assert "person" not in str(row) and "private/file" not in str(row)
+    def verdict(item):
+        snapshot = make_snapshot("gcp", ["projects/p1"], [coll("object_acl", [item],
+            scope="projects/p1", service="storage")], created_at="2026-10-10T00:00:00+00:00",
+            metadata={"trusted_domains": ["owned.example"]})
+        return principal(snapshot)
+    found = verdict(row)
+    assert found["status"] == "FAIL"
+    assert found["evidence"]["principals"][0]["principal"] == "domain:foreign.example"
+    assert "person" not in str(found["evidence"])
+    raw["entity"] = "group-team@foreign.example"
+    assert verdict(_acl(raw, "sample-bucket", "a" * 64, "private/file.txt", "123"))["status"] == "FAIL"
+    raw["entity"] = "group-team@owned.example"
+    assert verdict(_acl(raw, "sample-bucket", "a" * 64, "private/file.txt", "123"))["status"] == "UNKNOWN"
+    raw["entity"] = "user-person@owned.example"
+    assert verdict(_acl(raw, "sample-bucket", "a" * 64, "private/file.txt", "123")) is None
+    raw["entity"] = "group-123456"
+    assert verdict(_acl(raw, "sample-bucket", "a" * 64, "private/file.txt", "123"))["status"] == "UNKNOWN"
+    bucket_acl = _acl({"bucket": "sample-bucket", "entity": "domain-foreign.example", "role": "WRITER"},
+                      "sample-bucket")
+    snapshot = make_snapshot("gcp", ["projects/p1"], [coll("bucket_acl", [bucket_acl],
+        scope="projects/p1", service="storage")], created_at="2026-10-10T00:00:00+00:00",
+        metadata={"trusted_domains": ["owned.example"]})
+    assert principal(snapshot)["status"] == "FAIL"
+    def project_team_result(number):
+        acl = _acl({"bucket": "sample-bucket", "entity": "project-viewers-" + number,
+                    "role": "READER"}, "sample-bucket")
+        assert acl["principalKind"] == "project" and acl["principalProject"] == number
+        snap = make_snapshot("gcp", ["projects/p1"], [
+            coll("bucket_acl", [acl], scope="projects/p1", service="storage"),
+            coll("project", [{"name": "projects/123", "projectId": "p1", "projectNumber": "123"}],
+                 scope="projects/p1", service="cloudresourcemanager")],
+            created_at="2026-10-10T00:00:00+00:00")
+        return principal(snap)
+    assert project_team_result("999")["status"] == "FAIL"
+    assert project_team_result("123") is None

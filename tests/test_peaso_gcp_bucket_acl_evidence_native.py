@@ -98,6 +98,40 @@ def test_public_object_acl_fails_without_exposing_object_identity(monkeypatch):
     assert 'private-marker' not in json.dumps(snapshot)
 
 
+def test_public_object_acl_exposure_identifies_hashed_object_version(monkeypatch):
+    import peaso.checks  # initialize source admission before the collector transport double
+    from peaso.analysis import analyze
+    _, snapshot, collections, _, _ = capture(monkeypatch, 'acl_object_owner')
+    native = collections['object_acl']['items']
+    assert len(native) == 1 and native[0]['objectRef']
+    report = analyze(snapshot)
+    types = {row['id']: row['type'] for row in report['resources']}
+    findings = [row for row in report['findings']
+                if row['check_id'] == 'analysis.internet_exposure' and types.get(row['resource_id']) == 'bucket']
+    assert len(findings) == 1
+    evidence = json.dumps(findings[0]['evidence'])
+    assert native[0]['objectRef'] in evidence
+    assert native[0]['generation'] in evidence
+    assert 'private-marker' not in evidence
+
+
+def test_private_object_acl_exposure_retains_only_domain_hint(monkeypatch):
+    import peaso.checks  # initialize source admission before the collector transport double
+    from peaso.analysis import analyze
+    _, snapshot, collections, _, _ = capture(monkeypatch, 'acl_private')
+    native = collections['object_acl']['items']
+    assert len(native) == 1
+    assert native[0]['principalKind'] == 'user' and native[0]['principalDomain'] == 'example.com'
+    assert 'private-marker' not in json.dumps(snapshot)
+    report = analyze(snapshot)
+    types = {row['id']: row['type'] for row in report['resources']}
+    findings = [row for row in report['findings']
+                if row['check_id'] == 'analysis.principal_exposure' and types.get(row['resource_id']) == 'object_acl']
+    assert len(findings) == 1 and findings[0]['status'] == 'UNKNOWN'
+    assert findings[0]['evidence']['principals'][0]['principal'] == 'domain:example.com'
+    assert 'private-marker' not in json.dumps(findings[0]['evidence'])
+
+
 def test_uniform_bucket_behavior_needs_no_acl_envelopes(monkeypatch):
     api, _, collections, bucket, status = capture(monkeypatch, 'complete', kinds=['bucket'])
     # Local policy absence cannot settle inherited public-read permissions.

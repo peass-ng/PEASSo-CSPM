@@ -17,6 +17,7 @@ provider. Port sets are evaluated as exact interval arithmetic per protocol.
 from __future__ import annotations
 
 import ipaddress
+from collections import Counter
 from functools import lru_cache
 import json
 import re
@@ -4624,7 +4625,7 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
     if str(protocol).upper() == "ESP":
         ports = {"esp": ((0, 0),)}
     elif data.get("allPorts"):
-        ports = pset(protocol)
+        ports = pset("all" if protocol == "L3_DEFAULT" else protocol)
     elif data.get("ports"):
         ports = {}
         for spec in as_list(data["ports"]):
@@ -5520,8 +5521,143 @@ def _gcp_gke_exposure_service(snapshot, inventory, resource):
     a.step("kubernetes_service", "unknown", cluster=data.get("cluster"), service_type=kind,
            addresses=a.addresses, ports=describe(ports), source_ranges=spec.get("loadBalancerSourceRanges"),
            annotations=data.get("annotations"))
+    opened = {}
+    if kind in ("NodePort", "LoadBalancer"):
+        opened = _gcp_gke_nodeport_direct_node(inventory, resource, a) or {}
+    if kind == "LoadBalancer":
+        cloud_opened = _gcp_gke_service_cloud_edge(snapshot, inventory, resource, a)
+        if cloud_opened:
+            opened = union(opened, cloud_opened)
+            a.notes.append("Public Service cloud-edge listener is proven; Kubernetes application backend health is not established by this join")
+    if opened:
+        a.explicit = "FAIL"
+        a.ports = opened
+        return a
     a.gap("firewall", "GKE Service listener, cloud forwarding rule, node firewall and backend path need an effective join")
     return a
+
+
+def _gcp_gke_service_cloud_edge(snapshot, inventory, resource, assessment):
+    data = resource["data"]
+    cluster = data.get("cluster")
+    markers = [row["data"] for row in inventory.items("gke_exposure_service")
+               if row["data"].get("cluster") == cluster and row["data"].get("inventoryStatus") is not None]
+    if len(markers) != 1 or markers[0].get("inventoryStatus") != "collected":
+        return None
+    annotations = data.get("annotations")
+    if not isinstance(annotations, dict):
+        return None
+    backend_name = annotations.get("service.kubernetes.io/backend-service")
+    if backend_name is not None and (not isinstance(backend_name, str)
+                                     or not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", backend_name)):
+        return None
+    ingress = ((data.get("status") or {}).get("loadBalancer") or {}).get("ingress") or []
+    public_ips = {item.get("ip") for item in ingress if isinstance(item, dict) and _public_ip(item.get("ip"))}
+    if not public_ips:
+        return None
+    opened = {}
+    for protocol, annotation_key in (("TCP", "tcp-forwarding-rule"), ("UDP", "udp-forwarding-rule"),
+                                      ("L3_DEFAULT", "l3-forwarding-rule"),
+                                      ("L3_DEFAULT", "l3-forwarding-rule-ipv6")):
+        rule_name = annotations.get("service.kubernetes.io/" + annotation_key)
+        if not isinstance(rule_name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", rule_name):
+            continue
+        candidates = [row for row in inventory.items("forwarding_rule")
+                      if row.get("scope") == resource.get("scope")
+                      and row["data"].get("name") == rule_name
+                      and row["data"].get("IPAddress") in public_ips
+                      and row["data"].get("loadBalancingScheme") in ("EXTERNAL", "EXTERNAL_MANAGED")
+                      and row["data"].get("IPProtocol") == protocol
+                      and (protocol != "L3_DEFAULT" or row["data"].get("allPorts") is True)
+                      and (isinstance(backend_name, str)
+                           and isinstance(row["data"].get("backendService"), str)
+                           and row["data"]["backendService"].endswith("/backendServices/" + backend_name)
+                           or backend_name is None and isinstance(row["data"].get("target"), str)
+                           and "/targetPools/" in row["data"]["target"])]
+        if len(candidates) != 1:
+            continue
+        rule = candidates[0]
+        destination_kind = "backend_service" if backend_name is not None else "target_pool"
+        destination_ref = rule["data"].get("backendService" if backend_name is not None else "target")
+        destination = inventory.get(destination_kind, destination_ref)
+        if destination is None or destination.get("scope") != resource.get("scope"):
+            continue
+        edge = _gcp_forwarding_rule(snapshot, inventory, rule)
+        if edge is None or edge.verdict() != "FAIL":
+            continue
+        service_ports = {}
+        for port in as_list((data.get("spec") or {}).get("ports")):
+            if isinstance(port, dict) and (protocol == "L3_DEFAULT" or port.get("protocol", "TCP") == protocol) and type(port.get("port")) is int:
+                service_ports = union(service_ports, pset(port.get("protocol", "TCP"), port["port"], port["port"]) or {})
+        exposed = intersect(edge.ports or {}, service_ports)
+        if empty(exposed):
+            continue
+        opened = union(opened, exposed)
+        assessment.step("gke_cloud_edge", "allow", forwarding_rule=rule_name,
+                        backend_service=backend_name, target_pool=destination_ref if backend_name is None else None,
+                        public_ip=rule["data"]["IPAddress"], ports=describe(exposed), cloud_path=edge.path)
+    return opened or None
+
+
+def _gcp_gke_nodeport_direct_node(inventory, resource, assessment):
+    data = resource["data"]
+    cluster, namespace, service = data.get("cluster"), data.get("namespace"), data.get("kubernetesName")
+    if not all(isinstance(value, str) and value for value in (cluster, namespace, service)):
+        return None
+    for kind in ("gke_exposure_service", "gke_exposure_endpointslice", "gke_exposure_node"):
+        markers = [row["data"] for row in inventory.items(kind)
+                   if row["data"].get("cluster") == cluster and row["data"].get("inventoryStatus") is not None]
+        if len(markers) != 1 or markers[0].get("inventoryStatus") != "collected":
+            return None
+    slices = [row["data"] for row in inventory.items("gke_exposure_endpointslice")
+              if row["data"].get("cluster") == cluster and row["data"].get("namespace") == namespace
+              and row["data"].get("serviceName") == service and row["data"].get("inventoryStatus") is None
+              and row["data"].get("addressType") in ("IPv4", "IPv6")]
+    spec = data.get("spec") or {}
+    if spec.get("externalTrafficPolicy", "Cluster") not in ("Cluster", "Local"):
+        return None
+    local = spec.get("externalTrafficPolicy", "Cluster") == "Local"
+    nodes = [row["data"] for row in inventory.items("gke_exposure_node")
+             if row["data"].get("cluster") == cluster and row["data"].get("inventoryStatus") is None
+             and isinstance(row["data"].get("kubernetesName"), str)]
+    opened = {}
+    for service_port in as_list(spec.get("ports")):
+        if not isinstance(service_port, dict) or type(service_port.get("nodePort")) is not int:
+            continue
+        protocol = service_port.get("protocol", "TCP")
+        if protocol not in ("TCP", "UDP"):
+            continue
+        port_name = service_port.get("name", "")
+        target = service_port.get("targetPort", service_port.get("port"))
+        if not isinstance(port_name, str) or not (type(target) is int and 1 <= target <= 65535
+                                                 or isinstance(target, str) and target):
+            continue
+        ready_nodes = []
+        for endpoint_slice in slices:
+            if not any(isinstance(port, dict) and port.get("name", "") == port_name
+                       and port.get("protocol") == protocol and type(port.get("port")) is int
+                       and (type(target) is not int or port["port"] == target)
+                       for port in as_list(endpoint_slice.get("ports"))):
+                continue
+            if type(endpoint_slice.get("readyEndpointCount")) is not int or endpoint_slice["readyEndpointCount"] <= 0:
+                continue
+            ready_nodes.extend(as_list(endpoint_slice.get("readyNodeNames")))
+        if not ready_nodes:
+            continue
+        candidate_nodes = [node for node in nodes if not local or node["kubernetesName"] in ready_nodes]
+        exposed_port = service_port["nodePort"]
+        ports = pset(protocol, exposed_port, exposed_port) or {}
+        for node in candidate_nodes:
+            reached = _gcp_gke_direct_node(inventory, resource, assessment, ports,
+                                                node_name=node["kubernetesName"], require_host_ip=False)
+            if reached:
+                opened = union(opened, reached)
+                assessment.step("kubernetes_backend", "allow", service=service,
+                                namespace=namespace, ready_endpoints=len(ready_nodes),
+                                traffic_policy=spec.get("externalTrafficPolicy", "Cluster"),
+                                node=node["kubernetesName"],
+                                exposed_ports=describe(reached))
+    return opened or None
 
 
 def _gcp_gke_exposure_ingress(snapshot, inventory, resource):
@@ -5542,9 +5678,73 @@ def _gcp_gke_exposure_ingress(snapshot, inventory, resource):
         if isinstance(item, dict) and _public_ip(item.get("ip"))))
     a.step("kubernetes_ingress", "unknown", cluster=data.get("cluster"),
            ingress_class=data.get("ingressClassName"), hosts=data.get("hosts"),
-           default_backend=data.get("hasDefaultBackend"), addresses=a.addresses)
+           default_backend=data.get("hasDefaultBackend"), addresses=a.addresses,
+           controller_annotations=data.get("annotations"))
+    opened = _gcp_gke_ingress_cloud_edge(snapshot, inventory, resource, a)
+    if opened:
+        a.explicit = "FAIL"
+        a.ports = opened
+        a.notes.append("Public Ingress cloud-edge listener is proven; Kubernetes application backend health is not established by this join")
+        return a
     a.gap("controller", "GKE Ingress controller, cloud forwarding rule, firewall and backend path need an effective join")
     return a
+
+
+def _gcp_gke_ingress_cloud_edge(snapshot, inventory, resource, assessment):
+    data = resource["data"]
+    annotations = data.get("annotations")
+    if (not isinstance(annotations, dict) or not assessment.addresses
+            or not data.get("hasDefaultBackend") and not as_list(data.get("hosts"))):
+        return None
+    ingress_class = annotations.get("kubernetes.io/ingress.class")
+    if ingress_class not in (None, "gce") or ingress_class is None and data.get("ingressClassName") is not None:
+        return None
+    cluster = data.get("cluster")
+    markers = [row["data"] for row in inventory.items("gke_exposure_ingress")
+               if row["data"].get("cluster") == cluster and row["data"].get("inventoryStatus") is not None]
+    if len(markers) != 1 or markers[0].get("inventoryStatus") != "collected":
+        return None
+    index = inventory.network_cache.get("gcp_ingress_forwarding_rules")
+    if index is None:
+        index = {}
+        for row in inventory.items("forwarding_rule"):
+            detail = row["data"]
+            if isinstance(detail.get("name"), str) and isinstance(detail.get("IPAddress"), str):
+                index.setdefault((row.get("scope"), detail["name"], detail["IPAddress"]), []).append(row)
+        inventory.network_cache["gcp_ingress_forwarding_rules"] = index
+    opened = {}
+    for fr_key, proxy_key, target_kind, port in (
+            ("ingress.kubernetes.io/forwarding-rule", "ingress.kubernetes.io/target-proxy", "targetHttpProxies", 80),
+            ("ingress.kubernetes.io/https-forwarding-rule", "ingress.kubernetes.io/https-target-proxy", "targetHttpsProxies", 443)):
+        fr_name, proxy_name, map_name = (annotations.get(fr_key), annotations.get(proxy_key),
+                                        annotations.get("ingress.kubernetes.io/url-map"))
+        if not all(isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9-]{0,62}", value)
+                   for value in (fr_name, proxy_name, map_name)):
+            continue
+        rules = [row for address in assessment.addresses
+                 for row in index.get((resource.get("scope"), fr_name, address), ())
+                 if row["data"].get("loadBalancingScheme") in ("EXTERNAL", "EXTERNAL_MANAGED")
+                 and row["data"].get("IPProtocol", "TCP") == "TCP"
+                 and isinstance(row["data"].get("target"), str)
+                 and row["data"]["target"].endswith("/" + target_kind + "/" + proxy_name)]
+        if len(rules) != 1:
+            continue
+        rule = rules[0]
+        proxy = inventory.get("target_proxy", rule["data"]["target"])
+        url_map = proxy["data"].get("urlMap") if proxy else None
+        if not isinstance(url_map, str) or not url_map.endswith("/urlMaps/" + map_name):
+            continue
+        edge = _gcp_forwarding_rule(snapshot, inventory, rule)
+        if edge.verdict() != "FAIL":
+            continue
+        exposed = intersect(edge.ports or {}, pset("tcp", port, port) or {})
+        if empty(exposed):
+            continue
+        opened = union(opened, exposed)
+        assessment.step("gke_cloud_edge", "allow", forwarding_rule=fr_name, target_proxy=proxy_name,
+                        url_map=map_name, public_ip=rule["data"]["IPAddress"], ports=describe(exposed),
+                        cloud_path=edge.path)
+    return opened or None
 
 
 def _gcp_gke_exposure_pod(snapshot, inventory, resource):
@@ -5566,18 +5766,329 @@ def _gcp_gke_exposure_pod(snapshot, inventory, resource):
     host_ip = data.get("hostIP")
     a.addresses = [host_ip] if _public_ip(host_ip) else []
     ports = {}
+    wildcard_ports = {}
+    private_bind_ports = {}
     for item in as_list(data.get("hostPorts")):
         if not isinstance(item, dict):
             continue
         port = item.get("hostPort")
         if type(port) is int and 1 <= port <= 65535:
-            ports = union(ports, pset(item.get("protocol", "TCP"), port, port) or {})
+            declared = pset(item.get("protocol", "TCP"), port, port) or {}
+            ports = union(ports, declared)
+            if item.get("bindIP", "0.0.0.0") == "0.0.0.0":
+                wildcard_ports = union(wildcard_ports, declared)
+            elif isinstance(item.get("bindIP"), str) and _cidr(item["bindIP"] + "/32") is not None:
+                private_bind_ports[item["bindIP"]] = union(private_bind_ports.get(item["bindIP"], {}), declared)
     a.ports = ports
     a.step("kubernetes_pod", "unknown", cluster=data.get("cluster"), node=data.get("nodeName"),
            host_network=data.get("hostNetwork"), host_ip=host_ip, host_ports=describe(ports),
            phase=data.get("phase"))
-    a.gap("node_firewall", "GKE Pod host-bound port, node address and effective firewall path need a join")
+    if data.get("phase") == "Running":
+        opened = _gcp_gke_direct_node(inventory, resource, a, wildcard_ports) if not empty(wildcard_ports) else None
+        for bind_ip, bound_ports in private_bind_ports.items():
+            opened = union(opened or {}, _gcp_gke_direct_node(inventory, resource, a, bound_ports,
+                                                              required_private_ip=bind_ip) or {})
+        if opened:
+            a.explicit = "FAIL"
+            a.ports = opened
+            return a
+    a.gap("node_firewall", "GKE Pod host-bound port, bind address, node address and effective firewall path need a join")
     return a
+
+
+def _gcp_gke_direct_node(inventory, resource, assessment, ports, *, node_name=None, require_host_ip=True,
+                         required_private_ip=None):
+    """Prove a node listener through one exact Node, VM and effective rule set."""
+    data = resource["data"]
+    cluster, host_ip = data.get("cluster"), data.get("hostIP")
+    node_name = node_name or data.get("nodeName")
+    if not all(isinstance(value, str) and value for value in (cluster, node_name)) or (require_host_ip and not isinstance(host_ip, str)):
+        return None
+    if any(row["data"].get("cluster") == cluster and row["data"].get("inventoryStatus") != "collected"
+           for row in inventory.items("gke_exposure_node") if row["data"].get("inventoryStatus") is not None):
+        return None
+    nodes = [row["data"] for row in inventory.items("gke_exposure_node")
+             if row["data"].get("cluster") == cluster and row["data"].get("kubernetesName") == node_name
+             and row["data"].get("inventoryStatus") is None]
+    if len(nodes) != 1:
+        return None
+    node = nodes[0]
+    addresses = node.get("addresses")
+    if not isinstance(addresses, list) or (require_host_ip and host_ip not in [entry.get("address") for entry in addresses
+        if isinstance(entry, dict) and entry.get("type") in ("InternalIP", "ExternalIP")]):
+        return None
+    if required_private_ip is not None and required_private_ip not in [entry.get("address") for entry in addresses
+        if isinstance(entry, dict) and entry.get("type") == "InternalIP"]:
+        return None
+    provider = node.get("providerID")
+    match = re.fullmatch(r"gce://([a-z][a-z0-9-]{0,62})/([a-z][a-z0-9-]{0,62})/([a-z][a-z0-9-]{0,62})",
+                         provider) if isinstance(provider, str) else None
+    if not match or resource.get("scope") != "projects/" + match[1]:
+        return None
+    identity = f"projects/{match[1]}/zones/{match[2]}/instances/{match[3]}"
+    instances = [row for row in inventory.items("instance") if row.get("scope") == resource.get("scope")
+                 and isinstance(row["data"].get("selfLink"), str)
+                 and row["data"]["selfLink"].endswith("/" + identity)]
+    if len(instances) != 1 or instances[0]["data"].get("status") != "RUNNING":
+        return None
+    instance = instances[0]
+    public_addresses = {entry.get("address") for entry in addresses if isinstance(entry, dict)
+                        and entry.get("type") == "ExternalIP" and _public_ip(entry.get("address"))}
+    opened = {}
+    for interface in as_list(instance["data"].get("networkInterfaces")):
+        if not isinstance(interface, dict) or not isinstance(interface.get("name"), str):
+            continue
+        if required_private_ip is not None and interface.get("networkIP") != required_private_ip:
+            continue
+        ips = {entry.get("natIP") for entry in as_list(interface.get("accessConfigs"))
+               if isinstance(entry, dict) and _public_ip(entry.get("natIP"))}
+        matched_ips = ips & public_addresses
+        if not matched_ips:
+            continue
+        effective = [row["data"] for row in inventory.items("instance_effective_firewall")
+                     if row.get("scope") == resource.get("scope") and row["data"].get("instance") == identity
+                     and row["data"].get("networkInterface") == interface["name"]]
+        if (len(effective) != 1 or effective[0].get("effective_source_operation") != "instances.getEffectiveFirewalls"
+                or not isinstance(effective[0].get("firewallPolicys"), list)
+                or not isinstance(effective[0].get("firewalls"), list)):
+            continue
+        allowed = _gcp_firewall(inventory, instance, interface, assessment)
+        if allowed is None:
+            continue
+        overlap = intersect(ports, allowed)
+        if not empty(overlap):
+            opened = union(opened, overlap)
+            assessment.addresses.extend(sorted(matched_ips))
+            assessment.step("gke_node_compute", "allow", node=node_name, provider_id=provider,
+                            vm=identity, interface=interface["name"], public_ips=sorted(matched_ips),
+                            exposed_ports=describe(overlap))
+    return opened or None
+
+
+def _gcp_gke_exposure_node(snapshot, inventory, resource):
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state is None or state == "collected":
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+           reason=data.get("reason"))
+    a.gap("inventory", "GKE Kubernetes Node inventory was not completely read")
+    return a
+
+
+def _gcp_gke_exposure_endpointslice(snapshot, inventory, resource):
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state is None or state == "collected":
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+           reason=data.get("reason"))
+    a.gap("inventory", "GKE Kubernetes EndpointSlice inventory was not completely read")
+    return a
+
+
+def _gcp_gke_exposure_gateway(snapshot, inventory, resource):
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state == "collected":
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    if state is not None:
+        a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+               reason=data.get("reason"))
+        a.gap("inventory", "GKE Kubernetes Gateway inventory was not completely read")
+        return a
+    listeners = as_list(data.get("listeners"))
+    if not listeners:
+        return None
+    a.addresses = [entry["value"] for entry in as_list(data.get("addresses"))
+                   if isinstance(entry, dict) and entry.get("type") == "IPAddress"
+                   and _public_ip(entry.get("value"))]
+    ports = {}
+    for listener in listeners:
+        if isinstance(listener, dict) and type(listener.get("port")) is int:
+            protocol = "udp" if listener.get("protocol") == "UDP" else "tcp"
+            ports = union(ports, pset(protocol, listener["port"], listener["port"]) or {})
+    a.ports = ports
+    a.step("kubernetes_gateway", "unknown", cluster=data.get("cluster"),
+           gateway_class=data.get("gatewayClassName"), listeners=listeners, addresses=a.addresses)
+    opened = _gcp_gke_gateway_cloud_edge(snapshot, inventory, resource, a)
+    if opened:
+        a.explicit = "FAIL"
+        a.ports = opened
+        a.notes.append("Public Gateway cloud-edge listener is proven; Kubernetes application backend health is not established by this join")
+        return a
+    a.gap("controller", "GKE Gateway class, route acceptance, forwarding rule and backend path need an effective join")
+    return a
+
+
+def _gcp_gke_gateway_cloud_edge(snapshot, inventory, resource, assessment):
+    data = resource["data"]
+    if data.get("gatewayClassName") not in {
+            "gke-l7-global-external-managed", "gke-l7-regional-external-managed", "gke-l7-gxlb",
+            "gke-l7-global-external-managed-mc", "gke-l7-regional-external-managed-mc", "gke-l7-gxlb-mc"}:
+        return None
+    cluster = data.get("cluster")
+    markers = [row["data"] for row in inventory.items("gke_exposure_gateway")
+               if row["data"].get("cluster") == cluster and row["data"].get("inventoryStatus") is not None]
+    if len(markers) != 1 or markers[0].get("inventoryStatus") != "collected" or not assessment.addresses:
+        return None
+    class_markers = [row["data"] for row in inventory.items("gke_exposure_gatewayclass")
+                     if row["data"].get("cluster") == cluster and row["data"].get("inventoryStatus") is not None]
+    classes = [row["data"] for row in inventory.items("gke_exposure_gatewayclass")
+               if row["data"].get("cluster") == cluster
+               and row["data"].get("kubernetesName") == data.get("gatewayClassName")
+               and row["data"].get("inventoryStatus") is None]
+    if (len(class_markers) != 1 or class_markers[0].get("inventoryStatus") != "collected"
+            or len(classes) != 1 or classes[0].get("controllerName") != "networking.gke.io/gateway"):
+        return None
+    annotations = data.get("annotations")
+    if not isinstance(annotations, dict):
+        return None
+    def names(key):
+        value = annotations.get("networking.gke.io/" + key)
+        if not isinstance(value, str) or len(value) > 4096:
+            return set()
+        parts = [part.strip() for part in value.split(",")]
+        return set(parts) if 0 < len(parts) <= 32 and all(
+            re.fullmatch(r"[a-z][a-z0-9-]{0,62}", part) for part in parts) else set()
+    forwarding_names, proxy_names, map_names = (names("forwarding-rules"), names("target-proxies"), names("url-maps"))
+    if not forwarding_names or not proxy_names or not map_names:
+        return None
+    opened = {}
+    forwarding_rows = list(inventory.items("forwarding_rule"))
+    forwarding_counts = Counter((row.get("scope"), row["data"].get("name"), row["data"].get("IPAddress"))
+                                for row in forwarding_rows)
+    for listener in as_list(data.get("listeners")):
+        if not isinstance(listener, dict) or listener.get("protocol") not in ("HTTP", "HTTPS"):
+            continue
+        port = listener.get("port")
+        if type(port) is not int or not 1 <= port <= 65535:
+            continue
+        proxy_type = "targetHttpProxies" if listener["protocol"] == "HTTP" else "targetHttpsProxies"
+        for rule in forwarding_rows:
+            detail = rule["data"]
+            if (rule.get("scope") != resource.get("scope") or detail.get("name") not in forwarding_names
+                    or detail.get("IPAddress") not in assessment.addresses
+                    or forwarding_counts[(rule.get("scope"), detail.get("name"), detail.get("IPAddress"))] != 1
+                    or detail.get("loadBalancingScheme") not in ("EXTERNAL", "EXTERNAL_MANAGED")
+                    or detail.get("IPProtocol", "TCP") != "TCP"
+                    or not isinstance(detail.get("target"), str)
+                    or not any(detail["target"].endswith("/" + proxy_type + "/" + name)
+                               for name in proxy_names)):
+                continue
+            proxy = inventory.get("target_proxy", detail["target"])
+            if proxy is None or proxy.get("scope") != resource.get("scope"):
+                continue
+            url_map_ref = proxy["data"].get("urlMap")
+            url_map = inventory.get("url_map", url_map_ref) if isinstance(url_map_ref, str) else None
+            if (url_map is None or url_map.get("scope") != resource.get("scope")
+                    or not any(url_map_ref.endswith("/urlMaps/" + name) for name in map_names)):
+                continue
+            edge = _gcp_forwarding_rule(snapshot, inventory, rule)
+            if edge is None or edge.verdict() != "FAIL":
+                continue
+            exposed = intersect(edge.ports or {}, pset("tcp", port, port) or {})
+            if empty(exposed):
+                continue
+            opened = union(opened, exposed)
+            assessment.step("gke_cloud_edge", "allow", forwarding_rule=detail["name"],
+                            target_proxy=detail["target"], url_map=url_map_ref,
+                            public_ip=detail["IPAddress"], ports=describe(exposed), cloud_path=edge.path)
+    return opened or None
+
+
+def _gcp_gke_exposure_httproute(snapshot, inventory, resource):
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state == "collected":
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    if state is not None:
+        a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+               reason=data.get("reason"))
+        a.gap("inventory", "GKE Kubernetes HTTPRoute inventory was not completely read")
+        return a
+    if not data.get("parentRefs") or not data.get("backendRefs"):
+        return None
+    a.step("kubernetes_httproute", "unknown", cluster=data.get("cluster"),
+           hostnames=data.get("hostnames"), parents=data.get("parentRefs"),
+           backends=data.get("backendRefs"))
+    opened = _gcp_gke_httproute_cloud_edge(snapshot, inventory, resource, a)
+    if opened:
+        a.explicit = "FAIL"
+        a.ports = opened
+        a.notes.append("Accepted HTTPRoute on a public Gateway cloud-edge listener is proven; application backend health is not established")
+        return a
+    a.gap("controller", "GKE HTTPRoute acceptance, Gateway listener and cloud backend path need an effective join")
+    return a
+
+
+def _gcp_gke_httproute_cloud_edge(snapshot, inventory, resource, assessment):
+    data = resource["data"]
+    cluster, namespace, generation = data.get("cluster"), data.get("namespace"), data.get("generation")
+    if not isinstance(cluster, str) or not isinstance(namespace, str) or type(generation) is not int:
+        return None
+    for kind in ("gke_exposure_httproute", "gke_exposure_gateway"):
+        markers = [row["data"] for row in inventory.items(kind)
+                   if row["data"].get("cluster") == cluster and row["data"].get("inventoryStatus") is not None]
+        if len(markers) != 1 or markers[0].get("inventoryStatus") != "collected":
+            return None
+    def parent_key(ref):
+        if not isinstance(ref, dict) or not isinstance(ref.get("name"), str):
+            return None
+        return (ref.get("group", "gateway.networking.k8s.io"), ref.get("kind", "Gateway"),
+                ref.get("namespace", namespace), ref["name"], ref.get("sectionName"))
+    specified = {key for ref in as_list(data.get("parentRefs")) if (key := parent_key(ref)) is not None}
+    opened = {}
+    for parent in as_list(data.get("parentStatus")):
+        if not isinstance(parent, dict) or parent.get("controllerName") != "networking.gke.io/gateway":
+            continue
+        key = parent_key(parent.get("parentRef"))
+        if (key not in specified or key[0] != "gateway.networking.k8s.io" or key[1] != "Gateway"
+                or not isinstance(key[4], str) or not key[4]):
+            continue
+        conditions = as_list(parent.get("conditions"))
+        if any(not isinstance(condition, dict) for condition in conditions):
+            continue
+        accepted = [condition for condition in conditions if condition.get("type") == "Accepted"]
+        reconciled = [condition for condition in conditions if condition.get("type") == "Reconciled"]
+        refs = [condition for condition in conditions if condition.get("type") == "ResolvedRefs"]
+        if (len(accepted) != 1 or len(reconciled) != 1 or len(refs) > 1
+                or any(condition.get("status") != "True" or condition.get("observedGeneration") != generation
+                       for condition in accepted + reconciled + refs)):
+            continue
+        gateways = [row for row in inventory.items("gke_exposure_gateway")
+                    if row["data"].get("cluster") == cluster and row["data"].get("namespace") == key[2]
+                    and row["data"].get("kubernetesName") == key[3]
+                    and row["data"].get("inventoryStatus") is None]
+        if len(gateways) != 1:
+            continue
+        gateway = gateways[0]
+        listener_ports = {}
+        for listener in as_list(gateway["data"].get("listeners")):
+            if (isinstance(listener, dict) and listener.get("name") == key[4]
+                    and listener.get("protocol") in ("HTTP", "HTTPS") and type(listener.get("port")) is int):
+                listener_ports = union(listener_ports, pset("tcp", listener["port"], listener["port"]) or {})
+        if empty(listener_ports):
+            continue
+        edge = _gcp_gke_exposure_gateway(snapshot, inventory, gateway)
+        if edge is None or edge.verdict() != "FAIL":
+            continue
+        exposed = intersect(edge.ports or {}, listener_ports)
+        if empty(exposed):
+            continue
+        opened = union(opened, exposed)
+        assessment.addresses.extend(edge.addresses)
+        assessment.step("gke_route_cloud_edge", "allow", gateway=gateway["data"].get("name"),
+                        listener=key[4], ports=describe(exposed), cloud_path=edge.path)
+    return opened or None
 
 
 def _gcp_bucket(snapshot, inventory, resource):
@@ -5589,7 +6100,7 @@ def _gcp_bucket(snapshot, inventory, resource):
     known_storage_roles = {"roles/storage.objectViewer", "roles/storage.objectUser",
                            "roles/storage.objectCreator", "roles/storage.objectAdmin", "roles/storage.admin",
                            "roles/storage.legacyObjectReader", "roles/storage.legacyObjectOwner",
-                           "roles/storage.legacyBucketReader", "roles/storage.legacyBucketWriter",
+                           "roles/storage.legacyBucketReader", "roles/storage.legacyBucketWriter", "roles/storage.legacyBucketOwner",
                            "roles/viewer", "roles/editor", "roles/owner"}
     object_permissions = {"storage.objects.get", "storage.objects.list", "storage.objects.create",
                           "storage.objects.update", "storage.objects.delete", "storage.objects.getIamPolicy",
@@ -5628,6 +6139,31 @@ def _gcp_bucket(snapshot, inventory, resource):
             if field == "objectAccessControls" and (envelope.get("all_objects") is not True or envelope.get("all_versions") is not True):
                 acl_unresolved.append("objectAccessControls object or version inventory incomplete")
                 continue
+            if (field == "objectAccessControls" and envelope.get("source_inventory") == "object_acl"
+                    and inventory.state("object_acl", resource.get("scope")) == "collected"):
+                expected = [(row.get("entity"), row.get("role")) for row in as_list(envelope.get("items"))
+                            if isinstance(row, dict) and row.get("entity") in ("allUsers", "allAuthenticatedUsers")
+                            and row.get("role") in ("READER", "OWNER")]
+                native = [row["data"] for row in inventory.items("object_acl")
+                          if row.get("scope") == resource.get("scope") and row["data"].get("bucket") == data.get("name")
+                          and row["data"].get("entity") in ("allUsers", "allAuthenticatedUsers")
+                          and row["data"].get("role") in ("READER", "OWNER")]
+                source_requests = envelope.get("source_requests")
+                if (isinstance(source_requests, list) and source_requests
+                        and Counter(expected) == Counter((row["entity"], row["role"]) for row in native)
+                        and all(isinstance(row.get("objectRef"), str)
+                                and re.fullmatch(r"[0-9a-f]{64}", row["objectRef"])
+                                and isinstance(row.get("generation"), str)
+                                and re.fullmatch(r"[0-9]{1,20}", row["generation"])
+                                and isinstance(row.get("_provenance"), dict)
+                                and isinstance(row["_provenance"].get("source_requests"), list)
+                                and row["_provenance"]["source_requests"]
+                                and set(row["_provenance"]["source_requests"]) <= set(source_requests)
+                                for row in native)):
+                    acl.extend({"source": field, "entity": row["entity"], "role": row["role"],
+                                "object_ref": row["objectRef"], "generation": row["generation"]}
+                               for row in native)
+                    continue
             for row in as_list(envelope.get("items")):
                 roles = ("READER", "OWNER", "WRITER") if field == "bucketAccessControls" else ("READER", "OWNER")
                 if isinstance(row, dict) and row.get("entity") in ("allUsers", "allAuthenticatedUsers") and row.get("role") in roles:
@@ -5635,8 +6171,11 @@ def _gcp_bucket(snapshot, inventory, resource):
                                 **({"object_ref": row["objectRef"]} if field == "objectAccessControls" and row.get("objectRef") else {})})
     effective_rows = [row for row in inventory.items("bucket_effective_iam")
                       if row.get("scope") == resource.get("scope") and row["data"].get("name") == data.get("name")]
-    effective_public = (len(effective_rows) == 1 and effective_rows[0]["data"].get("resolutionComplete") is True
-                        and effective_rows[0]["data"].get("publicAccess") is True)
+    effective_proven = (inventory.state("bucket_effective_iam", resource.get("scope")) == "collected"
+                        and len(effective_rows) == 1 and effective_rows[0]["data"].get("resolutionComplete") is True
+                        and type(effective_rows[0]["data"].get("publicAccess")) is bool)
+    effective_public = effective_proven and effective_rows[0]["data"]["publicAccess"] is True
+    effective_unresolved = not effective_proven
     folder_public = []
     folder_unresolved = []
     if (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess", {}).get("enabled") is True:
@@ -5670,7 +6209,7 @@ def _gcp_bucket(snapshot, inventory, resource):
                     folder_public.append(grant)
                 elif permissions is None:
                     folder_unresolved.append({**grant, "reason": "managed folder role permissions unavailable"})
-    if not public and not acl and not conditional and not effective_public and not unresolved_roles and not folder_public and not folder_unresolved and not acl_unresolved:
+    if not public and not acl and not conditional and not effective_public and not effective_unresolved and not unresolved_roles and not folder_public and not folder_unresolved and not acl_unresolved:
         return None
     a = Assessment(resource, "data_share")
     prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention")
@@ -5710,11 +6249,12 @@ def _gcp_bucket(snapshot, inventory, resource):
         a.explicit = "UNKNOWN"
     a.step("policy", "allow" if public or acl or effective_public or folder_public else "unknown", bindings=public, acl=acl,
            acl_unresolved=acl_unresolved, conditional=conditional, unresolved_roles=unresolved_roles,
-           effective_public=effective_public, managed_folder_grants=folder_public,
+           effective_public=effective_public, effective_iam_unresolved=effective_unresolved,
+           managed_folder_grants=folder_public,
            managed_folder_unresolved=folder_unresolved, public_access_prevention=prevention)
     if (not public and not acl and not effective_public and not folder_public) or prevention == "inherited":
         a.explicit = "UNKNOWN"
-        a.gap("policy", "conditional or unresolved public IAM/ACL evidence, or inherited public access prevention, requires effective-policy evaluation")
+        a.gap("policy", "conditional or unresolved public IAM/ACL evidence, inherited IAM or public access prevention requires effective-policy evaluation")
     a.data_exposure = True
     a.addresses = [f"https://storage.googleapis.com/{data.get('name', native_id(resource))}"]
     return a
@@ -5736,7 +6276,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
             continue
         member = entry.get("iamMember") or entry.get("specialGroup")
         if member in ("allUsers", "allAuthenticatedUsers"):
-            (conditional_public if entry.get("condition") is not None else public).append(
+            (conditional_public if entry.get("condition") is not None or entry.get("role") not in ("READER", "WRITER", "OWNER") else public).append(
                 {"member": member, "role": entry.get("role")})
         if entry.get("specialGroup") in ("projectReaders", "projectWriters", "projectOwners"):
             project_groups.append({"group": entry["specialGroup"], "role": entry.get("role"),
@@ -5745,7 +6285,8 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
             ref = entry.get(kind)
             if isinstance(ref, dict):
                 (conditional_delegated if entry.get("condition") is not None else delegated).append(
-                    {"kind": kind, "reference": ref})
+                    {"kind": kind, "reference": ref,
+                     **({"role": entry.get("role")} if kind == "routine" and "role" in entry else {})})
     if not public and not delegated and not conditional_public and not conditional_delegated and not project_groups:
         return None
     a = Assessment(resource, "data_share")
@@ -5769,7 +6310,10 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         return next(iter(matches)) if len(matches) == 1 else None
     external_projects = sorted({project for row in delegated
                                 if isinstance(project := destination_project(row), str)
-                                and project and project not in trusted_project_ids})
+                                and project and project not in trusted_project_ids
+                                and (row["kind"] != "routine" or row.get("role") in
+                                     (None, "roles/bigquery.routineDataViewer",
+                                      "roles/bigquery.routineDataEditor", "roles/bigquery.routineAdmin"))})
     reader_cache = {}
     def project_for_scope(scope):
         rows = [row for row in inventory.items("project") if row.get("scope") == scope]
@@ -5791,7 +6335,8 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
             (policy.get("ancestor"), policy) for policy in inherited_policies
             if isinstance(policy, dict) and policy.get("name") == policy.get("ancestor")]]
         for scope, policy in policies:
-            if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
+            if (not isinstance(policy, dict) or policy.get("name") != scope
+                    or policy.get("collection_status", "collected") != "collected"):
                 continue
             for binding in as_list(policy.get("bindings")):
                 if not isinstance(binding, dict) or binding.get("condition") is not None:
@@ -5927,6 +6472,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                                  "table_public": bool(table_public),
                                  "inherited_public": readers})
     public_routines = []
+    routine_role_unresolved = []
     for row in delegated:
         if row["kind"] != "routine" or not (target_scope := destination_scope(row)):
             continue
@@ -5936,6 +6482,15 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         routine_name = f"{target_scope}/datasets/{ref['datasetId']}/routines/{ref['routineId']}"
         routine = inventory.get("bigquery_routine_metadata", routine_name)
         if routine is None:
+            continue
+        routine_type, authorization_role = routine["data"].get("routineType"), row.get("role")
+        if routine_type == "PROCEDURE":
+            if authorization_role not in (None, "roles/bigquery.routineDataViewer",
+                                          "roles/bigquery.routineDataEditor", "roles/bigquery.routineAdmin"):
+                routine_role_unresolved.append({"routine": routine_name, "role": authorization_role})
+                continue
+        elif routine_type not in ("SCALAR_FUNCTION", "TABLE_VALUED_FUNCTION") or authorization_role is not None:
+            routine_role_unresolved.append({"routine": routine_name, "role": authorization_role})
             continue
         target = inventory.get("bigquery_dataset", f"{target_scope}/datasets/{ref['datasetId']}")
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
@@ -5950,6 +6505,9 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         readers = inherited_public("bigquery.routines.get", target_scope)
         if dataset_public or dataset_project_grants or routine_public or readers:
             public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
+                                    "authorization_role": authorization_role,
+                                    "mutation_possible": routine_type == "PROCEDURE" and authorization_role in
+                                        (None, "roles/bigquery.routineDataEditor", "roles/bigquery.routineAdmin"),
                                     "dataset_public": bool(dataset_public), "dataset_project_grants": dataset_project_grants,
                                     "routine_public": bool(routine_public),
                                     "inherited_public": readers})
@@ -5982,7 +6540,8 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         a.explicit = "UNKNOWN"
         a.step("dataset_acl", "unknown", delegated=delegated, conditional_public=conditional_public,
                conditional_delegated=conditional_delegated, project_groups=project_groups,
-               project_group_unresolved=project_group_unresolved)
+               project_group_unresolved=project_group_unresolved,
+               routine_role_unresolved=routine_role_unresolved)
         a.gap("policy", "conditional dataset ACL, project role, or authorized BigQuery resource requires effective access review")
     else:
         return None
@@ -10528,7 +11087,7 @@ AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "securit
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "cloudrun_instance", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway", "vpn_tunnel",
+             "cloudrun_service", "cloudrun_instance", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_gatewayclass", "gke_exposure_httproute", "gke_exposure_endpointslice", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway", "vpn_tunnel",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "dataproc_cluster", "workbench_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -10546,7 +11105,7 @@ EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s
 EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
                      "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "vpc_peering", "transit_gateway_attachment", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
-             "gcp": {"network", "instance", "forwarding_rule", "cloudrun_service", "cloudrun_instance", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway", "vpn_tunnel",
+             "gcp": {"network", "instance", "forwarding_rule", "cloudrun_service", "cloudrun_instance", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_httproute", "gke_exposure_endpointslice", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway", "vpn_tunnel",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "dataproc_cluster", "workbench_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
                      "media_cdn_service",
@@ -10616,7 +11175,10 @@ def assess(snapshot, resources):
                 "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke,
                 "gke_exposure_service": _gcp_gke_exposure_service,
                 "gke_exposure_ingress": _gcp_gke_exposure_ingress,
-                "gke_exposure_pod": _gcp_gke_exposure_pod, "bucket": _gcp_bucket,
+                "gke_exposure_pod": _gcp_gke_exposure_pod,
+                "gke_exposure_node": _gcp_gke_exposure_node,
+                "gke_exposure_gateway": _gcp_gke_exposure_gateway,
+                "gke_exposure_httproute": _gcp_gke_exposure_httproute, "gke_exposure_endpointslice": _gcp_gke_exposure_endpointslice, "bucket": _gcp_bucket,
                 "bigquery_dataset": _gcp_bigquery_dataset, "firebase_rules_release": _gcp_firebase_rules,
                 "firebase_database_rules": _gcp_firebase_rules,
                 "vpn_gateway": _gcp_vpn_gateway, "vpn_tunnel": _gcp_vpn_tunnel,

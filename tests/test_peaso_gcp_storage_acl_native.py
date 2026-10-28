@@ -15,7 +15,7 @@ class API:
   mode=self.mode;nonuniform=mode.startswith('acl_') or mode in ('object_partial','missing_object_acl','duplicate_object','foreign_acl','multi_bucket','unknown_acl_bucket','metadata_private','embedded_acl_parents_omitted','object_writer_invalid','object_second_page_public','object_page_limit','empty_objects')
   if path=='/storage/v1/b':
    bucket={'name':BUCKET,'iamConfiguration':{'uniformBucketLevelAccess':{'enabled':not nonuniform},'publicAccessPrevention':'enforced' if mode.startswith('pap_') else 'inherited'}}
-   if mode=='hns':bucket['hierarchicalNamespace']={'enabled':True}
+   if mode in ('hns','hns_managed_public'):bucket['hierarchicalNamespace']={'enabled':True}
    if mode=='malformed_uniform':bucket['iamConfiguration']=None
    data={'items':[bucket]}
    if mode=='multi_bucket':data['items'].append({**bucket,'name':'other-bucket'})
@@ -24,7 +24,11 @@ class API:
    bindings=[]
    if mode in ('pap_write','public_write'):bindings=[{'role':'roles/storage.objectCreator','members':['allUsers']}]
    if mode in ('pap_read','public_read'):bindings=[{'role':'roles/storage.objectViewer','members':['allUsers']}]
+   if mode in ('public_object_user','public_legacy_bucket_owner'):
+    bindings=[{'role':'roles/storage.objectUser' if mode=='public_object_user' else 'roles/storage.legacyBucketOwner','members':['allUsers']}]
    if mode=='bucket_custom':bindings=[{'role':'projects/demo-project/roles/custom','members':['allUsers']}]
+   if '/managedFolders/' in path and mode in ('managed_public','hns_managed_public'):
+    bindings=[{'role':'roles/storage.objectViewer','members':['allUsers']}]
    data={'bindings':bindings,'version':3}
   elif path=='/v3/'+SCOPE:data={'name':'projects/'+NUMBER,'projectId':'demo-project'}
   elif path=='/v1/'+SCOPE+':getAncestry':
@@ -36,12 +40,14 @@ class API:
    data={'bindings':[]}
    if path.startswith('/v3/organizations/'):
     if mode=='ancestor_public':data['bindings']=[{'role':'roles/storage.objectViewer','members':['allUsers']}]
+    if mode=='ancestor_object_user':data['bindings']=[{'role':'roles/storage.objectUser','members':['allUsers']}]
     if mode=='ancestor_custom':data['bindings']=[{'role':'organizations/999/roles/custom','members':['allUsers']}]
     if mode=='ancestor_conditional':data['bindings']=[{'role':'roles/storage.objectViewer','members':['allUsers'],'condition':{'expression':'true'}}]
+    if mode=='ancestor_private_conditional':data['bindings']=[{'role':'roles/storage.objectViewer','members':['user:internal@example.com'],'condition':{'expression':'true'}}]
   elif path.startswith('/v3/organizations/'):data={'name':'organizations/999'}
   elif path.endswith('/managedFolders'):
    if mode=='denied_managed':raise gcp.ReadError('denied','forbidden')
-   data={'items':[{'name':'managed/'}] if mode=='managed' else []}
+   data={'items':[{'name':'managed/','bucket':BUCKET}] if mode in ('managed','managed_public','hns_managed_public') else []}
   elif path.endswith('/acl'):
    if mode=='acl_denied':raise gcp.ReadError('denied','forbidden')
    bucket=path.split('/')[4]
@@ -70,7 +76,10 @@ class API:
  ('object_second_page_public',['PASS','FAIL']),('object_page_limit',['PASS','UNKNOWN']),('empty_objects',['PASS','PASS']),
  ('no_inherited',['UNKNOWN','UNKNOWN']),('complete',['PASS','PASS']),('pap_write',['FAIL','FAIL']),('pap_read',['FAIL','PASS']),
  ('public_write',['FAIL','FAIL']),('public_read',['FAIL','PASS']),('bucket_custom',['FAIL','UNKNOWN']),
+ ('public_object_user',['FAIL','FAIL']),('public_legacy_bucket_owner',['FAIL','FAIL']),
  ('ancestor_public',['FAIL','PASS']),('ancestor_custom',['UNKNOWN','UNKNOWN']),('ancestor_conditional',['UNKNOWN','UNKNOWN']),
+ ('ancestor_object_user',['FAIL','FAIL']),
+ ('ancestor_private_conditional',['PASS','PASS']),
  ('denied_ancestry',['UNKNOWN','UNKNOWN']),('foreign_ancestry',['UNKNOWN','UNKNOWN']),('denied_root_iam',['UNKNOWN','UNKNOWN']),
  ('hns',['UNKNOWN','UNKNOWN']),('managed',['UNKNOWN','UNKNOWN']),('denied_managed',['UNKNOWN','UNKNOWN']),
  ('denied_bucket_iam',['UNKNOWN','UNKNOWN']),('acl_private',['PASS','PASS']),('metadata_private',['PASS','PASS']),
@@ -87,6 +96,11 @@ def test_actual_storage_public_grant_and_acl_pipeline(mode,expected,monkeypatch)
  report=evaluate_snapshot(snap,checks=CHECKS,include_not_applicable=True)
  actual={cid:[f['status'] for f in report['findings'] if f['check_id']==cid] for cid in CHECKS}
  assert all(actual[cid] and set(actual[cid])=={value} for cid,value in zip(CHECKS,expected)),actual
+ if mode in ('public_object_user','public_legacy_bucket_owner','ancestor_object_user'):
+  effective=collection(snap,'bucket_effective_iam',SCOPE)
+  assert effective['coverage_status']=='collected' and len(effective['items'])==1
+  assert effective['items'][0]['publicAccess'] is True
+  assert effective['items'][0]['publicWrite'] is True
  assert 'private-marker' not in json.dumps(snap)
  assert all('/download/' not in url and (kw.get('params') or {}).get('alt')!='media' for method,url,kw in api.requests)
  for method,url,kw in api.requests:
@@ -140,3 +154,23 @@ def test_managed_folder_evidence_semantics(has_folders,monkeypatch):
         assert len(rows)==1 and rows[0]['resolutionComplete'] is True
         assert rows[0]['publicAccess'] is False and rows[0]['publicWrite'] is False
     assert len(calls)==1
+
+
+@pytest.mark.parametrize('mode,public',[
+    ('managed',False),('managed_public',True),('hns',False),('hns_managed_public',True)])
+def test_effective_bucket_iam_reuses_complete_managed_folder_inventory(mode,public,monkeypatch):
+    api=API(mode)
+    monkeypatch.setattr(gcp,'Credentials',lambda *a,**kw:None)
+    monkeypatch.setattr(gcp,'Transport',lambda *a,**kw:api)
+    connector={'provider':'gcp','scopes':[SCOPE],'options':{'inventories':['bucket','project','iam_policy',
+        'managed_folder','bucket_effective_iam'],'include_inherited':True,'concurrency':1}}
+    snap=collect_live(connector)
+    folders=collection(snap,'managed_folder',SCOPE)
+    effective=collection(snap,'bucket_effective_iam',SCOPE)
+    assert folders['coverage_status'] in ('collected','empty')
+    assert effective['coverage_status']=='collected',effective
+    assert len(effective['items'])==1
+    row=effective['items'][0]
+    assert (row['name'],row['resolutionComplete'],row['publicAccess'],row['publicWrite'])==(
+        BUCKET,True,public,False)
+    assert sum(urlsplit(url).path.endswith('/managedFolders') for _,url,_ in api.requests)==1

@@ -322,7 +322,7 @@ def _grants(resource):
             broad = role in {"roles/owner", "roles/editor"}
             result.append({"path": f"bindings[{i}]", "native_grant": binding,
                 "severity": "high" if broad else "info", "broad": broad,
-                "allowed_declaration": True, "conditional": bool(binding.get("condition")),
+                "allowed_declaration": True, "conditional": binding.get("condition") is not None,
                 "effective_access": "unknown", "permission_definition": "not inferred from role name"})
         for i, permission in enumerate(as_list(data.get("includedPermissions"))):
             level = permission_severity(provider, permission)
@@ -470,6 +470,23 @@ def _principals(resource):
             for member in as_list(binding.get("members")):
                 if isinstance(member, str):
                     yield member, f"bindings[{i}].members", binding, "member"
+    if resource["provider"] == "gcp" and resource["type"] == "project" and data.get("name") == resource.get("scope"):
+        coverage = (data.get("_coverage") or {}).get("_inherited_iam_policies") if isinstance(data.get("_coverage"), dict) else None
+        ancestors = data.get("_inherited_iam_policies")
+        if isinstance(coverage, dict) and coverage.get("status") == "collected" and isinstance(ancestors, list):
+            for i, ancestor in enumerate(ancestors):
+                if not isinstance(ancestor, dict):
+                    continue
+                identity = ancestor.get("ancestor")
+                if (not isinstance(identity, str) or not re.fullmatch(r"(?:folders|organizations)/[0-9]+", identity)
+                        or ancestor.get("name") != identity or ancestor.get("collection_status") != "collected"):
+                    continue
+                for j, binding in enumerate(as_list(ancestor.get("bindings"))):
+                    if not isinstance(binding, dict):
+                        continue
+                    for member in as_list(binding.get("members")):
+                        if isinstance(member, str):
+                            yield member, f"_inherited_iam_policies[{i}].bindings[{j}].members", binding, "member"
     if resource["provider"] == "gcp" and resource["type"] == "bigquery_dataset":
         # Dataset ACLs predate IAM and are returned by datasets.get as access[].
         # They can grant public or third-party read without an IAM binding.
@@ -485,6 +502,25 @@ def _principals(resource):
                 if isinstance(value, str) and value:
                     identity = f"{prefix}:{value}" if prefix else value
                     yield identity, f"access[{i}].{field}", access, "member"
+    if resource["provider"] == "gcp" and resource["type"] in ("bucket_acl", "object_acl"):
+        # The collector retains only a hash of a private ACL identity. A
+        # separately projected kind/domain is enough to establish a foreign
+        # trust boundary without restoring the user or group address.
+        kind, domain = data.get("principalKind"), data.get("principalDomain")
+        if (isinstance(data.get("entity"), str) and data["entity"].startswith("sha256:")
+                and data.get("role") in (("READER", "OWNER") if resource["type"] == "object_acl"
+                                         else ("READER", "OWNER", "WRITER"))):
+            project, team = data.get("principalProject"), data.get("principalTeam")
+            if (kind == "project" and team in ("owners", "editors", "viewers")
+                    and isinstance(project, str) and re.fullmatch(r"[0-9]{1,20}", project)):
+                member_kind = {"owners": "projectOwner", "editors": "projectEditor",
+                               "viewers": "projectViewer"}[team]
+                yield member_kind + ":" + project, "principalProject", data, "acl_project_team"
+            elif (kind in ("user", "group", "domain") and isinstance(domain, str)
+                    and re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", domain)):
+                yield "domain:" + domain, "principalDomain", data, "acl_" + kind + "_domain"
+            else:
+                yield data["entity"], "entity", data, "acl_unattributed"
     if resource["provider"] == "gcp" and resource["type"] == "bucket" and (
             (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess") or {}).get("enabled") is False:
         for field in ("bucketAccessControls", "objectAccessControls"):
