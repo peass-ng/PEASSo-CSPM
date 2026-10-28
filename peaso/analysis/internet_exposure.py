@@ -6833,8 +6833,19 @@ def _azure_api_management(snapshot, inventory, resource):
                 a.gap("inventory", "External VNet gateway return route through the associated route table is unresolved")
         if regional and not regional_only and empty(ports):
             a.blocked_by = None
+    portal = props.get("developerPortalUrl")
+    if (network in (None, "None") and props.get("developerPortalStatus") == "Enabled"
+            and isinstance(portal, str) and portal.startswith("https://")):
+        if portal not in a.addresses:
+            a.addresses.append(portal)
+        a.step("developer_portal", "allow", status="Enabled", url=portal,
+               gateway_state="independent")
+        for gap in a.unresolved:
+            gap["decisive"] = False
     a.ports = ports
-    a.notes.append("Gateway listener exposure does not establish anonymous API access or a healthy backend")
+    a.notes.append("Developer portal exposure does not establish anonymous content access or a healthy service"
+                   if any(step["layer"] == "developer_portal" for step in a.path) else
+                   "Gateway listener exposure does not establish anonymous API access or a healthy backend")
     return a
 
 
@@ -7720,7 +7731,9 @@ def _observed(assessment, status):
     if assessment.resource["type"] == "api_management" and status in ("FAIL", "UNKNOWN"):
         portal = next((step for step in assessment.path if step["layer"] == "developer_portal"), None)
         if portal is not None:
-            return (f"The API Management service has its gateway disabled but records an enabled developer portal at {portal['url']}.\n"
+            gateway = ("has its gateway disabled but records" if portal.get("gateway_state") == "disabled"
+                       else "records")
+            return (f"The API Management service {gateway} an enabled developer portal at {portal['url']}.\n"
                     + ("Its public network gate and non-VNet mode admit the portal HTTPS listener.\n"
                        if status == "FAIL" else
                        "Its External VNet subnet NSG path is unresolved, so public portal admission is unknown.\n")
