@@ -654,6 +654,55 @@ def test_aws_cloudfront_oac_requires_observed_signing_and_exact_distribution_pol
     assert any(gap["layer"] == "origin_auth" for gap in result["evidence"]["unresolved"])
 
 
+def test_aws_cloudfront_lambda_url_oac_requires_exact_host_and_both_policy_actions():
+    distribution_arn = f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1"
+    function_arn = f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:origin"
+    host = "abc123.lambda-url.us-east-1.on.aws"
+    config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+        "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only", "TargetOriginId": "lambda"},
+        "Origins": {"Items": [{"Id": "lambda", "DomainName": host, "CustomOriginConfig": {},
+                               "OriginAccessControlId": "OAC1"}]}}}
+    oac = {"collection_status": "collected", "Id": "OAC1", "SigningBehavior": "always",
+           "SigningProtocol": "sigv4", "OriginAccessControlOriginType": "lambda"}
+    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net",
+                    "Config": config, "OriginAccessControls": {"OAC1": oac}}
+    actions = ("lambda:InvokeFunctionUrl", "lambda:InvokeFunction")
+    statements = [{"Effect": "Allow", "Principal": {"Service": "cloudfront.amazonaws.com"},
+                   "Action": action, "Resource": function_arn,
+                   "Condition": {"ArnLike": {"AWS:SourceArn": distribution_arn}}} for action in actions]
+    function = {"FunctionArn": function_arn, "FunctionName": "origin",
+                "FunctionUrl": {"collection_status": "collected", "AuthType": "AWS_IAM",
+                                "FunctionArn": function_arn, "FunctionUrl": f"https://{host}/"},
+                "Policy": {"collection_status": "collected", "Policy": {"Statement": statements}}}
+    kind = "lambda_function"
+    def grants():
+        result = one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront"),
+                         coll(kind, [function], service="lambda")), "cloudfront_distribution")
+        assert result["status"] == "FAIL"
+        return [x for x in result["evidence"]["path"] if x["layer"] == "origin_policy"]
+    assert len(grants()) == 1 and grants()[0]["actions"] == ["lambda:invokefunction", "lambda:invokefunctionurl"]
+    statements.pop()
+    assert not grants()
+    statements.append({"Effect": "Allow", "Principal": {"Service": "cloudfront.amazonaws.com"},
+                       "Action": actions[1], "Resource": function_arn,
+                       "Condition": {"ArnLike": {"AWS:SourceArn": distribution_arn.replace("D1", "D2")}}})
+    assert not grants()
+    statements[-1]["Condition"]["ArnLike"]["AWS:SourceArn"] = distribution_arn
+    function["FunctionUrl"]["FunctionUrl"] = "https://other.lambda-url.us-east-1.on.aws/"
+    assert not grants()
+    function["FunctionUrl"]["FunctionUrl"] = f"https://{host}/"
+    oac["SigningBehavior"] = "never"
+    assert not grants()
+    oac["SigningBehavior"] = "always"
+    alias_arn = function_arn + ":live"
+    function["AliasArn"] = alias_arn
+    function["FunctionUrl"]["FunctionArn"] = alias_arn
+    for statement in statements:
+        statement["Resource"] = alias_arn
+    kind = "lambda_alias"
+    assert len(grants()) == 1 and grants()[0]["function_arn"] == alias_arn
+
+
 def test_aws_global_accelerator_static_ips_and_public_listener():
     accelerator = {"AcceleratorArn": f"arn:aws:globalaccelerator::{ACCOUNT}:accelerator/a",
                    "Enabled": True, "Status": "DEPLOYED", "IpSets": [

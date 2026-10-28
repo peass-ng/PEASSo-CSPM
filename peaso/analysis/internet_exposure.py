@@ -1661,6 +1661,15 @@ def _aws_cloudfront(snapshot, inventory, resource):
         from fnmatch import fnmatchcase
         distribution_arn = data.get("ARN")
         partition = distribution_arn.split(":", 2)[1] if isinstance(distribution_arn, str) and distribution_arn.startswith("arn:") else None
+        def exact_source_arn(statement):
+            condition = statement.get("Condition")
+            if not isinstance(condition, dict) or len(condition) != 1:
+                return False
+            operator, terms = next(iter(condition.items()))
+            if operator not in ("StringEquals", "ArnEquals", "ArnLike") or not isinstance(terms, dict) or len(terms) != 1:
+                return False
+            key, value = next(iter(terms.items()))
+            return isinstance(key, str) and key.casefold() == "aws:sourcearn" and value == distribution_arn
         for origin in origins:
             if not isinstance(origin, dict) or origin.get("Id") not in targets:
                 continue
@@ -1682,6 +1691,47 @@ def _aws_cloudfront(snapshot, inventory, resource):
                 else:
                     a.gap("origin_auth", "CloudFront OAC signing configuration malformed", "cloudfront:GetOriginAccessControl")
             hostname = origin.get("DomainName")
+            if (isinstance(oac, dict) and oac.get("collection_status") == "collected"
+                    and oac.get("Id") == oac_id and oac.get("SigningBehavior") == "always"
+                    and oac.get("SigningProtocol") == "sigv4" and oac.get("OriginAccessControlOriginType") == "lambda"
+                    and isinstance(origin.get("CustomOriginConfig"), dict) and isinstance(hostname, str)
+                    and re.fullmatch(r"[a-z0-9-]+\.lambda-url\.[a-z0-9-]+\.on\.aws", hostname)
+                    and isinstance(distribution_arn, str)):
+                for kind in ("lambda_function", "lambda_alias"):
+                    for function in inventory.items(kind):
+                        if function["scope"].split("/", 1)[0] != resource["scope"].split("/", 1)[0]:
+                            continue
+                        function_data = function["data"]
+                        url = function_data.get("FunctionUrl")
+                        function_arn = function_data.get("AliasArn") if kind == "lambda_alias" else function_data.get("FunctionArn")
+                        if (not isinstance(function_arn, str) or not isinstance(url, dict) or url.get("collection_status") != "collected"
+                                or url.get("AuthType") != "AWS_IAM" or url.get("FunctionArn") != function_arn
+                                or not isinstance(url.get("FunctionUrl"), str)
+                                or urlsplit(url["FunctionUrl"]).hostname != hostname):
+                            continue
+                        policy_read = function_data.get("Policy")
+                        if not isinstance(policy_read, dict) or policy_read.get("collection_status") != "collected":
+                            continue
+                        statements = as_list((document(policy_read.get("Policy")) or {}).get("Statement"))
+                        if any(isinstance(row, dict) and row.get("Effect") == "Deny" for row in statements):
+                            continue
+                        actions = set()
+                        for statement in statements:
+                            if (not isinstance(statement, dict) or statement.get("Effect") != "Allow"
+                                    or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource"))
+                                    or statement.get("Principal") != {"Service": "cloudfront.amazonaws.com"}
+                                    or function_arn not in as_list(statement.get("Resource"))
+                                    or not exact_source_arn(statement)):
+                                continue
+                            actions.update(action.casefold() for action in as_list(statement.get("Action"))
+                                           if isinstance(action, str) and action.casefold() in
+                                           ("lambda:invokefunctionurl", "lambda:invokefunction"))
+                        if {"lambda:invokefunctionurl", "lambda:invokefunction"} <= actions:
+                            a.step("origin_policy", "allow_declaration", origin_id=origin["Id"],
+                                   origin_type="lambda_function_url", function_arn=function_arn,
+                                   principal="cloudfront.amazonaws.com", source_arn=distribution_arn,
+                                   actions=sorted(actions),
+                                   semantics="Collected qualified Lambda policy grants both URL invocation actions to this distribution; function response is not established")
             bucket_host = (re.fullmatch(r"(.+)\.s3(?:[.-][a-z]{2}(?:-[a-z]+)+-\d+)?\.amazonaws\.com", hostname)
                            if isinstance(hostname, str) else None)
             bucket_name = bucket_host.group(1) if bucket_host else None
@@ -1711,14 +1761,7 @@ def _aws_cloudfront(snapshot, inventory, resource):
                         continue
                     if object_arn not in as_list(statement.get("Resource")):
                         continue
-                    condition = statement.get("Condition")
-                    if not isinstance(condition, dict) or len(condition) != 1:
-                        continue
-                    operator, terms = next(iter(condition.items()))
-                    if operator not in ("StringEquals", "ArnEquals") or not isinstance(terms, dict) or len(terms) != 1:
-                        continue
-                    key, value = next(iter(terms.items()))
-                    if not isinstance(key, str) or key.casefold() != "aws:sourcearn" or value != distribution_arn:
+                    if not exact_source_arn(statement):
                         continue
                     a.step("origin_policy", "allow_declaration", origin_id=origin["Id"], bucket=bucket_name,
                            principal="cloudfront.amazonaws.com", source_arn=distribution_arn,
