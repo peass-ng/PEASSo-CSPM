@@ -79,6 +79,7 @@ from . import azure_notification_hubs_native
 from . import azure_relay_native
 from . import azure_lighthouse_native
 from . import azure_nginx_native
+from . import azure_webpubsub_hubs_native
 
 ARM = "https://management.azure.com"
 GRAPH = "https://graph.microsoft.com"
@@ -179,7 +180,7 @@ ENDPOINTS = {
     'servicebus_namespace': ('Microsoft.ServiceBus/namespaces', '2022-10-01-preview'),
     'service_fabric_cluster': ('Microsoft.ServiceFabric/clusters', '2021-06-01'),
     'signalr_service': ('Microsoft.SignalRService/signalR', '2024-03-01'),
-    'web_pubsub': ('Microsoft.SignalRService/webPubSub', '2023-02-01'),
+    'web_pubsub': ('Microsoft.SignalRService/webPubSub', '2024-03-01'),
     'spring_cloud_service': ('Microsoft.AppPlatform/Spring', '2023-12-01'),
     'storage_sync_service': ('Microsoft.StorageSync/storageSyncServices', '2022-06-01'),
     'stream_analytics_job': ('Microsoft.StreamAnalytics/streamingjobs', '2020-03-01'),
@@ -1141,7 +1142,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "openshift_cluster", "openshift_hcp_cluster", "signalr_service"})
+                            "integration_service_environment", "openshift_cluster", "openshift_hcp_cluster", "signalr_service", "web_pubsub"})
 
 
 def _canonicalize_embedded(collections):
@@ -4112,6 +4113,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_relay_native.collect(reader, request, scopes, wanted)
         azure_lighthouse_native.collect(reader, request, scopes, wanted)
         azure_nginx_native.collect(reader, request, scopes, wanted)
+        azure_webpubsub_hubs_native.collect(reader, request, scopes, wanted)
         azure_mongo_cluster_exposure.collect(reader, request, scopes, wanted)
         azure_disclosure_native.collect(reader, transport, scopes, options,
                                         credential_context_id, customer_context_id)

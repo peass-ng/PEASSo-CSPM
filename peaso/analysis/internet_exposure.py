@@ -10004,9 +10004,9 @@ def _azure_realtime_public_endpoint(snapshot, inventory, resource):
     return a
 
 
-def _azure_realtime_endpoint(snapshot, inventory, resource):
-    a = _azure_realtime_public_endpoint(snapshot, inventory, resource)
-    if resource["type"] != "signalr_service":
+def _azure_realtime_private_endpoint(a, resource):
+    kind = resource["type"]
+    if kind not in ("signalr_service", "web_pubsub"):
         return a
     public_verdict = a.verdict()
     def unresolved_private():
@@ -10015,19 +10015,24 @@ def _azure_realtime_endpoint(snapshot, inventory, resource):
         return a
     data = resource["data"]
     props = _props(resource)
-    rows = props.get("privateEndpointConnections")
+    rows = (props.get("privateEndpointConnections") if kind == "signalr_service"
+            else data.get("privateEndpointConnections"))
+    coverage = ((props.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status")
+                if kind == "signalr_service" else
+                (data.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status"))
     acl = props.get("networkACLs")
-    if not isinstance(rows, list) or (props.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status") == "malformed":
-        a.gap("inventory", "SignalR private endpoint connections unavailable")
+    if (not isinstance(rows, list) or coverage == "malformed"
+            or kind == "web_pubsub" and coverage not in ("collected", "empty")):
+        a.gap("inventory", "realtime service private endpoint connections unavailable")
         return unresolved_private()
     if not rows:
         return a
     if not isinstance(acl, dict) or acl.get("defaultAction") not in ("Allow", "Deny"):
-        a.gap("policy", "SignalR private endpoint request ACL unavailable")
+        a.gap("policy", "realtime service private endpoint request ACL unavailable")
         return unresolved_private()
     acl_rows = acl.get("privateEndpoints", [])
     if not isinstance(acl_rows, list):
-        a.gap("policy", "SignalR private endpoint request ACL malformed")
+        a.gap("policy", "realtime service private endpoint request ACL malformed")
         return unresolved_private()
     by_name = {}
     valid_types = {"ClientConnection", "ServerConnection", "RESTAPI", "Trace"}
@@ -10039,7 +10044,7 @@ def _azure_realtime_endpoint(snapshot, inventory, resource):
                 or not isinstance(allow, list) or not isinstance(deny, list)
                 or any(value not in valid_types for value in allow + deny)
                 or set(allow) & set(deny)):
-            a.gap("policy", "SignalR private endpoint request ACL malformed")
+            a.gap("policy", "realtime service private endpoint request ACL malformed")
             return unresolved_private()
         by_name[name.casefold()] = (set(allow), set(deny))
     parent = re.match(r"/subscriptions/([^/]+)/", str(data.get("id", "")), re.I)
@@ -10081,13 +10086,61 @@ def _azure_realtime_endpoint(snapshot, inventory, resource):
                 a.ports = union(a.ports or {}, pset("tcp", port, port))
             a.explicit = "FAIL"
         else:
-            a.gap("listener", "SignalR private endpoint service port unavailable")
+            a.gap("listener", "realtime service private endpoint port unavailable")
             a.explicit = "UNKNOWN"
         if any(port is not None and port not in valid_ports for port in ports):
-            a.notes.append("Additional SignalR service port is malformed")
+            a.notes.append("Additional realtime service port is malformed")
     elif unknown:
-        a.gap("inventory", "SignalR approved private endpoint status unresolved")
+        a.gap("inventory", "realtime service approved private endpoint status unresolved")
         return unresolved_private()
+    return a
+
+
+def _azure_webpubsub_configuration(a, resource):
+    data = resource["data"]
+    coverage = data.get("_coverage") or {}
+    hubs = data.get("hubExposure")
+    links = data.get("sharedPrivateLinkExposure")
+    public_verdict = a.verdict()
+    if ((coverage.get("hubExposure") or {}).get("status") != "collected" or not isinstance(hubs, list)
+            or (coverage.get("sharedPrivateLinkExposure") or {}).get("status") != "collected" or not isinstance(links, list)):
+        a.gap("inventory", "Web PubSub hub or outbound link inventory unavailable")
+        if public_verdict == "PASS":
+            a.explicit = "UNKNOWN"
+        elif public_verdict == "FAIL":
+            a.explicit = "FAIL"
+        return a
+    anonymous = [hub["id"] for hub in hubs if hub.get("anonymousConnectPolicy") == "allow"]
+    if anonymous:
+        a.step("anonymous_hub", "conditional", hub_ids=anonymous)
+        if any(step.get("layer") == "listener" and "ClientConnection" in step.get("public_request_types", [])
+               for step in a.path):
+            a.authenticated = False
+        if any(step.get("layer") == "private_link_share" and any(
+                "ClientConnection" in connection.get("request_types", [])
+                for connection in step.get("external_connections", [])) for step in a.path):
+            a.authenticated = False
+    handlers = [{"hub": hub["id"], **handler} for hub in hubs for handler in hub.get("eventHandlers", [])
+                if handler.get("hasEventFilter")]
+    listeners = [{"hub": hub["id"], **listener} for hub in hubs for listener in hub.get("eventListeners", [])]
+    persistent_storage = [{"hub": hub["id"], "targetId": hub["persistentStorageId"]}
+                          for hub in hubs if hub.get("persistentStorageId")]
+    targets = [link for link in links if link.get("status") == "Approved"
+               and link.get("provisioningState") in ("Succeeded", "Ready")]
+    if handlers or listeners or targets or persistent_storage:
+        a.step("external_integrations", "conditional", handlers=handlers, listeners=listeners,
+               approved_shared_private_links=targets, persistent_storage=persistent_storage)
+        a.notes.append("Configured outbound destinations need an ownership and event-flow join")
+        if a.verdict() == "PASS":
+            a.explicit = "UNKNOWN"
+    return a
+
+
+def _azure_realtime_endpoint(snapshot, inventory, resource):
+    a = _azure_realtime_public_endpoint(snapshot, inventory, resource)
+    a = _azure_realtime_private_endpoint(a, resource)
+    if resource["type"] == "web_pubsub":
+        a = _azure_webpubsub_configuration(a, resource)
     return a
 
 
