@@ -37911,9 +37911,23 @@ def _observed(assessment, status):
     if assessment.resource.get("provider") == "aws" and assessment.kind in _AWS_GENERIC_OBSERVED_KINDS:
         kind = assessment.resource["type"]
         if kind == "http_api" and status == "UNKNOWN":
-            return "Internet access could not be determined because required configuration is missing."
+            gap = assessment.unresolved[0] if assessment.unresolved else {}
+            reason = str(gap.get("reason", "a required route setting is missing")).rstrip(". ")
+            return (f"The HTTP API has an unresolved route setting: {reason}.\n"
+                    "Whether outside clients can reach a deployed route could not be determined.\n"
+                    "If that route accepts public requests, responses could expose people's data.")
         if kind == "bucket" and status == "FAIL" and assessment.data_exposure:
-            return "Public access to the stored data is allowed."
+            policy = next((step for step in assessment.path if step.get("layer") == "policy"), {})
+            acl = next((step for step in assessment.path if step.get("layer") == "acl"), {})
+            sources = []
+            if policy.get("public_policy"):
+                sources.append("bucket policy")
+            if acl.get("public_grants"):
+                sources.append("bucket ACL")
+            source = " and ".join(sources) if sources else "access settings"
+            return (f"The {source} records a public grant for this bucket.\n"
+                    "The recorded public access block settings leave that grant usable.\n"
+                    "A principal may use its granted permission, which could expose or change stored data.")
         if status == "FAIL" and assessment.dormant and kind in ("rds_instance", "redshift_cluster"):
             inactive = ("DB instance is stopped" if kind == "rds_instance" else
                         "Redshift cluster is paused")

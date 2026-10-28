@@ -8734,7 +8734,11 @@ def test_http_api_live_route_does_not_claim_deployed_public_access():
     assert result["status"] == "UNKNOWN" and result["severity"] == "info"
     assert "apigatewayv2:ExportApi" in result["evidence"]["collector_facts_needed"]
     assert result["evidence"]["public_addresses"] == [endpoint]
-    assert result["evidence"]["observed"] == "Internet access could not be determined because required configuration is missing."
+    observed = result["evidence"]["observed"].splitlines()
+    assert len(observed) == 3
+    assert observed[0].startswith("The HTTP API has an unresolved route setting:")
+    assert "could not be determined" in observed[1]
+    assert "could expose people's data" in observed[2]
     assert "no traffic was sent" in result["evidence"]["semantics"]
 
 
@@ -8771,7 +8775,11 @@ def test_data_shares_keep_risk_and_have_share_specific_actions():
     account_open = coll("s3_account_public_access_block", [], status="empty", service="s3control")
     result = one(aws(coll("bucket", [bucket()], service="s3"), account_open), "bucket")
     assert result["severity"] == "critical"
-    assert result["evidence"]["observed"] == "Public access to the stored data is allowed."
+    observed = result["evidence"]["observed"].splitlines()
+    assert len(observed) == 3
+    assert observed[0] == "The bucket policy records a public grant for this bucket."
+    assert "public access block" in observed[1]
+    assert "may use" in observed[2] and "could expose" in observed[2]
     assert "policy or ACL" in result["remediation"] and "port" not in result["remediation"]
     snapshot = {"DBSnapshotArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:snapshot:s", "SnapshotType": "manual",
                 "Attributes": {"collection_status": "collected", "DBSnapshotAttributesResult": {
