@@ -11405,6 +11405,50 @@ def _azure_defender_automation(snapshot, inventory, resource):
     return a
 
 
+def _azure_external_id_auth_extension(snapshot, inventory, resource):
+    """Active External ID authentication callbacks to unverified domains."""
+    a = Assessment(resource, "data_pipeline")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    host = resource["data"].get("endpointHost")
+    if not isinstance(host, str) or not host:
+        a.gap("inventory", "authentication extension endpoint host unavailable")
+        return a
+    if inventory.state("external_id_auth_listener", resource["scope"]) not in ("collected", "empty"):
+        a.gap("inventory", "authentication event listeners unavailable")
+        return a
+    listeners = [row for row in inventory.items("external_id_auth_listener")
+                 if str(row["data"].get("extensionId", "")).casefold() ==
+                 str(resource["data"].get("id", "")).casefold()]
+    if not listeners:
+        if any(row["data"].get("extensionId") is None
+               for row in inventory.items("external_id_auth_listener")):
+            a.gap("inventory", "some authentication listeners omit their extension reference")
+            return a
+        a.step("callback", "block", reason="no listener references the extension")
+        a.explicit = "PASS"
+        return a
+    if inventory.state("directory_domain") not in ("collected", "empty"):
+        a.gap("inventory", "verified tenant domain inventory unavailable")
+        return a
+    owned = {str(row["data"].get("id", "")).casefold() for row in inventory.items("directory_domain")
+             if row["data"].get("isVerified") is True}
+    if not owned:
+        a.gap("inventory", "tenant has no verified domain evidence")
+        return a
+    if any(host == domain or host.endswith("." + domain) for domain in owned):
+        a.gap("authorization", "same-domain callback operator ownership is not proven")
+        return a
+    a.external_ids = [host]
+    a.step("authentication_callback", "allow", destination_host=host,
+           listener_ids=[row["data"].get("id") for row in listeners],
+           application_ids=sorted({app for row in listeners for app in row["data"].get("appIds", [])}))
+    a.data_exposure = True
+    a.explicit = "FAIL"
+    return a
+
+
 def _azure_nginx(snapshot, inventory, resource):
     """Public NGINX frontends with ports derived from active configuration files."""
     a = Assessment(resource, "public_endpoint")
@@ -12781,7 +12825,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12796,7 +12840,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12913,6 +12957,7 @@ def assess(snapshot, resources):
                   "cost_export": _azure_cost_export,
                   "security_contact": _azure_security_contact,
                   "defender_automation": _azure_defender_automation,
+                  "external_id_auth_extension": _azure_external_id_auth_extension,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
