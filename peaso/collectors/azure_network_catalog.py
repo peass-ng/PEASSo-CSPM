@@ -9,7 +9,7 @@ ENDPOINTS = {
     "container_app": ("Microsoft.App/containerApps", "2024-03-01"),
     "container_app_environment": ("Microsoft.App/managedEnvironments", "2024-03-01"),
     "container_app_job": ("Microsoft.App/jobs", "2024-03-01"),
-    "redis_enterprise_cluster": ("Microsoft.Cache/redisEnterprise", "2024-11-01"),
+    "redis_enterprise_cluster": ("Microsoft.Cache/redisEnterprise", "2025-07-01"),
     "local_network_gateway": ("Microsoft.Network/localNetworkGateways", "2023-09-01"),
     "network_connection": ("Microsoft.Network/connections", "2023-09-01"),
     "expressroute_circuit": ("Microsoft.Network/expressRouteCircuits", "2023-09-01"),
@@ -23,6 +23,7 @@ ENDPOINTS = {
 }
 ENDPOINTS.update({kind: (row['resource_type'], row['api_version']) for kind, row in PRIVATE_SERVICES.items()})
 CHILDREN = {
+    'redis_enterprise_database': ('redis_enterprise_cluster', 'databases', '2025-07-01'),
     'hub_bgp_connection': ('virtual_hub', 'bgpConnections', '2023-09-01'),
     'hub_route_table': ('virtual_hub', 'hubRouteTables', '2023-09-01'),
     'hub_route_map': ('virtual_hub', 'routeMaps', '2025-09-01'),

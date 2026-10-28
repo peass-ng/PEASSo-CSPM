@@ -189,6 +189,33 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
     assert ml_decision(acls={"defaultAction": "Allow"}, status="denied").verdict() == "FAIL"
 
 
+def test_redis_enterprise_managed_redis_database_listener_gates():
+    cluster = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redisEnterprise/cache"
+    def evaluate(access, child_status="collected", database_port=10000):
+        item = {"id": cluster, "properties": {"publicNetworkAccess": access,
+                "hostName": "cache.westus.redis.azure.net"}}
+        database = {"id": cluster + "/databases/default", "properties": {
+            "port": database_port, "clientProtocol": "Encrypted"}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "redis_enterprise_cluster", "scope": SCOPE, "service": "cache",
+             "status": "collected", "items": [item]},
+            {"type": "redis_enterprise_database", "scope": SCOPE, "service": "cache",
+             "status": child_status, "items": [database] if child_status in ("collected", "partial") else []},
+        ])
+        return next(row for row in assess(snap, resources(snap))
+                    if row.resource["type"] == "redis_enterprise_cluster")
+    exposed = evaluate("Enabled")
+    assert exposed.verdict() == "FAIL" and exposed.ports == {"tcp": ((10000, 10000),)}
+    assert exposed.addresses == ["cache.westus.redis.azure.net"]
+    assert evaluate("Disabled").verdict() == "PASS"
+    assert evaluate("Enabled", child_status="empty").verdict() == "PASS"
+    assert evaluate("Enabled", child_status="partial").verdict() == "FAIL"
+    assert evaluate("Enabled", child_status="denied").verdict() == "UNKNOWN"
+    assert evaluate("Enabled", child_status="partial", database_port=None).verdict() == "UNKNOWN"
+    assert evaluate("Enabled", database_port=None).verdict() == "UNKNOWN"
+    assert evaluate(None).verdict() == "UNKNOWN"
+
+
 def test_databricks_arm_public_gate_keeps_external_ingress_policy_unknown():
     host = "adb-123.4.azuredatabricks.net"
     disabled = decision("databricks_workspace", {"publicNetworkAccess": "Disabled", "workspaceUrl": host})
