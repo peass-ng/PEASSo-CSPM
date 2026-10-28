@@ -2420,9 +2420,9 @@ def _gcp_bucket(snapshot, inventory, resource):
             permissions = role_row["data"].get("includedPermissions") if role_row else None
             if isinstance(permissions, list):
                 if any(permission in object_permissions for permission in permissions):
-                    (conditional if binding.get("condition") else public).extend(grants)
+                    (conditional if binding.get("condition") is not None else public).extend(grants)
             elif role in known_storage_roles:
-                (conditional if binding.get("condition") else public).extend(grants)
+                (conditional if binding.get("condition") is not None else public).extend(grants)
             else:
                 unresolved_roles.extend(grants)
     # The collector attaches these only after complete native ACL reads and
@@ -2471,7 +2471,7 @@ def _gcp_bucket(snapshot, inventory, resource):
                 role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
                 permissions = role_row["data"].get("includedPermissions") if role_row else None
                 grant = {"folder": name, "role": role, "members": members}
-                if binding.get("condition"):
+                if binding.get("condition") is not None:
                     folder_unresolved.append({**grant, "reason": "conditional managed folder IAM"})
                 elif isinstance(permissions, list) and any(p in object_permissions for p in permissions):
                     folder_public.append(grant)

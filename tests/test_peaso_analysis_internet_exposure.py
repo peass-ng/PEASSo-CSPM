@@ -1861,6 +1861,9 @@ def test_gcp_bucket_custom_role_permissions_gate_public_object_exposure():
         items = resources(snap)
         return _gcp_bucket(snap, Inventory(snap, items), next(row for row in items if row["type"] == "bucket"))
     assert assessment().verdict() == "FAIL"
+    bucket["iamPolicy"]["bindings"][0]["condition"] = {}
+    assert assessment().verdict() == "UNKNOWN"
+    bucket["iamPolicy"]["bindings"][0].pop("condition")
     role["includedPermissions"] = ["logging.logEntries.list"]
     assert assessment() is None
     assert assessment(with_role=False).verdict() == "UNKNOWN"
@@ -1884,6 +1887,8 @@ def test_gcp_public_managed_folder_joins_cached_folder_policy():
     assert result.verdict() == "FAIL"
     assert result.path[-1]["managed_folder_grants"][0]["folder"] == "public/"
     folder["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+    folder["iamPolicy"]["bindings"][0]["condition"] = {}
     assert assessment().verdict() == "UNKNOWN"
     folder["iamPolicy"]["bindings"][0].pop("condition")
     folder["iamPolicy"]["bindings"][0]["role"] = "projects/p1/roles/unknown"
