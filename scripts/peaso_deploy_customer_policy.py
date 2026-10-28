@@ -454,6 +454,19 @@ EXPOSURE_METADATA_READ_REFERENCES = {
 }
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | set(EXPOSURE_METADATA_READ_REFERENCES)
 
+# These endpoint-bound EC2 List reads support the client-vpn-endpoint resource.
+# Keep them outside the broad configuration statement so the customer role
+# only grants them for endpoints in its own account.
+CLIENT_VPN_ROUTE_READ_REFERENCES = {
+    'ec2:DescribeClientVpnRoutes': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html',
+    'ec2:DescribeClientVpnTargetNetworks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html',
+}
+CLIENT_VPN_ROUTE_READ_PAIRS = {
+    ('ec2', 'describe_client_vpn_routes'),
+    ('ec2', 'describe_client_vpn_target_networks'),
+}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | set(CLIENT_VPN_ROUTE_READ_REFERENCES)
+
 
 def policy_size(policy):
     # IAM excludes whitespace; every generated permission token is ASCII.
@@ -719,6 +732,7 @@ def build_policy(read_actions=None, *, include_credential_report_generation=None
         include_credential_report_generation = EVIDENCE_OPERATION in read_actions
     actions = set()
     gateway_paths = set()
+    client_vpn_route_actions = set()
     for service, operation in sorted(read_actions):
         if (service, operation) in (UNGRANTED_CREDENTIAL_OPERATIONS | UNGRANTED_CONTENT_OPERATIONS |
                                     UNAVAILABLE_SDK_METADATA_OPERATIONS):
@@ -739,6 +753,8 @@ def build_policy(read_actions=None, *, include_credential_report_generation=None
             continue  # Appended below with its exact service resource boundary.
         if action == "apigateway:GET":
             gateway_paths.update(GATEWAY_PATHS[(service, operation)])
+        elif (service, operation) in CLIENT_VPN_ROUTE_READ_PAIRS:
+            client_vpn_route_actions.add(action)
         elif action:
             actions.add(action)
             for dependent in DEPENDENT_ACTIONS.get((service, operation), ()):
@@ -746,6 +762,10 @@ def build_policy(read_actions=None, *, include_credential_report_generation=None
                     raise ValueError("IAM mapping requires reference review: " + dependent)
                 actions.add(dependent)
     statements = [{"Sid": "ConfigurationAndInventoryRead", "Effect": "Allow", "Action": sorted(actions), "Resource": "*"}] if actions else []
+    if client_vpn_route_actions:
+        statements.append({"Sid": "ClientVpnRouteInventoryRead", "Effect": "Allow",
+            "Action": sorted(client_vpn_route_actions),
+            "Resource": {"Fn::Sub": "arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:client-vpn-endpoint/*"}})
     if include_credential_report_generation:
         # This narrowly authorized evidence refresh is NOT an IAM configuration mutation.
         statements.append({"Sid": "CredentialReportEvidenceGeneration", "Effect": "Allow", "Action": "iam:GenerateCredentialReport", "Resource": "*"})

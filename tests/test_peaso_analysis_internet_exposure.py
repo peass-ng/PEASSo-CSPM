@@ -235,7 +235,10 @@ def test_client_vpn_all_authenticated_clients_authorization_declaration():
     found = grants(endpoint)
     assert len(found) == 1 and found[0]["status"] == "FAIL"
     assert found[0]["evidence"]["path"][0]["destination_cidrs"] == ["10.20.0.0/16"]
-    assert "Route and destination controls remain unverified" in evidence_summary(found[0])
+    observed = evidence_summary(found[0])
+    assert len(observed.splitlines()) == 4
+    assert "active Client VPN rule" in observed.splitlines()[0]
+    assert "matching active route" in observed.splitlines()[1]
     assert "authorization rule" in found[0]["remediation"]
     routed = {"id": "cvpn-endpoint-1", "ClientVpnEndpointId": "cvpn-endpoint-1"}
     routed["Routes"] = {"ClientVpnEndpointId": "cvpn-endpoint-1", "collection_status": "collected", "items": [
@@ -247,6 +250,9 @@ def test_client_vpn_all_authenticated_clients_authorization_declaration():
          "Status": {"Code": "associated"}, "SecurityGroups": ["sg-1234"]}]}
     joined = grants(endpoint, routed)[0]
     assert joined["status"] == "FAIL"
+    joined_observed = evidence_summary(joined)
+    assert len(joined_observed.splitlines()) == 4
+    assert "subnet-1234" in joined_observed and "vpc-1234" in joined_observed
     assert joined["evidence"]["path"][1]["layer"] == "client_route"
     assert joined["evidence"]["path"][1]["routes"][0]["vpc_id"] == "vpc-1234"
     assert any(gap["layer"] == "destination" for gap in joined["evidence"]["unresolved"])
