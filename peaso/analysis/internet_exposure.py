@@ -5837,24 +5837,45 @@ def _azure_api_management(snapshot, inventory, resource):
         a.step("network", "block", virtual_network_type=network)
         a.ports = {}
         return a
-    if props.get("disableGateway") is True:
-        a.step("listener", "block", reason="managed gateway disabled")
-        a.ports = {}
-        return a
     if access not in (None, "Enabled") or network not in (None, "None", "External"):
         a.gap("inventory", "API Management public access or virtual network mode is unresolved")
         return a
-    if props.get("disableGateway") is not False:
+    primary_enabled = props.get("disableGateway") is not True
+    locations = props.get("additionalLocations") or []
+    if not isinstance(locations, list):
+        a.gap("inventory", "API Management additional locations are malformed")
+        locations = []
+    regional = []
+    for location in locations:
+        if not isinstance(location, dict) or location.get("disableGateway") not in (None, False, True):
+            a.gap("listener", "API Management regional gateway state is malformed")
+            continue
+        if location.get("disableGateway") is not True:
+            regional.append(location)
+    if not primary_enabled and not regional and not a.unresolved:
+        a.step("listener", "block", reason="primary and regional managed gateways disabled")
+        a.ports = {}
+        return a
+    if primary_enabled and props.get("disableGateway") is not False:
         a.gap("listener", "managed gateway enable state was not collected")
-    endpoint = props.get("gatewayUrl")
-    if isinstance(endpoint, str) and endpoint.startswith("https://"):
-        a.addresses.append(endpoint)
-    else:
-        a.gap("inventory", "API Management gateway URL was not collected")
+    if primary_enabled:
+        endpoint = props.get("gatewayUrl")
+        if isinstance(endpoint, str) and endpoint.startswith("https://"):
+            a.addresses.append(endpoint)
+        else:
+            a.gap("inventory", "API Management gateway URL was not collected")
+    for location in regional:
+        endpoint = location.get("gatewayRegionalUrl")
+        if isinstance(endpoint, str) and endpoint.startswith("https://"):
+            a.addresses.append(endpoint)
+        else:
+            a.gap("inventory", "API Management enabled regional gateway URL was not collected")
     a.step("public_network_access", "allow", value=access or "Enabled (service default)",
            virtual_network_type=network or "None (service default)")
     ports = pset("tcp", 443, 443)
     if network == "External":
+        if regional:
+            a.gap("nsg", "External VNet regional gateway subnet NSG paths are not resolved")
         sku = (resource["data"].get("sku") or {}).get("name")
         if sku not in ("Developer", "Premium"):
             a.gap("nsg", "External VNet NSG semantics require a recorded classic Developer or Premium SKU")
@@ -6655,6 +6676,16 @@ def _observed(assessment, status):
             return (f"The Container App {name} has external ingress configured and recorded runningStatus {state}.\n"
                     "Its current public request path is unresolved while this state changes.\n"
                     "The endpoint could expose app responses if an active revision serves requests.")
+    if assessment.resource["type"] == "api_management" and status in ("FAIL", "UNKNOWN"):
+        props = _props(assessment.resource)
+        if props.get("disableGateway") is True and assessment.addresses:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The API Management service {name} has its primary gateway disabled and an enabled "
+                    f"regional gateway at {assessment.addresses[0]}.\n" +
+                    ("That recorded regional listener may accept public HTTPS requests if the service responds.\n"
+                     if status == "FAIL" else
+                     "The regional public request path is unresolved by its VNet or inventory settings.\n")
+                    + "API authorization, backend health, and successful requests were not tested.")
     if assessment.kind == "web_app":
         restriction = next((step for step in assessment.path if step["layer"] == "access_restrictions"), {})
         network = next((step for step in assessment.path if step["layer"] == "public_network_access"), {})

@@ -1068,6 +1068,22 @@ def test_api_management_public_gateway_and_network_gates():
     assert decision("api_management", {**base, "gatewayUrl": None}).verdict() == "UNKNOWN"
 
 
+def test_api_management_enabled_secondary_gateway_survives_primary_disable():
+    base = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
+            "disableGateway": True, "gatewayUrl": "https://primary.azure-api.net",
+            "additionalLocations": [{"location": "west", "disableGateway": False,
+                                     "gatewayRegionalUrl": "https://west.azure-api.net"}]}
+    regional = decision("api_management", base)
+    assert regional.verdict() == "FAIL" and regional.addresses == ["https://west.azure-api.net"]
+    assert regional.ports == {"tcp": ((443, 443),)}
+    assert "primary gateway disabled and an enabled regional gateway" in _observed(regional, "FAIL")
+    assert decision("api_management", {**base, "additionalLocations": [
+        {**base["additionalLocations"][0], "disableGateway": True}]}).verdict() == "PASS"
+    assert decision("api_management", {**base, "additionalLocations": [
+        {"location": "west", "disableGateway": False}]}).verdict() == "UNKNOWN"
+    assert decision("api_management", {**base, "virtualNetworkType": "External"}).verdict() == "UNKNOWN"
+
+
 def test_api_management_classic_external_vnet_subnet_nsg():
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/apim"
     nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/apim"
