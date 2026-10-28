@@ -5809,8 +5809,9 @@ def _azure_firewall(snapshot, inventory, resource):
             destinations = [_cidr(value) for value in as_list(rule.get("destinationAddresses"))]
             if None in destinations:
                 a.gap("policy", "DNAT destination address syntax is not resolved")
-            if not frontends or not any(net and ipaddress.ip_address(front) in net
-                                        for net in destinations for front in frontends):
+            matched_frontends = sorted({front for front in frontends if any(
+                net and ipaddress.ip_address(front) in net for net in destinations)})
+            if not matched_frontends:
                 continue
             exposed = {}
             for protocol in as_list(rule.get("protocols")) + as_list(rule.get("ipProtocols")):
@@ -5819,9 +5820,11 @@ def _azure_firewall(snapshot, inventory, resource):
             if exposed:
                 ports = union(ports, exposed)
                 matched.append({"collection": collection.get("name"), "rule": rule.get("name"),
-                                "frontend_ports": describe(exposed), "translated_address": rule.get("translatedAddress"),
+                                "frontend_ports": describe(exposed), "public_frontends": matched_frontends,
+                                "translated_address": rule.get("translatedAddress"),
                                 "translated_port": rule.get("translatedPort")})
     if matched:
+        a.addresses = sorted({address for rule in matched for address in rule["public_frontends"]})
         a.step("dnat", "allow", rules=matched)
         stopped = ([_azure_firewall_stopped_vm_backend(inventory, rule["translated_address"])
                     for rule in matched] if not a.unresolved else [])

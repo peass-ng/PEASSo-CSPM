@@ -1810,15 +1810,20 @@ def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     ip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
     firewall_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw"
 
-    def firewall_decision(rules, policy=None):
-        props = {"ipConfigurations": [{"properties": {"publicIPAddress": {"id": ip_id}}}],
+    def firewall_decision(rules, policy=None, *, extra_frontend=False):
+        configs = [{"properties": {"publicIPAddress": {"id": ip_id}}}]
+        if extra_frontend:
+            configs.append({"properties": {"publicIPAddress": {"id": ip_id + "-other"}}})
+        props = {"ipConfigurations": configs,
                  "natRuleCollections": [{"name": "nat", "properties": {"action": {"type": "Dnat"},
                                           "rules": rules}}]}
         if policy:
             props["firewallPolicy"] = {"id": policy}
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
-             "items": [{"id": ip_id, "properties": {"ipAddress": "8.8.8.8"}}]},
+             "items": [{"id": ip_id, "properties": {"ipAddress": "8.8.8.8"}}] +
+                      ([{"id": ip_id + "-other", "properties": {"ipAddress": "9.9.9.9"}}]
+                       if extra_frontend else [])},
             {"type": "azure_firewall", "scope": SCOPE, "service": "network", "status": "collected",
              "items": [{"id": firewall_id, "properties": props}]}])
         return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "azure_firewall")
@@ -1829,6 +1834,9 @@ def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     candidate = firewall_decision([rule])
     assert candidate.verdict() == "UNKNOWN" and candidate.ports == {"tcp": ((443, 443),)}
     assert any(gap["layer"] == "backend" for gap in candidate.unresolved)
+    mixed = firewall_decision([rule], extra_frontend=True)
+    assert mixed.verdict() == "UNKNOWN" and mixed.addresses == ["8.8.8.8"]
+    assert mixed.path[0]["rules"][0]["public_frontends"] == ["8.8.8.8"]
     wildcard = firewall_decision([{**rule, "sourceAddresses": ["*"]}])
     assert wildcard.verdict() == "UNKNOWN" and wildcard.ports == {"tcp": ((443, 443),)}
     assert not any(gap["layer"] == "policy" for gap in wildcard.unresolved)
