@@ -594,6 +594,40 @@ def test_aws_cloudfront_observed_oai_bucket_policy_grant_requires_used_origin_an
     assert not [step for step in finding()["evidence"]["path"] if step["layer"] == "origin_policy"]
 
 
+def test_aws_cloudfront_oac_requires_observed_signing_and_exact_distribution_policy():
+    distribution_arn = f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1"
+    config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+        "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only", "TargetOriginId": "s3-main"},
+        "Origins": {"Items": [{"Id": "s3-main", "DomainName": "private-bucket.s3.us-east-1.amazonaws.com",
+                               "S3OriginConfig": {"OriginAccessIdentity": ""}, "OriginAccessControlId": "OAC1"}]}}}
+    oac = {"collection_status": "collected", "Id": "OAC1", "SigningBehavior": "always",
+           "SigningProtocol": "sigv4", "OriginAccessControlOriginType": "s3"}
+    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net",
+                    "Config": config, "OriginAccessControls": {"OAC1": oac}}
+    statement = {"Effect": "Allow", "Principal": {"Service": "cloudfront.amazonaws.com"},
+                 "Action": "s3:GetObject", "Resource": "arn:aws:s3:::private-bucket/*",
+                 "Condition": {"StringEquals": {"AWS:SourceArn": distribution_arn}}}
+    bucket = {"Name": "private-bucket", "Policy": {"collection_status": "collected",
+              "Policy": {"Version": "2012-10-17", "Statement": [statement]}}}
+    def steps():
+        result = one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront"),
+                         coll("bucket", [bucket], service="s3")), "cloudfront_distribution")
+        assert result["status"] == "FAIL"
+        return result["evidence"]["path"]
+    assert any(step["layer"] == "origin_policy" and step["decision"] == "allow_declaration"
+               and step["source_arn"] == distribution_arn for step in steps())
+    oac["SigningBehavior"] = "never"
+    assert not any(step["layer"] == "origin_policy" for step in steps())
+    oac["SigningBehavior"] = "always"
+    statement["Condition"]["StringEquals"]["AWS:SourceArn"] = distribution_arn.replace("D1", "D2")
+    assert not any(step["layer"] == "origin_policy" for step in steps())
+    statement["Condition"]["StringEquals"]["AWS:SourceArn"] = distribution_arn
+    distribution["OriginAccessControls"] = {}
+    result = one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront"),
+                     coll("bucket", [bucket], service="s3")), "cloudfront_distribution")
+    assert any(gap["layer"] == "origin_auth" for gap in result["evidence"]["unresolved"])
+
+
 def test_aws_global_accelerator_static_ips_and_public_listener():
     accelerator = {"AcceleratorArn": f"arn:aws:globalaccelerator::{ACCOUNT}:accelerator/a",
                    "Enabled": True, "Status": "DEPLOYED", "IpSets": [

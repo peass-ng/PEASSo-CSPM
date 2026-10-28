@@ -63,6 +63,7 @@ READ_ACTIONS.update({
     ("rds", "describe_db_cluster_snapshot_attributes"),
     ("wafv2", "get_web_acl"), ("wafv2", "get_rule_group"), ("wafv2", "get_logging_configuration"), ("wafv2", "list_resources_for_web_acl"),
     ("cloudfront", "list_distributions_by_web_acl_id"),
+    ("cloudfront", "get_origin_access_control"),
     ("waf", "get_web_acl"), ("waf", "get_rule"), ("waf", "get_logging_configuration"), ("waf", "list_activated_rules_in_rule_group"),
     ("waf-regional", "get_web_acl"), ("waf-regional", "get_rule"), ("waf-regional", "get_logging_configuration"),
     ("waf-regional", "list_activated_rules_in_rule_group"), ("waf-regional", "list_resources_for_web_acl"),
@@ -635,8 +636,32 @@ def _cloudfront_log_deliveries(requests, session, region, items):
     sources = requests.pages(session, "logs", home, "describe_delivery_sources", "deliverySources")
     deliveries = requests.pages(session, "logs", home, "describe_deliveries", "deliveries")
     output = []
+    oac_reads = {}
     for item in items:
         item = copy.deepcopy(item)
+        config = item.get("Config")
+        distribution = config.get("DistributionConfig") if isinstance(config, dict) else None
+        origins = distribution.get("Origins") if isinstance(distribution, dict) else None
+        origin_items = origins.get("Items") if isinstance(origins, dict) else None
+        ids = {origin.get("OriginAccessControlId") for origin in origin_items or []
+               if isinstance(origin, dict) and isinstance(origin.get("OriginAccessControlId"), str)
+               and origin.get("OriginAccessControlId")}
+        item["OriginAccessControls"] = {}
+        for oac_id in sorted(ids):
+            if oac_id not in oac_reads:
+                read = requests.detail(session, "cloudfront", home, "get_origin_access_control",
+                                       Id=oac_id, absent=("NoSuchOriginAccessControl",))
+                control = read.get("OriginAccessControl") if isinstance(read, dict) else None
+                settings = control.get("OriginAccessControlConfig") if isinstance(control, dict) else None
+                if read.get("collection_status") == "collected" and isinstance(settings, dict) and control.get("Id") == oac_id:
+                    oac_reads[oac_id] = {"collection_status": "collected", "Id": oac_id,
+                                         "SigningBehavior": settings.get("SigningBehavior"),
+                                         "SigningProtocol": settings.get("SigningProtocol"),
+                                         "OriginAccessControlOriginType": settings.get("OriginAccessControlOriginType")}
+                else:
+                    oac_reads[oac_id] = {"collection_status": "malformed" if read.get("collection_status") == "collected" else read.get("collection_status"),
+                                         "error": read.get("error", {})}
+            item["OriginAccessControls"][oac_id] = oac_reads[oac_id]
         failed = next((read for read in (sources, deliveries) if not _usable(read)), None)
         if failed:
             item["LogDeliveries"] = {"collection_status": failed.status, "error": failed.error or {}}

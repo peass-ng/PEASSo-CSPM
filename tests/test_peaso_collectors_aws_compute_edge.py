@@ -418,6 +418,26 @@ def test_cloudfront_log_delivery_denied_is_unknown(sdk):
     assert status("aws.c2b.cloudfront.logging_any", item) == "UNKNOWN"
 
 
+def test_cloudfront_oac_configuration_cached_and_projected(sdk):
+    session, add = sdk
+    logs = add("logs")
+    logs.add_response("describe_delivery_sources", {"deliverySources": []}, {})
+    logs.add_response("describe_deliveries", {"deliveries": []}, {})
+    cloudfront = add("cloudfront")
+    cloudfront.add_response("get_origin_access_control", {"OriginAccessControl": {"Id": "OAC1",
+        "OriginAccessControlConfig": {"Name": "secret-name", "Description": "not needed",
+                                      "SigningBehavior": "always", "SigningProtocol": "sigv4",
+                                      "OriginAccessControlOriginType": "s3"}}}, {"Id": "OAC1"})
+    rows = [{"Id": name, "ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/{name}",
+             "Config": {"DistributionConfig": {"Origins": {"Items": [
+                 {"Id": "origin", "OriginAccessControlId": "OAC1"}]}}}} for name in ("D1", "D2")]
+    result = edge.ENRICHERS["cloudfront_distribution"](aws.Requests({}), session, REGION, rows)
+    assert result[0]["OriginAccessControls"] == result[1]["OriginAccessControls"]
+    assert result[0]["OriginAccessControls"]["OAC1"] == {
+        "collection_status": "collected", "Id": "OAC1", "SigningBehavior": "always",
+        "SigningProtocol": "sigv4", "OriginAccessControlOriginType": "s3"}
+
+
 def test_beanstalk_configuration_keeps_only_named_options(sdk):
     session, add = sdk
     stub = add("elasticbeanstalk")

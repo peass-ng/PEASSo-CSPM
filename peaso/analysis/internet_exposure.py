@@ -1638,11 +1638,25 @@ def _aws_cloudfront(snapshot, inventory, resource):
             s3_config = origin.get("S3OriginConfig")
             identity = s3_config.get("OriginAccessIdentity") if isinstance(s3_config, dict) else None
             match = re.fullmatch(r"origin-access-identity/cloudfront/([A-Z0-9]+)", identity) if isinstance(identity, str) else None
+            oac_id = origin.get("OriginAccessControlId")
+            oac = data.get("OriginAccessControls", {}).get(oac_id) if isinstance(data.get("OriginAccessControls"), dict) and isinstance(oac_id, str) and oac_id else None
+            if oac_id and (not isinstance(oac, dict) or oac.get("collection_status") != "collected"):
+                a.gap("origin_auth", "CloudFront OAC configuration unavailable", "cloudfront:GetOriginAccessControl")
+            if isinstance(oac, dict) and oac.get("collection_status") == "collected":
+                behavior = oac.get("SigningBehavior")
+                if oac.get("Id") == oac_id and behavior in ("always", "never", "no-override"):
+                    a.step("origin_auth", "allow_declaration" if behavior == "always" else "unresolved",
+                           origin_id=origin["Id"], origin_access_control_id=oac_id,
+                           signing_behavior=behavior, signing_protocol=oac.get("SigningProtocol"),
+                           origin_type=oac.get("OriginAccessControlOriginType"),
+                           semantics="Observed OAC signing configuration; origin authorization and response require separate evidence")
+                else:
+                    a.gap("origin_auth", "CloudFront OAC signing configuration malformed", "cloudfront:GetOriginAccessControl")
             hostname = origin.get("DomainName")
             bucket_host = (re.fullmatch(r"(.+)\.s3(?:[.-][a-z]{2}(?:-[a-z]+)+-\d+)?\.amazonaws\.com", hostname)
                            if isinstance(hostname, str) else None)
             bucket_name = bucket_host.group(1) if bucket_host else None
-            if not match or not bucket_name or not partition:
+            if not bucket_name or not partition:
                 continue
             bucket = next((item for item in inventory.items("bucket") if item["scope"].split("/", 1)[0] == resource["scope"].split("/", 1)[0]
                            and item["data"].get("Name") == bucket_name), None)
@@ -1651,6 +1665,32 @@ def _aws_cloudfront(snapshot, inventory, resource):
                 continue
             statements = as_list((document(policy["Policy"]) or {}).get("Statement"))
             if any(isinstance(statement, dict) and statement.get("Effect") == "Deny" for statement in statements):
+                continue
+            if (isinstance(oac, dict) and oac.get("collection_status") == "collected"
+                    and oac.get("Id") == oac_id and oac.get("SigningBehavior") == "always"
+                    and oac.get("SigningProtocol") == "sigv4" and oac.get("OriginAccessControlOriginType") == "s3"
+                    and isinstance(s3_config, dict) and not identity and isinstance(distribution_arn, str)):
+                object_arn = f"arn:{partition}:s3:::{bucket_name}/*"
+                for statement in statements:
+                    if not isinstance(statement, dict) or statement.get("Effect") != "Allow" or any(
+                            key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+                        continue
+                    principal = statement.get("Principal")
+                    if not isinstance(principal, dict) or principal.get("Service") != "cloudfront.amazonaws.com":
+                        continue
+                    if not any(isinstance(action, str) and fnmatchcase("s3:GetObject", action) for action in as_list(statement.get("Action"))):
+                        continue
+                    if object_arn not in as_list(statement.get("Resource")):
+                        continue
+                    condition = statement.get("Condition")
+                    if condition != {"StringEquals": {"AWS:SourceArn": distribution_arn}}:
+                        continue
+                    a.step("origin_policy", "allow_declaration", origin_id=origin["Id"], bucket=bucket_name,
+                           principal="cloudfront.amazonaws.com", source_arn=distribution_arn,
+                           action="s3:GetObject", resource=object_arn,
+                           semantics="Collected bucket policy grants this distribution's always-signed S3 OAC request; object existence, ACL, KMS and response are not established")
+                    break
+            if not match or oac_id:
                 continue
             principal = f"arn:{partition}:iam::cloudfront:user/CloudFront Origin Access Identity {match.group(1)}"
             object_arn = f"arn:{partition}:s3:::{bucket_name}/*"
