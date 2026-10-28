@@ -130,6 +130,28 @@ def test_aws_client_vpn_managed_listener_and_inactive_state():
     assert one(aws(coll("client_vpn_endpoint", [incomplete])), "client_vpn_endpoint")["status"] == "UNKNOWN"
 
 
+def test_aws_vpc_endpoint_service_external_principal_permissions():
+    service = {"ServiceId": "vpce-svc-1", "ServiceState": "Available",
+               "AcceptanceRequired": False, "AllowedPrincipals": ["*"]}
+    result = one(aws(coll("vpc_endpoint_service", [service])), "vpc_endpoint_service")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["path"][0]["external_principals"] == ["*"]
+    assert result["evidence"]["path"][0]["acceptance_required"] is False
+
+    named = copy.deepcopy(service)
+    named["AllowedPrincipals"] = ["arn:aws:iam::999988887777:root"]
+    named["AcceptanceRequired"] = True
+    assert one(aws(coll("vpc_endpoint_service", [named])), "vpc_endpoint_service")["status"] == "FAIL"
+
+    internal = copy.deepcopy(service)
+    internal["AllowedPrincipals"] = [f"arn:aws:iam::{ACCOUNT}:root"]
+    assert one(aws(coll("vpc_endpoint_service", [internal])), "vpc_endpoint_service")["status"] == "PASS"
+
+    incomplete = copy.deepcopy(service)
+    del incomplete["AllowedPrincipals"]
+    assert one(aws(coll("vpc_endpoint_service", [incomplete])), "vpc_endpoint_service")["status"] == "UNKNOWN"
+
+
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
     (["es:DescribeDomain"], "/*", False, True),
     (["es:ESHttpGet"], "/other/*", False, False),

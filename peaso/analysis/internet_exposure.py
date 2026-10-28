@@ -1665,6 +1665,50 @@ def _aws_client_vpn_endpoint(snapshot, inventory, resource):
     return a
 
 
+def _aws_vpc_endpoint_service(snapshot, inventory, resource):
+    """Classify cross-account PrivateLink invitations from the cached allowlist."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_share")
+    state = data.get("ServiceState")
+    if state in ("Deleted", "Deleting", "Failed"):
+        return None
+    if state != "Available":
+        a.gap("inventory", "VPC endpoint service state is unresolved")
+        return a
+    principals = data.get("AllowedPrincipals")
+    if not isinstance(principals, list) or any(not isinstance(p, str) for p in principals):
+        a.gap("inventory", "VPC endpoint service allowed principals are not completely collected",
+              "ec2:DescribeVpcEndpointServicePermissions")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    external = []
+    unknown = []
+    for principal in principals:
+        if principal == "*":
+            external.append(principal)
+            continue
+        match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):(?:root|role/.+|user/.+)", principal)
+        if match:
+            if match.group(1) not in trusted:
+                external.append(principal)
+        else:
+            unknown.append(principal)
+    if external:
+        a.external_ids = sorted(set(external))
+        a.explicit = "FAIL"
+        a.step("allowed_principals", "allow", external_principals=a.external_ids,
+               acceptance_required=data.get("AcceptanceRequired"))
+        a.notes.append("Allowed principals can request PrivateLink connections; manual acceptance and backend access are separate")
+    elif unknown:
+        a.gap("inventory", "VPC endpoint service principal scope is unresolved")
+    else:
+        a.ports = {}
+        a.step("allowed_principals", "block", principal_count=len(principals))
+    return a
+
+
 def _aws_cloudfront(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("Config")
@@ -6630,7 +6674,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpn_connection", "client_vpn_endpoint",
+AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
@@ -6652,7 +6696,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6696,6 +6740,7 @@ def assess(snapshot, resources):
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
                 "ram_resource_share": _aws_ram_share, "vpn_connection": _aws_vpn_connection,
                 "client_vpn_endpoint": _aws_client_vpn_endpoint,
+                "vpc_endpoint_service": _aws_vpc_endpoint_service,
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
