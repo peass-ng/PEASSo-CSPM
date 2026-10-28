@@ -2537,18 +2537,22 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     if not isinstance(access, list):
         return None
     public = []
+    conditional_public = []
     delegated = []
+    conditional_delegated = []
     for entry in access:
         if not isinstance(entry, dict):
             continue
         member = entry.get("iamMember") or entry.get("specialGroup")
         if member in ("allUsers", "allAuthenticatedUsers"):
-            public.append({"member": member, "role": entry.get("role")})
+            (conditional_public if entry.get("condition") is not None else public).append(
+                {"member": member, "role": entry.get("role")})
         for kind in ("view", "routine", "dataset"):
             ref = entry.get(kind)
             if isinstance(ref, dict):
-                delegated.append({"kind": kind, "reference": ref})
-    if not public and not delegated:
+                (conditional_delegated if entry.get("condition") is not None else delegated).append(
+                    {"kind": kind, "reference": ref})
+    if not public and not delegated and not conditional_public and not conditional_delegated:
         return None
     a = Assessment(resource, "data_share")
     def destination_project(row):
@@ -2593,7 +2597,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
             if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
                 continue
             for binding in as_list(policy.get("bindings")):
-                if not isinstance(binding, dict) or binding.get("condition"):
+                if not isinstance(binding, dict) or binding.get("condition") is not None:
                     continue
                 members = [member for member in as_list(binding.get("members"))
                            if member in ("allUsers", "allAuthenticatedUsers")]
@@ -2609,7 +2613,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         if not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected"):
             return False
         for binding in as_list(policy.get("bindings")):
-            if not isinstance(binding, dict) or binding.get("condition") or not any(
+            if not isinstance(binding, dict) or binding.get("condition") is not None or not any(
                     member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members"))):
                 continue
             role = binding.get("role")
@@ -2653,7 +2657,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         dataset_name = view_name.rsplit("/tables/", 1)[0]
         target = inventory.get("bigquery_dataset", dataset_name)
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
-            any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
+            any(isinstance(entry, dict) and entry.get("condition") is None and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
                 for entry in target["data"]["access"]))
         policy = view["data"].get("iamPolicy")
@@ -2678,7 +2682,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
             continue
         target = inventory.get("bigquery_dataset", f"{target_scope}/datasets/{ref['datasetId']}")
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
-            any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
+            any(isinstance(entry, dict) and entry.get("condition") is None and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
                 for entry in target["data"]["access"]))
         policy = routine["data"].get("iamPolicy")
@@ -2710,8 +2714,9 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         # An authorized view/routine/dataset receives source-data privileges,
         # but the destination's readers and project ownership need a join.
         a.explicit = "UNKNOWN"
-        a.step("dataset_acl", "unknown", delegated=delegated)
-        a.gap("policy", "authorized BigQuery resource can read this dataset; destination access and ownership are unresolved")
+        a.step("dataset_acl", "unknown", delegated=delegated, conditional_public=conditional_public,
+               conditional_delegated=conditional_delegated)
+        a.gap("policy", "conditional dataset ACL or authorized BigQuery resource requires effective access review")
     return a
 
 

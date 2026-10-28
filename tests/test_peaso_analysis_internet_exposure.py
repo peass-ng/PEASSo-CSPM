@@ -1289,6 +1289,49 @@ def test_gcp_authorized_view_with_public_reader_exposes_source_dataset():
     assert assessment(None).verdict() == "UNKNOWN"
 
 
+def test_gcp_dataset_access_conditions_do_not_prove_public_or_delegated_read():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    condition = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"role": "READER", "iamMember": "allUsers", "condition": condition}]}
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [source], service="bigquery"))
+        items = resources(snap)
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), items[0])
+    result = assessment()
+    assert result.verdict() == "UNKNOWN"
+    assert result.path[-1]["conditional_public"][0]["member"] == "allUsers"
+    source["access"][0].pop("condition")
+    assert assessment().verdict() == "FAIL"
+    source["access"] = [{"view": {"projectId": "outside", "datasetId": "shared", "tableId": "v"},
+                         "condition": condition}]
+    result = assessment()
+    assert result.verdict() == "UNKNOWN" and result.external_ids == []
+    assert result.path[-1]["conditional_delegated"][0]["kind"] == "view"
+    source["access"][0].pop("condition")
+    assert assessment().verdict() == "FAIL"
+
+
+def test_gcp_authorized_view_conditional_destination_dataset_acl_is_unknown():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"view": {"projectId": "p1", "datasetId": "views", "tableId": "v"}}]}
+    destination = {"name": "projects/p1/datasets/views", "access": [
+        {"role": "READER", "iamMember": "allUsers", "condition": {"expression": "true"}}]}
+    view = {"name": "projects/p1/datasets/views/tables/v", "type": "VIEW", "iamPolicy": {"bindings": []}}
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
+                   gcoll("bigquery_table", [view], service="bigquery"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "UNKNOWN"
+    destination["access"][0].pop("condition")
+    assert assessment().verdict() == "FAIL"
+
+
 def test_gcp_authorized_dataset_public_view_joins_scheduled_table_inventory():
     from peaso.analysis.internet_exposure import GCP_TYPES, Inventory, _gcp_bigquery_dataset
     from peaso.snapshot import resources
