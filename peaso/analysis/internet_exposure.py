@@ -2616,11 +2616,12 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                                    "permission": permission})
         reader_cache[key] = grants
         return grants
-    project_group_grants = []
-    project_group_unresolved = []
-    if project_groups:
+    def project_basic_grants(groups, project_scope):
+        grants = []
+        unresolved = []
+        if not groups:
+            return grants, unresolved
         from .common import externality, principal_scope
-        project_scope = resource.get("scope")
         project_policy_row = inventory.get("iam_policy", project_scope)
         project_policy = project_policy_row["data"] if project_policy_row else None
         project_row = project_for_scope(project_scope)
@@ -2628,38 +2629,51 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         ancestor_coverage = (project_data.get("_coverage") or {}).get("_inherited_iam_policies") or {}
         policies = [(project_scope, project_policy)]
         if inventory.state("iam_policy", project_scope) != "collected":
-            project_group_unresolved.append("project IAM inventory incomplete")
+            unresolved.append("project IAM inventory incomplete")
         if ancestor_coverage.get("status") == "collected" and isinstance(project_data.get("_inherited_iam_policies"), list):
             policies.extend((policy.get("ancestor"), policy) for policy in project_data["_inherited_iam_policies"]
                             if isinstance(policy, dict) and policy.get("name") == policy.get("ancestor"))
         else:
-            project_group_unresolved.append("project ancestor IAM incomplete")
+            unresolved.append("project ancestor IAM incomplete")
         roles = {"projectReaders": "roles/viewer", "projectWriters": "roles/editor", "projectOwners": "roles/owner"}
         for scope, policy in policies:
             if (not isinstance(policy, dict) or policy.get("name") != scope
                     or policy.get("collection_status", "collected") != "collected"
                     or not isinstance(policy.get("bindings"), list)):
-                project_group_unresolved.append(f"project role IAM unavailable: {scope}")
+                unresolved.append(f"project role IAM unavailable: {scope}")
                 continue
-            for group in project_groups:
+            for group in groups:
                 if group["role"] not in ("READER", "WRITER", "OWNER") or group["conditional"]:
-                    project_group_unresolved.append(f"conditional or unrecognized dataset role: {group['group']}")
+                    unresolved.append(f"conditional or unrecognized dataset role: {group['group']}")
                     continue
                 for binding in as_list(policy.get("bindings")):
                     if not isinstance(binding, dict) or binding.get("role") != roles[group["group"]]:
                         continue
                     for member in as_list(binding.get("members")):
                         if not isinstance(member, str):
-                            project_group_unresolved.append(f"project role principal malformed: {scope}")
+                            unresolved.append(f"project role principal malformed: {scope}")
                             continue
                         classification = externality(snapshot, member)
                         if binding.get("condition") is not None or classification == "unknown":
-                            project_group_unresolved.append(f"conditional or unattributed project role: {scope}")
+                            unresolved.append(f"conditional or unattributed project role: {scope}")
                         elif classification in ("public", "everyone_authenticated", "external"):
-                            project_group_grants.append({"group": group["group"], "dataset_role": group["role"],
+                            grants.append({"group": group["group"], "dataset_role": group["role"],
                                 "iam_role": binding["role"], "scope": scope, "principal": member,
                                 "classification": classification,
                                 **({"external_scope_id": principal_scope("gcp", member)} if classification == "external" else {})})
+        return grants, unresolved
+    project_group_grants, project_group_unresolved = project_basic_grants(project_groups, resource.get("scope"))
+    destination_group_cache = {}
+    def destination_project_grants(target, dataset_name):
+        if target is None or not isinstance(target["data"].get("access"), list):
+            return []
+        if dataset_name not in destination_group_cache:
+            groups = [{"group": entry["specialGroup"], "role": entry.get("role"),
+                       "conditional": entry.get("condition") is not None}
+                      for entry in target["data"]["access"] if isinstance(entry, dict) and
+                      entry.get("specialGroup") in ("projectReaders", "projectWriters", "projectOwners")]
+            destination_group_cache[dataset_name] = project_basic_grants(groups, target.get("scope"))[0]
+        return destination_group_cache[dataset_name]
     def direct_public(policy, permission, known_roles):
         if not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected"):
             return False
@@ -2711,13 +2725,15 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
             any(isinstance(entry, dict) and entry.get("condition") is None and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
                 for entry in target["data"]["access"]))
+        dataset_project_grants = destination_project_grants(target, dataset_name)
         policy = view["data"].get("iamPolicy")
         table_public = direct_public(policy, "bigquery.tables.getData",
                                      {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.admin"})
         readers = inherited_public("bigquery.tables.getData", view_name.split("/datasets/", 1)[0])
-        if dataset_public or table_public or readers:
+        if dataset_public or dataset_project_grants or table_public or readers:
             public_views.append({"view": view_name, "authorization": authorization,
                                  "dataset_public": bool(dataset_public),
+                                 "dataset_project_grants": dataset_project_grants,
                                  "table_public": bool(table_public),
                                  "inherited_public": readers})
     public_routines = []
@@ -2736,17 +2752,21 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
             any(isinstance(entry, dict) and entry.get("condition") is None and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
                 for entry in target["data"]["access"]))
+        dataset_project_grants = destination_project_grants(target, f"{target_scope}/datasets/{ref['datasetId']}")
         policy = routine["data"].get("iamPolicy")
         routine_public = direct_public(policy, "bigquery.routines.get",
                                        {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner",
                                         "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor"})
         readers = inherited_public("bigquery.routines.get", target_scope)
-        if dataset_public or routine_public or readers:
+        if dataset_public or dataset_project_grants or routine_public or readers:
             public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
-                                    "dataset_public": bool(dataset_public), "routine_public": bool(routine_public),
+                                    "dataset_public": bool(dataset_public), "dataset_project_grants": dataset_project_grants,
+                                    "routine_public": bool(routine_public),
                                     "inherited_public": readers})
     a.external_ids = sorted(set(external_projects) | {grant["external_scope_id"] for grant in project_group_grants
-                                                       if grant.get("external_scope_id")})
+                                                       if grant.get("external_scope_id")} |
+                            {grant["external_scope_id"] for row in public_views + public_routines
+                             for grant in row.get("dataset_project_grants", []) if grant.get("external_scope_id")})
     if public:
         a.data_exposure = True
         a.authenticated = not any(row["member"] == "allUsers" for row in public)

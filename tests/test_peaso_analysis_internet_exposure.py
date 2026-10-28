@@ -1353,6 +1353,44 @@ def test_gcp_dataset_project_special_groups_join_project_and_ancestor_roles():
     assert assessment().verdict() == "UNKNOWN"
 
 
+def test_gcp_authorized_resources_join_destination_project_special_groups():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"view": {"projectId": "p2", "datasetId": "shared", "tableId": "v"}},
+        {"routine": {"projectId": "p2", "datasetId": "shared", "routineId": "r"}}]}
+    target = {"name": "projects/p2/datasets/shared", "access": [
+        {"role": "READER", "specialGroup": "projectReaders"}]}
+    view = {"name": "projects/p2/datasets/shared/tables/v", "type": "VIEW", "iamPolicy": {"bindings": []}}
+    routine = {"name": "projects/p2/datasets/shared/routines/r", "routineType": "PROCEDURE",
+               "iamPolicy": {"bindings": []}}
+    project = {"name": "projects/222", "projectId": "p2", "projectNumber": "222",
+               "_inherited_iam_policies": [], "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
+    policy = {"name": "projects/p2", "bindings": [{"role": "roles/viewer", "members": ["allUsers"]}]}
+    def assessment():
+        snap = make_snapshot("gcp", ["projects/p1", "projects/p2"], [
+            coll("bigquery_dataset", [source], scope="projects/p1", service="bigquery"),
+            coll("bigquery_dataset", [target], scope="projects/p2", service="bigquery"),
+            coll("bigquery_table", [view], scope="projects/p2", service="bigquery"),
+            coll("bigquery_routine_metadata", [routine], scope="projects/p2", service="bigquery"),
+            coll("project", [project], scope="projects/p2", service="cloudresourcemanager"),
+            coll("iam_policy", [policy], scope="projects/p2", service="cloudasset")],
+            created_at="2026-10-10T00:00:00+00:00")
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert len(result.path[-1]["public_views"]) == len(result.path[-1]["public_routines"]) == 1
+    assert result.path[-1]["public_views"][0]["dataset_project_grants"][0]["scope"] == "projects/p2"
+    policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+    policy["bindings"][0].pop("condition")
+    policy["bindings"][0]["members"] = ["serviceAccount:sa@outside.iam.gserviceaccount.com"]
+    result = assessment()
+    assert result.verdict() == "FAIL" and result.external_ids == ["outside"]
+
+
 def test_gcp_authorized_view_conditional_destination_dataset_acl_is_unknown():
     from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
     from peaso.snapshot import resources
