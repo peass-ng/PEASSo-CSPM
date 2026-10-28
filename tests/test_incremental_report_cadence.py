@@ -407,26 +407,29 @@ def test_large_aws_content_tail_publishes_late_network_section(monkeypatch, tmp_
 
 def test_selected_aws_content_defers_early_category_refresh_but_not_new_section(monkeypatch, tmp_path):
     session, _, refs, now = manual_session(monkeypatch, tmp_path,
-        connector_options={'content_secret_scans': True})
+        connector_options={'content_secret_scans': True},
+        request_content_checks=['aws.review.ecr_repository.package_content_secret_indicators'])
     session.section_dependencies['leaks'] = {'secret'}
     try:
         commit(session, 0)
-        assert session._maybe_publish() is not None
+        assert session._maybe_publish() is None
         assert not session.content_tail_active
         assert session.aws_content_selected
+        assert (session.batch_size, session.batch_bytes, session.batch_interval) == (
+            64, 8 * 1024 * 1024, 100)
         for start in (64, 128, 192, 256):
             commit(session, start)
         session.published_categories.clear()
         now[0] = 100.0
         assert session._maybe_publish() is None
-        assert len([row for row in refs if row[2]]) == 1
+        assert len([row for row in refs if row[2]]) == 0
         session.on_collection({'type': 'secret', 'scope': SCOPE,
             'status': 'empty', 'items': []})
         with session.lock:
             session._flush_pending()
         assert session._maybe_publish() is not None
         assert 'leaks' in session.published_sections
-        assert len([row for row in refs if row[2]]) == 2
+        assert len([row for row in refs if row[2]]) == 1
     finally:
         session.close()
 
@@ -438,7 +441,8 @@ def test_selected_aws_content_defers_early_category_refresh_but_not_new_section(
 def test_selected_aws_content_publishes_early_progressive_section(
         monkeypatch, tmp_path, section, kind):
     session, artifacts, refs, now = manual_session(monkeypatch, tmp_path,
-        connector_options={'content_secret_scans': True})
+        connector_options={'content_secret_scans': True},
+        request_content_checks=['aws.review.ecr_repository.package_content_secret_indicators'])
     session.section_dependencies[section] = {kind}
     if section == 'network':
         session.graph_categories.add('network')
@@ -446,7 +450,7 @@ def test_selected_aws_content_publishes_early_progressive_section(
         session.graph_categories.add('iam_graph')
     try:
         commit(session, 0)
-        assert session._maybe_publish() is not None
+        assert session._maybe_publish() is None
         for start in (64, 128, 192, 256):
             commit(session, start)
         now[0] = 100.0
@@ -458,8 +462,62 @@ def test_selected_aws_content_publishes_early_progressive_section(
             session._flush_pending()
         assert session._maybe_publish() is not None
         assert section in session.published_sections
-        assert len([row for row in refs if row[2]]) == 2
+        assert len([row for row in refs if row[2]]) == 1
         report = artifacts.get(TENANT, refs[-1][2])
         assert report['publication']['sections'][section]['status'] == 'complete'
     finally:
         session.close()
+
+
+def test_selected_content_network_publishes_before_iam_then_iam(monkeypatch, tmp_path):
+    from peaso import progressive_analyzer
+    session, artifacts, refs, _ = manual_session(monkeypatch, tmp_path,
+        connector_options={'content_secret_scans': True},
+        request_content_checks=['aws.review.ecr_repository.package_content_secret_indicators'])
+    session.graph_categories.update({'network', 'iam_graph'})
+    session.section_dependencies['network'] = {'route'}
+    session.section_dependencies['least_privilege'] = {'iam_role'}
+    try:
+        commit(session, 0)
+        assert session._maybe_publish() is None
+        session.on_collection({'type': 'route', 'scope': SCOPE,
+            'status': 'empty', 'items': []})
+        with session.lock:
+            session._flush_pending()
+        assert session._maybe_publish() is not None
+        first = [(seq, snapshot, report) for seq, snapshot, report in refs if report]
+        assert len(first) == 1
+        sections = progressive_analyzer._ready_sections({
+            'partial_report': first[0][2], 'partial_snapshot': first[0][1]}, artifacts, TENANT)
+        assert sections['network']['status'] == 'complete'
+        assert sections['least_privilege']['status'] != 'complete'
+        session.on_collection({'type': 'iam_role', 'scope': '123456789012/global',
+            'status': 'empty', 'items': []})
+        with session.lock:
+            session._flush_pending()
+        assert session._maybe_publish() is not None
+        assert len([row for row in refs if row[2]]) == 2
+        assert session.published_sections >= {'network', 'least_privilege'}
+        commit(session, 64)
+        assert session._maybe_publish() is None
+    finally:
+        session.close()
+
+
+def test_selected_content_forced_partial_and_raw_defaults(monkeypatch, tmp_path):
+    session, artifacts, refs, _ = _session(monkeypatch, tmp_path,
+        connector_options={'content_secret_scans': True},
+        request_content_checks=['aws.review.ecr_repository.package_content_secret_indicators'])
+    try:
+        assert (session.batch_size, session.batch_bytes, session.batch_interval) == (
+            64, 8 * 1024 * 1024, 1.0)
+        commit(session, 0)
+        assert session._maybe_publish() is None
+        assert session.flush() is not None
+        assert [seq for seq, _, report in refs if report] == [64]
+        assert len(artifacts.get(TENANT, refs[-1][1])['collections']) == 64
+        commit(session, 64)
+        assert session._maybe_publish() is None
+    finally:
+        session.close()
+    assert [seq for seq, _, report in refs if report] == [64, 128]

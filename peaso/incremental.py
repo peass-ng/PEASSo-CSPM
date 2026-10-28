@@ -87,7 +87,7 @@ class CheckpointSession:
         self.collection_finished = False
         self.content_tail_active = False
         self.content_tail_closed = False
-        self.aws_content_selected = (self.provider == 'aws'
+        self.aws_content_selected = (self.provider == 'aws' and bool(self.content_checks)
             and connector.get('options', {}).get('content_secret_scans') is True)
         self.final_metadata = None
         self.image_targets = []
@@ -137,6 +137,7 @@ class CheckpointSession:
         self.settle_memo = {}
         self.pending_bytes = 0
         self.pending_since = None
+        # Keep the original append-only raw batch bounds and crash window.
         self.batch_size = max(1, int(batch_size))
         self.batch_interval = max(0.0, float(batch_interval))
         self.batch_bytes = max(1, int(batch_bytes))
@@ -499,6 +500,9 @@ class CheckpointSession:
     def _maybe_publish(self, *, force=False):
         if force:
             return self._publish(force=True)
+        # Selected AWS content keeps append-only batches and allows the first
+        # report for each completed section. Category-only renders compete
+        # with the scanner and are regenerated from the final snapshot.
         # The analyzer evaluates a finished collection completely. An unforced
         # cumulative pass started before the finish stops at its next phase
         # boundary instead of competing with the final snapshot for CPU.
@@ -535,6 +539,13 @@ class CheckpointSession:
                     self.collections, self.collection_revisions, finished=self.collection_finished,
                     global_types=self.global_types, global_scope=self.global_scope)
                 completed_sections = {name for name, state in sections.items() if state['status'] == 'complete'}
+                if not force and self.aws_content_selected:
+                    # Progressive Images, Network and Least Privilege each
+                    # consume their first complete section independently.
+                    # Category-only changes can wait for Analyze's final
+                    # report, but a new section must publish immediately.
+                    if completed_sections <= self.published_sections:
+                        return None
                 graph_sections = set()
                 if 'network' in completed_sections and 'network' in self.graph_categories:
                     graph_sections.add('network')
@@ -548,15 +559,11 @@ class CheckpointSession:
                 categories.update(check["category"] for check in self.analysis_checks if check["id"] in ready_ids)
                 if "privesc" in ready_ids:
                     categories.add("privesc")
-                if (not force and self.provider == 'aws'
-                        and (self.content_tail_active or self.aws_content_selected)
+                if (not force and self.provider == 'aws' and self.content_tail_active
                         and len(self.collections) >= 256
                         and completed_sections <= self.published_sections):
-                    # Selected content may start after ordinary inventory. The
-                    # large raw inventory is already durable in bounded batches;
-                    # keep new sections visible to progressive analysis while
-                    # deferring category-only cumulative Markdown to Analyze.
-                    # An interrupted scan still forces its latest partial.
+                    # Manual content-tail callbacks without the selected-content
+                    # flag retain the prior section-aware report cadence.
                     return None
                 if (not force and self.content_tail_active
                         and categories <= self.published_categories

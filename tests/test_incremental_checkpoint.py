@@ -21,6 +21,8 @@ def _session(monkeypatch, tmp_path, *, second=False, fail_second=False, **batch_
     from peaso import engine
     from peaso.incremental import CheckpointSession
 
+    request_content_checks = batch_options.pop('request_content_checks', [])
+
     hardening = SimpleNamespace(id="test.hardening", category="hardening", kind="bucket",
                                 dependencies=("bucket",))
     image = SimpleNamespace(id="test.image", category="vulnerability", kind="image",
@@ -28,7 +30,7 @@ def _session(monkeypatch, tmp_path, *, second=False, fail_second=False, **batch_
     checks = [hardening, image] if second else [hardening]
     def selected(*args, content_checks=None):
         # This legacy fixture intentionally selects ordinary checks only.
-        assert content_checks in (None, [])
+        assert content_checks in (None, [], request_content_checks)
         return [c.category for c in checks], checks
     monkeypatch.setattr(engine, "_selection", selected)
     monkeypatch.setattr(engine, "_analysis_selection", lambda *args: [])
@@ -71,7 +73,8 @@ def _session(monkeypatch, tmp_path, *, second=False, fail_second=False, **batch_
     connector_options = batch_options.pop("connector_options", None)
     request = {"connector": {"provider": "aws", "scopes": [SCOPE],
                              "options": connector_options or {}},
-               "categories": [c.category for c in checks], "checks": [c.id for c in checks]}
+               "categories": [c.category for c in checks], "checks": [c.id for c in checks],
+               "content_checks": request_content_checks}
     session = CheckpointSession(request, on_checkpoint, public_snapshot,
                                 interval=0.02, **batch_options)
     return session, artifacts, refs, published
