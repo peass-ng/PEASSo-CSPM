@@ -1315,6 +1315,61 @@ def test_gcp_authorized_resources_join_project_inherited_public_permissions():
     assert assessment().verdict() == "UNKNOWN"
 
 
+def test_gcp_authorized_view_joins_verified_ancestor_public_readers():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"view": {"projectId": "p1", "datasetId": "views", "tableId": "v"}}]}
+    destination = {"name": "projects/p1/datasets/views", "access": []}
+    view = {"name": "projects/p1/datasets/views/tables/v", "type": "VIEW",
+            "iamPolicy": {"bindings": []}}
+    ancestor = {"name": "folders/42", "ancestor": "folders/42", "bindings": [
+        {"role": "roles/bigquery.dataViewer", "members": ["allUsers"]}]}
+    project = {"name": "projects/p1", "_inherited_iam_policies": [ancestor],
+               "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
+    role = {"name": "roles/bigquery.dataViewer", "includedPermissions": ["bigquery.tables.getData"]}
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
+                   gcoll("bigquery_table", [view], service="bigquery"),
+                   gcoll("project", [project], service="cloudresourcemanager"),
+                   gcoll("iam_role", [role], service="iam"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert result.path[-1]["public_views"][0]["inherited_public"][0]["scope"] == "folders/42"
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
+    assert assessment().verdict() == "UNKNOWN"
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "collected"
+    ancestor["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+
+
+def test_gcp_authorized_routine_joins_verified_ancestor_public_invocation():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"routine": {"projectId": "p1", "datasetId": "api", "routineId": "r"}}]}
+    destination = {"name": "projects/p1/datasets/api", "access": []}
+    routine = {"name": "projects/p1/datasets/api/routines/r", "routineType": "PROCEDURE",
+               "iamPolicy": {"bindings": []}}
+    project = {"name": "projects/p1", "_inherited_iam_policies": [
+        {"name": "organizations/9", "ancestor": "organizations/9", "bindings": [
+            {"role": "roles/bigquery.routineDataViewer", "members": ["allAuthenticatedUsers"]}]}],
+        "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
+    role = {"name": "roles/bigquery.routineDataViewer", "includedPermissions": ["bigquery.routines.get"]}
+    snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
+               gcoll("bigquery_routine_metadata", [routine], service="bigquery"),
+               gcoll("project", [project], service="cloudresourcemanager"),
+               gcoll("iam_role", [role], service="iam"))
+    items = resources(snap)
+    current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+    result = _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    assert result.verdict() == "FAIL"
+    assert result.path[-1]["public_routines"][0]["inherited_public"][0]["scope"] == "organizations/9"
+
+
 def test_gcp_authorized_resources_join_direct_custom_role_permissions():
     from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
     from peaso.snapshot import resources

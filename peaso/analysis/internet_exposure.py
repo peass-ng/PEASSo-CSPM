@@ -2557,21 +2557,31 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                                 and project and project != source_project})
     project_policy_row = inventory.get("iam_policy", resource["scope"])
     project_policy = project_policy_row["data"] if project_policy_row else None
+    project_row = inventory.get("project", resource["scope"])
+    project_data = project_row["data"] if project_row else {}
+    inherited_policies = project_data.get("_inherited_iam_policies")
+    inherited_coverage = (project_data.get("_coverage") or {}).get("_inherited_iam_policies") or {}
+    if not (isinstance(inherited_policies, list) and inherited_coverage.get("status") == "collected"):
+        inherited_policies = []
     def inherited_public(permission):
-        if not isinstance(project_policy, dict) or project_policy.get("collection_status") not in (None, "collected"):
-            return []
         grants = []
-        for binding in as_list(project_policy.get("bindings")):
-            if not isinstance(binding, dict) or binding.get("condition"):
+        policies = [(resource["scope"], project_policy), *[
+            (policy.get("ancestor"), policy) for policy in inherited_policies
+            if isinstance(policy, dict) and policy.get("name") == policy.get("ancestor")]]
+        for scope, policy in policies:
+            if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
                 continue
-            members = [member for member in as_list(binding.get("members"))
-                       if member in ("allUsers", "allAuthenticatedUsers")]
-            role = binding.get("role")
-            role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
-            permissions = role_row["data"].get("includedPermissions") if role_row else None
-            if members and isinstance(permissions, list) and permission in permissions:
-                grants.append({"role": role, "members": members, "scope": resource["scope"],
-                               "permission": permission})
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or binding.get("condition"):
+                    continue
+                members = [member for member in as_list(binding.get("members"))
+                           if member in ("allUsers", "allAuthenticatedUsers")]
+                role = binding.get("role")
+                role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+                permissions = role_row["data"].get("includedPermissions") if role_row else None
+                if members and isinstance(permissions, list) and permission in permissions:
+                    grants.append({"role": role, "members": members, "scope": scope,
+                                   "permission": permission})
         return grants
     inherited_view_readers = inherited_public("bigquery.tables.getData")
     inherited_routine_readers = inherited_public("bigquery.routines.get")
