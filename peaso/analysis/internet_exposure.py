@@ -4766,6 +4766,23 @@ def _azure_storage_public_ip_rules(acls):
     return public, unresolved
 
 
+def _azure_storage_resource_instance_rules(acls):
+    """Recorded resource-instance grants admit named Azure sources to the public endpoint."""
+    rules = acls.get("resourceAccessRules", [])
+    if not isinstance(rules, list):
+        return [], True
+    allowed = []
+    unresolved = False
+    for rule in rules:
+        if (not isinstance(rule, dict) or not isinstance(rule.get("resourceId"), str)
+                or not rule["resourceId"].startswith("/subscriptions/")
+                or not isinstance(rule.get("tenantId"), str) or not rule["tenantId"]):
+            unresolved = True
+            continue
+        allowed.append({"resource_id": rule["resourceId"], "tenant_id": rule["tenantId"]})
+    return allowed, unresolved
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
@@ -4780,10 +4797,14 @@ def _azure_storage(snapshot, inventory, resource):
         return a
     if acls.get("defaultAction", "Allow") == "Deny":
         public, unresolved = _azure_storage_public_ip_rules(acls)
-        if public:
-            a.step("network_rules", "allow", default_action="Deny", public_ip_rules=public)
-        elif unresolved:
-            a.gap("firewall", "storage account IP firewall rules are malformed or incomplete")
+        instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
+        if public or instances:
+            a.step("network_rules", "allow", default_action="Deny", public_ip_rules=public,
+                   resource_instance_rules=instances)
+            if unresolved or unresolved_instances:
+                a.notes.append("Other storage account network rule entries are malformed or incomplete")
+        elif unresolved or unresolved_instances:
+            a.gap("firewall", "storage account IP or resource-instance rules are malformed or incomplete")
             a.ports = None
             return a
         else:
@@ -4836,10 +4857,14 @@ def _azure_storage_container(snapshot, inventory, resource):
         a.gap("firewall", "account network ACL default action is unavailable")
     elif acls["defaultAction"] == "Deny":
         public, unresolved = _azure_storage_public_ip_rules(acls)
-        if public:
-            a.step("firewall", "allow", default_action="Deny", public_ip_rules=public)
-        elif unresolved:
-            a.gap("firewall", "storage account IP firewall rules are malformed or incomplete")
+        instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
+        if public or instances:
+            a.step("firewall", "allow", default_action="Deny", public_ip_rules=public,
+                   resource_instance_rules=instances)
+            if unresolved or unresolved_instances:
+                a.notes.append("Other storage account network rule entries are malformed or incomplete")
+        elif unresolved or unresolved_instances:
+            a.gap("firewall", "storage account IP or resource-instance rules are malformed or incomplete")
         else:
             a.step("firewall", "block", default_action="Deny")
             a.ports = {}
@@ -6661,6 +6686,22 @@ def _observed(assessment, status):
         return (first + "\n"
                 "The public SAS export path is unclear from these settings.\n"
                 "If public export is allowed, a valid SAS URL could expose stored data.")
+    if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
+        instance_step = next((step for step in assessment.path
+                              if step.get("resource_instance_rules") and not step.get("public_ip_rules")), None)
+        if instance_step is not None:
+            instance = instance_step["resource_instance_rules"][0]
+            if assessment.resource["type"] == "storage_container":
+                return (f"The blob container {assessment.resource['data'].get('name', native_id(assessment.resource))} "
+                        f"allows anonymous access, and its account permits resource instance {instance['resource_id']} "
+                        f"in tenant {instance['tenant_id']} through the public endpoint.\n"
+                        "Requests from that instance may reach the blob endpoint if the service responds.\n"
+                        "Anonymous blob reads could expose stored data; no request or blob contents were tested.")
+            return (f"The storage account {assessment.resource['data'].get('name', native_id(assessment.resource))} "
+                    f"permits resource instance {instance['resource_id']} in tenant {instance['tenant_id']} "
+                    "through its public endpoint.\n"
+                    "Requests from that instance may reach the storage endpoint if the service responds.\n"
+                    "Reading data still requires separate authorization or a public container ACL; neither was tested.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":

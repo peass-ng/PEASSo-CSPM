@@ -586,6 +586,41 @@ def test_storage_account_deny_default_retains_public_ip_rule_exposure():
         "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
 
 
+def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    blob_url = "https://a.blob.core.windows.net/"
+    rule = {"resourceId": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.DataFactory/factories/f",
+            "tenantId": "tenant-a"}
+    container = {"id": account_id + "/blobServices/default/containers/public",
+                 "parent_id": account_id, "properties": {"publicAccess": "Blob"}}
+
+    def account_and_container(rules):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "properties": {"publicNetworkAccess": "Enabled",
+                 "allowBlobPublicAccess": True, "primaryEndpoints": {"blob": blob_url},
+                 "networkAcls": {"defaultAction": "Deny", "resourceAccessRules": rules}}}]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [container]},
+        ])
+        rows = assess(snap, resources(snap))
+        return (next(a for a in rows if a.resource["type"] == "storage_account"),
+                next(a for a in rows if a.resource["type"] == "storage_container"))
+
+    account, anonymous = account_and_container([rule])
+    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
+    assert account.path[0]["resource_instance_rules"] == [{"resource_id": rule["resourceId"],
+                                                            "tenant_id": rule["tenantId"]}]
+    assert anonymous.path[-1]["resource_instance_rules"] == account.path[0]["resource_instance_rules"]
+    assert len(_observed(account, "FAIL").splitlines()) == 3
+    assert "Reading data still requires separate authorization" in _observed(account, "FAIL")
+    assert "Anonymous blob reads could expose stored data" in _observed(anonymous, "FAIL")
+    assert account_and_container([])[0].verdict() == "PASS"
+    assert account_and_container([])[1].verdict() == "PASS"
+    assert account_and_container([{"resourceId": rule["resourceId"]}])[0].verdict() == "UNKNOWN"
+    assert account_and_container([{"resourceId": rule["resourceId"]}])[1].verdict() == "UNKNOWN"
+
+
 def test_sql_firewall_public_ip_range_is_exposure_but_private_range_is_not():
     server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
 
