@@ -6573,6 +6573,50 @@ def _azure_redis(snapshot, inventory, resource):
     return a
 
 
+def _azure_redis_enterprise(snapshot, inventory, resource):
+    """Assess Redis Enterprise / Azure Managed Redis database listeners."""
+    props = _props(resource)
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "Redis Enterprise publicNetworkAccess is absent or unrecognized")
+        return a
+    a.step("public_network_access", "allow", value=access)
+    hostname = props.get("hostName")
+    if isinstance(hostname, str) and hostname:
+        a.addresses.append(hostname)
+    else:
+        a.gap("inventory", "Redis Enterprise public hostname is unavailable")
+    cluster_id = str(native_id(resource)).casefold()
+    status = inventory.state("redis_enterprise_database", resource["scope"])
+    rows = [row for row in inventory.items("redis_enterprise_database")
+            if str(native_id(row)).casefold().startswith(cluster_id + "/databases/")]
+    ports, malformed = {}, False
+    for row in rows:
+        fields = _props(row)
+        port = fields.get("port")
+        if type(port) is not int or not 1 <= port <= 65535:
+            malformed = True
+            continue
+        ports = union(ports, pset("tcp", port, port))
+        a.step("listener", "allow", database_id=native_id(row), port=port,
+               client_protocol=fields.get("clientProtocol"))
+    if status not in ("collected", "empty") or malformed:
+        a.gap("inventory", "Redis Enterprise database child inventory or listener port is incomplete")
+    if ports:
+        a.ports = ports
+        a.explicit = "FAIL"
+    elif status in ("collected", "empty") and not malformed:
+        a.step("listener", "block", reason="no database listener in complete child inventory")
+        a.ports = {}
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -7101,7 +7145,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -7117,7 +7161,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -7190,6 +7234,7 @@ def assess(snapshot, resources):
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
+                  "redis_enterprise_cluster": _azure_redis_enterprise,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,

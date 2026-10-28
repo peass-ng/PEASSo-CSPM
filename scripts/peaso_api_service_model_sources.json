@@ -1189,7 +1189,7 @@
     "peaso/collectors/azure_mongo_cluster_metadata.py": "72db9beefb6e16660be7680115c772cff8f13d91f403f921bb496b0ca669eaee",
     "peaso/collectors/azure_monitor_inventory_native.py": "81bd15cf090e296be7a299da4b7b9e42657c987bbed6afdeb82a0453a90e6127",
     "peaso/collectors/azure_native_contract_closure_20261020.py": "aea2400fbf2b7cc3feb3a4085b607bbe0c08b75b795ef633f84662166c686596",
-    "peaso/collectors/azure_network_catalog.py": "33be12d64dc2dad6e2dc684842ba29356fc99189f0c9b7dc9fb839a9a81a5247",
+    "peaso/collectors/azure_network_catalog.py": "89f01ecfc38b7074499574f0c4b334445ae0155adfd725c3ab28e9a41d6c623e",
     "peaso/collectors/azure_network_data.py": "69519177b843d3612670421eeae3010fe6d9fc54ecc4c601c7ae3105d339c1ea",
     "peaso/collectors/azure_nsg_ingress_native.py": "cde389f77bcb84a407b7e85b20420d7c8fdfc623bc2dcdbdd620816142b35f03",
     "peaso/collectors/azure_nsp_query_cmk_metadata_proposal_20261020.py": "38015ca8b99f306b3499fcbf354805867ffa7e060c480c86c51c2a8b6217407d",
