@@ -671,7 +671,7 @@ def test_anonymous_blob_requires_container_and_account_gates():
     assert assess_container(open_account).verdict() == "FAIL"
     assert assess_container({**open_account, "allowBlobPublicAccess": False}).verdict() == "PASS"
     assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny"}}).verdict() == "PASS"
-    assert assess_container({**open_account, "networkAcls": {}}).verdict() == "UNKNOWN"
+    assert assess_container({**open_account, "networkAcls": {}}).verdict() == "FAIL"
     public_rule = {"value": "8.8.8.8/32", "action": "Allow"}
     assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny",
         "ipRules": [public_rule]}}).verdict() == "FAIL"
@@ -719,6 +719,35 @@ def test_storage_unrecognized_public_gate_stays_unknown_for_account_and_anonymou
 
     assert [a.verdict() for a in check("Unexpected")] == ["UNKNOWN", "UNKNOWN"]
     assert [a.verdict() for a in check(None)] == ["FAIL", "FAIL"]  # Documented public default.
+
+
+@pytest.mark.parametrize("acls, expected", [
+    (None, "FAIL"),
+    ({}, "FAIL"),
+    ({"defaultAction": "Allow"}, "FAIL"),
+    ({"defaultAction": "Invalid"}, "UNKNOWN"),
+    ([], "UNKNOWN"),
+    ({"defaultAction": "Deny", "bypass": "None"}, "PASS"),
+])
+def test_storage_default_firewall_action_applies_to_anonymous_container(acls, expected):
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    props = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,
+             "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
+    if acls is not None:
+        props["networkAcls"] = acls
+    snap = make_snapshot("azure", [SCOPE], [
+        {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+         "items": [{"id": account_id, "properties": props}]},
+        {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+         "items": [{"id": account_id + "/blobServices/default/containers/public",
+                    "parent_id": account_id, "properties": {"publicAccess": "Blob"}}]},
+    ])
+    rows = assess(snap, resources(snap))
+    assert {row.resource["type"]: row.verdict() for row in rows} == {
+        "storage_account": expected, "storage_container": expected}
+    if acls in (None, {}):
+        container = next(row for row in rows if row.resource["type"] == "storage_container")
+        assert any(step.get("default_action") == "Allow (service default)" for step in container.path)
 
 
 def test_storage_trusted_service_bypass_is_not_an_anonymous_public_source():

@@ -4985,7 +4985,12 @@ def _azure_storage(snapshot, inventory, resource):
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
         a.gap("firewall", "storage network security perimeter rules are not collected")
         a.explicit = "UNKNOWN"
-    acls = props.get("networkAcls") or {}
+    acls = props.get("networkAcls")
+    if acls is None:
+        acls = {}
+    if not isinstance(acls, dict):
+        a.gap("firewall", "storage account network ACL object is malformed")
+        return a
     if acls.get("defaultAction", "Allow") not in ("Allow", "Deny"):
         a.gap("firewall", "storage account network ACL default action is unresolved")
         return a
@@ -5068,9 +5073,12 @@ def _azure_storage_container(snapshot, inventory, resource):
     if props.get("publicNetworkAccess") is None:
         a.step("account_gate", "allow", public_network_access="Enabled (service default)")
     acls = props.get("networkAcls")
-    if not isinstance(acls, dict) or acls.get("defaultAction") not in ("Allow", "Deny"):
-        a.gap("firewall", "account network ACL default action is unavailable")
-    elif acls["defaultAction"] == "Deny":
+    if acls is None:
+        acls = {}
+    if not isinstance(acls, dict) or acls.get("defaultAction", "Allow") not in ("Allow", "Deny"):
+        a.gap("firewall", "account network ACL default action is malformed")
+        return a
+    if acls.get("defaultAction", "Allow") == "Deny":
         public, unresolved = _azure_storage_public_ip_rules(acls)
         public, ipv6_unknown = _azure_storage_published_public_ip_rules(props, public, service="blob")
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
@@ -5095,7 +5103,8 @@ def _azure_storage_container(snapshot, inventory, resource):
             a.ports = {}
             return a
     else:
-        a.step("firewall", "allow", default_action="Allow")
+        a.step("firewall", "allow", default_action=("Allow (service default)" if
+               "defaultAction" not in acls else "Allow"))
     endpoint_set = props.get("primaryEndpoints") or {}
     a.addresses = _azure_storage_endpoint_urls(props, service="blob")
     secondary = props.get("secondaryEndpoints")
