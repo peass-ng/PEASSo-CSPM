@@ -9881,6 +9881,119 @@ def _azure_eventgrid_publisher(snapshot, inventory, resource):
     return a
 
 
+def _azure_automation_account(snapshot, inventory, resource):
+    """Enabled, unexpired webhooks have a public bearer URL for runbook invocation."""
+    a = Assessment(resource, "external_share")
+    a.ports = {}
+    data = resource["data"]
+    coverage = (data.get("_coverage") or {}).get("webhooks") or {}
+    if coverage.get("status") not in ("collected", "empty"):
+        a.gap("inventory", "Automation webhook inventory is unavailable")
+        return a
+    try:
+        observed = datetime.fromisoformat(str(snapshot["created_at"]).replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            raise ValueError("naive timestamp")
+    except (KeyError, TypeError, ValueError):
+        a.gap("inventory", "Automation webhook assessment time is unavailable")
+        return a
+    active = []
+    for hook in data.get("webhooks", []):
+        props = hook.get("properties") if isinstance(hook, dict) else None
+        if not isinstance(props, dict) or type(props.get("isEnabled")) is not bool:
+            a.gap("inventory", "Automation webhook enabled state is unavailable")
+            continue
+        if not props["isEnabled"]:
+            continue
+        try:
+            expiry = datetime.fromisoformat(str(props["expiryTime"]).replace("Z", "+00:00"))
+            if expiry.tzinfo is None:
+                raise ValueError("naive timestamp")
+        except (KeyError, TypeError, ValueError):
+            a.gap("inventory", "Automation webhook expiration is unavailable")
+            continue
+        if expiry > observed:
+            active.append(str(hook.get("name") or hook.get("id")))
+    if active:
+        a.data_exposure = True
+        a.authenticated = False
+        a.step("webhook", "allow", active_webhooks=sorted(active),
+               reason="bearer URL permits runbook invocation without additional authentication")
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    elif not a.unresolved:
+        a.step("webhook", "block", reason="no enabled unexpired webhooks")
+    return a
+
+
+def _azure_iot_hub(snapshot, inventory, resource):
+    """Assess the public IoT device and service protocol listener gate."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network", "block", public_network_access=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "IoT Hub public network access is unavailable")
+        return a
+    host = props.get("hostName")
+    if not isinstance(host, str) or re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", host) is None:
+        a.gap("inventory", "IoT Hub hostname is unavailable or malformed")
+        return a
+    a.addresses = [host.lower()]
+    rules = props.get("networkRuleSets")
+    if not isinstance(rules, dict) or not isinstance(rules.get("ipRules"), list):
+        a.gap("inventory", "IoT Hub network rules are unavailable")
+        return a
+    default = rules.get("defaultAction")
+    if default == "Allow":
+        a.step("public_network", "allow", default_action=default)
+    elif default == "Deny":
+        public = []
+        for rule in rules["ipRules"]:
+            if not isinstance(rule, dict) or rule.get("action") != "Allow" or not isinstance(rule.get("ipMask"), str) or _cidr(rule["ipMask"]) is None:
+                a.gap("inventory", "IoT Hub IP rule is malformed")
+                return a
+            if _public_source(rule["ipMask"]):
+                public.append(rule["ipMask"])
+        if not public:
+            a.step("public_network", "block", reason="no public source in IoT Hub IP rules")
+            a.ports = {}
+            return a
+        a.step("public_network", "allow", public_sources=public)
+    else:
+        a.gap("inventory", "IoT Hub network default action is unavailable")
+        return a
+    a.ports = union(union(pset("tcp", 443, 443), pset("tcp", 5671, 5671)), pset("tcp", 8883, 8883))
+    return a
+
+
+def _azure_sql_managed_instance(snapshot, inventory, resource):
+    """SQL Managed Instance public TDS requires the instance gate and subnet NSG."""
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    props = _props(resource)
+    enabled = props.get("publicDataEndpointEnabled")
+    if enabled is False:
+        a.step("public_endpoint", "block", enabled=False)
+        a.ports = {}
+        return a
+    if enabled is not True:
+        a.gap("inventory", "Managed Instance public endpoint setting is unavailable")
+        return a
+    a.step("public_endpoint", "allow", enabled=True)
+    subnet = props.get("subnetId")
+    if not isinstance(subnet, str) or not subnet:
+        a.gap("inventory", "Managed Instance subnet is unavailable")
+        return a
+    a.ports = _azure_nsg_path(inventory, a, None, subnet, pset("tcp", 3342, 3342),
+                              where="managed_instance_public_endpoint")
+    return a
+
+
 def _azure_vpn_gateway(snapshot, inventory, resource):
     """Assess configured VPN tunnel listeners on observed gateway public IPs."""
     a = Assessment(resource, "vpn_gateway")
@@ -12310,7 +12423,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "devops_project", "eventgrid_topic", "eventgrid_domain", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "devops_project", "eventgrid_topic", "eventgrid_domain", "automation_account", "iot_hub", "mssql_managed_instance", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12325,7 +12438,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "devops_project", "eventgrid_topic", "eventgrid_domain", "private_link_service",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "devops_project", "eventgrid_topic", "eventgrid_domain", "automation_account", "iot_hub", "mssql_managed_instance", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "bastion_host", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12425,6 +12538,9 @@ def assess(snapshot, resources):
                   "devops_project": _azure_devops_project,
                   "eventgrid_topic": _azure_eventgrid_publisher,
                   "eventgrid_domain": _azure_eventgrid_publisher,
+                  "automation_account": _azure_automation_account,
+                  "iot_hub": _azure_iot_hub,
+                  "mssql_managed_instance": _azure_sql_managed_instance,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "analysis_server": _azure_analysis_server,
