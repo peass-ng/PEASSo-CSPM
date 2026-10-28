@@ -10256,10 +10256,25 @@ def _azure_synapse_workspace(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "database")
     a.authenticated = True
+    private_coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}
+    connections = resource["data"].get("privateEndpointConnections")
+    private_unknown = True
+    if private_coverage.get("status") in ("collected", "empty") and isinstance(connections, list):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(
+            resource["data"], {"privateEndpointConnections": connections})
+        if a.external_ids:
+            a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
+            a.explicit = "FAIL"
+        if private_unknown:
+            a.gap("private_link_share", "Synapse private endpoint approval or ownership is unresolved")
+    else:
+        a.gap("private_link_share", "Synapse private endpoint connections are not fully collected")
     access = props.get("publicNetworkAccess")
     if access == "Disabled":
         a.step("public_network_access", "block", value=access)
-        a.ports = {}
+        a.ports = union(pset("tcp", 443, 443), pset("tcp", 1433, 1433)) if a.external_ids else {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         return a
     if access != "Enabled":
         a.gap("inventory", "Synapse public network access is not explicit")
@@ -10279,7 +10294,7 @@ def _azure_synapse_workspace(snapshot, inventory, resource):
     rules = resource["data"].get("firewallRules")
     if coverage.get("status") not in ("collected", "empty") or not isinstance(rules, list):
         a.gap("firewall", "Synapse workspace firewall rules are not fully collected")
-        a.ports = ports or None
+        a.ports = union(ports or {}, union(pset("tcp", 443, 443), pset("tcp", 1433, 1433))) if a.external_ids else ports or None
         return a
     public_rules, malformed = [], False
     for rule in rules:
@@ -10304,6 +10319,10 @@ def _azure_synapse_workspace(snapshot, inventory, resource):
     else:
         a.step("firewall", "block", reason="no public-source workspace firewall rule")
         a.ports = {}
+    if a.external_ids:
+        a.ports = union(a.ports or {}, union(pset("tcp", 443, 443), pset("tcp", 1433, 1433)))
+    elif private_unknown and empty(a.ports or {}):
+        a.explicit = "UNKNOWN"
     a.notes.append("Workspace listener exposure does not establish SQL or Synapse authorization")
     return a
 

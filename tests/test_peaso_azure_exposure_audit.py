@@ -1778,7 +1778,9 @@ def test_synapse_workspace_public_sql_and_cross_tenant_firewall():
         snap = make_snapshot("azure", [SCOPE], [{"type": "synapse_workspace", "scope": SCOPE,
             "service": "synapse", "status": "collected", "items": [{"id": rid,
                 "properties": props if props is not None else base, "firewallRules": rules,
-                "_coverage": {"firewallRules": {"status": status}}}]}])
+                "privateEndpointConnections": [],
+                "_coverage": {"firewallRules": {"status": status},
+                              "privateEndpointConnections": {"status": "empty"}}}]}])
         return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "synapse_workspace")
 
     public = {"name": "public", "properties": {"startIpAddress": "8.8.8.8", "endIpAddress": "8.8.8.8"}}
