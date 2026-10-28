@@ -1155,6 +1155,37 @@ def test_gcp_kms_direct_cross_project_decrypter_grant(role):
     assert findings() == []
 
 
+@pytest.mark.parametrize("kind,destination", [
+    ("logging", "logging.googleapis.com/projects/foreign-project/locations/global/buckets/audit"),
+    ("bigquery", "bigquery.googleapis.com/projects/foreign-project/datasets/audit"),
+    ("pubsub", "pubsub.googleapis.com/projects/foreign-project/topics/audit"),
+])
+def test_gcp_logging_sink_declares_cross_project_destination(kind, destination):
+    sink = {"name": "projects/p1/sinks/export", "destination": destination,
+            "disabled": False, "writerIdentity": "serviceAccount:writer@p1.iam.gserviceaccount.com",
+            "filter": "severity>=ERROR"}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("log_sink", [sink], service="logging")))["findings"]
+                if row["check_id"] == "analysis.gcp_logging_cross_project_sink"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], sink["name"])
+    assert rows[0]["evidence"]["destination_kind"] == kind
+    assert rows[0]["evidence"]["destination_project"] == "foreign-project"
+    assert "sensitive log data" in rows[0]["evidence"]["observed"].splitlines()[-1]
+    sink["disabled"] = True
+    assert findings() == []
+    sink["disabled"] = False
+    sink["destination"] = destination.replace("foreign-project", "p1")
+    assert findings() == []
+    sink["destination"] = "storage.googleapis.com/bucket-with-unknown-owner"
+    assert findings() == []
+    sink["destination"] = destination.replace("foreign-project", "123456789012")
+    assert findings() == []  # Project number may name the same project as source ID.
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

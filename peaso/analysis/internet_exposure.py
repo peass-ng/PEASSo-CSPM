@@ -3764,6 +3764,57 @@ def gcp_kms_external_decrypter_findings(snapshot, resources):
     return output
 
 
+def gcp_logging_cross_project_sink_findings(snapshot, resources):
+    """Report active sinks naming a different GCP project as their destination."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    destination_patterns = {
+        "logging": r"logging\.googleapis\.com/projects/([^/]+)(?:/locations/[^/]+/buckets/[^/]+)?",
+        "bigquery": r"bigquery\.googleapis\.com/projects/([^/]+)/datasets/[^/]+",
+        "pubsub": r"pubsub\.googleapis\.com/projects/([^/]+)/topics/[^/]+",
+    }
+    for resource in resources:
+        if resource["type"] != "log_sink" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        if data.get("disabled") not in (None, False):
+            continue
+        destination_ref = data.get("destination")
+        if not isinstance(destination_ref, str):
+            continue
+        matches = [(kind, re.fullmatch(pattern, destination_ref))
+                   for kind, pattern in destination_patterns.items()]
+        match = next(((kind, matched) for kind, matched in matches if matched), None)
+        if match is None:
+            continue
+        kind, matched = match
+        destination_project = matched.group(1)
+        source_project = resource["scope"].removeprefix("projects/")
+        if (not re.fullmatch(r"[a-z][a-z0-9-]*", destination_project)
+                or not re.fullmatch(r"[a-z][a-z0-9-]*", source_project)
+                or source_project == destination_project):
+            continue
+        name = data.get("name", native_id(resource))
+        evidence = {
+            "observed": "\n".join((
+                f"The Cloud Logging sink {name} has destination {destination_ref}.",
+                f"Its disabled setting is {str(data.get('disabled', False)).lower()}, and the destination names project {destination_project}.",
+                "Matching log entries may be routed to that project if writer permissions and destination controls allow it.",
+                "If another owner controls the destination, its operators could access sensitive log data; ownership, filters, writer rights, and delivery remain unresolved.")),
+            "destination": destination_ref,
+            "destination_kind": kind,
+            "destination_project": destination_project,
+            "source_project": source_project,
+            "source": source(snapshot, resource, "destination"),
+            "risk_state": "observed",
+            "semantics": "Configured cross-project log routing only; destination ownership, filters, exclusions, writer authorization, matching entries and delivery are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_logging_cross_project_sink",
+                              "Cross-project Cloud Logging sink destination", "high", evidence, status="FAIL"))
+    return output
+
+
 # -------------------------------------------------------------------- Azure
 
 def _props(resource):
@@ -6274,6 +6325,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_pubsub_public_grant_findings(snapshot, resources))
     output.extend(gcp_secret_external_accessor_findings(snapshot, resources))
     output.extend(gcp_kms_external_decrypter_findings(snapshot, resources))
+    output.extend(gcp_logging_cross_project_sink_findings(snapshot, resources))
     return output
 
 
