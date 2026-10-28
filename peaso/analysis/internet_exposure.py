@@ -7643,6 +7643,28 @@ def _observed(assessment, status):
                     "Azure Storage serves $web anonymously even if account blob public access is disabled.\n"
                     "The site endpoint is recorded in ARM; DNS delivery, a successful read, and contents were not tested.")
     if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
+        perimeter = next((step for step in assessment.path
+                          if step["layer"] == "network_security_perimeter" and
+                          step["decision"] == "allow"), None)
+        if perimeter is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            public_rules = perimeter.get("public_ip_rules") or []
+            if public_rules:
+                source = public_rules[0]["source"]
+                if assessment.resource["type"] == "storage_container":
+                    return (f"The blob container {name} allows anonymous access, and the effective Storage "
+                            f"perimeter admits IPv4 source {source} through the public blob endpoint.\n"
+                            "The account firewall cannot override this admitted perimeter rule.\n"
+                            "A successful read, DNS delivery, and blob contents were not tested.")
+                return (f"The storage account {name} has an effective perimeter rule admitting IPv4 source "
+                        f"{source} through its public endpoint.\n"
+                        "The account firewall cannot override this admitted perimeter rule.\n"
+                        "Data authorization, DNS delivery, and a successful request were not tested.")
+            subscription = perimeter["subscription_rules"][0]["subscription_id"]
+            return (f"The storage account {name} has an effective perimeter rule admitting named Azure "
+                    f"subscription {subscription} through its public endpoint.\n"
+                    "This rule requires authentication; the subscription owner was not established.\n"
+                    "Data authorization, DNS delivery, and a successful request were not tested.")
         ipv6_step = next((step for step in assessment.path if any(
             _cidr(value).version == 6 for value in step.get("public_ip_rules", []))), None)
         if ipv6_step is not None:

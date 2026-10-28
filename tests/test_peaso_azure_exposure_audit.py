@@ -870,6 +870,11 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     assert opened["storage_container"].verdict() == "FAIL"
     assert opened["storage_container"].data_exposure
     assert opened["storage_account"].path[0]["public_ip_rules"][0]["source"] == "8.8.8.0/24"
+    for row in opened.values():
+        observed = _observed(row, "FAIL")
+        assert "effective Storage perimeter" in observed or "effective perimeter rule" in observed
+        assert "8.8.8.0/24" in observed
+        assert len(observed.splitlines()) == 3
     private = {**config, "properties": {**config["properties"], "profile": {
         "accessRules": [{"name": "private", "properties": {
             "direction": "Inbound", "addressPrefixes": ["10.0.0.0/8"]}}]}}}
@@ -894,6 +899,9 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     assert named_rows["storage_account"].verdict() == "FAIL"
     assert named_rows["storage_account"].authenticated is True
     assert named_rows["storage_account"].path[0]["subscription_rules"][0]["subscription_id"] == subscription_id
+    named_observed = _observed(named_rows["storage_account"], "FAIL")
+    assert subscription_id in named_observed and "owner was not established" in named_observed
+    assert len(named_observed.splitlines()) == 3
     assert named_rows["storage_container"].verdict() == "UNKNOWN"
     assert named_rows["storage_container"].data_exposure is False
     malformed_named = {**named, "properties": {**named["properties"], "profile": {
