@@ -12,13 +12,15 @@ The same exact public NACL host witness now applies to internet-facing NLBs (wit
 
 The load-balancer listener witness now retains SG source CIDRs and their port sets instead of reducing the SG to a port union before evaluating a narrow NACL. It partitions the public address space at the collected SG and NACL CIDR boundaries, selects globally routable candidate hosts, then applies NACL rule order for both directions and the matching SG source/port rule to the **same** host. This admits positive witnesses for intersecting narrow SG/NACL CIDRs, including an allowed segment after an earlier NACL Deny; disjoint SG/ACL sources and a mismatched return CIDR do not open the listener. Prefix-list sources are considered only when their entries are completely cached. This is a bounded configuration witness; untested effective network variants remain open.
 
+The shared AWS VPC path now requires a collected, ordered NACL egress allowance to the client ephemeral range for a world-admitting TCP/UDP ingress path. A world ingress rule followed only by an egress rule for ports below 1024 no longer produces a positive EC2 or load-balancer listener finding. A narrower same-host return rule can still yield a positive host witness. This removes a stateless-return false positive from the EC2/ENI public path and the listeners that use the same evaluator.
+
 ## Open vector rows
 
 There are still **13 PARTIAL**, **0 MISSING**, and **1 IMPOSSIBLE-FROM-API** rows in the predecessor table. The impossible row is issued but unobserved S3 presigned URLs: configuration APIs do not enumerate already-issued URLs. The exact remaining API-observable joins are:
 
 | Vector | Status | Remaining observable fact or join |
 | --- | --- | --- |
-| EC2/ENI public path | PARTIAL | Managed ENI type and attachment, appliance/Gateway Load Balancer route targets, and source-specific IPv4/IPv6 SG, NACL and route witnesses. |
+| EC2/ENI public path | PARTIAL | World TCP/UDP ingress now requires NACL egress to ephemeral client ports. Managed ENI type and attachment, appliance/Gateway Load Balancer route targets, and other source-specific IPv4/IPv6 SG, NACL and route witnesses remain. |
 | Public IPs/EIPs | PARTIAL | NLB static IPv4/IPv6 and Global Accelerator static IPv4/IPv6 now join from cached API inventory; enabled/deployed accelerators with a collected listener yield a public frontend finding. Other services' published address associations remain; DNS answers are not an inventory association. |
 | ALB/NLB/Classic listeners | PARTIAL | Exact public NACL host is witnessed for ALB, Classic and NLB, including NLB IPv6. A source-aware witness also admits some wider intersecting SG/NACL CIDRs with same-host return. Other source-specific paths, LB and target subnet ACL directions, and other target types remain. |
 | API Gateway REST/HTTP | PARTIAL | REST method authorization uses the stage-bound cached `GetDeployment(embed=apisummary)` MethodSnapshot. The customer-role template now grants the dedicated, scoped `apigateway:ListRoutingRules` action required for cached REST custom-domain rules. HTTP deployed route version, REST routing-rule condition satisfiability, and resource-policy action/resource/condition evaluation remain. Cached rules retain `Priority` and `ConditionCount` but omit `Conditions[]`. |

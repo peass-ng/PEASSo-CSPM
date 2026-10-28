@@ -129,6 +129,29 @@ def test_aws_nacl_deny_before_allow_blocks():
     assert result["status"] == "PASS" and result["evidence"]["blocked_by"] == "network_acl"
 
 
+@pytest.mark.parametrize("target", ["instance", "load_balancer"])
+def test_aws_world_nacl_ingress_requires_return_ephemeral_allowance(target):
+    ingress = {"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+               "CidrBlock": "0.0.0.0/0", "PortRange": {"From": 22 if target == "instance" else 443,
+                                                    "To": 22 if target == "instance" else 443}}
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/return/1",
+          "Scheme": "internet-facing", "Type": "application", "DNSName": "return.example.com",
+          "VpcId": "vpc-1", "SecurityGroups": ["sg-1"],
+          "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS"}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def finding(egress):
+        asset = instance() if target == "instance" else coll("load_balancer", [lb], service="elbv2")
+        rules = None if target == "instance" else sg
+        return one(aws(*aws_network(sg_rules=rules, nacl_entries=[ingress, egress]), asset), target)
+    blocked = {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+               "CidrBlock": "0.0.0.0/0", "PortRange": {"From": 1, "To": 1023}}
+    assert finding(blocked)["status"] == "PASS"
+    allowed = {**blocked, "PortRange": {"From": 1024, "To": 65535}}
+    assert finding(allowed)["status"] == "FAIL"
+
+
 def test_aws_no_igw_route_passes_and_private_sg_passes():
     assert one(aws(*aws_network(igw=False), instance()), "instance")["status"] == "PASS"
     private = [{"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": "10.0.0.0/8"}]}]

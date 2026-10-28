@@ -480,7 +480,10 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
     if cache_key not in inventory.network_cache:
         inventory.network_cache[cache_key] = evaluate(False), evaluate(True)
     inbound, outbound = inventory.network_cache[cache_key]
-    result = intersect(ports, inbound)
+    inbound_ports = intersect(ports, inbound)
+    result = {protocol: intervals for protocol, intervals in inbound_ports.items()
+              if not empty(intersect(outbound, pset(protocol, 1024, 65535)
+                                     if protocol in ("tcp", "udp") else pset(protocol)))}
     if public_host_ports and not empty(public_host_ports):
         entries = sorted((e for e in as_list(acl["data"].get("Entries")) if isinstance(e, dict)),
                          key=lambda e: int(e.get("RuleNumber", 32767)))
@@ -543,10 +546,9 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
         if witnesses:
             assessment.step("network_acl_host", "allow", acl=native_id(acl), subnet=subnet_id,
                             public_host_witnesses=witnesses, address_family=family, at=where)
-    if not empty(result) and empty(intersect(outbound, pset("tcp", 1024, 65535))) and result.get("tcp"):
-        assessment.notes.append(f"NACL {native_id(acl)} egress to 0.0.0.0/0 does not allow TCP ephemeral ports; stateless return traffic may be dropped")
     assessment.step("network_acl", "allow" if not empty(result) else "block", acl=native_id(acl), subnet=subnet_id,
-                    inbound_allowed=describe(inbound), address_family=family, at=where)
+                    inbound_allowed=describe(inbound), return_allowed=describe(outbound),
+                    address_family=family, at=where)
     return result
 
 
