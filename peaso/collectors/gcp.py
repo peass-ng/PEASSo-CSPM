@@ -4927,9 +4927,25 @@ class GCPCollector:
         if not self.scopes:
             return
         scope = self.scopes[0]
-        references = sorted({member.removeprefix("group:") for _, policy in self.items("iam_policy")
-            for binding in policy.get("bindings", []) for member in binding.get("members", [])
-            if isinstance(member, str) and member.startswith("group:")})
+        references = set()
+        for (kind, _), collection in self.collections.items():
+            if collection.get("status") not in ("collected", "partial"):
+                continue
+            for item in collection.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                policy = item if kind == "iam_policy" else item.get("iamPolicy")
+                if isinstance(policy, dict):
+                    for binding in policy.get("bindings") or []:
+                        if not isinstance(binding, dict):
+                            continue
+                        references.update(member[len("group:"):] for member in binding.get("members") or []
+                            if isinstance(member, str) and member.startswith("group:") and len(member) > len("group:"))
+                if kind == "bigquery_dataset":
+                    references.update(access["groupByEmail"] for access in item.get("access") or []
+                        if isinstance(access, dict) and isinstance(access.get("groupByEmail"), str)
+                        and access["groupByEmail"])
+        references = sorted(references)
         customers = set(self.options.get("cloud_identity_customers", []))
         if "workspace_user" in self.needed:
             binding = self.workspace_project_binding()
@@ -4947,14 +4963,21 @@ class GCPCollector:
             raise ValueError("cloud_identity_customers must contain Google directory customer IDs")
         def groups():
             failures = []
+            listed_emails = set()
             for customer in sorted(customers):
                 try:
                     for rows, request_id in self.pages("https://cloudidentity.googleapis.com/v1/groups", scope, key="groups",
                         params={"parent": "customers/" + customer, "view": "FULL", "pageSize": min(self.page_size, 500)}):
+                        for row in rows:
+                            key = row.get("groupKey") if isinstance(row, dict) else None
+                            if isinstance(key, dict) and isinstance(key.get("id"), str):
+                                listed_emails.add(key["id"].lower())
                         yield [{**row, "_representation": "full"} for row in rows], request_id
                 except ReadError as exc:
                     failures.append(exc)
             for email in references:
+                if email.lower() in listed_emails:
+                    continue
                 try:
                     resolved, request_id = self.read("https://cloudidentity.googleapis.com/v1/groups:lookup", scope,
                         params={"groupKey.id": email})

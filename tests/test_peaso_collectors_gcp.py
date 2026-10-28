@@ -2084,6 +2084,39 @@ def test_unused_group_collector_keeps_per_group_pagination_and_independent_failu
     assert statuses == {'groups/empty': 'FAIL', 'groups/denied': 'DENIED', 'groups/dynamic': 'UNKNOWN'}, [(r['resource_name'], r['status'], r['evidence']) for r in report['findings']]
 
 
+def test_exposure_requests_groups_and_resolves_resource_policy_references():
+    from types import SimpleNamespace
+    from peaso.engine import plan_collection
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    scope = 'projects/p1'
+    assert {'group', 'group_membership'} <= set(GCP_TYPES)
+    assert {'group', 'group_membership'} <= set(plan_collection({
+        'connector': {'provider': 'gcp'}, 'categories': ['exposure']}))
+    seen = []
+    collections = {
+        ('iam_policy', scope): {'status': 'collected', 'items': [{'bindings': []}]},
+        ('bucket', scope): {'status': 'collected', 'items': [{'iamPolicy': {'bindings': [
+            {'role': 'roles/storage.objectViewer', 'members': ['group:bucket@example.com']}]}}]},
+        ('bigquery_dataset', scope): {'status': 'collected', 'items': [{'access': [
+            {'role': 'READER', 'groupByEmail': 'data@example.com'}]}]},
+    }
+    def read(url, _, params=None):
+        seen.append(params['groupKey.id'])
+        return {'name': 'groups/' + str(len(seen))}, 'request'
+    def hydrate(item, field, url, _):
+        return {**item, field: {'name': item['name'], 'groupKey': item['groupKey']},
+                '_coverage': {field: {'status': 'collected'}}}
+    def add(_, __, ___, factory):
+        return {'status': 'collected', 'items': [item for page, _ in factory() for item in page]}
+    stub = SimpleNamespace(scopes=[scope], options={'cloud_identity_customers': ['Csynthetic']},
+        sw52_only_mode=False, needed={'group'}, collections=collections, page_size=100,
+        items=lambda _: [], pages=lambda *args, **kwargs: [([{'name': 'groups/listed',
+            'groupKey': {'id': 'bucket@example.com'}}], 'request')],
+        read=read, hydrate=hydrate, add=add)
+    gcp.GCPCollector.directory_groups(stub)
+    assert seen == ['data@example.com']
+
+
 @pytest.mark.parametrize('numeric_alias', [False, True])
 def test_unused_policy_grant_collector_to_hardening_matches_current_binding(numeric_alias):
     from datetime import datetime, timedelta, timezone
