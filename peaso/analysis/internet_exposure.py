@@ -5468,6 +5468,38 @@ def _azure_ml_workspace(snapshot, inventory, resource):
     return a
 
 
+def _databricks_public_witness(rules, enabled, lists):
+    """Return a concrete global IPv4 source allowed by both collected layers."""
+    try:
+        allow = [ipaddress.ip_network(cidr) for item in lists
+                 if enabled and item.get('enabled') is True and item.get('list_type') == 'ALLOW'
+                 for cidr in item.get('ip_addresses', [])]
+        block = [ipaddress.ip_network(cidr) for item in lists
+                 if enabled and item.get('enabled') is True and item.get('list_type') == 'BLOCK'
+                 for cidr in item.get('ip_addresses', [])]
+        contexts = [(rule['origin'], [ipaddress.ip_network(cidr) for cidr in rule['ranges']]) for rule in rules]
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return None
+    if any(network.version != 4 for network in (*allow, *block, *(n for _, nets in contexts for n in nets))):
+        return None
+    candidates = {ipaddress.IPv4Address(value) for value in ('1.1.1.1', '8.8.8.8', '9.9.9.9', '4.2.2.2')}
+    for network in (*allow, *(network for _, networks in contexts for network in networks)):
+        start = int(network.network_address)
+        for offset in (0, min(1, network.num_addresses - 1), network.num_addresses // 2, network.num_addresses - 1):
+            candidates.add(ipaddress.IPv4Address(start + offset))
+    for address in sorted(candidates):
+        if not address.is_global:
+            continue
+        if enabled and (any(address in network for network in block)
+                        or allow and not any(address in network for network in allow)):
+            continue
+        if any(mode == 'all' or mode == 'include' and any(address in network for network in networks)
+               or mode == 'exclude' and not any(address in network for network in networks)
+               for mode, networks in contexts):
+            return str(address)
+    return None
+
+
 def _azure_databricks_workspace(snapshot, inventory, resource):
     """Use the ARM workspace public gate without guessing Databricks ingress policies."""
     props = _props(resource)
@@ -5485,6 +5517,7 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
         a.ports = pset("tcp", 443, 443)
         ingress = [row['data'] for row in inventory.items('databricks_workspace_ingress_policy')
                    if str(native_id(row)).casefold() == str(native_id(resource)).casefold()]
+        restricted_rules = None
         if len(ingress) != 1 or ingress[0].get('policyStatus') != 'collected':
             a.gap('policy', 'Databricks workspace context-based ingress policy unavailable')
         elif (ingress[0].get('restriction_mode') == 'RESTRICTED_ACCESS'
@@ -5493,20 +5526,29 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
             a.ports = {}
         elif ingress[0].get('restriction_mode') == 'FULL_ACCESS':
             a.step('workspace_context_ingress', 'allow', restriction_mode='FULL_ACCESS')
+        elif ingress[0].get('restriction_mode') == 'RESTRICTED_ACCESS':
+            restricted_rules = ingress[0]
         else:
             a.gap('policy', 'Databricks context ingress rules require identity, source and destination matching')
         policies = [row for row in inventory.items('databricks_workspace_ip_policy')
                     if str(native_id(row)).casefold() == str(native_id(resource)).casefold()]
+        ip_policy = None
         if len(policies) != 1 or policies[0]['data'].get('policyStatus') != 'collected':
             a.gap('policy', 'Databricks workspace IP access lists unavailable or uncollected')
         else:
             policy = policies[0]['data']
             enabled = policy.get('ipAccessListsEnabled')
             lists = policy.get('ipAccessLists')
-            if type(enabled) is not bool or not isinstance(lists, list):
+            if (type(enabled) is not bool or not isinstance(lists, list)
+                    or any(not isinstance(item, dict) or type(item.get('enabled')) is not bool
+                           or item.get('list_type') not in ('ALLOW', 'BLOCK')
+                           or not isinstance(item.get('ip_addresses'), list)
+                           or any((network := _cidr(cidr)) is None or network.version != 4
+                                  for cidr in item['ip_addresses']) for item in lists)):
                 a.gap('policy', 'Databricks workspace IP access lists malformed')
             else:
                 active = [item for item in lists if isinstance(item, dict) and item.get('enabled') is True]
+                ip_policy = (enabled, active)
                 allow = [item for item in active if item.get('list_type') == 'ALLOW']
                 block = [item for item in active if item.get('list_type') == 'BLOCK']
                 if enabled and any('0.0.0.0/0' in item.get('ip_addresses', []) for item in block):
@@ -5521,8 +5563,21 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
                     a.step('workspace_ip_access_lists', 'block', active_allow_lists=len(allow), active_block_lists=len(block))
                     a.ports = {}
                 else:
-                    a.step('workspace_ip_access_lists', 'allow', enabled=enabled,
-                           active_allow_lists=len(allow), active_block_lists=len(block))
+                    witness = _databricks_public_witness([{'origin': 'all', 'ranges': []}], enabled, active)
+                    if witness:
+                        a.step('workspace_ip_access_lists', 'allow', enabled=enabled,
+                               active_allow_lists=len(allow), active_block_lists=len(block), public_source_ip=witness)
+                    else:
+                        a.gap('policy', 'Databricks IP lists do not establish a surviving public source')
+        if restricted_rules is not None:
+            rules = restricted_rules.get('public_ui_rules')
+            if (ip_policy is not None and restricted_rules.get('deny_rule_count') == 0
+                    and isinstance(rules, list) and rules
+                    and (witness := _databricks_public_witness(rules, *ip_policy))):
+                a.step('workspace_context_ingress', 'allow', restriction_mode='RESTRICTED_ACCESS',
+                       destination='workspace_ui', public_source_ip=witness)
+            else:
+                a.gap('policy', 'Databricks context ingress rules require identity, source and destination matching')
         if not a.addresses:
             a.gap("inventory", "Databricks workspaceUrl is unavailable")
     else:
