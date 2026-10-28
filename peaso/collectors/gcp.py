@@ -642,9 +642,9 @@ class Transport:
                  or re.fullmatch(r"/api/v3/namespaces/[A-Za-z0-9_-]+/artifacts/[A-Za-z0-9_.-]+/versions/[A-Za-z0-9_.-]+/extensions(?:/[a-z]+)?", parsed.path))))
         privesc_read = _scoped_privesc_read(method, parsed, scope, params, body)
         exposure_metadata = _exposure_metadata_read(method, parsed, scope, params, body)
-        # This service is also in the general host inventory. Keep its
+        # These services are also in the general host inventory. Keep their
         # project-scoped reads behind the exact route and parameter contract.
-        if (parsed.hostname == "firebaseapphosting.googleapis.com"
+        if (parsed.hostname in {"firebaseapphosting.googleapis.com", "dataform.googleapis.com"}
                 and parsed.path.startswith("/v1/projects/") and not privesc_read):
             raise ReadError("unsupported", "unsafe_api_endpoint")
         if parsed.scheme != "https" or (parsed.hostname not in HOSTS and not regional_metadata and not cdap_read and not privesc_read and not exposure_metadata) or parsed.port not in (None, 443) or parsed.username or parsed.password or parsed.query or parsed.fragment:

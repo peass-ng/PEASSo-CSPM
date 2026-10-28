@@ -794,6 +794,9 @@ def test_privesc_read_routes_reach_http_with_exact_project(monkeypatch, method, 
     ("POST", "https://cloudtasks.googleapis.com/v2/projects/p-one1/locations/us-central1/queues/q1:purge", None, {}),
     ("POST", "https://cloudtasks.googleapis.com/v2/projects/p-one1/locations/us-central1/queues/q1:getIamPolicy", None, {"options": {"requestedPolicyVersion": 1}}),
     ("GET", "https://dataform.googleapis.com/v1/projects/other/locations/us-central1/repositories", None, None),
+    ("GET", "https://dataform.googleapis.com/v1/projects/other/locations/us-central1/config", None, None),
+    ("GET", "https://dataform.googleapis.com/v1/projects/p-one1/locations/us-central1/repositories", {"access_token": "x"}, None),
+    ("GET", "https://dataform.googleapis.com/v1/projects/p-one1/locations/us-central1/repositories", None, {}),
     ("GET", "https://firebaseapphosting.googleapis.com/v1/projects/p-one1/locations/us-central1/backends", {"pageToken": "cursor", "api_key": "x"}, None),
 ])
 def test_privesc_read_routes_reject_unsafe_boundary(monkeypatch, method, url, params, body):
