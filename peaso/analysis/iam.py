@@ -717,6 +717,85 @@ def _azure_gallery_rbac_reviews(snapshot, resources, group_members):
     return output
 
 
+def _azure_ml_scoring_rbac_reviews(snapshot, resources, group_members):
+    """Join observed outside identities to mode-specific online endpoint grants."""
+    endpoints = []
+    for workspace in resources:
+        if workspace["type"] != "ml_workspace":
+            continue
+        for endpoint in workspace["data"].get("onlineEndpoints", []):
+            if not isinstance(endpoint, dict) or not isinstance(endpoint.get("properties"), dict):
+                continue
+            endpoint_id = endpoint.get("id")
+            mode = endpoint["properties"].get("authMode")
+            if (not isinstance(endpoint_id, str) or re.fullmatch(
+                    re.escape(str(native_id(workspace)) + "/onlineEndpoints/") + r"[^/?#%\\\s]+",
+                    endpoint_id, re.I) is None
+                    or mode not in ("AADToken", "AMLToken", "Key")):
+                continue
+            action = "microsoft.machinelearningservices/workspaces/onlineendpoints/" + {
+                "AADToken": "score/action", "AMLToken": "token/action", "Key": "listkeys/action"}[mode]
+            endpoints.append((workspace, endpoint_id.casefold(), mode, action))
+    if not endpoints:
+        return []
+    definitions = {_azure_role_guid(row["data"].get("name") or native_id(row)): row
+                   for row in resources if row["type"] == "role_definition"}
+    output, seen = [], set()
+    for assignment in resources:
+        if assignment["type"] != "role_assignment":
+            continue
+        props = assignment["data"].get("properties") or {}
+        scope, principal = props.get("scope"), props.get("principalId")
+        if not isinstance(scope, str) or not isinstance(principal, str):
+            continue
+        scope = scope.casefold().rstrip("/")
+        if not scope.startswith("/"):
+            continue
+        targets = [(workspace, endpoint_id, mode, action)
+                   for workspace, endpoint_id, mode, action in endpoints
+                   if endpoint_id == scope or endpoint_id.startswith(scope + "/")]
+        if not targets:
+            continue
+        definition = definitions.get(_azure_role_guid(props.get("roleDefinitionId")))
+        if definition is None:
+            continue
+        permissions = (definition["data"].get("properties") or {}).get("permissions") or []
+        principals = [(principal, None, None)]
+        if props.get("principalType") == "Group":
+            principals.extend((member, path, membership)
+                              for member, (path, membership) in group_members(principal).items())
+        for workspace, endpoint_id, mode, action in targets:
+            granted = any(isinstance(block, dict)
+                          and any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                  for pattern in as_list(block.get("actions")) + as_list(block.get("dataActions")))
+                          and not any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                      for pattern in as_list(block.get("notActions")) + as_list(block.get("notDataActions")))
+                          for block in permissions)
+            if not granted:
+                continue
+            for identity, group_path, membership in principals:
+                if externality(snapshot, identity) != "external":
+                    continue
+                key = (str(native_id(assignment)).casefold(), endpoint_id, identity.casefold(), action)
+                if key in seen:
+                    continue
+                seen.add(key)
+                condition = props.get("condition")
+                evidence = {"source": source(snapshot, assignment, "properties.roleDefinitionId"),
+                    "role_definition_source": source(snapshot, definition, "properties.permissions"),
+                    "workspace_id": native_id(workspace), "online_endpoint_id": endpoint_id,
+                    "auth_mode": mode, "required_action": action, "assignment_scope": scope,
+                    "principal_id": identity, "via_group": principal if group_path else None,
+                    "group_path": group_path,
+                    "membership_source": source(snapshot, membership, "id") if membership else None,
+                    "condition": condition, "effective_access": "unknown",
+                    "uncertainty": "Deny assignments, PIM activation, network access, and runtime authorization may narrow declared access."}
+                output.append(finding(snapshot, assignment, "exposure", "analysis.azure_ml_scoring_rbac_share",
+                    "Review external Azure ML online scoring grant", "medium", evidence,
+                    status="MANUAL" if condition else "FAIL"))
+    return output
+
+
 def review_findings(snapshot, resources, *, include_manual_only=True):
     resources = list(resources)
     external_group_members = _azure_external_group_members(snapshot, resources) if snapshot["provider"] == "azure" else None
@@ -774,6 +853,7 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
                 "Review public or external principal declarations", severity, evidence, status=status))
     if external_group_members:
         output.extend(_azure_gallery_rbac_reviews(snapshot, resources, external_group_members))
+        output.extend(_azure_ml_scoring_rbac_reviews(snapshot, resources, external_group_members))
     return output
 
 
