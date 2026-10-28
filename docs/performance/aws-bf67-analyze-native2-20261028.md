@@ -39,3 +39,22 @@ publication tests passed 30/32. The two failures also occur on the unchanged
 publisher: `test_complete_publisher_retains_native_artifacts_and_private_output_boundaries`
 reads a closed simulated S3 file. The API source manifest still covers 1,717
 files with the same direct SDK client closure.
+
+## Markdown sink writes
+
+The binary Markdown sink now writes an ordinary complete byte string directly
+and constructs a memoryview only when a custom or short-writing stream accepts
+part of it. Error and partial-write behavior is unchanged. The full
+861,313,699-byte export matched SHA-256
+`64b4d3c1d563c64352a842892c5ed77804592dd48cf67031b7c1b984281db9ac`
+before and after in both pair orders.
+
+| Pair order | Before wall / CPU | After wall / CPU |
+| --- | ---: | ---: |
+| Before, after | 32.19 / 30.16 s | 27.20 / 26.55 s |
+| After, before | 43.28 / 32.63 s | 51.02 / 31.40 s |
+
+CPU improved in both runs; wall time was unstable under host contention.
+The paired process high-water RSS was 2.464 GB in the first pair and
+2.725 GB in the second, so it cannot attribute memory to one renderer.
+No cloud/API calls were made. Focused Markdown tests passed 108/108.

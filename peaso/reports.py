@@ -225,7 +225,12 @@ class _MarkdownStream:
         self.started = False
 
     def _write(self, body):
-        view = memoryview(body)
+        written = self.stream.write(body)
+        if not isinstance(written, int) or written <= 0 or written > len(body):
+            raise OSError("Markdown output did not accept its bytes")
+        if written == len(body):
+            return
+        view = memoryview(body)[written:]
         while view:
             written = self.stream.write(view)
             if not isinstance(written, int) or written <= 0 or written > len(view):
