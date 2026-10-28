@@ -3403,7 +3403,11 @@ def collect(connector, requirements=None):
     image_vulnerabilities.attach_metadata(metadata, collections, image_targets)
     workload_image_secrets.attach_metadata(metadata, secret_image_targets)
     ecr_public_image.attach_metadata(metadata, public_targets, public_secret, public_vuln)
-    return make_snapshot("aws", scopes, collections, created_at=requests.observed_at.isoformat(), metadata=_safe(metadata))
+    # append() has already copied and sanitized every item, and no collector
+    # path uses these lists after handoff. Adopt them instead of copying the
+    # full AWS inventory a second time at the final snapshot boundary.
+    return make_snapshot("aws", scopes, collections, created_at=requests.observed_at.isoformat(),
+                         metadata=_safe(metadata), owned=True)
 
 
 # Trusted in-repository read-only extension modules, loaded in this order. Each
