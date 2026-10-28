@@ -245,6 +245,12 @@ def project(snapshot, resources):
         from peaso.analysis.azure_federation_index import AzureFederationIndex
         federation_targets = AzureFederationIndex(by_type)
         definitions = {str(r["data"].get("name", "")).rsplit("/", 1)[-1].lower(): r for r in by_type["role_definition"]}
+        for row in by_type["directory_application"]:
+            data = row["data"]
+            audience = data.get("signInAudience")
+            if audience in ("AzureADMultipleOrgs", "AzureADandPersonalMicrosoftAccount", "PersonalMicrosoftAccount"):
+                signal(data.get("id"), row, "external_app_audience", "conditional",
+                       sign_in_audience=audience, app_id=data.get("appId"))
         for row in by_type["directory_user"] + by_type["directory_service_principal"]:
             data = row["data"]
             identity = data.get("id")

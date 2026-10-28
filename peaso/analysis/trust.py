@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import re
+from urllib.parse import urlsplit
 
 from .common import _CONTEXT, as_list
 from .trust_domains import OwnedDomains, normalized as normalized_domains
@@ -153,6 +154,63 @@ def provider_service(provider, text):
     return False
 
 
+def _gcp_group_membership(snapshot, email):
+    """Classify an owned group from its observed Cloud Identity membership graph."""
+    def index():
+        groups = {}
+        members = {}
+        statuses = {}
+        for collection in snapshot.get("collections", []):
+            if collection.get("type") == "group_membership":
+                statuses[collection.get("scope")] = collection.get("status")
+        for collection in snapshot.get("collections", []):
+            if collection.get("type") != "group" or collection.get("status") not in ("collected", "partial"):
+                continue
+            for row in collection.get("items", []):
+                if not isinstance(row, dict):
+                    continue
+                key = row.get("groupKey")
+                if isinstance(key, dict) and isinstance(key.get("id"), str):
+                    groups.setdefault(key["id"].lower(), []).append((row, collection.get("scope")))
+        for row in _items(snapshot, "group_membership"):
+            if isinstance(row.get("group"), str):
+                members.setdefault(row["group"], []).append(row)
+        return groups, members, statuses
+    groups, members, statuses = _cache(snapshot, "gcp_group_membership_index", index)
+    matches = groups.get(email.lower(), [])
+    if len(matches) != 1:
+        return "unknown", None
+    group, scope = matches[0]
+    group_name = group.get("name")
+    external = []
+    unresolved = False
+    for row in members.get(group_name, []):
+        keys = as_list(row.get("preferredMemberKey"))
+        if not keys or (row.get("membershipCoverage") or {}).get("completeTransitiveClosure") is not True:
+            unresolved = True
+        for key in keys:
+            if not isinstance(key, dict) or key.get("namespace") or not isinstance(key.get("id"), str):
+                unresolved = True
+                continue
+            member = key["id"]
+            if "@" in member:
+                from .common import externality
+                classification = externality(snapshot, "serviceAccount:" + member)
+                if classification == "external":
+                    external.append(member)
+                elif classification == "unknown":
+                    unresolved = True
+            else:
+                unresolved = True
+    evidence = {"group": group_name, "external_members": sorted(set(external)),
+                "transitive_memberships_status": ((group.get("_coverage") or {}).get("transitiveMemberships") or {}).get("status")}
+    if external:
+        return "external", evidence
+    complete = (not unresolved and evidence["transitive_memberships_status"] == "collected" and
+                statuses.get(scope) in ("collected", "empty"))
+    return ("allowlisted" if complete else "unknown"), evidence
+
+
 def classify(snapshot, principal, scope=None):
     """public, everyone_authenticated, allowlisted, external, provider_service, or unknown."""
     text = str(principal)
@@ -179,6 +237,10 @@ def classify(snapshot, principal, scope=None):
         # domain:X grants every identity of a Google Workspace/Cloud Identity domain.
         if kind == "domain" and value:
             return "allowlisted" if value.lower() in domains else "external"
+        if kind == "group" and "@" in value:
+            if value.rsplit("@", 1)[1].lower() not in domains:
+                return "external"
+            return _gcp_group_membership(snapshot, value)[0]
         if "@" in value and not value.endswith(".gserviceaccount.com"):
             return "allowlisted" if value.split("@", 1)[1] in domains else "external"
     if provider == "azure":
@@ -331,13 +393,15 @@ def principal_verdict(snapshot, entry, statement, path):
     classification, kind = entry["classification"], entry.get("principal_kind")
     condition = statement.get("Condition", statement.get("condition")) if isinstance(statement, dict) else None
     if classification == "public":
-        if snapshot["provider"] in {"gcp", "k8s"} and condition:
+        if snapshot["provider"] in {"gcp", "k8s"} and condition is not None:
             return "MANUAL", "public_conditional"
         restrictive = restrictive_conditions(condition) if snapshot["provider"] == "aws" else []
         entry["restrictive_conditions"] = restrictive
         return ("MANUAL", "public_conditional") if restrictive else ("FAIL", "public")
     if classification == "external":
         entry["external_id_condition"] = has_external_id(condition)
+        if snapshot["provider"] == "gcp" and condition is not None:
+            return "MANUAL", "external_conditional"
         return "FAIL", "external"
     if classification == "everyone_authenticated":
         return "MANUAL", "everyone_authenticated"
@@ -370,6 +434,10 @@ def principal_exposure(snapshot, resource, declared):
         entry = {"principal": identity, "classification": classification,
                  "source": source(snapshot, resource, path), "native_grant": fact,
                  "condition": fact.get("Condition", fact.get("condition")), "principal_kind": kind}
+        if snapshot["provider"] == "gcp" and str(identity).startswith("group:"):
+            _, group_evidence = _gcp_group_membership(snapshot, str(identity)[len("group:"):])
+            if group_evidence is not None:
+                entry["group_membership"] = group_evidence
         verdict, reason = principal_verdict(snapshot, entry, fact, path)
         if verdict == "FAIL" and reason == "public" and _aws_network_bound_policy(resource):
             verdict, reason = "MANUAL", "public_network_bound"
@@ -432,8 +500,45 @@ def _wildcard_subject(issuer, value):
     return ":" not in prefix or prefix.endswith(":") and prefix.count(":") == 1
 
 
+def _aws_identity_provider_inventory(snapshot, kind):
+    """Index cached IAM provider lists once for all role trust statements."""
+    def build():
+        inventory = {}
+        for row in snapshot.get("collections", []):
+            if row.get("type") != kind:
+                continue
+            account = str(row.get("scope", "")).split("/", 1)[0]
+            entry = inventory.setdefault(account, {"states": [], "providers": {}})
+            entry["states"].append(row.get("status"))
+            for item in row.get("items", []):
+                if isinstance(item, dict) and isinstance(item.get("Arn"), str):
+                    entry["providers"][item["Arn"]] = item
+        return inventory
+
+    return _cache(snapshot, "aws_" + kind + "_inventory", build)
+
+
+def _aws_identity_provider_state(snapshot, provider, kind, suffix):
+    """Return (exists, item): False only after complete account-scoped LIST."""
+    match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):" + suffix + r"/.+", str(provider))
+    if not match:
+        return None, None
+    inventory = _aws_identity_provider_inventory(snapshot, kind)
+    account = inventory.get(match.group(1))
+    if account is None:
+        return None, None
+    item = account["providers"].get(provider)
+    if item is not None:
+        return True, item
+    return (False, None) if all(state in ("collected", "empty") for state in account["states"]) else (None, None)
+
+
+def _aws_saml_provider_state(snapshot, provider):
+    return _aws_identity_provider_state(snapshot, provider, "iam_saml_provider", "saml-provider")[0]
+
+
 def aws_federated_trust(snapshot, resource):
-    """Return (status, severity, evidence) for AWS web-identity trust, or None."""
+    """Return (status, severity, evidence) for AWS OIDC/SAML trust, or None."""
     document = resource["data"].get("AssumeRolePolicyDocument")
     if isinstance(document, str):
         from .iam import assume_role_document, document as parse
@@ -447,19 +552,97 @@ def aws_federated_trust(snapshot, resource):
         principal = statement.get("Principal")
         federated = as_list(principal.get("Federated")) if isinstance(principal, dict) else []
         actions = [str(a).lower() for a in as_list(statement.get("Action"))]
-        if not federated or not any(a in ("sts:assumerolewithwebidentity", "sts:*", "*") for a in actions):
+        if not federated or not any(a in ("sts:assumerolewithwebidentity", "sts:assumerolewithsaml", "sts:*", "*") for a in actions):
             continue
         conditions = list(_conditions(statement.get("Condition")))
         for provider in federated:
             issuer = _issuer(provider)
-            if "saml-provider/" in str(provider):
+            saml = "saml-provider/" in str(provider).lower()
+            if saml and not any(a in ("sts:assumerolewithsaml", "sts:*", "*") for a in actions):
+                continue
+            if not saml and not any(a in ("sts:assumerolewithwebidentity", "sts:*", "*") for a in actions):
                 continue
             prefix = issuer.lower()
             def claim(name, prefix=prefix):
                 return [(op, values) for op, key, values in conditions if key.lower() == f"{prefix}:{name}"
                         and "ifexists" not in op.lower() and POSITIVE.match(op.lower())]
             problems = []
-            if prefix == "cognito-identity.amazonaws.com":
+            if saml:
+                provider_state = _aws_saml_provider_state(snapshot, provider)
+                if provider_state is False:
+                    reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                    "issuer": issuer, "multi_tenant_issuer": False,
+                                    "conditions": copy.deepcopy(statement.get("Condition")),
+                                    "problems": [{"code": "saml_provider_absent", "severity": "low",
+                                                  "message": "A complete IAM provider inventory does not contain this SAML provider"}]})
+                    continue
+                if provider_state is None:
+                    reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                    "issuer": issuer, "multi_tenant_issuer": False,
+                                    "conditions": copy.deepcopy(statement.get("Condition")),
+                                    "problems": [{"code": "saml_provider_unknown", "severity": "review",
+                                                  "message": "IAM SAML provider inventory is missing or incomplete"}]})
+                    continue
+                audience = [(op, values) for op, key, values in conditions if key.lower() == "saml:aud"
+                            and "ifexists" not in op.lower() and POSITIVE.match(op.lower())
+                            and values and all(value and not any(c in value for c in "*?${}") for value in values)]
+                if not audience:
+                    problems.append({"code": "saml_no_aud", "severity": "low",
+                                     "message": "SAML recipient is not positively pinned in the role trust"})
+                identity_claims = [(op, key, values) for op, key, values in conditions
+                                   if key.lower().startswith("saml:") and key.lower() not in
+                                   {"saml:aud", "saml:iss", "saml:doc", "saml:namequalifier"}
+                                   and "ifexists" not in op.lower() and POSITIVE.match(op.lower())
+                                   and values and all(value and value not in ("*", "?*") for value in values)]
+                if not identity_claims and not any(not key.lower().startswith("saml:") for _, key, _ in conditions):
+                    problems.append({"code": "saml_issuer_wide", "message":
+                                     "No caller-identity condition limits which SAML provider identities may assume the role"})
+                else:
+                    problems.append({"code": "saml_claim_scope", "severity": "review",
+                                     "message": "SAML claim conditions are declared; IdP assertion ownership and membership are not enumerable from IAM"})
+            elif ":oidc-provider/" in str(provider):
+                provider_state, provider_item = _aws_identity_provider_state(
+                    snapshot, provider, "iam_oidc_provider", "oidc-provider")
+                if provider_state is not True:
+                    reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                    "issuer": issuer, "multi_tenant_issuer": prefix.startswith(MULTI_TENANT_ISSUERS),
+                                    "conditions": copy.deepcopy(statement.get("Condition")),
+                                    "problems": [{"code": "oidc_provider_absent" if provider_state is False else "oidc_provider_unknown",
+                                                  "severity": "low" if provider_state is False else "review",
+                                                  "message": "IAM OIDC provider is absent from a complete inventory" if provider_state is False
+                                                             else "IAM OIDC provider inventory is missing or incomplete"}]})
+                    continue
+                detail = provider_item.get("Provider")
+                client_ids = detail.get("ClientIDList") if isinstance(detail, dict) else None
+                url = detail.get("Url") if isinstance(detail, dict) else None
+                if (isinstance(detail, dict) and detail.get("collection_status") == "collected"
+                        and url == issuer and isinstance(client_ids, list) and client_ids
+                        and all(isinstance(value, str) and value for value in client_ids)):
+                    disjoint = any(op.lower() == "stringequals" and key.lower() == f"{prefix}:aud"
+                                   and values and not (set(values) & set(client_ids))
+                                   for op, key, values in conditions)
+                    if disjoint:
+                        reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                        "issuer": issuer, "multi_tenant_issuer": prefix.startswith(MULTI_TENANT_ISSUERS),
+                                        "conditions": copy.deepcopy(statement.get("Condition")),
+                                        "provider_client_ids": copy.deepcopy(client_ids),
+                                        "problems": [{"code": "oidc_audience_disjoint", "severity": "low",
+                                                      "message": "The exact trust audience has no match in the provider's registered client IDs"}]})
+                        continue
+                else:
+                    problems.append({"code": "oidc_provider_detail_unknown", "severity": "review",
+                                     "message": "OIDC provider URL or registered client IDs are not completely collected"})
+                subjects = claim("sub")
+                if not subjects:
+                    problems.append({"code": "no_sub_condition", "message": "No positive sub condition: every identity of this issuer can assume the role"
+                                     + (" (issuer is multi-tenant)" if prefix.startswith(MULTI_TENANT_ISSUERS) else " (issuer-wide)")})
+                else:
+                    wild = [v for op, values in subjects for v in values if "like" in op.lower() and _wildcard_subject(prefix, v)]
+                    if wild:
+                        problems.append({"code": "wildcard_sub", "message": "Subject wildcard does not pin the tenant/owner", "values": wild})
+                if prefix.startswith("token.actions") and not claim("aud"):
+                    problems.append({"code": "no_aud_condition", "message": "No aud condition; GitHub tokens for other audiences are accepted", "severity": "low"})
+            elif prefix == "cognito-identity.amazonaws.com":
                 if not claim("aud"):
                     problems.append({"code": "cognito_no_aud", "message": "Any Cognito identity pool in any account can assume the role"})
                 amr = [v for _, values in claim("amr") for v in values]
@@ -499,39 +682,71 @@ def aws_federated_trust(snapshot, resource):
 
 def gcp_wif_provider(snapshot, resource):
     data = resource["data"]
-    if data.get("state") == "DELETED" or data.get("disabled") is True:
-        return None
     issuer = str(data.get("oidc", {}).get("issuerUri", "")) if isinstance(data.get("oidc"), dict) else ""
     condition = data.get("attributeCondition")
-    host = re.sub(r"^https?://", "", issuer).lower()
+    host = urlsplit(issuer).hostname or ""
     evidence = {"issuer": issuer or None, "aws_account": data.get("aws", {}).get("accountId") if isinstance(data.get("aws"), dict) else None,
-                "attribute_condition": condition, "attribute_mapping": copy.deepcopy(data.get("attributeMapping"))}
+                "provider_type": next((kind for kind in ("oidc", "aws", "saml", "x509") if isinstance(data.get(kind), dict)), None),
+                "attribute_condition": condition, "attribute_mapping": copy.deepcopy(data.get("attributeMapping")),
+                "actor_providers": copy.deepcopy(data.get("actorProviders"))}
     name = data.get("name")
     pool = name.rsplit("/providers/", 1)[0] if isinstance(name, str) and "/providers/" in name else None
     bindings = []
+    direct_bindings = []
     if pool:
         prefixes = (f"principal://iam.googleapis.com/{pool}/", f"principalSet://iam.googleapis.com/{pool}/")
-        for account in _items(snapshot, "service_account"):
-            policy = account.get("iamPolicy")
+        pool_wide = f"principalSet://iam.googleapis.com/{pool}/*"
+        def matching(policy, target, output):
             if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
-                continue
+                return
             for binding in as_list(policy.get("bindings")):
-                if not isinstance(binding, dict) or binding.get("role") not in (
-                        "roles/iam.workloadIdentityUser", "roles/iam.serviceAccountTokenCreator"):
+                if not isinstance(binding, dict) or not isinstance(binding.get("role"), str) or not binding["role"]:
                     continue
                 members = [member for member in as_list(binding.get("members"))
                            if isinstance(member, str) and member.startswith(prefixes)]
                 if members:
-                    bindings.append({"service_account": account.get("name") or account.get("email"),
-                                     "role": binding["role"], "members": members,
-                                     "condition": copy.deepcopy(binding.get("condition"))})
+                    output.append({"resource": target, "role": binding.get("role"), "members": members,
+                                   "pool_wide": pool_wide in members,
+                                   "condition": copy.deepcopy(binding.get("condition"))})
+        for account in _items(snapshot, "service_account"):
+            found = []
+            matching(account.get("iamPolicy"), account.get("name") or account.get("email"), found)
+            for binding in found:
+                if binding["role"] in ("roles/iam.workloadIdentityUser", "roles/iam.serviceAccountTokenCreator"):
+                    bindings.append({**binding, "service_account": binding["resource"]})
+                else:
+                    direct_bindings.append(binding)
+        for collection in snapshot.get("collections", []):
+            if collection.get("status") not in ("collected", "partial") or collection.get("type") == "service_account":
+                continue
+            for item in collection.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                policy = item.get("iamPolicy", item.get("policy", item if collection.get("type") == "iam_policy" else None))
+                matching(policy, item.get("name") or item.get("id"), direct_bindings)
     evidence["service_account_bindings"] = bindings
+    evidence["direct_resource_bindings"] = direct_bindings
+    grants = bindings + direct_bindings
+    pools = [item for item in _items(snapshot, "workload_identity_pool") if item.get("name") == pool]
+    if len(pools) == 1:
+        evidence["pool_state"] = pools[0].get("state")
+        evidence["pool_disabled"] = pools[0].get("disabled")
+        if pools[0].get("state") == "DELETED" or pools[0].get("disabled") is True:
+            return "PASS", "info", {**evidence, "semantics": "A disabled or deleted pool blocks both token exchange and existing token access at snapshot time."}
+    if data.get("state") == "DELETED" or data.get("disabled") is True:
+        return "MANUAL", "medium", {**evidence, "problem": "Provider is disabled or deleted, but previously issued tokens can retain resource access until expiry."}
     if condition:
-        return ("MANUAL" if bindings else "PASS"), ("medium" if bindings else "info"), {
-            **evidence, "semantics": "Provider attribute condition and any service-account binding conditions need CEL evaluation."}
-    if host.startswith(MULTI_TENANT_ISSUERS):
-        if any(not binding["condition"] for binding in bindings):
-            return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has a declared service-account impersonation binding"}
+        return "MANUAL", "medium", {
+            **evidence, "semantics": "Provider attribute condition needs CEL evaluation with a concrete token; uncollected resource grants may exist."}
+    aws_account = evidence["aws_account"]
+    if isinstance(aws_account, str) and re.fullmatch(r"[0-9]{12}", aws_account):
+        allowlisted = explicit_allowlist(snapshot) if snapshot.get("provider") == "gcp" else set()
+        if aws_account not in allowlisted and any(binding["pool_wide"] and not binding["condition"] for binding in grants):
+            return "FAIL", "critical", {**evidence, "problem": "External AWS account can exchange tokens for an unconditional pool-wide IAM grant"}
+        return "MANUAL", "medium", {**evidence, "problem": "AWS provider account and scoped or uncollected IAM grants require trust review"}
+    if host in MULTI_TENANT_ISSUERS:
+        if any(binding["pool_wide"] and not binding["condition"] for binding in grants):
+            return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
     return "MANUAL", "medium", {**evidence, "problem": "No attributeCondition; every identity of the issuer can exchange tokens"}
 

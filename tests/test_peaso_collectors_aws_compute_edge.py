@@ -66,6 +66,60 @@ def test_rest_custom_domain_routing_rules_are_cached_and_projected(sdk):
     assert projected["RoutingRules"]["items"][0]["Actions"] == [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]
 
 
+def test_rest_routing_single_header_condition_retains_shape_without_value(sdk):
+    import json
+
+    session, add = sdk
+    add("apigateway").add_response("get_base_path_mappings", {"items": []}, {"domainName": "api.example.com"})
+    add("apigatewayv2").add_response("list_routing_rules", {"RoutingRules": [{
+        "RoutingRuleId": "rule-1", "Priority": 1,
+        "Conditions": [{"MatchHeaders": {"AnyOf": [{"Header": "x-route", "ValueGlob": "candidate-value"}]}}],
+        "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]}]},
+        {"DomainName": "api.example.com"})
+    projected = edge.ENRICHERS["apigateway_domain_name"](aws.Requests({}), session, REGION, [
+        {"domainName": "api.example.com", "routingMode": "ROUTING_RULE_ONLY"}])[0]
+    rule = projected["RoutingRules"]["items"][0]
+    assert rule["ConditionCount"] == 1 and rule["SingleHeaderCondition"] is True
+    assert "Conditions" not in rule and "candidate-value" not in json.dumps(projected)
+
+
+def test_rest_routing_single_base_path_condition_retains_shape_without_path(sdk):
+    import json
+
+    session, add = sdk
+    add("apigateway").add_response("get_base_path_mappings", {"items": []}, {"domainName": "api.example.com"})
+    add("apigatewayv2").add_response("list_routing_rules", {"RoutingRules": [{
+        "RoutingRuleId": "rule-1", "Priority": 1,
+        "Conditions": [{"MatchBasePaths": {"AnyOf": ["private-candidate-path"]}}],
+        "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod", "StripBasePath": True}}]}]},
+        {"DomainName": "api.example.com"})
+    projected = edge.ENRICHERS["apigateway_domain_name"](aws.Requests({}), session, REGION, [
+        {"domainName": "api.example.com", "routingMode": "ROUTING_RULE_ONLY"}])[0]
+    rule = projected["RoutingRules"]["items"][0]
+    assert rule["ConditionCount"] == 1 and rule["SingleBasePathCondition"] is True
+    assert rule["Actions"][0]["InvokeApi"]["StripBasePath"] is True
+    assert "Conditions" not in rule and "private-candidate-path" not in json.dumps(projected)
+
+
+def test_rest_routing_header_and_base_path_shape_discards_both_values(sdk):
+    import json
+
+    session, add = sdk
+    add("apigateway").add_response("get_base_path_mappings", {"items": []}, {"domainName": "api.example.com"})
+    add("apigatewayv2").add_response("list_routing_rules", {"RoutingRules": [{
+        "RoutingRuleId": "rule-1", "Priority": 1,
+        "Conditions": [{"MatchBasePaths": {"AnyOf": ["private-path"]}},
+                       {"MatchHeaders": {"AnyOf": [{"Header": "x-secret-route", "ValueGlob": "private-value"}]}}],
+        "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod", "StripBasePath": True}}]}]},
+        {"DomainName": "api.example.com"})
+    projected = edge.ENRICHERS["apigateway_domain_name"](aws.Requests({}), session, REGION, [
+        {"domainName": "api.example.com", "routingMode": "ROUTING_RULE_ONLY"}])[0]
+    rule = projected["RoutingRules"]["items"][0]
+    assert rule["ConditionCount"] == 2 and rule["HeaderAndBasePathConditions"] is True
+    assert "Conditions" not in rule
+    assert all(value not in json.dumps(projected) for value in ("private-path", "x-secret-route", "private-value"))
+
+
 def test_launch_configuration_pagination_strips_user_data(sdk):
     session, add = sdk
     stub = add("autoscaling")
@@ -399,6 +453,26 @@ def test_cloudfront_log_delivery_denied_is_unknown(sdk):
         "CallerReference": "r", "Logging": {"Enabled": False, "Bucket": "", "Prefix": "", "IncludeCookies": False}, "DefaultCacheBehavior": {}}}}])[0]
     assert item["LogDeliveries"]["collection_status"] == "denied" and "deliveries" not in item["LogDeliveries"]
     assert status("aws.c2b.cloudfront.logging_any", item) == "UNKNOWN"
+
+
+def test_cloudfront_oac_configuration_cached_and_projected(sdk):
+    session, add = sdk
+    logs = add("logs")
+    logs.add_response("describe_delivery_sources", {"deliverySources": []}, {})
+    logs.add_response("describe_deliveries", {"deliveries": []}, {})
+    cloudfront = add("cloudfront")
+    cloudfront.add_response("get_origin_access_control", {"OriginAccessControl": {"Id": "OAC1",
+        "OriginAccessControlConfig": {"Name": "secret-name", "Description": "not needed",
+                                      "SigningBehavior": "always", "SigningProtocol": "sigv4",
+                                      "OriginAccessControlOriginType": "s3"}}}, {"Id": "OAC1"})
+    rows = [{"Id": name, "ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/{name}",
+             "Config": {"DistributionConfig": {"Origins": {"Items": [
+                 {"Id": "origin", "OriginAccessControlId": "OAC1"}]}}}} for name in ("D1", "D2")]
+    result = edge.ENRICHERS["cloudfront_distribution"](aws.Requests({}), session, REGION, rows)
+    assert result[0]["OriginAccessControls"] == result[1]["OriginAccessControls"]
+    assert result[0]["OriginAccessControls"]["OAC1"] == {
+        "collection_status": "collected", "Id": "OAC1", "SigningBehavior": "always",
+        "SigningProtocol": "sigv4", "OriginAccessControlOriginType": "s3"}
 
 
 def test_beanstalk_configuration_keeps_only_named_options(sdk):

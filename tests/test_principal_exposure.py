@@ -1,5 +1,6 @@
 """Entry-point correlation and severity regressions; no provider calls."""
 import copy
+import pytest
 
 from peaso.snapshot import make_snapshot, resources
 from peaso.principal_exposure import project, canonical
@@ -108,6 +109,21 @@ def test_azure_foreign_application_is_external_and_federation_is_conditional():
     card = project(snap, resources(snap))["sp"]
     assert {e["kind"] for e in card["exposures"]} == {"external_identity", "federated_trust"}
     assert next(e for e in card["exposures"] if e["kind"] == "federated_trust")["state"] == "conditional"
+
+
+@pytest.mark.parametrize("audience", ["AzureADMultipleOrgs", "AzureADandPersonalMicrosoftAccount",
+    "PersonalMicrosoftAccount"])
+def test_azure_application_external_sign_in_audience_is_conditional(audience):
+    app = {"id": "app-object", "appId": "client-id", "signInAudience": audience}
+    snap = snapshot("azure", {"directory_application": [app]}, {"tenant_id": "home"})
+    card = project(snap, resources(snap))["app-object"]
+    assert len(card["exposures"]) == 1
+    signal = card["exposures"][0]
+    assert signal["kind"] == "external_app_audience" and signal["state"] == "conditional"
+    assert signal["sign_in_audience"] == audience and signal["app_id"] == "client-id"
+    app["signInAudience"] = "AzureADMyOrg"
+    snap = snapshot("azure", {"directory_application": [app]}, {"tenant_id": "home"})
+    assert "app-object" not in project(snap, resources(snap))
 
 
 def test_azure_directory_index_is_built_once_and_does_not_cross_snapshots(monkeypatch):
@@ -248,11 +264,14 @@ def test_unpinned_multitenant_oidc_trust_raises_priority():
     statement = role["AssumeRolePolicyDocument"]["Statement"][0]
     statement.update(Principal={"Federated": f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"},
                      Action="sts:AssumeRoleWithWebIdentity", Condition={"StringEquals": {"token.actions.githubusercontent.com:aud": "sts.amazonaws.com"}})
-    snap = snapshot("aws", {"iam_role": [role]})
+    provider = {"Arn": f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.com",
+                "Provider": {"collection_status": "collected", "Url": "token.actions.githubusercontent.com",
+                             "ClientIDList": ["sts.amazonaws.com"]}}
+    snap = snapshot("aws", {"iam_role": [role], "iam_oidc_provider": [provider]})
     card = project(snap, resources(snap))[ARN]
     assert card["exposures"][0]["state"] == "declared" and card["severity"] == "critical"
     statement["Condition"]["StringEquals"]["token.actions.githubusercontent.com:sub"] = "repo:owned/app:ref:refs/heads/main"
-    snap = snapshot("aws", {"iam_role": [role]})
+    snap = snapshot("aws", {"iam_role": [role], "iam_oidc_provider": [provider]})
     assert project(snap, resources(snap))[ARN]["exposures"][0]["state"] == "conditional"
 
 

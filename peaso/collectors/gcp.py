@@ -608,6 +608,11 @@ class Transport:
                  or re.fullmatch(r"/api/v3/namespaces/[A-Za-z0-9_-]+/preferences", parsed.path)
                  or re.fullmatch(r"/api/v3/namespaces/[A-Za-z0-9_-]+/artifacts/[A-Za-z0-9_.-]+/versions/[A-Za-z0-9_.-]+/extensions(?:/[a-z]+)?", parsed.path))))
         privesc_read = _scoped_privesc_read(method, parsed, scope, params, body)
+        # This service is also in the general host inventory. Keep its
+        # project-scoped reads behind the exact route and parameter contract.
+        if (parsed.hostname == "firebaseapphosting.googleapis.com"
+                and parsed.path.startswith("/v1/projects/") and not privesc_read):
+            raise ReadError("unsupported", "unsafe_api_endpoint")
         if parsed.scheme != "https" or (parsed.hostname not in HOSTS and not regional_metadata and not cdap_read and not privesc_read) or parsed.port not in (None, 443) or parsed.username or parsed.password or parsed.query:
             raise ReadError("unsupported", "unsafe_api_endpoint")
         # POST is used by a few provider read methods. Bind each action to
@@ -979,6 +984,7 @@ SUPPORTED_TYPES = SUPPORTED_TYPES | {'artifact_image', 'sbom_occurrence', 'deplo
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'app_engine_version_secret', 'workflow_source'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'clouddeploy_release_source', 'cloudbuild_artifact_source', 'gcs_selected_archive', 'composer_dag_source', 'cloudbuild_log_source', 'appengine_deployment_source'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'artifact_selected_file', 'function_source_archive', 'gke_workload_literal', 'dataform_selected_file', 'dataflow_job', 'batch_job', 'dataproc_job'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'gke_exposure_service', 'gke_exposure_ingress', 'gke_exposure_pod'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'dataflow_privesc_job', 'dataflow_privesc_pipeline'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'bucket_acl', 'object_acl', 'bucket_effective_iam', 'os_patch_deployment', 'os_vulnerability_report', 'kms_effective_use'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'osconfig_guest_policy', 'osconfig_project_feature_settings', 'osconfig_os_policy_assignment', 'osconfig_policy_orchestrator', 'ca_pool', 'service_catalog_version'}
@@ -1084,6 +1090,9 @@ DEPENDENCIES['gcs_selected_object'] = {'project', 'bucket'}
 DEPENDENCIES['gcs_selected_archive'] = {'project', 'bucket'}
 DEPENDENCIES['dataform_selected_file'] = {'project'}
 DEPENDENCIES['gke_workload_literal'] = {'gke_cluster'}
+DEPENDENCIES['gke_exposure_service'] = {'gke_cluster'}
+DEPENDENCIES['gke_exposure_ingress'] = {'gke_cluster'}
+DEPENDENCIES['gke_exposure_pod'] = {'gke_cluster'}
 DEPENDENCIES['function_source_archive'] = {'function', 'project', 'bucket'}
 DEPENDENCIES['artifact_selected_file'] = {'project', 'artifact_repository'}
 for _literal_job_kind in ('dataflow_job', 'batch_job', 'dataproc_job'):
@@ -3900,6 +3909,9 @@ class GCPCollector:
                 for scope in self.scopes if scope.startswith('projects/')])
         from .gcp_gke_literal_secret_indicators import dependent_jobs as gke_literal_jobs
         self.run_jobs(gke_literal_jobs(self))
+        from .gcp_gke_exposure_services import dependent_jobs as gke_exposure_jobs, INGRESS_KIND, POD_KIND
+        self.run_jobs(gke_exposure_jobs(self) + gke_exposure_jobs(self, INGRESS_KIND)
+                      + gke_exposure_jobs(self, POD_KIND))
         if self.needed & {'appengine_flex_selected_version_image_secrets', 'appengine_flex_selected_version_image_vulnerabilities'}:
             from .gcp_appengine_flex_image_runtime_20261021 import collect as collect_flex_images
             collect_flex_images(self)
@@ -4927,9 +4939,25 @@ class GCPCollector:
         if not self.scopes:
             return
         scope = self.scopes[0]
-        references = sorted({member.removeprefix("group:") for _, policy in self.items("iam_policy")
-            for binding in policy.get("bindings", []) for member in binding.get("members", [])
-            if isinstance(member, str) and member.startswith("group:")})
+        references = set()
+        for (kind, _), collection in self.collections.items():
+            if collection.get("status") not in ("collected", "partial"):
+                continue
+            for item in collection.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                policy = item if kind == "iam_policy" else item.get("iamPolicy")
+                if isinstance(policy, dict):
+                    for binding in policy.get("bindings") or []:
+                        if not isinstance(binding, dict):
+                            continue
+                        references.update(member[len("group:"):] for member in binding.get("members") or []
+                            if isinstance(member, str) and member.startswith("group:") and len(member) > len("group:"))
+                if kind == "bigquery_dataset":
+                    references.update(access["groupByEmail"] for access in item.get("access") or []
+                        if isinstance(access, dict) and isinstance(access.get("groupByEmail"), str)
+                        and access["groupByEmail"])
+        references = sorted(references)
         customers = set(self.options.get("cloud_identity_customers", []))
         if "workspace_user" in self.needed:
             binding = self.workspace_project_binding()
@@ -4947,14 +4975,21 @@ class GCPCollector:
             raise ValueError("cloud_identity_customers must contain Google directory customer IDs")
         def groups():
             failures = []
+            listed_emails = set()
             for customer in sorted(customers):
                 try:
                     for rows, request_id in self.pages("https://cloudidentity.googleapis.com/v1/groups", scope, key="groups",
                         params={"parent": "customers/" + customer, "view": "FULL", "pageSize": min(self.page_size, 500)}):
+                        for row in rows:
+                            key = row.get("groupKey") if isinstance(row, dict) else None
+                            if isinstance(key, dict) and isinstance(key.get("id"), str):
+                                listed_emails.add(key["id"].lower())
                         yield [{**row, "_representation": "full"} for row in rows], request_id
                 except ReadError as exc:
                     failures.append(exc)
             for email in references:
+                if email.lower() in listed_emails:
+                    continue
                 try:
                     resolved, request_id = self.read("https://cloudidentity.googleapis.com/v1/groups:lookup", scope,
                         params={"groupKey.id": email})
@@ -5215,7 +5250,7 @@ class GCPCollector:
                     "coverage_status": collection.get("coverage_status"), "resource_count": len(collection["items"]),
                     "error": collection.get("error"), "source_requests": collection.get("source_requests", [])})
                 continue
-            if (key[0] in self.wanted or key[0] == "gke_cluster" and "gke_workload_literal" in self.wanted or key[0] == "project" and
+            if (key[0] in self.wanted or key[0] == "gke_cluster" and self.wanted & {"gke_workload_literal", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod"} or key[0] == "project" and
                     (self.options.get("all_projects") or key[1] in getattr(self, "proven_project_alias_scopes", set())
                      or key[1] in getattr(self, "proven_api_key_alias_scopes", set()))):
                 collection["items"].sort(key=lambda item: item["_resource_id"])
@@ -5398,7 +5433,7 @@ class GCPCollector:
             if self.transport is None:
                 from .gcp_gke_literal_secret_indicators import auth_requested
                 credentials = Credentials(self.auth, timeout=bound(self.options, "timeout", 20, 1, 120),
-                    gke_content=auth_requested(self))
+                    gke_content=auth_requested(self) or bool({"gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod"} & self.needed))
                 self.transport = Transport(credentials, self.options)
             self.discover()
             self.progress("collecting")

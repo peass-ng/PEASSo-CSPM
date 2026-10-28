@@ -1,9 +1,11 @@
 """Default trust boundary, external principals and federated (OIDC) trust review."""
+import copy
 import pytest
 
 from peaso.analysis import analyze
 from peaso.analysis.trust import restrictive_conditions, trusted_scopes
-from peaso.snapshot import make_snapshot
+from peaso.snapshot import make_snapshot, resources
+from peaso.analysis.iam import review_findings
 
 ACCOUNT = "111122223333"
 SCOPE = f"{ACCOUNT}/us-east-1"
@@ -37,6 +39,91 @@ def trust(principal_value, condition=None, action="sts:AssumeRole"):
     if condition:
         statement["Condition"] = condition
     return statement
+
+
+def test_azure_group_role_assignment_reaches_nested_guest():
+    tenant, subscription = "/tenants/home", "/subscriptions/sub"
+    role = {"id": "assignment", "properties": {"principalId": "outer", "principalType": "Group",
+        "roleDefinitionId": subscription + "/providers/Microsoft.Authorization/roleDefinitions/reader",
+        "scope": subscription}}
+    snapshot = make_snapshot("azure", [subscription], [
+        coll("role_assignment", [role], scope=subscription),
+        coll("directory_group", [{"id": "outer"}, {"id": "inner"}], scope=tenant),
+        coll("directory_user", [{"id": "guest", "userType": "Guest"}], scope=tenant),
+        coll("directory_membership", [{"id": "inner"}], scope=tenant + "/groups/outer"),
+        coll("directory_membership", [{"id": "guest"}], scope=tenant + "/groups/inner"),
+    ], metadata={"tenant_id": "home"})
+    found = [row for row in review_findings(snapshot, resources(snapshot))
+             if row["check_id"] == "analysis.principal_exposure"]
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    guest = next(row for row in found[0]["evidence"]["principals"] if row["principal"] == "guest")
+    assert guest["native_grant"]["viaGroup"] == "outer"
+    assert guest["native_grant"]["groupPath"] == ["outer", "inner"]
+    assert guest["native_grant"]["membershipSource"]
+
+
+def test_azure_group_role_assignment_without_observed_external_member_is_not_claimed():
+    subscription, tenant = "/subscriptions/sub", "/tenants/home"
+    role = {"id": "assignment", "properties": {"principalId": "outer", "principalType": "Group",
+        "roleDefinitionId": subscription + "/providers/Microsoft.Authorization/roleDefinitions/reader",
+        "scope": subscription}}
+    snapshot = make_snapshot("azure", [subscription], [
+        coll("role_assignment", [role], scope=subscription),
+        coll("directory_group", [{"id": "outer"}], scope=tenant),
+        coll("directory_membership", [{"id": "missing"}], status="partial", scope=tenant + "/groups/outer"),
+    ], metadata={"tenant_id": "home"})
+    assert not [row for row in review_findings(snapshot, resources(snapshot))
+                if row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL"]
+
+
+def test_azure_gallery_image_read_role_grant_to_external_guest():
+    sub, tenant = "/subscriptions/sub", "/tenants/home"
+    gallery = sub + "/resourceGroups/rg/providers/Microsoft.Compute/galleries/g"
+    image = gallery + "/images/base"
+    role_id = sub + "/providers/Microsoft.Authorization/roleDefinitions/reader"
+    definition = {"id": role_id, "name": "reader", "properties": {"permissions": [
+        {"actions": ["Microsoft.Compute/galleries/images/versions/read"], "notActions": []}]}}
+    def assignment(scope, principal="guest", condition=None):
+        return {"id": scope + "/providers/Microsoft.Authorization/roleAssignments/a",
+                "properties": {"scope": scope, "principalId": principal, "principalType": "User",
+                               "roleDefinitionId": role_id, "condition": condition}}
+    def scan(grants, role=definition):
+        snap = make_snapshot("azure", [sub], [
+            coll("compute_gallery", [{"id": gallery, "properties": {"sharingProfile": {"permissions": "Private"}}}], scope=sub),
+            coll("role_assignment", grants, scope=sub), coll("role_definition", [role], scope="/"),
+            coll("directory_user", [{"id": "guest", "userType": "Guest"}], scope=tenant),
+        ], metadata={"tenant_id": "home"})
+        return [row for row in review_findings(snap, resources(snap))
+                if row["check_id"] == "analysis.azure_gallery_rbac_share"]
+    found = scan([assignment(image)])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["assignment_scope"] == image.lower()
+    assert scan([assignment(image, condition="@Resource[x] StringEquals 'y'")])[0]["status"] == "MANUAL"
+    assert not scan([assignment(sub + "/resourceGroups/other")])
+    denied = {**definition, "properties": {"permissions": [{"actions": ["*"],
+        "notActions": ["Microsoft.Compute/galleries/images/versions/read"]}]}}
+    assert not scan([assignment(gallery)], role=denied)
+
+
+def test_azure_gallery_image_read_inherited_through_observed_group_member():
+    sub, tenant = "/subscriptions/sub", "/tenants/home"
+    gallery = sub + "/resourceGroups/rg/providers/Microsoft.Compute/galleries/g"
+    role_id = sub + "/providers/Microsoft.Authorization/roleDefinitions/reader"
+    snap = make_snapshot("azure", [sub], [
+        coll("compute_gallery", [{"id": gallery, "properties": {"sharingProfile": {"permissions": "Private"}}}], scope=sub),
+        coll("role_assignment", [{"id": "assignment", "properties": {"scope": gallery,
+            "principalId": "group", "principalType": "Group", "roleDefinitionId": role_id}}], scope=sub),
+        coll("role_definition", [{"id": role_id, "name": "reader", "properties": {"permissions": [
+            {"actions": ["Microsoft.Compute/galleries/*/read"], "notActions": []}]}}], scope="/"),
+        coll("directory_group", [{"id": "group"}], scope=tenant),
+        coll("directory_user", [{"id": "guest", "userType": "Guest"}], scope=tenant),
+        coll("directory_membership", [{"id": "guest"}], scope=tenant + "/groups/group"),
+    ], metadata={"tenant_id": "home"})
+    found = [row for row in review_findings(snap, resources(snap))
+             if row["check_id"] == "analysis.azure_gallery_rbac_share"]
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["via_group"] == "group"
+    assert found[0]["evidence"]["membership_source"]
 
 
 def test_scanned_account_and_org_members_are_trusted_by_default():
@@ -104,6 +191,55 @@ def test_unattributable_principal_stays_unknown_without_scanned_account():
 
 
 GITHUB = f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"
+SAML = f"arn:aws:iam::{ACCOUNT}:saml-provider/Company"
+
+
+def github_provider(client_ids=("sts.amazonaws.com",), detail_status="collected"):
+    return coll("iam_oidc_provider", [{"Arn": GITHUB, "Provider": {
+        "collection_status": detail_status, "Url": "token.actions.githubusercontent.com",
+        "ClientIDList": list(client_ids)}}])
+
+
+@pytest.mark.parametrize("condition,expected,codes", [
+    ({"StringEquals": {"SAML:aud": "https://signin.aws.amazon.com/saml"}},
+     "FAIL", {"saml_issuer_wide"}),
+    ({"StringEquals": {"SAML:aud": "https://signin.aws.amazon.com/saml", "SAML:sub": "alice@example.com"}},
+     "MANUAL", {"saml_claim_scope"}),
+    ({"StringLike": {"SAML:aud": "*", "SAML:sub": "*"}},
+     "FAIL", {"saml_no_aud", "saml_issuer_wide"}),
+])
+def test_saml_role_trust_classifies_issuer_wide_and_claim_scoped_access(condition, expected, codes):
+    statement = trust({"Federated": SAML}, condition, "sts:AssumeRoleWithSAML")
+    found = findings(aws(coll("iam_role", [role([statement])]),
+                         coll("iam_saml_provider", [{"Arn": SAML}])), "analysis.federated_trust")
+    assert len(found) == 1 and found[0]["status"] == expected
+    assert {problem["code"] for review in found[0]["evidence"]["federated_trusts"]
+            for problem in review["problems"]} == codes
+
+
+def test_saml_provider_needs_matching_assume_role_action():
+    from peaso.analysis.trust import aws_federated_trust
+
+    statement = trust({"Federated": SAML}, None, "sts:AssumeRoleWithWebIdentity")
+    assert aws_federated_trust(aws(coll("iam_role", [])), {"data": role([statement])}) is None
+
+
+def test_saml_trust_requires_provider_inventory_and_absent_provider_blocks():
+    statement = trust({"Federated": SAML}, None, "sts:AssumeRoleWithSAML")
+    role_row = coll("iam_role", [role([statement])])
+    absent = findings(aws(role_row, coll("iam_saml_provider", [])), "analysis.federated_trust")
+    assert len(absent) == 1 and absent[0]["status"] == "PASS"
+    assert absent[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "saml_provider_absent"
+
+    missing = findings(aws(role_row), "analysis.federated_trust")
+    assert len(missing) == 1 and missing[0]["status"] == "MANUAL"
+    assert missing[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "saml_provider_unknown"
+
+    partial = findings(aws(role_row, coll("iam_saml_provider", [], status="partial")), "analysis.federated_trust")
+    assert len(partial) == 1 and partial[0]["status"] == "MANUAL"
+
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    assert "iam_saml_provider" in REQUIRED_TYPES["aws"]["exposure"]
 
 
 @pytest.mark.parametrize("condition,expected", [
@@ -117,10 +253,42 @@ GITHUB = f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.
 ])
 def test_github_oidc_trust_requires_pinned_subject(condition, expected):
     statement = trust({"Federated": GITHUB}, condition, "sts:AssumeRoleWithWebIdentity")
-    found = findings(aws(coll("iam_role", [role([statement])])), "analysis.federated_trust")
+    found = findings(aws(coll("iam_role", [role([statement])]), github_provider()), "analysis.federated_trust")
     assert len(found) == 1 and found[0]["status"] == expected
     if expected == "FAIL":
         assert found[0]["severity"] == "critical"
+
+
+def test_oidc_provider_absence_and_disjoint_registered_audience_block_trust():
+    from peaso.finding_observation import evidence_summary
+    statement = trust({"Federated": GITHUB},
+                      {"StringEquals": {"token.actions.githubusercontent.com:aud": "another-client"}},
+                      "sts:AssumeRoleWithWebIdentity")
+    role_row = coll("iam_role", [role([statement])])
+    disjoint = findings(aws(role_row, github_provider()), "analysis.federated_trust")
+    assert len(disjoint) == 1 and disjoint[0]["status"] == "PASS"
+    assert disjoint[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "oidc_audience_disjoint"
+    assert "does not match any registered client ID" in evidence_summary(disjoint[0])
+    contradicted = copy.deepcopy(disjoint[0])
+    contradicted["evidence"]["federated_trusts"][0]["conditions"]["StringEquals"]["token.actions.githubusercontent.com:aud"] = "sts.amazonaws.com"
+    assert evidence_summary(contradicted) is None
+
+    absent = findings(aws(role_row, coll("iam_oidc_provider", [])), "analysis.federated_trust")
+    assert len(absent) == 1 and absent[0]["status"] == "PASS"
+    assert absent[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "oidc_provider_absent"
+    assert "absent from the complete account inventory" in evidence_summary(absent[0])
+
+    missing = findings(aws(role_row), "analysis.federated_trust")
+    assert len(missing) == 1 and missing[0]["status"] == "MANUAL"
+    assert missing[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "oidc_provider_unknown"
+    assert "inventory is missing or incomplete" in evidence_summary(missing[0])
+
+    incomplete = findings(aws(role_row, github_provider(detail_status="access_denied")), "analysis.federated_trust")
+    assert incomplete[0]["status"] == "FAIL"
+    assert "oidc_provider_detail_unknown" in {p["code"] for p in incomplete[0]["evidence"]["federated_trusts"][0]["problems"]}
+
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    assert "iam_oidc_provider" in REQUIRED_TYPES["aws"]["exposure"]
 
 
 def test_cognito_trust_without_aud_fails():
@@ -138,7 +306,7 @@ def test_gcp_workload_identity_provider_condition():
             item["attributeCondition"] = condition
         return make_snapshot("gcp", ["projects/p1"], [coll("workload_identity_provider", [item], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")
     assert findings(provider(), "analysis.federated_trust")[0]["status"] == "MANUAL"
-    assert findings(provider("assertion.repository_owner == 'acme'"), "analysis.federated_trust")[0]["status"] == "PASS"
+    assert findings(provider("assertion.repository_owner == 'acme'"), "analysis.federated_trust")[0]["status"] == "MANUAL"
     assert findings(provider(issuer="https://idp.example.com"), "analysis.federated_trust")[0]["status"] == "MANUAL"
 
 
@@ -160,6 +328,71 @@ def test_gcp_wif_joins_exact_pool_service_account_impersonation_binding():
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
 
+def test_gcp_wif_direct_resource_grant_and_scoped_identity():
+    from peaso.analysis.trust import gcp_wif_provider
+    pool = "projects/1/locations/global/workloadIdentityPools/p"
+    provider = {"data": {"name": pool + "/providers/gh",
+                         "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
+    member = "principalSet://iam.googleapis.com/" + pool + "/*"
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/storage.objectViewer", "members": [member]}]}
+    snapshot = {"collections": [{"type": "iam_policy", "status": "collected", "items": [policy]}]}
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "FAIL"
+    assert evidence["direct_resource_bindings"][0]["resource"] == "projects/p1"
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.repository/acme")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0]["members"] = [member]
+    policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0].pop("condition")
+    policy["bindings"][0]["members"] = [member.replace("/p/*", "/other/*")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["oidc"]["issuerUri"] = "https://token.actions.githubusercontent.com.attacker.example"
+    policy["bindings"][0]["members"] = [member]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+
+
+def test_gcp_wif_provider_and_pool_disabled_existing_token_semantics():
+    from peaso.analysis.trust import gcp_wif_provider
+    pool_name = "projects/1/locations/global/workloadIdentityPools/p"
+    provider = {"data": {"name": pool_name + "/providers/gh", "disabled": True,
+                         "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
+    member = "principalSet://iam.googleapis.com/" + pool_name + "/*"
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [member]}]}
+    pool = {"name": pool_name, "state": "ACTIVE"}
+    snapshot = {"collections": [
+        {"type": "iam_policy", "status": "collected", "items": [policy]},
+        {"type": "workload_identity_pool", "status": "collected", "items": [pool]}]}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["disabled"] = False
+    provider["data"]["state"] = "DELETED"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    pool["disabled"] = True
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "PASS" and evidence["pool_disabled"] is True
+
+
+def test_gcp_wif_external_aws_provider_with_pool_wide_grant():
+    from peaso.analysis.trust import gcp_wif_provider
+    pool = "projects/1/locations/global/workloadIdentityPools/p"
+    provider = {"data": {"name": pool + "/providers/aws", "aws": {"accountId": "999988887777"}}}
+    member = "principalSet://iam.googleapis.com/" + pool + "/*"
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [member]}]}
+    snapshot = {"provider": "gcp", "metadata": {}, "collections": [
+        {"type": "iam_policy", "status": "collected", "items": [policy]}]}
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "FAIL" and evidence["provider_type"] == "aws"
+    assert evidence["aws_account"] == "999988887777"
+    snapshot["metadata"]["trusted_scope_ids"] = ["999988887777"]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    snapshot["metadata"].clear()
+    policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0].pop("condition")
+    policy["bindings"][0]["members"] = [member.replace("/*", "/subject/pinned")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+
+
 def test_gcp_public_binding_fails_and_project_sa_is_trusted():
     policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": ["allUsers", "serviceAccount:sa@p1.iam.gserviceaccount.com"]}]}
     snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")
@@ -169,6 +402,22 @@ def test_gcp_public_binding_fails_and_project_sa_is_trusted():
     snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")
     result = principal(snapshot)
     assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["other"]
+
+
+def test_gcp_conditional_public_and_external_grants_need_review():
+    condition = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [
+        "allUsers", "serviceAccount:sa@other.iam.gserviceaccount.com"], "condition": condition}]}
+    snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")],
+                             created_at="2026-10-10T00:00:00+00:00")
+    result = principal(snapshot)
+    assert result["status"] == "MANUAL"
+    assert {row["reason"] for row in result["evidence"]["principals"]} == {
+        "public_conditional", "external_conditional"}
+    policy["bindings"][0].pop("condition")
+    snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")],
+                             created_at="2026-10-10T00:00:00+00:00")
+    assert principal(snapshot)["status"] == "FAIL"
 
 
 def test_gcp_member_forms_attribute_to_scanned_projects_and_org_domain():
@@ -205,6 +454,31 @@ def test_gcp_member_forms_attribute_to_scanned_projects_and_org_domain():
     policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": ["user:someone@gmail.com"]}]}
     snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")
     assert principal(snapshot)["status"] == "UNKNOWN"
+
+
+def test_gcp_owned_group_with_external_transitive_member_is_third_party_grant():
+    scope = "projects/p1"
+    policy = {"name": scope, "bindings": [{"role": "roles/viewer", "members": ["group:team@example.com"]}]}
+    group = {"name": "groups/123", "groupKey": {"id": "team@example.com"},
+             "_coverage": {"transitiveMemberships": {"status": "collected"}}}
+    member = {"name": "groups/123/transitive/users/guest", "group": "groups/123",
+              "membershipKind": "transitive", "preferredMemberKey": [{"id": "guest@outside.example"}],
+              "membershipCoverage": {"status": "collected", "completeTransitiveClosure": True}}
+    def result(status="collected", members=None):
+        snap = make_snapshot("gcp", [scope], [
+            coll("iam_policy", [policy], scope=scope),
+            coll("group", [group], scope=scope),
+            coll("group_membership", [member] if members is None else members, status=status, scope=scope)],
+            created_at="2026-10-10T00:00:00+00:00", metadata={"trusted_domains": ["example.com"]})
+        return principal(snap)
+    exposed = result()
+    assert exposed["status"] == "FAIL"
+    assert exposed["evidence"]["principals"][0]["group_membership"]["external_members"] == ["guest@outside.example"]
+    member["preferredMemberKey"][0]["id"] = "alice@example.com"
+    assert result() is None
+    assert result(status="partial")["status"] == "UNKNOWN"
+    member["preferredMemberKey"] = [{"id": "unattributed", "namespace": "identity-source"}]
+    assert result()["status"] == "UNKNOWN"
 
 
 def test_cognito_guest_role_on_pinned_pool_is_manual():

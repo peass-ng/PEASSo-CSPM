@@ -211,7 +211,7 @@ class Inventory:
     def _keys(self, resource):
         data = resource["data"]
         keys = {str(native_id(resource))}
-        for field in ("id", "selfLink", "name", "GroupId", "SubnetId", "VpcId", "InternetGatewayId", "PrefixListId", "NetworkAclId", "RouteTableId", "InstanceId",
+        for field in ("id", "selfLink", "name", "GroupId", "SubnetId", "VpcId", "InternetGatewayId", "PrefixListId", "NetworkAclId", "RouteTableId", "TransitGatewayRouteTableId", "InstanceId",
                       "NetworkInterfaceId", "LoadBalancerArn", "LoadBalancerName"):
             value = data.get(field) if isinstance(data, dict) else None
             if isinstance(value, str):
@@ -399,7 +399,44 @@ def _aws_group_rules(group, family=4, narrow_public=False):
     return allowed, freeze(rules), prefix_lists
 
 
-def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_host_ports=None):
+def _aws_sg_source_rules(inventory, group_ids, family):
+    """Keep the source CIDR attached to each allowed ingress port set."""
+    key = ("aws_sg_source_rules", tuple(sorted(group_ids)), family)
+    if key not in inventory.network_cache:
+        rules = []
+        for group_id in group_ids:
+            group = inventory.get("security_group", group_id)
+            if group is None:
+                continue
+            for permission in as_list(group["data"].get("IpPermissions")):
+                if not isinstance(permission, dict):
+                    continue
+                protocol = _proto(permission.get("IpProtocol"))
+                if protocol is None:
+                    continue
+                ports = (pset(protocol, permission.get("FromPort", 0), permission.get("ToPort", 65535))
+                         if protocol in ("tcp", "udp") and permission.get("FromPort") not in (None, -1)
+                         else pset(protocol))
+                for field, key_name in (("IpRanges", "CidrIp"), ("Ipv6Ranges", "CidrIpv6")):
+                    for item in as_list(permission.get(field)):
+                        network = _cidr(item.get(key_name)) if isinstance(item, dict) else None
+                        if network is not None and network.version == family and _public_source(network):
+                            rules.append((network, ports))
+                for item in as_list(permission.get("PrefixListIds")):
+                    prefix_id = item.get("PrefixListId") if isinstance(item, dict) else None
+                    prefix = inventory.get("managed_prefix_list", prefix_id) if prefix_id else None
+                    entries = prefix["data"].get("Entries") if prefix else None
+                    if not isinstance(entries, dict) or entries.get("collection_status") not in ("collected", "empty"):
+                        continue
+                    for entry in as_list(entries.get("items")):
+                        network = _cidr(entry.get("Cidr")) if isinstance(entry, dict) else None
+                        if network is not None and network.version == family and _public_source(network):
+                            rules.append((network, ports))
+        inventory.network_cache[key] = rules
+    return inventory.network_cache[key]
+
+
+def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_host_ports=None, source_rules=None):
     if not subnet_id:
         assessment.gap("network_acl", "subnet unknown")
         return ports
@@ -443,15 +480,33 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
     if cache_key not in inventory.network_cache:
         inventory.network_cache[cache_key] = evaluate(False), evaluate(True)
     inbound, outbound = inventory.network_cache[cache_key]
-    result = intersect(ports, inbound)
+    inbound_ports = intersect(ports, inbound)
+    result = {protocol: intervals for protocol, intervals in inbound_ports.items()
+              if not empty(intersect(outbound, pset(protocol, 1024, 65535)
+                                     if protocol in ("tcp", "udp") else pset(protocol)))}
     if public_host_ports and not empty(public_host_ports):
         entries = sorted((e for e in as_list(acl["data"].get("Entries")) if isinstance(e, dict)),
                          key=lambda e: int(e.get("RuleNumber", 32767)))
         field = "Ipv6CidrBlock" if family == 6 else "CidrBlock"
-        hosts = sorted({str(network.network_address) for e in entries if not e.get("Egress")
-                        for network in [_cidr(e.get(field))] if network is not None
-                        and network.version == family and network.prefixlen == network.max_prefixlen
-                        and network.network_address.is_global})
+        networks = [_cidr(entry.get(field)) for entry in entries]
+        networks += [network for network, _ in source_rules or ()]
+        hosts = set()
+        maximum = (1 << (32 if family == 4 else 128)) - 1
+        boundaries = {0, maximum + 1}
+        for network in networks:
+            if network is None or network.version != family:
+                continue
+            low, high = int(network.network_address), int(network.broadcast_address)
+            boundaries.update((low, high + 1))
+        ordered = sorted(boundaries)
+        for low, end in zip(ordered, ordered[1:]):
+            high = end - 1
+            # Every CIDR membership is constant inside this interval. Sampling
+            # its edges and middle covers a segment left by an earlier Deny.
+            for value in {low if low == high else low + 1, (low + high) // 2, high}:
+                address = ipaddress.IPv4Address(value) if family == 4 else ipaddress.IPv6Address(value)
+                if address.is_global:
+                    hosts.add(str(address))
 
         def host_rules(host, egress):
             address = ipaddress.ip_address(host)
@@ -473,8 +528,15 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
             return allowed
 
         witnesses = []
-        for host in hosts:
+        for host in sorted(hosts, key=ipaddress.ip_address):
             admitted = intersect(public_host_ports, host_rules(host, False))
+            if source_rules is not None:
+                address = ipaddress.ip_address(host)
+                sg_ports = {}
+                for network, rule_ports in source_rules:
+                    if address in network:
+                        sg_ports = union(sg_ports, rule_ports)
+                admitted = intersect(admitted, sg_ports)
             return_ports = host_rules(host, True)
             admitted = {protocol: intervals for protocol, intervals in admitted.items()
                         if protocol in ("tcp", "udp") and not empty(intersect(return_ports, pset(protocol, 1024, 65535)))}
@@ -484,10 +546,9 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
         if witnesses:
             assessment.step("network_acl_host", "allow", acl=native_id(acl), subnet=subnet_id,
                             public_host_witnesses=witnesses, address_family=family, at=where)
-    if not empty(result) and empty(intersect(outbound, pset("tcp", 1024, 65535))) and result.get("tcp"):
-        assessment.notes.append(f"NACL {native_id(acl)} egress to 0.0.0.0/0 does not allow TCP ephemeral ports; stateless return traffic may be dropped")
     assessment.step("network_acl", "allow" if not empty(result) else "block", acl=native_id(acl), subnet=subnet_id,
-                    inbound_allowed=describe(inbound), address_family=family, at=where)
+                    inbound_allowed=describe(inbound), return_allowed=describe(outbound),
+                    address_family=family, at=where)
     return result
 
 
@@ -565,10 +626,10 @@ def _aws_vpc_bpa(inventory, subnet_id, vpc_id, assessment, where):
 
 def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, route=True, vpc_id=None, family=4, narrow_public=False, public_host_witness=False):
     """route -> NACL -> SG for a set of candidate subnets; returns the reachable port set."""
-    public_host_ports = ports if public_host_witness and group_ids is None else None
+    source_rules = None
     if group_ids is not None:
         if public_host_witness:
-            public_host_ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family))
+            source_rules = _aws_sg_source_rules(inventory, group_ids, family)
         ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family, narrow_public))
     if empty(ports):
         return ports
@@ -584,7 +645,7 @@ def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, ro
         if route and _aws_route(inventory, subnet_id, vpc, assessment, where, ipv6=family == 6) is False:
             continue
         reachable = union(reachable, _aws_nacl(inventory, subnet_id, ports, assessment, where, family,
-                                              public_host_ports if public_host_witness else None))
+                                              ports if public_host_witness else None, source_rules))
     if empty(reachable) and assessment.blocked_by is None:
         assessment.step("subnets", "block", reason="no candidate subnet admits internet traffic")
     elif not empty(reachable):
@@ -747,11 +808,11 @@ def _aws_elbv2(snapshot, inventory, resource):
     subnets = [z.get("SubnetId") for z in as_list(data.get("AvailabilityZones")) if isinstance(z, dict) and z.get("SubnetId")]
     a.ports = _aws_vpc_path(inventory, a, subnets, groups if data.get("Type") == "application" or groups else None, ports,
                             native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True,
-                            public_host_witness=data.get("Type") == "application")
+                            public_host_witness=data.get("Type") in ("application", "network"))
     if static_ipv6:
         a.ports = union(a.ports, _aws_vpc_path(inventory, a, subnets, groups if groups else None, ports,
                                              native_id(resource), route=False, vpc_id=data.get("VpcId"),
-                                             family=6, narrow_public=True))
+                                             family=6, narrow_public=True, public_host_witness=True))
     if data.get("Type") == "network" and not groups:
         a.notes.append("NLB without security groups: target security groups govern client traffic (client IP preserved)")
     if any(g["layer"] == "listener" for g in a.unresolved) and not empty(a.ports):
@@ -772,7 +833,8 @@ def _aws_classic(snapshot, inventory, resource):
             ports = union(ports, pset("tcp", listener["LoadBalancerPort"], listener["LoadBalancerPort"]))
     a.step("listener", "allow" if not empty(ports) else "block", listeners=describe(ports))
     a.ports = _aws_vpc_path(inventory, a, as_list(data.get("Subnets")), as_list(data.get("SecurityGroups")) if data.get("VPCId") else None,
-                            ports, native_id(resource), route=False, vpc_id=data.get("VPCId"), narrow_public=True)
+                            ports, native_id(resource), route=False, vpc_id=data.get("VPCId"), narrow_public=True,
+                            public_host_witness=bool(data.get("VPCId")))
     return a
 
 
@@ -805,7 +867,10 @@ def _aws_redshift(snapshot, inventory, resource):
     a = Assessment(resource, "database")
     endpoint = data.get("Endpoint") if isinstance(data.get("Endpoint"), dict) else {}
     a.addresses = [endpoint.get("Address")] if endpoint.get("Address") else []
-    port = endpoint.get("Port", 5439)
+    port = endpoint.get("Port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "Redshift endpoint port not collected", "redshift:DescribeClusters")
+        return a
     a.step("listener", "allow", port=port)
     groups = [g.get("VpcSecurityGroupId") for g in as_list(data.get("VpcSecurityGroups")) if isinstance(g, dict)]
     name = data.get("ClusterSubnetGroupName")
@@ -853,11 +918,13 @@ def _opensearch_http_policy(document_value, domain_arn):
     from .trust import restrictive_conditions
     doc = document(document_value)
     if doc is None or not isinstance(domain_arn, str):
-        return None, [], True
+        return None, [], True, []
     methods = {f"es:eshttp{method}" for method in ("get", "head", "post", "put", "patch", "delete")}
     scope = f"{domain_arn}/*"
-    allowed, denied, restricted, uncertain = set(), set(), [], False
-    for statement in as_list(doc.get("Statement")):
+    allowed, denied, restricted, uncertain, narrow = set(), set(), [], False, []
+    statements = as_list(doc.get("Statement"))
+    any_deny = any(isinstance(row, dict) and row.get("Effect") == "Deny" for row in statements)
+    for statement in statements:
         if not isinstance(statement, dict) or statement.get("Effect") not in ("Allow", "Deny"):
             uncertain = True
             continue
@@ -874,8 +941,13 @@ def _opensearch_http_policy(document_value, domain_arn):
             continue
         resources = as_list(statement.get("Resource"))
         if scope not in resources and "*" not in resources:
-            if any(isinstance(x, str) and x.startswith(f"{domain_arn}/") for x in resources):
-                uncertain = True  # A narrower index or API path may still be public.
+            path_resources = [x for x in resources if isinstance(x, str) and x.startswith(f"{domain_arn}/")
+                              and len(x) > len(domain_arn) + 1]
+            if path_resources:
+                if statement["Effect"] == "Allow" and not statement.get("Condition") and not any_deny:
+                    narrow.extend((action, resource) for action in sorted(matched) for resource in path_resources)
+                else:
+                    uncertain = True
             continue
         condition = statement.get("Condition") or {}
         if condition:
@@ -884,7 +956,7 @@ def _opensearch_http_policy(document_value, domain_arn):
             uncertain = True
             continue
         (allowed if statement["Effect"] == "Allow" else denied).update(matched)
-    return bool(allowed - denied), restricted, uncertain
+    return bool(allowed - denied or narrow), restricted, uncertain, narrow
 
 
 def _aws_opensearch(snapshot, inventory, resource):
@@ -897,25 +969,33 @@ def _aws_opensearch(snapshot, inventory, resource):
         return None
     a.addresses = [status.get("Endpoint")] if status.get("Endpoint") else []
     a.step("route", "allow", reason="public (non-VPC) domain endpoint")
-    public, restricted, uncertain = _opensearch_http_policy(status.get("AccessPolicies"), status.get("ARN"))
+    public, restricted, uncertain, narrow = _opensearch_http_policy(status.get("AccessPolicies"), status.get("ARN"))
     ports = pset("tcp", 443, 443)
     if status.get("DomainEndpointOptions", {}).get("EnforceHTTPS") is False:
         ports = union(ports, pset("tcp", 80, 80))
-    if uncertain:
+    if public:
+        a.step("policy", "allow", reason="access policy grants Principal * an HTTP action on this domain without restrictive conditions",
+               narrow_resource_declarations=[{"action": action, "resource": resource} for action, resource in narrow],
+               semantics="A granted domain path is a policy declaration; index existence and HTTP response are not established")
+    elif uncertain:
         a.gap("policy", "domain HTTP action, resource or condition join is unresolved", "opensearch:DescribeDomain")
         a.authenticated = True
     elif public is None:
         a.step("policy", "allow", reason="no access policy document; IAM identity policies govern", note="authenticated")
         a.authenticated = True
-    elif public:
-        a.step("policy", "allow", reason="access policy grants Principal * an HTTP action on this domain without restrictive conditions")
     else:
         a.step("policy", "allow", reason="access policy requires signed or condition-restricted access", restrictive_conditions=restricted)
         a.authenticated = True
     fine = status.get("AdvancedSecurityOptions", {})
-    if isinstance(fine, dict) and fine.get("Enabled"):
-        a.authenticated = True
-        a.notes.append("fine-grained access control enabled")
+    if isinstance(fine, dict) and fine.get("Enabled") is True:
+        migration = fine.get("AnonymousAuthEnabled")
+        a.step("fine_grained_access", "requires_auth" if migration is False else "anonymous_migration" if migration is True else "unresolved",
+               enabled=True, anonymous_auth_enabled=migration,
+               semantics="OpenSearch migration can admit unsigned requests despite fine-grained access control")
+        if migration is False:
+            a.authenticated = True
+        elif type(migration) is not bool:
+            a.gap("fine_grained_access", "anonymous-auth migration setting not collected", "opensearch:DescribeDomain")
     a.ports = ports
     return a
 
@@ -930,11 +1010,21 @@ def _aws_eks(snapshot, inventory, resource):
     if config.get("endpointPublicAccess") is not True:
         return None
     a.addresses = [cluster["cluster"].get("endpoint")] if cluster["cluster"].get("endpoint") else []
-    cidrs = as_list(config.get("publicAccessCidrs")) or ["0.0.0.0/0"]
+    cidrs = as_list(config.get("publicAccessCidrs"))
+    defaulted = not cidrs
+    if defaulted:
+        cidrs = ["0.0.0.0/0"]
+        endpoint = cluster["cluster"].get("endpoint")
+        network_config = cluster["cluster"].get("kubernetesNetworkConfig")
+        hostname = urlsplit(endpoint).hostname if isinstance(endpoint, str) else None
+        if (isinstance(network_config, dict) and network_config.get("ipFamily") == "ipv6"
+                and isinstance(hostname, str) and hostname.endswith(".api.aws")):
+            cidrs.append("::/0")
     public = [c for c in cidrs if _public_source(c)]
     if public:
         a.step("source_ranges", "allow", public_access_cidrs=public,
-               semantics="Declared public client CIDR; EKS authentication still applies")
+               source="documented_default" if defaulted else "DescribeCluster",
+               semantics="Observed or documented-default public client CIDR; EKS authentication still applies")
         a.ports = pset("tcp", 443, 443)
     else:
         a.step("source_ranges", "block", public_access_cidrs=cidrs)
@@ -1047,9 +1137,9 @@ def _aws_lambda_url(snapshot, inventory, resource):
             created_date = date.fromisoformat(created[:10]) if isinstance(created, str) else None
         except ValueError:
             created_date = None
-        if created_date is None or created_date < date(2025, 10, 1):
+        if created_date is None or created_date < date(2025, 11, 1):
             if public:
-                a.gap("policy", "legacy Function URL may use the pre-October-2025 permission model", "lambda:GetFunctionUrlConfig")
+                a.gap("policy", "Function URL creation falls before or within the undocumented October 2025 permission cutover", "lambda:GetFunctionUrlConfig")
             else:
                 a.step("policy", "block", reason="no public URL invocation grant")
                 a.ports = {}
@@ -1139,6 +1229,23 @@ def _aws_rest_api(snapshot, inventory, resource):
                             if invoke["Stage"] in active_stage_names:
                                 domains.append(str(domain["data"].get("domainName") or native_id(domain)))
                                 reachable_stage_names.add(invoke["Stage"])
+                        elif index == 0 and rule["ConditionCount"] == 1 and rule.get("SingleHeaderCondition") is True:
+                            if invoke["Stage"] in active_stage_names:
+                                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
+                                reachable_stage_names.add(invoke["Stage"])
+                                a.step("routing_condition", "allow", domain=domain["data"].get("domainName"),
+                                       condition_kind="single_header", condition_count=1,
+                                       semantics="A client-supplied header can select this first-priority rule; no request was made")
+                        elif (index == 0 and invoke.get("StripBasePath") is True
+                              and ((rule["ConditionCount"] == 1 and rule.get("SingleBasePathCondition") is True)
+                                   or (rule["ConditionCount"] == 2 and rule.get("HeaderAndBasePathConditions") is True))):
+                            if invoke["Stage"] in active_stage_names:
+                                domains.append(str(domain["data"].get("domainName") or native_id(domain)))
+                                reachable_stage_names.add(invoke["Stage"])
+                                a.step("routing_condition", "allow", domain=domain["data"].get("domainName"),
+                                       condition_kind="header_and_base_path_strip" if rule["ConditionCount"] == 2 else "single_base_path_strip",
+                                       condition_count=rule["ConditionCount"],
+                                       semantics="Client-supplied base path and optional header select this first-priority rule; the base path is stripped before the deployed method; no request was made")
                         elif invoke["Stage"] in active_stage_names:
                             # Header/path conditions and earlier rules require a
                             # request witness before this target can be claimed.
@@ -1184,6 +1291,27 @@ def _aws_rest_api(snapshot, inventory, resource):
     if routing_domains:
         a.notes.append("Custom domains using routing rules require separate route resolution")
     policy = data.get("policy")
+    from .iam import document
+    policy_document = document(policy) or {}
+    account, region = resource["scope"].split("/", 1)
+    api_id = native_id(resource)
+    broad_arn = re.compile(r"arn:[^:]+:execute-api:" + re.escape(region) + ":" + re.escape(account) + ":" +
+                           re.escape(api_id) + r"/\*(?:/\*/\*)?")
+    for statement in as_list(policy_document.get("Statement")):
+        if not isinstance(statement, dict) or statement.get("Effect") != "Deny" or statement.get("Condition") or any(
+                key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            continue
+        principal = statement.get("Principal")
+        principals = [principal] if isinstance(principal, str) else as_list(principal.get("AWS")) if isinstance(principal, dict) else []
+        actions = [action.casefold() for action in as_list(statement.get("Action")) if isinstance(action, str)]
+        resources = as_list(statement.get("Resource"))
+        if ("*" in principals and any(action in ("*", "execute-api:*", "execute-api:invoke") for action in actions)
+                and any(isinstance(value, str) and (value in ("*", "execute-api:/*") or broad_arn.fullmatch(value))
+                        for value in resources)):
+            a.step("policy", "block", reason="unconditional wildcard-principal Invoke Deny covers all API stages, methods and paths",
+                   denied_action="execute-api:Invoke", denied_resource_scope="all_api_routes")
+            a.ports = {}
+            return a
     if policy:
         from peaso.checks.aws_ip_policy_boundary import normalize
         from peaso.checks.facts import Unavailable
@@ -1202,8 +1330,7 @@ def _aws_rest_api(snapshot, inventory, resource):
     if public is False and restricted:
         a.step("policy", "allow", restrictive_conditions=restricted)
         a.notes.append("resource policy restricts callers by condition")
-    from .iam import document
-    policy = document(data.get("policy")) or {}
+    policy = policy_document
     conditional_denies = [statement.get("Condition") for statement in as_list(policy.get("Statement"))
         if isinstance(statement, dict) and statement.get("Effect") == "Deny" and statement.get("Condition")]
     if conditional_denies:
@@ -1362,15 +1489,69 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
     a = Assessment(resource, "data_share")
     coverage = (data.get("_coverage") or {}).get(coverage_field, {})
     permissions = data.get(field)
+    if resource["type"] == "ec2_image" and data.get("Public") is True:
+        account = str(resource.get("scope", "")).split("/", 1)[0]
+        if data.get("OwnerId") not in (None, account):
+            a.gap("inventory", "Public AMI owner does not match the scanned account")
+            return a
+        a.step("image_public_flag", "allow", image_id=data.get("ImageId"), public=True,
+               image_state=data.get("State"))
+        if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
+            a.gap("attributes", "Launch permission detail is incomplete; DescribeImages.Public proves the public grant",
+                  "ec2:DescribeImageAttribute")
+        a.data_exposure = True
+        a.ports = {}
+        a.explicit = "FAIL"
+        return a
     if coverage.get("status") not in ("collected", "empty") or not isinstance(permissions, list):
         a.gap("attributes", f"{coverage_field} not completely collected", f"ec2:{permission_key}")
         return a
-    if not all(isinstance(p, dict) for p in permissions):
-        a.gap("attributes", f"{coverage_field} malformed", f"ec2:{permission_key}")
-        return a
-    public = any(p.get("Group") == "all" for p in permissions)
-    external = sorted({p["UserId"] for p in permissions if isinstance(p.get("UserId"), str)
-                       and p["UserId"] not in trusted_scopes(snapshot)["ids"]})
+    public = any(p == {"Group": "all"} for p in permissions)
+    selectors = {"UserId", "Group"} | ({"OrganizationArn", "OrganizationalUnitArn"} if resource["type"] == "ec2_image" else set())
+    if not all(isinstance(p, dict) and len(p) == 1 and next(iter(p)) in selectors and
+               isinstance(next(iter(p.values())), str) and next(iter(p.values())) for p in permissions):
+        if not public:
+            a.gap("attributes", f"{coverage_field} malformed", f"ec2:{permission_key}")
+            return a
+        a.gap("attributes", f"Additional {coverage_field} entries malformed", f"ec2:{permission_key}")
+        permissions = [{"Group": "all"}]
+    if any(("UserId" in p and not re.fullmatch(r"[0-9]{12}", p["UserId"])) or
+           ("Group" in p and p["Group"] != "all") for p in permissions):
+        if not public:
+            a.gap("attributes", f"{coverage_field} selector is unresolved", f"ec2:{permission_key}")
+            return a
+        a.gap("attributes", f"Additional {coverage_field} selectors unresolved", f"ec2:{permission_key}")
+        permissions = [{"Group": "all"}]
+    trusted = trusted_scopes(snapshot)["ids"]
+    external = {p["UserId"] for p in permissions if "UserId" in p and p["UserId"] not in trusted}
+    unresolved = False
+    if resource["type"] == "ec2_image":
+        account = str(resource.get("scope", "")).split("/", 1)[0]
+        key = ("aws_organization_id", account)
+        if key not in inventory.network_cache:
+            configs = [r["data"].get("Organization") for r in inventory.items("aws_account_configuration")
+                       if r["scope"].split("/", 1)[0] == account]
+            valid = [(c["OrganizationId"], c["MasterAccountId"]) for c in configs if isinstance(c, dict)
+                     and c.get("collection_status") == "collected" and
+                     re.fullmatch(r"o-[a-z0-9]{10,32}", str(c.get("OrganizationId", ""))) and
+                     re.fullmatch(r"[0-9]{12}", str(c.get("MasterAccountId", "")))]
+            inventory.network_cache[key] = valid[0] if len(configs) == len(valid) == 1 else None
+        own_organization = inventory.network_cache[key]
+        for permission in permissions:
+            field_name = next(iter(permission))
+            if field_name not in ("OrganizationArn", "OrganizationalUnitArn"):
+                continue
+            arn = permission[field_name]
+            pattern = (r"arn:[^:]+:organizations::([0-9]{12}):organization/(o-[a-z0-9]{10,32})" if field_name == "OrganizationArn" else
+                       r"arn:[^:]+:organizations::([0-9]{12}):ou/(o-[a-z0-9]{10,32})/ou-[a-z0-9-]+")
+            match = re.fullmatch(pattern, arn)
+            if match is None or own_organization is None:
+                unresolved = True
+            elif match.group(2) != own_organization[0]:
+                external.add(arn)
+            elif match.group(1) != own_organization[1]:
+                unresolved = True
+    external = sorted(external)
     if resource["type"] == "ebs_snapshot" and public:
         settings = [r for r in inventory.items("ec2_regional_settings") if r["scope"] == resource["scope"]]
         state = settings[0]["data"].get("SnapshotBlockPublicAccessState") if len(settings) == 1 else None
@@ -1387,10 +1568,14 @@ def _aws_ec2_share(snapshot, inventory, resource, field, coverage_field, permiss
         a.data_exposure = True
         a.ports = {}
     elif external:
-        a.step("attributes", "allow", external_accounts=external)
+        a.step("attributes", "allow", external_principals=external)
         a.kind = "external_share"
         a.external_ids = external
         a.explicit = "FAIL"
+        if unresolved:
+            a.gap("attributes", "Additional AMI organization or OU scope is unresolved")
+    elif unresolved:
+        a.gap("attributes", "AMI organization or OU sharing scope is unresolved", "organizations:DescribeOrganization")
     else:
         a.step("attributes", "block", permission_count=len(permissions))
         a.ports = {}
@@ -1467,6 +1652,391 @@ def _aws_ram_share(snapshot, inventory, resource):
     return a
 
 
+def _aws_vpc_peering(snapshot, inventory, resource):
+    """Identify an active foreign peer with a local route into the connection."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    status = data.get("Status")
+    state = status.get("Code") if isinstance(status, dict) else None
+    if state in ("deleted", "deleting", "rejected", "expired", "failed", "pending-acceptance", "initiating-request", "provisioning"):
+        return None
+    a = Assessment(resource, "external_network")
+    if state != "active":
+        a.gap("connection", "VPC peering state is not active or is unresolved")
+        return a
+    account = str(resource.get("scope", "")).split("/", 1)[0]
+    requester, accepter = data.get("RequesterVpcInfo"), data.get("AccepterVpcInfo")
+    if not isinstance(requester, dict) or not isinstance(accepter, dict):
+        a.gap("inventory", "VPC peering owners or VPC IDs are not collected")
+        return a
+    sides = [(requester, accepter), (accepter, requester)]
+    local = next((side for side in sides if side[0].get("OwnerId") == account), None)
+    if local is None or not all(isinstance(value, str) and value for value in
+                                (local[0].get("VpcId"), local[1].get("VpcId"))) or not re.fullmatch(r"[0-9]{12}", str(local[1].get("OwnerId", ""))):
+        a.gap("inventory", "Local and peer VPC ownership could not be resolved")
+        return a
+    peer = local[1]["OwnerId"]
+    if peer in trusted_scopes(snapshot)["ids"]:
+        return None
+    peer_id = data.get("VpcPeeringConnectionId")
+    if not isinstance(peer_id, str) or not peer_id:
+        a.gap("inventory", "VPC peering connection ID is missing")
+        return a
+    routes = []
+    malformed = False
+    for table in inventory.items("route_table"):
+        if table["scope"].split("/", 1)[0] != account or table["data"].get("VpcId") != local[0]["VpcId"]:
+            continue
+        entries = table["data"].get("Routes")
+        if not isinstance(entries, list):
+            malformed = True
+            continue
+        if any(not isinstance(route, dict) for route in entries):
+            malformed = True
+        routes.extend({"route_table": table["data"].get("RouteTableId"),
+                       "destination": route.get("DestinationCidrBlock") or route.get("DestinationIpv6CidrBlock")}
+                      for route in entries if isinstance(route, dict) and route.get("VpcPeeringConnectionId") == peer_id
+                      and route.get("State") == "active")
+    if routes:
+        a.step("peering_route", "allow", local_vpc=local[0]["VpcId"], peer_vpc=local[1]["VpcId"],
+               peer_account=peer, routes=routes)
+        a.external_ids = [peer]
+        a.explicit = "FAIL"
+        a.gap("backend", "Peer-side route, subnet ACL, security group and application access are not established")
+    elif inventory.state("route_table", resource["scope"]) in ("collected", "empty") and not malformed:
+        a.step("peering_route", "block", local_vpc=local[0]["VpcId"], peer_account=peer,
+               reason="no active local route to this peer")
+        a.ports = {}
+    else:
+        a.gap("peering_route", "Local route-table inventory is incomplete", "ec2:DescribeRouteTables")
+    return a
+
+
+def _aws_tgw_foreign_attachment(snapshot, inventory, resource):
+    """Join a local VPC route and TGW route to an available foreign VPC attachment."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    if data.get("ResourceType") != "vpc" or data.get("State") in ("deleted", "deleting", "failed", "rejected"):
+        return None
+    account = str(resource.get("scope", "")).split("/", 1)[0]
+    owner = str(data.get("ResourceOwnerId", ""))
+    gateway = data.get("TransitGatewayId")
+    attachment = data.get("TransitGatewayAttachmentId")
+    if owner in trusted_scopes(snapshot)["ids"]:
+        return None
+    a = Assessment(resource, "external_network")
+    if (data.get("State") != "available" or data.get("TransitGatewayOwnerId") != account or
+            not re.fullmatch(r"[0-9]{12}", owner) or not all(isinstance(value, str) and value for value in (gateway, attachment))):
+        a.gap("inventory", "Foreign VPC attachment state or owner is unresolved")
+        return a
+    local = [row for row in inventory.items("transit_gateway_attachment")
+             if row["scope"] == resource["scope"] and row["data"].get("TransitGatewayId") == gateway
+             and row["data"].get("TransitGatewayOwnerId") == account
+             and row["data"].get("ResourceOwnerId") == account and row["data"].get("ResourceType") == "vpc"
+             and row["data"].get("State") == "available"]
+    for near in local:
+        info = near["data"]
+        assoc = info.get("Association")
+        table_id = assoc.get("TransitGatewayRouteTableId") if isinstance(assoc, dict) and assoc.get("State") == "associated" else None
+        table = inventory.get("transit_gateway_route_table", table_id)
+        if table is None or table["scope"] != resource["scope"] or table["data"].get("TransitGatewayId") != gateway or table["data"].get("State") != "available":
+            continue
+        route_inventory = table["data"].get("RouteInventory")
+        associations = table["data"].get("AssociationInventory")
+        if (not isinstance(route_inventory, dict) or route_inventory.get("collection_status") not in ("collected", "empty") or
+                route_inventory.get("queries") != ["type=static", "type=propagated"] or not isinstance(route_inventory.get("items"), list) or
+                not isinstance(associations, dict) or associations.get("collection_status") not in ("collected", "empty") or
+                not isinstance(associations.get("items"), list) or not any(isinstance(row, dict) and
+                row.get("TransitGatewayAttachmentId") == info.get("TransitGatewayAttachmentId") and row.get("State") == "associated"
+                for row in associations["items"])):
+            continue
+        target_routes = []
+        for route in route_inventory["items"]:
+            if not isinstance(route, dict) or route.get("State") != "active" or route.get("Type") not in ("static", "propagated"):
+                continue
+            targets = route.get("TransitGatewayAttachments")
+            if (not isinstance(targets, list) or len(targets) != 1 or not isinstance(targets[0], dict) or
+                    targets[0].get("TransitGatewayAttachmentId") != attachment or
+                    targets[0].get("ResourceType") != "vpc" or targets[0].get("ResourceId") != data.get("ResourceId")):
+                continue
+            destination = _cidr(route.get("DestinationCidrBlock"))
+            if destination is not None:
+                target_routes.append(destination)
+        for vpc_table in inventory.items("route_table"):
+            if vpc_table["scope"] != resource["scope"] or vpc_table["data"].get("VpcId") != info.get("ResourceId"):
+                continue
+            vpc_routes = vpc_table["data"].get("Routes")
+            if not isinstance(vpc_routes, list):
+                continue
+            for vpc_route in vpc_routes:
+                if not isinstance(vpc_route, dict) or vpc_route.get("TransitGatewayId") != gateway or vpc_route.get("State") != "active":
+                    continue
+                local_destination = _cidr(vpc_route.get("DestinationCidrBlock") or vpc_route.get("DestinationIpv6CidrBlock"))
+                for foreign_destination in target_routes:
+                    if local_destination is None or not local_destination.overlaps(foreign_destination):
+                        continue
+                    a.step("transit_route", "allow", local_vpc=info.get("ResourceId"), foreign_attachment=attachment,
+                           foreign_account=owner, vpc_route_table=vpc_table["data"].get("RouteTableId"),
+                           gateway_route_table=table_id, destination=str(foreign_destination))
+                    a.external_ids = [owner]
+                    a.explicit = "FAIL"
+                    a.gap("backend", "Foreign return route, subnet ACL, security group and application access are not established")
+                    return a
+    a.gap("transit_route", "A complete route from a local VPC through this gateway to the foreign attachment was not established")
+    return a
+
+
+def _aws_vpn_connection(snapshot, inventory, resource):
+    """Report the public IPsec frontend, separately from routed tunnel traffic."""
+    data = resource["data"]
+    if data.get("State") in ("deleted", "deleting"):
+        return None
+    a = Assessment(resource, "vpn_gateway")
+    options = data.get("Options")
+    if not isinstance(options, dict) or data.get("State") != "available":
+        a.gap("inventory", "VPN connection state or outside address mode is unresolved")
+        return a
+    mode = options.get("OutsideIpAddressType", "PublicIpv4")
+    if mode == "PrivateIpv4":
+        a.ports = {}
+        a.step("vpn_transport", "block", outside_address_type=mode)
+        return a
+    if mode not in ("PublicIpv4", "Ipv6"):
+        a.gap("inventory", "VPN outside address mode is unsupported or malformed")
+        return a
+    telemetry = data.get("VgwTelemetry")
+    tunnels = options.get("TunnelOptions")
+    if not isinstance(telemetry, list) or not isinstance(tunnels, list):
+        a.gap("inventory", "VPN tunnel outside addresses are not completely collected")
+        return a
+    rows = telemetry + tunnels
+    if not rows or any(not isinstance(row, dict) for row in rows):
+        a.gap("inventory", "VPN tunnel outside address records are missing or malformed")
+        return a
+    addresses = sorted({row["OutsideIpAddress"] for row in rows
+                        if isinstance(row.get("OutsideIpAddress"), str) and _public_ip(row["OutsideIpAddress"])})
+    if not addresses:
+        a.gap("inventory", "Public VPN tunnel outside address is absent or malformed")
+        return a
+    a.addresses = addresses
+    a.ports = union(pset("udp", 500, 500), pset("udp", 4500, 4500))
+    a.ports["esp"] = ((0, 0),)
+    a.authenticated = True
+    a.step("vpn_transport", "allow", addresses=addresses, protocols=["udp/500", "udp/4500", "esp"])
+    a.notes.append("Public IPsec tunnel endpoints require peer authentication; tunnel routes and downstream controls are separate")
+    return a
+
+
+def _aws_client_vpn_endpoint(snapshot, inventory, resource):
+    """Assess the managed OpenVPN listener, not post-login destination access."""
+    data = resource["data"]
+    status = data.get("Status")
+    state = status.get("Code") if isinstance(status, dict) else None
+    a = Assessment(resource, "vpn_gateway")
+    if state in ("pending-associate", "pending", "deleting", "deleted"):
+        a.ports = {}
+        a.step("endpoint_state", "block", state=state)
+        return a
+    if state != "available":
+        a.gap("inventory", "Client VPN endpoint state is unresolved")
+        return a
+    dns = data.get("DnsName")
+    if not isinstance(dns, str) or not dns.strip():
+        a.gap("inventory", "Available Client VPN endpoint has no collected DNS name")
+        return a
+    protocol = data.get("TransportProtocol", "udp")
+    port = data.get("VpnPort", 443)
+    if protocol not in ("tcp", "udp") or port not in (443, 1194):
+        a.gap("inventory", "Client VPN transport protocol or port is malformed")
+        return a
+    a.endpoint = dns
+    a.ports = pset(protocol, port, port)
+    a.authenticated = True
+    a.step("managed_vpn_listener", "allow", dns_name=a.endpoint, protocol=protocol, port=port)
+    a.notes.append("Client VPN requires authentication; authorization rules and routes control post-login destinations")
+    return a
+
+
+def _aws_vpc_endpoint_service(snapshot, inventory, resource):
+    """Classify PrivateLink invitations and accepted cross-account connections."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_share")
+    state = data.get("ServiceState")
+    if state in ("Deleted", "Deleting", "Failed"):
+        return None
+    if state != "Available":
+        a.gap("inventory", "VPC endpoint service state is unresolved")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    connections = data.get("EndpointConnections")
+    active_foreign = []
+    connections_complete = isinstance(connections, list)
+    if connections_complete:
+        for row in connections:
+            if not isinstance(row, dict) or row.get("ServiceId") != data.get("ServiceId"):
+                connections_complete = False
+                break
+            connection_state = row.get("VpcEndpointState")
+            if connection_state == "Available":
+                owner = row.get("VpcEndpointOwner")
+                endpoint_id = row.get("VpcEndpointId")
+                if not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner) or not isinstance(endpoint_id, str):
+                    connections_complete = False
+                    break
+                if owner not in trusted:
+                    active_foreign.append({"account": owner, "endpoint": endpoint_id})
+            elif connection_state not in ("PendingAcceptance", "Pending", "Deleting", "Deleted", "Rejected", "Failed", "Expired"):
+                connections_complete = False
+                break
+    if not connections_complete:
+        a.gap("inventory", "VPC endpoint service connections are not completely collected",
+              "ec2:DescribeVpcEndpointConnections")
+    principals = data.get("AllowedPrincipals")
+    principals_complete = isinstance(principals, list) and all(isinstance(p, str) for p in principals)
+    if not principals_complete:
+        a.gap("inventory", "VPC endpoint service allowed principals are not completely collected",
+              "ec2:DescribeVpcEndpointServicePermissions")
+        principals = []
+    external = []
+    unknown = []
+    for principal in principals:
+        if principal == "*":
+            external.append(principal)
+            continue
+        match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):(?:root|role/.+|user/.+)", principal)
+        if match:
+            if match.group(1) not in trusted:
+                external.append(principal)
+        else:
+            unknown.append(principal)
+    if external or active_foreign:
+        a.external_ids = sorted(set(external) | {row["account"] for row in active_foreign})
+        a.explicit = "FAIL"
+        if external:
+            a.step("allowed_principals", "allow", external_principals=sorted(set(external)),
+                   acceptance_required=data.get("AcceptanceRequired"))
+            a.notes.append("Allowed principals can request PrivateLink connections; manual acceptance and backend access are separate")
+        if active_foreign:
+            a.step("endpoint_connections", "allow", active_external_connections=active_foreign)
+            a.notes.append("Available external endpoints remain connected even if their principals were removed from the allowlist")
+    elif unknown:
+        a.gap("inventory", "VPC endpoint service principal scope is unresolved")
+    elif principals_complete and connections_complete:
+        a.ports = {}
+        a.step("external_access", "block", principal_count=len(principals), connection_count=len(connections))
+    return a
+
+
+def _aws_ecr_registry_replication(snapshot, inventory, resource):
+    """Identify configured ECR image replication to a foreign registry."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_share")
+    replication = data.get("Replication")
+    if not isinstance(replication, dict) or replication.get("collection_status") != "collected":
+        a.gap("inventory", "ECR registry replication configuration is not completely collected", "ecr:DescribeRegistry")
+        return a
+    rules = replication.get("rules")
+    if not isinstance(rules, list):
+        a.gap("inventory", "ECR registry replication rules are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    external = []
+    malformed = False
+    for rule in rules:
+        if not isinstance(rule, dict) or not isinstance(rule.get("destinations"), list):
+            malformed = True
+            continue
+        filters = rule.get("repositoryFilters", [])
+        if not isinstance(filters, list) or any(not isinstance(f, dict) or f.get("filterType") != "PREFIX_MATCH"
+                                                or not isinstance(f.get("filter"), str) for f in filters):
+            malformed = True
+            continue
+        for destination in rule["destinations"]:
+            if not isinstance(destination, dict):
+                malformed = True
+                continue
+            account = destination.get("registryId")
+            region = destination.get("region")
+            if not isinstance(account, str) or not re.fullmatch(r"[0-9]{12}", account) or not isinstance(region, str) or not region:
+                malformed = True
+                continue
+            if account not in trusted:
+                external.append({"account": account, "region": region,
+                                 "repository_prefixes": sorted(f["filter"] for f in filters)})
+    if malformed:
+        a.gap("inventory", "Some ECR replication destinations or filters are malformed")
+    if external:
+        a.external_ids = sorted({row["account"] for row in external})
+        a.explicit = "FAIL"
+        a.step("replication", "allow", external_destinations=external)
+        a.notes.append("Destination registry permission is required; the source account cannot prove completed replication")
+    elif not malformed:
+        a.ports = {}
+        a.step("replication", "block", rule_count=len(rules))
+    return a
+
+
+def _aws_ecr_public_repository(snapshot, inventory, resource):
+    """An ECR Public repository is readable without a repository policy grant."""
+    data = resource["data"]
+    a = Assessment(resource, "public_registry")
+    account = str(resource.get("scope", "")).split("/", 1)[0]
+    name, arn, registry = data.get("repositoryName"), data.get("repositoryArn"), data.get("registryId")
+    if (resource.get("scope", "").split("/")[-1] != "us-east-1" or
+            not isinstance(name, str) or not re.fullmatch(r"(?:[a-z0-9]+(?:[._-][a-z0-9]+)*/)*[a-z0-9]+(?:[._-][a-z0-9]+)*", name) or
+            not isinstance(arn, str) or arn != f"arn:aws:ecr-public::{account}:repository/{name}" or
+            registry != account):
+        a.gap("inventory", "ECR Public repository identity or regional scope is incomplete")
+        return a
+    a.step("public_repository", "allow", repository_arn=arn, repository_name=name,
+           repository_uri=data.get("repositoryUri") if isinstance(data.get("repositoryUri"), str) else None)
+    a.explicit = "FAIL"
+    a.gap("content", "Published image inventory and successful pull were not tested")
+    return a
+
+
+def _aws_log_subscription_export(snapshot, inventory, resource):
+    """A log-group subscription aimed at a foreign logical destination."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_log_stream")
+    scope = str(resource.get("scope", ""))
+    account, _, region = scope.partition("/")
+    source = data.get("LogGroupArn")
+    destination = data.get("DestinationArn", data.get("destinationArn"))
+    name = data.get("filterName")
+    group = data.get("logGroupName")
+    if not all(isinstance(value, str) and value for value in (source, destination, name, group)):
+        a.gap("inventory", "Log subscription source or destination identity is incomplete")
+        return a
+    source_match = re.fullmatch(r"arn:([^:]+):logs:" + re.escape(region) + ":" + re.escape(account) +
+                                r":log-group:(.+)", source)
+    if source_match is None or source_match.group(2) != group:
+        a.gap("inventory", "Log subscription source is not the scoped log group")
+        return a
+    target = re.fullmatch(r"arn:" + re.escape(source_match.group(1)) + r":logs:" + re.escape(region) +
+                          r":([0-9]{12}):destination:([^:]+)", destination)
+    if target is None:
+        a.gap("inventory", "Log subscription destination is not an attributable logical destination")
+        return a
+    recipient = target.group(1)
+    if recipient in trusted_scopes(snapshot)["ids"]:
+        return None
+    a.step("subscription", "allow", log_group=group, filter_name=name,
+           destination_arn=destination, recipient_account=recipient)
+    a.external_ids = [recipient]
+    a.explicit = "FAIL"
+    a.gap("delivery", "Recipient acceptance and successful log-event delivery were not observed")
+    return a
+
+
 def _aws_cloudfront(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("Config")
@@ -1503,6 +2073,166 @@ def _aws_cloudfront(snapshot, inventory, resource):
             a.gap("listener", "CloudFront viewer protocol policy unresolved")
     a.ports = ports
     a.step("listener", "allow" if ports else "block", viewer_protocol_policies=sorted({b.get("ViewerProtocolPolicy") for b in behaviors if isinstance(b.get("ViewerProtocolPolicy"), str)}))
+    signed_behaviors, unsigned_behaviors, unresolved_behaviors = [], [], []
+    for behavior in behaviors:
+        path = behavior.get("PathPattern", "<default>")
+        signed = False
+        for field in ("TrustedKeyGroups", "TrustedSigners"):
+            setting = behavior.get(field)
+            if not isinstance(setting, dict) or setting.get("Enabled") is not True:
+                continue
+            count, items = setting.get("Quantity"), setting.get("Items")
+            if type(count) is int and count > 0 and isinstance(items, list) and len(items) == count:
+                signed = True
+            else:
+                unresolved_behaviors.append(path)
+        methods = behavior.get("AllowedMethods")
+        allowed = methods.get("Items") if isinstance(methods, dict) else None
+        if not isinstance(allowed, list) or not all(isinstance(method, str) for method in allowed):
+            unresolved_behaviors.append(path)
+        elif signed and "OPTIONS" not in allowed:
+            signed_behaviors.append(path)
+        else:
+            unsigned_behaviors.append(path)
+    a.step("viewer_access", "allow", signed_request_paths=signed_behaviors,
+           unsigned_or_options_paths=unsigned_behaviors,
+           unresolved_paths=sorted(set(unresolved_behaviors)),
+           semantics="Signed URL/cookie settings apply per cache behavior; CloudFront can forward OPTIONS without a signature")
+    a.authenticated = bool(signed_behaviors) and not unsigned_behaviors and not unresolved_behaviors
+    origin_config = distribution.get("Origins")
+    origins = origin_config.get("Items") if isinstance(origin_config, dict) else None
+    targets = {behavior.get("TargetOriginId") for behavior in behaviors if isinstance(behavior.get("TargetOriginId"), str)}
+    if isinstance(origins, list) and targets:
+        from .iam import document
+        from fnmatch import fnmatchcase
+        distribution_arn = data.get("ARN")
+        partition = distribution_arn.split(":", 2)[1] if isinstance(distribution_arn, str) and distribution_arn.startswith("arn:") else None
+        def exact_source_arn(statement):
+            condition = statement.get("Condition")
+            if not isinstance(condition, dict) or len(condition) != 1:
+                return False
+            operator, terms = next(iter(condition.items()))
+            if operator not in ("StringEquals", "ArnEquals", "ArnLike") or not isinstance(terms, dict) or len(terms) != 1:
+                return False
+            key, value = next(iter(terms.items()))
+            return isinstance(key, str) and key.casefold() == "aws:sourcearn" and value == distribution_arn
+        for origin in origins:
+            if not isinstance(origin, dict) or origin.get("Id") not in targets:
+                continue
+            s3_config = origin.get("S3OriginConfig")
+            identity = s3_config.get("OriginAccessIdentity") if isinstance(s3_config, dict) else None
+            match = re.fullmatch(r"origin-access-identity/cloudfront/([A-Z0-9]+)", identity) if isinstance(identity, str) else None
+            oac_id = origin.get("OriginAccessControlId")
+            oac = data.get("OriginAccessControls", {}).get(oac_id) if isinstance(data.get("OriginAccessControls"), dict) and isinstance(oac_id, str) and oac_id else None
+            if oac_id and (not isinstance(oac, dict) or oac.get("collection_status") != "collected"):
+                a.gap("origin_auth", "CloudFront OAC configuration unavailable", "cloudfront:GetOriginAccessControl")
+            if isinstance(oac, dict) and oac.get("collection_status") == "collected":
+                behavior = oac.get("SigningBehavior")
+                if oac.get("Id") == oac_id and behavior in ("always", "never", "no-override"):
+                    a.step("origin_auth", "allow_declaration" if behavior in ("always", "no-override") else "unresolved",
+                           origin_id=origin["Id"], origin_access_control_id=oac_id,
+                           signing_behavior=behavior, signing_protocol=oac.get("SigningProtocol"),
+                           origin_type=oac.get("OriginAccessControlOriginType"),
+                           semantics="Observed OAC signing configuration; no-override signs requests without a viewer Authorization header; origin response requires separate evidence")
+                else:
+                    a.gap("origin_auth", "CloudFront OAC signing configuration malformed", "cloudfront:GetOriginAccessControl")
+            hostname = origin.get("DomainName")
+            if (isinstance(oac, dict) and oac.get("collection_status") == "collected"
+                    and oac.get("Id") == oac_id and oac.get("SigningBehavior") in ("always", "no-override")
+                    and oac.get("SigningProtocol") == "sigv4" and oac.get("OriginAccessControlOriginType") == "lambda"
+                    and isinstance(origin.get("CustomOriginConfig"), dict) and isinstance(hostname, str)
+                    and re.fullmatch(r"[a-z0-9-]+\.lambda-url\.[a-z0-9-]+\.on\.aws", hostname)
+                    and isinstance(distribution_arn, str)):
+                for kind in ("lambda_function", "lambda_alias"):
+                    for function in inventory.items(kind):
+                        if function["scope"].split("/", 1)[0] != resource["scope"].split("/", 1)[0]:
+                            continue
+                        function_data = function["data"]
+                        url = function_data.get("FunctionUrl")
+                        function_arn = function_data.get("AliasArn") if kind == "lambda_alias" else function_data.get("FunctionArn")
+                        if (not isinstance(function_arn, str) or not isinstance(url, dict) or url.get("collection_status") != "collected"
+                                or url.get("AuthType") != "AWS_IAM" or url.get("FunctionArn") != function_arn
+                                or not isinstance(url.get("FunctionUrl"), str)
+                                or urlsplit(url["FunctionUrl"]).hostname != hostname):
+                            continue
+                        policy_read = function_data.get("Policy")
+                        if not isinstance(policy_read, dict) or policy_read.get("collection_status") != "collected":
+                            continue
+                        statements = as_list((document(policy_read.get("Policy")) or {}).get("Statement"))
+                        if any(isinstance(row, dict) and row.get("Effect") == "Deny" for row in statements):
+                            continue
+                        actions = set()
+                        for statement in statements:
+                            if (not isinstance(statement, dict) or statement.get("Effect") != "Allow"
+                                    or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource"))
+                                    or statement.get("Principal") != {"Service": "cloudfront.amazonaws.com"}
+                                    or function_arn not in as_list(statement.get("Resource"))
+                                    or not exact_source_arn(statement)):
+                                continue
+                            actions.update(action.casefold() for action in as_list(statement.get("Action"))
+                                           if isinstance(action, str) and action.casefold() in
+                                           ("lambda:invokefunctionurl", "lambda:invokefunction"))
+                        if {"lambda:invokefunctionurl", "lambda:invokefunction"} <= actions:
+                            a.step("origin_policy", "allow_declaration", origin_id=origin["Id"],
+                                   origin_type="lambda_function_url", function_arn=function_arn,
+                                   principal="cloudfront.amazonaws.com", source_arn=distribution_arn,
+                                   actions=sorted(actions),
+                                   semantics="Collected qualified Lambda policy grants both URL invocation actions to this distribution; no-override requires a viewer request without Authorization; function response is not established")
+            bucket_host = (re.fullmatch(r"(.+)\.s3(?:[.-][a-z]{2}(?:-[a-z]+)+-\d+)?\.amazonaws\.com", hostname)
+                           if isinstance(hostname, str) else None)
+            bucket_name = bucket_host.group(1) if bucket_host else None
+            if not bucket_name or not partition:
+                continue
+            bucket = next((item for item in inventory.items("bucket") if item["scope"].split("/", 1)[0] == resource["scope"].split("/", 1)[0]
+                           and item["data"].get("Name") == bucket_name), None)
+            policy = bucket["data"].get("Policy") if bucket else None
+            if not isinstance(policy, dict) or policy.get("collection_status") != "collected" or "Policy" not in policy:
+                continue
+            statements = as_list((document(policy["Policy"]) or {}).get("Statement"))
+            if any(isinstance(statement, dict) and statement.get("Effect") == "Deny" for statement in statements):
+                continue
+            if (isinstance(oac, dict) and oac.get("collection_status") == "collected"
+                    and oac.get("Id") == oac_id and oac.get("SigningBehavior") in ("always", "no-override")
+                    and oac.get("SigningProtocol") == "sigv4" and oac.get("OriginAccessControlOriginType") == "s3"
+                    and isinstance(s3_config, dict) and not identity and isinstance(distribution_arn, str)):
+                object_arn = f"arn:{partition}:s3:::{bucket_name}/*"
+                for statement in statements:
+                    if not isinstance(statement, dict) or statement.get("Effect") != "Allow" or any(
+                            key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+                        continue
+                    principal = statement.get("Principal")
+                    if not isinstance(principal, dict) or principal.get("Service") != "cloudfront.amazonaws.com":
+                        continue
+                    if not any(isinstance(action, str) and fnmatchcase("s3:GetObject", action) for action in as_list(statement.get("Action"))):
+                        continue
+                    if object_arn not in as_list(statement.get("Resource")):
+                        continue
+                    if not exact_source_arn(statement):
+                        continue
+                    a.step("origin_policy", "allow_declaration", origin_id=origin["Id"], bucket=bucket_name,
+                           principal="cloudfront.amazonaws.com", source_arn=distribution_arn,
+                           action="s3:GetObject", resource=object_arn,
+                           semantics="Collected bucket policy grants a request signed by this distribution's S3 OAC; no-override requires a viewer request without Authorization; object existence, ACL, KMS and response are not established")
+                    break
+            if not match or oac_id:
+                continue
+            principal = f"arn:{partition}:iam::cloudfront:user/CloudFront Origin Access Identity {match.group(1)}"
+            object_arn = f"arn:{partition}:s3:::{bucket_name}/*"
+            for statement in statements:
+                if not isinstance(statement, dict) or statement.get("Effect") != "Allow" or statement.get("Condition") or any(
+                        key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+                    continue
+                aws_principal = statement.get("Principal", {}).get("AWS") if isinstance(statement.get("Principal"), dict) else None
+                if principal not in as_list(aws_principal):
+                    continue
+                if not any(isinstance(action, str) and fnmatchcase("s3:GetObject", action) for action in as_list(statement.get("Action"))):
+                    continue
+                if object_arn not in as_list(statement.get("Resource")):
+                    continue
+                a.step("origin_policy", "allow_declaration", origin_id=origin["Id"], bucket=bucket_name,
+                       principal=principal, action="s3:GetObject", resource=object_arn,
+                       semantics="Collected bucket policy grants the configured OAI object read; object existence, ACL, KMS and response are not established")
+                break
     a.notes.append("CloudFront viewer reachability does not establish origin reachability or authorization")
     return a
 
@@ -2390,6 +3120,100 @@ def _gcp_gke(snapshot, inventory, resource):
     return a
 
 
+def _gcp_gke_exposure_service(snapshot, inventory, resource):
+    """Preserve a live Service exposure candidate until the cloud path is joined."""
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state == "collected":
+        return None
+    if state is not None:
+        a = Assessment(resource, "gke_workload")
+        a.explicit = "UNKNOWN"
+        a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+               reason=data.get("reason"))
+        a.gap("inventory", "GKE Kubernetes Service inventory was not completely read")
+        return a
+    spec = data.get("spec") if isinstance(data.get("spec"), dict) else {}
+    kind = spec.get("type")
+    external = [value for value in as_list(spec.get("externalIPs")) if _public_ip(value)]
+    if kind not in ("LoadBalancer", "NodePort") and not external:
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    ingress = ((data.get("status") or {}).get("loadBalancer") or {}).get("ingress") or []
+    a.addresses = list(dict.fromkeys(external + [item["ip"] for item in ingress
+        if isinstance(item, dict) and _public_ip(item.get("ip"))]))
+    ports = {}
+    for item in as_list(spec.get("ports")):
+        if not isinstance(item, dict):
+            continue
+        port = item.get("nodePort") if kind == "NodePort" else item.get("port")
+        if isinstance(port, int) and 1 <= port <= 65535:
+            ports = union(ports, pset(item.get("protocol", "TCP"), port, port) or {})
+    a.ports = ports
+    a.step("kubernetes_service", "unknown", cluster=data.get("cluster"), service_type=kind,
+           addresses=a.addresses, ports=describe(ports), source_ranges=spec.get("loadBalancerSourceRanges"),
+           annotations=data.get("annotations"))
+    a.gap("firewall", "GKE Service listener, cloud forwarding rule, node firewall and backend path need an effective join")
+    return a
+
+
+def _gcp_gke_exposure_ingress(snapshot, inventory, resource):
+    """Preserve declared Ingress reachability until its controller path is proven."""
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state == "collected":
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    if state is not None:
+        a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+               reason=data.get("reason"))
+        a.gap("inventory", "GKE Kubernetes Ingress inventory was not completely read")
+        return a
+    addresses = ((data.get("status") or {}).get("loadBalancer") or {}).get("ingress") or []
+    a.addresses = list(dict.fromkeys(item["ip"] for item in addresses
+        if isinstance(item, dict) and _public_ip(item.get("ip"))))
+    a.step("kubernetes_ingress", "unknown", cluster=data.get("cluster"),
+           ingress_class=data.get("ingressClassName"), hosts=data.get("hosts"),
+           default_backend=data.get("hasDefaultBackend"), addresses=a.addresses)
+    a.gap("controller", "GKE Ingress controller, cloud forwarding rule, firewall and backend path need an effective join")
+    return a
+
+
+def _gcp_gke_exposure_pod(snapshot, inventory, resource):
+    """Preserve host-bound Pod candidates until node exposure is proven."""
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state == "collected":
+        return None
+    if state is None and (data.get("phase") in ("Succeeded", "Failed")
+                          or not data.get("hostNetwork") and not data.get("hostPorts")):
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    if state is not None:
+        a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+               reason=data.get("reason"))
+        a.gap("inventory", "GKE Kubernetes Pod inventory was not completely read")
+        return a
+    host_ip = data.get("hostIP")
+    a.addresses = [host_ip] if _public_ip(host_ip) else []
+    ports = {}
+    for item in as_list(data.get("hostPorts")):
+        if not isinstance(item, dict):
+            continue
+        port = item.get("hostPort")
+        if type(port) is int and 1 <= port <= 65535:
+            ports = union(ports, pset(item.get("protocol", "TCP"), port, port) or {})
+    a.ports = ports
+    a.step("kubernetes_pod", "unknown", cluster=data.get("cluster"), node=data.get("nodeName"),
+           host_network=data.get("hostNetwork"), host_ip=host_ip, host_ports=describe(ports),
+           phase=data.get("phase"))
+    a.gap("node_firewall", "GKE Pod host-bound port, node address and effective firewall path need a join")
+    return a
+
+
 def _gcp_bucket(snapshot, inventory, resource):
     data = resource["data"]
     policy = data.get("iamPolicy")
@@ -2420,20 +3244,23 @@ def _gcp_bucket(snapshot, inventory, resource):
             permissions = role_row["data"].get("includedPermissions") if role_row else None
             if isinstance(permissions, list):
                 if any(permission in object_permissions for permission in permissions):
-                    (conditional if binding.get("condition") else public).extend(grants)
+                    (conditional if binding.get("condition") is not None else public).extend(grants)
             elif role in known_storage_roles:
-                (conditional if binding.get("condition") else public).extend(grants)
+                (conditional if binding.get("condition") is not None else public).extend(grants)
             else:
                 unresolved_roles.extend(grants)
     # The collector attaches these only after complete native ACL reads and
     # verifies that uniform bucket-level access is disabled.
     acl = []
+    acl_unresolved = []
     if (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess", {}).get("enabled") is False:
         for field in ("bucketAccessControls", "objectAccessControls"):
             envelope = data.get(field)
             if not isinstance(envelope, dict) or envelope.get("status") != "collected" or envelope.get("all_pages") is not True:
+                acl_unresolved.append(field + " inventory incomplete")
                 continue
             if field == "objectAccessControls" and (envelope.get("all_objects") is not True or envelope.get("all_versions") is not True):
+                acl_unresolved.append("objectAccessControls object or version inventory incomplete")
                 continue
             for row in as_list(envelope.get("items")):
                 roles = ("READER", "OWNER", "WRITER") if field == "bucketAccessControls" else ("READER", "OWNER")
@@ -2447,6 +3274,8 @@ def _gcp_bucket(snapshot, inventory, resource):
     folder_public = []
     folder_unresolved = []
     if (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess", {}).get("enabled") is True:
+        if inventory.state("managed_folder", resource.get("scope")) not in ("collected", "empty"):
+            folder_unresolved.append({"reason": "managed folder inventory incomplete"})
         for folder in inventory.items("managed_folder"):
             detail = folder["data"]
             if folder.get("scope") != resource.get("scope") or detail.get("bucket") != data.get("name"):
@@ -2466,7 +3295,7 @@ def _gcp_bucket(snapshot, inventory, resource):
                 role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
                 permissions = role_row["data"].get("includedPermissions") if role_row else None
                 grant = {"folder": name, "role": role, "members": members}
-                if binding.get("condition"):
+                if binding.get("condition") is not None:
                     folder_unresolved.append({**grant, "reason": "conditional managed folder IAM"})
                 elif isinstance(permissions, list) and any(p in object_permissions for p in permissions):
                     folder_public.append(grant)
@@ -2475,7 +3304,7 @@ def _gcp_bucket(snapshot, inventory, resource):
                     folder_public.append(grant)
                 elif permissions is None:
                     folder_unresolved.append({**grant, "reason": "managed folder role permissions unavailable"})
-    if not public and not acl and not conditional and not effective_public and not unresolved_roles and not folder_public and not folder_unresolved:
+    if not public and not acl and not conditional and not effective_public and not unresolved_roles and not folder_public and not folder_unresolved and not acl_unresolved:
         return None
     a = Assessment(resource, "data_share")
     prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention")
@@ -2514,12 +3343,12 @@ def _gcp_bucket(snapshot, inventory, resource):
         a.gap("policy", "bucket IP filter mode is not recognized")
         a.explicit = "UNKNOWN"
     a.step("policy", "allow" if public or acl or effective_public or folder_public else "unknown", bindings=public, acl=acl,
-           conditional=conditional, unresolved_roles=unresolved_roles,
+           acl_unresolved=acl_unresolved, conditional=conditional, unresolved_roles=unresolved_roles,
            effective_public=effective_public, managed_folder_grants=folder_public,
            managed_folder_unresolved=folder_unresolved, public_access_prevention=prevention)
     if (not public and not acl and not effective_public and not folder_public) or prevention == "inherited":
         a.explicit = "UNKNOWN"
-        a.gap("policy", "conditional or unresolved public IAM role, or inherited public access prevention, requires effective-policy evaluation")
+        a.gap("policy", "conditional or unresolved public IAM/ACL evidence, or inherited public access prevention, requires effective-policy evaluation")
     a.data_exposure = True
     a.addresses = [f"https://storage.googleapis.com/{data.get('name', native_id(resource))}"]
     return a
@@ -2532,54 +3361,148 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     if not isinstance(access, list):
         return None
     public = []
+    conditional_public = []
     delegated = []
+    conditional_delegated = []
+    project_groups = []
     for entry in access:
         if not isinstance(entry, dict):
             continue
         member = entry.get("iamMember") or entry.get("specialGroup")
         if member in ("allUsers", "allAuthenticatedUsers"):
-            public.append({"member": member, "role": entry.get("role")})
+            (conditional_public if entry.get("condition") is not None else public).append(
+                {"member": member, "role": entry.get("role")})
+        if entry.get("specialGroup") in ("projectReaders", "projectWriters", "projectOwners"):
+            project_groups.append({"group": entry["specialGroup"], "role": entry.get("role"),
+                                   "conditional": entry.get("condition") is not None})
         for kind in ("view", "routine", "dataset"):
             ref = entry.get(kind)
             if isinstance(ref, dict):
-                delegated.append({"kind": kind, "reference": ref})
-    if not public and not delegated:
+                (conditional_delegated if entry.get("condition") is not None else delegated).append(
+                    {"kind": kind, "reference": ref})
+    if not public and not delegated and not conditional_public and not conditional_delegated and not project_groups:
         return None
     a = Assessment(resource, "data_share")
-    source_project = resource["scope"].removeprefix("projects/")
     def destination_project(row):
         ref = row["reference"]
         if row["kind"] == "dataset" and isinstance(ref.get("dataset"), dict):
             ref = ref["dataset"]
         return ref.get("projectId") or ref.get("project_id")
+    from .trust import trusted_scopes
+    trusted_project_ids = trusted_scopes(snapshot)["ids"]
+    def destination_scope(row):
+        project = destination_project(row)
+        if not isinstance(project, str) or not project:
+            return None
+        matches = {scope for scope in snapshot.get("scopes", []) if scope == f"projects/{project}"}
+        for candidate in inventory.items("project"):
+            detail = candidate["data"]
+            if project in {str(detail.get("projectId")), str(detail.get("projectNumber")),
+                           str(detail.get("name", "")).removeprefix("projects/")}:
+                matches.add(candidate["scope"])
+        return next(iter(matches)) if len(matches) == 1 else None
     external_projects = sorted({project for row in delegated
                                 if isinstance(project := destination_project(row), str)
-                                and project and project != source_project})
-    project_policy_row = inventory.get("iam_policy", resource["scope"])
-    project_policy = project_policy_row["data"] if project_policy_row else None
-    def inherited_public(permission):
-        if not isinstance(project_policy, dict) or project_policy.get("collection_status") not in (None, "collected"):
-            return []
+                                and project and project not in trusted_project_ids})
+    reader_cache = {}
+    def project_for_scope(scope):
+        rows = [row for row in inventory.items("project") if row.get("scope") == scope]
+        return rows[0] if len(rows) == 1 else None
+    def inherited_public(permission, target_scope):
+        key = (permission, target_scope)
+        if key in reader_cache:
+            return reader_cache[key]
+        project_policy_row = inventory.get("iam_policy", target_scope)
+        project_policy = project_policy_row["data"] if project_policy_row else None
+        project_row = project_for_scope(target_scope)
+        project_data = project_row["data"] if project_row else {}
+        inherited_policies = project_data.get("_inherited_iam_policies")
+        inherited_coverage = (project_data.get("_coverage") or {}).get("_inherited_iam_policies") or {}
+        if not (isinstance(inherited_policies, list) and inherited_coverage.get("status") == "collected"):
+            inherited_policies = []
         grants = []
-        for binding in as_list(project_policy.get("bindings")):
-            if not isinstance(binding, dict) or binding.get("condition"):
+        policies = [(target_scope, project_policy), *[
+            (policy.get("ancestor"), policy) for policy in inherited_policies
+            if isinstance(policy, dict) and policy.get("name") == policy.get("ancestor")]]
+        for scope, policy in policies:
+            if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
                 continue
-            members = [member for member in as_list(binding.get("members"))
-                       if member in ("allUsers", "allAuthenticatedUsers")]
-            role = binding.get("role")
-            role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
-            permissions = role_row["data"].get("includedPermissions") if role_row else None
-            if members and isinstance(permissions, list) and permission in permissions:
-                grants.append({"role": role, "members": members, "scope": resource["scope"],
-                               "permission": permission})
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or binding.get("condition") is not None:
+                    continue
+                members = [member for member in as_list(binding.get("members"))
+                           if member in ("allUsers", "allAuthenticatedUsers")]
+                role = binding.get("role")
+                role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+                permissions = role_row["data"].get("includedPermissions") if role_row else None
+                if members and isinstance(permissions, list) and permission in permissions:
+                    grants.append({"role": role, "members": members, "scope": scope,
+                                   "permission": permission})
+        reader_cache[key] = grants
         return grants
-    inherited_view_readers = inherited_public("bigquery.tables.getData")
-    inherited_routine_readers = inherited_public("bigquery.routines.get")
+    def project_basic_grants(groups, project_scope):
+        grants = []
+        unresolved = []
+        if not groups:
+            return grants, unresolved
+        from .common import externality, principal_scope
+        project_policy_row = inventory.get("iam_policy", project_scope)
+        project_policy = project_policy_row["data"] if project_policy_row else None
+        project_row = project_for_scope(project_scope)
+        project_data = project_row["data"] if project_row else {}
+        ancestor_coverage = (project_data.get("_coverage") or {}).get("_inherited_iam_policies") or {}
+        policies = [(project_scope, project_policy)]
+        if inventory.state("iam_policy", project_scope) != "collected":
+            unresolved.append("project IAM inventory incomplete")
+        if ancestor_coverage.get("status") == "collected" and isinstance(project_data.get("_inherited_iam_policies"), list):
+            policies.extend((policy.get("ancestor"), policy) for policy in project_data["_inherited_iam_policies"]
+                            if isinstance(policy, dict) and policy.get("name") == policy.get("ancestor"))
+        else:
+            unresolved.append("project ancestor IAM incomplete")
+        roles = {"projectReaders": "roles/viewer", "projectWriters": "roles/editor", "projectOwners": "roles/owner"}
+        for scope, policy in policies:
+            if (not isinstance(policy, dict) or policy.get("name") != scope
+                    or policy.get("collection_status", "collected") != "collected"
+                    or not isinstance(policy.get("bindings"), list)):
+                unresolved.append(f"project role IAM unavailable: {scope}")
+                continue
+            for group in groups:
+                if group["role"] not in ("READER", "WRITER", "OWNER") or group["conditional"]:
+                    unresolved.append(f"conditional or unrecognized dataset role: {group['group']}")
+                    continue
+                for binding in as_list(policy.get("bindings")):
+                    if not isinstance(binding, dict) or binding.get("role") != roles[group["group"]]:
+                        continue
+                    for member in as_list(binding.get("members")):
+                        if not isinstance(member, str):
+                            unresolved.append(f"project role principal malformed: {scope}")
+                            continue
+                        classification = externality(snapshot, member)
+                        if binding.get("condition") is not None or classification == "unknown":
+                            unresolved.append(f"conditional or unattributed project role: {scope}")
+                        elif classification in ("public", "everyone_authenticated", "external"):
+                            grants.append({"group": group["group"], "dataset_role": group["role"],
+                                "iam_role": binding["role"], "scope": scope, "principal": member,
+                                "classification": classification,
+                                **({"external_scope_id": principal_scope("gcp", member)} if classification == "external" else {})})
+        return grants, unresolved
+    project_group_grants, project_group_unresolved = project_basic_grants(project_groups, resource.get("scope"))
+    destination_group_cache = {}
+    def destination_project_grants(target, dataset_name):
+        if target is None or not isinstance(target["data"].get("access"), list):
+            return []
+        if dataset_name not in destination_group_cache:
+            groups = [{"group": entry["specialGroup"], "role": entry.get("role"),
+                       "conditional": entry.get("condition") is not None}
+                      for entry in target["data"]["access"] if isinstance(entry, dict) and
+                      entry.get("specialGroup") in ("projectReaders", "projectWriters", "projectOwners")]
+            destination_group_cache[dataset_name] = project_basic_grants(groups, target.get("scope"))[0]
+        return destination_group_cache[dataset_name]
     def direct_public(policy, permission, known_roles):
         if not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected"):
             return False
         for binding in as_list(policy.get("bindings")):
-            if not isinstance(binding, dict) or binding.get("condition") or not any(
+            if not isinstance(binding, dict) or binding.get("condition") is not None or not any(
                     member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members"))):
                 continue
             role = binding.get("role")
@@ -2595,10 +3518,11 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     view_refs = []
     for row in delegated:
         ref = row["reference"]
-        if row["kind"] == "view" and destination_project(row) == source_project and all(
+        target_scope = destination_scope(row)
+        if row["kind"] == "view" and target_scope and all(
                 isinstance(ref.get(key), str) and ref[key] for key in ("datasetId", "tableId")):
-            view_refs.append((f"{resource['scope']}/datasets/{ref['datasetId']}/tables/{ref['tableId']}", "view"))
-        elif row["kind"] == "dataset" and destination_project(row) == source_project:
+            view_refs.append((f"{target_scope}/datasets/{ref['datasetId']}/tables/{ref['tableId']}", "view"))
+        elif row["kind"] == "dataset" and target_scope:
             target_types = ref.get("targetTypes", ref.get("target_types"))
             dataset_ref = ref.get("dataset")
             dataset_id = (dataset_ref.get("datasetId") or dataset_ref.get("dataset_id")) if isinstance(dataset_ref, dict) else None
@@ -2611,7 +3535,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                     if isinstance(name, str) and "/tables/" in name:
                         grouped.setdefault(name.rsplit("/tables/", 1)[0], []).append(table)
                 inventory.network_cache["gcp_bigquery_views_by_dataset"] = grouped
-            dataset_name = f"{resource['scope']}/datasets/{dataset_id}"
+            dataset_name = f"{target_scope}/datasets/{dataset_id}"
             view_refs.extend((table["data"]["name"], "authorized_dataset")
                              for table in inventory.network_cache["gcp_bigquery_views_by_dataset"].get(dataset_name, ())
                              if table["data"].get("type") in ("VIEW", "MATERIALIZED_VIEW"))
@@ -2622,42 +3546,51 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         dataset_name = view_name.rsplit("/tables/", 1)[0]
         target = inventory.get("bigquery_dataset", dataset_name)
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
-            any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
+            any(isinstance(entry, dict) and entry.get("condition") is None and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
                 for entry in target["data"]["access"]))
+        dataset_project_grants = destination_project_grants(target, dataset_name)
         policy = view["data"].get("iamPolicy")
         table_public = direct_public(policy, "bigquery.tables.getData",
                                      {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.admin"})
-        if dataset_public or table_public or inherited_view_readers:
+        readers = inherited_public("bigquery.tables.getData", view_name.split("/datasets/", 1)[0])
+        if dataset_public or dataset_project_grants or table_public or readers:
             public_views.append({"view": view_name, "authorization": authorization,
                                  "dataset_public": bool(dataset_public),
+                                 "dataset_project_grants": dataset_project_grants,
                                  "table_public": bool(table_public),
-                                 "inherited_public": inherited_view_readers})
+                                 "inherited_public": readers})
     public_routines = []
     for row in delegated:
-        if row["kind"] != "routine" or destination_project(row) != source_project:
+        if row["kind"] != "routine" or not (target_scope := destination_scope(row)):
             continue
         ref = row["reference"]
         if not all(isinstance(ref.get(key), str) and ref[key] for key in ("datasetId", "routineId")):
             continue
-        routine_name = f"{resource['scope']}/datasets/{ref['datasetId']}/routines/{ref['routineId']}"
+        routine_name = f"{target_scope}/datasets/{ref['datasetId']}/routines/{ref['routineId']}"
         routine = inventory.get("bigquery_routine_metadata", routine_name)
         if routine is None:
             continue
-        target = inventory.get("bigquery_dataset", f"{resource['scope']}/datasets/{ref['datasetId']}")
+        target = inventory.get("bigquery_dataset", f"{target_scope}/datasets/{ref['datasetId']}")
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
-            any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
+            any(isinstance(entry, dict) and entry.get("condition") is None and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
                 for entry in target["data"]["access"]))
+        dataset_project_grants = destination_project_grants(target, f"{target_scope}/datasets/{ref['datasetId']}")
         policy = routine["data"].get("iamPolicy")
         routine_public = direct_public(policy, "bigquery.routines.get",
                                        {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner",
                                         "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor"})
-        if dataset_public or routine_public or inherited_routine_readers:
+        readers = inherited_public("bigquery.routines.get", target_scope)
+        if dataset_public or dataset_project_grants or routine_public or readers:
             public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
-                                    "dataset_public": bool(dataset_public), "routine_public": bool(routine_public),
-                                    "inherited_public": inherited_routine_readers})
-    a.external_ids = external_projects
+                                    "dataset_public": bool(dataset_public), "dataset_project_grants": dataset_project_grants,
+                                    "routine_public": bool(routine_public),
+                                    "inherited_public": readers})
+    a.external_ids = sorted(set(external_projects) | {grant["external_scope_id"] for grant in project_group_grants
+                                                       if grant.get("external_scope_id")} |
+                            {grant["external_scope_id"] for row in public_views + public_routines
+                             for grant in row.get("dataset_project_grants", []) if grant.get("external_scope_id")})
     if public:
         a.data_exposure = True
         a.authenticated = not any(row["member"] == "allUsers" for row in public)
@@ -2668,17 +3601,25 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         a.data_exposure = True
         a.step("dataset_acl", "allow", delegated=delegated, external_projects=external_projects)
         a.notes.append("Destination readers and project ownership are not established by this grant")
+    elif project_group_grants:
+        a.data_exposure = True
+        a.authenticated = not any(grant["classification"] == "public" for grant in project_group_grants)
+        a.step("dataset_project_group", "allow", grants=project_group_grants)
     elif public_views or public_routines:
         a.data_exposure = True
         layer = "authorized_view" if public_views and not public_routines else "authorized_routine" if public_routines and not public_views else "authorized_resource"
         a.step(layer, "allow", public_views=public_views, public_routines=public_routines,
                semantics="Public invocation of an authorized view or routine; returned data and writes depend on SQL")
-    else:
+    elif delegated or conditional_public or conditional_delegated or project_group_unresolved:
         # An authorized view/routine/dataset receives source-data privileges,
         # but the destination's readers and project ownership need a join.
         a.explicit = "UNKNOWN"
-        a.step("dataset_acl", "unknown", delegated=delegated)
-        a.gap("policy", "authorized BigQuery resource can read this dataset; destination access and ownership are unresolved")
+        a.step("dataset_acl", "unknown", delegated=delegated, conditional_public=conditional_public,
+               conditional_delegated=conditional_delegated, project_groups=project_groups,
+               project_group_unresolved=project_group_unresolved)
+        a.gap("policy", "conditional dataset ACL, project role, or authorized BigQuery resource requires effective access review")
+    else:
+        return None
     return a
 
 
@@ -4878,7 +5819,13 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         elif not ip_rules and props.get("isVirtualNetworkFilterEnabled") is False:
             a.step("firewall", "allow", reason="no IP or VNet access list")
         elif not ip_rules:
-            a.gap("firewall", "Cosmos VNet access list may restrict public sources")
+            vnet_rules = props.get("virtualNetworkRules")
+            bypass_ids = props.get("networkAclBypassResourceIds")
+            if (props.get("isVirtualNetworkFilterEnabled") is True and vnet_rules == []
+                    and props.get("networkAclBypass") == "None" and bypass_ids == []):
+                a.step("firewall", "block", reason="empty IP and VNet allow lists with no network ACL bypass")
+            else:
+                a.gap("firewall", "Cosmos VNet access list or network ACL bypass is unresolved")
         else:
             public_ips, azure_tenants, malformed = [], False, False
             for rule in ip_rules:
@@ -4898,7 +5845,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 a.gap("firewall", "Cosmos IP rule or network ACL bypass is unresolved"
                       if malformed or props.get("networkAclBypass") not in (None, "None")
                       else "Cosmos nonpublic IP rule requires source validation")
-        a.ports = pset("tcp", port, port)
+        a.ports = {} if a.blocked_by == "firewall" else pset("tcp", port, port)
         if not endpoint:
             a.gap("inventory", "Cosmos public endpoint address is not collected")
         return a
@@ -5299,6 +6246,22 @@ def _azure_ml_workspace(snapshot, inventory, resource):
                  or row["properties"].get("publicNetworkAccess") != "Disabled" for row in endpoints):
             a.gap("online_endpoint", "ML endpoint public gate could differ from disabled workspace gate")
             a.explicit = "UNKNOWN"
+            acls = props.get("networkAcls")
+            if isinstance(acls, dict) and acls.get("defaultAction") == "Deny":
+                public_ips, _ = _azure_storage_public_ip_rules(acls)
+                exposed = [row for row in endpoints if isinstance(row, dict)
+                           and isinstance(row.get("properties"), dict)
+                           and row["properties"].get("publicNetworkAccess") == "Enabled"]
+                if public_ips and exposed:
+                    for row in exposed:
+                        uri = row["properties"].get("scoringUri")
+                        if isinstance(uri, str) and uri:
+                            a.addresses.append(uri)
+                    a.step("online_endpoint_acl", "allow", online_endpoints=[row.get("id") for row in exposed],
+                           public_ip_rules=public_ips)
+                    a.notes.append("Azure ML selected-IP rules can continue to apply to online endpoints after workspace public access is disabled.")
+                    a.ports = pset("tcp", 443, 443)
+                    a.explicit = "FAIL"
         return a
     if access != "Enabled":
         a.gap("inventory", "ML workspace publicNetworkAccess is absent or unrecognized")
@@ -5325,7 +6288,7 @@ def _azure_ml_workspace(snapshot, inventory, resource):
                 a.gap("online_endpoint", "ML online endpoint public access gate is unresolved")
     acls = props.get("networkAcls")
     if not isinstance(acls, dict):
-        a.gap("firewall", "ML workspace selected-IP networkAcls are unavailable in the collected 2024-04-01 response")
+        a.gap("firewall", "ML workspace selected-IP networkAcls are absent from the collected response")
         return a
     action = acls.get("defaultAction")
     if action == "Allow":
@@ -5386,14 +6349,67 @@ def _azure_compute_gallery(snapshot, inventory, resource):
         a.step("sharing_policy", "allow", permission=permission,
                sharing_state=status.get("aggregatedState"))
         a.explicit = "FAIL"
-        a.notes.append("Gallery policy permits community sharing; published image versions are not inventoried here.")
+        a.notes.append("Gallery policy permits community sharing; published image versions are assessed from child inventory when available.")
     elif permission == "Groups":
         groups = profile.get("groups")
-        a.gap("authorization", "gallery direct-sharing recipient ownership and published image versions are unresolved")
-        if isinstance(groups, list):
-            a.external_ids = [str(group.get("ids")) for group in groups if isinstance(group, dict) and group.get("ids")]
+        owner = str(resource.get("scope", "")).lower().removeprefix("/subscriptions/")
+        if not owner or not isinstance(groups, list):
+            a.gap("authorization", "gallery direct-sharing recipient list or owner subscription is unavailable")
+            return a
+        other_subscriptions, tenant_recipients, malformed = [], [], False
+        for group in groups:
+            ids = group.get("ids") if isinstance(group, dict) else None
+            group_type = group.get("type") if isinstance(group, dict) else None
+            if group_type not in ("Subscriptions", "AADTenants") or not isinstance(ids, list) or any(
+                    not isinstance(value, str) or not value.strip() for value in ids):
+                malformed = True
+                continue
+            if group_type == "Subscriptions":
+                other_subscriptions.extend(value for value in ids if value.lower() != owner)
+            else:
+                tenant_recipients.extend(ids)
+        provenance = resource["data"].get("_provenance") or {}
+        metadata = snapshot.get("metadata") or {}
+        owner_tenant = (provenance.get("tenant_id") if provenance.get("tenant_verified") is True
+                        else metadata.get("tenant_id") if metadata.get("tenant_verified") is True else None)
+        other_tenants = ([value for value in tenant_recipients if value.lower() != owner_tenant.lower()]
+                         if isinstance(owner_tenant, str) and owner_tenant else [])
+        a.external_ids = sorted(set(other_subscriptions + other_tenants))
+        if other_subscriptions or other_tenants:
+            a.step("sharing_policy", "allow", permission=permission,
+                   recipient_subscriptions=sorted(set(other_subscriptions)),
+                   recipient_tenants=sorted(set(other_tenants)))
+            a.explicit = "FAIL"
+            a.notes.append("Direct sharing targets other subscriptions or tenants; published image versions are assessed from child inventory when available.")
+        elif (tenant_recipients and not owner_tenant) or malformed:
+            a.gap("authorization", "gallery tenant recipient ownership or malformed sharing group is unresolved")
+        else:
+            a.step("sharing_policy", "block", reason="no other subscription or tenant recipient")
+            a.ports = {}
     else:
         a.gap("policy", "Compute Gallery sharing permission is absent or unrecognized")
+    if permission in ("Community", "Groups"):
+        coverage = (resource["data"].get("_coverage") or {}).get("images") or {}
+        images = resource["data"].get("images")
+        if coverage.get("status") not in ("collected", "empty") or not isinstance(images, list):
+            a.notes.append("Gallery image-definition inventory is incomplete; publication is unresolved.")
+        else:
+            versions, complete = [], True
+            for image in images:
+                image_coverage = ((image.get("_coverage") or {}).get("versions") or {}) if isinstance(image, dict) else {}
+                rows = image.get("versions") if isinstance(image, dict) else None
+                if image_coverage.get("status") not in ("collected", "empty") or not isinstance(rows, list):
+                    complete = False
+                elif any(not isinstance(row, dict) or not isinstance(row.get("id"), str) for row in rows):
+                    complete = False
+                else:
+                    versions.extend(row["id"] for row in rows)
+            if versions:
+                a.notes.append("Observed gallery image versions: " + ", ".join(sorted(versions)))
+            if not complete:
+                a.notes.append("Some gallery image-version inventories are incomplete; publication is unresolved.")
+            elif not versions:
+                a.notes.append("No gallery image versions were observed in the complete child inventory.")
     return a
 
 
@@ -5490,6 +6506,18 @@ def _azure_api_management(snapshot, inventory, resource):
 def _azure_redis(snapshot, inventory, resource):
     props = resource["data"].get("properties") or {}
     a = Assessment(resource, "database")
+    subnet_id = props.get("subnetId")
+    if isinstance(subnet_id, str) and re.search(r"/subnets/[^/]+$", subnet_id, re.IGNORECASE):
+        # Premium VNet injection assigns a private address to the cache. The
+        # publicNetworkAccess flag describes the separate Private Link mode;
+        # it cannot make an injected cache directly internet addressable.
+        a.step("network", "block", reason="VNet-injected Redis has no public listener",
+               subnet_id=subnet_id)
+        a.ports = {}
+        return a
+    if subnet_id is not None:
+        a.gap("inventory", "Redis subnetId is malformed; VNet injection cannot be established")
+        return a
     access = props.get("publicNetworkAccess")
     if access == "Disabled":
         a.step("public_network_access", "block", value=access)
@@ -5498,8 +6526,6 @@ def _azure_redis(snapshot, inventory, resource):
     if access != "Enabled":
         a.gap("inventory", "Redis public network access state is not explicit")
         return a
-    if props.get("subnetId"):
-        a.gap("nsg", "VNet-injected Redis subnet path is not resolved")
     hostname = props.get("hostName")
     if isinstance(hostname, str) and hostname:
         a.addresses.append(hostname)
@@ -5547,6 +6573,50 @@ def _azure_redis(snapshot, inventory, resource):
     return a
 
 
+def _azure_redis_enterprise(snapshot, inventory, resource):
+    """Assess Redis Enterprise / Azure Managed Redis database listeners."""
+    props = _props(resource)
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "Redis Enterprise publicNetworkAccess is absent or unrecognized")
+        return a
+    a.step("public_network_access", "allow", value=access)
+    hostname = props.get("hostName")
+    if isinstance(hostname, str) and hostname:
+        a.addresses.append(hostname)
+    else:
+        a.gap("inventory", "Redis Enterprise public hostname is unavailable")
+    cluster_id = str(native_id(resource)).casefold()
+    status = inventory.state("redis_enterprise_database", resource["scope"])
+    rows = [row for row in inventory.items("redis_enterprise_database")
+            if str(native_id(row)).casefold().startswith(cluster_id + "/databases/")]
+    ports, malformed = {}, False
+    for row in rows:
+        fields = _props(row)
+        port = fields.get("port")
+        if type(port) is not int or not 1 <= port <= 65535:
+            malformed = True
+            continue
+        ports = union(ports, pset("tcp", port, port))
+        a.step("listener", "allow", database_id=native_id(row), port=port,
+               client_protocol=fields.get("clientProtocol"))
+    if status not in ("collected", "empty") or malformed:
+        a.gap("inventory", "Redis Enterprise database child inventory or listener port is incomplete")
+    if ports:
+        a.ports = ports
+        a.explicit = "FAIL"
+    elif status in ("collected", "empty") and not malformed:
+        a.step("listener", "block", reason="no database listener in complete child inventory")
+        a.ports = {}
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -5581,6 +6651,13 @@ def _k8s_public_source(value):
         return True
     network = _cidr(value)
     return network is not None and network.is_global
+
+
+def _k8s_source_range_decision(ranges):
+    """Do not treat an unparseable controller annotation as a private range."""
+    if any(_cidr(value) is None and not _internet(value) for value in ranges):
+        return "unknown"
+    return "public" if any(_k8s_public_source(value) for value in ranges) else "private"
 
 
 def _k8s_ports(spec, field="port"):
@@ -5673,7 +6750,13 @@ def _k8s_service(snapshot, inventory, resource):
             a.ports = {}
             return external_path()
         ranges = k8s_source_ranges(spec, meta)
-        if ranges and not any(_k8s_public_source(r) for r in ranges):
+        range_decision = _k8s_source_range_decision(ranges) if ranges else "public"
+        if range_decision == "unknown":
+            a.step("source_ranges", "unknown", invalid_source_ranges=[r for r in ranges if _cidr(r) is None and not _internet(r)])
+            a.ports = _k8s_ports(spec)
+            a.gap("inventory", "controller treatment of invalid source range is not observed")
+            return external_path()
+        if range_decision == "private":
             a.step("source_ranges", "block", load_balancer_source_ranges=ranges)
             a.ports = {}
             return external_path()
@@ -5718,7 +6801,13 @@ def _k8s_ingress(snapshot, inventory, resource):
     ports = pset("tcp", 80, 80)
     if spec.get("tls"):
         ports = union(ports, pset("tcp", 443, 443))
-    if ranges and not any(_k8s_public_source(r) for r in ranges):
+    range_decision = _k8s_source_range_decision(ranges) if ranges else "public"
+    if range_decision == "unknown":
+        a.step("source_ranges", "unknown", invalid_source_ranges=[r for r in ranges if _cidr(r) is None and not _internet(r)])
+        a.ports = ports
+        a.gap("inventory", "controller treatment of invalid source range is not observed")
+        return a
+    if range_decision == "private":
         a.step("source_ranges", "block", source_ranges=ranges)
         a.ports = {}
         return a
@@ -6042,13 +7131,13 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway",
+AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
+             "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "ecr_public_repository", "log_subscription_filter", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
-             "project", "iam_policy", "iam_role", "workload_identity_provider",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
              "media_cdn_service", "target_pool", "target_instance",
@@ -6056,7 +7145,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -6064,15 +7153,15 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
-             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry", "vpc_peering", "transit_gateway_attachment", "ecr_public_repository", "log_subscription_filter"},
+             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -6106,11 +7195,20 @@ def assess(snapshot, resources):
                 "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot"),
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
-                "ram_resource_share": _aws_ram_share,
+                "ram_resource_share": _aws_ram_share, "vpc_peering": _aws_vpc_peering,
+                "transit_gateway_attachment": _aws_tgw_foreign_attachment, "vpn_connection": _aws_vpn_connection,
+                "client_vpn_endpoint": _aws_client_vpn_endpoint,
+                "vpc_endpoint_service": _aws_vpc_endpoint_service,
+                "ecr_registry": _aws_ecr_registry_replication,
+                "ecr_public_repository": _aws_ecr_public_repository,
+                "log_subscription_filter": _aws_log_subscription_export,
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
-                "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket,
+                "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke,
+                "gke_exposure_service": _gcp_gke_exposure_service,
+                "gke_exposure_ingress": _gcp_gke_exposure_ingress,
+                "gke_exposure_pod": _gcp_gke_exposure_pod, "bucket": _gcp_bucket,
                 "bigquery_dataset": _gcp_bigquery_dataset, "firebase_rules_release": _gcp_firebase_rules,
                 "firebase_database_rules": _gcp_firebase_rules,
                 "vpn_gateway": _gcp_vpn_gateway,
@@ -6136,6 +7234,7 @@ def assess(snapshot, resources):
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
+                  "redis_enterprise_cluster": _azure_redis_enterprise,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
@@ -6170,6 +7269,17 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.kind == "external_log_stream":
+        return "Log subscription targets external account" if status == "FAIL" else "Log subscription destination unresolved"
+    if assessment.kind == "public_registry":
+        return "ECR Public repository is publicly readable" if status == "FAIL" else "ECR Public repository identity unresolved"
+    if assessment.kind == "external_network":
+        if assessment.resource["type"] == "transit_gateway_attachment":
+            return ("Local route to foreign Transit Gateway attachment" if status == "FAIL" else
+                    "Foreign Transit Gateway attachment route unresolved")
+        return ("Active route to external VPC peer" if status == "FAIL" else
+                "No active route to external VPC peer" if status == "PASS" else
+                "External VPC peering route unresolved")
     if assessment.kind == "gallery_share":
         return ("Compute Gallery community sharing permitted" if status == "FAIL" else
                 "Compute Gallery community sharing blocked" if status == "PASS" else
@@ -6180,7 +7290,7 @@ def _title(assessment, status):
                 "Disk or snapshot SAS export policy unresolved")
     if status == "FAIL":
         if assessment.kind == "external_share":
-            return "Data shared with external account"
+            return "Data shared with external principal" if assessment.resource["type"] == "ec2_image" else "Data shared with external account"
         if assessment.data_exposure:
             return "Data publicly accessible from the internet"
         ports = describe(assessment.ports or {})
@@ -6196,6 +7306,63 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    invalid_ranges = next((step.get("invalid_source_ranges") for step in assessment.path
+                           if step.get("layer") == "source_ranges" and step.get("decision") == "unknown"), None)
+    if assessment.resource["provider"] == "k8s" and assessment.kind in {"service", "ingress"} and invalid_ranges:
+        noun = "Service" if assessment.kind == "service" else "Ingress"
+        value = ", ".join(str(item) for item in invalid_ranges[:2])
+        return (f"The {noun} has source range {value}, which is not a valid IP range.\n"
+                "The controller's treatment of that value is not recorded, so its public source rule is unclear.\n"
+                "The source rule may admit public requests if the controller ignores that range.\n"
+                f"That could expose data served through this {noun}.")
+    if assessment.kind == "external_log_stream":
+        if status == "FAIL":
+            return ("A CloudWatch Logs subscription targets a destination owned by account "
+                    + assessment.external_ids[0] + ".\n"
+                    "Delivery to that destination was not observed.\n"
+                    "The external account may receive log events if delivery succeeds.\n"
+                    "Those events could expose data recorded about people or services.")
+        return ("The CloudWatch Logs subscription source or destination account is missing.\n"
+                "That leaves the recipient of log events unresolved.\n"
+                "The destination may receive events if delivery is configured and succeeds.\n"
+                "Those events could expose recorded data outside the account.")
+    if assessment.kind == "public_registry":
+        if status == "FAIL":
+            return ("The ECR Public repository permits public image pulls.\n"
+                    "Its published image inventory was not recorded.\n"
+                    "People outside the account may download any images that are present.\n"
+                    "Those images could expose data used by people and services.")
+        return ("The ECR Public repository identity or regional scope is missing.\n"
+                "Its public pull setting cannot be resolved from those fields.\n"
+                "Images may be downloadable if public access is enabled.\n"
+                "Their contents could expose data outside the account.")
+    if assessment.kind == "external_network":
+        if assessment.resource["type"] == "transit_gateway_attachment":
+            if status == "FAIL":
+                return ("A local VPC route and associated Transit Gateway route select a foreign VPC attachment owned by "
+                        + assessment.external_ids[0] + ".\n"
+                        "Those routes may carry traffic to that VPC if its return route and filters allow it.\n"
+                        "The return route and endpoint rules are not recorded for this attachment.\n"
+                        "Traffic across the connection could expose data in connected resources.")
+            return ("The local VPC or Transit Gateway route to the foreign attachment is incomplete.\n"
+                    "A usable path to the attached VPC cannot be resolved from those records.\n"
+                    "Traffic may cross the connection if the missing routes and endpoint rules allow it.\n"
+                    "That could expose data in connected resources.")
+        if status == "FAIL":
+            return ("An active VPC peering connection has a local route to account "
+                    + assessment.external_ids[0] + ".\n"
+                    "That route may carry traffic to the peer if its routes and filters also allow it.\n"
+                    "Peer routing and endpoint rules are not recorded for this connection.\n"
+                    "Traffic across that path could expose data in connected resources.")
+        if status == "PASS":
+            return ("The external VPC peering connection has no active local route in the recorded route tables.\n"
+                    "This VPC has no recorded path through that connection.\n"
+                    "That may limit traffic to resources in the peer network.\n"
+                    "Data on those resources could remain out of reach through this route.")
+        return ("The external VPC peering state or local route inventory is incomplete.\n"
+                "A route toward the peer account cannot be resolved from those records.\n"
+                "Traffic may cross this connection if active routes and peer rules allow it.\n"
+                "That could expose data in connected resources.")
     terminal = next((step for step in assessment.path
                      if step.get("layer") == "effective_firewall"
                      and step.get("basis") == "terminal hierarchical ingress rule"), None)
@@ -6275,11 +7442,20 @@ def _observed(assessment, status):
         profile = _props(assessment.resource).get("sharingProfile")
         permission = profile.get("permissions") if isinstance(profile, dict) else None
         if status == "FAIL":
+            if permission == "Groups":
+                return ("The gallery has sharingProfile.permissions Groups with recipients outside its owning subscription or tenant.\n"
+                        "This setting permits direct sharing of gallery images with those recipients.\n"
+                        "Published image versions may become available to those recipients.\n"
+                        "That could expose files or data stored in those images.")
             return ("The gallery has sharingProfile.permissions Community.\n"
                     "This setting permits community sharing of its images.\n"
                     "Published image versions may become available outside the tenant.\n"
                     "That could expose files or data stored in those images.")
         if status == "PASS":
+            if permission == "Groups":
+                return ("The gallery has sharingProfile.permissions Groups with only its owning subscription or tenant recorded.\n"
+                        "No external recipient is present in the recorded direct-sharing policy.\n"
+                        "This gallery policy does not grant outside access to image contents.")
             return ("The gallery has sharingProfile.permissions Private.\n"
                     "This setting blocks community sharing of its images.\n"
                     "Image contents are protected from this public sharing path.")
@@ -6322,9 +7498,14 @@ def _observed(assessment, status):
             return f"Public access is blocked by {assessment.blocked_by.replace('_', ' ')}."
         return "The collected configuration does not allow public access."
     if assessment.kind == "external_share":
-        accounts = ", ".join(assessment.external_ids)
-        noun = "AMI launch" if assessment.resource["type"] == "ec2_image" else "Snapshot restore"
-        return f"{noun} access is granted to external accounts: {accounts}."
+        principals = ", ".join(assessment.external_ids)
+        if assessment.resource["type"] == "ec2_image":
+            return (f"The AMI launch permission names external principals: {principals}.\n"
+                    "Those principals may launch an instance from this image if their other permissions allow it.\n"
+                    "A launched image could expose files or data stored in the AMI.")
+        return (f"The snapshot restore permission names external accounts: {principals}.\n"
+                "Those accounts may restore the snapshot if their other permissions allow it.\n"
+                "A restored snapshot could expose files or data stored in the image.")
     if assessment.data_exposure:
         if assessment.resource["type"] == "ec2_image":
             return "AMI launch access is granted to everyone."
@@ -6355,8 +7536,14 @@ def internet_findings(snapshot, resources):
                     "collector_facts_needed": sorted({g["collector_fact"] for g in assessment.unresolved if g.get("collector_fact")}),
                     "source": source(snapshot, assessment.resource, "data"),
                     "risk_state": "observed" if status == "FAIL" else "reviewed" if status == "PASS" else "unknown",
-                    "semantics": "Declared-configuration path model from 0.0.0.0/0; no traffic was sent."}
-        severity = "high" if assessment.kind == "external_share" and status == "FAIL" else assessment.adjusted_severity()
+                    "semantics": ("Configured CloudWatch Logs subscription to a foreign logical destination; delivery was not observed."
+                                  if assessment.kind == "external_log_stream" else
+                                  "ECR Public repository configuration permits anonymous image pulls; published images were not enumerated."
+                                  if assessment.kind == "public_registry" else
+                                  "Declared cross-account network connection and local route; return route and endpoint access are unverified."
+                                  if assessment.kind == "external_network" else
+                                  "Declared-configuration path model from 0.0.0.0/0; no traffic was sent.")}
+        severity = "high" if assessment.kind in ("external_share", "external_network", "public_registry", "external_log_stream") and status == "FAIL" else assessment.adjusted_severity()
         current = finding(snapshot, assessment.resource, "exposure", CHECK, _title(assessment, status), severity, evidence, status=status)
         current["remediation"] = exposure_action(evidence, status)
         current["id"] = stable_id("exposure", CHECK, node_id(assessment.resource), node_id(assessment.origin), assessment.kind)

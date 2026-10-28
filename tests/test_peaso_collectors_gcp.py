@@ -609,7 +609,7 @@ def test_native_service_coverage_and_configuration_fixture():
     # Content-only inventories require a separately named, opted-in request.
     from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
     organization_network_types = {kind for kind, plan in PRIVATE_SERVICES.items() if plan.get('scope_kind') == 'organizations'}
-    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version"})
+    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod"})
     transport = NativeDataFixtureTransport(resolve)
     result = gcp.GCPCollector(connector(kinds, scopes=["projects/p-one01"], cloud_identity_customers=["Cfixture"], regions=["r"],
         sw51_policy={'scope': 'projects/p-one01', 'status': 'collected', 'approved_asset_types': ['compute.googleapis.com/Instance']}),
@@ -1029,6 +1029,58 @@ def test_gke_unreachable_zone_marks_partial_not_complete():
         "missingZones": ["r-b"]})
     assert collection(result, "gke_cluster")["status"] == "partial"
     assert collection(result, "gke_cluster")["error"]["code"] == "unreachable_locations"
+
+
+def test_gke_exposure_service_job_runs_after_cluster_inventory(monkeypatch):
+    from peaso.collectors import gcp_gke_exposure_services as services
+    def resolve(request):
+        if request["url"].endswith("/locations/-/clusters"):
+            return {"clusters": [{"name": "c1", "location": "r1"}]}
+        return {"items": []}
+    monkeypatch.setattr(services, "cluster_binding", lambda _, scope, selection: {
+        "selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    monkeypatch.setattr(services.ServiceReader, "pages", lambda self: iter([([
+        {"name": self.binding["selection"] + "/namespaces/default/services/web",
+         "cluster": self.binding["selection"], "spec": {"type": "NodePort", "ports": [{"nodePort": 30080}]}}],
+        "service-request")]))
+    result, _ = snapshot(["gke_exposure_service"], resolve)
+    assert collection(result, "gke_cluster")["status"] == "collected"
+    service_rows = collection(result, "gke_exposure_service")["items"]
+    assert len(service_rows) == 2
+    assert any(row.get("inventoryStatus") == "collected" and row["serviceCount"] == 1 for row in service_rows)
+    assert any(row.get("spec", {}).get("type") == "NodePort" for row in service_rows)
+    empty, _ = snapshot(["gke_exposure_service"], lambda r: {"clusters": []} if r["url"].endswith("/locations/-/clusters") else {"items": []})
+    assert collection(empty, "gke_exposure_service")["status"] == "empty"
+
+
+def test_gke_exposure_ingress_job_runs_after_cluster_inventory(monkeypatch):
+    from peaso.collectors import gcp_gke_exposure_services as services
+    monkeypatch.setattr(services, "cluster_binding", lambda _, scope, selection: {
+        "selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    monkeypatch.setattr(services.IngressReader, "pages", lambda self: iter([([{
+        "name": self.binding["selection"] + "/namespaces/default/ingresses/web",
+        "cluster": self.binding["selection"], "ingressClassName": "gce"}], "ingress-request")]))
+    result, _ = snapshot(["gke_exposure_ingress"], lambda r: {
+        "clusters": [{"name": "c1", "location": "r1"}]} if r["url"].endswith("/locations/-/clusters") else {"items": []})
+    rows = collection(result, "gke_exposure_ingress")["items"]
+    assert len(rows) == 2
+    assert any(row.get("inventoryStatus") == "collected" and row["ingressCount"] == 1 for row in rows)
+    assert any(row.get("ingressClassName") == "gce" for row in rows)
+
+
+def test_gke_exposure_pod_job_runs_after_cluster_inventory(monkeypatch):
+    from peaso.collectors import gcp_gke_exposure_services as services
+    monkeypatch.setattr(services, "cluster_binding", lambda _, scope, selection: {
+        "selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    monkeypatch.setattr(services.PodReader, "pages", lambda self: iter([([{
+        "name": self.binding["selection"] + "/namespaces/default/pods/web",
+        "cluster": self.binding["selection"], "hostNetwork": True}], "pod-request")]))
+    result, _ = snapshot(["gke_exposure_pod"], lambda r: {
+        "clusters": [{"name": "c1", "location": "r1"}]} if r["url"].endswith("/locations/-/clusters") else {"items": []})
+    rows = collection(result, "gke_exposure_pod")["items"]
+    assert len(rows) == 2
+    assert any(row.get("inventoryStatus") == "collected" and row["podCount"] == 1 for row in rows)
+    assert any(row.get("hostNetwork") is True for row in rows)
 
 
 def test_sanitize_drops_inline_environment_and_project_metadata_values():
@@ -2082,6 +2134,39 @@ def test_unused_group_collector_keeps_per_group_pagination_and_independent_failu
     report = evaluate_snapshot(result, categories=['hardening'], checks=[GROUP])
     statuses = {row['resource_name']: row['status'] for row in report['findings']}
     assert statuses == {'groups/empty': 'FAIL', 'groups/denied': 'DENIED', 'groups/dynamic': 'UNKNOWN'}, [(r['resource_name'], r['status'], r['evidence']) for r in report['findings']]
+
+
+def test_exposure_requests_groups_and_resolves_resource_policy_references():
+    from types import SimpleNamespace
+    from peaso.engine import plan_collection
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    scope = 'projects/p1'
+    assert {'group', 'group_membership'} <= set(GCP_TYPES)
+    assert {'group', 'group_membership'} <= set(plan_collection({
+        'connector': {'provider': 'gcp'}, 'categories': ['exposure']}))
+    seen = []
+    collections = {
+        ('iam_policy', scope): {'status': 'collected', 'items': [{'bindings': []}]},
+        ('bucket', scope): {'status': 'collected', 'items': [{'iamPolicy': {'bindings': [
+            {'role': 'roles/storage.objectViewer', 'members': ['group:bucket@example.com']}]}}]},
+        ('bigquery_dataset', scope): {'status': 'collected', 'items': [{'access': [
+            {'role': 'READER', 'groupByEmail': 'data@example.com'}]}]},
+    }
+    def read(url, _, params=None):
+        seen.append(params['groupKey.id'])
+        return {'name': 'groups/' + str(len(seen))}, 'request'
+    def hydrate(item, field, url, _):
+        return {**item, field: {'name': item['name'], 'groupKey': item['groupKey']},
+                '_coverage': {field: {'status': 'collected'}}}
+    def add(_, __, ___, factory):
+        return {'status': 'collected', 'items': [item for page, _ in factory() for item in page]}
+    stub = SimpleNamespace(scopes=[scope], options={'cloud_identity_customers': ['Csynthetic']},
+        sw52_only_mode=False, needed={'group'}, collections=collections, page_size=100,
+        items=lambda _: [], pages=lambda *args, **kwargs: [([{'name': 'groups/listed',
+            'groupKey': {'id': 'bucket@example.com'}}], 'request')],
+        read=read, hydrate=hydrate, add=add)
+    gcp.GCPCollector.directory_groups(stub)
+    assert seen == ['data@example.com']
 
 
 @pytest.mark.parametrize('numeric_alias', [False, True])

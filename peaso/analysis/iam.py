@@ -5,6 +5,7 @@ import json
 import re
 from collections import defaultdict
 import hashlib
+from fnmatch import fnmatchcase
 from functools import lru_cache
 from heapq import nsmallest
 from urllib.parse import unquote
@@ -547,7 +548,105 @@ def azure_assignment_reviews(snapshot, resources):
     return output
 
 
+def _azure_external_group_members(snapshot, resources):
+    """Resolve observed guest/foreign members of assigned Azure RBAC groups."""
+    groups = {str(row["data"].get("id", "")).lower() for row in resources
+              if row["type"] == "directory_group"}
+    links = defaultdict(list)
+    for row in resources:
+        if row["type"] != "directory_membership" or "/groups/" not in row["scope"].lower():
+            continue
+        parent = row["scope"].lower().rsplit("/groups/", 1)[-1]
+        member = row["data"].get("id")
+        if isinstance(member, str) and member:
+            links[parent].append((member.lower(), row))
+    cache = {}
+
+    def resolve(group_id):
+        group_id = str(group_id).lower()
+        if group_id not in cache:
+            found, seen, pending = {}, set(), [(group_id, (group_id,))]
+            while pending:
+                current, path = pending.pop()
+                if current in seen:
+                    continue
+                seen.add(current)
+                for member, membership in links.get(current, ()):
+                    if member in groups or member in links:
+                        pending.append((member, (*path, member)))
+                    elif externality(snapshot, member) == "external":
+                        found.setdefault(member, (path, membership))
+            cache[group_id] = found
+        return cache[group_id]
+
+    return resolve
+
+
+def _azure_gallery_rbac_reviews(snapshot, resources, group_members):
+    """Report declared image-version read grants to observed outside principals."""
+    galleries = [str(native_id(row)).casefold() for row in resources if row["type"] == "compute_gallery"]
+    if not galleries:
+        return []
+    definitions = {_azure_role_guid(row["data"].get("name") or native_id(row)): row
+                   for row in resources if row["type"] == "role_definition"}
+    action = "microsoft.compute/galleries/images/versions/read"
+    output, seen = [], set()
+    for assignment in resources:
+        if assignment["type"] != "role_assignment":
+            continue
+        props = assignment["data"].get("properties") or {}
+        scope = props.get("scope")
+        principal = props.get("principalId")
+        if not isinstance(scope, str) or not isinstance(principal, str):
+            continue
+        scope = scope.casefold().rstrip("/")
+        targets = [gallery for gallery in galleries if gallery == scope or gallery.startswith(scope + "/")
+                   or re.fullmatch(re.escape(gallery) + r"/images/[^/]+(?:/versions/[^/]+)?", scope)]
+        if not targets:
+            continue
+        definition = definitions.get(_azure_role_guid(props.get("roleDefinitionId")))
+        if definition is None:
+            continue
+        permissions = (definition["data"].get("properties") or {}).get("permissions") or []
+        grants_read = any(isinstance(block, dict) and isinstance(block.get("actions"), list)
+                          and isinstance(block.get("notActions", []), list)
+                          and any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                  for pattern in block["actions"])
+                          and not any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                      for pattern in block.get("notActions", []))
+                          for block in permissions)
+        if not grants_read:
+            continue
+        principals = [(principal, None, None)]
+        if props.get("principalType") == "Group":
+            principals.extend((member, path, membership)
+                              for member, (path, membership) in group_members(principal).items())
+        for identity, group_path, membership in principals:
+            if externality(snapshot, identity) != "external":
+                continue
+            for gallery in targets:
+                key = (str(native_id(assignment)).casefold(), gallery, identity.casefold())
+                if key in seen:
+                    continue
+                seen.add(key)
+                condition = props.get("condition")
+                evidence = {"source": source(snapshot, assignment, "properties.roleDefinitionId"),
+                    "role_definition_source": source(snapshot, definition, "properties.permissions"),
+                    "gallery_id": gallery, "assignment_scope": scope, "principal_id": identity,
+                    "via_group": principal if group_path else None, "group_path": group_path,
+                    "membership_source": source(snapshot, membership, "id") if membership else None,
+                    "role_definition_id": props.get("roleDefinitionId"), "action": action,
+                    "condition": condition, "effective_access": "unknown",
+                    "uncertainty": "Deny assignments, PIM activation, and runtime authorization may narrow declared access."}
+                output.append(finding(snapshot, assignment, "exposure", "analysis.azure_gallery_rbac_share",
+                    "Review external Azure Compute Gallery image read grant", "medium", evidence,
+                    status="MANUAL" if condition else "FAIL"))
+    return output
+
+
 def review_findings(snapshot, resources, *, include_manual_only=True):
+    resources = list(resources)
+    external_group_members = _azure_external_group_members(snapshot, resources) if snapshot["provider"] == "azure" else None
     output = []
     for resource in resources:
         declared = [] if _azure_definition_only(resource) else grants(resource)
@@ -575,12 +674,24 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
         # Public/external principal triage (peaso.analysis.trust): unconditional public
         # or out-of-boundary principals FAIL, restrictive conditions MANUAL, unattributable UNKNOWN.
         from .trust import principal_exposure
-        verdict = principal_exposure(snapshot, resource, ((identity, path, fact, kind, fact.get("tenantId"))
-                                                          for identity, path, fact, kind in principals(resource)))
+        declarations = [(identity, path, fact, kind, fact.get("tenantId"))
+                        for identity, path, fact, kind in principals(resource)]
+        if external_group_members and resource["type"] == "role_assignment":
+            props = resource["data"].get("properties") or {}
+            group_id = props.get("principalId")
+            if isinstance(group_id, str) and props.get("principalType") == "Group":
+                for member, (group_path, membership) in external_group_members(group_id).items():
+                    declarations.append((member, "properties.principalId",
+                        {**props, "viaGroup": group_id, "groupPath": group_path,
+                         "membershipSource": source(snapshot, membership, "id")},
+                        "GroupMember", None))
+        verdict = principal_exposure(snapshot, resource, declarations)
         if verdict:
             status, severity, evidence = verdict
             output.append(finding(snapshot, resource, "exposure", "analysis.principal_exposure",
                 "Review public or external principal declarations", severity, evidence, status=status))
+    if external_group_members:
+        output.extend(_azure_gallery_rbac_reviews(snapshot, resources, external_group_members))
     return output
 
 

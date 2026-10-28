@@ -5,7 +5,7 @@ HOW = {
     'analysis.principal_exposure': 'Classifies declared principals against the scanned scopes and collected organization membership, retaining restrictive conditions and attribution gaps.',
     'analysis.network_review': 'Finds Internet-wide allow rules in security groups, firewalls, NSGs or NetworkPolicies; it does not establish an endpoint path.',
     'analysis.coverage': 'Reports missing, denied or malformed inventory required by the identity analysis.',
-    'analysis.federated_trust': 'Checks OIDC trust declarations for the required issuer, audience and subject restrictions; unresolved identity details remain undetermined.',
+    'analysis.federated_trust': 'Checks federated trust declarations against collected provider inventory and declared audience and subject restrictions; unresolved identity details remain undetermined.',
 }
 ACTION = {
     'analysis.grant_review': 'Remove unnecessary broad permissions; retain only the actions and resources the workload needs.',
@@ -203,6 +203,11 @@ def evidence_summary(finding):
             if any(code in codes for code in ('no_aud_condition','cognito_no_aud')) and claim('aud'):return None
             if 'wildcard_sub' in codes and not any(_wildcard_subject(issuer.lower(),v) for v in claim('sub')):return None
             if 'cognito_unauthenticated' in codes and not any('unauthenticated' in v for v in claim('amr')):return None
+            if 'oidc_audience_disjoint' in codes:
+                clients=trust.get('provider_client_ids')
+                exact=[value for operator,key,values in _conditions(conditions)
+                       if operator.lower()=='stringequals' and key.lower()==issuer.lower()+':aud' for value in values]
+                if not oidc or not _strings(clients) or not clients or not exact or set(exact)&set(clients):return None
             if not codes and not claim('aud' if cognito else 'sub'):return None
             for code in codes:
                 if code=='no_sub_condition' and oidc:messages.append('The OIDC trust for '+issuer+' does not restrict which token subjects it accepts.')
@@ -210,11 +215,19 @@ def evidence_summary(finding):
                 elif code=='no_aud_condition' and oidc:messages.append('The OIDC trust does not restrict the token audience.')
                 elif code=='cognito_no_aud' and cognito:messages.append('The Cognito trust does not pin an identity-pool audience.')
                 elif code=='cognito_unauthenticated' and cognito:messages.append('The trust condition includes unauthenticated Cognito identities.')
+                elif code=='oidc_provider_unknown' and oidc:messages.append('The IAM OIDC provider inventory is missing or incomplete, so this role trust cannot be resolved.')
+                elif code=='oidc_provider_absent' and oidc:messages.append('The IAM OIDC provider is absent from the complete account inventory, so this role trust cannot use it.')
+                elif code=='oidc_provider_detail_unknown' and oidc:messages.append('The IAM OIDC provider URL or registered client IDs are not completely collected.')
+                elif code=='oidc_audience_disjoint' and oidc:messages.append('The trust audience does not match any registered client ID for this IAM OIDC provider.')
                 else:return None
             reviewed.append(issuer)
         if messages:
             unique=list(dict.fromkeys(messages))
-            return ' '.join(unique[:1])+' This may admit unintended token holders; other trust and session controls still affect access.'
+            neutral={'oidc_provider_unknown','oidc_provider_absent','oidc_provider_detail_unknown','oidc_audience_disjoint'}
+            all_codes={p['code'] for trust in trusts for p in trust['problems']}
+            if all_codes<=neutral:return ' '.join(unique[:2])
+            risk=next((message for message in unique if 'does not restrict' in message or 'leaves the tenant' in message or 'does not pin' in message or 'includes unauthenticated' in message),unique[0])
+            return risk+' This may admit unintended token holders; other trust and session controls still affect access.'
         unique=list(dict.fromkeys(reviewed))
         return 'No checked subject or audience restriction issue is recorded for '+', '.join(unique[:1])+(f' and {len(unique)-1} other issuers' if len(unique)>1 else '')+'; provider-side claim customization and effective role access remain unverified.'
     return None
@@ -379,7 +392,7 @@ _EXPOSURE_KINDS={
     'public_ip':'public IP path','load_balancer':'load-balancer frontend','database':'database endpoint',
     'managed_endpoint':'managed service endpoint','control_plane':'cluster control-plane endpoint',
     'function_url':'Lambda function URL','api':'API endpoint','data_share':'stored-data sharing',
-    'external_share':'external snapshot sharing','serverless':'serverless endpoint','web_app':'web application endpoint',
+    'external_share':'external snapshot sharing','external_network':'external VPC peering route','public_registry':'public image registry','external_log_stream':'log subscription destination','serverless':'serverless endpoint','web_app':'web application endpoint',
     'service':'Kubernetes service','ingress':'Kubernetes ingress','malformed':'internet path',
 }
 
@@ -390,7 +403,60 @@ def _internet_summary(finding):
         return _coverage_summary(e)
     if not isinstance(kind,str) or kind not in _EXPOSURE_KINDS:return None
     label=_EXPOSURE_KINDS[kind]
+    if kind=='external_log_stream':
+        path=e.get('path')
+        rows=[step for step in path if isinstance(step,dict) and step.get('layer')=='subscription'] if isinstance(path,list) else []
+        external=e.get('external_scope_ids')
+        if (status=='FAIL' and len(rows)==1 and rows[0].get('decision')=='allow' and _strings(external) and external and
+                rows[0].get('recipient_account')==external[0] and _text(rows[0].get('destination_arn')) and
+                _text(rows[0].get('log_group'))):
+            return 'The CloudWatch Logs subscription for '+rows[0]['log_group']+' targets a destination in external account '+external[0]+'. Matching log events may be sent there; delivery was not verified.'
+        if status=='UNKNOWN' and isinstance(e.get('unresolved'),list) and e['unresolved']:
+            return 'The CloudWatch Logs subscription source or destination is incomplete; external delivery cannot be attributed.'
+        return None
+    if kind=='public_registry':
+        path=e.get('path')
+        rows=[step for step in path if isinstance(step,dict) and step.get('layer')=='public_repository'] if isinstance(path,list) else []
+        if (status=='FAIL' and len(rows)==1 and rows[0].get('decision')=='allow' and
+                _text(rows[0].get('repository_arn')) and _text(rows[0].get('repository_name')) and
+                rows[0]['repository_arn'].startswith('arn:aws:ecr-public::') and
+                rows[0]['repository_arn'].endswith(':repository/'+rows[0]['repository_name'])):
+            return 'The ECR Public repository '+rows[0]['repository_name']+' is publicly readable; any published images can be pulled anonymously. Image contents were not enumerated.'
+        if status=='UNKNOWN' and isinstance(e.get('unresolved'),list) and e['unresolved']:
+            return 'The ECR Public repository identity or regional scope is incomplete; public image access cannot be attributed.'
+        return None
+    if kind=='external_network':
+        path=e.get('path')
+        resource_type=(e.get('source') if isinstance(e.get('source'),dict) else {}).get('resource_type')
+        if resource_type=='transit_gateway_attachment':
+            routes=[step for step in path if isinstance(step,dict) and step.get('layer')=='transit_route'] if isinstance(path,list) else []
+            external=e.get('external_scope_ids')
+            if status=='FAIL' and len(routes)==1 and routes[0].get('decision')=='allow' and _strings(external) and external and routes[0].get('foreign_account')==external[0] and _text(routes[0].get('foreign_attachment')):
+                return 'A local VPC route and associated Transit Gateway route select a VPC attachment owned by external account '+external[0]+'. Return routing and endpoint access remain unverified.'
+            if status=='UNKNOWN' and isinstance(e.get('unresolved'),list) and e['unresolved']:
+                return 'The route from a local VPC to the foreign Transit Gateway attachment is unresolved.'
+            return None
+        routes=[step for step in path if isinstance(step,dict) and step.get('layer')=='peering_route'] if isinstance(path,list) else []
+        external=e.get('external_scope_ids')
+        if status=='FAIL' and len(routes)==1 and routes[0].get('decision')=='allow' and _strings(external) and external and routes[0].get('peer_account')==external[0] and isinstance(routes[0].get('routes'),list) and routes[0]['routes']:
+            return 'An active VPC peering connection has a local route toward external account '+external[0]+'. Peer routing, endpoint filtering and application access remain unverified.'
+        if status=='PASS' and len(routes)==1 and routes[0].get('decision')=='block':
+            return 'The active external VPC peering connection has no active local route in the collected route tables.'
+        if status=='UNKNOWN' and isinstance(e.get('unresolved'),list) and e['unresolved']:
+            return 'The external VPC peering state or local route inventory is incomplete; access cannot be resolved.'
+        return None
     if status=='UNKNOWN':
+        if finding.get('provider')=='k8s' and kind in ('service','ingress') and isinstance(e.get('path'),list):
+            invalid=[value for step in e['path'] if isinstance(step,dict)
+                     and step.get('layer')=='source_ranges' and step.get('decision')=='unknown'
+                     for value in step.get('invalid_source_ranges',[]) if _text(value,200)]
+            if invalid:
+                noun='Service' if kind=='service' else 'Ingress'
+                value=_items(invalid[:2])
+                return (f'The {noun} has source range {value}, which is not a valid IP range.\n'
+                        "The controller's treatment of that value is not recorded, so its public source rule is unclear.\n"
+                        'The source rule may admit public requests if the controller ignores that range.\n'
+                        f'That could expose data served through this {noun}.')
         if finding.get('provider')=='k8s' and kind=='service' and isinstance(e.get('path'),list):
             declarations=[step.get('declared_public_addresses') for step in e['path']
                           if isinstance(step,dict) and step.get('layer')=='external_ip'
@@ -424,8 +490,18 @@ def _internet_summary(finding):
     ports=e.get('exposed_ports');addresses=e.get('public_addresses');external=e.get('external_scope_ids')
     if not _strings(ports) or not _strings(addresses):return None
     if kind=='external_share' and _strings(external) and external:
+        source=e.get('source') if isinstance(e.get('source'),dict) else {}
+        if source.get('resource_type')=='ec2_image':
+            return 'AMI launch access is declared for external principals '+_items(external)+'. They may launch the shared image; actual use and other controls were not tested.'
         return 'Snapshot restore access is declared for external accounts '+_items(external)+'. These accounts may copy the data; actual restores and other controls were not tested.'
     if e.get('data_exposure')is True:
+        source=e.get('source') if isinstance(e.get('source'),dict) else {}
+        if kind=='data_share' and source.get('resource_type')=='ec2_image':
+            if not any(step.get('decision')=='allow' and
+                       (step.get('layer')=='attributes' and step.get('public_group')=='all' or
+                        step.get('layer')=='image_public_flag' and step.get('public') is True)
+                       for step in path):return None
+            return 'The AMI has public launch permission. Other accounts may launch it; successful use and backing snapshot access were not tested.'
         noun='Snapshot restore access' if kind=='data_share' and 'snapshot' in str((e.get('source') if isinstance(e.get('source'),dict) else {}).get('resource_type','')) else 'Stored-data access'
         return noun+' is declared public. This may expose data to unintended readers; actual reads and other access controls were not tested.'
     target=(' at '+_items(addresses)) if addresses else ''

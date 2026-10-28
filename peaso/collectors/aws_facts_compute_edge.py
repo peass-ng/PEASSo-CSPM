@@ -63,6 +63,7 @@ READ_ACTIONS.update({
     ("rds", "describe_db_cluster_snapshot_attributes"),
     ("wafv2", "get_web_acl"), ("wafv2", "get_rule_group"), ("wafv2", "get_logging_configuration"), ("wafv2", "list_resources_for_web_acl"),
     ("cloudfront", "list_distributions_by_web_acl_id"),
+    ("cloudfront", "get_origin_access_control"),
     ("waf", "get_web_acl"), ("waf", "get_rule"), ("waf", "get_logging_configuration"), ("waf", "list_activated_rules_in_rule_group"),
     ("waf-regional", "get_web_acl"), ("waf-regional", "get_rule"), ("waf-regional", "get_logging_configuration"),
     ("waf-regional", "list_activated_rules_in_rule_group"), ("waf-regional", "list_resources_for_web_acl"),
@@ -429,14 +430,48 @@ def _api_domain_mappings(requests, session, region, items):
             lambda row: _pick(row, ("basePath", "restApiId", "stage")))
             if isinstance(name, str) and name else {"collection_status": "malformed"})
         if "ROUTING_RULE" in str(current.get("routingMode", "")):
+            def header_condition(condition):
+                if not isinstance(condition, dict):
+                    return False
+                headers = condition.get("MatchHeaders")
+                values = headers.get("AnyOf") if isinstance(headers, dict) else None
+                return (set(condition) == {"MatchHeaders"} and isinstance(values, list) and len(values) == 1
+                        and isinstance(values[0], dict) and isinstance(values[0].get("Header"), str)
+                        and bool(values[0]["Header"]) and isinstance(values[0].get("ValueGlob"), str)
+                        and bool(values[0]["ValueGlob"]))
+
+            def base_path_condition(condition):
+                if not isinstance(condition, dict):
+                    return False
+                paths = condition.get("MatchBasePaths")
+                values = paths.get("AnyOf") if isinstance(paths, dict) else None
+                return (set(condition) == {"MatchBasePaths"} and isinstance(values, list) and len(values) == 1
+                        and isinstance(values[0], str) and bool(values[0]))
+
+            def condition_shapes(row):
+                conditions = row.get("Conditions")
+                if not isinstance(conditions, list):
+                    return False, False, False
+                return (len(conditions) == 1 and header_condition(conditions[0]),
+                        len(conditions) == 1 and base_path_condition(conditions[0]),
+                        len(conditions) == 2 and ((header_condition(conditions[0]) and base_path_condition(conditions[1]))
+                                                  or (base_path_condition(conditions[0]) and header_condition(conditions[1]))))
+
+            def project_rule(row):
+                single_header, single_path, header_and_path = condition_shapes(row)
+                return {"RoutingRuleId": row.get("RoutingRuleId"),
+                        "Priority": row.get("Priority"),
+                        "ConditionCount": len(row["Conditions"]) if isinstance(row.get("Conditions"), list) else None,
+                        "SingleHeaderCondition": single_header,
+                        "SingleBasePathCondition": single_path,
+                        "HeaderAndBasePathConditions": header_and_path,
+                        "Actions": [{"InvokeApi": _pick(action["InvokeApi"], ("ApiId", "Stage", "StripBasePath"))}
+                                    for action in row.get("Actions", []) if isinstance(action, dict)
+                                    and isinstance(action.get("InvokeApi"), dict)]}
+
             current["RoutingRules"] = (_child(requests.pages(session, "apigatewayv2", region,
                 "list_routing_rules", "RoutingRules", DomainName=name),
-                lambda row: {"RoutingRuleId": row.get("RoutingRuleId"),
-                             "Priority": row.get("Priority"),
-                             "ConditionCount": len(row["Conditions"]) if isinstance(row.get("Conditions"), list) else None,
-                             "Actions": [{"InvokeApi": _pick(action["InvokeApi"], ("ApiId", "Stage"))}
-                                         for action in row.get("Actions", []) if isinstance(action, dict)
-                                         and isinstance(action.get("InvokeApi"), dict)]})
+                project_rule)
                 if isinstance(name, str) and name else {"collection_status": "malformed"})
         output.append(current)
     return output
@@ -622,8 +657,32 @@ def _cloudfront_log_deliveries(requests, session, region, items):
     sources = requests.pages(session, "logs", home, "describe_delivery_sources", "deliverySources")
     deliveries = requests.pages(session, "logs", home, "describe_deliveries", "deliveries")
     output = []
+    oac_reads = {}
     for item in items:
         item = copy.deepcopy(item)
+        config = item.get("Config")
+        distribution = config.get("DistributionConfig") if isinstance(config, dict) else None
+        origins = distribution.get("Origins") if isinstance(distribution, dict) else None
+        origin_items = origins.get("Items") if isinstance(origins, dict) else None
+        ids = {origin.get("OriginAccessControlId") for origin in origin_items or []
+               if isinstance(origin, dict) and isinstance(origin.get("OriginAccessControlId"), str)
+               and origin.get("OriginAccessControlId")}
+        item["OriginAccessControls"] = {}
+        for oac_id in sorted(ids):
+            if oac_id not in oac_reads:
+                read = requests.detail(session, "cloudfront", home, "get_origin_access_control",
+                                       Id=oac_id, absent=("NoSuchOriginAccessControl",))
+                control = read.get("OriginAccessControl") if isinstance(read, dict) else None
+                settings = control.get("OriginAccessControlConfig") if isinstance(control, dict) else None
+                if read.get("collection_status") == "collected" and isinstance(settings, dict) and control.get("Id") == oac_id:
+                    oac_reads[oac_id] = {"collection_status": "collected", "Id": oac_id,
+                                         "SigningBehavior": settings.get("SigningBehavior"),
+                                         "SigningProtocol": settings.get("SigningProtocol"),
+                                         "OriginAccessControlOriginType": settings.get("OriginAccessControlOriginType")}
+                else:
+                    oac_reads[oac_id] = {"collection_status": "malformed" if read.get("collection_status") == "collected" else read.get("collection_status"),
+                                         "error": read.get("error", {})}
+            item["OriginAccessControls"][oac_id] = oac_reads[oac_id]
         failed = next((read for read in (sources, deliveries) if not _usable(read)), None)
         if failed:
             item["LogDeliveries"] = {"collection_status": failed.status, "error": failed.error or {}}

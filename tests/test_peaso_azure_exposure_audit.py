@@ -170,6 +170,14 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
 
     assert ml_decision(public="Disabled").verdict() == "UNKNOWN"
     assert ml_decision(public="Disabled", endpoint_public="Disabled").verdict() == "PASS"
+    lingering = ml_decision(public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
+        {"value": "8.8.8.8/32"}]})
+    assert lingering.verdict() == "FAIL" and "https://score.example.test" in lingering.addresses
+    assert lingering.ports == {"tcp": ((443, 443),)}
+    assert ml_decision(public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
+        {"value": "10.0.0.0/8"}]}).verdict() == "UNKNOWN"
+    assert ml_decision(public="Disabled", endpoint_public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
+        {"value": "8.8.8.8/32"}]}).verdict() == "PASS"
     unknown = ml_decision()
     assert unknown.verdict() == "UNKNOWN" and "https://score.example.test" in unknown.addresses
     assert any("networkAcls" in gap["reason"] for gap in unknown.unresolved)
@@ -179,6 +187,33 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
     assert ml_decision(acls={"defaultAction": "Deny", "ipRules": [
         {"value": "10.0.0.0/8"}]}).verdict() == "PASS"
     assert ml_decision(acls={"defaultAction": "Allow"}, status="denied").verdict() == "FAIL"
+
+
+def test_redis_enterprise_managed_redis_database_listener_gates():
+    cluster = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redisEnterprise/cache"
+    def evaluate(access, child_status="collected", database_port=10000):
+        item = {"id": cluster, "properties": {"publicNetworkAccess": access,
+                "hostName": "cache.westus.redis.azure.net"}}
+        database = {"id": cluster + "/databases/default", "properties": {
+            "port": database_port, "clientProtocol": "Encrypted"}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "redis_enterprise_cluster", "scope": SCOPE, "service": "cache",
+             "status": "collected", "items": [item]},
+            {"type": "redis_enterprise_database", "scope": SCOPE, "service": "cache",
+             "status": child_status, "items": [database] if child_status in ("collected", "partial") else []},
+        ])
+        return next(row for row in assess(snap, resources(snap))
+                    if row.resource["type"] == "redis_enterprise_cluster")
+    exposed = evaluate("Enabled")
+    assert exposed.verdict() == "FAIL" and exposed.ports == {"tcp": ((10000, 10000),)}
+    assert exposed.addresses == ["cache.westus.redis.azure.net"]
+    assert evaluate("Disabled").verdict() == "PASS"
+    assert evaluate("Enabled", child_status="empty").verdict() == "PASS"
+    assert evaluate("Enabled", child_status="partial").verdict() == "FAIL"
+    assert evaluate("Enabled", child_status="denied").verdict() == "UNKNOWN"
+    assert evaluate("Enabled", child_status="partial", database_port=None).verdict() == "UNKNOWN"
+    assert evaluate("Enabled", database_port=None).verdict() == "UNKNOWN"
+    assert evaluate(None).verdict() == "UNKNOWN"
 
 
 def test_databricks_arm_public_gate_keeps_external_ingress_policy_unknown():
@@ -207,10 +242,55 @@ def test_compute_gallery_community_and_direct_sharing_policy():
         "groups": [{"type": "AADTenants", "ids": ["outside-tenant"]}]}})
     assert direct.verdict() == "UNKNOWN"
     assert len(_observed(direct, "UNKNOWN").splitlines()) == 3
+    def tenant_sharing(owner_verified, recipients):
+        item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images",
+                "properties": {"sharingProfile": {"permissions": "Groups",
+                    "groups": [{"type": "AADTenants", "ids": recipients}]}},
+                "_provenance": {"tenant_id": "home-tenant", "tenant_verified": owner_verified}}
+        snap = make_snapshot("azure", [SCOPE], [{"type": "compute_gallery", "scope": SCOPE,
+            "service": "compute", "status": "collected", "items": [item]}])
+        return assess(snap, resources(snap))[0]
+    assert tenant_sharing(True, ["outside-tenant"]).verdict() == "FAIL"
+    assert tenant_sharing(True, ["home-tenant"]).verdict() == "PASS"
+    assert tenant_sharing(False, ["outside-tenant"]).verdict() == "UNKNOWN"
+    other_subscription = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
+        "groups": [{"type": "Subscriptions", "ids": ["test", "outside-subscription"]}]}})
+    assert other_subscription.verdict() == "FAIL"
+    assert other_subscription.external_ids == ["outside-subscription"]
+    assert "published image versions" in other_subscription.notes[0]
+    assert _observed(other_subscription, "FAIL").splitlines()[0].startswith(
+        "The gallery has sharingProfile.permissions Groups with recipients outside")
+    own_subscription = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
+        "groups": [{"type": "Subscriptions", "ids": ["test"]}]}})
+    assert own_subscription.verdict() == "PASS"
+    assert _observed(own_subscription, "PASS").splitlines()[0].startswith(
+        "The gallery has sharingProfile.permissions Groups with only")
+    assert decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
+        "groups": [{"type": "Subscriptions", "ids": "outside-subscription"}]}}).verdict() == "UNKNOWN"
     missing = decision("compute_gallery", {})
     assert missing.verdict() == "UNKNOWN"
     assert _observed(missing, "UNKNOWN").splitlines()[0] == (
         "The gallery has no recorded sharingProfile.permissions value.")
+
+
+def test_gallery_public_policy_reports_observed_versions_and_partial_child_inventory():
+    image_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images/images/base"
+    def gallery(version_status, versions):
+        item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images",
+                "properties": {"sharingProfile": {"permissions": "Community"}},
+                "_coverage": {"images": {"status": "collected"}},
+                "images": [{"id": image_id, "_coverage": {"versions": {"status": version_status}},
+                            "versions": versions}]}
+        snap = make_snapshot("azure", [SCOPE], [{"type": "compute_gallery", "scope": SCOPE,
+            "service": "compute", "status": "collected", "items": [item]}])
+        return assess(snap, resources(snap))[0]
+    version = image_id + "/versions/1.0.0"
+    complete = gallery("collected", [{"id": version}])
+    assert complete.verdict() == "FAIL"
+    assert any(version in note for note in complete.notes)
+    partial = gallery("partial", [{"id": version}])
+    assert partial.verdict() == "FAIL"
+    assert any("incomplete" in note for note in partial.notes)
 
 
 def test_container_instance_public_ports_and_private_group():
@@ -788,8 +868,11 @@ def test_redis_public_listeners_preserve_firewall_uncertainty():
     assert non_tls.ports == {"tcp": ((6379, 6380),)}
     assert decision("redis_cache", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
     assert decision("redis_cache", {**base, "publicNetworkAccess": None}).verdict() == "UNKNOWN"
-    injected = decision("redis_cache", {**base, "subnetId": "/subscriptions/test/subnets/cache"})
-    assert any(gap["layer"] == "nsg" for gap in injected.unresolved)
+    injected = decision("redis_cache", {**base, "subnetId":
+        "/subscriptions/test/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/cache"})
+    assert injected.verdict() == "PASS" and injected.ports == {}
+    assert any(step["layer"] == "network" and step["decision"] == "block" for step in injected.path)
+    assert decision("redis_cache", {**base, "subnetId": "malformed"}).verdict() == "UNKNOWN"
 
     def with_rules(rules, status="collected"):
         item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redis/cache",
@@ -819,6 +902,16 @@ def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
     assert decision("cosmos_account", {**base, "ipRules": [{"ipAddressOrRange": "bad"}]}).verdict() == "UNKNOWN"
     assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
         "ipRules": []}).verdict() == "UNKNOWN"
+    closed = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "None",
+        "networkAclBypassResourceIds": []})
+    assert closed.verdict() == "PASS" and closed.ports == {}
+    assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "AzureServices",
+        "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"
+    assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [{"id": "/subscriptions/other/subnets/s"}],
+        "networkAclBypass": "None", "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"
     assert decision("cosmos_account", {**base, "ipRules": None}).verdict() == "UNKNOWN"
 
 

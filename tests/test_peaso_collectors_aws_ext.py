@@ -211,6 +211,24 @@ def test_ecr_registry_all_denied(stub):
     assert read.status == "denied" and read.items == []
 
 
+def test_ecr_registry_malformed_replication_rules_are_not_silently_dropped():
+    from peaso.collectors.aws import ReadResult
+
+    class Requests:
+        def detail(self, session, service, region, operation, **kwargs):
+            if operation == "describe_registry":
+                return {"collection_status": "collected", "registryId": ACCOUNT,
+                        "replicationConfiguration": {"rules": ["malformed"]}}
+            return {"collection_status": "empty", "absent": True}
+
+        def pages(self, session, service, region, operation, expression, **kwargs):
+            return ReadResult([], "empty")
+
+    row = ext._ecr_registry(Requests(), object(), REGION, ACCOUNT).items[0]
+    assert row["Replication"]["collection_status"] == "malformed"
+    assert "rules" not in row["Replication"]
+
+
 def test_eks_access_entries_and_config_map_cluster(stub):
     session, add = stub
     eks = add("eks")
