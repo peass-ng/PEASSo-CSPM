@@ -3089,6 +3089,10 @@ def gcp_public_policy_findings(snapshot, resources):
         if resource["type"] == "artifact_repository":
             # The permission-specific finding below owns these exact grants.
             declarations = [row for row in declarations if row["role"] != "roles/artifactregistry.reader"]
+        if resource["type"] in {"pubsub_topic", "pubsub_subscription"}:
+            exact_role = ("roles/pubsub.publisher" if resource["type"] == "pubsub_topic"
+                          else "roles/pubsub.subscriber")
+            declarations = [row for row in declarations if row["role"] != exact_role]
         if not declarations:
             continue
         unconditional = [row for row in declarations if not row["condition"]]
@@ -3376,6 +3380,60 @@ def gcp_artifact_public_reader_findings(snapshot, resources):
         }
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_artifact_public_reader",
                               "Public Artifact Registry Reader grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
+def gcp_pubsub_public_grant_findings(snapshot, resources):
+    """Report direct public publish or consume grants without asserting API access."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        kind = resource["type"]
+        if kind not in {"pubsub_topic", "pubsub_subscription"} or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        coverage = data.get("_coverage", {}).get("iamPolicy") if isinstance(data.get("_coverage"), dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        topic = kind == "pubsub_topic"
+        role = "roles/pubsub.publisher" if topic else "roles/pubsub.subscriber"
+        permission = "pubsub.topics.publish" if topic else "pubsub.subscriptions.consume"
+        grants = []
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict) or binding.get("role") != role:
+                continue
+            for member in as_list(binding.get("members")):
+                if member in {"allUsers", "allAuthenticatedUsers"}:
+                    grants.append({"member": member, "role": role, "condition": binding.get("condition")})
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
+        resource_label = "topic" if topic else "subscription"
+        action = "publish messages to the topic" if topic else "consume messages from the subscription"
+        first = (f"The Pub/Sub {resource_label} {name} has {role} for {grant['member']} in its direct IAM policy."
+                 if unconditional else
+                 f"The Pub/Sub {resource_label} {name} has a conditional {role} binding for {grant['member']}.")
+        evidence = {
+            "observed": "\n".join((first,
+                f"That role includes {permission}." if unconditional else
+                "The condition has no recorded request evaluation.",
+                f"Internet principals may {action} if other controls allow it." if unconditional else
+                f"If the condition is satisfied, that principal may {action}.",
+                "Inherited policy, IAM denies, API authentication, and actual message access remain unresolved.")),
+            "direct_public_grants": grants,
+            "permission": permission,
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct resource permission declaration only; inherited policy, IAM denies, API authentication and successful requests are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_pubsub_public_grant",
+                              "Public Pub/Sub publish or consume grant", "high" if unconditional else "info",
                               evidence, status="FAIL" if unconditional else "UNKNOWN"))
     return output
 
@@ -5787,6 +5845,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_cloud_tasks_external_enqueuer_findings(snapshot, resources))
     output.extend(gcp_scheduler_oidc_target_findings(snapshot, resources))
     output.extend(gcp_artifact_public_reader_findings(snapshot, resources))
+    output.extend(gcp_pubsub_public_grant_findings(snapshot, resources))
     return output
 
 

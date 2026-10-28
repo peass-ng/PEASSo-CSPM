@@ -94,7 +94,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **145 have no native pa
 | Data analytics and pipelines | [Managed Service for Apache Kafka](https://docs.cloud.google.com/managed-service-for-apache-kafka/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Managed Service for Apache Spark](https://docs.cloud.google.com/managed-spark/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Manufacturing Data Engine](https://docs.cloud.google.com/manufacturing-data-engine/docs) | — | REVIEW REQUIRED |
-| Data analytics and pipelines | [Pub/Sub](https://docs.cloud.google.com/pubsub/docs) | IAM policy | REVIEW REQUIRED |
+| Data analytics and pipelines | [Pub/Sub](https://docs.cloud.google.com/pubsub/docs) | Topic public Publisher and subscription public Subscriber direct IAM grants; inherited/custom roles, IAM denies, conditions, API authentication and successful message access unresolved | REVIEW REQUIRED |
 | Databases | [AlloyDB](https://docs.cloud.google.com/alloydb/docs) | alloydb_instance public IP / Data API executeSql declaration | REVIEW REQUIRED |
 | Databases | [AlloyDB Omni](https://docs.cloud.google.com/alloydb/omni/docs) | — | REVIEW REQUIRED |
 | Databases | [Bigtable](https://docs.cloud.google.com/bigtable/docs) | bigtable_table direct cross-project Reader IAM grant; other scopes, roles and ownership unresolved | REVIEW REQUIRED |

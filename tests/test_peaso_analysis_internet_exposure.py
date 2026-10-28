@@ -891,6 +891,39 @@ def test_gcp_artifact_registry_public_reader_grant():
     assert findings() == []
 
 
+@pytest.mark.parametrize("kind,role,permission", [
+    ("pubsub_topic", "roles/pubsub.publisher", "pubsub.topics.publish"),
+    ("pubsub_subscription", "roles/pubsub.subscriber", "pubsub.subscriptions.consume"),
+])
+def test_gcp_pubsub_direct_public_publish_or_consume_grant(kind, role, permission):
+    segment = "topics" if kind == "pubsub_topic" else "subscriptions"
+    item = {"name": f"projects/p1/{segment}/messages",
+            "iamPolicy": {"bindings": [{"role": role, "members": ["allUsers"]}]},
+            "_coverage": {"iamPolicy": {"status": "collected"}}}
+
+    def report():
+        return analyze(gcp(gcoll(kind, [item], service="pubsub")))["findings"]
+
+    rows = [row for row in report() if row["check_id"] == "analysis.gcp_pubsub_public_grant"]
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], item["name"])
+    assert rows[0]["evidence"]["permission"] == permission
+    assert not any(row["check_id"] == "analysis.gcp_public_iam" for row in report())
+    item["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    rows = [row for row in report() if row["check_id"] == "analysis.gcp_pubsub_public_grant"]
+    assert len(rows) == 1 and rows[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(rows[0], item["name"])
+    item["iamPolicy"]["bindings"][0].pop("condition")
+    item["iamPolicy"]["bindings"][0]["members"] = ["allAuthenticatedUsers"]
+    assert any(row["check_id"] == "analysis.gcp_pubsub_public_grant" for row in report())
+    item["iamPolicy"]["bindings"][0]["role"] = "roles/pubsub.viewer"
+    assert not any(row["check_id"] == "analysis.gcp_pubsub_public_grant" for row in report())
+    assert any(row["check_id"] == "analysis.gcp_public_iam" for row in report())
+    item["iamPolicy"]["bindings"][0]["role"] = role
+    item["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert not any(row["check_id"] == "analysis.gcp_pubsub_public_grant" for row in report())
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}
