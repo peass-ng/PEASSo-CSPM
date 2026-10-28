@@ -6859,6 +6859,7 @@ def federated_findings(snapshot, resources):
     from .trust import aws_federated_trust, azure_federated_credential, gcp_wif_provider
     handlers = {("aws", "iam_role"): aws_federated_trust, ("gcp", "workload_identity_provider"): gcp_wif_provider,
                 ("azure", "managed_identity_federated_credential"): azure_federated_credential,
+                ("azure", "directory_federated_credential"): azure_federated_credential,
                 ("azure", "directory_application_federated_credential"): azure_federated_credential}
     output = []
     for resource in resources:

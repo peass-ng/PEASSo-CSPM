@@ -5,6 +5,7 @@ from peaso.analysis import analyze
 from peaso.analysis.trust import restrictive_conditions, trusted_scopes
 from peaso.snapshot import make_snapshot, resources
 from peaso.analysis.iam import review_findings
+from peaso.analysis.internet_exposure import federated_findings
 
 ACCOUNT = "111122223333"
 SCOPE = f"{ACCOUNT}/us-east-1"
@@ -38,6 +39,19 @@ def trust(principal_value, condition=None, action="sts:AssumeRole"):
     if condition:
         statement["Condition"] = condition
     return statement
+
+
+def test_collected_graph_app_federated_credential_reaches_native_exposure_review():
+    tenant = "/tenants/home"
+    item = {"id": "applications/app/federatedIdentityCredentials/credential", "appId": "app-id",
+            "issuer": "https://token.actions.githubusercontent.com",
+            "subject": "repo:owner/project:ref:refs/heads/main",
+            "audiences": ["api://AzureADTokenExchange"]}
+    snapshot = make_snapshot("azure", [tenant], [coll("directory_federated_credential", [item], scope=tenant)],
+                             metadata={"tenant_id": "home"})
+    rows = federated_findings(snapshot, resources(snapshot))
+    assert len(rows) == 1 and rows[0]["check_id"] == "analysis.federated_trust"
+    assert rows[0]["evidence"]["subject"] == item["subject"]
 
 
 def test_azure_group_role_assignment_reaches_nested_guest():
