@@ -6098,7 +6098,21 @@ def _azure_public_edge(snapshot, inventory, resource):
     if data.get("sku", {}).get("name") in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
         policies = data.get("securityPolicies")
         if policies:
-            a.gap("policy", "edge security policy may filter the listener")
+            passive = []
+            for policy in policies:
+                params = (policy.get("properties") or {}).get("parameters") if isinstance(policy, dict) else None
+                policy_id = (params.get("wafPolicy") or {}).get("id") if isinstance(params, dict) else None
+                waf = inventory.get("frontdoor_waf_policy", policy_id) if isinstance(policy_id, str) else None
+                settings = _props(waf).get("policySettings") if waf is not None else None
+                if isinstance(settings, dict) and (settings.get("enabledState") == "Disabled" or
+                                                     settings.get("mode") == "Detection"):
+                    passive.append({"security_policy": policy.get("id"), "waf_policy": policy_id,
+                                    "enabled_state": settings.get("enabledState"), "mode": settings.get("mode")})
+                else:
+                    a.gap("policy", "edge security policy may filter the listener")
+            if len(passive) == len(policies):
+                a.step("waf", "allow", passive_policies=passive,
+                       reason="all referenced WAF policies are disabled or in Detection mode")
     if (data.get("properties") or {}).get("webApplicationFirewallPolicyLink"):
         a.gap("policy", "classic Front Door WAF policy may filter the listener")
     return a
@@ -6904,6 +6918,16 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.resource["type"] == "frontdoor_and_cdn_endpoint" and status == "FAIL":
+        waf = next((step for step in assessment.path if step["layer"] == "waf"
+                    and step["decision"] == "allow"), None)
+        if waf is not None:
+            policy = waf["passive_policies"][0]
+            host = assessment.addresses[0] if assessment.addresses else "an unobserved hostname"
+            return (f"The Front Door edge has an enabled public route at {host}.\n"
+                    f"Its referenced WAF policy {policy['waf_policy']} records mode {policy['mode']} "
+                    f"and enabledState {policy['enabled_state']}, so it does not block this listener.\n"
+                    "The public listener is configured; a successful request was not tested.")
     if assessment.resource["type"] == "load_balancer" and status == "UNKNOWN":
         missing_frontend = next((gap["reason"] for gap in assessment.unresolved
                                  if "assigned global public frontend address" in gap["reason"]), None)
