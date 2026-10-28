@@ -662,6 +662,34 @@ def test_gcp_terminal_hierarchical_firewall_rule_preempts_vpc_rules():
     assert assessment()["status"] == "UNKNOWN"
 
 
+def test_gcp_bigtable_direct_cross_project_reader_grant():
+    table = {"name": "projects/p1/instances/orders/tables/current",
+             "iamPolicy": {"bindings": [{"role": "roles/bigtable.reader", "members": [
+                 "serviceAccount:reader@other-project.iam.gserviceaccount.com"]}]},
+             "_coverage": {"iamPolicy": {"status": "collected"}}}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("bigtable_table", [table], service="bigtableadmin")))["findings"]
+                if row["check_id"] == "analysis.gcp_bigtable_external_reader"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert rows[0]["evidence"]["permission"] == "bigtable.tables.readRows"
+    assert rows[0]["evidence"]["direct_reader_grants"][0]["service_account_project"] == "other-project"
+    assert "successful reads are not established" in rows[0]["evidence"]["semantics"]
+    table["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert findings()[0]["status"] == "UNKNOWN"
+    table["iamPolicy"]["bindings"][0].pop("condition")
+    table["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:reader@p1.iam.gserviceaccount.com"]
+    assert findings() == []
+    table["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:reader@other-project.iam.gserviceaccount.com"]
+    table["iamPolicy"]["bindings"][0]["role"] = "roles/bigtable.viewer"
+    assert findings() == []
+    table["iamPolicy"]["bindings"][0]["role"] = "roles/bigtable.reader"
+    table["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert findings() == []
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

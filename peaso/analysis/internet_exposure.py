@@ -3011,6 +3011,55 @@ def gcp_public_policy_findings(snapshot, resources):
     return output
 
 
+def gcp_bigtable_external_reader_findings(snapshot, resources):
+    """Report exact direct table-reader grants to another GCP project's SA."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "bigtable_table" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        envelope = data.get("_coverage")
+        coverage = envelope.get("iamPolicy") if isinstance(envelope, dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = []
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict) or binding.get("role") != "roles/bigtable.reader":
+                continue
+            for member in as_list(binding.get("members")):
+                if not isinstance(member, str) or not member.startswith("serviceAccount:"):
+                    continue
+                match = re.fullmatch(r"[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com",
+                                     member.removeprefix("serviceAccount:"))
+                if match and match.group(1) != project:
+                    grants.append({"member": member, "service_account_project": match.group(1),
+                                   "role": binding["role"], "condition": binding.get("condition")})
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        status = "FAIL" if unconditional else "UNKNOWN"
+        evidence = {
+            "observed": ("The collected Bigtable table IAM policy grants the Bigtable Reader role to a service account from another project."
+                         if unconditional else "The collected Bigtable table IAM policy has a conditional Bigtable Reader grant to a service account from another project."),
+            "direct_reader_grants": grants,
+            "permission": "bigtable.tables.readRows",
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct IAM grant declaration only; project ownership, IAM denies, table contents, and successful reads are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_bigtable_external_reader",
+                              "Cross-project Bigtable table reader grant", "high" if unconditional else "info",
+                              evidence, status=status))
+    return output
+
+
 # -------------------------------------------------------------------- Azure
 
 def _props(resource):
@@ -5311,6 +5360,7 @@ def internet_findings(snapshot, resources):
         output.append(current)
     output.extend(coverage_findings(snapshot, resources))
     output.extend(gcp_public_policy_findings(snapshot, resources))
+    output.extend(gcp_bigtable_external_reader_findings(snapshot, resources))
     return output
 
 
