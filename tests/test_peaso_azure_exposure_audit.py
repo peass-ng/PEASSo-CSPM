@@ -207,7 +207,8 @@ def test_application_gateway_public_frontend_requires_observed_address():
           "destinationAddressPrefix": None}}]).verdict() == "FAIL"
     dual = check({"first": "8.8.8.8", "second": "9.9.9.9"}, ("first", "second"),
                  [allow_destination("9.9.9.9/32")])
-    assert dual.verdict() == "FAIL" and "assigned public address 9.9.9.9" in _observed(dual, "FAIL")
+    assert dual.verdict() == "FAIL" and dual.addresses == ["9.9.9.9"]
+    assert "assigned public address 9.9.9.9" in _observed(dual, "FAIL")
     mixed_blocked = check({"first": "8.8.8.8", "second": None}, ("first", "second"),
                           [allow_destination("9.9.9.9/32")])
     assert mixed_blocked.verdict() == "UNKNOWN"

@@ -4463,7 +4463,7 @@ def _azure_appgw(snapshot, inventory, resource):
         a.notes.append("Other Application Gateway public frontend addresses are not collected")
     a.step("listener", "allow" if not empty(ports) else "block", listener_ports=describe(ports))
     subnet = next((((c.get("properties") or {}).get("subnet") or {}).get("id") for c in as_list(props.get("gatewayIPConfigurations")) if isinstance(c, dict)), None)
-    allowed, unresolved_nsg, paths = {}, [], []
+    allowed, unresolved_nsg, paths, admitted_addresses = {}, [], [], []
     for address, listener_ports in address_ports.items():
         path = Assessment(resource, "application_gateway")
         open_ports = _azure_nsg_path(inventory, path, None, subnet, listener_ports,
@@ -4476,7 +4476,10 @@ def _azure_appgw(snapshot, inventory, resource):
                                   for gap in path.unresolved)
         else:
             allowed = union(allowed, known_ports)
+            if not empty(known_ports):
+                admitted_addresses.append(address)
     if not empty(allowed):
+        a.addresses = sorted(set(admitted_addresses))
         if unresolved_nsg:
             a.notes.append("Other public frontend subnet NSG paths are unresolved")
         a.step("nsg", "allow", frontends=paths, allowed=describe(allowed))
