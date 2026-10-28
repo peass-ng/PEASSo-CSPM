@@ -915,11 +915,13 @@ def _opensearch_http_policy(document_value, domain_arn):
     from .trust import restrictive_conditions
     doc = document(document_value)
     if doc is None or not isinstance(domain_arn, str):
-        return None, [], True
+        return None, [], True, []
     methods = {f"es:eshttp{method}" for method in ("get", "head", "post", "put", "patch", "delete")}
     scope = f"{domain_arn}/*"
-    allowed, denied, restricted, uncertain = set(), set(), [], False
-    for statement in as_list(doc.get("Statement")):
+    allowed, denied, restricted, uncertain, narrow = set(), set(), [], False, []
+    statements = as_list(doc.get("Statement"))
+    any_deny = any(isinstance(row, dict) and row.get("Effect") == "Deny" for row in statements)
+    for statement in statements:
         if not isinstance(statement, dict) or statement.get("Effect") not in ("Allow", "Deny"):
             uncertain = True
             continue
@@ -936,8 +938,13 @@ def _opensearch_http_policy(document_value, domain_arn):
             continue
         resources = as_list(statement.get("Resource"))
         if scope not in resources and "*" not in resources:
-            if any(isinstance(x, str) and x.startswith(f"{domain_arn}/") for x in resources):
-                uncertain = True  # A narrower index or API path may still be public.
+            path_resources = [x for x in resources if isinstance(x, str) and x.startswith(f"{domain_arn}/")
+                              and len(x) > len(domain_arn) + 1]
+            if path_resources:
+                if statement["Effect"] == "Allow" and not statement.get("Condition") and not any_deny:
+                    narrow.extend((action, resource) for action in sorted(matched) for resource in path_resources)
+                else:
+                    uncertain = True
             continue
         condition = statement.get("Condition") or {}
         if condition:
@@ -946,7 +953,7 @@ def _opensearch_http_policy(document_value, domain_arn):
             uncertain = True
             continue
         (allowed if statement["Effect"] == "Allow" else denied).update(matched)
-    return bool(allowed - denied), restricted, uncertain
+    return bool(allowed - denied or narrow), restricted, uncertain, narrow
 
 
 def _aws_opensearch(snapshot, inventory, resource):
@@ -959,18 +966,20 @@ def _aws_opensearch(snapshot, inventory, resource):
         return None
     a.addresses = [status.get("Endpoint")] if status.get("Endpoint") else []
     a.step("route", "allow", reason="public (non-VPC) domain endpoint")
-    public, restricted, uncertain = _opensearch_http_policy(status.get("AccessPolicies"), status.get("ARN"))
+    public, restricted, uncertain, narrow = _opensearch_http_policy(status.get("AccessPolicies"), status.get("ARN"))
     ports = pset("tcp", 443, 443)
     if status.get("DomainEndpointOptions", {}).get("EnforceHTTPS") is False:
         ports = union(ports, pset("tcp", 80, 80))
-    if uncertain:
+    if public:
+        a.step("policy", "allow", reason="access policy grants Principal * an HTTP action on this domain without restrictive conditions",
+               narrow_resource_declarations=[{"action": action, "resource": resource} for action, resource in narrow],
+               semantics="A granted domain path is a policy declaration; index existence and HTTP response are not established")
+    elif uncertain:
         a.gap("policy", "domain HTTP action, resource or condition join is unresolved", "opensearch:DescribeDomain")
         a.authenticated = True
     elif public is None:
         a.step("policy", "allow", reason="no access policy document; IAM identity policies govern", note="authenticated")
         a.authenticated = True
-    elif public:
-        a.step("policy", "allow", reason="access policy grants Principal * an HTTP action on this domain without restrictive conditions")
     else:
         a.step("policy", "allow", reason="access policy requires signed or condition-restricted access", restrictive_conditions=restricted)
         a.authenticated = True

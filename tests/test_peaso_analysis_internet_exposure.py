@@ -93,7 +93,7 @@ def deployed_rest(api, *, stage="prod", authorization=None, api_key_required=Non
 
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
     (["es:DescribeDomain"], "/*", False, True),
-    (["es:ESHttpGet"], "/other/*", False, True),
+    (["es:ESHttpGet"], "/other/*", False, False),
     (["es:ESHttpGet"], "/*", False, False),
     (["es:ESHttpGet"], "/*", True, True),
 ])
@@ -110,6 +110,28 @@ def test_opensearch_anonymous_policy_joins_http_action_domain_resource_and_deny(
         "AccessPolicies": {"Statement": statements}}}}
     result = one(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
     assert result["evidence"]["authenticated_endpoint"] is expected_authenticated
+    if resource_suffix == "/other/*" and not deny:
+        assert result["status"] == "FAIL"
+        policy_step = next(step for step in result["evidence"]["path"] if step["layer"] == "policy")
+        assert policy_step["narrow_resource_declarations"] == [
+            {"action": "es:eshttpget", "resource": arn + "/other/*"}]
+
+
+def test_opensearch_narrow_http_grant_stays_unresolved_with_deny_or_condition():
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    allow = {"Effect": "Allow", "Principal": "*", "Action": "es:ESHttpGet", "Resource": arn + "/index/*"}
+    status = {"DomainName": "search", "ARN": arn, "Endpoint": "search.example.com",
+              "AccessPolicies": {"Statement": [allow]}}
+    item = {"DomainName": "search", "Domain": {"collection_status": "collected", "DomainStatus": status}}
+    def finding():
+        return one(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
+    assert finding()["status"] == "FAIL"
+    status["AccessPolicies"]["Statement"].append({"Effect": "Deny", "Principal": "*",
+        "Action": "es:ESHttpGet", "Resource": arn + "/index/private/*"})
+    assert finding()["status"] == "UNKNOWN"
+    status["AccessPolicies"]["Statement"].pop()
+    allow["Condition"] = {"IpAddress": {"aws:SourceIp": "203.0.113.0/24"}}
+    assert finding()["status"] == "UNKNOWN"
 
 
 def test_opensearch_fine_grained_auth_honors_anonymous_migration_setting():
