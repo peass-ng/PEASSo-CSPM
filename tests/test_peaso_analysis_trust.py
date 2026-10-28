@@ -86,10 +86,11 @@ def test_azure_gallery_image_read_role_grant_to_external_guest():
         return {"id": scope + "/providers/Microsoft.Authorization/roleAssignments/a",
                 "properties": {"scope": scope, "principalId": principal, "principalType": "User",
                                "roleDefinitionId": role_id, "condition": condition}}
-    def scan(grants, role=definition):
+    def scan(grants, role=definition, denials=()):
         snap = make_snapshot("azure", [sub], [
             coll("compute_gallery", [{"id": gallery, "properties": {"sharingProfile": {"permissions": "Private"}}}], scope=sub),
             coll("role_assignment", grants, scope=sub), coll("role_definition", [role], scope="/"),
+            coll("deny_assignment", list(denials), scope=sub),
             coll("directory_user", [{"id": "guest", "userType": "Guest"}], scope=tenant),
         ], metadata={"tenant_id": "home"})
         return [row for row in review_findings(snap, resources(snap))
@@ -102,6 +103,21 @@ def test_azure_gallery_image_read_role_grant_to_external_guest():
     denied = {**definition, "properties": {"permissions": [{"actions": ["*"],
         "notActions": ["Microsoft.Compute/galleries/images/versions/read"]}]}}
     assert not scan([assignment(gallery)], role=denied)
+    all_principal_deny = {"id": "deny", "properties": {"scope": gallery,
+        "doNotApplyToChildScopes": False,
+        "principals": [{"id": "00000000-0000-0000-0000-000000000000", "type": "SystemDefined"}],
+        "excludePrincipals": [], "permissions": [{"actions": ["Microsoft.Compute/galleries/images/versions/read"],
+                                                "notActions": []}]}}
+    blocked = scan([assignment(image)], denials=[all_principal_deny])
+    assert len(blocked) == 1 and blocked[0]["status"] == "PASS"
+    assert blocked[0]["evidence"]["deny_source"]
+    assert blocked[0]["evidence"]["effective_access"] == "blocked_for_gallery_image_version_read"
+    for changes in ({"doNotApplyToChildScopes": True},
+                    {"excludePrincipals": [{"id": "guest", "type": "User"}]},
+                    {"permissions": [{"actions": ["*"], "notActions": ["Microsoft.Compute/galleries/images/versions/read"]}]},
+                    {"condition": "@Resource[x] StringEquals 'y'"}):
+        altered = {**all_principal_deny, "properties": {**all_principal_deny["properties"], **changes}}
+        assert scan([assignment(image)], denials=[altered])[0]["status"] == "FAIL"
 
 
 def test_azure_gallery_image_read_inherited_through_observed_group_member():

@@ -603,7 +603,43 @@ def _azure_gallery_rbac_reviews(snapshot, resources, group_members):
         return []
     definitions = {_azure_role_guid(row["data"].get("name") or native_id(row)): row
                    for row in resources if row["type"] == "role_definition"}
+    denials = [row for row in resources if row["type"] == "deny_assignment"]
     action = "microsoft.compute/galleries/images/versions/read"
+
+    def broad_read_deny(gallery):
+        # A deny inherited by every image version blocks this one read action
+        # for every principal. Narrower principal, condition or scope matches
+        # need effective evaluation and must not suppress a declared grant.
+        for row in denials:
+            props = row["data"].get("properties") or {}
+            if not isinstance(props, dict):
+                continue
+            scope = props.get("scope")
+            principals = props.get("principals")
+            excluded = props.get("excludePrincipals", [])
+            if (not isinstance(scope, str) or not isinstance(principals, list)
+                    or not isinstance(excluded, list) or excluded or props.get("condition")
+                    or props.get("doNotApplyToChildScopes") not in (None, False)):
+                continue
+            scope = scope.casefold().rstrip("/")
+            if scope and scope != gallery and not gallery.startswith(scope + "/"):
+                continue
+            if not any(isinstance(principal, dict)
+                       and str(principal.get("id", "")).casefold() == "00000000-0000-0000-0000-000000000000"
+                       and principal.get("type") == "SystemDefined" for principal in principals):
+                continue
+            for block in props.get("permissions") or []:
+                if (not isinstance(block, dict) or block.get("condition")
+                        or not isinstance(block.get("actions"), list)
+                        or not isinstance(block.get("notActions", []), list)):
+                    continue
+                if (any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                        for pattern in block["actions"])
+                        and not any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                    for pattern in block.get("notActions", []))):
+                    return row
+        return None
+
     output, seen = [], set()
     for assignment in resources:
         if assignment["type"] != "role_assignment":
@@ -644,17 +680,21 @@ def _azure_gallery_rbac_reviews(snapshot, resources, group_members):
                     continue
                 seen.add(key)
                 condition = props.get("condition")
+                deny = broad_read_deny(gallery)
                 evidence = {"source": source(snapshot, assignment, "properties.roleDefinitionId"),
                     "role_definition_source": source(snapshot, definition, "properties.permissions"),
                     "gallery_id": gallery, "assignment_scope": scope, "principal_id": identity,
                     "via_group": principal if group_path else None, "group_path": group_path,
                     "membership_source": source(snapshot, membership, "id") if membership else None,
                     "role_definition_id": props.get("roleDefinitionId"), "action": action,
-                    "condition": condition, "effective_access": "unknown",
-                    "uncertainty": "Deny assignments, PIM activation, and runtime authorization may narrow declared access."}
+                    "condition": condition, "effective_access": "blocked_for_gallery_image_version_read" if deny else "unknown",
+                    "deny_source": source(snapshot, deny, "properties.permissions") if deny else None,
+                    "uncertainty": "Other permissions and data paths are outside this image-version read decision." if deny else
+                                   "Deny assignments, PIM activation, and runtime authorization may narrow declared access."}
                 output.append(finding(snapshot, assignment, "exposure", "analysis.azure_gallery_rbac_share",
-                    "Review external Azure Compute Gallery image read grant", "medium", evidence,
-                    status="MANUAL" if condition else "FAIL"))
+                    "Gallery image-version read blocked by deny assignment" if deny else
+                    "Review external Azure Compute Gallery image read grant", "info" if deny else "medium", evidence,
+                    status="PASS" if deny else "MANUAL" if condition else "FAIL"))
     return output
 
 
