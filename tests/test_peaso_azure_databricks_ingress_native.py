@@ -40,7 +40,7 @@ def test_projection_binds_ids_and_discards_rule_contents():
     projected = native.project(value, POLICY)
     assert projected == {'account_id': ACCOUNT, 'network_policy_id': 'default-policy',
                          'restriction_mode': 'RESTRICTED_ACCESS', 'allow_rule_count': 1,
-                         'deny_rule_count': 0, 'public_ui_rules': []}
+                         'deny_rule_count': 0, 'public_ui_rules': [], 'public_ui_denies': []}
     assert TOKEN not in json.dumps(projected)
     assert native.project(projected, POLICY) == projected
     with pytest.raises(ValueError):
@@ -206,24 +206,40 @@ def test_malformed_ip_list_cannot_complete_public_path():
     assert row.verdict() == 'UNKNOWN'
 
 
-def test_nonempty_deny_rules_prevent_unqualified_public_claim():
+@pytest.mark.parametrize('deny,expected,witness', [
+    ({'origin': {'all_ip_ranges': True}, 'destination': {'all_destinations': True}}, 'UNKNOWN', None),
+    ({'origin': {'included_ip_ranges': {'ip_ranges': ['8.8.8.0/30']}},
+      'destination': {'workspace_ui': {'all_destinations': True}}}, 'FAIL', '8.8.8.4'),
+    ({'origin': {'excluded_ip_ranges': {'ip_ranges': ['8.8.8.0/30']}},
+      'destination': {'workspace_ui': {'all_destinations': True}}}, 'FAIL', '8.8.8.0'),
+    ({'origin': {'included_ip_ranges': {'ip_ranges': ['8.8.8.0/30']}},
+      'destination': {'workspace_ui': {'all_destinations': True}},
+      'authentication': {'identity_type': 'IDENTITY_TYPE_SELECTED_IDENTITIES'}}, 'UNKNOWN', None),
+])
+def test_nonempty_deny_rules_prevent_unqualified_public_claim(deny, expected, witness):
     class DenyAll(Transport):
         def request_databricks_ingress(self, path):
             if path == BINDING:
                 return super().request_databricks_ingress(path)
             broad = {'origin': {'all_ip_ranges': True}, 'destination': {'all_destinations': True}}
             return {'account_id': ACCOUNT, 'network_policy_id': 'default-policy', 'ingress': {'public_access': {
-                'restriction_mode': 'RESTRICTED_ACCESS', 'allow_rules': [broad], 'deny_rules': [broad]}}}
+                'restriction_mode': 'RESTRICTED_ACCESS', 'allow_rules': [broad],
+                'deny_rules': [{**deny, 'label': TOKEN}]}}}
 
     reader, transport = Reader(), DenyAll('RESTRICTED_ACCESS')
     native.collect(reader, transport, [SCOPE], {'databricks_workspace'}, approval(), {'databricks_account_token': TOKEN})
+    assert TOKEN not in json.dumps(reader.collections)
     reader.collections.append({'type': 'databricks_workspace_ip_policy', 'scope': SCOPE,
         'service': 'Databricks.Workspace', 'status': 'collected', 'items': [{
-            'id': RID, 'policyStatus': 'collected', 'ipAccessListsEnabled': False, 'ipAccessLists': []}]})
+            'id': RID, 'policyStatus': 'collected', 'ipAccessListsEnabled': True,
+            'ipAccessLists': [{'enabled': True, 'list_type': 'ALLOW', 'ip_addresses': ['8.8.8.0/29']}]}]})
     snapshot = make_snapshot('azure', [SCOPE], reader.collections)
     row = next(row for row in assess(snapshot, resources(snapshot))
                if row.resource['type'] == 'databricks_workspace')
-    assert row.verdict() == 'UNKNOWN'
+    assert row.verdict() == expected
+    if witness:
+        assert any(step.get('layer') == 'workspace_context_ingress'
+                   and step.get('public_source_ip') == witness for step in row.path)
 
 
 def test_workspace_block_overrides_same_public_allow_under_full_context_access():

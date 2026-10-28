@@ -15,7 +15,7 @@ _POLICY = re.compile(r'/api/2\.0/accounts/(' + UUID + r')/network-policies/([A-Z
 
 
 def _ui_rule(rule):
-    """Project only independently sufficient public workspace-UI allow rules."""
+    """Project public workspace-UI rules applying to every human user."""
     if not isinstance(rule, dict) or set(rule) - {'origin', 'destination', 'authentication', 'label'}:
         return None
     destination = rule.get('destination')
@@ -75,12 +75,14 @@ def project(value, path):
     # injected transports are projected at the collector boundary as well.
     if 'ingress' not in value and set(value) == {
             'account_id', 'network_policy_id', 'restriction_mode',
-            'allow_rule_count', 'deny_rule_count', 'public_ui_rules'}:
+            'allow_rule_count', 'deny_rule_count', 'public_ui_rules', 'public_ui_denies'}:
         if (value['restriction_mode'] not in ('FULL_ACCESS', 'RESTRICTED_ACCESS')
                 or type(value['allow_rule_count']) is not int or not 0 <= value['allow_rule_count'] <= 1000
                 or type(value['deny_rule_count']) is not int or not 0 <= value['deny_rule_count'] <= 1000
                 or not isinstance(value['public_ui_rules'], list)
                 or len(value['public_ui_rules']) > value['allow_rule_count']
+                or not isinstance(value['public_ui_denies'], list)
+                or len(value['public_ui_denies']) > value['deny_rule_count']
                 or any(not isinstance(rule, dict) or set(rule) != {'origin', 'ranges'}
                        or rule['origin'] not in ('all', 'include', 'exclude')
                        or not isinstance(rule['ranges'], list) or len(rule['ranges']) > 1000
@@ -88,7 +90,8 @@ def project(value, path):
                        or rule['origin'] != 'all' and not rule['ranges']
                        or any(not isinstance(cidr, str) or not isinstance(
                            ipaddress.ip_network(cidr, strict=False), ipaddress.IPv4Network)
-                           for cidr in rule['ranges']) for rule in value['public_ui_rules'])):
+                           for cidr in rule['ranges']) for rule in
+                       (*value['public_ui_rules'], *value['public_ui_denies']))):
             raise ValueError('invalid projected Databricks ingress policy')
         return value
     ingress = value.get('ingress')
@@ -102,12 +105,13 @@ def project(value, path):
             or any(not isinstance(rule, dict) for rule in (*allows, *denies))):
         raise ValueError('Databricks ingress rules unavailable')
     ui_rules = [projected for rule in allows if (projected := _ui_rule(rule)) is not None]
-    if sum(len(rule['ranges']) for rule in ui_rules) > 1000:
+    ui_denies = [projected for rule in denies if (projected := _ui_rule(rule)) is not None]
+    if sum(len(rule['ranges']) for rule in (*ui_rules, *ui_denies)) > 1000:
         raise ValueError('oversized Databricks ingress ranges')
     return {'account_id': match[1], 'network_policy_id': match[2],
             'restriction_mode': public['restriction_mode'],
             'allow_rule_count': len(allows), 'deny_rule_count': len(denies),
-            'public_ui_rules': ui_rules}
+            'public_ui_rules': ui_rules, 'public_ui_denies': ui_denies}
 
 
 def request_policy(path, auth):
@@ -169,7 +173,8 @@ def collect(reader, transport, scopes, wanted, options, auth):
                     policy = reader.call(transport.request_databricks_ingress, policy_path)
                     policy = project(policy, policy_path)
                     row.update(policyStatus='collected', **{k: policy[k] for k in
-                        ('network_policy_id', 'restriction_mode', 'allow_rule_count', 'deny_rule_count', 'public_ui_rules')},
+                        ('network_policy_id', 'restriction_mode', 'allow_rule_count', 'deny_rule_count',
+                         'public_ui_rules', 'public_ui_denies')},
                         _provenance={'source_operations': ['Account.WorkspaceNetworkOption.Get', 'Account.NetworkPolicy.Get'],
                                      'read_only': True, 'exact_resource_id': rid, 'account_id': account, 'workspace_id': wid})
                 except Exception as exc:

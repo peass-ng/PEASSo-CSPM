@@ -5468,7 +5468,7 @@ def _azure_ml_workspace(snapshot, inventory, resource):
     return a
 
 
-def _databricks_public_witness(rules, enabled, lists):
+def _databricks_public_witness(rules, enabled, lists, denies=()):
     """Return a concrete global IPv4 source allowed by both collected layers."""
     try:
         allow = [ipaddress.ip_network(cidr) for item in lists
@@ -5478,9 +5478,11 @@ def _databricks_public_witness(rules, enabled, lists):
                  if enabled and item.get('enabled') is True and item.get('list_type') == 'BLOCK'
                  for cidr in item.get('ip_addresses', [])]
         contexts = [(rule['origin'], [ipaddress.ip_network(cidr) for cidr in rule['ranges']]) for rule in rules]
+        denied = [(rule['origin'], [ipaddress.ip_network(cidr) for cidr in rule['ranges']]) for rule in denies]
     except (TypeError, ValueError, KeyError, AttributeError):
         return None
-    if any(network.version != 4 for network in (*allow, *block, *(n for _, nets in contexts for n in nets))):
+    if any(network.version != 4 for network in
+           (*allow, *block, *(n for _, nets in (*contexts, *denied) for n in nets))):
         return None
     # Every access decision is constant between the endpoints of its CIDRs.
     # Include Python's special-use IPv4 boundaries so is_global is constant
@@ -5490,7 +5492,7 @@ def _databricks_public_witness(rules, enabled, lists):
     special = (*special, getattr(ipaddress._IPv4Constants, '_public_network',
                                 ipaddress.ip_network('100.64.0.0/10')),
                *getattr(ipaddress._IPv4Constants, '_private_networks_exceptions', ()))
-    for network in (*allow, *block, *(n for _, nets in contexts for n in nets), *special):
+    for network in (*allow, *block, *(n for _, nets in (*contexts, *denied) for n in nets), *special):
         boundaries.add(int(network.network_address))
         boundaries.add(int(network.broadcast_address) + 1)
     for value in sorted(boundaries):
@@ -5501,6 +5503,10 @@ def _databricks_public_witness(rules, enabled, lists):
             continue
         if enabled and (any(address in network for network in block)
                         or allow and not any(address in network for network in allow)):
+            continue
+        if any(mode == 'all' or mode == 'include' and any(address in network for network in networks)
+               or mode == 'exclude' and not any(address in network for network in networks)
+               for mode, networks in denied):
             continue
         if any(mode == 'all' or mode == 'include' and any(address in network for network in networks)
                or mode == 'exclude' and not any(address in network for network in networks)
@@ -5580,9 +5586,11 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
                         a.gap('policy', 'Databricks IP lists do not establish a surviving public source')
         if restricted_rules is not None:
             rules = restricted_rules.get('public_ui_rules')
-            if (ip_policy is not None and restricted_rules.get('deny_rule_count') == 0
+            denies = restricted_rules.get('public_ui_denies')
+            if (ip_policy is not None and isinstance(denies, list)
+                    and restricted_rules.get('deny_rule_count') == len(denies)
                     and isinstance(rules, list) and rules
-                    and (witness := _databricks_public_witness(rules, *ip_policy))):
+                    and (witness := _databricks_public_witness(rules, *ip_policy, denies))):
                 a.step('workspace_context_ingress', 'allow', restriction_mode='RESTRICTED_ACCESS',
                        destination='workspace_ui', public_source_ip=witness)
             else:
