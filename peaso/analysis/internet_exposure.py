@@ -4087,7 +4087,8 @@ def _azure_nic_declared_route_uncertainty(inventory, subnet_id, public_address):
 def _azure_nic(snapshot, inventory, resource, public_ips):
     props = _props(resource)
     a = Assessment(resource, "public_ip")
-    total, found, unresolved_route = {}, False, False
+    total, found, unresolved_route, unresolved_public = {}, False, False, False
+    public_gaps = []
     for config in as_list(props.get("ipConfigurations")):
         if not isinstance(config, dict):
             continue
@@ -4097,24 +4098,30 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
             continue
         found = True
         public = inventory.get("public_ip", public_ref) or public_ips.get(str(config.get("id", "")).lower())
-        sku = None
         if public is None:
-            a.gap("public_ip", f"public IP {public_ref} not collected", "Microsoft.Network/publicIPAddresses")
-        else:
-            sku = (public["data"].get("sku") or {}).get("name")
-            if _props(public).get("ipAddress"):
-                a.addresses.append(_props(public)["ipAddress"])
-            a.step("public_ip", "allow", public_ip=native_id(public), sku=sku, address=_props(public).get("ipAddress"))
+            a.gap("inventory", f"referenced public IP {public_ref} is not collected",
+                  "Microsoft.Network/publicIPAddresses")
+            public_gaps.append(a.unresolved[-1])
+            unresolved_public = True
+            continue
+        address = _props(public).get("ipAddress")
+        if not address or not _public_ip(address):
+            a.gap("inventory", f"referenced public IP {public_ref} has no assigned global address",
+                  "Microsoft.Network/publicIPAddresses")
+            public_gaps.append(a.unresolved[-1])
+            unresolved_public = True
+            continue
+        sku = (public["data"].get("sku") or {}).get("name")
+        a.addresses.append(address)
+        a.step("public_ip", "allow", public_ip=native_id(public), sku=sku, address=address)
         groups = [g.get("id") for g in as_list(cp.get("applicationSecurityGroups")) if isinstance(g, dict)]
         allowed = _azure_nsg_path(inventory, a, (props.get("networkSecurityGroup") or {}).get("id"), (cp.get("subnet") or {}).get("id"),
                                   dict(FULL), cp.get("privateIPAddress"), groups, sku, config.get("name"))
         if not empty(allowed):
-            route = _azure_nic_public_return_route(inventory, resource,
-                                                    _props(public).get("ipAddress") if public else None)
+            route = _azure_nic_public_return_route(inventory, resource, address)
             if route is None:
                 route = _azure_nic_declared_route_uncertainty(
-                    inventory, (cp.get("subnet") or {}).get("id"),
-                    _props(public).get("ipAddress") if public else None)
+                    inventory, (cp.get("subnet") or {}).get("id"), address)
             if route == "block":
                 a.step("return_route", "block", reason="complete NIC effective routes drop public return traffic",
                        nic=native_id(resource), at=config.get("name"))
@@ -4130,7 +4137,9 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
     a.ports = total
     if not empty(total):
         a.blocked_by = None
-    elif unresolved_route:
+        for gap in public_gaps:
+            gap["decisive"] = False
+    elif unresolved_route or unresolved_public:
         a.explicit = "UNKNOWN"
     vm = (props.get("virtualMachine") or {}).get("id")
     target = inventory.get("vm", vm) if vm else None
@@ -6807,6 +6816,14 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.kind == "public_ip" and status == "UNKNOWN":
+        missing = next((gap["reason"] for gap in assessment.unresolved
+                        if gap["layer"] == "inventory" and gap["reason"].startswith("referenced public IP ")), None)
+        if missing:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Azure network interface or VM {name} has a public-IP association.\n"
+                    f"The {missing}.\n"
+                    "The snapshot does not establish an assigned public listener address for this path.")
     if assessment.resource["type"] == "azure_firewall" and status == "PASS":
         backend = next((step for step in assessment.path
                         if step["layer"] == "backend" and step["decision"] == "block"), None)

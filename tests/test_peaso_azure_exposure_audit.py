@@ -982,6 +982,38 @@ def test_nic_public_return_route_uses_complete_effective_table():
     assert verdict(udr=[], route_status="partial").verdict() == "UNKNOWN"
 
 
+def test_nic_public_ip_reference_requires_assigned_global_address():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    nic_id, subnet_id = base + "/networkInterfaces/nic", base + "/virtualNetworks/v/subnets/s"
+
+    def check(addresses):
+        configs = [{"id": nic_id + "/ipConfigurations/" + name, "name": name,
+                    "properties": {"privateIPAddress": "10.0.0." + str(index + 4),
+                        "subnet": {"id": subnet_id},
+                        "publicIPAddress": {"id": base + "/publicIPAddresses/" + name}}}
+                   for index, name in enumerate(addresses)]
+        snapshot = make_snapshot("azure", [SCOPE], [
+            {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": nic_id, "properties": {"ipConfigurations": configs}}]},
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": base + "/publicIPAddresses/" + name, "sku": {"name": "Basic"},
+                        "properties": {"ipAddress": address}}
+                       for name, address in addresses.items() if address is not None]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": subnet_id, "properties": {}}]}])
+        return next(row for row in assess(snapshot, resources(snapshot))
+                    if row.resource["type"] == "nic")
+
+    assert check({"first": "8.8.8.8"}).verdict() == "FAIL"
+    missing = check({"first": None})
+    assert missing.verdict() == "UNKNOWN" and "is not collected" in _observed(missing, "UNKNOWN")
+    unassigned = check({"first": ""})
+    assert unassigned.verdict() == "UNKNOWN" and "no assigned global address" in _observed(unassigned, "UNKNOWN")
+    assert check({"first": "10.0.0.5"}).verdict() == "UNKNOWN"
+    mixed = check({"first": "8.8.8.8", "second": None})
+    assert mixed.verdict() == "FAIL" and mixed.addresses == ["8.8.8.8"]
+
+
 def test_nsg_joins_cached_subscription_service_tag_prefixes():
     nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
