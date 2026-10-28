@@ -399,7 +399,44 @@ def _aws_group_rules(group, family=4, narrow_public=False):
     return allowed, freeze(rules), prefix_lists
 
 
-def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_host_ports=None):
+def _aws_sg_source_rules(inventory, group_ids, family):
+    """Keep the source CIDR attached to each allowed ingress port set."""
+    key = ("aws_sg_source_rules", tuple(sorted(group_ids)), family)
+    if key not in inventory.network_cache:
+        rules = []
+        for group_id in group_ids:
+            group = inventory.get("security_group", group_id)
+            if group is None:
+                continue
+            for permission in as_list(group["data"].get("IpPermissions")):
+                if not isinstance(permission, dict):
+                    continue
+                protocol = _proto(permission.get("IpProtocol"))
+                if protocol is None:
+                    continue
+                ports = (pset(protocol, permission.get("FromPort", 0), permission.get("ToPort", 65535))
+                         if protocol in ("tcp", "udp") and permission.get("FromPort") not in (None, -1)
+                         else pset(protocol))
+                for field, key_name in (("IpRanges", "CidrIp"), ("Ipv6Ranges", "CidrIpv6")):
+                    for item in as_list(permission.get(field)):
+                        network = _cidr(item.get(key_name)) if isinstance(item, dict) else None
+                        if network is not None and network.version == family and _public_source(network):
+                            rules.append((network, ports))
+                for item in as_list(permission.get("PrefixListIds")):
+                    prefix_id = item.get("PrefixListId") if isinstance(item, dict) else None
+                    prefix = inventory.get("managed_prefix_list", prefix_id) if prefix_id else None
+                    entries = prefix["data"].get("Entries") if prefix else None
+                    if not isinstance(entries, dict) or entries.get("collection_status") not in ("collected", "empty"):
+                        continue
+                    for entry in as_list(entries.get("items")):
+                        network = _cidr(entry.get("Cidr")) if isinstance(entry, dict) else None
+                        if network is not None and network.version == family and _public_source(network):
+                            rules.append((network, ports))
+        inventory.network_cache[key] = rules
+    return inventory.network_cache[key]
+
+
+def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_host_ports=None, source_rules=None):
     if not subnet_id:
         assessment.gap("network_acl", "subnet unknown")
         return ports
@@ -448,10 +485,25 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
         entries = sorted((e for e in as_list(acl["data"].get("Entries")) if isinstance(e, dict)),
                          key=lambda e: int(e.get("RuleNumber", 32767)))
         field = "Ipv6CidrBlock" if family == 6 else "CidrBlock"
-        hosts = sorted({str(network.network_address) for e in entries if not e.get("Egress")
-                        for network in [_cidr(e.get(field))] if network is not None
-                        and network.version == family and network.prefixlen == network.max_prefixlen
-                        and network.network_address.is_global})
+        networks = [_cidr(entry.get(field)) for entry in entries]
+        networks += [network for network, _ in source_rules or ()]
+        hosts = set()
+        maximum = (1 << (32 if family == 4 else 128)) - 1
+        boundaries = {0, maximum + 1}
+        for network in networks:
+            if network is None or network.version != family:
+                continue
+            low, high = int(network.network_address), int(network.broadcast_address)
+            boundaries.update((low, high + 1))
+        ordered = sorted(boundaries)
+        for low, end in zip(ordered, ordered[1:]):
+            high = end - 1
+            # Every CIDR membership is constant inside this interval. Sampling
+            # its edges and middle covers a segment left by an earlier Deny.
+            for value in {low if low == high else low + 1, (low + high) // 2, high}:
+                address = ipaddress.IPv4Address(value) if family == 4 else ipaddress.IPv6Address(value)
+                if address.is_global:
+                    hosts.add(str(address))
 
         def host_rules(host, egress):
             address = ipaddress.ip_address(host)
@@ -473,8 +525,15 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
             return allowed
 
         witnesses = []
-        for host in hosts:
+        for host in sorted(hosts, key=ipaddress.ip_address):
             admitted = intersect(public_host_ports, host_rules(host, False))
+            if source_rules is not None:
+                address = ipaddress.ip_address(host)
+                sg_ports = {}
+                for network, rule_ports in source_rules:
+                    if address in network:
+                        sg_ports = union(sg_ports, rule_ports)
+                admitted = intersect(admitted, sg_ports)
             return_ports = host_rules(host, True)
             admitted = {protocol: intervals for protocol, intervals in admitted.items()
                         if protocol in ("tcp", "udp") and not empty(intersect(return_ports, pset(protocol, 1024, 65535)))}
@@ -565,10 +624,10 @@ def _aws_vpc_bpa(inventory, subnet_id, vpc_id, assessment, where):
 
 def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, route=True, vpc_id=None, family=4, narrow_public=False, public_host_witness=False):
     """route -> NACL -> SG for a set of candidate subnets; returns the reachable port set."""
-    public_host_ports = ports if public_host_witness and group_ids is None else None
+    source_rules = None
     if group_ids is not None:
         if public_host_witness:
-            public_host_ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family))
+            source_rules = _aws_sg_source_rules(inventory, group_ids, family)
         ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family, narrow_public))
     if empty(ports):
         return ports
@@ -584,7 +643,7 @@ def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, ro
         if route and _aws_route(inventory, subnet_id, vpc, assessment, where, ipv6=family == 6) is False:
             continue
         reachable = union(reachable, _aws_nacl(inventory, subnet_id, ports, assessment, where, family,
-                                              public_host_ports if public_host_witness else None))
+                                              ports if public_host_witness else None, source_rules))
     if empty(reachable) and assessment.blocked_by is None:
         assessment.step("subnets", "block", reason="no candidate subnet admits internet traffic")
     elif not empty(reachable):

@@ -1,5 +1,6 @@
 """Internet-to-asset exposure (peaso.analysis.internet_exposure): PASS/FAIL/UNKNOWN per scenario."""
 import copy
+import ipaddress
 
 import pytest
 
@@ -326,6 +327,48 @@ def test_aws_nlb_exact_ipv6_nacl_host_witness():
     mismatched = copy.deepcopy(entries)
     mismatched[1]["Ipv6CidrBlock"] = "2600:1f18:abcd::3/128"
     assert finding(mismatched)["status"] == "PASS"
+
+
+@pytest.mark.parametrize("lb_type", ["application", "network"])
+def test_aws_load_balancer_intersecting_public_sg_and_nacl_cidrs(lb_type):
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/{'app' if lb_type == 'application' else 'net'}/cidr/1",
+          "Scheme": "internet-facing", "Type": lb_type, "DNSName": "cidr.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "TCP"}]}}
+    acl = [
+        {"RuleNumber": 50, "Egress": False, "Protocol": "6", "RuleAction": "deny",
+         "CidrBlock": "8.8.8.0/25", "PortRange": {"From": 443, "To": 443}},
+        {"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+         "CidrBlock": "8.8.8.0/24", "PortRange": {"From": 443, "To": 443}},
+        {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+         "CidrBlock": "8.8.8.128/25", "PortRange": {"From": 1024, "To": 65535}},
+    ]
+    def finding(source, entries=acl):
+        sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+               "IpRanges": [{"CidrIp": source}]}]
+        return one(aws(*aws_network(sg_rules=sg, nacl_entries=entries),
+                       coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    admitted = finding("8.8.8.128/25")
+    assert admitted["status"] == "FAIL"
+    witness = next(step for step in admitted["evidence"]["path"] if step["layer"] == "network_acl_host")
+    assert any(ipaddress.ip_address(row["source_ip"]) in ipaddress.ip_network("8.8.8.128/25")
+               and row["ports"] == ["tcp/443"] for row in witness["public_host_witnesses"])
+    assert finding("8.8.8.140/32")["status"] == "FAIL"
+    edge_denies = [
+        {"RuleNumber": 40 + index, "Egress": False, "Protocol": "6", "RuleAction": "deny",
+         "CidrBlock": f"8.8.8.{host}/32", "PortRange": {"From": 443, "To": 443}}
+        for index, host in enumerate((128, 129, 254, 255))]
+    interior = finding("8.8.8.128/25", edge_denies + acl)
+    assert interior["status"] == "FAIL"
+    interior_witness = next(step for step in interior["evidence"]["path"]
+                            if step["layer"] == "network_acl_host")
+    assert any(130 <= int(ipaddress.ip_address(row["source_ip"])) % 256 <= 253
+               for row in interior_witness["public_host_witnesses"])
+    assert finding("8.8.8.64/32")["status"] == "PASS"
+    assert finding("9.9.9.0/24")["status"] == "PASS"
+    no_return = [dict(entry) for entry in acl]
+    no_return[2] = {**no_return[2], "CidrBlock": "9.9.9.0/24"}
+    assert finding("8.8.8.128/25", no_return)["status"] == "PASS"
 
 
 def test_aws_nlb_static_public_ipv4_is_in_listener_evidence():
