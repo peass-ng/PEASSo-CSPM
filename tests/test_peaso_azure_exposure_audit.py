@@ -1285,6 +1285,45 @@ def test_sql_missing_public_gate_and_partial_firewall_pages_stay_unknown():
     assert decision("Enabled", "collected", private).verdict() == "UNKNOWN"
 
 
+def test_sql_ready_vnet_rule_joins_regional_subnet_service_endpoint():
+    server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
+    subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/app"
+
+    def decision(*, rule_state="Ready", endpoint_state="Succeeded", endpoint_region="westeurope",
+                 child_status="collected", subnet_status="collected", public_gate="Enabled"):
+        rule = {"id": server_id + "/virtualNetworkRules/app", "properties": {
+            "virtualNetworkSubnetId": subnet_id, "state": rule_state}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "sql_server", "scope": SCOPE, "service": "sql", "status": "collected", "items": [
+                {"id": server_id, "name": "sql", "location": "westeurope", "properties": {
+                    "publicNetworkAccess": public_gate, "fullyQualifiedDomainName": "sql.database.windows.net"},
+                 "virtualNetworkRules": [rule], "_coverage": {"virtualNetworkRules": {"status": child_status}}}]},
+            {"type": "sql_firewall_rule", "scope": SCOPE, "service": "sql", "status": "empty", "items": []},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": subnet_status, "items": [
+                {"id": subnet_id, "properties": {"serviceEndpoints": [{"service": "Microsoft.Sql",
+                    "provisioningState": endpoint_state, "locations": [endpoint_region]}]}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "sql_server")
+
+    allowed = decision()
+    assert allowed.verdict() == "FAIL" and allowed.addresses == ["sql.database.windows.net"]
+    assert allowed.path[-1]["virtual_network_rules"] == [subnet_id]
+    assert allowed.ports == {"tcp": ((1433, 1433),)}
+    assert _observed(allowed, "FAIL").splitlines() == [
+        f"The Azure SQL server sql allows subnet {subnet_id} through its public endpoint.",
+        "Its Ready virtual-network rule joins a provisioned Microsoft.Sql service endpoint in the server region.",
+        "Subnet workload, database authorization, DNS delivery, and a successful connection were not tested."]
+    for values in ({"rule_state": "InProgress"}, {"endpoint_state": "Updating"},
+                   {"endpoint_region": "eastus"}, {"child_status": "partial"},
+                   {"subnet_status": "partial"}):
+        assert decision(**values).verdict() == "UNKNOWN"
+    disabled = make_snapshot("azure", [SCOPE], [{"type": "sql_server", "scope": SCOPE,
+        "service": "sql", "status": "collected", "items": [{"id": server_id,
+            "properties": {"publicNetworkAccess": "Disabled"}}]}])
+    assert not any(row.resource["type"] == "sql_server"
+                   for row in assess(disabled, resources(disabled)))
+
+
 def test_sql_ipv6_firewall_rules_join_enabled_public_server():
     from peaso.collectors.azure import _sql_projected_child_pages, TYPES
 

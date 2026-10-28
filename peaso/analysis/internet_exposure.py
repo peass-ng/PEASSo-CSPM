@@ -5345,6 +5345,57 @@ def _azure_storage_container(snapshot, inventory, resource):
     return a
 
 
+def _azure_sql_virtual_network_subnets(inventory, server):
+    """Ready server rules need a provisioned SQL endpoint in the server region."""
+    data = server["data"]
+    coverage = (data.get("_coverage") or {}).get("virtualNetworkRules") or {}
+    rules = data.get("virtualNetworkRules")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(rules, list):
+        return [], True
+    location = str(data.get("location") or "").casefold()
+    if not location and rules:
+        return [], True
+    allowed, unresolved = [], False
+    server_id = str(data.get("id", ""))
+    for rule in rules:
+        rp = rule.get("properties") if isinstance(rule, dict) else None
+        subnet_id = rp.get("virtualNetworkSubnetId") if isinstance(rp, dict) else None
+        if (not isinstance(rule, dict) or not isinstance(rule.get("id"), str) or
+                re.fullmatch(re.escape(server_id + "/virtualNetworkRules/") + r"[^/?#%\\\s]+",
+                             rule["id"], re.I) is None or
+                not isinstance(subnet_id, str) or
+                re.fullmatch(r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/"
+                             r"virtualNetworks/[^/]+/subnets/[^/]+", subnet_id, re.I) is None or
+                rp.get("state") != "Ready"):
+            unresolved = True
+            continue
+        subnet, _ = _azure_subnet(inventory, subnet_id)
+        if subnet is None or inventory.state("subnet", subnet["scope"]) != "collected":
+            unresolved = True
+            continue
+        endpoints = _props(subnet).get("serviceEndpoints")
+        if not isinstance(endpoints, list):
+            unresolved = True
+            continue
+        active = False
+        for endpoint in endpoints:
+            if not isinstance(endpoint, dict):
+                unresolved = True
+                continue
+            if endpoint.get("service") != "Microsoft.Sql":
+                continue
+            locations = endpoint.get("locations")
+            if (endpoint.get("provisioningState") == "Succeeded" and
+                    isinstance(locations, list) and location in
+                    {value.casefold() for value in locations if isinstance(value, str)}):
+                active = True
+            else:
+                unresolved = True
+        if active:
+            allowed.append(subnet_id)
+    return sorted(set(allowed)), unresolved
+
+
 def _azure_sql(snapshot, inventory, resource, rules, ipv6_rules):
     props = _props(resource)
     public_access = props.get("publicNetworkAccess")
@@ -5398,6 +5449,10 @@ def _azure_sql(snapshot, inventory, resource, rules, ipv6_rules):
                                    "start_ip": start, "end_ip": end})
     elif ipv6_gate != "Disabled" and ipv6_rules.get(rid):
         a.gap("firewall", "SQL IPv6 firewall rules exist but server IPv6 gate is not explicit")
+    virtual_subnets, virtual_unresolved = _azure_sql_virtual_network_subnets(inventory, resource)
+    if virtual_unresolved and not open_rules and not virtual_subnets:
+        a.gap("firewall", "SQL virtual-network rule or subnet service-endpoint inventory is incomplete",
+              "Microsoft.Sql/servers/virtualNetworkRules and Microsoft.Network/virtualNetworks/subnets")
     if azure:
         a.notes.append("'Allow Azure services' admits resources in other Azure tenants; database authentication is separate")
     if state not in ("collected", "empty") and not open_rules:
@@ -5405,14 +5460,18 @@ def _azure_sql(snapshot, inventory, resource, rules, ipv6_rules):
     if ipv6_gate == "Enabled" and ipv6_state not in ("collected", "empty") and not open_rules:
         a.gap("firewall", f"SQL IPv6 firewall rules {ipv6_state}",
               "Microsoft.Sql/servers/ipv6FirewallRules")
-    if not open_rules:
+    if not open_rules and not virtual_subnets:
         a.gap("firewall", "database-level firewall rules are not in ARM server firewall LIST",
               "SQL data-plane sys.database_firewall_rules for each database")
+    if virtual_subnets:
+        for gap in a.unresolved:
+            if gap["layer"] == "firewall":
+                gap["decisive"] = False
     unresolved_rules = any(gap["layer"] == "firewall" for gap in a.unresolved)
-    a.step("firewall", "allow" if open_rules else "unknown" if unresolved_rules else "block",
-           open_rules=open_rules)
-    a.ports = pset("tcp", 1433, 1433) if open_rules else {}
-    if open_rules and not a.addresses:
+    a.step("firewall", "allow" if open_rules or virtual_subnets else "unknown" if unresolved_rules else "block",
+           open_rules=open_rules, virtual_network_rules=virtual_subnets)
+    a.ports = pset("tcp", 1433, 1433) if open_rules or virtual_subnets else {}
+    if (open_rules or virtual_subnets) and not a.addresses:
         a.gap("inventory", "SQL public endpoint FQDN is not collected")
     return a
 
@@ -7638,6 +7697,15 @@ def _observed(assessment, status):
                 "public-source server firewall rule.\n"
                 "Database-level firewall rules are not present in the ARM server rule inventory.\n"
                 "A database could still admit a public source; its SQL data-plane rules were not read.")
+    if assessment.resource["type"] == "sql_server" and status == "FAIL":
+        subnet_step = next((step for step in assessment.path if step.get("virtual_network_rules")
+                            and not step.get("open_rules")), None)
+        if subnet_step is not None:
+            subnet_id = subnet_step["virtual_network_rules"][0]
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Azure SQL server {name} allows subnet {subnet_id} through its public endpoint.\n"
+                    "Its Ready virtual-network rule joins a provisioned Microsoft.Sql service endpoint in the server region.\n"
+                    "Subnet workload, database authorization, DNS delivery, and a successful connection were not tested.")
     if assessment.kind == "web_app":
         restriction = next((step for step in assessment.path if step["layer"] == "access_restrictions"), {})
         network = next((step for step in assessment.path if step["layer"] == "public_network_access"), {})
