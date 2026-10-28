@@ -6352,13 +6352,20 @@ def _azure_compute_gallery(snapshot, inventory, resource):
                 other_subscriptions.extend(value for value in ids if value.lower() != owner)
             else:
                 tenant_recipients.extend(ids)
-        a.external_ids = sorted(set(other_subscriptions + tenant_recipients))
-        if other_subscriptions:
+        provenance = resource["data"].get("_provenance") or {}
+        metadata = snapshot.get("metadata") or {}
+        owner_tenant = (provenance.get("tenant_id") if provenance.get("tenant_verified") is True
+                        else metadata.get("tenant_id") if metadata.get("tenant_verified") is True else None)
+        other_tenants = ([value for value in tenant_recipients if value.lower() != owner_tenant.lower()]
+                         if isinstance(owner_tenant, str) and owner_tenant else [])
+        a.external_ids = sorted(set(other_subscriptions + other_tenants))
+        if other_subscriptions or other_tenants:
             a.step("sharing_policy", "allow", permission=permission,
-                   recipient_subscriptions=sorted(set(other_subscriptions)))
+                   recipient_subscriptions=sorted(set(other_subscriptions)),
+                   recipient_tenants=sorted(set(other_tenants)))
             a.explicit = "FAIL"
-            a.notes.append("Direct sharing targets other subscriptions; published image versions are not inventoried here.")
-        elif tenant_recipients or malformed:
+            a.notes.append("Direct sharing targets other subscriptions or tenants; published image versions are not inventoried here.")
+        elif (tenant_recipients and not owner_tenant) or malformed:
             a.gap("authorization", "gallery tenant recipient ownership or malformed sharing group is unresolved")
         else:
             a.step("sharing_policy", "block", reason="no other subscription or tenant recipient")
