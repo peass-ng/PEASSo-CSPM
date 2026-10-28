@@ -238,7 +238,8 @@ EMBEDDED_LISTS = {
                                ("databases", "databases", "2021-11-01")),
     "storage_account": (("blobContainers", "blobServices/default/containers", "2023-05-01"), ("encryptionScopes", "encryptionScopes", "2023-05-01"),
                         ("eventSubscriptions", "providers/Microsoft.EventGrid/eventSubscriptions", "2022-06-15"),
-                        ("localUsers", "localUsers", "2023-05-01")),
+                        ("localUsers", "localUsers", "2023-05-01"),
+                        ("networkSecurityPerimeterConfigurations", "networkSecurityPerimeterConfigurations", "2026-04-01")),
     "arc_kubernetes_cluster": (("extensions", "providers/Microsoft.KubernetesConfiguration/extensions", "2023-05-01"),),
     "sql_server": (("serverAdministrators", "administrators", "2023-08-01"), ("azureADOnlyAuthentications", "azureADOnlyAuthentications", "2023-08-01"), ("virtualNetworkRules", "virtualNetworkRules", "2023-08-01"), ("firewallRules", "firewallRules", "2023-08-01"), ("securityAlertPolicies", "securityAlertPolicies", "2023-08-01")),
     "synapse_workspace": (("sqlPools", "sqlPools", "2021-06-01"), ("firewallRules", "firewallRules", "2021-06-01"),
@@ -333,6 +334,14 @@ def _network_platform_native_identity(row, scope, kind):
 def _child_rows(rows, parent_id, field):
     if any(not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].lower().startswith(parent_id.lower() + "/") for row in rows):
         raise ValueError("malformed or foreign embedded child identity")
+    if field == "networkSecurityPerimeterConfigurations":
+        for row in rows:
+            if (re.fullmatch(re.escape(parent_id + "/networkSecurityPerimeterConfigurations/") +
+                             r"[^/?#%\\\s]+", row["id"], re.I) is None or
+                    str(row.get("type", "")).casefold() !=
+                    "microsoft.storage/storageaccounts/networksecurityperimeterconfigurations" or
+                    not isinstance(row.get("properties"), dict)):
+                raise ValueError("foreign or malformed Storage effective perimeter configuration")
     if field == "httpRouteConfigs":
         seen = set()
         for row in rows:
@@ -344,9 +353,17 @@ def _child_rows(rows, parent_id, field):
                 raise ValueError("duplicate, foreign or malformed Container Apps HTTP route")
             props = row["properties"]
             rules = props.get("rules")
+            domains = props.get("customDomains")
+            supported_domain = isinstance(domains, list) and any(
+                isinstance(domain, dict) and isinstance(domain.get("name"), str) and domain["name"]
+                and (domain.get("bindingType") in ("Disabled", "Auto") or
+                     (domain.get("bindingType") == "SniEnabled" and
+                      isinstance(domain.get("certificateId"), str) and domain["certificateId"]))
+                for domain in domains)
             if (props.get("provisioningState") == "Succeeded"
-                    and (not isinstance(props.get("fqdn"), str) or not props["fqdn"])):
-                raise ValueError("successful Container Apps HTTP route lacks its FQDN")
+                    and (not isinstance(props.get("fqdn"), str) or not props["fqdn"])
+                    and not supported_domain):
+                raise ValueError("successful Container Apps HTTP route lacks a supported hostname")
             if (not isinstance(rules, list) or any(
                     not isinstance(rule, dict) or not isinstance(rule.get("targets"), list)
                     or any(not isinstance(target, dict)
@@ -396,7 +413,7 @@ def _child_rows(rows, parent_id, field):
                or str(row.get("type", "")).casefold() != "microsoft.web/sites/slots"
                or not isinstance(row.get("properties"), dict) for row in rows):
             raise ValueError("foreign or malformed native App Service slot")
-    if field in ("configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors", "onlineEndpoints"):
+    if field in ("configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors", "onlineEndpoints", "networkSecurityPerimeterConfigurations"):
         segment = ("providers/Microsoft.Insights/diagnosticSettings" if field == "diagnosticSettings" else
                    "administrators" if field in ("serverAdministrators", "instanceAdministrators") else
                    "encryptionProtector" if field == "encryptionProtectors" else
@@ -561,13 +578,14 @@ def _vault_diagnostic_settings_pages(reader, request, url, parent_id):
 
 
 def _sql_projected_child_pages(reader, request, url, parent_id, kind, segment):
-    """The four direct SQL projections retain their authoritative child contract."""
-    contracts = {'sql_database': ('databases', 'Microsoft.Sql/servers/databases'),
-                 'sql_firewall_rule': ('firewallRules', 'Microsoft.Sql/servers/firewallRules'),
-                 'sql_audit': ('auditingSettings', 'Microsoft.Sql/servers/auditingSettings'),
-                 'sql_security': ('securityAlertPolicies', 'Microsoft.Sql/servers/securityAlertPolicies')}
-    expected_segment, native_type = contracts[kind]
-    if segment != expected_segment or url != ARM + parent_id + '/' + segment + '?api-version=2023-08-01':
+    """Direct SQL projections retain their authoritative child contract."""
+    contracts = {'sql_database': ('databases', 'Microsoft.Sql/servers/databases', '2023-08-01'),
+                 'sql_firewall_rule': ('firewallRules', 'Microsoft.Sql/servers/firewallRules', '2023-08-01'),
+                 'sql_ipv6_firewall_rule': ('ipv6FirewallRules', 'Microsoft.Sql/servers/ipv6FirewallRules', '2025-01-01'),
+                 'sql_audit': ('auditingSettings', 'Microsoft.Sql/servers/auditingSettings', '2023-08-01'),
+                 'sql_security': ('securityAlertPolicies', 'Microsoft.Sql/servers/securityAlertPolicies', '2023-08-01')}
+    expected_segment, native_type, version = contracts[kind]
+    if segment != expected_segment or url != ARM + parent_id + '/' + segment + '?api-version=' + version:
         raise ValueError('SQL projected child request differs from selected native parent')
     seen = {}
     for page in reader.pages(request, url):
@@ -680,6 +698,8 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
             specs.append(("functions", "functions", "2025-05-01"))
         if kind == "container_registry" and item.get("sku", {}).get("name") != "Premium":
             specs = [spec for spec in specs if spec[0] != "replications"]
+        if kind == "storage_account" and (item.get("properties") or {}).get("publicNetworkAccess") != "SecuredByPerimeter":
+            specs = [spec for spec in specs if spec[0] != "networkSecurityPerimeterConfigurations"]
         known = diagnostics.get(rid.casefold())
         if known is not None:
             item.setdefault("_coverage", {})["diagnosticSettings"] = {key: known[key] for key in ("status", "error") if key in known}
@@ -1091,7 +1111,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     *azure_wave_network_controls.NATIVE_TYPES,
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
-    "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
+    "sql_firewall_rule", "sql_ipv6_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -2197,7 +2217,7 @@ class _Reader:
         kind, scope, service, fetch = job
         items = {}
         status, error = "collected", None
-        scoped_types = set(ENDPOINTS) | {"key_vault_certificate", "resource_graph", "subnet", "vnet_peering", "diagnostic_setting", "storage_service", "sql_database", "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record", "private_dns_link", "app_service_config", "app_service_identity_detail", "sql_tde", "managed_identity_federated_credential", "key_metadata", "key_rotation_policy", "key_vault_certificate_policy", "sql_vulnerability_assessment", "sql_encryption_protector", "storage_container", "storage_encryption_scope"}
+        scoped_types = set(ENDPOINTS) | {"key_vault_certificate", "resource_graph", "subnet", "vnet_peering", "diagnostic_setting", "storage_service", "sql_database", "sql_firewall_rule", "sql_ipv6_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record", "private_dns_link", "app_service_config", "app_service_identity_detail", "sql_tde", "managed_identity_federated_credential", "key_metadata", "key_rotation_policy", "key_vault_certificate_policy", "sql_vulnerability_assessment", "sql_encryption_protector", "storage_container", "storage_encryption_scope"}
         try:
             self.check_cancelled()
             for page in fetch():
@@ -2855,7 +2875,7 @@ def collect(connector, requirements=None, *, transport=None):
                 jobs.append(("subscription_diagnostic_setting", scope, "Microsoft.Insights", subscription_diagnostics))
         # Query each selected subscription before detail reads. The discovery
         # collection is retained even when only downstream inventories are wanted.
-        need_resources = wanted.intersection(set(ENDPOINTS) | {"diagnostic_setting", "subnet", "vnet_peering", "secret_metadata", "storage_service", "sql_database", "sql_firewall_rule", "sql_audit", "sql_security", "dns_record", "private_dns_link", "resource_graph", "app_service_config", "app_service_identity_detail", "sql_tde", "managed_identity_federated_credential", "key_metadata", "key_rotation_policy", "key_vault_certificate_policy", "sql_vulnerability_assessment", "sql_encryption_protector", "storage_container", "storage_encryption_scope", "app_service_slot", "automation_variable", "batch_pool"} | set(azure_devtestlab_native.CHILDREN))
+        need_resources = wanted.intersection(set(ENDPOINTS) | {"diagnostic_setting", "subnet", "vnet_peering", "secret_metadata", "storage_service", "sql_database", "sql_firewall_rule", "sql_ipv6_firewall_rule", "sql_audit", "sql_security", "dns_record", "private_dns_link", "resource_graph", "app_service_config", "app_service_identity_detail", "sql_tde", "managed_identity_federated_credential", "key_metadata", "key_rotation_policy", "key_vault_certificate_policy", "sql_vulnerability_assessment", "sql_encryption_protector", "storage_container", "storage_encryption_scope", "app_service_slot", "automation_variable", "batch_pool"} | set(azure_devtestlab_native.CHILDREN))
         if need_resources and not functions_native_only:
             # One Resource Graph query covers a batch of subscriptions (ARG
             # throttles per caller at ~15 queries/5 s; per-subscription queries
@@ -2961,7 +2981,7 @@ def collect(connector, requirements=None, *, transport=None):
                                 yield page
                 jobs.append(("virtual_network_gateway", scope, "Microsoft.Network", gateways))
         # Discovery supplies IDs; ARM GET provides authoritative current details.
-        child_dependencies = {"batch_pool": "batch_account", "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "secret_metadata": "vault", "dns_record": "dns_zone", "private_dns_link": "private_dns_zone", "app_service_config": "app_service", "app_service_identity_detail": "app_service", "sql_tde": "sql_server", "managed_identity_federated_credential": "managed_identity", "key_metadata": "vault", "key_rotation_policy": "vault", "key_vault_certificate_policy": "vault", "sql_vulnerability_assessment": "sql_server", "sql_encryption_protector": "sql_server", "storage_container": "storage_account", "storage_encryption_scope": "storage_account", "app_service_slot": "app_service", "automation_variable": "automation_account", "apim_native": "api_management"}
+        child_dependencies = {"batch_pool": "batch_account", "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_ipv6_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "secret_metadata": "vault", "dns_record": "dns_zone", "private_dns_link": "private_dns_zone", "app_service_config": "app_service", "app_service_identity_detail": "app_service", "sql_tde": "sql_server", "managed_identity_federated_credential": "managed_identity", "key_metadata": "vault", "key_rotation_policy": "vault", "key_vault_certificate_policy": "vault", "sql_vulnerability_assessment": "sql_server", "sql_encryption_protector": "sql_server", "storage_container": "storage_account", "storage_encryption_scope": "storage_account", "app_service_slot": "app_service", "automation_variable": "automation_account", "apim_native": "api_management"}
         parents = wanted.intersection(ENDPOINTS) | {parent for child, parent in child_dependencies.items() if child in wanted}
         parents |= azure_network_catalog.required_parents(wanted)
         if "diagnostic_setting" in wanted:
@@ -3228,7 +3248,7 @@ def collect(connector, requirements=None, *, transport=None):
                             yield [detail]
                         jobs.append(("storage_service", child_scope, "Microsoft.Storage", storage_config))
                 if kind == "sql_server":
-                    child_paths.extend((child, path, "2023-08-01") for child, path in (("sql_database", "databases"), ("sql_firewall_rule", "firewallRules"), ("sql_audit", "auditingSettings"), ("sql_security", "securityAlertPolicies")) if child in wanted)
+                    child_paths.extend((child, path, version) for child, path, version in (("sql_database", "databases", "2023-08-01"), ("sql_firewall_rule", "firewallRules", "2023-08-01"), ("sql_ipv6_firewall_rule", "ipv6FirewallRules", "2025-01-01"), ("sql_audit", "auditingSettings", "2023-08-01"), ("sql_security", "securityAlertPolicies", "2023-08-01")) if child in wanted)
                 if kind == "vault" and "key_metadata" in wanted:
                     def vault_keys(item=item, rid=rid):
                         origin = _bound_vault_metadata_origin(item, rid)
@@ -3335,7 +3355,7 @@ def collect(connector, requirements=None, *, transport=None):
                     # One storage collection per account, not duplicate service scopes.
                     child_scope = rid + "/" + path if child == "storage_service" else rid
                     fetch = lambda url=url: reader.pages(request, url)
-                    if kind == "sql_server" and child in ("sql_database", "sql_firewall_rule", "sql_audit", "sql_security"):
+                    if kind == "sql_server" and child in ("sql_database", "sql_firewall_rule", "sql_ipv6_firewall_rule", "sql_audit", "sql_security"):
                         fetch = lambda url=url, rid=rid, child=child, path=path: _sql_projected_child_pages(reader, request, url, rid, child, path)
                     jobs.append((child, child_scope, ENDPOINTS[kind][0].split("/")[0], fetch))
         reader.run(jobs)
@@ -4133,7 +4153,7 @@ def collect(connector, requirements=None, *, transport=None):
     # Complete empty parent lists prove no child instances; denied/partial
     # parents never fabricate an empty child envelope.
     child_parents = {"key_metadata": "vault", "key_vault_key": "vault", "key_rotation_policy": "vault", "key_vault_certificate_policy": "vault", "secret_metadata": "vault",
-                     "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "sql_tde": "sql_database",
+                     "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_ipv6_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "sql_tde": "sql_database",
                      "dns_record": "dns_zone", "private_dns_link": "private_dns_zone", "managed_identity_federated_credential": "managed_identity",
                      "app_service_config": "app_service", "app_service_identity_detail": "app_service"}
     for child, parent in child_parents.items():

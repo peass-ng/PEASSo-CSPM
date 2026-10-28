@@ -12,7 +12,7 @@ from peaso.collectors import azure_ml_selected_asset_secret_indicators as curren
 from . import azure_function_settings_admission_20261020 as predecessor
 from peaso.collectors import azure_function_settings_declarations_20261020 as producer
 
-RECEIPT_SHA256 = '178950d8db8913f2fd070240139c0c467fbd8fc105cd1d2d973fcda98f6afab3'
+RECEIPT_SHA256 = '3ece0fc6ee03ab8bc85738a9d73175f39477e50a392626dde187a9f50ddcc457'
 RECEIPT = 'azure_function_settings_runtime_admission_20261020.json'
 
 

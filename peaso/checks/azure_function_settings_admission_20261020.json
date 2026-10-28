@@ -190,7 +190,7 @@
       "qualname": "_Reader._read",
       "path": "peaso/collectors/azure.py",
       "line": 1428,
-      "sha256": "0d682b1b4517962f9f6291f954aa05bc9bfba98229fdb04691f5a60105b5e37b"
+      "sha256": "b5829027f0b421e72e64020bde9c18e6ae5603ce13f13dce6e6e5d953d7cc68e"
     },
     {
       "module": "peaso.collectors.azure_selected_secret_integration_20261020",

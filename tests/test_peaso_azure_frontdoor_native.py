@@ -35,7 +35,8 @@ def base_routes(family='afd', redirect='Enabled', forwarding='HttpsOnly'):
             'enabledState': 'Enabled', 'patternsToMatch': ['/*'], 'frontendEndpoints': [{'id': domain['id']}],
             'routeConfiguration': {'@odata.type': '#Microsoft.Azure.FrontDoor.Models.FrontdoorRedirectConfiguration',
                                    'redirectProtocol': 'HttpsOnly'}})
-        parent = arm(CLASSIC, {'frontendEndpoints': [domain], 'routingRules': [rule], 'backendPools': [pool]})
+        parent = arm(CLASSIC, {'enabledState': 'Enabled', 'frontendEndpoints': [domain],
+                               'routingRules': [rule], 'backendPools': [pool]})
         paths[classic_list] = {'value': [parent]};paths[CLASSIC] = parent
         return paths, parent
     parent = arm(PROFILE, sku={'name': 'Standard_AzureFrontDoor' if family == 'afd' else 'Standard_Microsoft'})

@@ -1,8 +1,8 @@
 # Azure Functions HTTP trigger source proof
 
 The reviewed Azure collector changes from SHA-256
-`defd369a213210f9b1068afafdb495d362abfa2eb42e3a3fb702f8c51ba2de09`
-to `defd369a213210f9b1068afafdb495d362abfa2eb42e3a3fb702f8c51ba2de09`.
+`ffa694575eba7314d4da2951ee642f125558da8ee87fd09c7ed74befeef96a44`
+to `ffa694575eba7314d4da2951ee642f125558da8ee87fd09c7ed74befeef96a44`.
 The source change schedules one paged `functions` LIST for each collected
 Function app and deployment slot through the existing per-scan reader. It
 derives Function app membership from the parent site's `kind`, validates each

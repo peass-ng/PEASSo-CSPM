@@ -15,7 +15,7 @@ from peaso.collectors import azure_nsp_query_cmk_runtime_20261020 as producer
 
 proof = prepared.predecessor
 RECEIPT = 'azure_nsp_query_cmk_production_tde_successor_20261020.json'
-RECEIPT_SHA256 = '3f22b3668920e0b6b76eeb12a8a9223d08270b26a8f9a2e94887a36c4e5fe1db'
+RECEIPT_SHA256 = '88cff52411041912b11c6df7d8fdc5e1cd87d0fd3ab27ee1f274c0b6e81f4986'
 CASES_FILE = 'azure_nsp_query_cmk_production_cases_20261020.json'
 IDS = candidate.IDS
 MARK = '_azure_nsp_query_cmk_production_tde_successor_20261020'

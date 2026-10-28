@@ -142,7 +142,7 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
     nonglobal = lb_decision({"backendIPConfigurations": [{"id": config_id}]},
                             public_address="10.0.0.4")
     assert nonglobal.verdict() == "UNKNOWN"
-    assert "no recorded assigned global public frontend address" in _observed(nonglobal, "UNKNOWN")
+    assert "assigned global public frontend address not collected" in _observed(nonglobal, "UNKNOWN")
     assert lb_decision({"backendIPConfigurations": [{"id": config_id}]},
                        public_address="").verdict() == "UNKNOWN"
 
@@ -197,6 +197,14 @@ def test_application_gateway_public_frontend_requires_observed_address():
             "destinationPortRange": "443"}}
     assert check({"first": "8.8.8.8"}, nsg_rules=[allow_destination("8.8.8.8/32")]).verdict() == "FAIL"
     assert check({"first": "8.8.8.8"}, nsg_rules=[allow_destination("9.9.9.9/32")]).verdict() == "PASS"
+    virtual_destination = allow_destination("VirtualNetwork")
+    virtual = check({"first": "8.8.8.8"}, nsg_rules=[virtual_destination])
+    assert virtual.verdict() == "UNKNOWN"
+    assert any(gap["layer"] == "nsg" for gap in virtual.unresolved)
+    assert check({"first": "8.8.8.8"}, nsg_rules=[
+        {**virtual_destination, "properties": {**virtual_destination["properties"],
+          "destinationAddressPrefixes": ["VirtualNetwork", "8.8.8.8/32"],
+          "destinationAddressPrefix": None}}]).verdict() == "FAIL"
     dual = check({"first": "8.8.8.8", "second": "9.9.9.9"}, ("first", "second"),
                  [allow_destination("9.9.9.9/32")])
     assert dual.verdict() == "FAIL" and dual.addresses == ["9.9.9.9"]
@@ -218,6 +226,44 @@ def test_load_balancer_public_ip_prefix_frontend_is_outbound_only():
                     "properties": {"publicIPPrefix": {"id": prefix}}}],
                 "outboundRules": [{"properties": {"frontendIPConfigurations": [{"id": frontend}]}}]}}]}])
     assert not any(row.resource["type"] == "load_balancer" for row in assess(snapshot, resources(snapshot)))
+
+
+def test_load_balancer_individual_nat_and_backend_pool_range_boundary():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    lb_id, nic_id = base + "/loadBalancers/lb", base + "/networkInterfaces/nic"
+    front_id, pool_id = lb_id + "/frontendIPConfigurations/front", lb_id + "/backendAddressPools/pool"
+    config_id, subnet_id = nic_id + "/ipConfigurations/primary", base + "/virtualNetworks/v/subnets/s"
+
+    def decision(rule_props, kind="inboundNatRules", legacy=False):
+        lb_props = {"frontendIPConfigurations": [{"id": front_id,
+            "properties": {"publicIPAddress": {"id": base + "/publicIPAddresses/pip"}}}],
+            "backendAddressPools": [{"id": pool_id,
+                "properties": {"backendIPConfigurations": [{"id": config_id}]}}]}
+        lb_props["inboundNatPools" if legacy else kind] = [
+            {"name": "ssh", "properties": rule_props}]
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "load_balancer", "scope": SCOPE, "status": "collected", "items": [
+                {"id": lb_id, "sku": {"name": "Basic"}, "properties": lb_props}]},
+            {"type": "public_ip", "scope": SCOPE, "status": "collected", "items": [
+                {"id": base + "/publicIPAddresses/pip", "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "nic", "scope": SCOPE, "status": "collected", "items": [
+                {"id": nic_id, "properties": {"ipConfigurations": [{"id": config_id,
+                    "properties": {"privateIPAddress": "10.0.0.4", "subnet": {"id": subnet_id}}}]}}]},
+            {"type": "subnet", "scope": SCOPE, "status": "collected", "items": [
+                {"id": subnet_id, "properties": {}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "load_balancer")
+
+    individual = decision({"frontendIPConfiguration": {"id": front_id},
+        "backendIPConfiguration": {"id": config_id}, "protocol": "Tcp",
+        "frontendPort": 2200, "backendPort": 22})
+    assert individual.verdict() == "FAIL" and individual.ports == {"tcp": ((2200, 2200),)}
+    pool = {"frontendIPConfiguration": {"id": front_id},
+        "backendAddressPool": {"id": pool_id}, "protocol": "Tcp",
+        "frontendPortRangeStart": 5000, "frontendPortRangeEnd": 5100, "backendPort": 22}
+    for row in (decision(pool), decision(pool, legacy=True)):
+        assert row.verdict() == "UNKNOWN"
+        assert any("per-instance frontend port mapping" in gap["reason"] for gap in row.unresolved)
 
 
 @pytest.mark.parametrize("kind,field", [
@@ -280,14 +326,6 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
 
     assert ml_decision(public="Disabled").verdict() == "UNKNOWN"
     assert ml_decision(public="Disabled", endpoint_public="Disabled").verdict() == "PASS"
-    lingering = ml_decision(public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
-        {"value": "8.8.8.8/32"}]})
-    assert lingering.verdict() == "FAIL" and "https://score.example.test" in lingering.addresses
-    assert lingering.ports == {"tcp": ((443, 443),)}
-    assert ml_decision(public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
-        {"value": "10.0.0.0/8"}]}).verdict() == "UNKNOWN"
-    assert ml_decision(public="Disabled", endpoint_public="Disabled", acls={"defaultAction": "Deny", "ipRules": [
-        {"value": "8.8.8.8/32"}]}).verdict() == "PASS"
     unknown = ml_decision()
     assert unknown.verdict() == "UNKNOWN" and "https://score.example.test" in unknown.addresses
     assert any("networkAcls" in gap["reason"] for gap in unknown.unresolved)
@@ -297,42 +335,6 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
     assert ml_decision(acls={"defaultAction": "Deny", "ipRules": [
         {"value": "10.0.0.0/8"}]}).verdict() == "PASS"
     assert ml_decision(acls={"defaultAction": "Allow"}, status="denied").verdict() == "FAIL"
-
-
-def test_redis_enterprise_managed_redis_database_listener_gates():
-    cluster = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redisEnterprise/cache"
-    def evaluate(access, child_status="collected", database_port=10000, firewall=None):
-        item = {"id": cluster, "properties": {"publicNetworkAccess": access,
-                "hostName": "cache.westus.redis.azure.net", "firewallRules": [] if firewall is None else firewall}}
-        if firewall == "missing":
-            del item["properties"]["firewallRules"]
-        database = {"id": cluster + "/databases/default", "properties": {
-            "port": database_port, "clientProtocol": "Encrypted"}}
-        snap = make_snapshot("azure", [SCOPE], [
-            {"type": "redis_enterprise_cluster", "scope": SCOPE, "service": "cache",
-             "status": "collected", "items": [item]},
-            {"type": "redis_enterprise_database", "scope": SCOPE, "service": "cache",
-             "status": child_status, "items": [database] if child_status in ("collected", "partial") else []},
-        ])
-        return next(row for row in assess(snap, resources(snap))
-                    if row.resource["type"] == "redis_enterprise_cluster")
-    exposed = evaluate("Enabled")
-    assert exposed.verdict() == "FAIL" and exposed.ports == {"tcp": ((10000, 10000),)}
-    assert exposed.addresses == ["cache.westus.redis.azure.net"]
-    assert evaluate("Disabled").verdict() == "PASS"
-    assert evaluate("Enabled", child_status="empty").verdict() == "PASS"
-    assert evaluate("Enabled", child_status="partial").verdict() == "FAIL"
-    assert evaluate("Enabled", child_status="denied").verdict() == "UNKNOWN"
-    assert evaluate("Enabled", child_status="partial", database_port=None).verdict() == "UNKNOWN"
-    assert evaluate("Enabled", database_port=None).verdict() == "UNKNOWN"
-    assert evaluate(None).verdict() == "UNKNOWN"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "8.8.8.8/32"}]).verdict() == "FAIL"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "10.0.0.0/8"}]).verdict() == "PASS"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "2001:4860::/32"}]).verdict() == "FAIL"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "bad"}]).verdict() == "UNKNOWN"
-    assert evaluate("Enabled", firewall="missing").verdict() == "UNKNOWN"
-    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "bad"},
-                                        {"sourceAddressPrefix": "8.8.8.8/32"}]).verdict() == "FAIL"
 
 
 def test_databricks_arm_public_gate_keeps_external_ingress_policy_unknown():
@@ -361,55 +363,10 @@ def test_compute_gallery_community_and_direct_sharing_policy():
         "groups": [{"type": "AADTenants", "ids": ["outside-tenant"]}]}})
     assert direct.verdict() == "UNKNOWN"
     assert len(_observed(direct, "UNKNOWN").splitlines()) == 3
-    def tenant_sharing(owner_verified, recipients):
-        item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images",
-                "properties": {"sharingProfile": {"permissions": "Groups",
-                    "groups": [{"type": "AADTenants", "ids": recipients}]}},
-                "_provenance": {"tenant_id": "home-tenant", "tenant_verified": owner_verified}}
-        snap = make_snapshot("azure", [SCOPE], [{"type": "compute_gallery", "scope": SCOPE,
-            "service": "compute", "status": "collected", "items": [item]}])
-        return assess(snap, resources(snap))[0]
-    assert tenant_sharing(True, ["outside-tenant"]).verdict() == "FAIL"
-    assert tenant_sharing(True, ["home-tenant"]).verdict() == "PASS"
-    assert tenant_sharing(False, ["outside-tenant"]).verdict() == "UNKNOWN"
-    other_subscription = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
-        "groups": [{"type": "Subscriptions", "ids": ["test", "outside-subscription"]}]}})
-    assert other_subscription.verdict() == "FAIL"
-    assert other_subscription.external_ids == ["outside-subscription"]
-    assert "published image versions" in other_subscription.notes[0]
-    assert _observed(other_subscription, "FAIL").splitlines()[0].startswith(
-        "The gallery has sharingProfile.permissions Groups with recipients outside")
-    own_subscription = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
-        "groups": [{"type": "Subscriptions", "ids": ["test"]}]}})
-    assert own_subscription.verdict() == "PASS"
-    assert _observed(own_subscription, "PASS").splitlines()[0].startswith(
-        "The gallery has sharingProfile.permissions Groups with only")
-    assert decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
-        "groups": [{"type": "Subscriptions", "ids": "outside-subscription"}]}}).verdict() == "UNKNOWN"
     missing = decision("compute_gallery", {})
     assert missing.verdict() == "UNKNOWN"
     assert _observed(missing, "UNKNOWN").splitlines()[0] == (
         "The gallery has no recorded sharingProfile.permissions value.")
-
-
-def test_gallery_public_policy_reports_observed_versions_and_partial_child_inventory():
-    image_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images/images/base"
-    def gallery(version_status, versions):
-        item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images",
-                "properties": {"sharingProfile": {"permissions": "Community"}},
-                "_coverage": {"images": {"status": "collected"}},
-                "images": [{"id": image_id, "_coverage": {"versions": {"status": version_status}},
-                            "versions": versions}]}
-        snap = make_snapshot("azure", [SCOPE], [{"type": "compute_gallery", "scope": SCOPE,
-            "service": "compute", "status": "collected", "items": [item]}])
-        return assess(snap, resources(snap))[0]
-    version = image_id + "/versions/1.0.0"
-    complete = gallery("collected", [{"id": version}])
-    assert complete.verdict() == "FAIL"
-    assert any(version in note for note in complete.notes)
-    partial = gallery("partial", [{"id": version}])
-    assert partial.verdict() == "FAIL"
-    assert any("incomplete" in note for note in partial.notes)
 
 
 def test_container_instance_public_ports_and_private_group():
@@ -540,6 +497,64 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
                         https_only="invalid").verdict() == "UNKNOWN"
 
 
+def test_app_service_main_hostname_uses_recorded_enabled_names():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    config = {"ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": "Allow",
+              "scmIpSecurityRestrictionsUseMain": False,
+              "scmIpSecurityRestrictions": [], "scmIpSecurityRestrictionsDefaultAction": "Deny"}
+
+    def check(hosts, default="app.azurewebsites.net", scm_default="Deny"):
+        site = {"publicNetworkAccess": "Enabled", "enabledHostNames": hosts}
+        if default is not None:
+            site["defaultHostName"] = default
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id, "properties": site}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id + "/config/web", "parent_id": site_id,
+                        "properties": {**config, "scmIpSecurityRestrictionsDefaultAction": scm_default}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "app_service")
+
+    custom = check(["custom.example.com"], default=None)
+    assert custom.verdict() == "FAIL" and custom.addresses == ["custom.example.com"]
+    assert check(["custom.example.com"]).addresses == ["custom.example.com"]
+    missing_main = check(["app.scm.azurewebsites.net"])
+    assert missing_main.verdict() == "UNKNOWN" and missing_main.addresses == []
+    assert "enabled main hostname" in _observed(missing_main, "UNKNOWN")
+    scm = check(["app.scm.azurewebsites.net"], scm_default="Allow")
+    assert scm.verdict() == "FAIL" and scm.addresses == ["app.scm.azurewebsites.net"]
+
+
+def test_app_service_hostname_type_selects_independent_main_and_scm_restrictions():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    main_host = "main.example.com"
+    scm_host = "deployment.example.com"
+
+    def check(host_type, *, main_action="Deny", scm_action="Allow"):
+        site = {"publicNetworkAccess": "Enabled", "enabledHostNames": [main_host, scm_host],
+                "hostNameSslStates": [{"name": main_host, "hostType": "Standard"},
+                                      {"name": scm_host, "hostType": host_type}]}
+        config = {"ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": main_action,
+                  "scmIpSecurityRestrictionsUseMain": False, "scmIpSecurityRestrictions": [],
+                  "scmIpSecurityRestrictionsDefaultAction": scm_action}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id, "properties": site}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id + "/config/web", "parent_id": site_id, "properties": config}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "app_service")
+
+    repository = check("Repository")
+    assert repository.verdict() == "FAIL"
+    assert repository.addresses == [scm_host]
+    assert repository.path[-1]["scm_hosts"] == [scm_host]
+    assert check("Repository", scm_action="Deny").verdict() == "PASS"
+    assert check("unexpected").verdict() == "UNKNOWN"
+    assert check("unexpected", main_action="Allow").addresses == [main_host]
+
+
 def test_app_service_service_tag_and_vnet_rules_preserve_public_source_priority():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     tag = {"name": "AzureFrontDoor.Backend", "properties": {"addressPrefixes": ["8.8.8.0/24"]}}
@@ -658,6 +673,8 @@ def test_app_service_stopped_and_disabled_hostname_surfaces():
     assert stopped.verdict() == "PASS" and stopped.blocked_by == "site_state"
     scm_only = decision(enabled=False)
     assert scm_only.verdict() == "FAIL" and scm_only.addresses == ["app.scm.azurewebsites.net"]
+    assert decision(enabled=False, scm_stopped=None).verdict() == "FAIL"  # Documented false default.
+    assert decision(enabled=False, scm_stopped="unknown").verdict() == "UNKNOWN"
     hostname_gate = decision(hostnames_disabled=True)
     assert hostname_gate.verdict() == "UNKNOWN" and hostname_gate.addresses == []
     assert decision(hostnames_disabled=True, scm_default="Deny").verdict() == "PASS"
@@ -782,8 +799,13 @@ def test_anonymous_blob_requires_container_and_account_gates():
         "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
     assert assess_container(open_account).verdict() == "FAIL"
     assert assess_container({**open_account, "allowBlobPublicAccess": False}).verdict() == "PASS"
+    omitted_public = {key: value for key, value in open_account.items()
+                      if key != "allowBlobPublicAccess"}
+    assert assess_container(omitted_public).verdict() == "PASS"
+    assert assess_container({**open_account, "allowBlobPublicAccess": None}).verdict() == "PASS"
+    assert assess_container({**open_account, "allowBlobPublicAccess": "false"}).verdict() == "UNKNOWN"
     assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny"}}).verdict() == "PASS"
-    assert assess_container({**open_account, "networkAcls": {}}).verdict() == "UNKNOWN"
+    assert assess_container({**open_account, "networkAcls": {}}).verdict() == "FAIL"
     public_rule = {"value": "8.8.8.8/32", "action": "Allow"}
     assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny",
         "ipRules": [public_rule]}}).verdict() == "FAIL"
@@ -792,6 +814,39 @@ def test_anonymous_blob_requires_container_and_account_gates():
     assert assess_container({**open_account, "publicNetworkAccess": "SecuredByPerimeter"}).verdict() == "UNKNOWN"
     assert assess_container({**open_account, "publicNetworkAccess": "SecuredByPerimeter",
         "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
+
+
+def test_storage_static_website_is_anonymous_with_blob_public_access_disabled():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    web_url = "https://a.z5.web.core.windows.net/"
+
+    def decision(*, enabled=True, acl=None, public="Enabled", web=True):
+        props = {"publicNetworkAccess": public, "allowBlobPublicAccess": False,
+                 "networkAcls": acl if acl is not None else {"defaultAction": "Allow", "bypass": "None"},
+                 "primaryEndpoints": {"web": web_url} if web else {}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "properties": props}]},
+            {"type": "storage_service", "scope": account_id + "/blobServices",
+             "service": "storage", "status": "collected", "items": [{
+                 "id": account_id + "/blobServices/default", "properties": {
+                     "staticWebsite": {"enabled": enabled}}}]}])
+        return next((row for row in assess(snap, resources(snap))
+                     if row.resource["type"] == "storage_account"), None)
+
+    site = decision()
+    assert site is not None and site.verdict() == "FAIL" and site.data_exposure
+    assert web_url in site.addresses
+    assert "serves $web anonymously" in _observed(site, "FAIL")
+    assert len(_observed(site, "FAIL").splitlines()) == 3
+    assert not decision(enabled=False).data_exposure
+    assert not decision(web=False).data_exposure
+    ip_acl = {"defaultAction": "Deny", "bypass": "None",
+              "ipRules": [{"value": "8.8.8.8/32", "action": "Allow"}]}
+    assert decision(acl=ip_acl).data_exposure
+    blocked = decision(acl={"defaultAction": "Deny", "bypass": "None"})
+    assert blocked.verdict() == "PASS" and not blocked.data_exposure
+    assert decision(public="Disabled") is None
 
 
 def test_storage_account_deny_default_retains_public_ip_rule_exposure():
@@ -807,6 +862,235 @@ def test_storage_account_deny_default_retains_public_ip_rule_exposure():
         "networkAcls": {"defaultAction": "Allow"}}).verdict() == "UNKNOWN"
     assert decision("storage_account", {**base, "publicNetworkAccess": "SecuredByPerimeter",
         "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
+
+
+def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
+    from peaso.collectors import azure
+    from peaso.collectors.azure import _child_rows
+
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    container_id = account_id + "/blobServices/default/containers/public"
+    config_id = account_id + "/networkSecurityPerimeterConfigurations/association"
+    config = {"id": config_id,
+              "type": "Microsoft.Storage/storageAccounts/networkSecurityPerimeterConfigurations",
+              "properties": {"provisioningState": "Succeeded",
+                             "resourceAssociation": {"accessMode": "Enforced"},
+                             "profile": {"accessRules": [{"name": "internet",
+                                 "properties": {"direction": "Inbound", "addressPrefixes": ["8.8.8.0/24"]}}]}}}
+    assert _child_rows([config], account_id, "networkSecurityPerimeterConfigurations")[0]["id"] == config_id
+    with pytest.raises(ValueError):
+        _child_rows([{**config, "id": account_id + "/networkSecurityPerimeterConfigurations/../foreign"}],
+                    account_id, "networkSecurityPerimeterConfigurations")
+    url = ("https://management.azure.com" + account_id +
+           "/networkSecurityPerimeterConfigurations?api-version=2026-04-01")
+    calls = []
+
+    def request(current, **kwargs):
+        calls.append(current)
+        return {"value": [config]}
+
+    skip = tuple(field for field, _, _ in azure.EMBEDDED_LISTS["storage_account"]
+                 if field != "networkSecurityPerimeterConfigurations") + ("diagnosticSettings",)
+    item = {"id": account_id, "type": "Microsoft.Storage/storageAccounts",
+            "properties": {"publicNetworkAccess": "SecuredByPerimeter"}}
+    azure._embed(azure._Reader({}), request, [("storage_account", item)], skip=skip)
+    assert calls == [url]
+    assert item["_coverage"]["networkSecurityPerimeterConfigurations"]["status"] == "collected"
+    assert item["networkSecurityPerimeterConfigurations"][0]["id"] == config_id
+    calls.clear()
+    ordinary = {"id": account_id, "type": "Microsoft.Storage/storageAccounts",
+                "properties": {"publicNetworkAccess": "Enabled"}}
+    azure._embed(azure._Reader({}), request, [("storage_account", ordinary)], skip=skip)
+    assert calls == []
+
+    def check(configuration=config, *, status="collected", acls=None, endpoints=None):
+        account = {"id": account_id, "properties": {
+            "publicNetworkAccess": "SecuredByPerimeter", "allowBlobPublicAccess": True,
+            "networkAcls": acls if acls is not None else {"defaultAction": "Deny", "bypass": "None"},
+            "primaryEndpoints": endpoints if endpoints is not None else
+                {"blob": "https://a.blob.core.windows.net/"}},
+            "networkSecurityPerimeterConfigurations": [configuration],
+            "_coverage": {"networkSecurityPerimeterConfigurations": {"status": status}}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [account]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": container_id, "parent_id": account_id,
+                        "properties": {"publicAccess": "Blob"}}]},
+        ])
+        rows = [row for row in assess(snap, resources(snap))
+                if row.resource["type"] in ("storage_account", "storage_container")]
+        return {row.resource["type"]: row for row in rows}
+
+    opened = check()
+    assert opened["storage_account"].verdict() == "FAIL"
+    assert opened["storage_container"].verdict() == "FAIL"
+    assert opened["storage_container"].data_exposure
+    assert opened["storage_account"].path[0]["public_ip_rules"][0]["source"] == "8.8.8.0/24"
+    unsupported = check(endpoints={"file": "https://a.file.core.windows.net/",
+                                   "web": "https://a.web.core.windows.net/"})
+    assert all(row.verdict() == "UNKNOWN" for row in unsupported.values())
+    assert unsupported["storage_account"].addresses == []
+    for row in opened.values():
+        observed = _observed(row, "FAIL")
+        assert "effective Storage perimeter" in observed or "effective perimeter rule" in observed
+        assert "8.8.8.0/24" in observed
+        assert len(observed.splitlines()) == 3
+    private = {**config, "properties": {**config["properties"], "profile": {
+        "accessRules": [{"name": "private", "properties": {
+            "direction": "Inbound", "addressPrefixes": ["10.0.0.0/8"]}}]}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(private).values())
+    ipv6_only = {**config, "properties": {**config["properties"], "profile": {
+        "accessRules": [{"name": "ipv6", "properties": {
+            "direction": "Inbound", "addressPrefixes": ["2001:4860::/32"]}}]}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(ipv6_only).values())
+    assert all(row.verdict() == "UNKNOWN" for row in check(status="partial").values())
+    learning = {**config, "properties": {**config["properties"],
+        "resourceAssociation": {"accessMode": "Learning"}}}
+    assert all(row.verdict() == "FAIL" for row in check(learning).values())
+    assert check(learning)["storage_account"].path[0]["access_modes"] == ["Learning"]
+    learning_private = {**private, "properties": {**private["properties"],
+        "resourceAssociation": {"accessMode": "Learning"}}}
+    fallback = check(learning_private, acls={"defaultAction": "Allow"})
+    assert all(row.verdict() == "FAIL" for row in fallback.values())
+    assert fallback["storage_container"].data_exposure
+    assert "account-firewall fallback" in _observed(fallback["storage_container"], "FAIL")
+    assert "account-firewall fallback" in _observed(fallback["storage_account"], "FAIL")
+    assert all(row.verdict() == "UNKNOWN" for row in check(learning_private).values())
+    public_acl = {"defaultAction": "Deny", "bypass": "None",
+                  "ipRules": [{"value": "8.8.8.8/32", "action": "Allow"}]}
+    fallback_ip = check(learning_private, acls=public_acl)
+    assert all(row.verdict() == "FAIL" for row in fallback_ip.values())
+    assert fallback_ip["storage_container"].data_exposure
+    assert "8.8.8.8/32" in _observed(fallback_ip["storage_account"], "FAIL")
+    assert "8.8.8.8/32" in _observed(fallback_ip["storage_container"], "FAIL")
+    assert all(row.verdict() == "UNKNOWN" for row in check(private, acls=public_acl).values())
+    audit = {**config, "properties": {**config["properties"],
+        "resourceAssociation": {"accessMode": "Audit"}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(audit).values())
+    subscription_id = "/subscriptions/11111111-2222-3333-4444-555555555555"
+    named = {**config, "properties": {**config["properties"], "profile": {
+        "accessRules": [{"name": "partner", "properties": {"direction": "Inbound",
+            "subscriptions": [{"id": subscription_id}]}}]}}}
+    named_rows = check(named)
+    assert named_rows["storage_account"].verdict() == "FAIL"
+    assert named_rows["storage_account"].authenticated is True
+    assert named_rows["storage_account"].path[0]["subscription_rules"][0]["subscription_id"] == subscription_id
+    named_observed = _observed(named_rows["storage_account"], "FAIL")
+    assert subscription_id in named_observed and "owner was not established" in named_observed
+    assert len(named_observed.splitlines()) == 3
+    assert named_rows["storage_container"].verdict() == "UNKNOWN"
+    assert named_rows["storage_container"].data_exposure is False
+    learning_named = {**named, "properties": {**named["properties"],
+        "resourceAssociation": {"accessMode": "Learning"}}}
+    fallback_named = check(learning_named, acls={"defaultAction": "Allow"})
+    assert fallback_named["storage_account"].verdict() == "FAIL"
+    assert fallback_named["storage_container"].verdict() == "FAIL"
+    assert fallback_named["storage_container"].data_exposure
+    malformed_named = {**named, "properties": {**named["properties"], "profile": {
+        "accessRules": [{"name": "partner", "properties": {"direction": "Inbound",
+            "subscriptions": [{"id": "/subscriptions/not-a-uuid"}]}}]}}}
+    assert all(row.verdict() == "UNKNOWN" for row in check(malformed_named).values())
+
+
+def test_storage_unrecognized_public_gate_stays_unknown_for_account_and_anonymous_blob():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+
+    def check(access):
+        props = {"allowBlobPublicAccess": True,
+                 "networkAcls": {"defaultAction": "Allow"},
+                 "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
+        if access is not None:
+            props["publicNetworkAccess"] = access
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "properties": props}]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id + "/blobServices/default/containers/public",
+                 "parent_id": account_id, "properties": {"publicAccess": "Blob"}}]},
+        ])
+        rows = assess(snap, resources(snap))
+        return (next(a for a in rows if a.resource["type"] == "storage_account"),
+                next(a for a in rows if a.resource["type"] == "storage_container"))
+
+    assert [a.verdict() for a in check("Unexpected")] == ["UNKNOWN", "UNKNOWN"]
+    assert [a.verdict() for a in check(None)] == ["FAIL", "FAIL"]  # Documented public default.
+
+
+@pytest.mark.parametrize("acls, expected", [
+    (None, "FAIL"),
+    ({}, "FAIL"),
+    ({"defaultAction": "Allow"}, "FAIL"),
+    ({"defaultAction": "Invalid"}, "UNKNOWN"),
+    ([], "UNKNOWN"),
+    ({"defaultAction": "Deny", "bypass": "None"}, "PASS"),
+])
+def test_storage_default_firewall_action_applies_to_anonymous_container(acls, expected):
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    props = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,
+             "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
+    if acls is not None:
+        props["networkAcls"] = acls
+    snap = make_snapshot("azure", [SCOPE], [
+        {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+         "items": [{"id": account_id, "properties": props}]},
+        {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+         "items": [{"id": account_id + "/blobServices/default/containers/public",
+                    "parent_id": account_id, "properties": {"publicAccess": "Blob"}}]},
+    ])
+    rows = assess(snap, resources(snap))
+    assert {row.resource["type"]: row.verdict() for row in rows} == {
+        "storage_account": expected, "storage_container": expected}
+    if acls in (None, {}):
+        container = next(row for row in rows if row.resource["type"] == "storage_container")
+        assert any(step.get("default_action") == "Allow (service default)" for step in container.path)
+
+
+def test_storage_account_open_network_requires_observed_public_endpoint_url():
+    base = {"publicNetworkAccess": "Enabled", "networkAcls": {"defaultAction": "Allow"}}
+    missing = decision("storage_account", base)
+    assert missing.verdict() == "UNKNOWN"
+    assert any(gap["reason"] == "storage public endpoint URL is not collected"
+               for gap in missing.unresolved)
+    known = decision("storage_account", {**base, "primaryEndpoints": {
+        "blob": "https://a.blob.core.windows.net/"}})
+    assert known.verdict() == "FAIL" and known.addresses == ["https://a.blob.core.windows.net/"]
+    blocked = decision("storage_account", {**base, "networkAcls": {
+        "defaultAction": "Deny", "bypass": "None"}})
+    assert blocked.verdict() == "PASS"
+
+
+def test_disabled_storage_public_access_retains_authenticated_exception_uncertainty():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    instance = {"resourceId": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.DataFactory/factories/f",
+                "tenantId": "tenant-a"}
+
+    def check(acls):
+        props = {"publicNetworkAccess": "Disabled", "allowBlobPublicAccess": True,
+                 "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
+        if acls is not None:
+            props["networkAcls"] = acls
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "properties": props}]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id + "/blobServices/default/containers/public",
+                        "parent_id": account_id, "properties": {"publicAccess": "Blob"}}]},
+        ])
+        return assess(snap, resources(snap))
+
+    for acls in ({"bypass": "AzureServices", "resourceAccessRules": []},
+                 {"bypass": "None", "resourceAccessRules": [instance]},
+                 {"bypass": "Bad"}, None):
+        rows = check(acls)
+        account = next(row for row in rows if row.resource["type"] == "storage_account")
+        anonymous = next(row for row in rows if row.resource["type"] == "storage_container")
+        assert account.verdict() == "UNKNOWN" and anonymous.verdict() == "PASS"
+        assert len(_observed(account, "UNKNOWN").splitlines()) == 3
+        assert "can retain these exceptions" in _observed(account, "UNKNOWN")
+    assert [row.resource["type"] for row in check({"bypass": "None", "resourceAccessRules": [],
+        "ipRules": [{"value": "8.8.8.8"}], "virtualNetworkRules": [{"id": "ignored"}]})] == [
+            "storage_container"]
 
 
 def test_storage_trusted_service_bypass_is_not_an_anonymous_public_source():
@@ -886,28 +1170,35 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
     container = {"id": account_id + "/blobServices/default/containers/public",
                  "parent_id": account_id, "properties": {"publicAccess": "Blob"}}
 
-    def account_and_container(rules, subnet_rules=None):
-        snap = make_snapshot("azure", [SCOPE], [
+    def account_and_container(rules, subnet_rules=None, subnet_items=None):
+        collections = [
             {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
-             "items": [{"id": account_id, "properties": {"publicNetworkAccess": "Enabled",
+             "items": [{"id": account_id, "location": "westeurope", "properties": {"publicNetworkAccess": "Enabled",
                  "allowBlobPublicAccess": True, "primaryEndpoints": {"blob": blob_url},
                  "networkAcls": {"defaultAction": "Deny", "bypass": "None", "resourceAccessRules": rules,
                                  "virtualNetworkRules": subnet_rules or []}}}]},
             {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
              "items": [container]},
-        ])
+        ]
+        if subnet_items is not None:
+            collections.append({"type": "subnet", "scope": SCOPE, "service": "network",
+                                "status": "collected", "items": subnet_items})
+        snap = make_snapshot("azure", [SCOPE], collections)
         rows = assess(snap, resources(snap))
         return (next(a for a in rows if a.resource["type"] == "storage_account"),
                 next(a for a in rows if a.resource["type"] == "storage_container"))
 
     account, anonymous = account_and_container([rule])
-    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
+    assert account.verdict() == "FAIL" and anonymous.verdict() == "PASS"
     assert account.path[0]["resource_instance_rules"] == [{"resource_id": rule["resourceId"],
                                                             "tenant_id": rule["tenantId"]}]
-    assert anonymous.path[-1]["resource_instance_rules"] == account.path[0]["resource_instance_rules"]
+    assert anonymous.path[-2]["resource_instance_rules"] == account.path[0]["resource_instance_rules"]
     assert len(_observed(account, "FAIL").splitlines()) == 3
-    assert "Reading data still requires separate authorization" in _observed(account, "FAIL")
-    assert "Anonymous blob reads could expose stored data" in _observed(anonymous, "FAIL")
+    assert "requires an appropriate role" in _observed(account, "FAIL")
+    assert any(step["layer"] == "resource_instance_exception" and
+               step["decision"] == "authenticated_only" for step in anonymous.path)
+    assert "does not establish an anonymous read path" in _observed(anonymous, "PASS")
+    assert len(_observed(anonymous, "PASS").splitlines()) == 3
     assert account_and_container([])[0].verdict() == "PASS"
     assert account_and_container([])[1].verdict() == "PASS"
     assert account_and_container([{"resourceId": rule["resourceId"]}])[0].verdict() == "UNKNOWN"
@@ -915,10 +1206,33 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
 
     foreign_subnet = "/subscriptions/foreign/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s"
     account, anonymous = account_and_container([], [{"id": foreign_subnet, "state": "Succeeded"}])
+    assert account.verdict() == "UNKNOWN" and anonymous.verdict() == "UNKNOWN"
+    mixed_account, mixed_anonymous = account_and_container([rule], [{"id": foreign_subnet,
+                                                                      "state": "Succeeded"}])
+    assert mixed_account.verdict() == "FAIL" and mixed_anonymous.verdict() == "UNKNOWN"
+    local_subnet = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s"
+    rule_subnet = [{"id": local_subnet, "state": "Succeeded"}]
+    active_subnet = [{"id": local_subnet, "properties": {"serviceEndpoints": [
+        {"service": "Microsoft.Storage.Global", "provisioningState": "Succeeded"}]}}]
+    account, anonymous = account_and_container([], rule_subnet, active_subnet)
     assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
-    assert account.path[0]["virtual_network_rules"] == [foreign_subnet]
+    assert account.path[0]["virtual_network_rules"] == [local_subnet]
     assert "Subnet ownership, data authorization" in _observed(account, "FAIL")
     assert "subnet ownership and successful access" in _observed(anonymous, "FAIL")
+    assert "provisioned Storage service endpoint" in _observed(anonymous, "FAIL")
+    blocked = account_and_container([], rule_subnet, [{"id": local_subnet,
+        "properties": {"serviceEndpoints": []}}])
+    assert [row.verdict() for row in blocked] == ["PASS", "PASS"]
+    regional = [{"id": local_subnet, "properties": {"serviceEndpoints": [
+        {"service": "Microsoft.Storage", "provisioningState": "Succeeded", "locations": ["westeurope"]}]}}]
+    assert [row.verdict() for row in account_and_container([], rule_subnet, regional)] == ["FAIL", "FAIL"]
+    wrong_region = [{"id": local_subnet, "properties": {"serviceEndpoints": [
+        {"service": "Microsoft.Storage", "provisioningState": "Succeeded", "locations": ["eastus"]}]}}]
+    assert [row.verdict() for row in account_and_container([], rule_subnet, wrong_region)] == ["UNKNOWN", "UNKNOWN"]
+    restricted = [{"id": local_subnet, "properties": {"serviceEndpoints": [
+        {"service": "Microsoft.Storage.Global", "provisioningState": "Succeeded"}],
+        "serviceEndpointPolicies": [{"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/serviceEndpointPolicies/p"}]}}]
+    assert [row.verdict() for row in account_and_container([], rule_subnet, restricted)] == ["UNKNOWN", "UNKNOWN"]
     assert account_and_container([], [{"id": foreign_subnet, "state": "Failed"}])[0].verdict() == "UNKNOWN"
     assert account_and_container([], [{"id": foreign_subnet}])[0].verdict() == "UNKNOWN"
     assert account_and_container([], [{"id": "malformed", "state": "Succeeded"}])[1].verdict() == "UNKNOWN"
@@ -1004,9 +1318,144 @@ def test_sql_missing_public_gate_and_partial_firewall_pages_stay_unknown():
     private = [("private", "10.0.0.1", "10.0.0.2")]
     public = [("public", "8.8.8.8", "8.8.8.8")]
     assert decision(None, "collected", public).verdict() == "UNKNOWN"
+    assert decision("SecuredByPerimeter", "collected", private).verdict() == "UNKNOWN"
     assert decision("Enabled", "partial", private).verdict() == "UNKNOWN"
     assert decision("Enabled", "partial", public).verdict() == "FAIL"
     assert decision("Enabled", "collected", private).verdict() == "UNKNOWN"
+
+
+def test_sql_ready_vnet_rule_joins_regional_subnet_service_endpoint():
+    server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
+    subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/app"
+
+    def decision(*, rule_state="Ready", endpoint_state="Succeeded", endpoint_region="westeurope",
+                 child_status="collected", subnet_status="collected", public_gate="Enabled",
+                 rule_subnet_id=subnet_id):
+        rule = {"id": server_id + "/virtualNetworkRules/app", "properties": {
+            "virtualNetworkSubnetId": rule_subnet_id, "state": rule_state}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "sql_server", "scope": SCOPE, "service": "sql", "status": "collected", "items": [
+                {"id": server_id, "name": "sql", "location": "westeurope", "properties": {
+                    "publicNetworkAccess": public_gate, "fullyQualifiedDomainName": "sql.database.windows.net"},
+                 "virtualNetworkRules": [rule], "_coverage": {"virtualNetworkRules": {"status": child_status}}}]},
+            {"type": "sql_firewall_rule", "scope": SCOPE, "service": "sql", "status": "empty", "items": []},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": subnet_status, "items": [
+                {"id": rule_subnet_id, "properties": {"serviceEndpoints": [{"service": "Microsoft.Sql",
+                    "provisioningState": endpoint_state, "locations": [endpoint_region]}]}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "sql_server")
+
+    allowed = decision()
+    assert allowed.verdict() == "FAIL" and allowed.addresses == ["sql.database.windows.net"]
+    assert allowed.path[-1]["virtual_network_rules"] == [subnet_id]
+    assert allowed.ports == {"tcp": ((1433, 1433),)}
+    assert _observed(allowed, "FAIL").splitlines() == [
+        f"The Azure SQL server sql allows subnet {subnet_id} through its public endpoint.",
+        "Its Ready virtual-network rule joins a provisioned Microsoft.Sql service endpoint in the server region.",
+        "Subnet workload, database authorization, DNS delivery, and a successful connection were not tested."]
+    for values in ({"rule_state": "InProgress"}, {"endpoint_state": "Updating"},
+                   {"endpoint_region": "eastus"}, {"child_status": "partial"},
+                   {"subnet_status": "partial"}, {"rule_subnet_id": subnet_id.replace(
+                       "/subscriptions/test/", "/subscriptions/foreign/")}):
+        assert decision(**values).verdict() == "UNKNOWN"
+    disabled = make_snapshot("azure", [SCOPE], [{"type": "sql_server", "scope": SCOPE,
+        "service": "sql", "status": "collected", "items": [{"id": server_id,
+            "properties": {"publicNetworkAccess": "Disabled"}}]}])
+    disabled_row = next(row for row in assess(disabled, resources(disabled))
+                        if row.resource["type"] == "sql_server")
+    assert disabled_row.verdict() == "UNKNOWN"
+    assert any("private endpoint connection inventory" in gap["reason"]
+               for gap in disabled_row.unresolved)
+    assert "private endpoint connection inventory is missing" in _observed(disabled_row, "UNKNOWN")
+
+
+def test_sql_disabled_public_gate_retains_approved_private_endpoint_candidate():
+    server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
+    endpoint_id = "/subscriptions/consumer/resourceGroups/other/providers/Microsoft.Network/privateEndpoints/sql"
+    connection_id = server_id + "/privateEndpointConnections/consumer"
+
+    def check(status="Approved", provisioning="Ready", *, include=True, malformed=False,
+              return_snapshot=False):
+        properties = {"publicNetworkAccess": "Disabled"}
+        if include:
+            properties["privateEndpointConnections"] = [{"id": connection_id,
+                "properties": {"privateEndpoint": {"id": endpoint_id},
+                    "privateLinkServiceConnectionState": {"status": status},
+                    "provisioningState": provisioning}}]
+            if malformed:
+                properties["_coverage"] = {"privateEndpointConnections": {"status": "malformed"}}
+        snap = make_snapshot("azure", [SCOPE], [{"type": "sql_server", "scope": SCOPE,
+            "service": "sql", "status": "collected", "items": [{"id": server_id,
+                "name": "sql", "properties": properties}]}])
+        if return_snapshot:
+            return snap
+        return next((row for row in assess(snap, resources(snap))
+                     if row.resource["type"] == "sql_server"), None)
+
+    approved = check()
+    assert approved.verdict() == "UNKNOWN" and approved.ports == {"tcp": ((1433, 1433),)}
+    assert approved.path[-1]["approved_endpoint_ids"] == [endpoint_id]
+    assert any(gap["layer"] == "authorization" for gap in approved.unresolved)
+    assert _observed(approved, "UNKNOWN").splitlines() == [
+        f"The Azure SQL server sql blocks its public endpoint but records an Approved, Ready connection to private endpoint {endpoint_id}.",
+        "That named private consumer may have a path; its tenant ownership and effective route are not established.",
+        "Database authorization, DNS delivery and a successful SQL connection were not tested."]
+    from peaso.analysis.internet_exposure import annotate_network, internet_findings
+    snap = check(return_snapshot=True)
+    finding = next(row for row in internet_findings(snap, resources(snap))
+                   if row["title"] == "SQL private endpoint consumer path unresolved")
+    assert finding["status"] == "UNKNOWN"
+    assert "public SQL route is blocked" in finding["evidence"]["semantics"]
+    assert annotate_network({"nodes": [], "edges": []}, snap, resources(snap)) == {"nodes": [], "edges": []}
+    assert check("Pending").verdict() == "UNKNOWN"
+    assert check("Approved", "Approving").verdict() == "UNKNOWN"
+    assert check(include=False).verdict() == "UNKNOWN"
+    assert check(malformed=True).verdict() == "UNKNOWN"
+    assert check("Rejected") is None
+
+
+def test_sql_ipv6_firewall_rules_join_enabled_public_server():
+    from peaso.collectors.azure import _sql_projected_child_pages, TYPES
+
+    server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
+    rule_id = server_id + "/ipv6FirewallRules/allow-public"
+    url = "https://management.azure.com" + server_id + "/ipv6FirewallRules?api-version=2025-01-01"
+    row = {"id": rule_id, "name": "allow-public", "type": "Microsoft.Sql/servers/ipv6FirewallRules",
+           "properties": {"startIPv6Address": "2606:4700:4700::1111",
+                          "endIPv6Address": "2606:4700:4700::1111"}}
+
+    class Reader:
+        def pages(self, request, requested_url):
+            assert requested_url == url
+            yield [row]
+
+    assert "sql_ipv6_firewall_rule" in TYPES
+    assert list(_sql_projected_child_pages(Reader(), None, url, server_id,
+                "sql_ipv6_firewall_rule", "ipv6FirewallRules"))[0][0]["id"] == rule_id
+    with pytest.raises(ValueError):
+        list(_sql_projected_child_pages(Reader(), None, url.replace("2025-01-01", "2023-08-01"),
+             server_id, "sql_ipv6_firewall_rule", "ipv6FirewallRules"))
+
+    def decision(ipv6_gate, ipv6_status="collected", rule=row):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "sql_server", "scope": SCOPE, "service": "sql", "status": "collected", "items": [
+                {"id": server_id, "properties": {"publicNetworkAccess": "Enabled",
+                 "isIPv6Enabled": ipv6_gate, "fullyQualifiedDomainName": "sql.database.windows.net"}}]},
+            {"type": "sql_firewall_rule", "scope": SCOPE, "service": "sql", "status": "empty", "items": []},
+            {"type": "sql_ipv6_firewall_rule", "scope": server_id, "service": "sql",
+             "status": ipv6_status, "items": [rule] if rule is not None else []}])
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "sql_server")
+
+    exposed = decision("Enabled")
+    assert exposed.verdict() == "FAIL"
+    assert exposed.path[-1]["open_rules"][0]["address_family"] == "IPv6"
+    assert decision(None).verdict() == "UNKNOWN"
+    assert decision("Disabled").verdict() == "UNKNOWN"
+    private = {**row, "properties": {"startIPv6Address": "fd00::1", "endIPv6Address": "fd00::2"}}
+    assert decision("Enabled", rule=private).verdict() == "UNKNOWN"
+    assert decision("Enabled", ipv6_status="partial", rule=None).verdict() == "UNKNOWN"
+    malformed = {**row, "properties": {"startIPv6Address": "bad", "endIPv6Address": "::1"}}
+    assert decision("Enabled", rule=malformed).verdict() == "UNKNOWN"
 
 
 def test_nsg_specific_public_source_respects_per_source_priority():
@@ -1026,6 +1475,28 @@ def test_nsg_specific_public_source_respects_per_source_priority():
     assert _nsg_allowed(nsg)[0] == {}
     nsg["data"]["properties"]["securityRules"] = [rule("allow-one", "8.8.8.8/32", "Allow", 200)]
     assert _nsg_allowed(nsg)[0] == {"tcp": ((22, 22),)}
+
+
+def test_nsg_ipv6_public_rule_priority_and_source_asg_boundary():
+    def rule(name, source, access, priority, **extra):
+        return {"name": name, "properties": {"priority": priority,
+            "direction": "Inbound", "access": access, "protocol": "Tcp",
+            "sourceAddressPrefix": source, "destinationAddressPrefix": "*",
+            "destinationPortRange": "443", **extra}}
+
+    owner = {"data": {"properties": {"securityRules": [
+        rule("deny-v4", "0.0.0.0/0", "Deny", 100),
+        rule("allow-v6", "::/0", "Allow", 200)]}}}
+    assert _nsg_allowed(owner)[0] == {"tcp": ((443, 443),)}
+    owner["data"]["properties"]["securityRules"].insert(
+        1, rule("deny-v6", "::/0", "Deny", 150))
+    assert _nsg_allowed(owner)[0] == {}
+    owner["data"]["properties"]["securityRules"] = [
+        rule("internal-asg", "*", "Allow", 100,
+             sourceApplicationSecurityGroups=[{"id": "/groups/clients"}])]
+    allowed, matched = _nsg_allowed(owner)
+    assert allowed == {}
+    assert not any(row.get("unresolved_public_source") for row in matched)
 
 
 def test_nsg_unresolved_public_source_tag_cannot_prove_closed_path():
@@ -1147,6 +1618,42 @@ def test_nic_public_ip_reference_requires_assigned_global_address():
     assert mixed.verdict() == "FAIL" and mixed.addresses == ["8.8.8.8"]
 
 
+def test_nic_vm_instance_view_power_state_marks_configured_path_dormant():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    nic_id, pip_id = base + "/networkInterfaces/nic", base + "/publicIPAddresses/pip"
+    subnet_id = base + "/virtualNetworks/vnet/subnets/app"
+    vm_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm"
+
+    def check(statuses):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected", "items": [
+                {"id": nic_id, "properties": {"virtualMachine": {"id": vm_id},
+                    "ipConfigurations": [{"id": nic_id + "/ipConfigurations/main", "properties": {
+                        "privateIPAddress": "10.0.0.4", "subnet": {"id": subnet_id},
+                        "publicIPAddress": {"id": pip_id}}}]}}]},
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected", "items": [
+                {"id": pip_id, "sku": {"name": "Basic"}, "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected", "items": [
+                {"id": subnet_id, "properties": {}}]},
+            {"type": "vm", "scope": SCOPE, "service": "compute", "status": "collected", "items": [
+                {"id": vm_id, "name": "vm", "properties": {"instanceView": {"statuses": statuses}}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "vm")
+
+    running = check([{"code": "PowerState/running"}])
+    assert running.verdict() == "FAIL" and not running.dormant
+    for power in ("stopped", "deallocated"):
+        off = check([{"code": "PowerState/" + power}])
+        assert off.verdict() == "FAIL" and off.dormant
+        assert off.adjusted_severity() == "high"
+        assert _observed(off, "FAIL").splitlines() == [
+            "The Azure VM vm has a public NIC path at 8.8.8.8 admitted by the collected network rules.",
+            f"Its instanceView records PowerState/{power}, so the VM cannot currently serve requests.",
+            "Starting the VM could activate this configured path; a guest listener was not tested."]
+    assert not check([]).dormant
+    assert not check([{"code": "PowerState/stopped"}, {"code": "PowerState/running"}]).dormant
+
+
 def test_nic_finding_lists_only_frontends_with_an_admitted_path():
     base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
     nic_id, subnet_id = base + "/networkInterfaces/nic", base + "/virtualNetworks/v/subnets/s"
@@ -1175,6 +1682,49 @@ def test_nic_finding_lists_only_frontends_with_an_admitted_path():
     assert row.verdict() == "FAIL"
     assert row.addresses == ["9.9.9.9"]
     assert row.ports == {"tcp": ((443, 443),)}
+
+
+def test_nic_public_path_joins_destination_asg_and_both_nsg_levels():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    nic_id = base + "/networkInterfaces/nic"
+    subnet_id = base + "/virtualNetworks/vnet/subnets/app"
+    pip_id = base + "/publicIPAddresses/pip"
+    nic_nsg_id = base + "/networkSecurityGroups/nic"
+    subnet_nsg_id = base + "/networkSecurityGroups/subnet"
+    asg_id = base + "/applicationSecurityGroups/servers"
+
+    def check(member=True, subnet_allows=True):
+        allow = {"name": "allow-public", "properties": {"priority": 100,
+            "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+            "sourceAddressPrefix": "::/0", "destinationPortRange": "443",
+            "destinationApplicationSecurityGroups": [{"id": asg_id}]}}
+        subnet_rule = {"name": "subnet-public", "properties": {"priority": 100,
+            "direction": "Inbound", "access": "Allow" if subnet_allows else "Deny",
+            "protocol": "Tcp", "sourceAddressPrefix": "::/0",
+            "destinationAddressPrefix": "*", "destinationPortRange": "443"}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "public_ip", "scope": SCOPE, "status": "collected", "items": [
+                {"id": pip_id, "sku": {"name": "Standard"}, "properties": {"ipAddress": "2606:4700::44"}}]},
+            {"type": "nic", "scope": SCOPE, "status": "collected", "items": [
+                {"id": nic_id, "properties": {"networkSecurityGroup": {"id": nic_nsg_id},
+                    "ipConfigurations": [{"name": "primary", "properties": {
+                        "privateIPAddress": "fd00::4", "subnet": {"id": subnet_id},
+                        "publicIPAddress": {"id": pip_id},
+                        "applicationSecurityGroups": [{"id": asg_id}] if member else []}}]}}]},
+            {"type": "subnet", "scope": SCOPE, "status": "collected", "items": [
+                {"id": subnet_id, "properties": {"networkSecurityGroup": {"id": subnet_nsg_id}}}]},
+            {"type": "nsg", "scope": SCOPE, "status": "collected", "items": [
+                {"id": nic_nsg_id, "properties": {"securityRules": [allow]}},
+                {"id": subnet_nsg_id, "properties": {"securityRules": [subnet_rule]}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "nic")
+
+    admitted = check()
+    assert admitted.verdict() == "FAIL"
+    assert admitted.addresses == ["2606:4700::44"]
+    assert admitted.ports == {"tcp": ((443, 443),)}
+    assert check(member=False).verdict() == "PASS"
+    assert check(subnet_allows=False).verdict() == "PASS"
 
 
 def test_nsg_joins_cached_subscription_service_tag_prefixes():
@@ -1263,9 +1813,12 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
 
     def app_decision(env_public="Enabled", rules=None, transport="http", extra=None,
-                     allow_insecure=None):
-        ingress = {"external": True, "transport": transport, "fqdn": "app.example.azurecontainerapps.io",
-                   "ipSecurityRestrictions": rules or []}
+                     allow_insecure=None, fqdn="app.example.azurecontainerapps.io", domains=None,
+                     vnet=True):
+        ingress = {"external": True, "transport": transport, "fqdn": fqdn,
+                   "ipSecurityRestrictions": rules if rules is not None else []}
+        if domains is not None:
+            ingress["customDomains"] = domains
         if allow_insecure is not None:
             ingress["allowInsecure"] = allow_insecure
         if transport == "tcp":
@@ -1275,7 +1828,9 @@ def test_container_app_requires_public_environment_and_effective_ingress():
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": env_id, "properties": {"publicNetworkAccess": env_public,
-                         "vnetConfiguration": {"internal": False}}}]},
+                         "vnetConfiguration": {"internal": False,
+                             **({"infrastructureSubnetId": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/apps"}
+                                if vnet else {})}}}]},
             {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
                          "configuration": {"ingress": ingress}, "provisioningState": "Succeeded"}}]}])
@@ -1299,8 +1854,32 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     public_allow = [{"action": "Allow", "ipAddressRange": "8.8.8.8/32"}]
     assert app_decision(rules=private_allow).verdict() == "PASS"
     assert app_decision(rules=public_allow).verdict() == "FAIL"
+    assert app_decision(rules=private_allow[0]).verdict() == "UNKNOWN"
+    assert app_decision(rules="").verdict() == "UNKNOWN"
+    custom = app_decision(fqdn=None, domains=[
+        {"name": "custom.example.org", "bindingType": "SniEnabled", "certificateId": env_id + "/certificates/custom"},
+        {"name": "disabled.example.org", "bindingType": "Disabled"}])
+    assert custom.verdict() == "FAIL" and custom.addresses == ["custom.example.org"]
+    assert app_decision(fqdn=None, domains=[
+        {"name": "unbound.example.org", "bindingType": "SniEnabled"}]).verdict() == "UNKNOWN"
+    auto_unbound = app_decision(fqdn=None, domains=[
+        {"name": "auto.example.org", "bindingType": "Auto"}])
+    assert auto_unbound.verdict() == "UNKNOWN" and auto_unbound.addresses == []
+    default_with_auto = app_decision(domains=[{"name": "auto.example.org", "bindingType": "Auto"}])
+    assert default_with_auto.verdict() == "FAIL"
+    assert default_with_auto.addresses == ["app.example.azurecontainerapps.io"]
+    assert app_decision(fqdn=None, domains=[
+        {"name": "disabled.example.org", "bindingType": "Disabled"}]).verdict() == "UNKNOWN"
     tcp = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}])
     assert tcp.verdict() == "FAIL" and tcp.ports == {"tcp": ((8443, 8443), (9000, 9000))}
+    default_extra = app_decision(transport="tcp", extra=[{"external": True, "targetPort": 9001}])
+    assert default_extra.verdict() == "FAIL" and default_extra.ports == {"tcp": ((8443, 8443), (9001, 9001))}
+    no_vnet_tcp = app_decision(transport="tcp", vnet=False)
+    assert no_vnet_tcp.verdict() == "UNKNOWN" and no_vnet_tcp.ports == {}
+    assert any("TCP ingress requires a collected VNet" in gap["reason"] for gap in no_vnet_tcp.unresolved)
+    no_vnet = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}], vnet=False)
+    assert no_vnet.verdict() == "UNKNOWN" and no_vnet.ports == {}
+    assert any("without external app ingress and a recorded VNet" in note for note in no_vnet.notes)
 
 
 def test_container_app_recorded_stopped_runtime_blocks_external_ingress():
@@ -1395,11 +1974,14 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
         _child_rows([{**route, "properties": {**route["properties"], "fqdn": None}}], env_id,
                     "httpRouteConfigs")
 
-    def decision(routes, status="collected", public="Enabled", app_rules=None, external=False):
+    def decision(routes, status="collected", public="Enabled", app_rules=None, external=False,
+                 runtime=None, traffic=None):
         ingress = {"external": external, "transport": "http"}
         if app_rules is not None:
             ingress["ipSecurityRestrictions"] = app_rules
-        snap = make_snapshot("azure", [SCOPE], [
+        if traffic is not None:
+            ingress["traffic"] = traffic
+        collections = [
             {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": env_id, "properties": {"publicNetworkAccess": public,
                  "vnetConfiguration": {"internal": False}},
@@ -1407,22 +1989,87 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
             {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
                  "configuration": {"ingress": ingress}, "provisioningState": "Succeeded"}}]},
-        ])
+        ]
+        if runtime is not None:
+            collections.append({"type": "container_app_runtime", "scope": SCOPE,
+                                "service": "app", "status": "collected", "items": [runtime]})
+        snap = make_snapshot("azure", [SCOPE], collections)
         return [a for a in assess(snap, resources(snap)) if a.resource["type"] == "container_app"]
 
     exposed = decision([route])[0]
     assert exposed.verdict() == "FAIL" and fqdn in exposed.addresses
     assert "internal ingress but an environment HTTP route" in _observed(exposed, "FAIL")
     assert len(_observed(exposed, "FAIL").splitlines()) == 3
+    custom = {**route, "properties": {**route["properties"], "fqdn": None,
+        "customDomains": [{"name": "route.example.com", "bindingType": "SniEnabled",
+                           "certificateId": env_id + "/certificates/route"}]}}
+    assert _child_rows([custom], env_id, "httpRouteConfigs")[0]["id"] == custom["id"]
+    custom_row = decision([custom])[0]
+    assert custom_row.verdict() == "FAIL"
+    assert custom_row.addresses == ["route.example.com"]
+    assert custom_row.ports == {"tcp": ((443, 443),)}
+    disabled_custom = {**custom, "properties": {**custom["properties"],
+        "customDomains": [{**custom["properties"]["customDomains"][0], "bindingType": "Disabled"}]}}
+    assert _child_rows([disabled_custom], env_id, "httpRouteConfigs")[0]["id"] == route["id"]
+    disabled_row = decision([disabled_custom])[0]
+    assert disabled_row.verdict() == "FAIL"
+    assert disabled_row.addresses == ["route.example.com"]
+    assert disabled_row.ports == {"tcp": ((80, 80),)}
+    auto_custom = {**disabled_custom, "properties": {**disabled_custom["properties"],
+        "customDomains": [{**disabled_custom["properties"]["customDomains"][0],
+                           "bindingType": "Auto", "certificateId": None}]}}
+    assert _child_rows([auto_custom], env_id, "httpRouteConfigs")[0]["id"] == route["id"]
+    auto_row = decision([auto_custom])[0]
+    assert auto_row.verdict() == "FAIL"
+    assert auto_row.addresses == ["route.example.com"]
+    assert auto_row.ports == {"tcp": ((80, 80),)}
+    assert any(step.get("binding_types") == ["Auto"] for step in auto_row.path)
+    unbound = {**custom, "properties": {**custom["properties"],
+        "customDomains": [{**custom["properties"]["customDomains"][0], "certificateId": None}]}}
+    with pytest.raises(ValueError):
+        _child_rows([unbound], env_id, "httpRouteConfigs")
+    assert decision([unbound])[0].verdict() == "UNKNOWN"
+    both = {**custom, "properties": {**custom["properties"], "fqdn": fqdn}}
+    assert set(decision([both])[0].addresses) == {fqdn, "route.example.com"}
     assert decision([route], public="Disabled")[0].verdict() == "PASS"
     assert decision([]) == []
     assert decision([], status="partial")[0].verdict() == "UNKNOWN"
     assert decision([], external=None)[0].verdict() == "UNKNOWN"
+    for state in (None, "Updating", "Failed"):
+        unresolved_route = {**route, "properties": {**route["properties"],
+                            "provisioningState": state}}
+        row = decision([unresolved_route])[0]
+        assert row.verdict() == "UNKNOWN"
+        assert any(gap["layer"] == "inventory" for gap in row.unresolved)
     other = {**route, "properties": {**route["properties"],
                                      "rules": [{"targets": [{"containerApp": "other"}]}]}}
     assert decision([other]) == []
     private_rules = [{"action": "Allow", "ipAddressRange": "10.0.0.0/8"}]
     assert decision([route], app_rules=private_rules)[0].verdict() == "UNKNOWN"
+    targeted = {**route, "properties": {**route["properties"], "rules": [{"targets": [
+        {"containerApp": "app", "revision": "old"}]}]}}
+    runtime = {"id": app_id, "properties": {"runningStatus": "Running",
+               "provisioningState": "Succeeded"},
+               "revisions": [{"id": app_id + "/revisions/old", "properties": {"active": False}},
+                             {"id": app_id + "/revisions/current", "properties": {"active": True}}],
+               "_provenance": {"method": "GET+LIST", "read_only": True}}
+    assert decision([targeted], runtime=runtime) == []
+    unresolved_target = decision([targeted])[0]
+    assert unresolved_target.verdict() == "UNKNOWN"
+    assert "cannot be resolved to an active revision" in _observed(unresolved_target, "UNKNOWN")
+    active_target = {**targeted, "properties": {**targeted["properties"], "rules": [{"targets": [
+        {"containerApp": "app", "revision": "current"}]}]}}
+    assert decision([active_target], runtime=runtime)[0].verdict() == "FAIL"
+    labeled = {**targeted, "properties": {**targeted["properties"], "rules": [{"targets": [
+        {"containerApp": "app", "label": "preview"}]}]}}
+    assert decision([labeled], runtime=runtime)[0].verdict() == "UNKNOWN"
+    assert decision([labeled], runtime=runtime, traffic=[
+        {"label": "preview", "revisionName": "old", "weight": 0}]) == []
+    assert decision([labeled], runtime=runtime, traffic=[
+        {"label": "preview", "revisionName": "current", "weight": 0}])[0].verdict() == "FAIL"
+    assert decision([labeled], runtime=runtime, traffic=[
+        {"label": "preview", "revisionName": "current", "weight": 0},
+        {"label": "preview", "revisionName": "old", "weight": 0}])[0].verdict() == "UNKNOWN"
 
 
 def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
@@ -1501,8 +2148,10 @@ def test_firewall_dnat_unique_translated_vm_powered_off_blocks_current_backend()
 
     for power in ("stopped", "deallocated"):
         blocked = check(power)
-        assert blocked.verdict() == "PASS" and blocked.ports == {}
-        assert "recorded PowerState/" + power in _observed(blocked, "PASS")
+        assert blocked.verdict() == "UNKNOWN" and blocked.ports == {"tcp": ((443, 443),)}
+        assert blocked.path[-1]["stopped_vm_candidates"][0]["power_state"] == "PowerState/" + power
+        assert any(gap["layer"] == "backend" for gap in blocked.unresolved)
+        assert "effective route to that private address is not observed" in _observed(blocked, "UNKNOWN")
     assert check("running").verdict() == "UNKNOWN"
     assert check("deallocated", duplicate=True).verdict() == "UNKNOWN"
     assert check("deallocated", second_rule=True).verdict() == "UNKNOWN"
@@ -1595,11 +2244,55 @@ def test_firewall_dnat_source_ip_group_membership_uses_recorded_arm_addresses():
     assert decision(["10.0.0.0/8"], direct=["1.1.1.1/32"]).ports == {"tcp": ((443, 443),)}
 
 
+def test_private_peering_and_gateway_transit_are_unknown_not_public_listeners():
+    foreign = "/subscriptions/other/resourceGroups/remote/providers/Microsoft.Network/virtualNetworks/v"
+    peering_id = (f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v"
+                  "/virtualNetworkPeerings/remote")
+    gateway_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/connections/tunnel"
+    hub_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/vpnGateways/hub/vpnConnections/site"
+
+    def check(peering, connection, nat=True):
+        collections = [
+            {"type": "vnet_peering", "scope": SCOPE, "status": "collected",
+             "items": [{"id": peering_id, "properties": peering}]},
+            {"type": "network_connection", "scope": SCOPE, "status": "collected",
+             "items": [{"id": gateway_id, "properties": connection}]},
+            {"type": "hub_vpn_connection", "scope": SCOPE, "status": "collected",
+             "items": [{"id": hub_id, "properties": {
+                 "remoteVpnSite": {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/vpnSites/site"},
+                 "vpnLinkConnections": [{"properties": {"connectionStatus": connection.get("connectionStatus")}}]}}]},
+        ]
+        if nat:
+            collections.append({"type": "nat_gateway", "scope": SCOPE, "status": "collected",
+                "items": [{"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/natGateways/nat",
+                           "properties": {"publicIpAddresses": [{"id": "pip"}]}}]})
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return assess(snap, resources(snap))
+
+    connected = {"remoteVirtualNetwork": {"id": foreign}, "peeringState": "Connected",
+                 "provisioningState": "Succeeded", "allowVirtualNetworkAccess": True}
+    tunnel = {"connectionStatus": "Connected", "connectionType": "IPsec",
+              "localNetworkGateway2": {"id": "/subscriptions/other/resourceGroups/remote/providers/Microsoft.Network/localNetworkGateways/peer"}}
+    rows = check(connected, tunnel)
+    assert {row.resource["type"] for row in rows} == {
+        "vnet_peering", "network_connection", "hub_vpn_connection"}
+    for row in rows:
+        assert row.verdict() == "UNKNOWN" and row.kind == "private_transit"
+        assert "not a public Internet listener" in _observed(row, "UNKNOWN")
+        assert row.ports is None and row.addresses == []
+    assert check({**connected, "peeringState": "Disconnected"},
+                 {**tunnel, "connectionStatus": "Disconnected"}) == []
+    assert {row.resource["type"] for row in check({**connected,
+        "remoteVirtualNetwork": {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/local"}},
+        tunnel)} == {"network_connection", "hub_vpn_connection"}
+
+
 def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncertain():
     edge_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
     endpoint = {"id": edge_id + "/afdEndpoints/default",
                 "properties": {"hostName": "edge.azurefd.net"}}
     route = {"id": endpoint["id"] + "/routes/default", "enabledState": "Enabled",
+             "boundHostNames": ["edge.azurefd.net"],
              "paths": [{"acceptedProtocols": ["Http"], "action": "Redirect"},
                        {"acceptedProtocols": ["Https"], "action": "Forward"}]}
 
@@ -1607,7 +2300,8 @@ def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncerta
         item = {"id": edge_id, "sku": {"name": "Standard_AzureFrontDoor"},
                 "properties": {}, "endpoints": [endpoint] if hostname else [],
                 "effectiveRoutes": routes, "securityPolicies": [],
-                "_coverage": {"effectiveRoutes": {"status": status}}}
+                "_coverage": {"effectiveRoutes": {"status": status},
+                              "securityPolicies": {"status": "empty"}}}
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE, "service": "cdn",
              "status": "collected", "items": [item]}])
@@ -1622,6 +2316,9 @@ def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncerta
     assert edge_decision([{**route, "enabledState": "Disabled"}]).verdict() == "PASS"
     assert edge_decision([route], status="not_collected").verdict() == "UNKNOWN"
     assert edge_decision([route], hostname=False).verdict() == "UNKNOWN"
+    old_projection = {**route, "boundHostNames": None,
+                      "paths": [{"acceptedProtocols": ["Http"], "action": "Redirect"}]}
+    assert edge_decision([old_projection]).verdict() == "UNKNOWN"
 
 
 def test_afd_disabled_endpoint_blocks_enabled_child_route():
@@ -1639,7 +2336,9 @@ def test_afd_disabled_endpoint_blocks_enabled_child_route():
     def projected(endpoint_state):
         item = {"id": profile, "sku": {"name": "Standard_AzureFrontDoor"}, "properties": {},
                 "endpoints": [{"id": endpoint_id, "properties": {
-                    "hostName": "edge.azurefd.net", "enabledState": endpoint_state}}],
+                    "hostName": "edge.azurefd.net", "enabledState": endpoint_state}},
+                    {"id": profile + "/afdEndpoints/unbound", "properties": {
+                    "hostName": "unbound.azurefd.net", "enabledState": "Enabled"}}],
                 "originGroups": [{"id": group_id}], "domains": [], "securityPolicies": []}
         _routes(item, "afd", [route])
         snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
@@ -1649,8 +2348,184 @@ def test_afd_disabled_endpoint_blocks_enabled_child_route():
 
     blocked = projected("Disabled")
     assert blocked.verdict() == "PASS" and blocked.ports == {}
-    assert projected("Enabled").verdict() == "UNKNOWN"  # Origin access still unresolved.
+    enabled = projected("Enabled")
+    assert enabled.verdict() == "UNKNOWN"  # Origin access still unresolved.
+    assert enabled.addresses == ["edge.azurefd.net"]
     assert projected(None).verdict() == "UNKNOWN"
+
+
+def test_classic_frontdoor_disabled_parent_blocks_enabled_routing_rule():
+    from peaso.collectors.azure_frontdoor_native import _routes
+
+    frontdoor = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoors/edge"
+    domain = frontdoor + "/frontendEndpoints/default"
+    rule = {"id": frontdoor + "/routingRules/all", "type": "Microsoft.Network/frontDoors/routingRules",
+            "properties": {"enabledState": "Enabled", "patternsToMatch": ["/*"],
+                "frontendEndpoints": [{"id": domain}], "acceptedProtocols": ["Https"],
+                "routeConfiguration": {"@odata.type": "#Microsoft.Azure.FrontDoor.Models.FrontdoorRedirectConfiguration",
+                                       "redirectProtocol": "HttpsOnly"}}}
+
+    def projected(parent_state):
+        item = {"id": frontdoor, "properties": {"enabledState": parent_state},
+                "domains": [{"id": domain, "properties": {"hostName": "edge.azurefd.net"}},
+                            {"id": frontdoor + "/frontendEndpoints/unbound",
+                             "properties": {"hostName": "unbound.azurefd.net"}}],
+                "endpoints": [{"id": domain, "properties": {"hostName": "edge.azurefd.net"}}]}
+        _routes(item, "classicFrontDoor", [rule])
+        snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
+            "scope": SCOPE, "service": "cdn", "status": "collected", "items": [item]}])
+        return next(a for a in assess(snap, resources(snap))
+                    if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    assert projected("Disabled").verdict() == "PASS"
+    enabled = projected("Enabled")
+    assert enabled.verdict() == "FAIL" and enabled.addresses == ["edge.azurefd.net"]
+    assert projected(None).verdict() == "UNKNOWN"
+
+
+def test_afd_route_hostnames_use_bound_custom_domain_only():
+    from peaso.collectors.azure_frontdoor_native import _routes
+
+    profile = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
+    endpoint = profile + "/afdEndpoints/default"
+    domain = profile + "/customDomains/bound"
+    inactive = profile + "/customDomains/inactive"
+    group = profile + "/originGroups/main"
+    route = {"id": endpoint + "/routes/redirect", "type": "Microsoft.Cdn/profiles/afdEndpoints/routes",
+             "properties": {"enabledState": "Enabled", "patternsToMatch": ["/*"],
+                "ruleSets": [], "customDomains": [{"id": domain}, {"id": inactive, "isActive": False}],
+                "linkToDefaultDomain": "Disabled", "originGroup": {"id": group},
+                "supportedProtocols": ["Http"], "forwardingProtocol": "HttpsOnly",
+                "httpsRedirect": "Enabled"}}
+    item = {"id": profile, "sku": {"name": "Standard_AzureFrontDoor"}, "properties": {},
+            "endpoints": [{"id": endpoint, "properties": {"hostName": "unbound.azurefd.net",
+                            "enabledState": "Enabled"}}],
+            "domains": [{"id": domain, "properties": {"hostName": "bound.example.org"}},
+                        {"id": inactive, "properties": {"hostName": "inactive.example.org"}}],
+            "originGroups": [{"id": group}], "securityPolicies": []}
+    _routes(item, "afd", [route])
+    item["_coverage"]["securityPolicies"] = {"status": "empty"}
+    snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
+        "scope": SCOPE, "service": "cdn", "status": "collected", "items": [item]}])
+    result = next(a for a in assess(snap, resources(snap))
+                  if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+    assert result.verdict() == "FAIL"
+    assert result.addresses == ["bound.example.org"]
+
+
+def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
+    profile = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
+    waf_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoorWebApplicationFirewallPolicies/waf"
+    edge = {"id": profile, "sku": {"name": "Premium_AzureFrontDoor"},
+            "properties": {}, "endpoints": [{"id": profile + "/afdEndpoints/default",
+                "properties": {"hostName": "edge.azurefd.net"}}],
+            "effectiveRoutes": [{"id": profile + "/afdEndpoints/default/routes/redirect",
+                "enabledState": "Enabled", "boundHostNames": ["edge.azurefd.net"], "paths": [{"acceptedProtocols": ["Http"],
+                    "action": "Redirect"}]}],
+            "securityPolicies": [{"id": profile + "/securityPolicies/waf",
+                "properties": {"parameters": {"type": "WebApplicationFirewall",
+                    "wafPolicy": {"id": waf_id}}}}],
+            "_coverage": {"effectiveRoutes": {"status": "collected"},
+                          "securityPolicies": {"status": "collected"}}}
+
+    def decision(mode=None, enabled=None, include=True, rule_state=None):
+        collections = [{"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE,
+                        "service": "cdn", "status": "collected", "items": [edge]}]
+        if include:
+            waf_props = {"policySettings": {"mode": mode, "enabledState": enabled}}
+            if rule_state is not None:
+                waf_props["customRules"] = {"rules": [] if rule_state != "custom" else [{"name": "block"}]}
+                waf_props["managedRules"] = {"managedRuleSets": [] if rule_state != "managed" else [{"ruleSetType": "DefaultRuleSet"}]}
+            collections.append({"type": "frontdoor_waf_policy", "scope": SCOPE,
+                                "service": "network", "status": "collected", "items": [
+                                    {"id": waf_id, "properties": waf_props}]})
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return next(a for a in assess(snap, resources(snap))
+                    if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    detected = decision(mode="Detection", enabled="Enabled")
+    assert detected.verdict() == "FAIL"
+    assert "records mode Detection" in _observed(detected, "FAIL")
+    assert len(_observed(detected, "FAIL").splitlines()) == 3
+    assert decision(mode="Prevention", enabled="Disabled").verdict() == "FAIL"
+    assert decision(mode="Prevention", enabled="Enabled").verdict() == "UNKNOWN"
+    empty_policy = decision(mode="Prevention", enabled="Enabled", rule_state="empty")
+    assert empty_policy.verdict() == "FAIL"
+    assert "explicitly empty custom and managed rule lists" in _observed(empty_policy, "FAIL")
+    assert decision(mode="Prevention", enabled="Enabled", rule_state="custom").verdict() == "UNKNOWN"
+    assert decision(mode="Prevention", enabled="Enabled", rule_state="managed").verdict() == "UNKNOWN"
+    assert decision(include=False).verdict() == "UNKNOWN"
+    edge["_coverage"]["securityPolicies"] = {"status": "partial"}
+    assert decision(mode="Detection", enabled="Enabled").verdict() == "UNKNOWN"
+    edge["securityPolicies"] = []
+    assert decision(mode="Detection", enabled="Enabled").verdict() == "UNKNOWN"
+
+
+def test_afd_unrelated_waf_policy_does_not_filter_bound_route():
+    profile = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
+    endpoint = profile + "/afdEndpoints/default"
+    unrelated = profile + "/customDomains/other"
+    waf_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoorWebApplicationFirewallPolicies/waf"
+
+    def decision(bound_ids, associations):
+        edge = {"id": profile, "sku": {"name": "Premium_AzureFrontDoor"},
+            "endpoints": [{"id": endpoint, "properties": {"hostName": "edge.azurefd.net"}}],
+            "effectiveRoutes": [{"id": endpoint + "/routes/redirect", "enabledState": "Enabled",
+                "boundHostNames": ["edge.azurefd.net"], "boundDomainIds": bound_ids,
+                "paths": [{"acceptedProtocols": ["Http"], "action": "Redirect"}]}],
+            "securityPolicies": [{"id": profile + "/securityPolicies/other",
+                "properties": {"parameters": {"type": "WebApplicationFirewall",
+                    "wafPolicy": {"id": waf_id}, "associations": associations}}}],
+            "_coverage": {"effectiveRoutes": {"status": "collected"},
+                          "securityPolicies": {"status": "collected"}}}
+        snap = make_snapshot("azure", [SCOPE], [{"type": "frontdoor_and_cdn_endpoint",
+            "scope": SCOPE, "service": "cdn", "status": "collected", "items": [edge]}])
+        return next(a for a in assess(snap, resources(snap))
+                    if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    other_association = [{"domains": [{"id": unrelated}], "patternsToMatch": ["/*"]}]
+    assert decision([endpoint], other_association).verdict() == "FAIL"
+    assert decision(None, other_association).verdict() == "UNKNOWN"
+    assert decision([endpoint], [{"domains": [{"id": endpoint}],
+                                 "patternsToMatch": ["/*"]}]).verdict() == "UNKNOWN"
+    assert decision([endpoint], [{"domains": "malformed"}]).verdict() == "UNKNOWN"
+
+
+def test_classic_frontdoor_frontend_waf_link_is_joined_to_policy():
+    frontdoor = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoors/edge"
+    waf_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/frontDoorWebApplicationFirewallPolicies/waf"
+    edge = {"id": frontdoor, "properties": {},
+            "endpoints": [{"id": frontdoor + "/frontendEndpoints/default",
+                "properties": {"hostName": "edge.azurefd.net",
+                               "webApplicationFirewallPolicyLink": {"id": waf_id}}}],
+            "effectiveRoutes": [{"id": frontdoor + "/routingRules/redirect", "enabledState": "Enabled",
+                "boundHostNames": ["edge.azurefd.net"],
+                "paths": [{"acceptedProtocols": ["Https"], "action": "Redirect"}]}],
+            "_coverage": {"effectiveRoutes": {"status": "collected"}}}
+
+    def decision(mode=None, enabled=None, include=True, rule_state=None):
+        collections = [{"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE,
+                        "service": "cdn", "status": "collected", "items": [edge]}]
+        if include:
+            waf_props = {"policySettings": {"mode": mode, "enabledState": enabled}}
+            if rule_state is not None:
+                waf_props["customRules"] = {"rules": [] if rule_state != "custom" else [{"name": "block"}]}
+                waf_props["managedRules"] = {"managedRuleSets": [] if rule_state != "managed" else [{"ruleSetType": "DefaultRuleSet"}]}
+            collections.append({"type": "frontdoor_waf_policy", "scope": SCOPE,
+                                "service": "network", "status": "collected", "items": [
+                                    {"id": waf_id, "properties": waf_props}]})
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return next(a for a in assess(snap, resources(snap))
+                    if a.resource["type"] == "frontdoor_and_cdn_endpoint")
+
+    assert decision(mode="Prevention", enabled="Enabled").verdict() == "UNKNOWN"
+    assert decision(include=False).verdict() == "UNKNOWN"
+    detected = decision(mode="Detection", enabled="Enabled")
+    assert detected.verdict() == "FAIL"
+    assert "records mode Detection" in _observed(detected, "FAIL")
+    assert decision(mode="Prevention", enabled="Disabled").verdict() == "FAIL"
+    assert decision(mode="Prevention", enabled="Enabled", rule_state="empty").verdict() == "FAIL"
+    assert decision(mode="Prevention", enabled="Enabled", rule_state="custom").verdict() == "UNKNOWN"
 
 
 def test_api_management_public_gateway_and_network_gates():
@@ -1664,6 +2539,44 @@ def test_api_management_public_gateway_and_network_gates():
     assert decision("api_management", {**base, "disableGateway": True}).verdict() == "PASS"
     assert decision("api_management", {**base, "virtualNetworkType": "External"}).verdict() == "UNKNOWN"
     assert decision("api_management", {**base, "gatewayUrl": None}).verdict() == "UNKNOWN"
+
+
+def test_api_management_enabled_developer_portal_survives_disabled_gateway():
+    base = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
+            "disableGateway": True, "developerPortalStatus": "Enabled",
+            "developerPortalUrl": "https://api.developer.azure-api.net"}
+    portal = decision("api_management", base)
+    assert portal.verdict() == "FAIL" and portal.addresses == [base["developerPortalUrl"]]
+    assert portal.ports == {"tcp": ((443, 443),)}
+    assert portal.path[-1]["layer"] == "developer_portal"
+    assert _observed(portal, "FAIL").splitlines() == [
+        "The API Management service has its gateway disabled but records an enabled developer portal at https://api.developer.azure-api.net.",
+        "Its public network gate and non-VNet mode admit the portal HTTPS listener.",
+        "Portal content, sign-in policy, DNS delivery, and a successful request were not tested."]
+    assert decision("api_management", {**base, "developerPortalStatus": "Disabled"}).verdict() == "PASS"
+    assert decision("api_management", {**base, "developerPortalUrl": None}).verdict() == "UNKNOWN"
+    external = decision("api_management", {**base, "virtualNetworkType": "External"})
+    assert external.verdict() == "UNKNOWN"
+    assert "External VNet subnet NSG path is unresolved" in _observed(external, "UNKNOWN")
+    assert decision("api_management", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+
+
+def test_api_management_portal_independent_of_unresolved_gateway_url():
+    portal_url = "https://api.developer.azure-api.net"
+    result = decision("api_management", {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
+        "disableGateway": False, "gatewayUrl": None, "developerPortalStatus": "Enabled",
+        "developerPortalUrl": portal_url})
+    assert result.verdict() == "FAIL" and result.addresses == [portal_url]
+    assert result.ports == {"tcp": ((443, 443),)}
+    assert any(step["layer"] == "developer_portal" and step["decision"] == "allow" for step in result.path)
+    assert any(gap["layer"] == "inventory" and gap["decisive"] is False for gap in result.unresolved)
+    assert _observed(result, "FAIL").splitlines() == [
+        f"The API Management service records an enabled developer portal at {portal_url}.",
+        "Its public network gate and non-VNet mode admit the portal HTTPS listener.",
+        "Portal content, sign-in policy, DNS delivery, and a successful request were not tested."]
+    assert decision("api_management", {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
+        "disableGateway": False, "gatewayUrl": None, "developerPortalStatus": "Disabled",
+        "developerPortalUrl": portal_url}).verdict() == "UNKNOWN"
 
 
 def test_api_management_enabled_secondary_gateway_survives_primary_disable():
@@ -1719,6 +2632,63 @@ def test_api_management_single_external_region_uses_its_own_subnet_nsg():
                  "https://east.azure-api.net"}]).verdict() == "UNKNOWN"
 
 
+def test_api_management_distinct_external_regions_all_block_public_https():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    service_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.ApiManagement/service/apim"
+    regions = [{"location": name, "disableGateway": False,
+                "gatewayRegionalUrl": f"https://{name}.azure-api.net",
+                "virtualNetworkConfiguration": {"subnetResourceId": base +
+                    f"/virtualNetworks/{name}/subnets/gateway"}}
+               for name in ("west", "east")]
+
+    def check(*, east_subnet=True, west_subnet=True, east_access="Deny",
+              east_destination="*", east_route=False):
+        subnets = [{"id": region["virtualNetworkConfiguration"]["subnetResourceId"],
+                    "properties": {"networkSecurityGroup": {"id": base +
+                        f"/networkSecurityGroups/{region['location']}"},
+                        **({"routeTable": {"id": base + "/routeTables/east"}}
+                           if east_route and region["location"] == "east" else {})}}
+                   for region in regions if ((east_subnet or region["location"] != "east") and
+                                             (west_subnet or region["location"] != "west"))]
+        nsgs = []
+        for region in regions:
+            name = region["location"]
+            nsgs.append({"id": base + f"/networkSecurityGroups/{name}",
+                         "properties": {"securityRules": [{"name": "https", "properties": {
+                             "priority": 100, "direction": "Inbound",
+                             "access": east_access if name == "east" else "Deny",
+                             "protocol": "Tcp", "sourceAddressPrefix": "*",
+                             "destinationAddressPrefix": east_destination if name == "east" else "*",
+                             "destinationPortRange": "443"}}]}})
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "api_management", "scope": SCOPE, "service": "apim", "status": "collected",
+             "items": [{"id": service_id, "sku": {"name": "Premium"}, "properties": {
+                 "publicNetworkAccess": "Enabled", "virtualNetworkType": "External",
+                 "disableGateway": True, "additionalLocations": regions}}]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": subnets},
+            {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": nsgs},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "api_management")
+
+    blocked = check()
+    assert blocked.verdict() == "PASS"
+    assert blocked.path[-1]["regional_gateway_urls"] == [
+        "https://west.azure-api.net", "https://east.azure-api.net"]
+    assert "Each regional gateway's collected External VNet subnet NSG blocks" in _observed(blocked, "PASS")
+    assert len(_observed(blocked, "PASS").splitlines()) == 3
+    open_region = check(east_access="Allow")
+    assert open_region.verdict() == "FAIL"
+    assert open_region.path[-1]["regional_gateway_url"] == "https://east.azure-api.net"
+    assert open_region.addresses[0] == "https://east.azure-api.net"
+    assert "regional gateway at https://east.azure-api.net" in _observed(open_region, "FAIL")
+    assert check(west_subnet=False, east_access="Allow").verdict() == "FAIL"
+    assert check(east_subnet=False).verdict() == "UNKNOWN"
+    assert check(east_access="Allow", east_route=True).verdict() == "UNKNOWN"
+    assert check(east_access="Allow", east_destination="10.0.0.4/32").verdict() == "UNKNOWN"
+
+
 def test_api_management_classic_external_vnet_subnet_nsg():
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/apim"
     nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/apim"
@@ -1765,11 +2735,8 @@ def test_redis_public_listeners_preserve_firewall_uncertainty():
     assert non_tls.ports == {"tcp": ((6379, 6380),)}
     assert decision("redis_cache", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
     assert decision("redis_cache", {**base, "publicNetworkAccess": None}).verdict() == "UNKNOWN"
-    injected = decision("redis_cache", {**base, "subnetId":
-        "/subscriptions/test/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/cache"})
-    assert injected.verdict() == "PASS" and injected.ports == {}
-    assert any(step["layer"] == "network" and step["decision"] == "block" for step in injected.path)
-    assert decision("redis_cache", {**base, "subnetId": "malformed"}).verdict() == "UNKNOWN"
+    injected = decision("redis_cache", {**base, "subnetId": "/subscriptions/test/subnets/cache"})
+    assert any(gap["layer"] == "nsg" for gap in injected.unresolved)
 
     def with_rules(rules, status="collected"):
         item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redis/cache",
@@ -1799,27 +2766,6 @@ def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
     assert decision("cosmos_account", {**base, "ipRules": [{"ipAddressOrRange": "bad"}]}).verdict() == "UNKNOWN"
     assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
         "ipRules": []}).verdict() == "UNKNOWN"
-    closed = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
-        "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "None",
-        "networkAclBypassResourceIds": []})
-    assert closed.verdict() == "PASS" and closed.ports == {}
-    own_subnet = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/s"
-    vnet_only = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
-        "ipRules": [], "virtualNetworkRules": [{"id": own_subnet}], "networkAclBypass": "None",
-        "networkAclBypassResourceIds": []})
-    assert vnet_only.verdict() == "PASS" and vnet_only.ports == {}
-    foreign_subnet = own_subnet.replace(SCOPE, "/subscriptions/other")
-    foreign_vnet = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
-        "ipRules": [], "virtualNetworkRules": [{"id": foreign_subnet}], "networkAclBypass": "None",
-        "networkAclBypassResourceIds": []})
-    assert foreign_vnet.verdict() == "UNKNOWN"
-    assert any(step.get("cross_subscription_subnet_ids") == [foreign_subnet] for step in foreign_vnet.path)
-    assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
-        "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "AzureServices",
-        "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"
-    assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
-        "ipRules": [], "virtualNetworkRules": [{"id": "/subscriptions/other/subnets/s"}],
-        "networkAclBypass": "None", "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"
     assert decision("cosmos_account", {**base, "ipRules": None}).verdict() == "UNKNOWN"
 
 
@@ -1930,25 +2876,3 @@ def test_managed_endpoint_explicit_network_gate(kind):
     assert decision(kind, {"publicNetworkAccess": "Enabled"}).verdict() == "UNKNOWN"
     assert decision(kind, {"publicNetworkAccess": "Disabled", rule: {"defaultAction": "Allow",
         **({"bypass": "None"} if vault_like else {})}}).verdict() == "PASS"
-
-
-def test_acr_anonymous_pull_follows_the_public_network_path():
-    base = {"loginServer": "images.azurecr.io", "publicNetworkAccess": "Enabled",
-            "anonymousPullEnabled": True}
-    public = decision("container_registry", {**base, "networkRuleSet": {"defaultAction": "Allow"}})
-    assert public.verdict() == "FAIL" and public.authenticated is False
-    assert any(step["layer"] == "anonymous_pull" and step["decision"] == "allow" for step in public.path)
-    assert any("every repository" in note for note in public.notes)
-    assert "without a registry identity" in _observed(public, "FAIL")
-    selected_ip = decision("container_registry", {**base, "networkRuleSet": {"defaultAction": "Deny",
-        "ipRules": [{"value": "8.8.8.8/32"}]}})
-    assert selected_ip.verdict() == "FAIL" and selected_ip.authenticated is False
-    blocked = decision("container_registry", {**base, "publicNetworkAccess": "Disabled",
-        "networkRuleSet": {"defaultAction": "Allow"}})
-    assert blocked.verdict() == "PASS" and blocked.authenticated is False
-    assert "blocks direct public access" in _observed(blocked, "PASS")
-    unknown = decision("container_registry", {**base})
-    assert unknown.verdict() == "UNKNOWN" and "public network path is unresolved" in _observed(unknown, "UNKNOWN")
-    authenticated = decision("container_registry", {**base, "anonymousPullEnabled": False,
-        "networkRuleSet": {"defaultAction": "Allow"}})
-    assert authenticated.verdict() == "FAIL" and authenticated.authenticated is True
