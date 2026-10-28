@@ -2569,17 +2569,21 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     external_projects = sorted({project for row in delegated
                                 if isinstance(project := destination_project(row), str)
                                 and project and project not in trusted_project_ids})
-    project_policy_row = inventory.get("iam_policy", resource["scope"])
-    project_policy = project_policy_row["data"] if project_policy_row else None
-    project_row = inventory.get("project", resource["scope"])
-    project_data = project_row["data"] if project_row else {}
-    inherited_policies = project_data.get("_inherited_iam_policies")
-    inherited_coverage = (project_data.get("_coverage") or {}).get("_inherited_iam_policies") or {}
-    if not (isinstance(inherited_policies, list) and inherited_coverage.get("status") == "collected"):
-        inherited_policies = []
-    def inherited_public(permission):
+    reader_cache = {}
+    def inherited_public(permission, target_scope):
+        key = (permission, target_scope)
+        if key in reader_cache:
+            return reader_cache[key]
+        project_policy_row = inventory.get("iam_policy", target_scope)
+        project_policy = project_policy_row["data"] if project_policy_row else None
+        project_row = inventory.get("project", target_scope)
+        project_data = project_row["data"] if project_row else {}
+        inherited_policies = project_data.get("_inherited_iam_policies")
+        inherited_coverage = (project_data.get("_coverage") or {}).get("_inherited_iam_policies") or {}
+        if not (isinstance(inherited_policies, list) and inherited_coverage.get("status") == "collected"):
+            inherited_policies = []
         grants = []
-        policies = [(resource["scope"], project_policy), *[
+        policies = [(target_scope, project_policy), *[
             (policy.get("ancestor"), policy) for policy in inherited_policies
             if isinstance(policy, dict) and policy.get("name") == policy.get("ancestor")]]
         for scope, policy in policies:
@@ -2596,9 +2600,8 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                 if members and isinstance(permissions, list) and permission in permissions:
                     grants.append({"role": role, "members": members, "scope": scope,
                                    "permission": permission})
+        reader_cache[key] = grants
         return grants
-    inherited_view_readers = inherited_public("bigquery.tables.getData")
-    inherited_routine_readers = inherited_public("bigquery.routines.get")
     def direct_public(policy, permission, known_roles):
         if not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected"):
             return False
@@ -2653,7 +2656,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         policy = view["data"].get("iamPolicy")
         table_public = direct_public(policy, "bigquery.tables.getData",
                                      {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.admin"})
-        readers = inherited_view_readers if view_name.startswith(resource["scope"] + "/") else []
+        readers = inherited_public("bigquery.tables.getData", view_name.split("/datasets/", 1)[0])
         if dataset_public or table_public or readers:
             public_views.append({"view": view_name, "authorization": authorization,
                                  "dataset_public": bool(dataset_public),
@@ -2679,7 +2682,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         routine_public = direct_public(policy, "bigquery.routines.get",
                                        {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner",
                                         "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor"})
-        readers = inherited_routine_readers if target_scope == resource["scope"] else []
+        readers = inherited_public("bigquery.routines.get", target_scope)
         if dataset_public or routine_public or readers:
             public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
                                     "dataset_public": bool(dataset_public), "routine_public": bool(routine_public),

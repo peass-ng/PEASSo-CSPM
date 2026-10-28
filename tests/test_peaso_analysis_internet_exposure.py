@@ -1228,6 +1228,8 @@ def test_gcp_authorized_resources_join_public_destination_in_other_scanned_proje
     destination = {"name": "projects/p2/datasets/shared", "access": [
         {"role": "READER", "specialGroup": "allUsers"}]}
     project = {"name": "projects/p2", "projectId": "p2", "projectNumber": "222"}
+    role = {"name": "projects/p2/roles/publicReader", "includedPermissions": [
+        "bigquery.tables.getData", "bigquery.routines.get"]}
     view = {"name": "projects/p2/datasets/shared/tables/v", "type": "VIEW", "iamPolicy": {"bindings": []}}
     routine = {"name": "projects/p2/datasets/shared/routines/r", "routineType": "PROCEDURE",
                "iamPolicy": {"bindings": []}}
@@ -1235,6 +1237,7 @@ def test_gcp_authorized_resources_join_public_destination_in_other_scanned_proje
         snap = make_snapshot("gcp", ["projects/p1", "projects/p2"], [
             gcoll("bigquery_dataset", [source], service="bigquery"),
             coll("project", [project], scope="projects/p2", service="cloudresourcemanager"),
+            coll("iam_role", [role], scope="projects/p2", service="iam"),
             coll("bigquery_dataset", [destination], scope="projects/p2", service="bigquery"),
             coll("bigquery_table", [view], scope="projects/p2", service="bigquery"),
             coll("bigquery_routine_metadata", [routine], scope="projects/p2", service="bigquery")],
@@ -1250,6 +1253,15 @@ def test_gcp_authorized_resources_join_public_destination_in_other_scanned_proje
     source["access"][1]["routine"]["projectId"] = "222"
     assert assessment().verdict() == "FAIL"
     destination["access"] = []
+    assert assessment().verdict() == "UNKNOWN"
+    project["_inherited_iam_policies"] = [{"name": "folders/42", "ancestor": "folders/42",
+        "bindings": [{"role": role["name"], "members": ["allUsers"]}]}]
+    project["_coverage"] = {"_inherited_iam_policies": {"status": "collected"}}
+    inherited = assessment()
+    assert inherited.verdict() == "FAIL"
+    assert inherited.path[-1]["public_views"][0]["inherited_public"][0]["scope"] == "folders/42"
+    assert inherited.path[-1]["public_routines"][0]["inherited_public"][0]["scope"] == "folders/42"
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
     assert assessment().verdict() == "UNKNOWN"
 
 
