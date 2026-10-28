@@ -35624,38 +35624,6 @@ def _aws_ssm_document_share(snapshot, inventory, resource):
     return a
 
 
-def _aws_cloudformation_stack_instance(snapshot, inventory, resource):
-    """StackSet template deployment into a foreign account."""
-    from .trust import trusted_scopes
-
-    data = resource["data"]
-    a = Assessment(resource, "external_deployment")
-    account, _, region = str(resource.get("scope", "")).partition("/")
-    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
-    target, target_region, stack_id = data.get("Account"), data.get("Region"), data.get("StackId")
-    name, stack_set = data.get("StackSetName"), data.get("StackSetId")
-    if (not isinstance(name, str) or not name or not isinstance(stack_set, str) or not stack_set.startswith(name + ":") or
-            not isinstance(target, str) or not re.fullmatch(r"[0-9]{12}", target) or
-            not isinstance(target_region, str) or not target_region or
-            not isinstance(stack_id, str) or not re.fullmatch(r"arn:" + partition + r":cloudformation:" +
-                                                       re.escape(target_region) + r":" + re.escape(target) +
-                                                       r":stack/[^/]+/[^/]+", stack_id)):
-        a.gap("inventory", "CloudFormation StackSet instance target identity is unresolved")
-        return a
-    if data.get("Status") == "INOPERABLE":
-        a.gap("delivery", "CloudFormation StackSet instance is inoperable; deployed resource state is unresolved")
-        return a
-    if data.get("Status") not in ("CURRENT", "OUTDATED"):
-        a.gap("delivery", "CloudFormation StackSet instance status is unresolved")
-        return a
-    if target in trusted_scopes(snapshot)["ids"]:
-        return None
-    a.external_ids = [target]
-    a.explicit = "FAIL"
-    a.step("stackset_target", "allow_declaration", target_account=target, target_region=target_region,
-           stack_set_id=stack_set, stack_id=stack_id,
-           semantics="StackSet instance exists in target account; template contents and resulting resources are assessed separately")
-    return a
 
 
 def _gcp_managed_kafka(snapshot, inventory, resource):
