@@ -18,7 +18,7 @@ from peaso.collectors import azure_nsp_query_cmk_metadata_proposal_20261020 as p
 from peaso.collectors import azure
 
 RECEIPT = 'azure_nsp_query_cmk_metadata_admission_20261020.json'
-RECEIPT_SHA256 = '624865a9eafc8854b348d8377a66eb97261ac401b07565775808a84c80dda34e'
+RECEIPT_SHA256 = 'd95f18d14979ead617b3a7ddc5ad064d7996857b4a80ed6b2bf38b7c1e7d2269'
 CASES_FILE = 'azure_nsp_query_cmk_metadata_admitted_cases_20261020.json'
 IDS = ('azure.review.network.perimeter_association_enforced',
        'azure.review.log_analytics.query_storage_cmk_declared')

@@ -5166,7 +5166,7 @@ def _azure_storage_container(snapshot, inventory, resource):
     return a
 
 
-def _azure_sql(snapshot, inventory, resource, rules):
+def _azure_sql(snapshot, inventory, resource, rules, ipv6_rules):
     props = _props(resource)
     public_access = props.get("publicNetworkAccess")
     if str(public_access).lower() == "disabled":
@@ -5177,6 +5177,7 @@ def _azure_sql(snapshot, inventory, resource, rules):
         a.gap("inventory", "SQL publicNetworkAccess is not explicitly Enabled or Disabled")
     rid = str(resource["data"].get("id", "")).lower()
     state = inventory.state("sql_firewall_rule", resource["data"].get("id"))
+    ipv6_state = inventory.state("sql_ipv6_firewall_rule", resource["data"].get("id"))
     open_rules, azure = [], False
     for rule in rules.get(rid, []):
         rp = _props(rule)
@@ -5198,10 +5199,33 @@ def _azure_sql(snapshot, inventory, resource, rules):
             if any(network.prefixlen == 0 or _public_ip(network.network_address) or
                    _public_ip(network.broadcast_address) for network in ranges):
                 open_rules.append({"rule": rule["data"].get("name"), "start_ip": start, "end_ip": end})
+    ipv6_gate = props.get("isIPv6Enabled")
+    if ipv6_gate == "Enabled":
+        for rule in ipv6_rules.get(rid, []):
+            rp = _props(rule)
+            start, end = rp.get("startIPv6Address"), rp.get("endIPv6Address")
+            try:
+                first, last = ipaddress.IPv6Address(start), ipaddress.IPv6Address(end)
+            except (ipaddress.AddressValueError, TypeError):
+                a.gap("firewall", "SQL IPv6 firewall rule has an invalid address range")
+                continue
+            if first > last:
+                a.gap("firewall", "SQL IPv6 firewall rule start exceeds end")
+                continue
+            ranges = list(ipaddress.summarize_address_range(first, last))
+            if any(network.prefixlen == 0 or _public_ip(network.network_address) or
+                   _public_ip(network.broadcast_address) for network in ranges):
+                open_rules.append({"rule": rule["data"].get("name"), "address_family": "IPv6",
+                                   "start_ip": start, "end_ip": end})
+    elif ipv6_gate != "Disabled" and ipv6_rules.get(rid):
+        a.gap("firewall", "SQL IPv6 firewall rules exist but server IPv6 gate is not explicit")
     if azure:
         a.notes.append("'Allow Azure services' admits resources in other Azure tenants; database authentication is separate")
     if state not in ("collected", "empty") and not open_rules:
         a.gap("firewall", f"SQL firewall rules {state}", "Microsoft.Sql/servers/firewallRules")
+    if ipv6_gate == "Enabled" and ipv6_state not in ("collected", "empty") and not open_rules:
+        a.gap("firewall", f"SQL IPv6 firewall rules {ipv6_state}",
+              "Microsoft.Sql/servers/ipv6FirewallRules")
     if not open_rules:
         a.gap("firewall", "database-level firewall rules are not in ARM server firewall LIST",
               "SQL data-plane sys.database_firewall_rules for each database")
@@ -7042,7 +7066,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
-               "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
+               "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "sql_ipv6_firewall_rule", "managed_identity_federated_credential",
                "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -7084,6 +7108,11 @@ def assess(snapshot, resources):
             parent = str(rule["data"].get("id", "")).lower().split("/firewallrules/")[0]
             rules.setdefault(parent, []).append(rule)
         extra["rules"] = rules
+        ipv6_rules = {}
+        for rule in inventory.items("sql_ipv6_firewall_rule"):
+            parent = str(rule["data"].get("id", "")).lower().split("/ipv6firewallrules/")[0]
+            ipv6_rules.setdefault(parent, []).append(rule)
+        extra["ipv6_rules"] = ipv6_rules
     handlers = {
         "aws": {"instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
                 "rds_instance": _aws_rds, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
@@ -7116,7 +7145,7 @@ def assess(snapshot, resources):
                   "app_service": lambda s, i, r: _azure_app_service(s, i, r, extra["configs"]), "aks_cluster": _azure_aks,
                   "app_service_slot": _azure_app_service_slot,
                   "storage_account": _azure_storage, "storage_container": _azure_storage_container,
-                  "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"]),
+                  "sql_server": lambda s, i, r: _azure_sql(s, i, r, extra["rules"], extra["ipv6_rules"]),
                   "container_group": _azure_container_group,
                   "container_app": _azure_container_app,
                   "azure_firewall": _azure_firewall,

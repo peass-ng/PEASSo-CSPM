@@ -1071,6 +1071,50 @@ def test_sql_missing_public_gate_and_partial_firewall_pages_stay_unknown():
     assert decision("Enabled", "collected", private).verdict() == "UNKNOWN"
 
 
+def test_sql_ipv6_firewall_rules_join_enabled_public_server():
+    from peaso.collectors.azure import _sql_projected_child_pages, TYPES
+
+    server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
+    rule_id = server_id + "/ipv6FirewallRules/allow-public"
+    url = "https://management.azure.com" + server_id + "/ipv6FirewallRules?api-version=2025-01-01"
+    row = {"id": rule_id, "name": "allow-public", "type": "Microsoft.Sql/servers/ipv6FirewallRules",
+           "properties": {"startIPv6Address": "2606:4700:4700::1111",
+                          "endIPv6Address": "2606:4700:4700::1111"}}
+
+    class Reader:
+        def pages(self, request, requested_url):
+            assert requested_url == url
+            yield [row]
+
+    assert "sql_ipv6_firewall_rule" in TYPES
+    assert list(_sql_projected_child_pages(Reader(), None, url, server_id,
+                "sql_ipv6_firewall_rule", "ipv6FirewallRules"))[0][0]["id"] == rule_id
+    with pytest.raises(ValueError):
+        list(_sql_projected_child_pages(Reader(), None, url.replace("2025-01-01", "2023-08-01"),
+             server_id, "sql_ipv6_firewall_rule", "ipv6FirewallRules"))
+
+    def decision(ipv6_gate, ipv6_status="collected", rule=row):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "sql_server", "scope": SCOPE, "service": "sql", "status": "collected", "items": [
+                {"id": server_id, "properties": {"publicNetworkAccess": "Enabled",
+                 "isIPv6Enabled": ipv6_gate, "fullyQualifiedDomainName": "sql.database.windows.net"}}]},
+            {"type": "sql_firewall_rule", "scope": SCOPE, "service": "sql", "status": "empty", "items": []},
+            {"type": "sql_ipv6_firewall_rule", "scope": server_id, "service": "sql",
+             "status": ipv6_status, "items": [rule] if rule is not None else []}])
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "sql_server")
+
+    exposed = decision("Enabled")
+    assert exposed.verdict() == "FAIL"
+    assert exposed.path[-1]["open_rules"][0]["address_family"] == "IPv6"
+    assert decision(None).verdict() == "UNKNOWN"
+    assert decision("Disabled").verdict() == "UNKNOWN"
+    private = {**row, "properties": {"startIPv6Address": "fd00::1", "endIPv6Address": "fd00::2"}}
+    assert decision("Enabled", rule=private).verdict() == "UNKNOWN"
+    assert decision("Enabled", ipv6_status="partial", rule=None).verdict() == "UNKNOWN"
+    malformed = {**row, "properties": {"startIPv6Address": "bad", "endIPv6Address": "::1"}}
+    assert decision("Enabled", rule=malformed).verdict() == "UNKNOWN"
+
+
 def test_nsg_specific_public_source_respects_per_source_priority():
     def rule(name, source, access, priority):
         return {"name": name, "properties": {"priority": priority, "direction": "Inbound",
