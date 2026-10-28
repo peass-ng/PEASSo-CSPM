@@ -5997,6 +5997,49 @@ def _azure_firewall(snapshot, inventory, resource):
     return a
 
 
+def _azure_private_transit(snapshot, inventory, resource):
+    """Name a possible third-party private path without claiming a public listener."""
+    props = _props(resource)
+    kind = resource["type"]
+    if kind == "vnet_peering":
+        remote = (props.get("remoteVirtualNetwork") or {}).get("id")
+        local = str(resource["data"].get("id", "")).lower().split("/resourcegroups/", 1)[0]
+        remote_scope = str(remote).lower().split("/resourcegroups/", 1)[0]
+        foreign = bool(remote and remote_scope != local)
+        enabled = (props.get("peeringState") == "Connected" and
+                   props.get("provisioningState") == "Succeeded" and
+                   (props.get("allowVirtualNetworkAccess") is True or
+                    props.get("allowForwardedTraffic") is True or
+                    props.get("allowGatewayTransit") is True or
+                    props.get("useRemoteGateways") is True))
+        if not foreign or not enabled:
+            return None
+        mode = "cross-subscription VNet peering"
+    elif kind == "network_connection":
+        if props.get("connectionStatus") != "Connected" or props.get("connectionType") not in (
+                "IPsec", "Vnet2Vnet", "ExpressRoute"):
+            return None
+        remote = ((props.get("localNetworkGateway2") or {}).get("id") or
+                  (props.get("virtualNetworkGateway2") or {}).get("id") or
+                  (props.get("peer") or {}).get("id"))
+        mode = f"connected {props['connectionType']} gateway connection"
+    elif kind == "hub_vpn_connection":
+        if props.get("connectionStatus") != "Connected" and not any(
+                isinstance(link, dict) and
+                (link.get("properties") or {}).get("connectionStatus") == "Connected"
+                for link in as_list(props.get("vpnLinkConnections"))):
+            return None
+        remote = (props.get("remoteVpnSite") or {}).get("id")
+        mode = "connected Virtual WAN VPN site connection"
+    else:
+        return None
+    a = Assessment(resource, "private_transit")
+    a.step("private_transit", "unknown", connection=mode, remote=remote)
+    a.gap("backend", "remote owner, effective route, target NSG and target service are not established")
+    a.explicit = "UNKNOWN"
+    return a
+
+
 _AZURE_MANAGED_ENDPOINTS = {
     "vault": (443, "networkAcls"),
     "managed_hsm": (443, "networkAcls"),
@@ -7487,7 +7530,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "media_cdn_service", "target_pool", "target_instance",
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
-AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
+AZURE_TYPES = ["vnet", "subnet", "vnet_peering", "network_connection", "hub_vpn_connection", "nat_gateway", "route_table", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "storage_service", "sql_server", "sql_firewall_rule", "sql_ipv6_firewall_rule", "managed_identity_federated_credential",
                "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
@@ -7504,7 +7547,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
+             "azure": {"nic", "vnet_peering", "network_connection", "hub_vpn_connection", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -7563,7 +7606,10 @@ def assess(snapshot, resources):
                 "vertex_agent_sandbox": _gcp_vertex_sandbox,
                 "tpu_node": _gcp_tpu_node,
                 "vmware_external_address": _gcp_vmware_address},
-        "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]), "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
+        "azure": {"nic": lambda s, i, r: _azure_nic(s, i, r, extra["public_ips"]),
+                  "vnet_peering": _azure_private_transit, "network_connection": _azure_private_transit,
+                  "hub_vpn_connection": _azure_private_transit,
+                  "load_balancer": _azure_lb, "application_gateway": _azure_appgw,
                   "app_service": lambda s, i, r: _azure_app_service(s, i, r, extra["configs"]), "aks_cluster": _azure_aks,
                   "app_service_slot": _azure_app_service_slot,
                   "storage_account": _azure_storage, "storage_container": _azure_storage_container,
@@ -7614,6 +7660,8 @@ def _azure_sql_public_blocked(assessment):
 
 
 def _title(assessment, status):
+    if assessment.kind == "private_transit":
+        return "Azure private network transit to a possible third party unresolved"
     if status == "UNKNOWN" and _azure_sql_public_blocked(assessment):
         return ("SQL private endpoint consumer path unresolved" if any(
             step["layer"] == "private_endpoint" for step in assessment.path) else
@@ -7644,6 +7692,12 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.kind == "private_transit":
+        transit = next(step for step in assessment.path if step["layer"] == "private_transit")
+        remote = transit.get("remote") or "an unrecorded remote gateway"
+        return (f"The Azure resource has {transit['connection']} to {remote}.\n"
+                "Its remote owner, effective route, target NSG and target service are not established.\n"
+                "This is a possible private third-party path, not a public Internet listener or a proven service connection.")
     if assessment.resource["type"] == "frontdoor_and_cdn_endpoint" and status == "FAIL":
         waf = next((step for step in assessment.path if step["layer"] == "waf"
                     and step["decision"] == "allow"), None)

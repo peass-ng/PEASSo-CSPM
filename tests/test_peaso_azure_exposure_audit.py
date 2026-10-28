@@ -2244,6 +2244,49 @@ def test_firewall_dnat_source_ip_group_membership_uses_recorded_arm_addresses():
     assert decision(["10.0.0.0/8"], direct=["1.1.1.1/32"]).ports == {"tcp": ((443, 443),)}
 
 
+def test_private_peering_and_gateway_transit_are_unknown_not_public_listeners():
+    foreign = "/subscriptions/other/resourceGroups/remote/providers/Microsoft.Network/virtualNetworks/v"
+    peering_id = (f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v"
+                  "/virtualNetworkPeerings/remote")
+    gateway_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/connections/tunnel"
+    hub_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/vpnGateways/hub/vpnConnections/site"
+
+    def check(peering, connection, nat=True):
+        collections = [
+            {"type": "vnet_peering", "scope": SCOPE, "status": "collected",
+             "items": [{"id": peering_id, "properties": peering}]},
+            {"type": "network_connection", "scope": SCOPE, "status": "collected",
+             "items": [{"id": gateway_id, "properties": connection}]},
+            {"type": "hub_vpn_connection", "scope": SCOPE, "status": "collected",
+             "items": [{"id": hub_id, "properties": {
+                 "remoteVpnSite": {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/vpnSites/site"},
+                 "vpnLinkConnections": [{"properties": {"connectionStatus": connection.get("connectionStatus")}}]}}]},
+        ]
+        if nat:
+            collections.append({"type": "nat_gateway", "scope": SCOPE, "status": "collected",
+                "items": [{"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/natGateways/nat",
+                           "properties": {"publicIpAddresses": [{"id": "pip"}]}}]})
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return assess(snap, resources(snap))
+
+    connected = {"remoteVirtualNetwork": {"id": foreign}, "peeringState": "Connected",
+                 "provisioningState": "Succeeded", "allowVirtualNetworkAccess": True}
+    tunnel = {"connectionStatus": "Connected", "connectionType": "IPsec",
+              "localNetworkGateway2": {"id": "/subscriptions/other/resourceGroups/remote/providers/Microsoft.Network/localNetworkGateways/peer"}}
+    rows = check(connected, tunnel)
+    assert {row.resource["type"] for row in rows} == {
+        "vnet_peering", "network_connection", "hub_vpn_connection"}
+    for row in rows:
+        assert row.verdict() == "UNKNOWN" and row.kind == "private_transit"
+        assert "not a public Internet listener" in _observed(row, "UNKNOWN")
+        assert row.ports is None and row.addresses == []
+    assert check({**connected, "peeringState": "Disconnected"},
+                 {**tunnel, "connectionStatus": "Disconnected"}) == []
+    assert {row.resource["type"] for row in check({**connected,
+        "remoteVirtualNetwork": {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/local"}},
+        tunnel)} == {"network_connection", "hub_vpn_connection"}
+
+
 def test_frontdoor_edge_listener_uses_effective_routes_and_keeps_backend_uncertain():
     edge_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cdn/profiles/edge"
     endpoint = {"id": edge_id + "/afdEndpoints/default",
