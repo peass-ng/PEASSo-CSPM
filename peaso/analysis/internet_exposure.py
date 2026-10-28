@@ -5191,9 +5191,13 @@ def _azure_container_app(snapshot, inventory, resource):
         else:
             a.gap("listener", "Container App TCP exposedPort is unavailable")
     elif transport in ("auto", "http", "http2"):
-        a.ports = pset("tcp", 443, 443)
-        if ingress.get("allowInsecure") is True:
-            a.ports = union(a.ports, pset("tcp", 80, 80))
+        a.ports = union(pset("tcp", 80, 80), pset("tcp", 443, 443))
+        insecure = ingress.get("allowInsecure")
+        if insecure is not None and type(insecure) is not bool:
+            a.gap("listener", "Container App allowInsecure HTTP redirect mode is unresolved")
+        else:
+            a.step("http_port_80", "allow" if insecure is True else "redirect",
+                   allow_insecure=insecure if insecure is not None else False)
     else:
         a.gap("listener", "Container App ingress transport is unrecognized")
     for mapping in as_list(ingress.get("additionalPortMappings")):
@@ -6934,6 +6938,13 @@ def _observed(assessment, status):
                 "An open path could expose workflow settings or data if IAM also grants access.")
     if assessment.resource["type"] == "container_app":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        http_port = next((step for step in assessment.path if step["layer"] == "http_port_80"), None)
+        if status == "FAIL" and http_port is not None:
+            fqdn = assessment.addresses[0] if assessment.addresses else "an unobserved FQDN"
+            mode = "permits insecure HTTP" if http_port["decision"] == "allow" else "redirects HTTP to HTTPS"
+            return (f"The Container App {name} records external HTTP ingress at {fqdn} on ports 80 and 443.\n"
+                    f"Port 80 {mode} under its recorded allowInsecure setting.\n"
+                    "A public source is admitted by the recorded restrictions; backend response was not tested.")
         inactive = next((step for step in assessment.path
                          if step["layer"] == "revisions" and step["decision"] == "block"), None)
         if status == "PASS" and inactive is not None:

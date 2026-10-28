@@ -1104,9 +1104,12 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
 
-    def app_decision(env_public="Enabled", rules=None, transport="http", extra=None):
+    def app_decision(env_public="Enabled", rules=None, transport="http", extra=None,
+                     allow_insecure=None):
         ingress = {"external": True, "transport": transport, "fqdn": "app.example.azurecontainerapps.io",
                    "ipSecurityRestrictions": rules or []}
+        if allow_insecure is not None:
+            ingress["allowInsecure"] = allow_insecure
         if transport == "tcp":
             ingress["exposedPort"] = 8443
         if extra:
@@ -1126,7 +1129,12 @@ def test_container_app_requires_public_environment_and_effective_ingress():
                          "dispatch_present": "container_app" in assess.__globals__["AZURE_TYPES"]}
         return matches[0]
 
-    assert app_decision().verdict() == "FAIL"
+    redirected = app_decision()
+    assert redirected.verdict() == "FAIL" and redirected.ports == {"tcp": ((80, 80), (443, 443))}
+    assert "Port 80 redirects HTTP to HTTPS" in _observed(redirected, "FAIL")
+    insecure = app_decision(allow_insecure=True)
+    assert insecure.verdict() == "FAIL" and "permits insecure HTTP" in _observed(insecure, "FAIL")
+    assert app_decision(allow_insecure="unknown").verdict() == "UNKNOWN"
     assert app_decision(env_public="Disabled").verdict() == "PASS"
     assert app_decision(env_public=None).verdict() == "UNKNOWN"
     private_allow = [{"action": "Allow", "ipAddressRange": "10.0.0.0/8"}]
