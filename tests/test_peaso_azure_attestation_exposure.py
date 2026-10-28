@@ -61,9 +61,10 @@ def test_collector_uses_one_full_get_and_omits_private_signing_keys():
     collection = next(c for c in snapshot["collections"] if c["type"] == "attestation_provider")
     item = collection["items"][0]
     assert item["_provenance"]["representation"] == "full"
-    assert item["properties"] == {key: detail["properties"][key] for key in
+    assert item["properties"] == {**{key: detail["properties"][key] for key in
                                   ("status", "attestUri", "publicNetworkAccess",
-                                   "tpmAttestationAuthentication", "trustModel")}
+                                   "tpmAttestationAuthentication", "trustModel")},
+                                  "attestHost": "provider.eus.attest.azure.net"}
     assert "private-marker" not in json.dumps(snapshot)
     assert sum(urlsplit(url).path == RID for url in api.calls) == 1
     assert sum(urlsplit(url).path == SCOPE + "/providers/" + endpoint for url in api.calls) == 1

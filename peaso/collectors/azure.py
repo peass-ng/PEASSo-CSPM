@@ -2728,6 +2728,34 @@ class _Reader:
 
 
 
+def _endpoint_exposure_metadata(row, kind, scope):
+    """Derive exposure aliases from an already read authoritative ARM row."""
+    props = row.get('properties') if isinstance(row, dict) else None
+    if not isinstance(props, dict):
+        return None
+    if kind == 'attestation_provider':
+        try:
+            metadata = azure_attestation_native.project(row, scope)
+        except ValueError:
+            # Keep the existing full-detail validation/evidence path; an
+            # unusable endpoint cannot supply additional exposure metadata.
+            return None
+        metadata['_provenance']['representation'] = 'metadata'
+        return metadata
+    if kind == azure_service_fabric_native.CLASSIC:
+        host, port = azure_service_fabric_native._management_endpoint(props.get('managementEndpoint'))
+        nodes = props.get('nodeTypes')
+        return {'id': row['id'], 'name': row.get('name'), 'type': row.get('type'),
+            'properties': {'provisioningState': props.get('provisioningState'),
+                'clusterState': props.get('clusterState'), 'managementHost': host, 'managementPort': port,
+                'nodePorts': [{'client': node.get('clientConnectionEndpointPort'),
+                               'http': node.get('httpGatewayEndpointPort')}
+                              for node in nodes if isinstance(node, dict)] if isinstance(nodes, list) else None},
+            '_provenance': {'source_operation': 'Clusters_ListBySubscription',
+                'api_version': ENDPOINTS[kind][1], 'read_only': True, 'representation': 'metadata'}}
+    return None
+
+
 class AzureTransportExposure(AzureTransport):
 
     def __init__(self, auth, credential=None):
@@ -3649,6 +3677,7 @@ def collect(connector, requirements=None, *, transport=None):
                     # list can establish membership or an empty inventory.
                     seen_easm = set()
                     remaining_service_seen = {}
+                    endpoint_metadata = {}
                     assessment_captures = {}
                     def assessment_list_request(page_url, *, body=None, audience=ARM):
                         # Capture when transport first returns this page, not when
@@ -3692,6 +3721,11 @@ def collect(connector, requirements=None, *, transport=None):
                                          'read_only': True, 'selected_scope': scope, 'filter': None,
                                          'request_path': scope + '/providers/Microsoft.Authorization/policyAssignments'}
                     def bound_policy_row(row):
+                        metadata = _endpoint_exposure_metadata(row, kind, scope)
+                        if metadata is not None:
+                            aliases = ('attestHost',) if kind == 'attestation_provider' else ('managementHost', 'managementPort', 'nodePorts')
+                            row = {**row, 'properties': {**row['properties'],
+                                **{key: metadata['properties'][key] for key in aliases}}}
                         if kind != 'policy_assignment':
                             return row
                         if '_native_policy_assignment_list' in row:
@@ -3723,6 +3757,9 @@ def collect(connector, requirements=None, *, transport=None):
                             if not _remaining_service_parent_identity(item, scope, kind, remaining_service_seen):
                                 continue
                             _remaining_services_private_links(item, kind)
+                            metadata = _endpoint_exposure_metadata(item, kind, scope)
+                            if metadata is not None:
+                                endpoint_metadata[rid.casefold()] = metadata
                             if kind in ("security_contact", "security_setting", "security_assessment", "log_analytics_workspace") and str(item.get("type", "")).casefold() not in ((ENDPOINTS[kind][0].casefold(), "microsoft.security/securitycontact") if kind == "security_contact" else (ENDPOINTS[kind][0].casefold(),)):
                                 raise ValueError("native monitoring type differs from selected inventory")
                             if kind in ("easm_workspace", "monitor_log_profile", "arc_kubernetes_cluster", "integration_service_environment", "databricks_workspace"):
@@ -3843,7 +3880,12 @@ def collect(connector, requirements=None, *, transport=None):
                                 continue
                             exc, item, rid = result, value, value["id"]
                             incomplete = exc
-                            detailed.append({"id": rid, "type": item.get("type"), "name": item.get("name"), "detail": {"collection_status": _safe_error(exc)[0], "error": _safe_error(exc)[1]}})
+                            # The complete native LIST can still supply its
+                            # explicitly projected endpoint facts when a full
+                            # configuration GET is denied. Preserve that source
+                            # as metadata alongside the unavailable detail.
+                            metadata = endpoint_metadata.get(rid.casefold(), {})
+                            detailed.append({**metadata, "id": rid, "type": item.get("type"), "name": item.get("name"), "detail": {"collection_status": _safe_error(exc)[0], "error": _safe_error(exc)[1]}})
                         yield detailed
                     if incomplete:
                         raise incomplete
@@ -4316,9 +4358,15 @@ def collect(connector, requirements=None, *, transport=None):
                         if target is not None and (not isinstance(target, str) or re.fullmatch(
                                 r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Storage/storageAccounts/[^/?#%\\\s]+", target, re.I) is None):
                             raise ValueError("Cost Management export storage identity malformed")
+                        # One export inventory carries both the billing-scope
+                        # relationship facts and the safe destination/config
+                        # fields consumed by native exposure checks.
+                        metadata = (azure_cost_exports_native.project(row, scope)
+                                    if isinstance(delivery, dict) and isinstance(delivery.get('destination'), dict) else None)
                         projected.append({"id": rid, "name": rid.rsplit("/", 1)[-1],
                                           "type": "Microsoft.CostManagement/exports",
-                                          "properties": {"sourceScope": scope,
+                                          **({'_provenance': metadata['_provenance']} if metadata else {}),
+                                          "properties": {**(metadata['properties'] if metadata else {}), "sourceScope": scope,
                                                          "destination": {"resourceId": target,
                                                                          "hasPartnerSasDestination": bool(destination.get("storageAccount"))}}})
                     yield projected
@@ -4422,7 +4470,9 @@ def collect(connector, requirements=None, *, transport=None):
         azure_foundry_connection_native.collect(reader, request, transport, wanted)
         azure_newrelic_native.collect(reader, request, scopes, wanted, ARM)
         azure_partner_network_native.collect(reader, request, scopes, wanted, ARM)
-        azure_service_fabric_native.collect(reader, request, scopes, wanted, ARM)
+        # Classic clusters already have the authoritative full inventory above;
+        # only managed clusters need this separate metadata endpoint.
+        azure_service_fabric_native.collect(reader, request, scopes, wanted - {azure_service_fabric_native.CLASSIC}, ARM)
         azure_easm_connections_native.collect(reader, request, wanted)
         azure_purview_metadata_policy_native.collect(reader, request, transport, wanted)
         azure_purview_unified_policy_native.collect(reader, request, wanted, tenant_scope)
@@ -4729,9 +4779,10 @@ def collect(connector, requirements=None, *, transport=None):
         if "batch_pool" not in wanted:
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
-        azure_cost_exports_native.collect(reader, request, scopes, wanted)
+        # Cost export metadata is folded into the broader billing/RG/MG list
+        # above rather than appending a second inventory for the same scope.
         azure_managed_application_definitions_native.collect(reader, request, wanted)
-        azure_attestation_native.collect(reader, request, scopes, wanted)
+        # Attestation exposure aliases share the authoritative provider GET.
         azure_domain_services_native.collect(reader, request, scopes, wanted)
         azure_defender_automations_native.collect(reader, request, scopes, wanted)
         _collect_managed_application_jit(reader, request, embedded_parents)

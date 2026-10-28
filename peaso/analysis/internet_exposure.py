@@ -22595,6 +22595,10 @@ def _azure_attestation_provider(snapshot, inventory, resource):
 
 def _azure_cost_export(snapshot, inventory, resource):
     props = _props(resource)
+    # Unified inventories retain both projections; keep the original billing
+    # scope relationship contract when its explicit source scope is present.
+    if "sourceScope" in props:
+        return _azure_cost_export_current(snapshot, inventory, resource)
     if "deliveryInfo" in props:
         return _azure_cost_export_recorded(snapshot, inventory, resource)
     return _azure_cost_export_current(snapshot, inventory, resource)

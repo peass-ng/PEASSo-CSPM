@@ -1,0 +1,35 @@
+{
+  "provider": "azure",
+  "base_commit": "e47b9e13",
+  "stage": "local_live_full_native_collection",
+  "baseline": {
+    "cloud": "azure",
+    "status": "failed",
+    "error_class": "ValueError",
+    "wall_s": 604.166,
+    "cpu_s": 12.749,
+    "settled_callback_rows": 1849,
+    "read_only": true
+  },
+  "baseline_duplicate_type_scope_keys": {
+    "attestation_provider": 1,
+    "service_fabric_cluster": 1,
+    "cost_export": 7
+  },
+  "focused_tests": {
+    "passed": 32,
+    "failed": 0,
+    "wall_s": 2.92,
+    "log_private": "azure-unified-focused.log"
+  },
+  "source_attestation": "Pending root review/rebind for actual collector and exposure-dispatch changes; no receipt changes in worker branch.",
+  "after_live_collection": "running; no completion or performance claim",
+  "scan_dispatches": 0,
+  "connector_writes": 0,
+  "aws_api_calls": 0,
+  "changes": [
+    "Fold Attestation endpoint aliases into authoritative full detail, retaining safe LIST metadata if GET is denied.",
+    "Retain classic Service Fabric configuration plus endpoint aliases from one LIST; keep managed cluster inventory.",
+    "Fold safe Cost export metadata into broader subscription/RG/MG/billing inventory; retain sourceScope exposure behavior."
+  ]
+}
