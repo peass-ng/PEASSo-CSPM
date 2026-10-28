@@ -979,7 +979,7 @@ SUPPORTED_TYPES = SUPPORTED_TYPES | {'artifact_image', 'sbom_occurrence', 'deplo
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'app_engine_version_secret', 'workflow_source'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'clouddeploy_release_source', 'cloudbuild_artifact_source', 'gcs_selected_archive', 'composer_dag_source', 'cloudbuild_log_source', 'appengine_deployment_source'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'artifact_selected_file', 'function_source_archive', 'gke_workload_literal', 'dataform_selected_file', 'dataflow_job', 'batch_job', 'dataproc_job'}
-SUPPORTED_TYPES = SUPPORTED_TYPES | {'gke_exposure_service'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'gke_exposure_service', 'gke_exposure_ingress'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'dataflow_privesc_job', 'dataflow_privesc_pipeline'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'bucket_acl', 'object_acl', 'bucket_effective_iam', 'os_patch_deployment', 'os_vulnerability_report', 'kms_effective_use'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'osconfig_guest_policy', 'osconfig_project_feature_settings', 'osconfig_os_policy_assignment', 'osconfig_policy_orchestrator', 'ca_pool', 'service_catalog_version'}
@@ -1086,6 +1086,7 @@ DEPENDENCIES['gcs_selected_archive'] = {'project', 'bucket'}
 DEPENDENCIES['dataform_selected_file'] = {'project'}
 DEPENDENCIES['gke_workload_literal'] = {'gke_cluster'}
 DEPENDENCIES['gke_exposure_service'] = {'gke_cluster'}
+DEPENDENCIES['gke_exposure_ingress'] = {'gke_cluster'}
 DEPENDENCIES['function_source_archive'] = {'function', 'project', 'bucket'}
 DEPENDENCIES['artifact_selected_file'] = {'project', 'artifact_repository'}
 for _literal_job_kind in ('dataflow_job', 'batch_job', 'dataproc_job'):
@@ -3902,8 +3903,8 @@ class GCPCollector:
                 for scope in self.scopes if scope.startswith('projects/')])
         from .gcp_gke_literal_secret_indicators import dependent_jobs as gke_literal_jobs
         self.run_jobs(gke_literal_jobs(self))
-        from .gcp_gke_exposure_services import dependent_jobs as gke_service_jobs
-        self.run_jobs(gke_service_jobs(self))
+        from .gcp_gke_exposure_services import dependent_jobs as gke_exposure_jobs, INGRESS_KIND
+        self.run_jobs(gke_exposure_jobs(self) + gke_exposure_jobs(self, INGRESS_KIND))
         if self.needed & {'appengine_flex_selected_version_image_secrets', 'appengine_flex_selected_version_image_vulnerabilities'}:
             from .gcp_appengine_flex_image_runtime_20261021 import collect as collect_flex_images
             collect_flex_images(self)
@@ -5242,7 +5243,7 @@ class GCPCollector:
                     "coverage_status": collection.get("coverage_status"), "resource_count": len(collection["items"]),
                     "error": collection.get("error"), "source_requests": collection.get("source_requests", [])})
                 continue
-            if (key[0] in self.wanted or key[0] == "gke_cluster" and self.wanted & {"gke_workload_literal", "gke_exposure_service"} or key[0] == "project" and
+            if (key[0] in self.wanted or key[0] == "gke_cluster" and self.wanted & {"gke_workload_literal", "gke_exposure_service", "gke_exposure_ingress"} or key[0] == "project" and
                     (self.options.get("all_projects") or key[1] in getattr(self, "proven_project_alias_scopes", set())
                      or key[1] in getattr(self, "proven_api_key_alias_scopes", set()))):
                 collection["items"].sort(key=lambda item: item["_resource_id"])
@@ -5425,7 +5426,7 @@ class GCPCollector:
             if self.transport is None:
                 from .gcp_gke_literal_secret_indicators import auth_requested
                 credentials = Credentials(self.auth, timeout=bound(self.options, "timeout", 20, 1, 120),
-                    gke_content=auth_requested(self) or "gke_exposure_service" in self.needed)
+                    gke_content=auth_requested(self) or bool({"gke_exposure_service", "gke_exposure_ingress"} & self.needed))
                 self.transport = Transport(credentials, self.options)
             self.discover()
             self.progress("collecting")

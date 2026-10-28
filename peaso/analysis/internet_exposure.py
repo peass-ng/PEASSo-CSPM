@@ -2428,6 +2428,29 @@ def _gcp_gke_exposure_service(snapshot, inventory, resource):
     return a
 
 
+def _gcp_gke_exposure_ingress(snapshot, inventory, resource):
+    """Preserve declared Ingress reachability until its controller path is proven."""
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state == "collected":
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    if state is not None:
+        a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+               reason=data.get("reason"))
+        a.gap("inventory", "GKE Kubernetes Ingress inventory was not completely read")
+        return a
+    addresses = ((data.get("status") or {}).get("loadBalancer") or {}).get("ingress") or []
+    a.addresses = list(dict.fromkeys(item["ip"] for item in addresses
+        if isinstance(item, dict) and _public_ip(item.get("ip"))))
+    a.step("kubernetes_ingress", "unknown", cluster=data.get("cluster"),
+           ingress_class=data.get("ingressClassName"), hosts=data.get("hosts"),
+           default_backend=data.get("hasDefaultBackend"), addresses=a.addresses)
+    a.gap("controller", "GKE Ingress controller, cloud forwarding rule, firewall and backend path need an effective join")
+    return a
+
+
 def _gcp_bucket(snapshot, inventory, resource):
     data = resource["data"]
     policy = data.get("iamPolicy")
@@ -6221,7 +6244,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6239,7 +6262,7 @@ EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
                      "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
-             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
                      "media_cdn_service",
@@ -6285,7 +6308,8 @@ def assess(snapshot, resources):
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
                 "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke,
-                "gke_exposure_service": _gcp_gke_exposure_service, "bucket": _gcp_bucket,
+                "gke_exposure_service": _gcp_gke_exposure_service,
+                "gke_exposure_ingress": _gcp_gke_exposure_ingress, "bucket": _gcp_bucket,
                 "bigquery_dataset": _gcp_bigquery_dataset, "firebase_rules_release": _gcp_firebase_rules,
                 "firebase_database_rules": _gcp_firebase_rules,
                 "vpn_gateway": _gcp_vpn_gateway,

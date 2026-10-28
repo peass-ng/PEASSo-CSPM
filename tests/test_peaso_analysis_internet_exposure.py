@@ -1886,6 +1886,26 @@ def test_gcp_live_gke_service_inventory_candidates_and_missing_cluster():
     assert not exposure(gcp(gcoll("gke_exposure_service", [marker], service="kubernetes")))
 
 
+def test_gcp_live_gke_ingress_inventory_candidate_and_gap():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    assert "gke_exposure_ingress" in GCP_TYPES
+    assert "gke_exposure_ingress" in plan_collection({
+        "connector": {"provider": "gcp"}, "categories": ["exposure"]})
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    ingress = {"name": cluster + "/namespaces/default/ingresses/web", "cluster": cluster,
+               "ingressClassName": "gce", "hosts": ["example.com"], "hasDefaultBackend": True,
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}}}
+    result = one(gcp(gcoll("gke_exposure_ingress", [ingress], service="kubernetes")), "gke_exposure_ingress")
+    assert result["status"] == "UNKNOWN" and "34.1.2.3" in str(result["evidence"])
+    marker = {"name": cluster + "/ingressInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
+    assert one(gcp(gcoll("gke_exposure_ingress", [marker], service="kubernetes")),
+               "gke_exposure_ingress")["status"] == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    assert not exposure(gcp(gcoll("gke_exposure_ingress", [marker], service="kubernetes")))
+
+
 def test_gcp_nonuniform_bucket_missing_acl_inventory_is_unknown():
     bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False},
               "publicAccessPrevention": "not_enforced"}, "iamPolicy": {"bindings": []}}

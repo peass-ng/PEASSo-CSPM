@@ -159,3 +159,35 @@ def test_dns_fallback_publishes_only_complete_read(monkeypatch):
     rows = [row for page, _ in services.dependent_jobs(collector)[0][3]() for row in page]
     assert [row["name"] for row in rows] == ["complete-dns", selection + "/serviceInventory"]
     assert rows[-1]["inventoryStatus"] == "collected" and rows[-1]["serviceCount"] == 1
+
+
+def test_ingress_projection_and_inventory_marker(monkeypatch):
+    scope = "projects/p1"
+    selection = scope + "/locations/r1/clusters/c1"
+    binding = {"selection": selection, "endpoint": "abc.r1.gke.goog",
+               "ca_sha256": None, "endpointTrust": "public_ca"}
+    reader = services.IngressReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
+    ingress = {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
+        "metadata": {"name": "web", "namespace": "default", "uid": "ingress-uid",
+                     "annotations": {"private.example/token": "secret"}},
+        "spec": {"ingressClassName": "gce", "defaultBackend": {"service": {"name": "private-backend"}},
+                 "rules": [{"host": "example.com", "http": {"paths": []}}]},
+        "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}}}
+    data = {"apiVersion": "networking.k8s.io/v1", "kind": "IngressList",
+        "metadata": {"resourceVersion": "12"}, "items": [ingress]}
+    row = reader.project_list(data, reader.PATH)["items"][0]
+    assert row["hosts"] == ["example.com"] and row["hasDefaultBackend"] is True
+    assert row["status"]["loadBalancer"]["ingress"] == [{"ip": "34.1.2.3"}]
+    assert "secret" not in str(row) and "private-backend" not in str(row)
+    ingress["spec"]["rules"][0]["host"] = "x" * 254
+    with pytest.raises(ValueError, match="Ingress rules"):
+        reader.project_list(data, reader.PATH)
+    ingress["spec"]["rules"][0]["host"] = "example.com"
+    collector = SimpleNamespace(needed={services.INGRESS_KIND}, scopes=[scope], transport=None,
+        collections={("gke_cluster", scope): {"status": "collected", "coverage_status": "collected",
+            "items": [{"name": "c1", "location": "r1"}], "source_requests": ["cluster-request"]}})
+    monkeypatch.setattr(services, "cluster_binding", lambda *_: binding)
+    monkeypatch.setattr(services.IngressReader, "pages", lambda self: iter([([row], "ingress-request")]))
+    rows = [item for page, _ in services.dependent_jobs(collector, services.INGRESS_KIND)[0][3]() for item in page]
+    assert len(rows) == 2 and rows[-1]["inventoryStatus"] == "collected"
+    assert rows[-1]["ingressCount"] == 1

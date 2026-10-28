@@ -18,6 +18,7 @@ from .gcp_gke_literal_secret_indicators import (
 )
 
 KIND = "gke_exposure_service"
+INGRESS_KIND = "gke_exposure_ingress"
 MAX_SECONDS = 120
 MAX_SERVICES = 10000
 ANNOTATIONS = frozenset({
@@ -69,12 +70,14 @@ def dns_cluster_binding(collector, scope, selection):
 
 
 class ServiceReader:
+    PATH = "/api/v1/services"
+    OPERATION = "gke-exposure-services-list"
     def __init__(self, collector, binding, namespaces, budget):
         self.transport = collector.transport
         self.binding, self.budget = binding, budget
 
     def read(self, path, params):
-        if (path != "/api/v1/services" or set(params) - {"limit", "continue"}
+        if (path != self.PATH or set(params) - {"limit", "continue"}
                 or params.get("limit") != PAGE_SIZE or type(params["limit"]) is not int
                 or "continue" in params and (not isinstance(params["continue"], str)
                     or not params["continue"] or len(params["continue"].encode()) > 4096)):
@@ -92,7 +95,7 @@ class ServiceReader:
                 self.budget["calls"] += 1
                 rid = "request-" + str(len(self.transport.evidence) + 1)
                 evidence = {"id": rid, "scope": self.binding["selection"], "method": "GET",
-                    "url": "https://" + self.binding["endpoint"] + path, "operation": "gke-exposure-services-list",
+                    "url": "https://" + self.binding["endpoint"] + path, "operation": self.OPERATION,
                     "query": {"limit": PAGE_SIZE}, "status": "incomplete"}
                 self.transport.evidence.append(evidence)
             connection = http.client.HTTPSConnection(self.binding["endpoint"], port=443,
@@ -239,7 +242,7 @@ class ServiceReader:
             params = {"limit": PAGE_SIZE}
             if token is not None:
                 params["continue"] = token
-            page, request_id = self.read("/api/v1/services", params)
+            page, request_id = self.read(self.PATH, params)
             if version is not None and page["resourceVersion"] != version:
                 raise _failure("gke_exposure_services_version_changed")
             version = page["resourceVersion"]
@@ -256,9 +259,72 @@ class ServiceReader:
             tokens.add(token)
 
 
-def dependent_jobs(collector):
-    if KIND not in collector.needed:
+class IngressReader(ServiceReader):
+    PATH = "/apis/networking.k8s.io/v1/ingresses"
+    OPERATION = "gke-exposure-ingresses-list"
+
+    def project_list(self, data, path):
+        if (not isinstance(data, dict) or data.get("apiVersion") != "networking.k8s.io/v1"
+                or data.get("kind") != "IngressList" or not isinstance(data.get("items"), list)
+                or len(data["items"]) > PAGE_SIZE or not isinstance(data.get("metadata"), dict)):
+            raise ValueError("GKE Ingress list shape")
+        version = data["metadata"].get("resourceVersion")
+        token = data["metadata"].get("continue", "")
+        if (not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", version)
+                or not isinstance(token, str) or len(token.encode()) > 4096):
+            raise ValueError("GKE Ingress list continuity")
+        rows = []
+        for ingress in data["items"]:
+            if (not isinstance(ingress, dict) or ingress.get("apiVersion") != "networking.k8s.io/v1"
+                    or ingress.get("kind") != "Ingress"):
+                raise ValueError("GKE Ingress resource shape")
+            meta, spec, status = ingress.get("metadata"), ingress.get("spec"), ingress.get("status", {})
+            if not isinstance(meta, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
+                raise ValueError("GKE Ingress metadata/spec/status")
+            namespace, name, uid = meta.get("namespace"), meta.get("name"), meta.get("uid")
+            if (not isinstance(namespace, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", namespace)
+                    or not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", name)
+                    or not isinstance(uid, str) or not 1 <= len(uid) <= 128):
+                raise ValueError("GKE Ingress identity")
+            self.budget["resources"] += 1
+            if self.budget["resources"] > MAX_SERVICES:
+                raise ValueError("GKE Ingress count bound")
+            ingress_class = spec.get("ingressClassName")
+            if ingress_class is not None and (not isinstance(ingress_class, str) or len(ingress_class) > 253):
+                raise ValueError("GKE Ingress class")
+            rules = spec.get("rules", [])
+            if (not isinstance(rules, list) or len(rules) > 128
+                    or any(not isinstance(rule, dict) or not isinstance(rule.get("host", ""), str)
+                           or len(rule.get("host", "")) > 253 for rule in rules)):
+                raise ValueError("GKE Ingress rules")
+            load_balancer = status.get("loadBalancer", {})
+            if not isinstance(load_balancer, dict) or not isinstance(load_balancer.get("ingress", []), list):
+                raise ValueError("GKE Ingress load balancer status")
+            addresses = load_balancer.get("ingress", [])
+            if len(addresses) > 32 or any(not isinstance(item, dict) for item in addresses):
+                raise ValueError("GKE Ingress addresses")
+            safe_addresses = [{key: value for key in ("ip", "hostname")
+                               if isinstance(value := item.get(key), str) and len(value) <= 253}
+                              for item in addresses]
+            rows.append({"name": f"{self.binding['selection']}/namespaces/{namespace}/ingresses/{name}",
+                "cluster": self.binding["selection"], "namespace": namespace, "kubernetesName": name,
+                "uid": uid, "ingressClassName": ingress_class,
+                "hosts": [rule.get("host", "") for rule in rules],
+                "hasDefaultBackend": "defaultBackend" in spec,
+                "status": {"loadBalancer": {"ingress": safe_addresses}},
+                "clusterEndpoint": self.binding["endpoint"],
+                "clusterCaSha256": self.binding["ca_sha256"],
+                "endpointTrust": self.binding.get("endpointTrust", "cluster_ca")})
+        return {"items": rows, "continue": token, "resourceVersion": version}
+
+
+def dependent_jobs(collector, kind=KIND):
+    if kind not in collector.needed:
         return []
+    if kind not in (KIND, INGRESS_KIND):
+        return []
+    reader_type = ServiceReader if kind == KIND else IngressReader
+    resource_label = "service" if kind == KIND else "ingress"
     jobs = []
     for scope in collector.scopes:
         if not isinstance(scope, str) or not re.fullmatch(r"projects/" + PROJECT, scope):
@@ -295,7 +361,7 @@ def dependent_jobs(collector):
                         binding = bind(collector, scope, selection)
                         # Publish only a complete endpoint read. A failed second page
                         # cannot leave first-page rows masquerading as live inventory.
-                        pages = list(ServiceReader(collector, binding, None, budget).pages())
+                        pages = list(reader_type(collector, binding, None, budget).pages())
                         count = sum(len(rows) for rows, _ in pages)
                         for rows, request_id in pages:
                             last_request = request_id
@@ -305,8 +371,8 @@ def dependent_jobs(collector):
                     except ReadError as exc:
                         reason = exc.error["code"]
                         last_request = getattr(exc, "request_id", None) or last_request
-                yield [{"name": selection + "/serviceInventory", "cluster": selection,
-                        "inventoryStatus": state, "serviceCount": count,
+                yield [{"name": selection + "/" + resource_label + "Inventory", "cluster": selection,
+                        "inventoryStatus": state, resource_label + "Count": count,
                         **({"reason": reason} if reason else {})}], last_request
-        jobs.append((KIND, scope, "kubernetes", fetch))
+        jobs.append((kind, scope, "kubernetes", fetch))
     return jobs
