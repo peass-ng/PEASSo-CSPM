@@ -5758,9 +5758,16 @@ def _azure_container_app(snapshot, inventory, resource):
         if ingress.get("external") is True and transport in ("auto", "http", "http2"):
             domains = ingress.get("customDomains")
             if isinstance(domains, list):
+                unverified = [domain.get("name") for domain in domains if isinstance(domain, dict)
+                              and domain.get("bindingType") in ("Auto", "SniEnabled")
+                              and not domain.get("certificateId")]
+                if unverified:
+                    a.notes.append("App custom-domain certificate binding is not collected for: " +
+                                   ", ".join(str(name) for name in unverified if name))
                 bound_domains = sorted({domain["name"] for domain in domains
                     if isinstance(domain, dict) and isinstance(domain.get("name"), str)
                     and domain["name"] and domain.get("bindingType") in ("Auto", "SniEnabled")
+                    and isinstance(domain.get("certificateId"), str) and domain["certificateId"]
                     and domain["name"] not in a.addresses})
                 a.addresses.extend(bound_domains)
                 if bound_domains:

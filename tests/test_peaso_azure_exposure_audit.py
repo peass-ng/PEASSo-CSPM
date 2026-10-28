@@ -1704,9 +1704,17 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     assert app_decision(rules=private_allow[0]).verdict() == "UNKNOWN"
     assert app_decision(rules="").verdict() == "UNKNOWN"
     custom = app_decision(fqdn=None, domains=[
-        {"name": "custom.example.org", "bindingType": "SniEnabled"},
+        {"name": "custom.example.org", "bindingType": "SniEnabled", "certificateId": env_id + "/certificates/custom"},
         {"name": "disabled.example.org", "bindingType": "Disabled"}])
     assert custom.verdict() == "FAIL" and custom.addresses == ["custom.example.org"]
+    assert app_decision(fqdn=None, domains=[
+        {"name": "unbound.example.org", "bindingType": "SniEnabled"}]).verdict() == "UNKNOWN"
+    auto_unbound = app_decision(fqdn=None, domains=[
+        {"name": "auto.example.org", "bindingType": "Auto"}])
+    assert auto_unbound.verdict() == "UNKNOWN" and auto_unbound.addresses == []
+    default_with_auto = app_decision(domains=[{"name": "auto.example.org", "bindingType": "Auto"}])
+    assert default_with_auto.verdict() == "FAIL"
+    assert default_with_auto.addresses == ["app.example.azurecontainerapps.io"]
     assert app_decision(fqdn=None, domains=[
         {"name": "disabled.example.org", "bindingType": "Disabled"}]).verdict() == "UNKNOWN"
     tcp = app_decision(transport="tcp", extra=[{"external": True, "exposedPort": 9000}])
