@@ -349,6 +349,38 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow"}, scm_hostname=False).verdict() == "FAIL"
 
 
+def test_app_service_service_tag_and_vnet_rules_preserve_public_source_priority():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    tag = {"name": "AzureFrontDoor.Backend", "properties": {"addressPrefixes": ["8.8.8.0/24"]}}
+    public_tag = {"name": "frontdoor", "ipAddress": "AzureFrontDoor.Backend", "action": "Allow", "priority": 200}
+    deny_tag = {**public_tag, "name": "deny-frontdoor", "action": "Deny", "priority": 100}
+    subnet_rule = {"name": "subnet", "vnetSubnetResourceId":
+                   f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s",
+                   "action": "Allow", "priority": 100}
+
+    def site_decision(rules, *, tags=None, tag_status="collected"):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id, "properties": {"publicNetworkAccess": "Enabled",
+                 "defaultHostName": "app.azurewebsites.net",
+                 "enabledHostNames": ["app.azurewebsites.net", "app.scm.azurewebsites.net"]}}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id + "/config/web", "parent_id": site_id,
+                 "properties": {"ipSecurityRestrictions": rules, "scmIpSecurityRestrictionsUseMain": True}}]},
+            {"type": "service_tag", "scope": SCOPE, "service": "network", "status": tag_status,
+             "items": tags if tags is not None else [tag]},
+        ])
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+
+    assert site_decision([public_tag]).verdict() == "FAIL"
+    assert site_decision([deny_tag, public_tag]).verdict() == "PASS"
+    assert site_decision([subnet_rule]).verdict() == "PASS"
+    assert site_decision([{"name": "any-vnet", "ipAddress": "AnyVnets", "action": "Allow"}]).verdict() == "PASS"
+    assert site_decision([public_tag], tag_status="partial").verdict() == "UNKNOWN"
+    assert site_decision([public_tag], tags=[{"name": tag["name"],
+        "properties": {"addressPrefixes": ["malformed"]}}]).verdict() == "UNKNOWN"
+
+
 def test_app_service_private_endpoint_default_and_ase_surface_modes():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     plan_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/serverfarms/plan"

@@ -4450,7 +4450,7 @@ def _azure_public_remainder(sources, prior):
     return False
 
 
-def _azure_app_restriction_decision(cp, prefix):
+def _azure_app_restriction_decision(cp, prefix, service_tags=None):
     """Resolve one App Service site surface from its recorded ARM restriction fields."""
     stem = prefix + "IpSecurityRestrictions" if prefix else "ipSecurityRestrictions"
     raw_restrictions = as_list(cp.get(stem))
@@ -4465,8 +4465,23 @@ def _azure_app_restriction_decision(cp, prefix):
         return "unknown", {"default_action": default, "restriction_count": len(raw_restrictions),
                            "open_rules": [], "reason": "invalid restriction priority"}
     for restriction in ordered:
-        sources = _azure_restriction_sources(restriction.get("ipAddress"))
-        if not sources:
+        source_value = restriction.get("ipAddress")
+        subnet_ref = restriction.get("vnetSubnetResourceId")
+        source_parts = [part.strip() for part in source_value.split(",")] if isinstance(source_value, str) else []
+        sources = []
+        supported = bool(source_parts) or isinstance(subnet_ref, str) and bool(subnet_ref)
+        for part in source_parts:
+            if part == "AnyVnets":
+                continue  # Service-endpoint source, not an arbitrary internet IP.
+            direct = _azure_restriction_sources(part)
+            tag = service_tags.get(part.casefold()) if service_tags is not None else None
+            if direct:
+                sources.extend(direct)
+            elif tag:
+                sources.extend(tag)
+            else:
+                supported = False
+        if not supported:
             unsupported.append(restriction.get("name"))
             continue
         action = restriction.get("action", "Allow")
@@ -4663,14 +4678,15 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         _azure_function_triggers(a, inventory, resource)
         return a
     cp = _props(config)
-    main, main_detail = _azure_app_restriction_decision(cp, "")
+    service_tags = _azure_service_tag_ranges(inventory, resource["scope"])
+    main, main_detail = _azure_app_restriction_decision(cp, "", service_tags)
     if main == "block":
         a.addresses = []
     use_main = cp.get("scmIpSecurityRestrictionsUseMain")
     if use_main is True:
         scm, scm_detail = main, {**main_detail, "uses_main_rules": True}
     elif use_main is False:
-        scm, scm_detail = _azure_app_restriction_decision(cp, "scm")
+        scm, scm_detail = _azure_app_restriction_decision(cp, "scm", service_tags)
         scm_detail["uses_main_rules"] = False
     else:
         scm, scm_detail = "unknown", {"reason": "scmIpSecurityRestrictionsUseMain is not recorded as a boolean"}
