@@ -955,6 +955,8 @@ def gcp_wif_provider(snapshot, resource):
         if any(binding["pool_wide"] and grant_unconditional(binding) for binding in grants):
             return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
+    if workforce and any(binding["pool_wide"] and binding["condition"] is None for binding in grants):
+        return "MANUAL", "medium", {**evidence, "problem": "External workforce identities have an unconditional pool-wide IAM grant; IdP membership and effective access require review"}
     return "MANUAL", "medium", {**evidence, "problem": "No attributeCondition; every identity of the issuer can exchange tokens"}
 
 

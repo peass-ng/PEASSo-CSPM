@@ -28,6 +28,16 @@
     "service": "networkservices",
     "version": "v1"
   },
+  "alloydb_backup": {
+    "fields": "backups(name,clusterName,state,type),nextPageToken,unreachable",
+    "key": "backups",
+    "location_kind": "region",
+    "reference": "https://alloydb.googleapis.com/$discovery/rest?version=v1",
+    "scope_kind": "projects",
+    "segment": "backups",
+    "service": "alloydb",
+    "version": "v1"
+  },
   "api_observation_source": {
     "fields": "observationSources(name,gclbObservationSource(pscNetworkConfigs(network,subnetwork)),state),nextPageToken,unreachable",
     "get_fields": "name,gclbObservationSource(pscNetworkConfigs(network,subnetwork)),state",
@@ -73,11 +83,55 @@
     "version": "v1"
   },
   "backupdr_management_server": {
-    "fields": "managementServers(name,networks(network),state),nextPageToken,unreachable",
+    "fields": "managementServers(name,networks(network),state,managementUri(webUi,api),workforceIdentityBasedManagementUri(firstPartyManagementUri,thirdPartyManagementUri),baProxyUri),nextPageToken,unreachable",
+    "iam_policy": true,
     "key": "managementServers",
     "reference": "https://backupdr.googleapis.com/$discovery/rest?version=v1",
     "segment": "managementServers",
     "service": "backupdr",
+    "version": "v1"
+  },
+  "backupdr_backup_plan": {
+    "fields": "backupPlans(name,state,backupVault,resourceType),nextPageToken,unreachable",
+    "key": "backupPlans",
+    "reference": "https://backupdr.googleapis.com/$discovery/rest?version=v1",
+    "segment": "backupPlans",
+    "service": "backupdr",
+    "version": "v1"
+  },
+  "backupdr_backup_plan_association": {
+    "fields": "backupPlanAssociations(name,state,resource,backupPlan,dataSource),nextPageToken,unreachable",
+    "key": "backupPlanAssociations",
+    "reference": "https://backupdr.googleapis.com/$discovery/rest?version=v1",
+    "segment": "backupPlanAssociations",
+    "service": "backupdr",
+    "version": "v1"
+  },
+  "backupdr_backup_vault": {
+    "fields": "backupVaults(name,state,accessRestriction,backupCount),nextPageToken,unreachable",
+    "key": "backupVaults",
+    "reference": "https://backupdr.googleapis.com/$discovery/rest?version=v1",
+    "segment": "backupVaults",
+    "service": "backupdr",
+    "version": "v1"
+  },
+  "binary_authorization_attestor": {
+    "fields": "attestors(name,userOwnedGrafeasNote(noteReference)),nextPageToken",
+    "iam_policy": true,
+    "key": "attestors",
+    "project_wide": true,
+    "reference": "https://binaryauthorization.googleapis.com/$discovery/rest?version=v1",
+    "segment": "attestors",
+    "service": "binaryauthorization",
+    "version": "v1"
+  },
+  "ca_certificate_template": {
+    "fields": "certificateTemplates(name),nextPageToken",
+    "iam_policy": true,
+    "key": "certificateTemplates",
+    "reference": "https://privateca.googleapis.com/$discovery/rest?version=v1",
+    "segment": "certificateTemplates",
+    "service": "privateca",
     "version": "v1"
   },
   "baremetal_instance": {
@@ -930,14 +984,14 @@
     "version": "v1"
   },
   "ngfw_intercept_endpoint_group": {
-    "fields": "interceptEndpointGroups(name,associations(name,network,state),state,connectedDeploymentGroup(name,locations(state))),nextPageToken",
-    "get_fields": "name,associations(name,network,state),state,connectedDeploymentGroup(name,locations(state))",
+    "fields": "interceptEndpointGroups(name,interceptDeploymentGroup,associations(name,network,state),state,connectedDeploymentGroup(name,locations(state))),nextPageToken",
+    "get_fields": "name,interceptDeploymentGroup,associations(name,network,state),state,connectedDeploymentGroup(name,locations(state))",
     "get_parameters": {},
     "hydrate": true,
     "key": "interceptEndpointGroups",
     "location_kind": "global",
     "reference": "https://networksecurity.googleapis.com/$discovery/rest?version=v1",
-    "resource_fields": "name,associations(name,network,state),state,connectedDeploymentGroup(name,locations(state))",
+    "resource_fields": "name,interceptDeploymentGroup,associations(name,network,state),state,connectedDeploymentGroup(name,locations(state))",
     "scope_kind": "projects",
     "segment": "interceptEndpointGroups",
     "service": "networksecurity",
@@ -972,14 +1026,14 @@
     "version": "v1"
   },
   "ngfw_mirroring_endpoint_group": {
-    "fields": "mirroringEndpointGroups(associations(name,state,network),name,state,connectedDeploymentGroups(locations(state),name)),nextPageToken",
-    "get_fields": "associations(name,state,network),name,state,connectedDeploymentGroups(locations(state),name)",
+    "fields": "mirroringEndpointGroups(mirroringDeploymentGroup,associations(name,state,network),name,state,connectedDeploymentGroups(locations(state),name)),nextPageToken",
+    "get_fields": "mirroringDeploymentGroup,associations(name,state,network),name,state,connectedDeploymentGroups(locations(state),name)",
     "get_parameters": {},
     "hydrate": true,
     "key": "mirroringEndpointGroups",
     "location_kind": "global",
     "reference": "https://networksecurity.googleapis.com/$discovery/rest?version=v1",
-    "resource_fields": "associations(name,state,network),name,state,connectedDeploymentGroups(locations(state),name)",
+    "resource_fields": "mirroringDeploymentGroup,associations(name,state,network),name,state,connectedDeploymentGroups(locations(state),name)",
     "scope_kind": "projects",
     "segment": "mirroringEndpointGroups",
     "service": "networksecurity",

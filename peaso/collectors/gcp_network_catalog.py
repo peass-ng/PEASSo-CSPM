@@ -13,6 +13,7 @@ REGIONAL = {
     "firebase_apphosting_endpoint": ("firebaseapphosting", "v1", "backends", "backends"),
     "datastream_private_connection": ("datastream", "v1", "privateConnections", "privateConnections"),
     "migration_private_connection": ("datamigration", "v1", "privateConnections", "privateConnections"),
+    "migration_job": ("datamigration", "v1", "migrationJobs", "migrationJobs"),
     **{kind: ("networkservices", "v1", segment, segment) for kind, segment in {
         "service_mesh": "meshes", "mesh_gateway": "gateways", "mesh_endpoint_policy": "endpointPolicies",
         "mesh_http_route": "httpRoutes", "mesh_grpc_route": "grpcRoutes", "mesh_tcp_route": "tcpRoutes", "mesh_tls_route": "tlsRoutes"}.items()},
@@ -32,6 +33,7 @@ REGIONAL = {
     "service_connection_policy": ("networkconnectivity", "v1", "serviceConnectionPolicies", "serviceConnectionPolicies"),
     "network_connectivity_spoke": ("networkconnectivity", "v1", "spokes", "spokes"),
     "batch_network_job": ("batch", "v1", "jobs", "jobs"),
+    "dlp_exposure": ("dlp", "v2", "discoveryConfigs", "discoveryConfigs"),
 }
 PRIVATE_SERVICES = json.loads(Path(__file__).with_name('gcp_network_private_services.json').read_text())
 REGIONAL.update({kind: (p['service'], p['version'], p['segment'], p['key']) for kind, p in PRIVATE_SERVICES.items()
@@ -51,9 +53,14 @@ IAM_NETWORK_SECURITY = frozenset({
     "server_tls_policy", "client_tls_policy", "authorization_policy",
     "network_security_server_tls_policy",
 })
+DMS_KINDS = frozenset({"migration_private_connection", "migration_connection_profile", "migration_job"})
+NCC_KINDS = frozenset({"network_connectivity_spoke"})
 
 
 SERVICE_ENDPOINTS = json.loads(Path(__file__).with_name('gcp_network_service_endpoints.json').read_text())
+BACKUPDR_DATA_SOURCE_FIELDS = ('dataSources(name,state,configState,backupBlockedByVaultAccessRestriction,'
+    'dataSourceGcpResource(gcpResourcename),backupConfigInfo(lastBackupState,'
+    'gcpBackupConfig(backupPlan,backupPlanAssociation))),nextPageToken,unreachable')
 
 
 def api_root(service, version, location=None):
@@ -144,6 +151,61 @@ def _native_child_name(row, parent, segment, collector, scope):
     return name, receipts
 
 
+def _dms_safe_row(kind, row):
+    """Keep network and sharing facts, excluding passwords, SSH keys and certificates."""
+    if kind == "migration_job":
+        safe = {key: row[key] for key in ("name", "state", "phase", "source", "destination",
+                "dumpPath", "type") if key in row}
+        peering = row.get("vpcPeeringConnectivity")
+        if isinstance(peering, dict) and isinstance(peering.get("vpc"), str):
+            safe["vpcPeeringConnectivity"] = {"vpc": peering["vpc"]}
+        return safe
+    if kind == "migration_private_connection":
+        return {key: row[key] for key in ("name", "state") if key in row} | {
+            key: {sub: row[key][sub] for sub in ("vpc", "vpcName", "subnet", "networkAttachment") if sub in row[key]}
+            for key in ("vpcPeeringConfig", "pscInterfaceConfig") if isinstance(row.get(key), dict)}
+    safe = {key: row[key] for key in ("name", "state", "role", "provider") if key in row}
+    for engine in ("mysql", "postgresql", "sqlserver", "oracle", "cloudsql", "alloydb"):
+        profile = row.get(engine)
+        if not isinstance(profile, dict):
+            continue
+        safe[engine] = {key: profile[key] for key in ("host", "port", "cloudSqlId", "cloudSqlProjectId",
+            "alloydbClusterId", "publicIp", "privateIp") if key in profile}
+        connectivity = next((key for key in ("staticIpConnectivity", "staticServiceIpConnectivity",
+            "privateConnectivity", "privateServiceConnectConnectivity", "forwardSshConnectivity")
+            if key in profile), None)
+        safe[engine]["connectivity"] = connectivity
+        if connectivity and isinstance(profile.get(connectivity), dict):
+            details = {key: profile[connectivity][key] for key in ("privateConnection", "serviceAttachment",
+                       "hostname", "port") if key in profile[connectivity]}
+            if details:
+                safe[engine]["connectivityDetails"] = details
+    return safe
+
+
+def _netapp_safe_volume(row):
+    safe = {key: row[key] for key in ("name", "state", "shareName", "storagePool", "network",
+            "protocols", "smbSettings", "activeDirectory", "hasReplication") if key in row}
+    export = row.get("exportPolicy")
+    if isinstance(export, dict):
+        safe["exportPolicy"] = {"rules": [{key: rule[key] for key in
+            ("allowedClients", "accessType", "nfsv3", "nfsv4", "kerberos5ReadOnly",
+             "kerberos5ReadWrite", "kerberos5iReadOnly", "kerberos5iReadWrite",
+             "kerberos5pReadOnly", "kerberos5pReadWrite") if key in rule}
+            for rule in (export.get("rules") or []) if isinstance(rule, dict)]}
+    safe["mountOptions"] = [{key: option[key] for key in ("protocol", "ipAddress") if key in option}
+                            for option in (row.get("mountOptions") or []) if isinstance(option, dict)]
+    for section, fields in (("backupConfig", ("backupVault", "scheduledBackupEnabled")),
+                            ("cloneDetails", ("sourceVolume", "sourceSnapshot")),
+                            ("restoreParameters", ("sourceBackup", "sourceSnapshot")),
+                            ("hybridReplicationParameters", ("replication", "peerIpAddresses", "hybridReplicationType")),
+                            ("cacheParameters", ("peerIpAddresses", "cacheState"))):
+        value = row.get(section)
+        if isinstance(value, dict):
+            safe[section] = {key: value[key] for key in fields if key in value}
+    return safe
+
+
 def inventory_pages(collector, scope, plan, parent, root):
     projection = {'eventarc_pipeline': _eventarc_pipeline,
                   'agent_registry_interface': _agent_registry_interface,
@@ -189,6 +251,11 @@ def inventory_pages(collector, scope, plan, parent, root):
                     if plan.get('iam_policy'):
                         def policy(item):
                             name, _ = _native_child_name(item, parent_name, plan['segment'], collector, scope)
+                            if plan['service'] == 'binaryauthorization':
+                                note = item.get('userOwnedGrafeasNote')
+                                item = {'name': name, 'userOwnedGrafeasNote': {
+                                    'noteReference': note['noteReference']} if isinstance(note, dict)
+                                    and isinstance(note.get('noteReference'), str) else {}}
                             if plan.get('iam_method') == 'POST':
                                 return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
                                     method='POST', body={'resource': name, 'options': {'requestedPolicyVersion': 3}})
@@ -199,6 +266,18 @@ def inventory_pages(collector, scope, plan, parent, root):
                                 params={'options.requestedPolicyVersion': 3})
                         parallel = getattr(collector, 'parallel', None)
                         page = parallel(policy, page) if callable(parallel) else [policy(item) for item in page]
+                    if plan['segment'] == 'backupVaults':
+                        def vault_sources(row):
+                            name, _ = _native_child_name(row, parent_name, 'backupVaults', collector, scope)
+                            sources = []
+                            for data_sources, _ in collector.pages(root + '/' + name + '/dataSources', scope,
+                                    key='dataSources', params={'fields': BACKUPDR_DATA_SOURCE_FIELDS}):
+                                sources.extend({field: item[field] for field in ('name', 'state', 'configState',
+                                    'backupBlockedByVaultAccessRestriction', 'dataSourceGcpResource', 'backupConfigInfo')
+                                    if field in item} for item in data_sources)
+                            return dict(row, dataSources=sources)
+                        parallel = getattr(collector, 'parallel', None)
+                        page = parallel(vault_sources, page) if callable(parallel) else [vault_sources(row) for row in page]
                     yield page, receipt
                     continue
                 yield [], receipt
@@ -215,7 +294,11 @@ def inventory_pages(collector, scope, plan, parent, root):
                                 transform=projection):
                             if len(details) != 1 or details[0].get('name') != name:
                                 raise ReadError('malformed', 'network_detail_identity_mismatch')
-                            if plan.get('iam_policy'):
+                            if plan['service'] == 'datamigration' and plan['segment'] == 'connectionProfiles':
+                                details = [collector.hydrate(_dms_safe_row('migration_connection_profile', details[0]),
+                                    'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                                    params={'options.requestedPolicyVersion': 3})]
+                            elif plan.get('iam_policy'):
                                 if plan.get('iam_method') == 'POST':
                                     details = [collector.hydrate(details[0], 'iamPolicy',
                                         root + '/' + name + ':getIamPolicy', scope, method='POST',
@@ -591,6 +674,35 @@ def regional_pages(collector, scope, kind):
         def direct_pages():
             for page, receipt in collector.pages(root + f'/{parent}/{segment}', scope, key=key,
                     params={'fields': mask} if mask else None):
+                if kind in DMS_KINDS:
+                    def dms_policy(item):
+                        name, _ = _native_child_name(item, parent, segment, collector, scope)
+                        safe = _dms_safe_row(kind, item)
+                        return collector.hydrate(safe, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                            params={'options.requestedPolicyVersion': 3})
+                    parallel = getattr(collector, 'parallel', None)
+                    page = parallel(dms_policy, page) if callable(parallel) else [dms_policy(item) for item in page]
+                if kind in NCC_KINDS:
+                    def ncc_policy(item):
+                        name, _ = _native_child_name(item, parent, segment, collector, scope)
+                        return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                            params={'options.requestedPolicyVersion': 3})
+                    parallel = getattr(collector, 'parallel', None)
+                    page = parallel(ncc_policy, page) if callable(parallel) else [ncc_policy(item) for item in page]
+                if kind == 'netapp_volume':
+                    def netapp_volume(item):
+                        name, _ = _native_child_name(item, parent, segment, collector, scope)
+                        safe = _netapp_safe_volume(item)
+                        replications = []
+                        for rows, _ in collector.pages(root + '/' + name + '/replications', scope,
+                                key='replications'):
+                            replications.extend({key: row[key] for key in ('name', 'state', 'role', 'mirrorState',
+                                'sourceVolume', 'destinationVolume', 'hybridReplicationType', 'healthy') if key in row}
+                                for row in rows)
+                        safe['replications'] = replications
+                        return safe
+                    parallel = getattr(collector, 'parallel', None)
+                    page = parallel(netapp_volume, page) if callable(parallel) else [netapp_volume(item) for item in page]
                 if kind in IAM_NETWORK_SECURITY:
                     def policy(item):
                         name, _ = _native_child_name(item, parent, segment, collector, scope)
@@ -1058,13 +1170,100 @@ def cloudtasks_deliveries(collector, scope):
         raise failures[0]
 
 
+def binary_authorization_policy(collector, scope):
+    """Keep admission rule trust references, excluding whitelist image patterns."""
+    endpoint = f'https://binaryauthorization.googleapis.com/v1/{scope}/policy'
+    fields = ('name,defaultAdmissionRule(evaluationMode,enforcementMode,requireAttestationsBy),'
+        'clusterAdmissionRules,kubernetesNamespaceAdmissionRules,'
+        'kubernetesServiceAccountAdmissionRules,istioServiceIdentityAdmissionRules')
+    for rows, request_id in collector.pages(endpoint, scope, single=True, params={'fields': fields}):
+        safe_rows = []
+        for row in rows:
+            safe = {'name': row.get('name', scope + '/policy')}
+            for field in ('defaultAdmissionRule', 'clusterAdmissionRules',
+                          'kubernetesNamespaceAdmissionRules', 'kubernetesServiceAccountAdmissionRules',
+                          'istioServiceIdentityAdmissionRules'):
+                value = row.get(field)
+                if field == 'defaultAdmissionRule' and isinstance(value, dict):
+                    safe[field] = {key: value[key] for key in ('evaluationMode', 'enforcementMode',
+                        'requireAttestationsBy') if key in value}
+                elif isinstance(value, dict):
+                    safe[field] = {name: {key: rule[key] for key in ('evaluationMode', 'enforcementMode',
+                        'requireAttestationsBy') if key in rule} for name, rule in value.items()
+                        if isinstance(rule, dict)}
+            safe_rows.append(safe)
+        yield safe_rows, request_id
+
+
+def binary_authorization_platform_policies(collector, scope):
+    """Project only projects that can supply platform-policy attestations."""
+    endpoint = f'https://binaryauthorization.googleapis.com/v1/{scope}/platforms/gke/policies'
+    for rows, request_id in collector.pages(endpoint, scope, key='platformPolicies'):
+        safe_rows = []
+        for row in rows:
+            trusted = []
+            gke = row.get('gkePolicy')
+            for set_index, check_set in enumerate((gke.get('checkSets') or []) if isinstance(gke, dict) else []):
+                if not isinstance(check_set, dict):
+                    continue
+                for check_index, check in enumerate(check_set.get('checks') or []):
+                    if not isinstance(check, dict):
+                        continue
+                    for check_type in ('simpleSigningAttestationCheck', 'vulnerabilityCheck'):
+                        details = check.get(check_type)
+                        if isinstance(details, dict):
+                            field = ('containerAnalysisAttestationProjects' if check_type == 'simpleSigningAttestationCheck'
+                                     else 'containerAnalysisVulnerabilityProjects')
+                            trusted.extend({'project': project, 'checkType': check_type,
+                                'checkSetIndex': set_index, 'checkIndex': check_index}
+                                for project in (details.get(field) or []) if isinstance(project, str))
+                    slsa = check.get('slsaCheck')
+                    if isinstance(slsa, dict):
+                        for rule in slsa.get('rules') or []:
+                            source = rule.get('attestationSource') if isinstance(rule, dict) else None
+                            if isinstance(source, dict):
+                                trusted.extend({'project': project, 'checkType': 'slsaCheck',
+                                    'checkSetIndex': set_index, 'checkIndex': check_index}
+                                    for project in source.get('containerAnalysisAttestationProjects') or []
+                                    if isinstance(project, str))
+            safe_rows.append({'name': row.get('name'), 'trustedProjects': trusted})
+        yield safe_rows, request_id
+
+
 def scope_jobs(collector, scope):
     scope_kind = scope.split('/', 1)[0]
     if scope_kind not in {'projects', 'organizations'}:
         return []
     jobs = [(kind, scope, spec[0], lambda kind=kind: regional_pages(collector, scope, kind))
-            for kind, spec in REGIONAL.items() if kind in collector.needed
+            for kind, spec in REGIONAL.items() if kind in collector.needed and kind != 'dlp_exposure'
             and PRIVATE_SERVICES.get(kind, {}).get('scope_kind', 'projects') == scope_kind]
+    if 'dlp_exposure' in collector.needed:
+        from .gcp_dlp_exposure import collection_pages
+        jobs.append(('dlp_exposure', scope, 'dlp', lambda: collection_pages(collector, scope)))
+    if scope_kind == 'projects' and 'service_extension_exposure' in collector.needed:
+        from .gcp_service_extensions_exposure import collection_pages as service_extension_pages
+        jobs.append(('service_extension_exposure', scope, 'networkservices',
+                     lambda: service_extension_pages(collector, scope)))
+    if scope_kind == 'projects' and 'model_armor_exposure' in collector.needed:
+        from .gcp_model_armor_exposure import collection_pages as model_armor_pages
+        jobs.append(('model_armor_exposure', scope, 'modelarmor',
+                     lambda: model_armor_pages(collector, scope)))
+    if scope_kind == 'projects' and 'multicloud_exposure' in collector.needed:
+        from .gcp_multicloud_exposure import collection_pages as multicloud_pages
+        jobs.append(('multicloud_exposure', scope, 'gkemulticloud',
+                     lambda: multicloud_pages(collector, scope)))
+    if scope_kind == 'projects' and 'sac_exposure' in collector.needed:
+        from .gcp_sac_exposure import collection_pages as sac_pages
+        jobs.append(('sac_exposure', scope, 'networksecurity',
+                     lambda: sac_pages(collector, scope)))
+    if scope_kind == 'projects' and 'fraud_defense_exposure' in collector.needed:
+        from .gcp_fraud_defense_exposure import collection_pages as fraud_defense_pages
+        jobs.append(('fraud_defense_exposure', scope, 'recaptchaenterprise',
+                     lambda: fraud_defense_pages(collector, scope)))
+    if scope_kind == 'organizations' and 'sovereign_partner_exposure' in collector.needed:
+        from .gcp_sovereign_partner_exposure import collection_pages as sovereign_partner_pages
+        jobs.append(('sovereign_partner_exposure', scope, 'assuredworkloads',
+                     lambda: sovereign_partner_pages(collector, scope)))
     if scope_kind != 'projects':
         return jobs
     if 'containeranalysis_occurrence' in collector.needed:
@@ -1101,6 +1300,12 @@ def scope_jobs(collector, scope):
     if 'identityplatform_config' in collector.needed:
         jobs.append(('identityplatform_config', scope, 'identitytoolkit',
             lambda: identityplatform_config(collector, scope)))
+    if 'binary_authorization_policy' in collector.needed:
+        jobs.append(('binary_authorization_policy', scope, 'binaryauthorization',
+            lambda: binary_authorization_policy(collector, scope)))
+    if 'binary_authorization_platform_policy' in collector.needed:
+        jobs.append(('binary_authorization_platform_policy', scope, 'binaryauthorization',
+            lambda: binary_authorization_platform_policies(collector, scope)))
     if 'firebase_rules_release' in collector.needed:
         from .gcp_firebase_rules_exposure import collection_pages
         jobs.append(('firebase_rules_release', scope, 'firebaserules',
@@ -1124,6 +1329,21 @@ def scope_jobs(collector, scope):
         if kind in collector.needed:
             jobs.append((kind, scope, service, lambda fetch=fetch: fetch(collector, scope)))
     if "network_connectivity_hub" in collector.needed:
-        jobs.append(("network_connectivity_hub", scope, "networkconnectivity", lambda: collector.pages(
-            f"https://networkconnectivity.googleapis.com/v1/{scope}/locations/global/hubs", scope, key="hubs")))
+        def ncc_hubs():
+            root = 'https://networkconnectivity.googleapis.com/v1'
+            parent = f'{scope}/locations/global'
+            for hubs, request_id in collector.pages(f'{root}/{parent}/hubs', scope, key='hubs'):
+                def with_spokes(hub):
+                    name, _ = _native_child_name(hub, parent, 'hubs', collector, scope)
+                    spokes = []
+                    for rows, _ in collector.pages(f'{root}/{name}:listSpokes', scope, key='spokes'):
+                        spokes.extend({key: row[key] for key in ('name', 'hub', 'state', 'spokeType')
+                                       if key in row} for row in rows)
+                    safe = {key: hub[key] for key in ('name', 'state', 'policyMode', 'presetTopology',
+                            'exportPsc', 'routingVpcs') if key in hub}
+                    safe['attachedSpokes'] = spokes
+                    return collector.hydrate(safe, 'iamPolicy', f'{root}/{name}:getIamPolicy', scope,
+                        params={'options.requestedPolicyVersion': 3})
+                yield collector.parallel(with_spokes, hubs), request_id
+        jobs.append(("network_connectivity_hub", scope, "networkconnectivity", ncc_hubs))
     return jobs

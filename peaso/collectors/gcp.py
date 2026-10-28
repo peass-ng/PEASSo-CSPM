@@ -15,7 +15,7 @@ import threading
 import time
 from collections import defaultdict
 from itertools import count
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote, urlsplit
@@ -31,11 +31,11 @@ HOSTS = frozenset(f"{s}.googleapis.com" for s in (
     "sqladmin", "container", "cloudkms", "secretmanager", "recommender", "bigquery", "artifactregistry", "analyticshub",
     "run", "cloudfunctions", "cloudidentity", "appengine", "admin", "apikeys", "dataproc", "dns", "monitoring",
     "alloydb", "essentialcontacts", "accessapproval", "securitycenter", "serviceusage", "bigtableadmin", "cloudbilling",
-    "networkmanagement", "networkconnectivity", "networksecurity", "networkservices", "datastream", "datamigration", "certificatemanager", "privateca", "orgpolicy", "pubsub", "policyanalyzer", "accesscontextmanager",
+    "networkmanagement", "networkconnectivity", "networksecurity", "networkservices", "servicedirectory", "datastream", "datamigration", "certificatemanager", "privateca", "orgpolicy", "pubsub", "policyanalyzer", "accesscontextmanager",
     "cloudbuild", "clouddeploy", "composer", "notebooks", "cloudscheduler", "domains", "sourcerepo", "osconfig", "integrations", "policytroubleshooter", "containeranalysis", "datacatalog", "metastore",
     # Groups Settings API (www.googleapis.com/groups/v1), read only with group_settings=true.
-    "www", "workflows", "vpcaccess", "file", "redis", "netapp", "servicenetworking", "dataflow", "batch", "aiplatform", "managedkafka", "memorystore", "bigqueryconnection", "cloudprivatecatalogproducer", "krmapihosting", "firebasedatabase",
-    "memcache", "looker", "lustre", "ids", "tpu", "backupdr", "vmwareengine", "datafusion", "dataplex", "apigee", "ml", "workstations", "baremetalsolution", "connectors", "contactcenterinsights", "agentidentity", "bigquerydatatransfer", "bigqueryreservation", "developerconnect", "discoveryengine", "iap", "identitytoolkit", "config"))
+    "www", "workflows", "vpcaccess", "file", "redis", "netapp", "servicenetworking", "dataflow", "batch", "aiplatform", "managedkafka", "memorystore", "bigqueryconnection", "cloudprivatecatalogproducer", "krmapihosting", "firebasedatabase", "spanner",
+    "memcache", "looker", "lustre", "ids", "tpu", "backupdr", "vmwareengine", "datafusion", "dataplex", "apigee", "ml", "workstations", "baremetalsolution", "connectors", "contactcenterinsights", "agentidentity", "bigquerydatatransfer", "bigqueryreservation", "developerconnect", "discoveryengine", "iap", "identitytoolkit", "config", "firestore"))
 
 
 _ASSET_LIST_PATH = re.compile(r"/v1/(?:projects|folders|organizations)/[^/]+/assets")
@@ -652,9 +652,20 @@ class Transport:
                 re.fullmatch(r"/v1/projects/[^/%:]+/serviceAccounts/[^/%:]+:getIamPolicy", parsed.path))
             or (parsed.hostname == "analyticshub.googleapis.com" and
                 re.fullmatch(r"/v1/projects/[^/%:]+/locations/[^/%:]+/dataExchanges/[^/%:]+(?:/listings/[^/%:]+)?:getIamPolicy", parsed.path))
+            or (parsed.hostname == "accesscontextmanager.googleapis.com" and
+                re.fullmatch(r"/v1/accessPolicies/[0-9]+:getIamPolicy", parsed.path)
+                and isinstance(body, dict) and body == {"options": {"requestedPolicyVersion": 3}})
             or (parsed.hostname == "iap.googleapis.com" and
                 re.fullmatch(r"/v1/projects/[A-Za-z0-9_-]+/iap_tunnel(?:/zones/[a-z][a-z0-9-]*[0-9]-[a-z]"
-                             r"(?:/instances/[A-Za-z0-9_-]+)?)?:getIamPolicy", parsed.path)
+                             r"(?:/instances/[A-Za-z0-9_-]+)?|/locations/[a-z0-9-]+"
+                             r"(?:/destGroups/[a-z-]+)?)?:getIamPolicy", parsed.path)
+                and isinstance(body, dict) and body == {"options": {"requestedPolicyVersion": 3}})
+            or (parsed.hostname == "iap.googleapis.com" and
+                re.fullmatch(r"/v1/projects/[A-Za-z0-9_-]+/iap_web(?:/"
+                             r"(?:compute(?:-[a-z0-9-]+)?|forwarding_rule(?:-[a-z0-9-]+)?|"
+                             r"cloud_run-[a-z0-9-]+|appengine-[A-Za-z0-9_-]+)"
+                             r"(?:/services/[A-Za-z0-9_-]+(?:/versions/[A-Za-z0-9_-]+)?)?)?"
+                             r":getIamPolicy", parsed.path)
                 and isinstance(body, dict) and body == {"options": {"requestedPolicyVersion": 3}})
             or (parsed.hostname == "identitytoolkit.googleapis.com" and
                 re.fullmatch(r"/admin/v2/projects/[A-Za-z0-9_-]+/tenants/[A-Za-z0-9_-]+:getIamPolicy",
@@ -961,18 +972,19 @@ SUPPORTED_TYPES = frozenset({x[0] for x in COMPUTE} | {
     "workload_identity_pool", "workload_identity_provider", "workforce_pool", "workforce_provider", "cloudtasks_task",
     "bigquery_dataset", "bigquery_acl_mode", "bigquery_row_policy_inventory", "bigquery_connection", "bigquery_routine_metadata", "bigquery_transfer_config", "bigquery_continuous_assignment", "artifact_repository", "containeranalysis_note", "datacatalog_taxonomy", "datacatalog_policy_tag", "biglake_catalog", "biglake_namespace", "biglake_table", "analyticshub_data_exchange", "analyticshub_listing", "agentidentity_auth_provider", "agentidentity_authorization", "cloudrun_service", "cloudrun_instance", "cloudrun_worker_pool", "function", "group", "group_membership",
     "principal_access_boundary_policy", "policy_binding", "app_engine_application", "app_engine_application_identity", "app_engine_service", "app_engine_version", "app_engine_instance", "app_engine_legacy_constraint", "workspace_user", "workspace_customer", "workspace_role",
-    "workspace_role_assignment", "workspace_user_activity", "api_key_usage", "storage_hmac_key_usage", "api_key", "bigquery_table", "dataproc_cluster", "dns_managed_zone", "dns_policy",
-    "logging_metric", "monitoring_alert_policy", "alloydb_cluster", "alloydb_instance", "essential_contact",
-    "access_approval_settings", "service_usage", "bigtable_instance", "bigtable_table", "bigtable_authorized_view", "bigtable_materialized_view", "bigtable_backup", "billing_account", "cloudrun_job",
+    "workspace_role_assignment", "workspace_user_activity", "api_key_usage", "storage_hmac_key_usage", "api_key", "bigquery_table", "dataproc_cluster", "dns_managed_zone", "dns_policy", "dns_response_policy",
+    "logging_metric", "monitoring_alert_policy", "alloydb_cluster", "alloydb_instance", "alloydb_user", "essential_contact",
+    "access_approval_settings", "service_usage", "bigtable_instance", "bigtable_table", "bigtable_authorized_view", "bigtable_logical_view", "bigtable_materialized_view", "bigtable_backup", "spanner_instance", "spanner_database", "spanner_backup", "billing_account", "cloudrun_job",
     "vpc_flow_logs_config", "policy_based_route", "firewall_policy_association", "effective_firewall", "monitoring_notification_channel", "org_policy_effective",
-    "pubsub_topic", "pubsub_subscription", "pubsub_snapshot", "service_perimeter",
+    "pubsub_topic", "pubsub_subscription", "pubsub_snapshot", "service_perimeter", "access_policy", "access_level",
     "cloudbuild_trigger", "cloudbuild_default_sa", "cloudbuild_connection", "cloudbuild_repository", "developerconnect_git_repository_link", "discoveryengine_collection", "discoveryengine_data_store", "discoveryengine_engine", "cloudfunctions_location", "workflows_workflow", "workstations_cluster", "workstations_config", "workstations_workstation", "cloudtasks_queue", "storage_hmac_key", "composer_environment", "composer_image_version", "workbench_instance", "scheduler_job",
     "domains_registration", "eventarc_message_bus", "eventarc_enrollment", "eventarc_pipeline", "eventarc_trigger", "eventarc_channel", "eventarc_channel_connection", "firebase_apphosting_backend", "bucket_notification", "kms_key_version", "logging_bucket", "sql_user",
     "certificate", "cloud_asset", "target_https_proxy", "server_tls_policy", "autoscaler",
+    "media_cdn_service", "media_cdn_origin", "media_cdn_keyset", "firestore_database", "firestore_user_cred",
     "worker_pool", "sql_backup_run", "source_repository", "alert_policy",
     "access_transparency_entry", "audit_log", "os_inventory", "security_policy", "gcp_v4_workload_facts",
     "dns_record", "cloudbuild_build", "clouddeploy_delivery_pipeline", "clouddeploy_target", "clouddeploy_custom_target_type", "sql_operation"})
-SUPPORTED_TYPES = SUPPORTED_TYPES | {'vpc_access_connector', 'filestore_instance', 'redis_instance', 'instance_settings', 'recoverable_snapshot', 'instance_effective_firewall'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'vpc_access_connector', 'filestore_instance', 'filestore_backup', 'redis_instance', 'instance_settings', 'recoverable_snapshot', 'instance_effective_firewall'}
 from .gcp_network_catalog import TYPES as NETWORK_CATALOG_TYPES
 from .gcp_network_catalog import PRIVATE_SERVICES as NETWORK_PRIVATE_SERVICES, SERVICE_ENDPOINTS as NETWORK_SERVICE_ENDPOINTS, REGIONAL as NETWORK_REGIONAL_SERVICES
 _NETWORK_API_SERVICES = {plan['service'] for plan in NETWORK_PRIVATE_SERVICES.values()} | {plan[0] for plan in NETWORK_REGIONAL_SERVICES.values()}
@@ -1004,10 +1016,12 @@ SUPPORTED_TYPES = SUPPORTED_TYPES | dataproc_source_runtime.KINDS | workbench_so
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'cloudrun_job_declared_image', 'cloudrun_worker_pool_selected_revision_image', 'developerconnect_selected_file'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'cloud_run_selected_job_image_vulnerabilities', 'artifact_selected_image_vulnerabilities', 'gke_selected_pod_image_secrets', 'gke_selected_pod_image_vulnerabilities', 'appengine_flex_selected_version_image_secrets', 'appengine_flex_selected_version_image_vulnerabilities'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'iap_tunnel_policy'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'iap_web_policy'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'identityplatform_tenant'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'krm_api_host'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'service_directory_namespace'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'logging_view'}
-SUPPORTED_TYPES = SUPPORTED_TYPES | {'inframanager_location'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'inframanager_location', 'asset_feed', 'scc_export'}
 # These inventories represent optional application content, not metadata.
 # An unselected read cannot establish that no resources/content exist.
 CONTENT_ONLY_TYPES = selected_job_source_runtime.KINDS | dataproc_source_runtime.KINDS | workbench_source_runtime.KINDS | frozenset({
@@ -1058,8 +1072,11 @@ DEPENDENCIES["bigquery_continuous_assignment"] = {"bigquery_dataset"}
 DEPENDENCIES["cloudtasks_task"] = {"cloudtasks_queue"}
 DEPENDENCIES["bigtable_table"] = {"bigtable_instance"}
 DEPENDENCIES["bigtable_authorized_view"] = {"bigtable_instance", "bigtable_table"}
+DEPENDENCIES["bigtable_logical_view"] = {"bigtable_instance"}
 DEPENDENCIES["bigtable_materialized_view"] = {"bigtable_instance"}
 DEPENDENCIES["bigtable_backup"] = {"bigtable_instance"}
+DEPENDENCIES["spanner_database"] = {"spanner_instance"}
+DEPENDENCIES["spanner_backup"] = {"spanner_instance"}
 DEPENDENCIES["cloudbuild_repository"] = {"cloudbuild_connection"}
 DEPENDENCIES["biglake_namespace"] = {"biglake_catalog"}
 DEPENDENCIES["biglake_table"] = {"biglake_catalog", "biglake_namespace"}
@@ -1110,8 +1127,12 @@ for _literal_job_kind in ('dataflow_job', 'batch_job', 'dataproc_job'):
 DEPENDENCIES["effective_firewall"] = {"network", "subnetwork"}
 DEPENDENCIES["instance_effective_firewall"] = {"instance"}
 DEPENDENCIES["alloydb_instance"] = {"alloydb_cluster"}
+DEPENDENCIES["alloydb_user"] = {"alloydb_cluster"}
 DEPENDENCIES["bucket_notification"] = {"bucket"}
 DEPENDENCIES["iam_role"] = {"iam_policy", "project"}
+DEPENDENCIES["firebase_database_rules"] = {"project", "iam_policy", "iam_role"}
+DEPENDENCIES["filestore_instance"] = {"project", "filestore_backup"}
+DEPENDENCIES["filestore_backup"] = {"project"}
 DEPENDENCIES["app_engine_version"] = {"app_engine_service"}
 DEPENDENCIES["app_engine_iap_policy"] = {"app_engine_application", "app_engine_service", "app_engine_version", "project"}
 DEPENDENCIES["app_engine_instance"] = {"app_engine_version", "app_engine_service"}
@@ -1126,7 +1147,16 @@ DEPENDENCIES["backup_target"] = {"sql_instance", "sql_backup_run"}
 DEPENDENCIES["alert_policy"] = {"monitoring_alert_policy"}
 DEPENDENCIES["os_inventory"] = {"instance"}
 DEPENDENCIES["instance_settings"] = {"instance"}
-DEPENDENCIES["iap_tunnel_policy"] = {"instance"}
+DEPENDENCIES["iap_tunnel_policy"] = {"instance", "project", "iam_policy", "iam_role"}
+DEPENDENCIES["iap_web_policy"] = {"project", "backend_service", "forwarding_rule",
+                                  "cloudrun_service", "cloudrun_instance",
+                                  "app_engine_application", "app_engine_service", "app_engine_version",
+                                  "iam_policy", "iam_role"}
+DEPENDENCIES["media_cdn_service"] = {"security_policy", "project", "iam_policy", "iam_role"}
+DEPENDENCIES["media_cdn_origin"] = {"project", "iam_policy", "iam_role"}
+DEPENDENCIES["media_cdn_keyset"] = {"project", "iam_policy", "iam_role"}
+DEPENDENCIES["firestore_database"] = {"project", "iam_policy", "iam_role"}
+DEPENDENCIES["firestore_user_cred"] = {"firestore_database", "project", "iam_policy", "iam_role"}
 DEPENDENCIES["artifact_image"] = {"artifact_repository"}
 DEPENDENCIES["datacatalog_policy_tag"] = {"datacatalog_taxonomy"}
 DEPENDENCIES["agentidentity_authorization"] = {"agentidentity_auth_provider"}
@@ -1334,6 +1364,26 @@ class GCPCollector:
             self.wanted.add("bigtable_instance")
         if "bigtable_backup" in self.wanted:
             self.wanted.add("bigtable_instance")
+        if {"spanner_database", "spanner_backup"} & self.wanted:
+            self.wanted.add("spanner_instance")
+        if "firebase_database_rules" in self.wanted:
+            self.wanted.update(("project", "iam_policy", "iam_role"))
+        if "filestore_instance" in self.wanted:
+            self.wanted.update(("project", "filestore_backup"))
+        if "filestore_backup" in self.wanted:
+            self.wanted.add("project")
+        if {"filestore_instance", "filestore_backup"} & self.wanted:
+            self.wanted.update(("iam_policy", "iam_role"))
+        if "domains_registration" in self.wanted:
+            self.wanted.update(("project", "iam_policy", "iam_role"))
+        if "scc_export" in self.wanted:
+            self.wanted.update(("project", "iam_policy", "iam_role"))
+        if "certificate" in self.wanted:
+            self.wanted.update(("project", "iam_policy", "iam_role"))
+        if {"interconnect", "interconnect_attachment"} & self.wanted:
+            self.wanted.update(("project", "iam_policy", "iam_role"))
+        if "service_directory_namespace" in self.wanted:
+            self.wanted.update(("project", "iam_policy", "iam_role", "dns_managed_zone"))
         if "cloudbuild_repository" in self.wanted:
             self.wanted.add("cloudbuild_connection")
         if 'log_entry' in self.wanted:
@@ -2186,6 +2236,9 @@ class GCPCollector:
             if failure:
                 raise failure
         add("iam_policy", "iam/cloudasset", policies)
+        add("asset_feed", "cloudasset", lambda: self.pages(
+            f"https://cloudasset.googleapis.com/v1/{scope}/feeds", scope, key="feeds",
+            page_size_key=None, params={"fields": "feeds(name,assetNames,assetTypes,contentType,feedOutputConfig,condition)"}))
         attachment = quote("cloudresourcemanager.googleapis.com/" + scope, safe="")
         def deny_policies():
             for items, request_id in self.pages(f"https://iam.googleapis.com/v2/policies/{attachment}/denypolicies", scope, key="policies"):
@@ -2357,6 +2410,54 @@ class GCPCollector:
         add('service_account_insight', 'recommender', unused_account_insights)
         project = quote(scope.split("/", 1)[1], safe="")
         compute = f"https://compute.googleapis.com/compute/v1/projects/{project}"
+        def firestore_databases():
+            data, request_id = self.read(f"https://firestore.googleapis.com/v1/{scope}/databases", scope)
+            listed = data.get("databases", [])
+            if not isinstance(listed, list):
+                raise ReadError("malformed", "firestore_database_list_malformed")
+            rows = []
+            for item in listed:
+                name = item.get("name") if isinstance(item, dict) else None
+                if not isinstance(name, str) or not re.fullmatch(
+                        re.escape(scope) + r"/databases/[^/]+", name):
+                    raise ReadError("malformed", "firestore_database_identity_unbound")
+                rows.append({field: item[field] for field in ("name", "uid", "locationId", "type",
+                    "databaseEdition", "mongodbCompatibleDataAccessMode", "firestoreDataAccessMode",
+                    "deleteTime", "sourceInfo") if field in item})
+            yield rows, request_id
+            if data.get("unreachable"):
+                raise ReadError("unavailable", "firestore_database_regions_unreachable")
+        add("firestore_database", "firestore", firestore_databases)
+        def media_cdn_rows(segment, response_key):
+            url = f"https://networkservices.googleapis.com/v1/{scope}/locations/global/{segment}"
+            for items, request_id in self.pages(url, scope, key=response_key):
+                projected = []
+                for item in items:
+                    name = item.get("name")
+                    if not isinstance(name, str) or not re.fullmatch(
+                            re.escape(scope) + rf"/locations/global/{segment}/[^/]+", name):
+                        raise ReadError("malformed", "media_cdn_identity_unbound")
+                    if segment == "edgeCacheServices":
+                        routing = item.get("routing") if isinstance(item.get("routing"), dict) else {}
+                        host_rules = [{"hosts": [host for host in row.get("hosts", []) if isinstance(host, str)]}
+                                      for row in routing.get("hostRules", []) if isinstance(row, dict)]
+                        row = {field: item[field] for field in ("name", "ipv4Addresses", "ipv6Addresses",
+                               "requireTls", "edgeSecurityPolicy") if field in item}
+                        row["routing"] = {"hostRules": host_rules}
+                    elif segment == "edgeCacheOrigins":
+                        row = {field: item[field] for field in ("name", "originAddress", "protocol", "port",
+                               "failoverOrigin") if field in item}
+                    else:
+                        row = {"name": name, "public_key_count": len(item.get("publicKeys") or []),
+                               "shared_key_count": len(item.get("validationSharedKeys") or [])}
+                    projected.append(row)
+                yield self.parallel(lambda item: self.hydrate(item, "iamPolicy",
+                    f"https://networkservices.googleapis.com/v1/{item['name']}:getIamPolicy", scope,
+                    params={"options.requestedPolicyVersion": 3},
+                    identity_validator=_validate_iam_policy), projected), request_id
+        add("media_cdn_service", "networkservices", lambda: media_cdn_rows("edgeCacheServices", "edgeCacheServices"))
+        add("media_cdn_origin", "networkservices", lambda: media_cdn_rows("edgeCacheOrigins", "edgeCacheOrigins"))
+        add("media_cdn_keyset", "networkservices", lambda: media_cdn_rows("edgeCacheKeysets", "edgeCacheKeysets"))
         add("service_usage", "serviceusage", lambda: self.pages(
             f"https://serviceusage.googleapis.com/v1/{scope}/services", scope, key="services",
             params={"pageSize": min(self.page_size if "page_size" in self.options else 200, 200)}))
@@ -2366,6 +2467,20 @@ class GCPCollector:
                 yield self.parallel(lambda item: self.hydrate(item, "iamPolicy", f"https://bigtableadmin.googleapis.com/v2/{item['name']}:getIamPolicy", scope,
                     method="POST", body={"options": {"requestedPolicyVersion": 3}}), items), request_id
         add("bigtable_instance", "bigtableadmin", bigtable_instances)
+        def spanner_instances():
+            url = f"https://spanner.googleapis.com/v1/{scope}/instances"
+            for items, request_id in self.pages(url, scope, key="instances"):
+                projected = []
+                for item in items:
+                    name = item.get("name")
+                    if not isinstance(name, str) or not re.fullmatch(re.escape(scope) + r"/instances/[^/]+", name):
+                        raise ReadError("malformed", "spanner_instance_identity_unbound")
+                    projected.append({key: item.get(key) for key in ("name", "state", "config", "labels")})
+                yield self.parallel(lambda item: self.hydrate(item, "iamPolicy",
+                    f"https://spanner.googleapis.com/v1/{item['name']}:getIamPolicy", scope,
+                    method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                    identity_validator=_validate_iam_policy), projected), request_id
+        add("spanner_instance", "spanner", spanner_instances)
         def alloydb_clusters():
             locations = self.options.get("alloydb_locations", self.options.get("regions"))
             if locations is None:
@@ -2378,7 +2493,7 @@ class GCPCollector:
             failures = []
             for location, pages, exc in self.location_fanout(dict.fromkeys(locations), lambda location: self.pages(
                     f"https://alloydb.googleapis.com/v1/{scope}/locations/{location}/clusters", scope,
-                    key="clusters", params={"fields": "clusters(name,uid,state,databaseVersion,encryptionInfo,encryptionConfig,networkConfig,labels),nextPageToken,unreachable"})):
+                    key="clusters", params={"fields": "clusters(name,uid,state,databaseVersion,encryptionInfo,encryptionConfig,network,networkConfig,backupSource,backupdrBackupSource,cloudsqlBackupRunSource,migrationSource,backupdrInfo,secondaryConfig,primaryConfig,labels),nextPageToken,unreachable"})):
                 yield from pages
                 if exc is not None:
                     if exc.error.get("reason") == "SERVICE_DISABLED":
@@ -2393,9 +2508,27 @@ class GCPCollector:
         add("monitoring_alert_policy", "monitoring", lambda: self.pages(f"https://monitoring.googleapis.com/v3/{scope}/alertPolicies",
             scope, key="alertPolicies", params={"fields": "alertPolicies(name,enabled,validity,conditions,notificationChannels,combiner),nextPageToken"}))
         if scope_type == "project":
+            def safe_notification_channel(item):
+                # The API can return authentication tokens in labels. Persist only
+                # destinations needed to assess sharing, never raw label values.
+                labels = item.get("labels")
+                safe = {}
+                if isinstance(labels, dict):
+                    for key in ("email_address", "topic"):
+                        value = labels.get(key)
+                        if isinstance(value, str):
+                            safe[key] = value
+                    for key in ("url", "webhook_url"):
+                        value = labels.get(key)
+                        if isinstance(value, str):
+                            parsed = urlsplit(value)
+                            if parsed.scheme == "https" and parsed.hostname:
+                                safe["webhook_host"] = parsed.hostname
+                return {**{key: value for key, value in item.items() if key != "labels"}, "destination": safe}
             add("monitoring_notification_channel", "monitoring", lambda: self.pages(
                 f"https://monitoring.googleapis.com/v3/{scope}/notificationChannels", scope, key="notificationChannels",
-                params={"fields": "notificationChannels(name,type,enabled,verificationStatus),nextPageToken"}))
+                params={"fields": "notificationChannels(name,type,enabled,verificationStatus,labels),nextPageToken"},
+                transform=safe_notification_channel))
             def effective_org_policies():
                 # The response name may use the project's numeric name even when
                 # the request uses projectId. Resolve that alias once from an
@@ -2720,10 +2853,27 @@ class GCPCollector:
         add("api_key", "apikeys", lambda: self.pages(f"https://apikeys.googleapis.com/v2/{scope}/locations/global/keys",
             scope, key="keys", params={"fields": "keys(name,uid,displayName,createTime,updateTime,deleteTime,restrictions),nextPageToken"},
             transform=api_key))
-        add("dns_managed_zone", "dns", lambda: self.pages(f"https://dns.googleapis.com/dns/v1/projects/{project}/managedZones",
-            scope, key="managedZones", page_size_key="maxResults"))
+        def dns_managed_zones():
+            for zones, request_id in self.pages(f"https://dns.googleapis.com/dns/v1/projects/{project}/managedZones",
+                                               scope, key="managedZones", page_size_key="maxResults"):
+                for zone in zones:
+                    name = zone.get("name") if isinstance(zone, dict) else None
+                    if not isinstance(name, str) or len(name) > 63 or not re.fullmatch(r"[a-z](?:[a-z0-9-]*[a-z0-9])?", name):
+                        raise ReadError("malformed", "dns_managed_zone_identity_unbound")
+                yield self.parallel(lambda zone: self.hydrate(zone, "iamPolicy",
+                    f"https://dns.googleapis.com/dns/v1/projects/{project}/managedZones/{zone['name']}:getIamPolicy",
+                    scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                    identity_validator=_validate_iam_policy), zones), request_id
+        add("dns_managed_zone", "dns", dns_managed_zones)
         add("dns_policy", "dns", lambda: self.pages(f"https://dns.googleapis.com/dns/v1/projects/{project}/policies",
             scope, key="policies", page_size_key="maxResults"))
+        def dns_response_policy(item):
+            name = item.get("responsePolicyName") if isinstance(item, dict) else None
+            if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name):
+                raise ReadError("malformed", "dns_response_policy_identity_unbound")
+            return {**item, "name": f"{scope}/responsePolicies/{name}"}
+        add("dns_response_policy", "dns", lambda: self.pages(f"https://dns.googleapis.com/dns/v1/projects/{project}/responsePolicies",
+            scope, key="responsePolicies", page_size_key="maxResults", transform=dns_response_policy))
         def clouddeploy_inventory(collection, key):
             def complete_page(data):
                 if data.get("unreachable"):
@@ -3288,6 +3438,8 @@ class GCPCollector:
             "connectors", "vpcaccess_locations", with_iam=False))
         add("filestore_instance", "file", lambda: region_metadata("file", "v1", "instances",
             "instances", "filestore_locations", with_iam=False))
+        add("filestore_backup", "file", lambda: region_metadata("file", "v1", "backups",
+            "backups", "filestore_locations", with_iam=False))
         add("redis_instance", "redis", lambda: region_metadata("redis", "v1", "instances",
             "instances", "redis_locations", with_iam=False))
         def functions():
@@ -3470,6 +3622,62 @@ class GCPCollector:
             "buckets", "buckets", "logging_locations"))
         add("certificate", "certificatemanager", lambda: compliance_located(self, scope, "certificatemanager", "v1",
             "certificates", "certificates", "certificate_locations"))
+        def service_directory_namespaces():
+            if not scope.startswith("projects/"):
+                return
+            base = "https://servicedirectory.googleapis.com/v1/"
+            for locations, location_request in self.pages(base + scope + "/locations", scope, key="locations"):
+                yield [], location_request
+                for location in locations:
+                    location_name = location.get("name")
+                    if (not isinstance(location_name, str) or
+                            not re.fullmatch(re.escape(scope) + r"/locations/[a-z0-9-]+", location_name)):
+                        raise ReadError("malformed", "service_directory_location_identity")
+                    for namespaces, namespace_request in self.pages(base + location_name + "/namespaces", scope,
+                                                                      key="namespaces"):
+                        result = []
+                        for namespace in namespaces:
+                            name = namespace.get("name")
+                            if (not isinstance(name, str) or
+                                    not re.fullmatch(re.escape(location_name) + r"/namespaces/[a-z0-9-]+", name)):
+                                raise ReadError("malformed", "service_directory_namespace_identity")
+                            item = self.hydrate({"name": name, "_representation": "full"}, "iamPolicy",
+                                                base + name + ":getIamPolicy", scope, method="POST",
+                                                body={"options": {"requestedPolicyVersion": 3}},
+                                                identity_validator=_validate_iam_policy)
+                            services = []
+                            child_requests = []
+                            for service_page, service_request in self.pages(base + name + "/services", scope, key="services"):
+                                child_requests.append(service_request)
+                                for service in service_page:
+                                    service_name = service.get("name")
+                                    if (not isinstance(service_name, str) or
+                                            not re.fullmatch(re.escape(name) + r"/services/[a-z0-9-]+", service_name)):
+                                        raise ReadError("malformed", "service_directory_service_identity")
+                                    service_item = self.hydrate({"name": service_name}, "iamPolicy",
+                                                                base + service_name + ":getIamPolicy", scope,
+                                                                method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                                                identity_validator=_validate_iam_policy)
+                                    child_requests.extend(service_item["_coverage"]["iamPolicy"]["source_requests"])
+                                    endpoints = []
+                                    for endpoint_page, endpoint_request in self.pages(base + service_name + "/endpoints", scope,
+                                                                                       key="endpoints"):
+                                        child_requests.append(endpoint_request)
+                                        for endpoint in endpoint_page:
+                                            endpoint_name = endpoint.get("name")
+                                            if (not isinstance(endpoint_name, str) or
+                                                    not re.fullmatch(re.escape(service_name) + r"/endpoints/[a-z0-9-]+", endpoint_name)):
+                                                raise ReadError("malformed", "service_directory_endpoint_identity")
+                                            endpoints.append({key: endpoint[key] for key in ("name", "address", "port", "network")
+                                                              if key in endpoint})
+                                    service_item["_endpoints"] = endpoints
+                                    services.append(service_item)
+                            item["_services"] = services
+                            item["_coverage"]["serviceDirectoryChildren"] = {
+                                "status": "collected", "source_requests": child_requests}
+                            result.append(item)
+                        yield result, namespace_request
+        add("service_directory_namespace", "servicedirectory", service_directory_namespaces)
         add("worker_pool", "cloudbuild", lambda: compliance_located(self, scope, "cloudbuild", "v1",
             "workerPools", "workerPools", "worker_pool_locations"))
         def source_repositories():
@@ -3669,15 +3877,14 @@ class GCPCollector:
         from .gcp_history import cloudbuild_builds
         add("cloudbuild_build", "cloudbuild", lambda: cloudbuild_builds(self, scope))
         # Cloud Domains registrations are global resources (projects/*/locations/global).
-        # Only the domain name and state are requested: contactSettings carry
-        # registrant personal data and are never read.
+        # ContactSettings carry registrant personal data and are never read.
         def domains_registrations():
             for registrations, request_id in self.pages(
                     f"https://domains.googleapis.com/v1/{scope}/locations/global/registrations", scope,
                     key="registrations",
-                    params={"fields": "registrations(name,domainName,state,expireTime),nextPageToken"}):
+                    params={"fields": "registrations(name,domainName,state,expireTime,dnsSettings),nextPageToken"}):
                 def hydrate_registration(registration):
-                    item = {k: registration[k] for k in ("name", "domainName", "state", "expireTime") if k in registration}
+                    item = {k: registration[k] for k in ("name", "domainName", "state", "expireTime", "dnsSettings") if k in registration}
                     name = item.get("name")
                     if not isinstance(name, str) or not re.fullmatch(
                             re.escape(scope) + r"/locations/global/registrations/[^/]+", name):
@@ -3828,7 +4035,7 @@ class GCPCollector:
         if self.alias_identity_only():
             return
         if not self.options.get("include_inherited", True) or not self.needed.intersection(
-            {"iam_policy", "iam_deny_policy", "iam_role", "project", "folder", "organization", "firewall_policy", "firewall_policy_association"}):
+            {"iam_policy", "iam_deny_policy", "iam_role", "project", "folder", "organization", "logging_view", "firewall_policy", "firewall_policy_association"}):
             return
         parents = set()
         for scope in self.scopes[:]:
@@ -3925,6 +4132,10 @@ class GCPCollector:
                                 scope, method="POST", body={"options": {"requestedPolicyVersion": 3}}, single=True):
                                 yield [{"name": scope, "bindings": [], **item, "_representation": "full"} for item in items], request_id
                     jobs.append((kind, scope, service, fetch))
+        if "logging_view" in self.needed:
+            from .gcp_logging_views import collection_pages as logging_views
+            jobs.extend(("logging_view", scope, "logging", lambda scope=scope: logging_views(self, scope))
+                        for scope in self.inherited_scopes)
         self.run_jobs(jobs)
 
     def perimeter_jobs(self):
@@ -3934,29 +4145,96 @@ class GCPCollector:
         parent=organizations/N, including scoped policies), so every perimeter of
         the project's organization is listed at the project scope. A project with
         complete ancestry and no organization cannot be inside any perimeter."""
-        if "service_perimeter" not in self.needed:
+        kinds = {"service_perimeter", "access_policy", "access_level"} & self.needed
+        if not kinds:
             return
-        def perimeters(scope):
+        def read_policies(scope):
             chain = self.hierarchy_chain(scope)
             if chain is None:
                 raise ReadError("unavailable", "ancestry_unavailable")
             organizations = [x for x in chain if x.startswith("organizations/")]
             if not organizations:
                 return
-            for policies, request_id in self.pages("https://accesscontextmanager.googleapis.com/v1/accessPolicies", scope,
-                                                   key="accessPolicies", params={"parent": organizations[-1]}):
-                yield [], request_id
-                for policy in policies:
-                    name = policy.get("name")
-                    if not isinstance(name, str) or not re.fullmatch(r"accessPolicies/[0-9]+", name):
+            for rows, request_id in self.pages("https://accesscontextmanager.googleapis.com/v1/accessPolicies", scope,
+                                              key="accessPolicies", params={"parent": organizations[-1]}):
+                for row in rows:
+                    if not isinstance(row, dict) or not isinstance(row.get("name"), str) or not re.fullmatch(
+                            r"accessPolicies/[0-9]+", row["name"]):
                         raise ReadError("malformed", "malformed_access_policy")
+                yield rows, request_id, organizations[-1]
+        policy_lock = threading.Lock()
+        policy_flights = {}
+        def policies(scope):
+            with policy_lock:
+                flight = policy_flights.get(scope)
+                owner = flight is None
+                if owner:
+                    flight = policy_flights[scope] = Future()
+            if owner:
+                try:
+                    flight.set_result(tuple(read_policies(scope)))
+                except BaseException as exc:
+                    flight.set_exception(exc)
+                    raise
+            yield from flight.result()
+        def perimeters(scope):
+            for policy_rows, request_id, organization in policies(scope):
+                yield [], request_id
+                for policy in policy_rows:
+                    name = policy.get("name")
                     for items, page_id in self.pages(f"https://accesscontextmanager.googleapis.com/v1/{name}/servicePerimeters",
                                                      scope, key="servicePerimeters"):
                         # servicePerimeters.list has no field mask: full perimeters.
-                        yield [{**item, "accessPolicy": name, "organization": organizations[-1], "_representation": "full"}
+                        yield [{**item, "accessPolicy": name, "organization": organization, "_representation": "full"}
                                for item in items], page_id
-        self.run_jobs([("service_perimeter", scope, "accesscontextmanager", lambda scope=scope: perimeters(scope))
-                       for scope in self.scopes if scope.startswith("projects/")])
+        def access_policies(scope):
+            for policy_rows, request_id, organization in policies(scope):
+                def with_iam(policy):
+                    name = policy["name"]
+                    safe = {key: policy[key] for key in ("name", "parent", "scopes") if key in policy}
+                    safe["organization"] = organization
+                    return self.hydrate(safe, "iamPolicy",
+                        f"https://accesscontextmanager.googleapis.com/v1/{name}:getIamPolicy", scope,
+                        method="POST", body={"options": {"requestedPolicyVersion": 3}})
+                yield self.parallel(with_iam, policy_rows), request_id
+        def access_levels(scope):
+            for policy_rows, request_id, organization in policies(scope):
+                yield [], request_id
+                for policy in policy_rows:
+                    name = policy["name"]
+                    for rows, page_id in self.pages(
+                            f"https://accesscontextmanager.googleapis.com/v1/{name}/accessLevels", scope,
+                            key="accessLevels"):
+                        safe = []
+                        for row in rows:
+                            level_name = row.get("name") if isinstance(row, dict) else None
+                            if not isinstance(level_name, str) or not re.fullmatch(
+                                    re.escape(name) + r"/accessLevels/[A-Za-z0-9_]+", level_name):
+                                raise ReadError("malformed", "malformed_access_level")
+                            basic = row.get("basic")
+                            item = {"name": level_name, "accessPolicy": name, "organization": organization}
+                            if isinstance(basic, dict):
+                                item["basic"] = {"combiningFunction": basic.get("combiningFunction"),
+                                    "conditions": [{key: condition[key] for key in
+                                        ("ipSubnetworks", "members", "regions", "requiredAccessLevels", "negate")
+                                        if key in condition} | {"devicePolicyPresent": "devicePolicy" in condition,
+                                            "vpcNetworkSourcesPresent": "vpcNetworkSources" in condition}
+                                        for condition in basic.get("conditions", []) if isinstance(condition, dict)]}
+                            if "custom" in row:
+                                item["customExpressionPresent"] = True
+                            safe.append(item)
+                        yield safe, page_id
+        jobs = []
+        for scope in self.scopes:
+            if not scope.startswith("projects/"):
+                continue
+            if "service_perimeter" in kinds:
+                jobs.append(("service_perimeter", scope, "accesscontextmanager", lambda scope=scope: perimeters(scope)))
+            if "access_policy" in kinds:
+                jobs.append(("access_policy", scope, "accesscontextmanager", lambda scope=scope: access_policies(scope)))
+            if "access_level" in kinds:
+                jobs.append(("access_level", scope, "accesscontextmanager", lambda scope=scope: access_levels(scope)))
+        self.run_jobs(jobs)
 
     def independent_jobs(self):
         """Jobs that read no other collection, run with the main batch instead
@@ -4189,9 +4467,23 @@ class GCPCollector:
                         raise ReadError("unavailable", "alloydb_cluster_inventory_incomplete")
                     for cluster in clusters["items"]:
                         yield from self.pages(f"https://alloydb.googleapis.com/v1/{cluster['name']}/instances", scope,
-                            key="instances", params={"fields": "instances(name,uid,state,instanceType,databaseFlags,networkConfig,clientConnectionConfig,dataApiAccess,labels),nextPageToken,unreachable"})
+                            key="instances", params={"fields": "instances(name,uid,state,instanceType,databaseFlags,networkConfig,clientConnectionConfig,dataApiAccess,publicIpAddress,pscInstanceConfig,labels),nextPageToken,unreachable"})
                 alloy_jobs.append(("alloydb_instance", scope, "alloydb", instances))
             self.run_jobs(alloy_jobs)
+        if "alloydb_user" in self.needed:
+            user_jobs = []
+            for scope in self.scopes:
+                if not scope.startswith("projects/"):
+                    continue
+                def users(scope=scope):
+                    clusters = self.collections.get(("alloydb_cluster", scope))
+                    if not clusters or clusters["status"] not in ("collected", "empty"):
+                        raise ReadError("unavailable", "alloydb_cluster_inventory_incomplete")
+                    for cluster in clusters["items"]:
+                        yield from self.pages(f"https://alloydb.googleapis.com/v1/{cluster['name']}/users", scope,
+                            key="users", params={"fields": "users(name,userType,databaseRoles),nextPageToken,unreachable"})
+                user_jobs.append(("alloydb_user", scope, "alloydb", users))
+            self.run_jobs(user_jobs)
         jobs = []
         def add(kind, scope, service, fetch):
             jobs.append((kind, scope, service, fetch))
@@ -4331,6 +4623,32 @@ class GCPCollector:
                                 "firewallPolicys": response.get("firewallPolicys", []),
                                 "effective_source_operation": "regionNetworkFirewallPolicies.getEffectiveFirewalls"}], request_id
                 add("effective_firewall", scope, "compute", regional_effective_firewalls)
+        if "firestore_user_cred" in self.needed:
+            for scope in [s for s in self.scopes if s.startswith("projects/")]:
+                def user_creds(scope=scope):
+                    databases = self.collections.get(("firestore_database", scope))
+                    if not databases or databases["coverage_status"] not in ("collected", "empty"):
+                        raise ReadError("unavailable", "firestore_database_inventory_incomplete")
+                    for database in databases["items"]:
+                        if (database.get("type") != "FIRESTORE_NATIVE"
+                                or database.get("databaseEdition") != "ENTERPRISE"
+                                or database.get("mongodbCompatibleDataAccessMode") == "DATA_ACCESS_MODE_DISABLED"
+                                or database.get("deleteTime")):
+                            continue
+                        parent = database["name"]
+                        def project_cred(item, parent=parent):
+                            name = item.get("name") if isinstance(item, dict) else None
+                            if not isinstance(name, str) or not re.fullmatch(
+                                    re.escape(parent) + r"/userCreds/[^/]+", name):
+                                raise ReadError("malformed", "firestore_user_cred_identity_unbound")
+                            identity = item.get("resourceIdentity")
+                            return {"name": name, "database": parent, "state": item.get("state"),
+                                    "resourceIdentity": {"principal": identity.get("principal")}
+                                    if isinstance(identity, dict) else {}}
+                        yield from self.pages(f"https://firestore.googleapis.com/v1/{parent}/userCreds",
+                                              scope, key="userCreds", page_size_key=None,
+                                              transform=project_cred)
+                add("firestore_user_cred", scope, "firestore", user_creds)
         if "service_account_key" in self.needed:
             for scope in [s for s in self.scopes if s.startswith("projects/")]:
                 def keys(scope=scope):
@@ -5755,6 +6073,31 @@ class GCPCollector:
                         yield from fanout_pages(self, tables["items"], table_pages)
                     view_jobs.append(("bigtable_authorized_view", scope, "bigtableadmin", authorized_views))
                 self.run_jobs(view_jobs)
+            if "bigtable_logical_view" in self.needed:
+                logical_jobs = []
+                for scope in [s for s in self.scopes if s.startswith("projects/")]:
+                    def logical_views(scope=scope):
+                        instances = self.collections.get(("bigtable_instance", scope))
+                        if not instances or instances["status"] not in ("collected", "empty"):
+                            raise ReadError("unavailable", "bigtable_instance_inventory_incomplete")
+                        def instance_pages(instance):
+                            parent = instance.get("name")
+                            if (not isinstance(parent, str) or not re.fullmatch(
+                                    re.escape(scope) + r"/instances/[^/]+", parent)):
+                                raise ReadError("malformed", "bigtable_instance_identity_unbound")
+                            url = f"https://bigtableadmin.googleapis.com/v2/{parent}/logicalViews"
+                            for page, request_id in self.pages(url, scope, key="logicalViews"):
+                                for row in page:
+                                    if (not isinstance(row, dict) or not isinstance(row.get("name"), str)
+                                            or not re.fullmatch(re.escape(parent) + r"/logicalViews/[^/]+", row["name"])):
+                                        raise ReadError("malformed", "bigtable_logical_view_identity_unbound")
+                                yield self.parallel(lambda row: self.hydrate(row, "iamPolicy",
+                                    f"https://bigtableadmin.googleapis.com/v2/{row['name']}:getIamPolicy",
+                                    scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                    identity_validator=_validate_iam_policy), page), request_id
+                        yield from fanout_pages(self, instances["items"], instance_pages)
+                    logical_jobs.append(("bigtable_logical_view", scope, "bigtableadmin", logical_views))
+                self.run_jobs(logical_jobs)
             if "bigtable_materialized_view" in self.needed:
                 materialized_jobs = []
                 for scope in [s for s in self.scopes if s.startswith("projects/")]:
@@ -5815,7 +6158,7 @@ class GCPCollector:
                                             re.escape(parent) + r"/clusters/[^/]+/backups/[^/]+", name)):
                                         raise ReadError("malformed", "bigtable_backup_identity_unbound")
                                     projected_rows.append({key: item.get(key) for key in
-                                                           ("name", "sourceTable", "state", "expireTime", "encryptionInfo")})
+                                                           ("name", "sourceTable", "sourceBackup", "state", "expireTime", "encryptionInfo")})
                                 yield self.parallel(lambda projected: self.hydrate(projected, "iamPolicy",
                                     f"https://bigtableadmin.googleapis.com/v2/{projected['name']}:getIamPolicy",
                                     scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
@@ -5823,6 +6166,36 @@ class GCPCollector:
                         yield from fanout_pages(self, instances["items"], instance_pages)
                     backup_jobs.append(("bigtable_backup", scope, "bigtableadmin", bigtable_backups))
                 self.run_jobs(backup_jobs)
+            spanner_jobs = []
+            for kind, segment, key, fields in (
+                    ("spanner_database", "databases", "databases", ("name", "state", "restoreInfo", "databaseDialect")),
+                    ("spanner_backup", "backups", "backups", ("name", "database", "state", "referencingDatabases", "referencingBackups"))):
+                if kind not in self.needed:
+                    continue
+                for scope in [s for s in self.scopes if s.startswith("projects/")]:
+                    def spanner_children(scope=scope, segment=segment, key=key, fields=fields):
+                        instances = self.collections.get(("spanner_instance", scope))
+                        if not instances or instances["status"] not in ("collected", "empty"):
+                            raise ReadError("unavailable", "spanner_instance_inventory_incomplete")
+                        def instance_pages(instance):
+                            parent = instance.get("name")
+                            if not isinstance(parent, str) or not re.fullmatch(re.escape(scope) + r"/instances/[^/]+", parent):
+                                raise ReadError("malformed", "spanner_instance_identity_unbound")
+                            for page, request_id in self.pages(f"https://spanner.googleapis.com/v1/{parent}/{segment}", scope, key=key):
+                                projected = []
+                                for item in page:
+                                    name = item.get("name")
+                                    if not isinstance(name, str) or not re.fullmatch(re.escape(parent) + "/" + segment + r"/[^/]+", name):
+                                        raise ReadError("malformed", "spanner_child_identity_unbound")
+                                    projected.append({field: item.get(field) for field in fields})
+                                yield self.parallel(lambda item: self.hydrate(item, "iamPolicy",
+                                    f"https://spanner.googleapis.com/v1/{item['name']}:getIamPolicy", scope,
+                                    method="POST", body={"options": {"requestedPolicyVersion": 3}},
+                                    identity_validator=_validate_iam_policy), projected), request_id
+                        yield from fanout_pages(self, instances["items"], instance_pages)
+                    spanner_jobs.append((kind, scope, "spanner", spanner_children))
+            if spanner_jobs:
+                self.run_jobs(spanner_jobs)
             if "cloudbuild_repository" in self.needed:
                 repo_jobs = []
                 for scope in [s for s in self.scopes if s.startswith("projects/")]:
