@@ -4807,6 +4807,16 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
+    if kind == "container_registry":
+        anonymous = props.get("anonymousPullEnabled")
+        if anonymous is True:
+            a.authenticated = False
+            a.step("anonymous_pull", "allow", anonymous_pull_enabled=True)
+            a.notes.append("Anonymous pull permits unauthenticated read of every repository; registry content was not inventoried.")
+        elif anonymous is False:
+            a.step("anonymous_pull", "authenticated_only", anonymous_pull_enabled=False)
+        else:
+            a.notes.append("ACR anonymous-pull setting is unavailable; authentication cannot be established from this snapshot.")
     endpoint = next((props.get(field) for field in ("vaultUri", "hsmUri", "loginServer", "endpoint", "documentEndpoint", "fullyQualifiedDomainName")
                      if isinstance(props.get(field), str) and props.get(field)), None)
     if endpoint:
@@ -6454,6 +6464,18 @@ def _observed(assessment, status):
         return (first + "\n"
                 "The public SAS export path is unclear from these settings.\n"
                 "If public export is allowed, a valid SAS URL could expose stored data.")
+    if assessment.resource["type"] == "container_registry" and _props(assessment.resource).get("anonymousPullEnabled") is True:
+        if status == "FAIL":
+            return ("The registry has anonymousPullEnabled true and a recorded public network path.\n"
+                    "Anyone admitted by its public firewall can pull images without a registry identity.\n"
+                    "The scan did not inventory whether repositories contain images.")
+        if status == "PASS":
+            return ("The registry has anonymousPullEnabled true, but its recorded network gate blocks direct public access.\n"
+                    "Anonymous pull remains configured for clients with another permitted network path.\n"
+                    "The scan did not inventory whether repositories contain images.")
+        return ("The registry has anonymousPullEnabled true.\n"
+                "Its public network path is unresolved, so internet pull access cannot be determined.\n"
+                "The scan did not inventory whether repositories contain images.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":

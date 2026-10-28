@@ -1022,3 +1022,25 @@ def test_managed_endpoint_explicit_network_gate(kind):
     assert decision(kind, {"publicNetworkAccess": "Enabled"}).verdict() == "UNKNOWN"
     assert decision(kind, {"publicNetworkAccess": "Disabled", rule: {"defaultAction": "Allow",
         **({"bypass": "None"} if vault_like else {})}}).verdict() == "PASS"
+
+
+def test_acr_anonymous_pull_follows_the_public_network_path():
+    base = {"loginServer": "images.azurecr.io", "publicNetworkAccess": "Enabled",
+            "anonymousPullEnabled": True}
+    public = decision("container_registry", {**base, "networkRuleSet": {"defaultAction": "Allow"}})
+    assert public.verdict() == "FAIL" and public.authenticated is False
+    assert any(step["layer"] == "anonymous_pull" and step["decision"] == "allow" for step in public.path)
+    assert any("every repository" in note for note in public.notes)
+    assert "without a registry identity" in _observed(public, "FAIL")
+    selected_ip = decision("container_registry", {**base, "networkRuleSet": {"defaultAction": "Deny",
+        "ipRules": [{"value": "8.8.8.8/32"}]}})
+    assert selected_ip.verdict() == "FAIL" and selected_ip.authenticated is False
+    blocked = decision("container_registry", {**base, "publicNetworkAccess": "Disabled",
+        "networkRuleSet": {"defaultAction": "Allow"}})
+    assert blocked.verdict() == "PASS" and blocked.authenticated is False
+    assert "blocks direct public access" in _observed(blocked, "PASS")
+    unknown = decision("container_registry", {**base})
+    assert unknown.verdict() == "UNKNOWN" and "cannot be determined" in _observed(unknown, "UNKNOWN")
+    authenticated = decision("container_registry", {**base, "anonymousPullEnabled": False,
+        "networkRuleSet": {"defaultAction": "Allow"}})
+    assert authenticated.verdict() == "FAIL" and authenticated.authenticated is True
