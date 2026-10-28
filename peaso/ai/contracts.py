@@ -94,7 +94,7 @@ def validate_network(data, platform):
     """Bind generated findings to supplied native resources and graph records."""
     from peaso.analysis.common import stable_id
     value = NetworkReview.model_validate(data).model_dump()
-    resources = {row['id']: row for row in platform['inventory']}
+    resources = {row['id']: row for row in platform.get('source_inventory', platform['inventory'])}
     graph = platform['report'].get('graphs', {}).get('network') or {}
     graph_ids = {row['id'] for kind in ('nodes', 'edges') for row in graph.get(kind, [])}
     seen = set()

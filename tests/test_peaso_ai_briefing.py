@@ -60,12 +60,12 @@ def test_priorities_keeps_native_failed_hardening_and_exposure_in_every_lookup(t
     build(tmp_path, platform, findings, final, private_json)
     expected = {category + '-' + verdict for category in ('hardening', 'exposure')
                 for verdict in ('FAIL', 'PASS', 'UNKNOWN', 'DENIED', 'MANUAL', 'NOT_APPLICABLE', 'EMPTY', 'unreviewed')}
-    expected.add('network-advice')
+    expected.update({'network-advice', 'hardening-original-pass', 'exposure-original-pass'})
     with sqlite3.connect(tmp_path / 'context.sqlite') as db:
         assert {row[0] for row in db.execute("SELECT id FROM records WHERE domain='findings'")} == expected
-        assert {row[0] for row in db.execute('SELECT finding_id FROM members')} == expected
+        assert {row[0] for row in db.execute('SELECT finding_id FROM members')} == expected - {'hardening-original-pass', 'exposure-original-pass'}
     brief = json.loads((tmp_path / 'platform.json').read_text())
-    assert brief['review_counts'] == {'hardening:FAIL': 8, 'exposure:FAIL': 8, 'network:MANUAL': 1}
+    assert brief['review_counts'] == {'hardening:FAIL': 8, 'exposure:FAIL': 8, 'hardening:PASS': 1, 'exposure:PASS': 1, 'network:MANUAL': 1}
     assert {case['example']['id'] for case in brief['sections']['findings']} <= expected
     assert {case['facts']['category'] for case in brief['sections']['findings']} == {'hardening', 'exposure', 'network'}
 
@@ -117,11 +117,11 @@ def test_reference_links_connect_risks_without_promoting_access_confidence(tmp_p
     build(tmp_path, platform, rows, reviews, private_json)
     related = read(tmp_path, 'related', 'resources', 'r0', '--limit', '20')
     assert {'findings', 'iam_nodes', 'network_nodes'} <= {row['domain'] for row in related['items']}
-    iam = read(tmp_path, 'get', 'iam_nodes', 'iam-principal')['summary']
+    iam = read(tmp_path, 'get', 'iam_nodes', 'iam-principal', '--summary')['summary']
     assert iam['grants']['effective_access'] == 'unknown'
-    network = read(tmp_path, 'get', 'network_edges', 'ne')['summary']
+    network = read(tmp_path, 'get', 'network_edges', 'ne', '--summary')['summary']
     assert network['reachability'] == 'unknown' and network['layer'] == 'modeled_rule'
-    suggestions = read(tmp_path, 'get', 'least_privilege', 'principal')['summary']['suggestion_counts']
+    suggestions = read(tmp_path, 'get', 'least_privilege', 'principal', '--summary')['summary']['suggestion_counts']
     assert suggestions == {'provider_recommendation': 1, 'declared_grant_only': 1}
 
 
@@ -222,7 +222,7 @@ def test_case_examples_members_and_original_details_are_all_resolvable(tmp_path)
         assert len(cases) == brief['counts']['cases'][section]
         for case in cases:
             assert set(case) == {'id', 'signal', 'state', 'severity', 'count', 'unit', 'facts', 'example', 'related'}
-            example = read(tmp_path, 'get', case['example']['domain'], case['example']['id'])
+            example = read(tmp_path, 'get', case['example']['domain'], case['example']['id'], '--summary')
             assert example['summary']['id'] == case['example']['id']
             members = read(tmp_path, 'members', 'decision_' + section, case['id'])
             assert members['total'] > 0
@@ -273,7 +273,7 @@ def test_focus_finds_the_connected_member_in_a_broad_group_with_concrete_witness
     assert connected['linked_sections'] > 0 and connected['related']
     for related in connected['related']:
         assert related['via']['id'] and related['member']['id']
-        assert read(tmp_path, 'get', related['member']['domain'], related['member']['id'])['summary']['id'] == related['member']['id']
+        assert read(tmp_path, 'get', related['member']['domain'], related['member']['id'], '--summary')['summary']['id'] == related['member']['id']
 
 
 def test_brief_preserves_escalation_outcomes_and_permission_field_semantics(tmp_path):

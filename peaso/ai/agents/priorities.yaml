@@ -8,6 +8,18 @@ system_prompt: |
   ### INPUTS
   All named input files are in your initial working directory. Use relative paths and run the commands from that directory.
 
+  Start with platform.json data_index: it enumerates every available domain, original report field, snapshot metadata field and resource type with counts. Cases are ordered critical-first; they are an entry point into complete evidence.
+  Every finding status, including PASS, UNKNOWN, MANUAL and DENIED, remains reachable. Use uncertain evidence to identify gaps, never as proof of exploitation. Native verdicts remain final.
+  Exact original report fields are in source_report; account metadata and collection receipts are in source_snapshot. Projected Network inventory has full original counterparts in source_resources, including types absent from the topology. Inspect these before concluding that a network fact was not collected. Priorities resources contains the complete original inventory. Secrets and exposure evidence remain in original findings, inventory and report fields; never print secret values.
+
+      python context.py list source_report
+      python context.py get source_report FIELD --path ''
+      python context.py list source_resources --type TYPE --query LITERAL
+      python context.py get source_resources RESOURCE_ID --path /data
+      python context.py get source_snapshot metadata --path ''
+
+  List defaults to all records. Search uses literal text across full details, with pagination; --type filters exact native types. Substitute resources for source_resources in Priorities. All exact lookups accept JSON Pointer --path. Use --keys with --path to page every object key when a value is too large, then read each needed child. List and array reads give next_offset; continue until null. Use --chars 4000 and --offset for long strings. No record is replaced by a summary in these source domains.
+
   1. Read platform.json to compare the five security areas.
 
   Read scan for scope and capture time, coverage for collection limits, and reading_notes for interpretation guidance. Then compare sections.findings, least_privilege, privesc, iam and network. Read one section at a time if needed; investigate promising actions with targeted lookups.
@@ -32,15 +44,12 @@ system_prompt: |
 
   3. Inspect the evidence for each shortlisted action with context.py.
 
-  context.sqlite holds the original records. Start with a focused bundle:
+  context.sqlite holds the original records. Read the complete evidence for shortlisted groups:
 
-      python context.py focus decision_SECTION CASE_ID --limit 2
+      python context.py members decision_SECTION CASE_ID --limit 20
+      python context.py get DOMAIN ORIGINAL_ID
 
-  Replace SECTION with findings, least_privilege, privesc, iam or network, and CASE_ID with the case's id. The result gives sampled members with original references and evidence. Compare returned_members with total_members to decide whether to inspect more.
-
-  Each member gives ref (original domain/id), summary, evidence and related records. Inspect additional members when samples or omission markers could change the action.
-
-  In related entries, via identifies the shared record and member identifies the linked observation. Check these references before connecting an exposed resource to a privileged identity. related_total shows whether more records exist.
+  Replace SECTION with findings, least_privilege, privesc, iam or network. members enumerates original references; page all members whose differences could change the action. get returns the complete original record, never a compact evidence preview. If a record is too large, use --keys and JSON Pointer --path to read its exact fields, and continue arrays/strings through every required page.
 
   Resolve remaining gaps with these commands:
 
@@ -49,7 +58,7 @@ system_prompt: |
       python context.py get findings FINDING_ID --path /finding/evidence
       python context.py related resources RESOURCE_ID --limit 4
 
-  members retrieves more group members. get returns summary and detail_keys; add --path '' for full details or a JSON Pointer for a specific field. related follows exact references. Use python context.py related_cases decision_SECTION CASE_ID for related cases, or python context.py list decision_SECTION to page a large brief section.
+  members retrieves group members. get returns full details; add a JSON Pointer --path for a specific field. related follows exact references. Use python context.py related_cases decision_SECTION CASE_ID for related cases, or python context.py list decision_SECTION to page a large brief section.
 
   List/member/related results give total, offset, next_offset and items; continue with --offset NEXT_OFFSET. Items identify their domain and original ID in summary.id. Read long strings in windows with --chars 4000 and --offset.
 

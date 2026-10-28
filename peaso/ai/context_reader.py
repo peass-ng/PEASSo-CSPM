@@ -1,4 +1,4 @@
-"""Read-only, bounded local lookup copied into a priorities agent workspace."""
+"""Read-only, paginated exact lookups for Network and Priorities evidence."""
 import argparse
 import json
 import sqlite3
@@ -126,9 +126,14 @@ def main():
     parser.add_argument('id', nargs='?')
     parser.add_argument('--offset', type=int, default=0)
     parser.add_argument('--limit', type=int, default=8)
-    parser.add_argument('--path', help='JSON Pointer into the full record; omit to see its summary and top-level keys')
+    parser.add_argument('--path', default='', help='JSON Pointer into the full record; defaults to the complete original record')
     parser.add_argument('--chars', type=int, help='Read a window of a long string, up to 8000 characters')
-    parser.add_argument('--all', action='store_true', help='Include noncandidate records when listing')
+    parser.add_argument('--all', action='store_true', help='Include all records (the default; retained for compatibility)')
+    parser.add_argument('--candidates', action='store_true', help='Explicitly restrict listing to decision candidates')
+    parser.add_argument('--query', help='Literal substring to search in complete records, including unindexed native fields')
+    parser.add_argument('--type', help='Exact resource type filter for list')
+    parser.add_argument('--summary', action='store_true', help='Explicitly request index metadata instead of full get details')
+    parser.add_argument('--keys', action='store_true', help='Page every key of the selected object; combine with --path')
     args = parser.parse_args()
     limit = min(20, max(1, args.limit))
     offset = max(0, args.offset)
@@ -140,9 +145,16 @@ def main():
                 result['members'].pop()
             result['returned_members'] = len(result.get('members', []))
         elif args.command == 'list':
-            where = 'domain=?' + ('' if args.all else ' AND candidate=1')
-            total = db.execute('SELECT COUNT(*) FROM records WHERE ' + where, (args.domain,)).fetchone()[0]
-            rows = db.execute('SELECT summary FROM records WHERE ' + where + ' ORDER BY risk,id LIMIT ? OFFSET ?', (args.domain, limit, offset))
+            where = 'domain=?' + (' AND candidate=1' if args.candidates and not args.all else '')
+            params = [args.domain]
+            if args.query is not None:
+                where += ' AND instr(detail,?)>0'
+                params.append(args.query)
+            if args.type is not None:
+                where += " AND json_extract(summary,'$.type')=?"
+                params.append(args.type)
+            total = db.execute('SELECT COUNT(*) FROM records WHERE ' + where, params).fetchone()[0]
+            rows = db.execute('SELECT summary FROM records WHERE ' + where + ' ORDER BY risk,id LIMIT ? OFFSET ?', (*params, limit, offset))
             result = {'total': total, 'offset': offset, 'items': [json.loads(row[0]) for row in rows]}
         elif args.command == 'get':
             row = db.execute('SELECT summary,detail FROM records WHERE domain=? AND id=?', (args.domain, args.id)).fetchone()
@@ -150,7 +162,7 @@ def main():
                 result = {'error': 'record_not_found'}
             else:
                 detail = json.loads(row[1])
-                if args.path is None:
+                if args.summary and not args.keys:
                     result = {'summary': json.loads(row[0]), 'detail_keys': list(detail) if isinstance(detail, dict) else None}
                 else:
                     selected = detail
@@ -159,7 +171,11 @@ def main():
                     for part in args.path.split('/')[1:] if args.path else []:
                         key = part.replace('~1', '/').replace('~0', '~')
                         selected = selected[int(key)] if isinstance(selected, list) else selected[key]
-                    if isinstance(selected, str) and args.chars is not None:
+                    if args.keys:
+                        if not isinstance(selected, dict):
+                            raise ValueError('Selected value is not an object')
+                        result = {'total': len(selected), 'offset': offset, 'items': list(selected)[offset:offset + limit]}
+                    elif isinstance(selected, str) and args.chars is not None:
                         result = {'type': 'text', 'total': len(selected), 'offset': offset,
                                   'text': selected[offset:offset + min(8000, max(1, args.chars))]}
                     else:

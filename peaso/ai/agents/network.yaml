@@ -12,13 +12,25 @@ system_prompt: |
   ### INPUTS
   All named input files are in your initial working directory. Use relative paths and run the commands from that directory.
 
+  Start with platform.json data_index: it enumerates every available domain, original report field, snapshot metadata field and resource type with counts. Cases are ordered critical-first; they are an entry point into complete evidence.
+  Every finding status, including PASS, UNKNOWN, MANUAL and DENIED, remains reachable. Use uncertain evidence to identify gaps, never as proof of exploitation. Native verdicts remain final.
+  Exact original report fields are in source_report; account metadata and collection receipts are in source_snapshot. Projected Network inventory has full original counterparts in source_resources, including types absent from the topology. Inspect these before concluding that a network fact was not collected. Priorities resources contains the complete original inventory. Secrets and exposure evidence remain in original findings, inventory and report fields; never print secret values.
+
+      python context.py list source_report
+      python context.py get source_report FIELD --path ''
+      python context.py list source_resources --type TYPE --query LITERAL
+      python context.py get source_resources RESOURCE_ID --path /data
+      python context.py get source_snapshot metadata --path ''
+
+  List defaults to all records. Search uses literal text across full details, with pagination; --type filters exact native types. Substitute resources for source_resources in Priorities. All exact lookups accept JSON Pointer --path. Use --keys with --path to page every object key when a value is too large, then read each needed child. List and array reads give next_offset; continue until null. Use --chars 4000 and --offset for long strings. No record is replaced by a summary in these source domains.
+
   1. Read topology.json to understand the whole network.
 
   boundaries lists all collected VPCs, VNets, networks, subnets, clusters and namespaces. Use id for graph lookups and resource_id for the original platform resource. Entries also identify type, label, scope, native_id and unresolved boundaries. Missing or unresolved boundaries do not establish isolation.
 
   node_groups summarizes workloads and controls by provider, scope and type. edge_groups summarizes relationships by type, endpoint types and scopes. Read every group; their counts cover all members, but example IDs are samples. resource_counts counts native resources by type; semantics explains relationship limits. Attachments, candidate rules and peering references do not prove reachability.
 
-  2. Read exposure.json before proposing findings. It lists existing Exposure issues with their IDs, checks, titles, resources, scopes, statuses and evidence summaries where available. Use it to avoid repeating the same weakness on the same resource. Do not return public buckets, public URLs/endpoints or world-source ports as new Network findings. A separate architectural weakness on that resource is valid only when it identifies a distinct internal trust boundary and requires a different change. Refer to an existing issue in the rationale if needed; do not repackage its fix as a segmentation recommendation.
+  2. Read exposure.json before proposing findings. It lists existing Exposure issues with their IDs, checks, titles, resources, scopes, statuses and complete native evidence. Use it to avoid repeating the same weakness on the same resource. Do not return public buckets, public URLs/endpoints or world-source ports as new Network findings. A separate architectural weakness on that resource is valid only when it identifies a distinct internal trust boundary and requires a different change. Refer to an existing issue in the rationale if needed; do not repackage its fix as a segmentation recommendation.
 
   3. Read platform.json to identify rules and existing network findings worth inspecting.
 
@@ -34,15 +46,15 @@ system_prompt: |
 
   context.sqlite stores the original network nodes, edges, existing findings, scoped native network resources and coverage. Query it through the local reader:
 
-      python context.py focus decision_network CASE_ID --limit 2
+      python context.py members decision_network CASE_ID --limit 20
 
-  Use a network case's id from platform.json as CASE_ID. Results sample original references, evidence and related records; total_members gives group size. Fetch more with python context.py members decision_network CASE_ID --limit 4.
+  Use a network case's id from platform.json as CASE_ID. Enumerate original references and read their complete records. Page additional members whenever differences could change a recommendation; do not substitute a compact preview for native evidence.
 
       python context.py get network_nodes NODE_ID
       python context.py get network_nodes NODE_ID --path /evidence
       python context.py related network_nodes NODE_ID --limit 4
 
-  get returns a summary and detail_keys; add --path '' for full details or a JSON Pointer for one field. related follows exact references and links graph IDs to original resource IDs. Substitute network_edges, resources or findings as needed. Resource data projects workloads to network fields, marking omissions with ai_projection. Finding records contain finding and review.
+  get returns the complete original record; add a JSON Pointer --path for one exact field. related follows exact references and links graph IDs to original resource IDs. Substitute network_edges, resources or findings as needed. Resource data projects workloads to network fields, marking omissions with ai_projection; source_resources retains the full original record under the same ID. Finding records contain finding and review.
 
   To browse records, run python context.py list network_nodes --all --limit 10; substitute network_edges, resources or findings as needed. Always use --all when listing so structural records remain visible. Results give total, offset, next_offset and items; continue with --offset NEXT_OFFSET. Related items identify their domain and summary.id. Long strings support --chars and --offset; oversized reads return guidance.
 

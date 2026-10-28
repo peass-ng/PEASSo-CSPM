@@ -138,6 +138,14 @@ def native_network_resource(row):
     return dict(row, data=without_secrets(selected), ai_projection='network fields only; omitted workload settings are unavailable')
 
 
+def snapshot_context(snapshot):
+    """Account context and complete collection receipts; native items are in resources."""
+    return {**{key: value for key, value in snapshot.items() if key != 'collections'},
+            'collections': [{key: value for key, value in row.items() if key != 'items'}
+                            | {'item_count': len(row.get('items', []))}
+                            for row in snapshot.get('collections', [])]}
+
+
 def prepare(report, inventory, snapshot):
     from peaso.analysis.reachability import REACHABILITY_TYPES
     from peaso.analysis.network import NETWORK_TYPES
@@ -148,23 +156,20 @@ def prepare(report, inventory, snapshot):
     references = set(referenced_strings(graph))
     selected = [native_network_resource(row) for row in inventory
                 if row.get('type') in types or row['id'] in references]
-    if not selected and not graph.get('nodes') and not graph.get('edges'):
+    if not inventory and not graph.get('nodes') and not graph.get('edges'):
         return None
     findings = []
-    # A separate issue catalog prevents repeating Exposure without disclosing
-    # unrelated native policies, identities or workload configuration. Preserve
-    # it through the second projection at the file-writing boundary.
-    issue_fields = ('id', 'check_id', 'title', 'resource_id', 'native_resource_id', 'scope', 'status', 'evidence_summary')
+    # Keep full native Exposure evidence for deduplication and boundary checks.
     def issue(row):
-        return {key: row[key] for key in issue_fields if isinstance(row.get(key), str)}
+        return dict(row)
     exposure = {row['id']: issue(row) for row in report.get('exposure_findings', [])
-                if row.get('id') and row.get('status') in ('FAIL', 'MANUAL', 'UNKNOWN', 'DENIED')}
+                if row.get('id')}
     for raw in report.get('findings', []):
         row = hydrate_finding(raw, report.get('check_frameworks'), report.get('check_meta'),
             report.get('check_meta_encoding'), report.get('remediation_templates'))
         if row.get('category') == 'network':
             findings.append(row)
-        elif row.get('category') == 'exposure' and row.get('status') in ('FAIL', 'MANUAL', 'UNKNOWN', 'DENIED'):
+        elif row.get('category') == 'exposure':
             exposure[row['id']] = issue(row)
     network_types = types | {node.get('type') for node in graph.get('nodes', [])}
     coverage = [row for row in report.get('coverage', []) if row.get('level') == 'scope'
@@ -173,17 +178,24 @@ def prepare(report, inventory, snapshot):
     scoped.update(resources=[{key: value for key, value in row.items() if key != 'data'} for row in selected],
                   findings=findings, graphs={'network': graph}, coverage=coverage,
                   exposure_findings=list(exposure.values()))
-    return {'report': scoped, 'inventory': selected}
+    return {'report': scoped, 'inventory': selected,
+            'source_inventory': inventory, 'source_report': report,
+            'snapshot_context': snapshot_context(snapshot)}
 
 
 def build(root, platform, reviews, write_json):
     from .briefing import build as build_context
     # Enforce the handoff at the file-writing boundary as well as scheduling.
-    platform = prepare(platform['report'], platform['inventory'], {})
+    original = platform
+    platform = prepare(platform.get('source_report', platform['report']),
+                       platform.get('source_inventory', platform['inventory']), {})
+    if platform is not None:
+        for key in ('source_inventory', 'source_report', 'snapshot_context'):
+            if key in original:
+                platform[key] = original[key]
     if platform is None:
         raise ValueError('network_context_unavailable')
-    # The lookup database contains native network evidence only. Exposure
-    # issue summaries are supplied separately as a deduplication catalog.
+    # Projected first reads are backed by complete original source lookups.
     build_context(root, platform, platform['report']['findings'], reviews, write_json)
     write_json(root / 'exposure.json', {'findings': platform['report']['exposure_findings']})
     graph = platform['report']['graphs']['network']

@@ -31,6 +31,16 @@ def context(stage, root):
             for ident, detail in rows('resources', True):
                 row = json.loads(detail)
                 inventory.append({key: row[key] for key in ('id', 'provider', 'scope', 'native_id', 'service') if key in row})
+            # Full source inventory can exceed the old projected-row ceiling.
+            # The bounded SQLite transport already limits its bytes. Only index
+            # metadata is needed to validate references, never native secrets.
+            known = {row['id'] for row in inventory}
+            column = 'summary' if any(row[1] == 'summary' for row in db.execute('PRAGMA table_info(records)')) else 'detail'
+            for ident, summary in db.execute(f"SELECT id,{column} FROM records WHERE domain='source_resources'"):
+                if ident not in known:
+                    row = json.loads(summary)
+                    inventory.append({key: row[key] for key in ('id', 'provider', 'scope', 'native_id', 'service') if key in row})
+                    known.add(ident)
             return {'inventory': inventory, 'report': {'graphs': {'network': {
                 'nodes': [{'id': row[0]} for row in rows('network_nodes')],
                 'edges': [{'id': row[0]} for row in rows('network_edges')]}}}}

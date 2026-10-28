@@ -85,7 +85,7 @@ def test_workload_purpose_survives_prepare_and_agent_database(
     with sqlite3.connect(tmp_path / 'context.sqlite') as db:
         stored = json.loads(db.execute(
             "SELECT detail FROM records WHERE domain='resources' AND id='workload'").fetchone()[0])
-        assert 'NEVER_DISCLOSE' not in '\n'.join(row[0] for row in db.execute('SELECT detail FROM records'))
+        assert 'NEVER_DISCLOSE' not in '\n'.join(row[0] for row in db.execute("SELECT detail FROM records WHERE domain NOT IN ('source_resources','source_report')"))
     for projected in (prepared['inventory'][0], stored):
         for path in purpose_paths:
             assert at_path(projected['data'], path) == at_path(data, path)

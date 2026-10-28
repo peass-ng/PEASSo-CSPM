@@ -121,18 +121,14 @@ def build(root, platform, assigned, reviews, write_json):
             category = row.get('category')
             review = None if category in ('hardening', 'exposure') else reviewed.get(ident)
             verdict = review['verdict'] if review else row.get('status')
-            # Priorities receives only confirmed failing Hardening/Exposure
-            # checks, including in the underlying evidence lookup database.
-            if category in ('hardening', 'exposure') and (row.get('status') != 'FAIL' or verdict != 'FAIL'):
-                continue
+            # Keep every native status reachable; uncertainty is evidence too.
             verdict_counts[f'{category}:{verdict}'] += 1
             summary = {key: row[key] for key in ('check_id', 'category', 'title', 'scope', 'severity', 'resource_id', 'status') if key in row}
             summary['verdict'] = verdict
             if review and review.get('reason'):
                 summary['review_reason'] = review['reason']
             put('findings', ident, summary, {'finding': row, 'review': review}, severity=row.get('severity', 'info'))
-            if (category not in ('hardening', 'exposure', 'privesc', 'network') or verdict in REJECTED
-                    or row.get('status') not in ('FAIL', 'UNKNOWN', 'MANUAL', 'DENIED')):
+            if (verdict in REJECTED or row.get('status') not in ('FAIL', 'UNKNOWN', 'MANUAL', 'DENIED')):
                 continue
             key = (category, row.get('check_id'), verdict)
             group = groups.setdefault(key, {'category': category, 'check_id': row.get('check_id'),
@@ -258,9 +254,28 @@ def build(root, platform, assigned, reviews, write_json):
         from .decision_brief import catalog
         sections = catalog(db)
         db.commit()
+        # Preserve original source fields after graph linking: large raw fields
+        # need exact lookup, not another expensive reference traversal.
+        for key, value in platform.get('source_report', report).items():
+            put('source_report', key, {'field': key}, value)
+        for key, value in platform.get('snapshot_context', {}).items():
+            put('source_snapshot', key, {'field': key}, value)
+        for row in platform.get('source_inventory', []):
+            put('source_resources', row['id'],
+                {key: row[key] for key in ('native_id', 'type', 'provider', 'scope', 'service') if key in row}, row)
+        if 'network_review' in platform:
+            put('metadata', 'network_review', {'field': 'network_review'}, platform['network_review'])
+        flush_records()
+        db.commit()
+        resource_counts = dict(Counter(row.get('type', 'unknown') for row in platform.get('source_inventory', platform.get('inventory', []))))
         source_counts = dict(db.execute("SELECT domain,COUNT(*) FROM records WHERE domain NOT LIKE 'decision_%' GROUP BY domain ORDER BY domain"))
         overview = {'version': 2, 'scan': {key: compact(value) for key, value in scan.items()},
             'review_counts': dict(sorted(verdict_counts.items())),
+            'data_index': {'domains': source_counts, 'resource_types': resource_counts,
+                'report_fields': list(platform.get('source_report', report)),
+                'snapshot_fields': list(platform.get('snapshot_context', {})),
+                'lookup': "python context.py list DOMAIN --all; python context.py get DOMAIN ID --path ''; use --keys to page object keys and JSON Pointer paths for large values",
+                'semantics': 'Every native finding status is reachable. Cases are critical-first candidates; source_report retains every original report field. source_resources retains unprojected inventory when resources is projected. source_snapshot retains account metadata and collection receipts.'},
             'counts': {'cases': {key: len(value) for key, value in sections.items()}, 'source_records': source_counts},
             'coverage': {'least_privilege': compact(least.get('coverage', {})), 'scan_gaps': compact(gaps)},
             'sections': sections,

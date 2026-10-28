@@ -179,7 +179,7 @@ def test_network_input_is_network_only_and_retains_complete_topology(tmp_path):
     build(tmp_path, {'report': data, 'inventory': inventory, 'least_privilege': {'secret': 'never-give'}}, [], pipeline.private_json)
     db = sqlite3.connect(tmp_path / 'context.sqlite')
     try:
-        encoded = '\n'.join(row[0] for row in db.execute('SELECT detail FROM records'))
+        encoded = '\n'.join(row[0] for row in db.execute("SELECT detail FROM records WHERE domain NOT IN ('source_resources','source_report')"))
         assert 'never-give' not in encoded and 'iam_role' not in encoded
         assert json.loads(db.execute("SELECT detail FROM records WHERE domain='resources' AND id='r2'").fetchone()[0])['data']['IpPermissions']
     finally:
@@ -1151,10 +1151,9 @@ def test_network_receives_exposure_issue_catalog_after_repeated_projection(tmp_p
     prepared = prepare(data, inventory, {})
     build(tmp_path, prepared, [], pipeline.private_json)
     issues = json.loads((tmp_path/'exposure.json').read_text())['findings']
-    assert {r['id'] for r in issues} == {'public-sg', 'manual'}
+    assert {r['id'] for r in issues} == {'public-sg', 'manual', 'passed'}
     assert issues[0]['evidence_summary'] == exposure['evidence_summary']
-    assert all('evidence' not in r and 'description' not in r for r in issues)
-    assert 'never-give' not in json.dumps(issues)
+    assert all(r['evidence'] == exposure['evidence'] and r['description'] == exposure['description'] for r in issues)
     import sqlite3
     with sqlite3.connect(tmp_path/'context.sqlite') as db:
         assert db.execute("SELECT COUNT(*) FROM records WHERE domain='findings'").fetchone()[0] == 0

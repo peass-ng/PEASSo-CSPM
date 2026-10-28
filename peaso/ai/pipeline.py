@@ -549,7 +549,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                   '600' if isolation.remote() else '300')),
                   time.monotonic() + max(0, until_deadline - publish_reserve(until_deadline, isolation.remote()))
                   if deadline else float('inf'))
-        from .network import prepare, with_findings
+        from .network import prepare, with_findings, snapshot_context
         network = prepare(report, inventory, snapshot) if 'network' in selected else None
         prior = (reused_stages or {}).get('network')
         if (network is not None and isinstance(prior, dict) and prior.get('status') == 'completed'
@@ -591,9 +591,9 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                     raise MemoryError('ai_memory_headroom_unavailable')
                 from peaso.least_privilege import project
                 platform = {'report': priorities_report, 'inventory': inventory,
+                            'snapshot_context': snapshot_context(snapshot),
                             'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
-                            'network_review': {key: result['network'][key]
-                                               for key in ('status', 'explanation')}}
+                            'network_review': result['network']}
                 data = invoke_before_deadline('priorities', platform, entries, token,
                     hardening + exposure, reviewed, end, stage_limit('priorities', isolation.remote()),
                     **({'cancel_event': cancel_event} if cancel_event is not None else {}))
