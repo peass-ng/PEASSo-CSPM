@@ -358,15 +358,38 @@ def test_app_service_private_endpoint_default_and_ase_surface_modes():
     assert verdict("None", private=True, access=None).verdict() == "PASS"
 
 
+def test_app_service_parent_authentication_is_informational_for_public_listener():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    site = {"id": site_id, "properties": {"defaultHostName": "app.azurewebsites.net",
+            "publicNetworkAccess": "Enabled", "enabledHostNames": ["app.azurewebsites.net"]},
+            "_coverage": {"authSettingsV2": {"status": "collected"}},
+            "authSettingsV2": {"id": site_id + "/config/authsettingsV2", "properties": {
+                "platform": {"enabled": True}, "globalValidation": {
+                    "requireAuthentication": True, "unauthenticatedClientAction": "Return403", "excludedPaths": []}}}}
+    config = {"id": site_id + "/config/web", "parent_id": site_id, "properties": {
+        "ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": "Allow",
+        "scmIpSecurityRestrictionsUseMain": False, "scmIpSecurityRestrictions": [],
+        "scmIpSecurityRestrictionsDefaultAction": "Deny"}}
+    snap = make_snapshot("azure", [SCOPE], [
+        {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected", "items": [site]},
+        {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected", "items": [config]}])
+    result = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+    assert result.verdict() == "FAIL" and result.authenticated is True
+    assert next(step for step in result.path if step["layer"] == "app_authentication")["decision"] == "require"
+
+
 def test_app_service_slot_uses_its_own_cached_configuration():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     slot_id = site_id + "/slots/staging"
 
-    def slot_decision(main_default, status="collected", scm_default="Deny"):
+    def slot_decision(main_default, status="collected", scm_default="Deny", auth_action="Return401", excluded=None):
         slot = {"id": slot_id, "parent_id": site_id, "properties": {
             "defaultHostName": "app-staging.azurewebsites.net", "publicNetworkAccess": "Enabled",
             "enabledHostNames": ["app-staging.azurewebsites.net", "app-staging.scm.azurewebsites.net"]},
-            "_coverage": {"configuration": {"status": status}}}
+            "_coverage": {"configuration": {"status": status}, "authSettingsV2": {"status": "collected"}}}
+        slot["authSettingsV2"] = {"id": slot_id + "/config/authsettingsV2", "properties": {
+            "platform": {"enabled": True}, "globalValidation": {"requireAuthentication": True,
+            "unauthenticatedClientAction": auth_action, "excludedPaths": [] if excluded is None else excluded}}}
         if status == "collected":
             slot["configuration"] = {"id": slot_id + "/config/web", "properties": {
                 "ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": main_default,
@@ -379,9 +402,16 @@ def test_app_service_slot_uses_its_own_cached_configuration():
 
     public = slot_decision("Allow")
     assert public.verdict() == "FAIL"
+    assert public.authenticated is True
+    assert next(step for step in public.path if step["layer"] == "app_authentication")["decision"] == "require"
     assert slot_decision("Deny").verdict() == "PASS"
     assert slot_decision("Deny", scm_default="Allow").verdict() == "FAIL"
     assert slot_decision("Allow", status="partial").verdict() == "UNKNOWN"
+    anonymous = slot_decision("Allow", auth_action="AllowAnonymous")
+    assert anonymous.verdict() == "FAIL" and anonymous.authenticated is False
+    excepted = slot_decision("Allow", excluded=["/public"])
+    assert excepted.verdict() == "FAIL" and excepted.authenticated is False
+    assert next(step for step in excepted.path if step["layer"] == "app_authentication")["decision"] == "unknown"
 
 
 def test_anonymous_blob_requires_container_and_account_gates():

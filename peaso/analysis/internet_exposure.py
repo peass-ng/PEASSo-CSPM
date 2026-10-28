@@ -4287,6 +4287,41 @@ def _azure_app_ase_mode(inventory, props):
     return mode, ase_id
 
 
+def _azure_app_authentication(assessment, resource, main, scm):
+    """Record the built-in auth gate without treating it as a network block."""
+    site = resource["data"]
+    coverage = (site.get("_coverage") or {}).get("authSettingsV2") or {}
+    auth = site.get("authSettingsV2")
+    expected = str(site.get("id", "")) + "/config/authsettingsV2"
+    if (coverage.get("status") != "collected" or not isinstance(auth, dict)
+            or str(auth.get("id", "")).casefold() != expected.casefold()
+            or not isinstance(auth.get("properties"), dict)):
+        assessment.step("app_authentication", "unknown", reason="site or slot authsettingsV2 not fully collected")
+        return
+    props = auth["properties"]
+    platform = props.get("platform")
+    validation = props.get("globalValidation")
+    enabled = platform.get("enabled") if isinstance(platform, dict) else None
+    required = validation.get("requireAuthentication") if isinstance(validation, dict) else None
+    action = validation.get("unauthenticatedClientAction") if isinstance(validation, dict) else None
+    excluded = validation.get("excludedPaths") if isinstance(validation, dict) else None
+    no_exceptions = isinstance(excluded, list) and not excluded
+    restrictive = action in ("RedirectToLoginPage", "Return401", "Return403")
+    if enabled is True and required is True and restrictive and no_exceptions:
+        assessment.step("app_authentication", "require", platform_enabled=True,
+                        require_authentication=True, unauthenticated_action=action, excluded_paths=[])
+        if main == "allow" and scm == "block":
+            assessment.authenticated = True
+    elif enabled is False or required is False or action == "AllowAnonymous":
+        assessment.step("app_authentication", "not_required", platform_enabled=enabled,
+                        require_authentication=required, unauthenticated_action=action,
+                        excluded_paths=excluded if isinstance(excluded, list) else None)
+    else:
+        assessment.step("app_authentication", "unknown", platform_enabled=enabled,
+                        require_authentication=required, unauthenticated_action=action,
+                        excluded_paths=excluded if isinstance(excluded, list) else None)
+
+
 def _azure_app_service(snapshot, inventory, resource, configs):
     props = _props(resource)
     a = Assessment(resource, "web_app")
@@ -4354,12 +4389,12 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.addresses.extend(scm_hosts)
     decision = ("allow" if "allow" in (main, scm) else
                 "block" if main == scm == "block" else "unknown")
+    _azure_app_authentication(a, resource, main, scm)
     a.step("access_restrictions", decision, main={"decision": main, **main_detail},
            scm={"decision": scm, **scm_detail}, scm_hosts=scm_hosts)
     if decision == "unknown":
         a.gap("access_restrictions", "main or SCM public-site restriction decision is unresolved")
     a.ports = ports if decision == "allow" else {}
-    a.notes.append("App Service authentication (Easy Auth) settings are not collected")
     return a
 
 

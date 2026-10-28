@@ -28,6 +28,12 @@ def test_plans_environments_slots_and_site_logs_are_collected_without_sas_urls()
             return {"id": path, "type": "Microsoft.Web/sites/slots/config", "properties": {
                 "ipSecurityRestrictionsDefaultAction": "Deny", "scmIpSecurityRestrictionsUseMain": True,
                 "appSettings": [{"name": "secret", "value": "SLOT_SECRET_VALUE"}]}}
+        if path == SITE + "/slots/staging/config/authsettingsV2":
+            return {"id": path, "type": "Microsoft.Web/sites/slots/config", "properties": {
+                "platform": {"enabled": True}, "globalValidation": {
+                    "requireAuthentication": True, "unauthenticatedClientAction": "Return401",
+                    "excludedPaths": []}, "identityProviders": {
+                    "azureActiveDirectory": {"enabled": True, "registration": {"clientSecret": "SLOT_AUTH_SECRET"}}}}}
         if path == SITE + "/config/logs":
             return {"id": SITE + "/config/logs", "name": "logs", "properties": {
                 "failedRequestsTracing": {"enabled": False}, "detailedErrorMessages": {"enabled": True},
@@ -45,7 +51,10 @@ def test_plans_environments_slots_and_site_logs_are_collected_without_sas_urls()
     assert slot["items"][0]["properties"]["httpsOnly"] is False and slot["items"][0]["parent_id"] == SITE
     assert slot["items"][0]["_coverage"]["configuration"]["status"] == "collected"
     assert slot["items"][0]["configuration"]["properties"]["ipSecurityRestrictionsDefaultAction"] == "Deny"
+    assert slot["items"][0]["_coverage"]["authSettingsV2"]["status"] == "collected"
+    assert slot["items"][0]["authSettingsV2"]["properties"]["globalValidation"]["excludedPaths"] == []
     assert "SLOT_SECRET_VALUE" not in repr(snapshot)
+    assert "SLOT_AUTH_SECRET" not in repr(snapshot)
     site = rows(snapshot, "app_service")[0]["items"][0]
     logs = site["logsConfiguration"]["properties"]
     assert logs["failedRequestsTracing"] == {"enabled": False}

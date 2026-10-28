@@ -250,6 +250,7 @@ EMBEDDED_SINGLETONS = {
                     # Microsoft.Web/sites/basicPublishingCredentialsPolicies/read: only the allow flag is kept.
                     ("scmBasicAuthPolicy", "basicPublishingCredentialsPolicies/scm", "2023-12-01"), ("ftpBasicAuthPolicy", "basicPublishingCredentialsPolicies/ftp", "2023-12-01")),
     "app_service_slot": (("configuration", "config/web", "2023-12-01"),
+                         ("authSettingsV2", "config/authsettingsV2", "2025-05-01"),
                          ("scmBasicAuthPolicy", "basicPublishingCredentialsPolicies/scm", "2023-12-01")),
     "eventhub_namespace": (("networkRuleSet", "networkRuleSets/default", "2024-01-01"),),
     "servicebus_namespace": (("networkRuleSet", "networkRuleSets/default", "2022-10-01-preview"),),
@@ -684,7 +685,7 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                 elif field == "authSettingsV2":
                     props = value["properties"]
                     safe = {}
-                    for key, fields in (("platform", ("enabled",)), ("globalValidation", ("requireAuthentication", "unauthenticatedClientAction"))):
+                    for key, fields in (("platform", ("enabled",)), ("globalValidation", ("requireAuthentication", "unauthenticatedClientAction", "excludedPaths"))):
                         if key in props:
                             safe[key] = {name: data for name, data in props[key].items() if name in fields} if isinstance(props[key], dict) else props[key]
                     if "identityProviders" in props:
