@@ -4700,7 +4700,13 @@ def _azure_function_triggers(assessment, inventory, resource):
 def _azure_app_service(snapshot, inventory, resource, configs):
     props = _props(resource)
     a = Assessment(resource, "web_app")
-    a.addresses = [h for h in as_list(props.get("defaultHostName")) if h]
+    enabled_hosts = props.get("enabledHostNames")
+    if isinstance(enabled_hosts, list):
+        a.addresses = sorted({host for host in enabled_hosts if isinstance(host, str) and
+                              host and ".scm." not in host.lower()})
+    else:
+        a.addresses = [host for host in as_list(props.get("defaultHostName"))
+                       if isinstance(host, str) and host]
     public_access = props.get("publicNetworkAccess")
     if str(public_access).lower() == "disabled":
         a.step("public_network_access", "block", public_network_access="Disabled")
@@ -4765,6 +4771,9 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         if scm == "allow":
             scm, scm_detail = "unknown", {**scm_detail,
                 "reason": "SCM listener under disabled public hostnames is not documented by the site flag"}
+    if main == "allow" and not a.addresses:
+        main, main_detail = "unknown", {**main_detail,
+            "reason": "enabled main hostname is not recorded"}
     if ase_id:
         a.step("hosting_environment", "unknown" if ase_mode == "unknown" else "allow",
                ase_id=ase_id, internal_load_balancing_mode=ase_mode)
@@ -7302,7 +7311,9 @@ def _observed(assessment, status):
         if not restriction:
             missing = "main and SCM IP restriction settings"
         elif main == "unknown":
-            missing = "main IP restriction decision"
+            missing = ("enabled main hostname" if "hostname" in
+                       (restriction.get("main") or {}).get("reason", "") else
+                       "main IP restriction decision")
         else:
             missing = "SCM IP restriction decision or SCM hostname"
         return (f"The App Service has no complete recorded {missing}.\n"

@@ -428,6 +428,35 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow"}, scm_hostname=False).verdict() == "FAIL"
 
 
+def test_app_service_main_hostname_uses_recorded_enabled_names():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    config = {"ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": "Allow",
+              "scmIpSecurityRestrictionsUseMain": False,
+              "scmIpSecurityRestrictions": [], "scmIpSecurityRestrictionsDefaultAction": "Deny"}
+
+    def check(hosts, default="app.azurewebsites.net", scm_default="Deny"):
+        site = {"publicNetworkAccess": "Enabled", "enabledHostNames": hosts}
+        if default is not None:
+            site["defaultHostName"] = default
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id, "properties": site}]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected",
+             "items": [{"id": site_id + "/config/web", "parent_id": site_id,
+                        "properties": {**config, "scmIpSecurityRestrictionsDefaultAction": scm_default}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "app_service")
+
+    custom = check(["custom.example.com"], default=None)
+    assert custom.verdict() == "FAIL" and custom.addresses == ["custom.example.com"]
+    assert check(["custom.example.com"]).addresses == ["custom.example.com"]
+    missing_main = check(["app.scm.azurewebsites.net"])
+    assert missing_main.verdict() == "UNKNOWN" and missing_main.addresses == []
+    assert "enabled main hostname" in _observed(missing_main, "UNKNOWN")
+    scm = check(["app.scm.azurewebsites.net"], scm_default="Allow")
+    assert scm.verdict() == "FAIL" and scm.addresses == ["app.scm.azurewebsites.net"]
+
+
 def test_app_service_service_tag_and_vnet_rules_preserve_public_source_priority():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     tag = {"name": "AzureFrontDoor.Backend", "properties": {"addressPrefixes": ["8.8.8.0/24"]}}
