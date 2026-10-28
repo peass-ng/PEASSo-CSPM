@@ -58,7 +58,8 @@ def kill_tree(process):
     process.wait(timeout=5)
 
 
-def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cancel_event=None):
+def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cancel_event=None,
+           on_prepared=None):
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
     if any(entry.get('provider') == 'aws' for entry in entries):
@@ -100,6 +101,8 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
                 build(root, platform, reviews, private_json)
             for name, data in files.items():
                 private_json(root / (name + '.json'), data)
+            if on_prepared is not None:
+                on_prepared()
 
         if remote:
             from .fargate import invoke as invoke_remote
@@ -153,17 +156,21 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
 
 
 def invoke_before_deadline(stage, platform, entries, token, findings, reviews, end, limit,
-                           *, cancel_event=None):
+                           *, cancel_event=None, on_prepared=None):
     from .fargate import TaskStartupError
     for attempt in range(2):
         remaining = end - time.monotonic()
         if remaining <= 0:
             raise TimeoutError()
         try:
-            if cancel_event is None:
+            if cancel_event is None and on_prepared is None:
                 return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining))
-            return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining),
-                          cancel_event=cancel_event)
+            kwargs = {}
+            if cancel_event is not None:
+                kwargs['cancel_event'] = cancel_event
+            if on_prepared is not None:
+                kwargs['on_prepared'] = on_prepared
+            return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining), **kwargs)
         except TaskStartupError:
             if attempt:
                 raise
@@ -489,7 +496,8 @@ def selected_stages(selectors, stages=None):
 
 
 def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None, context=None,
-                stages=None, reused_stages=None, cancel_event=None):
+                stages=None, reused_stages=None, cancel_event=None,
+                require_reused_network=False, on_prepared=None):
     """Run remaining AI stages with native FAILs as final Priorities inputs."""
     selected = selected_stages(selectors, stages)
     result = {'version': 1, 'status': 'skipped', 'actions': [],
@@ -572,6 +580,10 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             except (KeyError, TypeError, ValueError):
                 pass
         failed_stage = False
+        if require_reused_network and 'network' not in result:
+            # Early Priorities must never launch a second Network task from a
+            # stale or invalid pre-publication stage result.
+            return None
         if network is not None and 'network' not in result:
             try:
                 review_end = end - min(600 if isolation.remote() else 60,
@@ -600,7 +612,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                             'network_review': result['network']}
                 data = invoke_before_deadline('priorities', platform, entries, token,
                     hardening + exposure, reviewed, end, stage_limit('priorities', isolation.remote()),
-                    **({'cancel_event': cancel_event} if cancel_event is not None else {}))
+                    **({key: value for key, value in
+                        (('cancel_event', cancel_event), ('on_prepared', on_prepared)) if value is not None}))
                 recommendations = validate_actions(data, priorities_report, reviewed,
                                                     require_assessment=True)
                 result['actions'] = recommendations['actions']

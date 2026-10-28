@@ -854,34 +854,81 @@ def _process(role, request, connection):
                 with _runtime_span('worker.ai'):
                     value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
                                               deadline=request.get("deadline"), context=request.get("ai_context"))
+            early_thread = None
+            early_stages = {}
+            early_result = {}
+            early_cancel = threading.Event()
+            if not ai_disabled and request.get("stage_results"):
+                from peaso.ai import isolation
+                from peaso.ai.pipeline import available_memory, selected_stages
+                if (isolation.remote() and {'network', 'priorities'} <= selected_stages(selectors)
+                        and available_memory() >= 768 * 1024**2):
+                    early_stages = _reusable_stages(artifacts, tenant, sections, request["stage_results"])
+                    if 'network' in early_stages:
+                        prepared = threading.Event()
+
+                        def run_early_review():
+                            try:
+                                with _runtime_span('worker.ai'):
+                                    early_result['value'] = review_scan(value, snapshot, selectors,
+                                        tenant=tenant, artifacts=artifacts, deadline=request.get("deadline"),
+                                        context=request.get("ai_context"), reused_stages=early_stages,
+                                        cancel_event=early_cancel, require_reused_network=True,
+                                        on_prepared=prepared.set)
+                            except BaseException as exc:
+                                early_result['error'] = exc
+                            finally:
+                                prepared.set()
+
+                        early_thread = threading.Thread(target=run_early_review,
+                                                        name='peaso-priorities-early', daemon=True)
+                        early_thread.start()
+                        # Finish local context construction before the CPU-heavy
+                        # native publication; the remote model can run during it.
+                        remaining = (request.get("deadline") or time.time() + 240) - time.time() - 120
+                        prepared.wait(timeout=max(0, min(120, remaining)))
             native_value = dict(value, publication={"state": "final" if ai_disabled else "partial",
                 "phase": "completed" if ai_disabled else "analyzing",
                 "sequence": native_sequence, "sections": sections})
-            with _runtime_span('worker.final_publish'):
-                native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot,
-                                                  _shared=publication_shared)
-            connection.send(("__checkpoint__", {"sequence": native_sequence,
-                "stage": "analyzer_native", "snapshot_ref": request["snapshot_ref"],
-                "report_ref": native_reference, "kind": None, "scope": None}))
-            if connection.recv() != ("__checkpoint_ack__", native_sequence, True):
-                raise RuntimeError("native analysis checkpoint rejected")
-            if request.get("refresh_stage_results"):
-                connection.send(("__stage_results__", None))
-                reply = connection.recv()
-                if (not isinstance(reply, tuple) or len(reply) != 2
-                        or reply[0] != "__stage_results__" or not isinstance(reply[1], dict)):
-                    raise RuntimeError("progressive stage result handoff rejected")
-                request["stage_results"] = reply[1]
-            reused_stages = _reusable_stages(artifacts, tenant, sections, request.get("stage_results"))
+            try:
+                with _runtime_span('worker.final_publish'):
+                    native_reference = publish_report(publication_artifacts, tenant, ident, native_value, snapshot,
+                                                      _shared=publication_shared)
+                connection.send(("__checkpoint__", {"sequence": native_sequence,
+                    "stage": "analyzer_native", "snapshot_ref": request["snapshot_ref"],
+                    "report_ref": native_reference, "kind": None, "scope": None}))
+                if connection.recv() != ("__checkpoint_ack__", native_sequence, True):
+                    raise RuntimeError("native analysis checkpoint rejected")
+                if request.get("refresh_stage_results"):
+                    connection.send(("__stage_results__", None))
+                    reply = connection.recv()
+                    if (not isinstance(reply, tuple) or len(reply) != 2
+                            or reply[0] != "__stage_results__" or not isinstance(reply[1], dict)):
+                        raise RuntimeError("progressive stage result handoff rejected")
+                    request["stage_results"] = reply[1]
+                reused_stages = _reusable_stages(artifacts, tenant, sections, request.get("stage_results"))
+            except BaseException:
+                if early_thread is not None:
+                    early_cancel.set()
+                    early_thread.join(timeout=30)
+                raise
             if ai_disabled:
                 # Acknowledgement and progressive-stage fencing above remain
                 # mandatory. The exact final native bundle is already durable.
                 reference = native_reference
             else:
-                with _runtime_span('worker.ai'):
-                    value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
-                                              deadline=request.get("deadline"), context=request.get("ai_context"),
-                                              reused_stages=reused_stages)
+                if early_thread is not None:
+                    if reused_stages != early_stages:
+                        early_cancel.set()
+                    early_thread.join()
+                if (early_thread is not None and reused_stages == early_stages
+                        and isinstance(early_result.get('value'), dict)):
+                    value["ai"] = early_result['value']
+                else:
+                    with _runtime_span('worker.ai'):
+                        value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
+                                                  deadline=request.get("deadline"), context=request.get("ai_context"),
+                                                  reused_stages=reused_stages)
                 from peaso.ai.network import with_findings
                 value = with_findings(value, value["ai"].get("network", {}).get("findings", []))
                 value["publication"] = {"state": "final", "phase": "completed", "sequence": native_sequence,
