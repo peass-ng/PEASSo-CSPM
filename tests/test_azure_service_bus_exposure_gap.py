@@ -8,9 +8,9 @@ RID = SCOPE + "/resourceGroups/rg/providers/Microsoft.ServiceBus/namespaces/bus"
 FOREIGN = "/subscriptions/22222222-2222-2222-2222-222222222222/resourceGroups/rg/providers/Microsoft.Network/privateEndpoints/peer"
 
 
-def _assess(public="Enabled", action="Allow", remote=None, state="Approved"):
+def _assess(public="Enabled", action="Allow", remote=None, state="Approved", provisioning="Succeeded"):
     connections = [] if remote is None else [{"properties": {"privateEndpoint": {"id": remote},
-        "privateLinkServiceConnectionState": {"status": state}, "provisioningState": "Succeeded"}}]
+        "privateLinkServiceConnectionState": {"status": state}, "provisioningState": provisioning}}]
     item = {"id": RID, "name": "bus", "type": "Microsoft.ServiceBus/namespaces",
         "properties": {"publicNetworkAccess": public, "serviceBusEndpoint": "https://bus.servicebus.windows.net",
                        "disableLocalAuth": True, "privateEndpointConnections": connections},
@@ -35,3 +35,8 @@ def test_foreign_private_endpoint_is_a_share_even_when_public_access_disabled():
     assert a.ports == {"tcp": ((443, 443), (5671, 5671))}
     assert _assess(public="Disabled", remote=FOREIGN, state="Pending").verdict() == "PASS"
     assert _assess(public="Disabled").verdict() == "PASS"
+
+
+def test_unresolved_private_endpoint_prevents_false_isolation_verdict():
+    assert _assess(action="Deny", remote=FOREIGN, provisioning="Updating").verdict() == "UNKNOWN"
+    assert _assess(action="Deny", remote=FOREIGN, state="Pending").verdict() == "PASS"

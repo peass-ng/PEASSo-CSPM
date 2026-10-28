@@ -9592,6 +9592,31 @@ _AZURE_MANAGED_ENDPOINTS = {
 }
 
 
+def _azure_foreign_private_endpoints(data, props):
+    """Classify approved ARM private links using the owning subscription."""
+    parent_id = data.get("id")
+    parent = re.match(r"/subscriptions/([^/]+)/", parent_id, re.I) if isinstance(parent_id, str) else None
+    coverage = props.get("_coverage") or {}
+    unknown = isinstance(coverage, dict) and (coverage.get("privateEndpointConnections") or {}).get("status") == "malformed"
+    connections = props.get("privateEndpointConnections", [])
+    if not isinstance(connections, list):
+        return [], True
+    external = []
+    for connection in connections:
+        details = connection.get("properties") if isinstance(connection, dict) else None
+        endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+        state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+        remote_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+        remote = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+", remote_id, re.I) if isinstance(remote_id, str) else None
+        status = state.get("status") if isinstance(state, dict) else None
+        if status == "Approved" and details.get("provisioningState") == "Succeeded" and remote and parent:
+            if remote.group(1).casefold() != parent.group(1).casefold():
+                external.append(remote_id)
+        elif status == "Approved" or status not in ("Pending", "Rejected", "Disconnected"):
+            unknown = True
+    return sorted(set(external)), unknown
+
+
 def _azure_managed_endpoint(snapshot, inventory, resource):
     """Surface explicit public endpoint settings without inventing firewall joins."""
     props = _props(resource)
@@ -9600,30 +9625,14 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
     endpoint_ports = union(pset("tcp", 443, 443), pset("tcp", 5671, 5671)) if kind == "servicebus_namespace" else pset("tcp", port, port)
-    if kind == "servicebus_namespace":
-        # A private endpoint can share this namespace with a foreign subscription
-        # even when the public network gate is disabled.
-        parent_id = resource["data"].get("id")
-        parent = re.match(r"/subscriptions/([^/]+)/", parent_id, re.I) if isinstance(parent_id, str) else None
-        connections = props.get("privateEndpointConnections", [])
-        if not isinstance(connections, list):
-            a.gap("inventory", "Service Bus private endpoint connections are malformed")
-        for connection in connections if isinstance(connections, list) else []:
-            details = connection.get("properties") if isinstance(connection, dict) else None
-            endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
-            state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
-            remote_id = endpoint.get("id") if isinstance(endpoint, dict) else None
-            remote = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+", remote_id, re.I) if isinstance(remote_id, str) else None
-            status = state.get("status") if isinstance(state, dict) else None
-            if status == "Approved" and details.get("provisioningState") == "Succeeded" and remote and parent:
-                if remote.group(1).casefold() != parent.group(1).casefold():
-                    a.external_ids.append(remote_id)
-            elif status == "Approved" or status not in ("Pending", "Rejected", "Disconnected"):
-                a.gap("inventory", "Service Bus private endpoint approval or identity is unresolved")
+    private_unknown = False
+    if kind in ("servicebus_namespace", "search_service"):
+        a.external_ids, private_unknown = _azure_foreign_private_endpoints(resource["data"], props)
         if a.external_ids:
             a.step("private_link_share", "allow", outside_private_endpoints=sorted(a.external_ids))
             a.ports = endpoint_ports
             a.explicit = "FAIL"
+    if kind == "servicebus_namespace":
         local_auth = props.get("disableLocalAuth")
         coverage = (resource["data"].get("_coverage") or {}).get("authorizationRules") or {}
         rules = resource["data"].get("authorizationRules")
@@ -9687,6 +9696,8 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     if isinstance(public, str) and public.lower() == "disabled":
         a.step("public_network_access", "block", public_network_access=public)
         a.ports = endpoint_ports if a.external_ids else {}
+        if private_unknown and not a.external_ids:
+            a.explicit = "UNKNOWN"
         if kind in ("vault", "managed_hsm"):
             acls = props.get("networkAcls")
             bypass = acls.get("bypass", "AzureServices") if isinstance(acls, dict) else None
@@ -9799,6 +9810,8 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         else:
             a.step("firewall", "block", reason="no public-source IP rule")
             a.ports = {}
+            if private_unknown and not a.external_ids:
+                a.explicit = "UNKNOWN"
         return a
     # A private endpoint does not close an explicitly enabled public endpoint.
     rules = namespace_rules if kind in ("servicebus_namespace", "eventhub_namespace") else props.get(rules_name)
@@ -9847,6 +9860,8 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                     return a
                 a.step("firewall", "block", reason="no public-source IP rule", default_action=action)
                 a.ports = {}
+                if private_unknown and not a.external_ids:
+                    a.explicit = "UNKNOWN"
                 return a
             if as_list(rules.get("ipRules")) or as_list(rules.get("virtualNetworkRules")):
                 a.gap("firewall", f"{rules_name} allow rules require effective source evaluation")
@@ -9854,6 +9869,8 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 return a
             a.step("firewall", "block", default_action=action)
             a.ports = {}
+            if private_unknown and not a.external_ids:
+                a.explicit = "UNKNOWN"
             return a
         if action == "Allow":
             a.step("firewall", "allow", default_action=action)
