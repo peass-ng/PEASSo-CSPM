@@ -142,7 +142,7 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
     nonglobal = lb_decision({"backendIPConfigurations": [{"id": config_id}]},
                             public_address="10.0.0.4")
     assert nonglobal.verdict() == "UNKNOWN"
-    assert "assigned global public frontend address not collected" in _observed(nonglobal, "UNKNOWN")
+    assert "no recorded assigned global public frontend address" in _observed(nonglobal, "UNKNOWN")
     assert lb_decision({"backendIPConfigurations": [{"id": config_id}]},
                        public_address="").verdict() == "UNKNOWN"
 
@@ -1867,7 +1867,7 @@ def test_acr_anonymous_pull_follows_the_public_network_path():
     assert blocked.verdict() == "PASS" and blocked.authenticated is False
     assert "blocks direct public access" in _observed(blocked, "PASS")
     unknown = decision("container_registry", {**base})
-    assert unknown.verdict() == "UNKNOWN" and "cannot be determined" in _observed(unknown, "UNKNOWN")
+    assert unknown.verdict() == "UNKNOWN" and "public network path is unresolved" in _observed(unknown, "UNKNOWN")
     authenticated = decision("container_registry", {**base, "anonymousPullEnabled": False,
         "networkRuleSet": {"defaultAction": "Allow"}})
     assert authenticated.verdict() == "FAIL" and authenticated.authenticated is True

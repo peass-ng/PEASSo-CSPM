@@ -259,6 +259,14 @@ _POST_HISTORICAL_METADATA_READS = {
     ('sagemaker', 'list_notebook_instance_lifecycle_configs'),
     ('sagemaker', 'list_spaces'), ('sagemaker', 'list_studio_lifecycle_configs'),
     ('ssm', 'describe_maintenance_window_tasks'), ('ssm', 'describe_maintenance_windows'),
+    ('amplify', 'list_domain_associations'),
+    ('apigatewayv2', 'list_routing_rules'),
+    ('cloudfront', 'get_cloud_front_origin_access_identity'),
+    ('cloudfront', 'get_origin_access_control'),
+    ('elb', 'describe_instance_health'),
+    ('elbv2', 'describe_target_group_attributes'),
+    ('logs', 'describe_account_policies'),
+    ('sns', 'list_subscriptions_by_topic'),
 }
 
 # Resource-policy discovery extends the live input universe. These historical

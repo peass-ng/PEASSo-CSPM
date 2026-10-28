@@ -6,6 +6,7 @@ from peaso.collectors import aws,collect_live
 from peaso.collectors import aws_resource_policy_native as native
 from peaso.snapshot import make_snapshot
 from peaso.engine import evaluate_snapshot,plan_collection
+from peaso import checks  # Load source-attested checks before the SDK stub replaces Session.client.
 
 @pytest.fixture(autouse=True)
 def isolate_original_four_families(monkeypatch):
