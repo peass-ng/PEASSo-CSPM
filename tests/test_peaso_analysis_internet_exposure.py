@@ -286,6 +286,28 @@ def test_ecr_public_repository_declares_anonymous_pull_without_image_inventory()
     assert not exposure(aws(coll("ecr_public_repository", [], service="ecr-public")))
 
 
+def test_cloudwatch_subscription_filter_targets_foreign_log_destination():
+    from peaso.finding_observation import evidence_summary
+    from peaso.analysis.catalog import REQUIRED_TYPES
+
+    assert "log_subscription_filter" in REQUIRED_TYPES["aws"]["exposure"]
+    subscription = {"id": f"arn:aws:logs:us-east-1:{ACCOUNT}:log-group:/app/subscription-filter:to-partner",
+                    "LogGroupArn": f"arn:aws:logs:us-east-1:{ACCOUNT}:log-group:/app",
+                    "logGroupName": "/app", "filterName": "to-partner",
+                    "DestinationArn": "arn:aws:logs:us-east-1:999988887777:destination:partner"}
+    found = one(aws(coll("log_subscription_filter", [subscription], service="logs")), "log_subscription_filter")
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "delivery was not verified" in evidence_summary(found)
+    assert "external export" in found["remediation"]
+
+    internal = {**subscription, "DestinationArn": f"arn:aws:logs:us-east-1:{ACCOUNT}:destination:internal"}
+    assert not exposure(aws(coll("log_subscription_filter", [internal], service="logs")))
+    malformed = {**subscription, "DestinationArn": "not-an-arn"}
+    assert one(aws(coll("log_subscription_filter", [malformed], service="logs")), "log_subscription_filter")["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll("log_subscription_filter", [subscription], service="logs"), trusted))
+
+
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
     (["es:DescribeDomain"], "/*", False, True),
     (["es:ESHttpGet"], "/other/*", False, False),

@@ -372,6 +372,8 @@ def exposure_action(evidence, status):
         return "Collect the missing configuration before deciding whether access needs to change."
     if status == "PASS":
         return "Keep the access restrictions in place."
+    if evidence.get("exposure_kind") == "external_log_stream":
+        return "Review the CloudWatch Logs subscription destination; remove or redirect an unintended external export."
     if evidence.get("exposure_kind") == "public_registry":
         return "Review whether this ECR Public repository is intended; remove or migrate it if its images should be private."
     if evidence.get("exposure_kind") == "external_network":

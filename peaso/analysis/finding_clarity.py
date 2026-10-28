@@ -392,7 +392,7 @@ _EXPOSURE_KINDS={
     'public_ip':'public IP path','load_balancer':'load-balancer frontend','database':'database endpoint',
     'managed_endpoint':'managed service endpoint','control_plane':'cluster control-plane endpoint',
     'function_url':'Lambda function URL','api':'API endpoint','data_share':'stored-data sharing',
-    'external_share':'external snapshot sharing','external_network':'external VPC peering route','public_registry':'public image registry','serverless':'serverless endpoint','web_app':'web application endpoint',
+    'external_share':'external snapshot sharing','external_network':'external VPC peering route','public_registry':'public image registry','external_log_stream':'log subscription destination','serverless':'serverless endpoint','web_app':'web application endpoint',
     'service':'Kubernetes service','ingress':'Kubernetes ingress','malformed':'internet path',
 }
 
@@ -403,6 +403,17 @@ def _internet_summary(finding):
         return _coverage_summary(e)
     if not isinstance(kind,str) or kind not in _EXPOSURE_KINDS:return None
     label=_EXPOSURE_KINDS[kind]
+    if kind=='external_log_stream':
+        path=e.get('path')
+        rows=[step for step in path if isinstance(step,dict) and step.get('layer')=='subscription'] if isinstance(path,list) else []
+        external=e.get('external_scope_ids')
+        if (status=='FAIL' and len(rows)==1 and rows[0].get('decision')=='allow' and _strings(external) and external and
+                rows[0].get('recipient_account')==external[0] and _text(rows[0].get('destination_arn')) and
+                _text(rows[0].get('log_group'))):
+            return 'The CloudWatch Logs subscription for '+rows[0]['log_group']+' targets a destination in external account '+external[0]+'. Matching log events may be sent there; delivery was not verified.'
+        if status=='UNKNOWN' and isinstance(e.get('unresolved'),list) and e['unresolved']:
+            return 'The CloudWatch Logs subscription source or destination is incomplete; external delivery cannot be attributed.'
+        return None
     if kind=='public_registry':
         path=e.get('path')
         rows=[step for step in path if isinstance(step,dict) and step.get('layer')=='public_repository'] if isinstance(path,list) else []
