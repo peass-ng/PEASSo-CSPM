@@ -4240,8 +4240,9 @@ def _azure_lb(snapshot, inventory, resource):
     public_fronts = {}
     for front_id, front in fronts.items():
         public = inventory.get("public_ip", front["properties"]["publicIPAddress"]["id"])
-        if public is not None and _props(public).get("ipAddress"):
-            public_fronts[front_id] = _props(public)["ipAddress"]
+        address = _props(public).get("ipAddress") if public is not None else None
+        if address and _public_ip(address):
+            public_fronts[front_id] = address
     total = {}
     allowed_backend_nics = set()
     backend_routes = []
@@ -4312,7 +4313,7 @@ def _azure_lb(snapshot, inventory, resource):
                                       "standard" if (resource["data"].get("sku") or {}).get("name", "").lower() == "standard" else "basic", rule.get("name"))
             if not empty(allowed):
                 if front_id not in public_fronts:
-                    a.gap("inventory", f"{kind} {rule.get('name')}: public frontend address not collected",
+                    a.gap("inventory", f"{kind} {rule.get('name')}: assigned global public frontend address not collected",
                           "Microsoft.Network/publicIPAddresses")
                     continue
                 address = public_fronts[front_id]
@@ -4365,7 +4366,7 @@ def _azure_lb(snapshot, inventory, resource):
                 if empty(allowed):
                     continue
                 if front_id not in public_fronts:
-                    a.gap("inventory", f"{kind} {rule.get('name')}: public frontend address not collected",
+                    a.gap("inventory", f"{kind} {rule.get('name')}: assigned global public frontend address not collected",
                           "Microsoft.Network/publicIPAddresses")
                     continue
                 address = public_fronts[front_id]
@@ -4394,10 +4395,19 @@ def _azure_lb(snapshot, inventory, resource):
         else:
             a.gap("backend", "; ".join(unresolved_backends), "Microsoft.Network/loadBalancers/backendAddressPools")
             a.explicit = "UNKNOWN"
-    a.step("listener", "allow" if not empty(total) else "block", frontend_ports=describe(total))
+    unresolved_frontend = any(gap["layer"] == "inventory" and
+                              "assigned global public frontend address" in gap["reason"]
+                              for gap in a.unresolved)
+    a.step("listener", "allow" if not empty(total) else "unknown" if unresolved_frontend else "block",
+           frontend_ports=describe(total))
     a.ports = total if rules else {}
     if not empty(total):
         a.blocked_by = None
+        for gap in a.unresolved:
+            if gap["layer"] == "inventory" and "assigned global public frontend address" in gap["reason"]:
+                gap["decisive"] = False
+    elif unresolved_frontend:
+        a.explicit = "UNKNOWN"
     return a
 
 
@@ -6816,6 +6826,14 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.resource["type"] == "load_balancer" and status == "UNKNOWN":
+        missing_frontend = next((gap["reason"] for gap in assessment.unresolved
+                                 if "assigned global public frontend address" in gap["reason"]), None)
+        if missing_frontend:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Load Balancer {name} has an inbound rule referencing a public-IP frontend.\n"
+                    f"Its {missing_frontend}.\n"
+                    "The snapshot does not establish an assigned public listener address for that rule.")
     if assessment.kind == "public_ip" and status == "UNKNOWN":
         missing = next((gap["reason"] for gap in assessment.unresolved
                         if gap["layer"] == "inventory" and gap["reason"].startswith("referenced public IP ")), None)

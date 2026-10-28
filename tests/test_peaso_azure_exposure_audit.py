@@ -83,7 +83,8 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
         "backendAddressPool": {"id": pool_id}, "protocol": "Tcp", "frontendPort": 443, "backendPort": 8443}}
 
     def lb_decision(pool_props, *, probed=False, subnet_nsg=False, nic_present=True,
-                    nsg_access="Allow", route_drop=False, probe_present=True):
+                    nsg_access="Allow", route_drop=False, probe_present=True,
+                    public_address="8.8.8.8"):
         lb_rule = {**rule, "properties": {**rule["properties"],
             **({"probe": {"id": lb_id + "/probes/probe"}} if probed else {})}}
         collections = [
@@ -93,7 +94,7 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
                     {"id": pool_id, "properties": pool_props}], "loadBalancingRules": [lb_rule],
                     "probes": [{"id": lb_id + "/probes/probe"}] if probed and probe_present else []}}]},
             {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected", "items": [
-                {"id": pip_id, "properties": {"ipAddress": "8.8.8.8"}}]},
+                {"id": pip_id, "properties": {"ipAddress": public_address}}]},
             {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected", "items": ([{"id": nic_id,
                 "properties": {"networkSecurityGroup": {"id": nsg_id}, "ipConfigurations": [{"id": config_id,
                     "properties": {"privateIPAddress": "10.0.0.4", "subnet": {"id": subnet_id}}}]}}]
@@ -138,6 +139,12 @@ def test_load_balancer_pool_embedded_nic_reference_resolves_backend_path():
     assert lb_decision(raw, subnet_nsg=True, nic_present=False).verdict() == "UNKNOWN"
     assert lb_decision({"loadBalancerBackendAddresses": [{"properties": {
         "ipAddress": "10.0.0.4"}}]}).verdict() == "UNKNOWN"
+    nonglobal = lb_decision({"backendIPConfigurations": [{"id": config_id}]},
+                            public_address="10.0.0.4")
+    assert nonglobal.verdict() == "UNKNOWN"
+    assert "assigned global public frontend address not collected" in _observed(nonglobal, "UNKNOWN")
+    assert lb_decision({"backendIPConfigurations": [{"id": config_id}]},
+                       public_address="").verdict() == "UNKNOWN"
 
 
 def test_application_gateway_public_frontend_requires_observed_address():
