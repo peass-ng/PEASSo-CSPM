@@ -500,30 +500,41 @@ def _wildcard_subject(issuer, value):
     return ":" not in prefix or prefix.endswith(":") and prefix.count(":") == 1
 
 
-def _aws_saml_provider_state(snapshot, provider):
-    """True if listed, False if complete and absent, None if visibility is incomplete."""
-    match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):saml-provider/.+", str(provider))
-    if not match:
-        return None
+def _aws_identity_provider_inventory(snapshot, kind):
+    """Index cached IAM provider lists once for all role trust statements."""
     def build():
         inventory = {}
         for row in snapshot.get("collections", []):
-            if row.get("type") != "iam_saml_provider":
+            if row.get("type") != kind:
                 continue
             account = str(row.get("scope", "")).split("/", 1)[0]
-            entry = inventory.setdefault(account, {"states": [], "arns": set()})
+            entry = inventory.setdefault(account, {"states": [], "providers": {}})
             entry["states"].append(row.get("status"))
-            entry["arns"].update(item["Arn"] for item in row.get("items", [])
-                                 if isinstance(item, dict) and isinstance(item.get("Arn"), str))
+            for item in row.get("items", []):
+                if isinstance(item, dict) and isinstance(item.get("Arn"), str):
+                    entry["providers"][item["Arn"]] = item
         return inventory
 
-    inventory = _cache(snapshot, "aws_saml_provider_inventory", build)
+    return _cache(snapshot, "aws_" + kind + "_inventory", build)
+
+
+def _aws_identity_provider_state(snapshot, provider, kind, suffix):
+    """Return (exists, item): False only after complete account-scoped LIST."""
+    match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):" + suffix + r"/.+", str(provider))
+    if not match:
+        return None, None
+    inventory = _aws_identity_provider_inventory(snapshot, kind)
     account = inventory.get(match.group(1))
     if account is None:
-        return None
-    if provider in account["arns"]:
-        return True
-    return False if all(state in ("collected", "empty") for state in account["states"]) else None
+        return None, None
+    item = account["providers"].get(provider)
+    if item is not None:
+        return True, item
+    return (False, None) if all(state in ("collected", "empty") for state in account["states"]) else (None, None)
+
+
+def _aws_saml_provider_state(snapshot, provider):
+    return _aws_identity_provider_state(snapshot, provider, "iam_saml_provider", "saml-provider")[0]
 
 
 def aws_federated_trust(snapshot, resource):
@@ -589,6 +600,48 @@ def aws_federated_trust(snapshot, resource):
                 else:
                     problems.append({"code": "saml_claim_scope", "severity": "review",
                                      "message": "SAML claim conditions are declared; IdP assertion ownership and membership are not enumerable from IAM"})
+            elif ":oidc-provider/" in str(provider):
+                provider_state, provider_item = _aws_identity_provider_state(
+                    snapshot, provider, "iam_oidc_provider", "oidc-provider")
+                if provider_state is not True:
+                    reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                    "issuer": issuer, "multi_tenant_issuer": prefix.startswith(MULTI_TENANT_ISSUERS),
+                                    "conditions": copy.deepcopy(statement.get("Condition")),
+                                    "problems": [{"code": "oidc_provider_absent" if provider_state is False else "oidc_provider_unknown",
+                                                  "severity": "low" if provider_state is False else "review",
+                                                  "message": "IAM OIDC provider is absent from a complete inventory" if provider_state is False
+                                                             else "IAM OIDC provider inventory is missing or incomplete"}]})
+                    continue
+                detail = provider_item.get("Provider")
+                client_ids = detail.get("ClientIDList") if isinstance(detail, dict) else None
+                url = detail.get("Url") if isinstance(detail, dict) else None
+                if (isinstance(detail, dict) and detail.get("collection_status") == "collected"
+                        and url == issuer and isinstance(client_ids, list) and client_ids
+                        and all(isinstance(value, str) and value for value in client_ids)):
+                    disjoint = any(op.lower() == "stringequals" and key.lower() == f"{prefix}:aud"
+                                   and values and not (set(values) & set(client_ids))
+                                   for op, key, values in conditions)
+                    if disjoint:
+                        reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                        "issuer": issuer, "multi_tenant_issuer": prefix.startswith(MULTI_TENANT_ISSUERS),
+                                        "conditions": copy.deepcopy(statement.get("Condition")),
+                                        "provider_client_ids": copy.deepcopy(client_ids),
+                                        "problems": [{"code": "oidc_audience_disjoint", "severity": "low",
+                                                      "message": "The exact trust audience has no match in the provider's registered client IDs"}]})
+                        continue
+                else:
+                    problems.append({"code": "oidc_provider_detail_unknown", "severity": "review",
+                                     "message": "OIDC provider URL or registered client IDs are not completely collected"})
+                subjects = claim("sub")
+                if not subjects:
+                    problems.append({"code": "no_sub_condition", "message": "No positive sub condition: every identity of this issuer can assume the role"
+                                     + (" (issuer is multi-tenant)" if prefix.startswith(MULTI_TENANT_ISSUERS) else " (issuer-wide)")})
+                else:
+                    wild = [v for op, values in subjects for v in values if "like" in op.lower() and _wildcard_subject(prefix, v)]
+                    if wild:
+                        problems.append({"code": "wildcard_sub", "message": "Subject wildcard does not pin the tenant/owner", "values": wild})
+                if prefix.startswith("token.actions") and not claim("aud"):
+                    problems.append({"code": "no_aud_condition", "message": "No aud condition; GitHub tokens for other audiences are accepted", "severity": "low"})
             elif prefix == "cognito-identity.amazonaws.com":
                 if not claim("aud"):
                     problems.append({"code": "cognito_no_aud", "message": "Any Cognito identity pool in any account can assume the role"})

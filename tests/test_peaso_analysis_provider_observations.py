@@ -12,6 +12,7 @@ def provider_snapshot(provider):
  if provider=='aws':
   facts={'iam_policy':[{'Arn':'arn:aws:iam::111122223333:policy/demo','PolicyDocument':{'Statement':[{'Effect':'Allow','Action':'*','Resource':'*'}]},'Usage':usage}],
    'iam_role':[{'Arn':'arn:aws:iam::111122223333:role/r','AssumeRolePolicyDocument':{'Statement':[{'Effect':'Allow','Principal':'*','Action':'sts:AssumeRole'},{'Effect':'Allow','Principal':{'Federated':'arn:aws:iam::111122223333:oidc-provider/token.actions.githubusercontent.com'},'Action':'sts:AssumeRoleWithWebIdentity','Condition':{'StringEquals':{'token.actions.githubusercontent.com:aud':'sts.amazonaws.com'}}}]}}],
+   'iam_oidc_provider':[{'Arn':'arn:aws:iam::111122223333:oidc-provider/token.actions.githubusercontent.com','Provider':{'collection_status':'collected','Url':'token.actions.githubusercontent.com','ClientIDList':['sts.amazonaws.com']}}],
    'security_group':[{'GroupId':'sg-a','IpPermissions':[{'IpProtocol':'tcp','FromPort':443,'ToPort':443,'IpRanges':[{'CidrIp':'0.0.0.0/0'}]}]}],
    'http_api':[{'ApiId':'a','ApiEndpoint':'https://a.execute-api.us-east-1.amazonaws.com','ProtocolType':'HTTP','Routes':[{'RouteKey':'GET /','AuthorizationType':'NONE'}]}]}
  elif provider=='gcp':

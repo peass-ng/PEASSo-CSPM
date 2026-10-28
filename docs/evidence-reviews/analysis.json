@@ -117,7 +117,7 @@
       "examples": [
         {
           "status": "UNKNOWN",
-          "example": "The scan lacks complete inventory for access analyzer and apigateway domain name and 19 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed.",
+          "example": "The scan lacks complete inventory for access analyzer and apigateway domain name and 21 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed.",
           "evidence_keys": [
             "gaps",
             "risk_state"

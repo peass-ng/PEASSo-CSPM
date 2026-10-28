@@ -1,4 +1,5 @@
 """Default trust boundary, external principals and federated (OIDC) trust review."""
+import copy
 import pytest
 
 from peaso.analysis import analyze
@@ -107,6 +108,12 @@ GITHUB = f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.
 SAML = f"arn:aws:iam::{ACCOUNT}:saml-provider/Company"
 
 
+def github_provider(client_ids=("sts.amazonaws.com",), detail_status="collected"):
+    return coll("iam_oidc_provider", [{"Arn": GITHUB, "Provider": {
+        "collection_status": detail_status, "Url": "token.actions.githubusercontent.com",
+        "ClientIDList": list(client_ids)}}])
+
+
 @pytest.mark.parametrize("condition,expected,codes", [
     ({"StringEquals": {"SAML:aud": "https://signin.aws.amazon.com/saml"}},
      "FAIL", {"saml_issuer_wide"}),
@@ -160,10 +167,42 @@ def test_saml_trust_requires_provider_inventory_and_absent_provider_blocks():
 ])
 def test_github_oidc_trust_requires_pinned_subject(condition, expected):
     statement = trust({"Federated": GITHUB}, condition, "sts:AssumeRoleWithWebIdentity")
-    found = findings(aws(coll("iam_role", [role([statement])])), "analysis.federated_trust")
+    found = findings(aws(coll("iam_role", [role([statement])]), github_provider()), "analysis.federated_trust")
     assert len(found) == 1 and found[0]["status"] == expected
     if expected == "FAIL":
         assert found[0]["severity"] == "critical"
+
+
+def test_oidc_provider_absence_and_disjoint_registered_audience_block_trust():
+    from peaso.finding_observation import evidence_summary
+    statement = trust({"Federated": GITHUB},
+                      {"StringEquals": {"token.actions.githubusercontent.com:aud": "another-client"}},
+                      "sts:AssumeRoleWithWebIdentity")
+    role_row = coll("iam_role", [role([statement])])
+    disjoint = findings(aws(role_row, github_provider()), "analysis.federated_trust")
+    assert len(disjoint) == 1 and disjoint[0]["status"] == "PASS"
+    assert disjoint[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "oidc_audience_disjoint"
+    assert "does not match any registered client ID" in evidence_summary(disjoint[0])
+    contradicted = copy.deepcopy(disjoint[0])
+    contradicted["evidence"]["federated_trusts"][0]["conditions"]["StringEquals"]["token.actions.githubusercontent.com:aud"] = "sts.amazonaws.com"
+    assert evidence_summary(contradicted) is None
+
+    absent = findings(aws(role_row, coll("iam_oidc_provider", [])), "analysis.federated_trust")
+    assert len(absent) == 1 and absent[0]["status"] == "PASS"
+    assert absent[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "oidc_provider_absent"
+    assert "absent from the complete account inventory" in evidence_summary(absent[0])
+
+    missing = findings(aws(role_row), "analysis.federated_trust")
+    assert len(missing) == 1 and missing[0]["status"] == "MANUAL"
+    assert missing[0]["evidence"]["federated_trusts"][0]["problems"][0]["code"] == "oidc_provider_unknown"
+    assert "inventory is missing or incomplete" in evidence_summary(missing[0])
+
+    incomplete = findings(aws(role_row, github_provider(detail_status="access_denied")), "analysis.federated_trust")
+    assert incomplete[0]["status"] == "FAIL"
+    assert "oidc_provider_detail_unknown" in {p["code"] for p in incomplete[0]["evidence"]["federated_trusts"][0]["problems"]}
+
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    assert "iam_oidc_provider" in REQUIRED_TYPES["aws"]["exposure"]
 
 
 def test_cognito_trust_without_aud_fails():

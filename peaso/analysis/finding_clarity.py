@@ -5,7 +5,7 @@ HOW = {
     'analysis.principal_exposure': 'Classifies declared principals against the scanned scopes and collected organization membership, retaining restrictive conditions and attribution gaps.',
     'analysis.network_review': 'Finds Internet-wide allow rules in security groups, firewalls, NSGs or NetworkPolicies; it does not establish an endpoint path.',
     'analysis.coverage': 'Reports missing, denied or malformed inventory required by the identity analysis.',
-    'analysis.federated_trust': 'Checks OIDC trust declarations for the required issuer, audience and subject restrictions; unresolved identity details remain undetermined.',
+    'analysis.federated_trust': 'Checks federated trust declarations against collected provider inventory and declared audience and subject restrictions; unresolved identity details remain undetermined.',
 }
 ACTION = {
     'analysis.grant_review': 'Remove unnecessary broad permissions; retain only the actions and resources the workload needs.',
@@ -203,6 +203,11 @@ def evidence_summary(finding):
             if any(code in codes for code in ('no_aud_condition','cognito_no_aud')) and claim('aud'):return None
             if 'wildcard_sub' in codes and not any(_wildcard_subject(issuer.lower(),v) for v in claim('sub')):return None
             if 'cognito_unauthenticated' in codes and not any('unauthenticated' in v for v in claim('amr')):return None
+            if 'oidc_audience_disjoint' in codes:
+                clients=trust.get('provider_client_ids')
+                exact=[value for operator,key,values in _conditions(conditions)
+                       if operator.lower()=='stringequals' and key.lower()==issuer.lower()+':aud' for value in values]
+                if not oidc or not _strings(clients) or not clients or not exact or set(exact)&set(clients):return None
             if not codes and not claim('aud' if cognito else 'sub'):return None
             for code in codes:
                 if code=='no_sub_condition' and oidc:messages.append('The OIDC trust for '+issuer+' does not restrict which token subjects it accepts.')
@@ -210,11 +215,19 @@ def evidence_summary(finding):
                 elif code=='no_aud_condition' and oidc:messages.append('The OIDC trust does not restrict the token audience.')
                 elif code=='cognito_no_aud' and cognito:messages.append('The Cognito trust does not pin an identity-pool audience.')
                 elif code=='cognito_unauthenticated' and cognito:messages.append('The trust condition includes unauthenticated Cognito identities.')
+                elif code=='oidc_provider_unknown' and oidc:messages.append('The IAM OIDC provider inventory is missing or incomplete, so this role trust cannot be resolved.')
+                elif code=='oidc_provider_absent' and oidc:messages.append('The IAM OIDC provider is absent from the complete account inventory, so this role trust cannot use it.')
+                elif code=='oidc_provider_detail_unknown' and oidc:messages.append('The IAM OIDC provider URL or registered client IDs are not completely collected.')
+                elif code=='oidc_audience_disjoint' and oidc:messages.append('The trust audience does not match any registered client ID for this IAM OIDC provider.')
                 else:return None
             reviewed.append(issuer)
         if messages:
             unique=list(dict.fromkeys(messages))
-            return ' '.join(unique[:1])+' This may admit unintended token holders; other trust and session controls still affect access.'
+            neutral={'oidc_provider_unknown','oidc_provider_absent','oidc_provider_detail_unknown','oidc_audience_disjoint'}
+            all_codes={p['code'] for trust in trusts for p in trust['problems']}
+            if all_codes<=neutral:return ' '.join(unique[:2])
+            risk=next((message for message in unique if 'does not restrict' in message or 'leaves the tenant' in message or 'does not pin' in message or 'includes unauthenticated' in message),unique[0])
+            return risk+' This may admit unintended token holders; other trust and session controls still affect access.'
         unique=list(dict.fromkeys(reviewed))
         return 'No checked subject or audience restriction issue is recorded for '+', '.join(unique[:1])+(f' and {len(unique)-1} other issuers' if len(unique)>1 else '')+'; provider-side claim customization and effective role access remain unverified.'
     return None
