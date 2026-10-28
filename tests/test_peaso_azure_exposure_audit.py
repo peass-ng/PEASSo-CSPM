@@ -1739,14 +1739,17 @@ def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
             "_coverage": {"effectiveRoutes": {"status": "collected"},
                           "securityPolicies": {"status": "collected"}}}
 
-    def decision(mode=None, enabled=None, include=True):
+    def decision(mode=None, enabled=None, include=True, rule_state=None):
         collections = [{"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE,
                         "service": "cdn", "status": "collected", "items": [edge]}]
         if include:
+            waf_props = {"policySettings": {"mode": mode, "enabledState": enabled}}
+            if rule_state is not None:
+                waf_props["customRules"] = {"rules": [] if rule_state != "custom" else [{"name": "block"}]}
+                waf_props["managedRules"] = {"managedRuleSets": [] if rule_state != "managed" else [{"ruleSetType": "DefaultRuleSet"}]}
             collections.append({"type": "frontdoor_waf_policy", "scope": SCOPE,
                                 "service": "network", "status": "collected", "items": [
-                                    {"id": waf_id, "properties": {"policySettings": {
-                                        "mode": mode, "enabledState": enabled}}}]})
+                                    {"id": waf_id, "properties": waf_props}]})
         snap = make_snapshot("azure", [SCOPE], collections)
         return next(a for a in assess(snap, resources(snap))
                     if a.resource["type"] == "frontdoor_and_cdn_endpoint")
@@ -1757,6 +1760,11 @@ def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
     assert len(_observed(detected, "FAIL").splitlines()) == 3
     assert decision(mode="Prevention", enabled="Disabled").verdict() == "FAIL"
     assert decision(mode="Prevention", enabled="Enabled").verdict() == "UNKNOWN"
+    empty_policy = decision(mode="Prevention", enabled="Enabled", rule_state="empty")
+    assert empty_policy.verdict() == "FAIL"
+    assert "explicitly empty custom and managed rule lists" in _observed(empty_policy, "FAIL")
+    assert decision(mode="Prevention", enabled="Enabled", rule_state="custom").verdict() == "UNKNOWN"
+    assert decision(mode="Prevention", enabled="Enabled", rule_state="managed").verdict() == "UNKNOWN"
     assert decision(include=False).verdict() == "UNKNOWN"
     edge["_coverage"]["securityPolicies"] = {"status": "partial"}
     assert decision(mode="Detection", enabled="Enabled").verdict() == "UNKNOWN"
@@ -1775,14 +1783,17 @@ def test_classic_frontdoor_frontend_waf_link_is_joined_to_policy():
                 "paths": [{"acceptedProtocols": ["Https"], "action": "Redirect"}]}],
             "_coverage": {"effectiveRoutes": {"status": "collected"}}}
 
-    def decision(mode=None, enabled=None, include=True):
+    def decision(mode=None, enabled=None, include=True, rule_state=None):
         collections = [{"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE,
                         "service": "cdn", "status": "collected", "items": [edge]}]
         if include:
+            waf_props = {"policySettings": {"mode": mode, "enabledState": enabled}}
+            if rule_state is not None:
+                waf_props["customRules"] = {"rules": [] if rule_state != "custom" else [{"name": "block"}]}
+                waf_props["managedRules"] = {"managedRuleSets": [] if rule_state != "managed" else [{"ruleSetType": "DefaultRuleSet"}]}
             collections.append({"type": "frontdoor_waf_policy", "scope": SCOPE,
                                 "service": "network", "status": "collected", "items": [
-                                    {"id": waf_id, "properties": {"policySettings": {
-                                        "mode": mode, "enabledState": enabled}}}]})
+                                    {"id": waf_id, "properties": waf_props}]})
         snap = make_snapshot("azure", [SCOPE], collections)
         return next(a for a in assess(snap, resources(snap))
                     if a.resource["type"] == "frontdoor_and_cdn_endpoint")
@@ -1793,6 +1804,8 @@ def test_classic_frontdoor_frontend_waf_link_is_joined_to_policy():
     assert detected.verdict() == "FAIL"
     assert "records mode Detection" in _observed(detected, "FAIL")
     assert decision(mode="Prevention", enabled="Disabled").verdict() == "FAIL"
+    assert decision(mode="Prevention", enabled="Enabled", rule_state="empty").verdict() == "FAIL"
+    assert decision(mode="Prevention", enabled="Enabled", rule_state="custom").verdict() == "UNKNOWN"
 
 
 def test_api_management_public_gateway_and_network_gates():

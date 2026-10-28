@@ -6178,6 +6178,25 @@ def _azure_compute_gallery(snapshot, inventory, resource):
     return a
 
 
+def _azure_frontdoor_passive_waf(waf):
+    """Only a passive policy or explicit empty rule inventory cannot filter."""
+    if waf is None:
+        return None
+    props = _props(waf)
+    settings = props.get("policySettings")
+    if not isinstance(settings, dict):
+        return None
+    enabled, mode = settings.get("enabledState"), settings.get("mode")
+    if enabled == "Disabled" or mode == "Detection":
+        return {"enabled_state": enabled, "mode": mode, "reason": "disabled or detection mode"}
+    custom, managed = props.get("customRules"), props.get("managedRules")
+    if (enabled == "Enabled" and mode == "Prevention" and
+            isinstance(custom, dict) and custom.get("rules") == [] and
+            isinstance(managed, dict) and managed.get("managedRuleSets") == []):
+        return {"enabled_state": enabled, "mode": mode, "reason": "explicitly empty custom and managed rule lists"}
+    return None
+
+
 def _azure_public_edge(snapshot, inventory, resource):
     """Assess the public listener from the collector's bounded route projection."""
     data = resource["data"]
@@ -6233,16 +6252,14 @@ def _azure_public_edge(snapshot, inventory, resource):
                 params = (policy.get("properties") or {}).get("parameters") if isinstance(policy, dict) else None
                 policy_id = (params.get("wafPolicy") or {}).get("id") if isinstance(params, dict) else None
                 waf = inventory.get("frontdoor_waf_policy", policy_id) if isinstance(policy_id, str) else None
-                settings = _props(waf).get("policySettings") if waf is not None else None
-                if isinstance(settings, dict) and (settings.get("enabledState") == "Disabled" or
-                                                     settings.get("mode") == "Detection"):
-                    passive.append({"security_policy": policy.get("id"), "waf_policy": policy_id,
-                                    "enabled_state": settings.get("enabledState"), "mode": settings.get("mode")})
+                state = _azure_frontdoor_passive_waf(waf)
+                if state is not None:
+                    passive.append({"security_policy": policy.get("id"), "waf_policy": policy_id, **state})
                 else:
                     a.gap("policy", "edge security policy may filter the listener")
             if len(passive) == len(policies) and policy_coverage.get("status") in ("collected", "empty"):
                 a.step("waf", "allow", passive_policies=passive,
-                       reason="all referenced WAF policies are disabled or in Detection mode")
+                       reason="all referenced WAF policies are passive or have no configured rules")
     if data.get("sku", {}).get("name") not in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
         for endpoint in endpoints:
             link = (endpoint.get("properties") or {}).get("webApplicationFirewallPolicyLink") if isinstance(endpoint, dict) else None
@@ -6250,12 +6267,10 @@ def _azure_public_edge(snapshot, inventory, resource):
                 continue
             policy_id = link.get("id") if isinstance(link, dict) else None
             waf = inventory.get("frontdoor_waf_policy", policy_id) if isinstance(policy_id, str) else None
-            settings = _props(waf).get("policySettings") if waf is not None else None
-            if isinstance(settings, dict) and (settings.get("enabledState") == "Disabled" or
-                                               settings.get("mode") == "Detection"):
+            state = _azure_frontdoor_passive_waf(waf)
+            if state is not None:
                 a.step("waf", "allow", passive_policies=[{
-                    "waf_policy": policy_id, "enabled_state": settings.get("enabledState"),
-                    "mode": settings.get("mode")}])
+                    "waf_policy": policy_id, **state}])
             else:
                 a.gap("policy", "classic Front Door frontend WAF policy may filter the listener")
     return a
@@ -7142,9 +7157,12 @@ def _observed(assessment, status):
         if waf is not None:
             policy = waf["passive_policies"][0]
             host = assessment.addresses[0] if assessment.addresses else "an unobserved hostname"
+            reason = ("and has explicitly empty custom and managed rule lists"
+                      if policy.get("reason") == "explicitly empty custom and managed rule lists" else
+                      "so it does not block this listener")
             return (f"The Front Door edge has an enabled public route at {host}.\n"
                     f"Its referenced WAF policy {policy['waf_policy']} records mode {policy['mode']} "
-                    f"and enabledState {policy['enabled_state']}, so it does not block this listener.\n"
+                    f"and enabledState {policy['enabled_state']} {reason}.\n"
                     "The public listener is configured; a successful request was not tested.")
     if assessment.resource["type"] == "load_balancer" and status == "UNKNOWN":
         missing_frontend = next((gap["reason"] for gap in assessment.unresolved
