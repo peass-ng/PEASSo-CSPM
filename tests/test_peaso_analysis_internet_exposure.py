@@ -1819,6 +1819,30 @@ def test_gcp_public_managed_folder_joins_cached_folder_policy():
     assert assessment().verdict() == "PASS"
 
 
+def test_gcp_managed_folder_parent_prefix_and_incomplete_inventory():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bucket
+    from peaso.snapshot import resources
+    bucket = {"name": "sample-bucket", "iamPolicy": {"bindings": []},
+              "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True},
+                                   "publicAccessPrevention": "not_enforced"}}
+    parent = {"name": "parent/", "bucket": "sample-bucket", "iamPolicy": {"bindings": [
+        {"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}}
+    child = {"name": "parent/child/", "bucket": "sample-bucket", "iamPolicy": {"bindings": []}}
+    def assessment(folders, status="collected"):
+        snap = gcp(gcoll("bucket", [bucket], service="storage"),
+                   gcoll("managed_folder", folders, status=status, service="storage"))
+        items = resources(snap)
+        return _gcp_bucket(snap, Inventory(snap, items), next(row for row in items if row["type"] == "bucket"))
+    result = assessment([parent, child])
+    assert result.verdict() == "FAIL"
+    assert result.path[-1]["managed_folder_grants"][0]["folder"] == "parent/"
+    incomplete = assessment([], status="partial")
+    assert incomplete.verdict() == "UNKNOWN"
+    assert incomplete.path[-1]["managed_folder_unresolved"] == [
+        {"reason": "managed folder inventory incomplete"}]
+    assert assessment([], status="empty") is None
+
+
 @pytest.mark.parametrize("kind,record,expected", [
     ("cloud_ftp_server", {"name": "projects/p1/locations/us/servers/s", "externalConfig":
                           {"ipAddress": "34.2.3.4", "allowedCidrBlocks": ["0.0.0.0/0"]}}, "FAIL"),

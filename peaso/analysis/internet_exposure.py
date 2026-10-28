@@ -2447,6 +2447,8 @@ def _gcp_bucket(snapshot, inventory, resource):
     folder_public = []
     folder_unresolved = []
     if (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess", {}).get("enabled") is True:
+        if inventory.state("managed_folder", resource.get("scope")) not in ("collected", "empty"):
+            folder_unresolved.append({"reason": "managed folder inventory incomplete"})
         for folder in inventory.items("managed_folder"):
             detail = folder["data"]
             if folder.get("scope") != resource.get("scope") or detail.get("bucket") != data.get("name"):
