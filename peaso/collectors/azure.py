@@ -84,6 +84,7 @@ from . import azure_attestation_native
 from . import azure_domain_services_native
 from . import azure_defender_automations_native
 from . import azure_external_id_extensions_native
+from . import azure_cross_tenant_policy_native
 from . import azure_nginx_native
 from . import azure_webpubsub_hubs_native
 
@@ -1223,7 +1224,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "certificate_issuance", *azure_nsg_ingress_native.NATIVE_TYPES,
     *azure_wave_compute_native.NATIVE_TYPES,
     *azure_wave_network_controls.NATIVE_TYPES,
-    "subscription", "tenant", "management_group", "cost_export", "managed_application_definition", "attestation_provider", "entra_domain_service", "defender_automation", *azure_external_id_extensions_native.KINDS, "resource_graph", "activity_log", "activity_log_coverage",
+    "subscription", "tenant", "management_group", "cost_export", "managed_application_definition", "attestation_provider", "entra_domain_service", "defender_automation", *azure_external_id_extensions_native.KINDS, *azure_cross_tenant_policy_native.KINDS, "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
@@ -2486,6 +2487,8 @@ def _selected(options, requirements):
     if selected.intersection(azure_external_id_extensions_native.KINDS):
         selected.update(azure_external_id_extensions_native.KINDS)
         selected.add("directory_domain")
+    if selected.intersection(azure_cross_tenant_policy_native.KINDS):
+        selected.update(azure_cross_tenant_policy_native.KINDS)
     if selected.intersection(("directory_group_pim_policy", "directory_group_pim_owner_policy",
                               "directory_group_eligibility_schedule", "directory_group_eligibility_instance")):
         selected.add("directory_group")
@@ -4111,6 +4114,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_conditional_access_native.collect(reader, request, wanted, transport)
         azure_access_reviews_native.collect(reader, request, wanted, transport)
         azure_external_id_extensions_native.collect(reader, request, wanted, transport)
+        azure_cross_tenant_policy_native.collect(reader, request, wanted, transport)
         azure_identity_intune_native.collect(reader, request, scopes, wanted, transport)
         if requirements is None or "directory_user" in requirements:
             from . import azure_sw18_mfa_native

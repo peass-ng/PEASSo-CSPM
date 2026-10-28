@@ -11449,6 +11449,72 @@ def _azure_external_id_auth_extension(snapshot, inventory, resource):
     return a
 
 
+def _azure_external_id_cross_tenant(snapshot, inventory, resource):
+    """Inbound partner synchronization and delegated security-claim trust."""
+    a = Assessment(resource, "identity_trust")
+    a.authenticated = True
+    a.ports = {}
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    partner = props.get("tenantId")
+    if resource["type"] == "external_id_cross_tenant_partner":
+        if inventory.state("external_id_cross_tenant_default", resource["scope"]) not in ("collected", "empty"):
+            a.gap("inventory", "default cross-tenant policy unavailable for inherited settings")
+            return a
+        defaults = inventory.items("external_id_cross_tenant_default")
+        default = _props(defaults[0]) if len(defaults) == 1 else {}
+    else:
+        default = props
+    def route_allowed(field, service_default):
+        setting = props.get(field) or default.get(field)
+        if setting is None:
+            return service_default if default.get("isServiceDefault") is True else None
+        if not isinstance(setting, dict):
+            return None
+        users = setting.get("usersAndGroups")
+        apps = setting.get("applications")
+        if not isinstance(users, dict) or not isinstance(apps, dict):
+            return None
+        def all_target(part, target):
+            return any(isinstance(row, dict) and row.get("target") == target
+                       for row in part.get("targets", []))
+        if (users.get("accessType") == "blocked" and all_target(users, "AllUsers")
+                or apps.get("accessType") == "blocked" and all_target(apps, "AllApplications")):
+            return False
+        if users.get("accessType") == "allowed" and apps.get("accessType") == "allowed":
+            return True
+        return None
+    collaboration = route_allowed("b2bCollaborationInbound", True)
+    direct = route_allowed("b2bDirectConnectInbound", False)
+    inbound_allowed = True if True in (collaboration, direct) else False if collaboration is False and direct is False else None
+    trust = props.get("inboundTrust") or default.get("inboundTrust")
+    accepted = sorted(key for key in ("isMfaAccepted", "isCompliantDeviceAccepted",
+                                    "isHybridAzureADJoinedDeviceAccepted")
+                      if isinstance(trust, dict) and trust.get(key) is True)
+    sync = props.get("userSyncInboundAllowed") if partner else None
+    if partner and partner.casefold() == resource["scope"].removeprefix("/tenants/").casefold():
+        a.gap("inventory", "partner tenant equals selected tenant")
+        return a
+    if partner and sync is True:
+        a.external_ids = [partner]
+        a.step("partner_user_sync", "allow", partner_tenant_id=partner)
+        a.explicit = "FAIL"
+    if accepted and inbound_allowed is True:
+        if partner:
+            a.external_ids = [partner]
+        a.step("external_claim_trust", "allow", partner_tenant_id=partner,
+               accepted_claims=accepted)
+        a.explicit = "FAIL"
+    elif accepted or inbound_allowed is None:
+        a.gap("authorization", "effective inbound collaboration or claim trust unresolved")
+    if a.explicit != "FAIL" and inbound_allowed is False and sync is not True:
+        a.step("inbound_collaboration", "block", reason="inbound B2B blocked")
+        a.explicit = "PASS"
+    elif a.explicit != "FAIL":
+        a.step("inbound_collaboration", "conditional", reason="B2B policy alone does not grant resource access")
+    return a
+
+
 def _azure_nginx(snapshot, inventory, resource):
     """Public NGINX frontends with ports derived from active configuration files."""
     a = Assessment(resource, "public_endpoint")
@@ -12825,7 +12891,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "powerbi_capacity", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12840,7 +12906,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "management_group", "subscription", "powerbi_capacity", "cost_export",
+             "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "management_group", "subscription", "powerbi_capacity", "cost_export",
                      "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12958,6 +13024,8 @@ def assess(snapshot, resources):
                   "security_contact": _azure_security_contact,
                   "defender_automation": _azure_defender_automation,
                   "external_id_auth_extension": _azure_external_id_auth_extension,
+                  "external_id_cross_tenant_default": _azure_external_id_cross_tenant,
+                  "external_id_cross_tenant_partner": _azure_external_id_cross_tenant,
                   "signalr_service": _azure_realtime_endpoint,
                   "web_pubsub": _azure_realtime_endpoint,
                   "synapse_workspace": _azure_synapse_workspace,
