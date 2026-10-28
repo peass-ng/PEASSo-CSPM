@@ -221,7 +221,7 @@ def test_network_review_shares_parallel_limit_and_finishes_before_priorities(env
     monkeypatch.setattr('peaso.snapshot.resources', lambda _: inventory)
     monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', '2')
     monkeypatch.setattr(pipeline, 'available_memory', lambda: 4 * 1024**3)
-    network_started, release_network, reviews_finished, priorities_started = (threading.Event() for _ in range(4))
+    network_started, release_network, priorities_started = (threading.Event() for _ in range(3))
     completed = []
     active = peak = 0
     lock = threading.Lock()
@@ -238,18 +238,14 @@ def test_network_review_shares_parallel_limit_and_finishes_before_priorities(env
                 return output
             if stage == 'priorities':
                 priorities_started.set()
-                assert release_network.is_set() and reviews_finished.is_set() and active == 1
+                assert release_network.is_set() and active == 1
                 assert platform['network_review']['explanation'] == output['explanation']
                 assert platform['network_review']['status'] == 'completed'
                 rows = [row for row in platform['report']['findings'] if row.get('category') == 'network']
                 assert len(rows) == 1 and rows[0]['evidence']['source'] == 'ai_network_review'
                 received.extend(rows)
                 return {'actions': [action() | {'title': rows[0]['title'], 'finding_ids': [rows[0]['id']]}], 'limitations': []}
-            assert network_started.wait(2)
-            completed.append(stage)
-            if len(completed) == 2:
-                reviews_finished.set()
-            return {'items': [review(row['id'], 'PASS') for row in findings]}
+            raise AssertionError('removed reviewer was launched')
         finally:
             with lock:
                 active -= 1
@@ -259,12 +255,11 @@ def test_network_review_shares_parallel_limit_and_finishes_before_priorities(env
         try:
             # This tests queue overlap, independently of cold evidence imports.
             assert network_started.wait(30)
-            assert reviews_finished.wait(2)
             assert not priorities_started.is_set() and not future.done()
         finally:
             release_network.set()
         result = future.result(timeout=5)
-    assert result['status'] == 'completed' and peak == 2
+    assert result['status'] == 'completed' and peak == 1
     assert result['network']['status'] == 'completed' and received == result['network']['findings']
     assert result['actions'][0]['finding_ids'] == [received[0]['id']]
 
@@ -283,7 +278,7 @@ def test_network_failure_preserves_reviews_and_still_runs_priorities(environment
         return {'items': [review(row['id']) for row in findings]}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
-    assert calls == ['network', 'hardening', 'exposure', 'priorities']
+    assert calls == ['network', 'priorities']
     assert result['status'] == 'partial' and result['coverage']['reviewed'] == 2
     assert result['network']['status'] == 'unavailable' and result['network']['findings'] == []
     assert 'private-error' not in json.dumps(result)
@@ -358,7 +353,9 @@ def test_network_findings_publish_in_regular_api_and_paginated_ai_result(environ
     ident, bundle = completed_job(store, artifacts, data)
     assert 'network' not in bundle['summary']['ai']
     with TestClient(create_app(settings, store=store, artifacts=artifacts, authenticator=Identities()), base_url='http://127.0.0.1') as client:
-        result = client.get(f'/api/scans/{ident}/ai?limit=1').json()['network']
+        response = client.get(f'/api/scans/{ident}/ai?limit=1')
+        assert response.status_code == 200 and 'network' in response.json(), response.text
+        result = response.json()['network']
         assert result['total'] == 1 and result['explanation'] == network['explanation']
         assert len(result['findings']) == 1
         assert client.get(f'/api/scans/{ident}/ai?offset=1&limit=1').json()['network']['findings'] == []
@@ -368,31 +365,6 @@ def test_network_findings_publish_in_regular_api_and_paginated_ai_result(environ
         assert detail.json()['remediation'] == row['remediation']
         assert detail.json()['evidence']['source'] == 'ai_network_review'
         assert client.get(f'/api/scans/{ident}/ai', headers={'Authorization': 'Bearer bob'}).status_code == 404
-
-
-def test_native_exposure_detail_and_ai_endpoint_keep_native_provenance(environment):
-    from test_peaso_api_large import completed_job
-    settings, store, artifacts = environment
-    data = report()
-    data.update(schema_version='1.0', snapshot_id='native-exposure',
-                created_at='2026-10-28T10:00:00Z', stats={'by_status': {'FAIL': 2}},
-                ai={'status': 'completed', 'actions': [],
-                    'native_final': {'hardening': ['h1'], 'exposure': ['e1']},
-                    'reviews': {'hardening': [review('h1')],
-                                'exposure': [review('e1')]},
-                    'coverage': {'reviewed': 2, 'native_final': 2,
-                                 'model_reviewed': 0, 'total': 2}})
-    ident, _ = completed_job(store, artifacts, data)
-    with TestClient(create_app(settings, store=store, artifacts=artifacts,
-                               authenticator=Identities()), base_url='http://127.0.0.1') as client:
-        detail = client.get(f'/api/scans/{ident}/findings/e1')
-        assert detail.status_code == 200, detail.text
-        assert detail.json()['status'] == 'FAIL'
-        assert 'ai_review' not in detail.json()
-        result = client.get(f'/api/scans/{ident}/ai')
-        assert result.status_code == 200, result.text
-        assert result.json()['reviews']['exposure'][0]['source'] == 'native_final'
-        assert result.json()['coverage']['model_reviewed'] == 0
 
 
 def test_capture_is_opt_in_and_never_exports_permanent_aws_keys():
@@ -422,186 +394,42 @@ def environment(tmp_path, monkeypatch):
     return settings, store, artifacts
 
 
-def test_pipeline_waits_for_reviews_then_prioritizes_and_redacts(environment, monkeypatch):
+@pytest.mark.parametrize('provider', ['aws', 'gcp', 'azure', 'k8s'])
+def test_native_verdicts_feed_priorities_without_review_agents(provider, environment, monkeypatch):
+    data = {'provider': provider, 'findings': [
+        dict(finding('hard', 'hardening'), provider=provider),
+        dict(finding('exposed', 'exposure', 'analysis.internet_exposure'), provider=provider),
+    ], 'graphs': {}}
+    calls = []
+    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
+        calls.append(stage)
+        assert stage == 'priorities'
+        assert {row['id'] for row in findings} == {'hard', 'exposed'}
+        assert {row['finding_id'] for row in reviews} == {'hard', 'exposed'}
+        assert all(row['verdict'] == 'FAIL' for row in reviews)
+        return {'actions': [], 'limitations': []}
+    monkeypatch.setattr(pipeline, 'invoke', invoke)
+    result = pipeline.review_scan(data, {}, {'ai_network_enabled': False}, tenant='alice',
+                                  artifacts=environment[2])
+    assert calls == ['priorities']
+    assert result['status'] == 'completed'
+    assert result['native_final'] == {'hardening': ['hard'], 'exposure': ['exposed']}
+
+
+def test_pipeline_prioritizes_native_findings_and_redacts(environment, monkeypatch):
     settings, store, artifacts = environment
     calls = []
     def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
         calls.append(stage)
-        if stage == 'priorities':
-            assert platform['report']['graphs'] == {} and 'least_privilege' in platform
-            assert {r['finding_id'] for r in reviews} == {'h1', 'e1'}
-            return {'actions': [action() | {'rationale': selected_token}], 'limitations': []}
-        assert set(platform) == {'scan', 'resources'}
-        assert {row['category'] for row in findings} == {stage}
-        return {'items': [review(row['id']) for row in findings]}
+        assert stage == 'priorities'
+        assert platform['report']['graphs'] == {} and 'least_privilege' in platform
+        assert {r['finding_id'] for r in reviews} == {'h1', 'e1'}
+        return {'actions': [action() | {'rationale': selected_token}], 'limitations': []}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     result = pipeline.review_scan(report(), {}, {}, tenant='alice', artifacts=artifacts)
-    assert calls == ['hardening', 'exposure', 'priorities']
+    assert calls == ['priorities']
     assert result['status'] == 'completed' and result['coverage']['reviewed'] == 2
     assert result['actions'][0]['rationale'] == '[REDACTED]'
-
-
-def test_native_final_skips_only_exact_hardening_check_and_reaches_priorities(environment, monkeypatch):
-    from peaso.ai import native_final
-    data = report()
-    data['findings'][0]['check_id'] = 'aws.test.direct_setting'
-    data['findings'].append(finding('h2', check='aws.test.other_setting'))
-    data['coverage'] = [{'type': 'ec2', 'status': 'evaluated'}]
-    original = copy.deepcopy(data)
-    monkeypatch.setattr(native_final, 'admitted_check_ids', lambda: {'aws.test.direct_setting'})
-    calls = []
-
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        calls.append((stage, [row['id'] for row in findings]))
-        if stage == 'priorities':
-            assert {row['finding_id']: row['verdict'] for row in reviews} == {
-                'h1': 'FAIL', 'h2': 'FAIL', 'e1': 'FAIL'}
-            assert platform['report']['findings'] == original['findings']
-            assert platform['report']['coverage'] == original['coverage']
-            return {'actions': [action()], 'limitations': []}
-        return {'items': [review(row['id']) for row in findings]}
-
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
-    assert ('hardening', ['h1']) not in calls
-    assert ('hardening', ['h2']) in calls
-    assert result['native_final'] == {'hardening': ['h1']}
-    assert result['stage_inputs']['hardening'] == ['h2']
-    assert result['actions'][0]['finding_ids'] == ['h1']
-    assert result['coverage']['hardening'] == 2 and result['coverage']['reviewed'] == 3
-    assert data == original
-
-
-@pytest.mark.parametrize('provider', ['aws', 'gcp', 'azure', 'k8s'])
-def test_hosted_agent_switches_send_native_reviews_to_priorities_for_every_cloud(environment, monkeypatch, provider):
-    monkeypatch.setenv('PEASO_AI_HARDENING_AGENT_ENABLED', '0')
-    monkeypatch.setenv('PEASO_AI_EXPOSURE_AGENT_ENABLED', '0')
-    data = report()
-    data['provider'] = provider
-    for row in data['findings']:
-        row['provider'] = provider
-    called = []
-
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        called.append(stage)
-        assert stage == 'priorities'
-        assert {row['finding_id']: row['verdict'] for row in reviews} == {'h1': 'FAIL', 'e1': 'FAIL'}
-        assert {row['id'] for row in findings} == {'h1', 'e1'}
-        return {'actions': [], 'limitations': []}
-
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(data, {}, {'categories': ['hardening', 'exposure'],
-        'ai_network_enabled': False}, tenant='alice', artifacts=environment[2])
-    assert called == ['priorities']
-    assert result['status'] == 'completed'
-    assert result['coverage']['reviewed'] == 2
-    assert result['stage_inputs'] == {'hardening': [], 'exposure': []}
-
-
-def test_hosted_agent_switches_launch_network_and_priorities_only(environment, monkeypatch):
-    monkeypatch.setenv('PEASO_AI_HARDENING_AGENT_ENABLED', '0')
-    monkeypatch.setenv('PEASO_AI_EXPOSURE_AGENT_ENABLED', '0')
-    data, inventory, network_output = network_fixture()
-    monkeypatch.setattr('peaso.snapshot.resources', lambda _: inventory)
-    calls = []
-
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        calls.append(stage)
-        if stage == 'network':
-            return network_output
-        assert stage == 'priorities'
-        assert {row['finding_id']: row['verdict'] for row in reviews} == {'h1': 'FAIL', 'e1': 'FAIL'}
-        assert platform['network_review']['status'] == 'completed'
-        return {'actions': [], 'limitations': []}
-
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
-    assert calls == ['network', 'priorities']
-    assert result['status'] == 'completed'
-    assert result['coverage']['native_final'] == 2
-    assert result['coverage']['model_reviewed'] == 0
-    assert result['network']['status'] == 'completed'
-
-
-def test_gcp_native_final_preserves_priorities_finding_ids(environment, monkeypatch):
-    from peaso.ai import gcp_native_final
-    data = report()
-    data['provider'] = 'gcp'
-    for row in data['findings']:
-        row['provider'] = 'gcp'
-    data['findings'][0]['check_id'] = 'gcp.compute.secure_boot'
-    data['findings'][0]['evidence'] = {
-        'field': 'shieldedInstanceConfig.enableSecureBoot', 'configured': False}
-    scope = data['findings'][0]['scope']
-    data['coverage'] = [
-        {'level': 'check', 'check_id': 'gcp.compute.secure_boot', 'scope': scope,
-         'status': 'evaluated'},
-        {'level': 'collection', 'type': 'instance', 'scope': scope,
-         'status': 'collected'}]
-    data['findings'].append(finding('h2', check='gcp.compute.other_setting')
-                            | {'provider': 'gcp'})
-    original = copy.deepcopy(data)
-    monkeypatch.setattr(gcp_native_final, 'admitted_check_ids',
-                        lambda: {'gcp.compute.secure_boot'})
-    calls = []
-
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        calls.append((stage, [row['id'] for row in findings]))
-        if stage == 'priorities':
-            assert {row['finding_id'] for row in reviews} == {'h1', 'h2', 'e1'}
-            assert platform['report']['findings'] == original['findings']
-            return {'actions': [action()], 'limitations': []}
-        return {'items': [review(row['id']) for row in findings]}
-
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
-    assert ('hardening', ['h2']) in calls
-    assert result['native_final'] == {'hardening': ['h1']}
-    assert result['stage_inputs']['hardening'] == ['h2']
-    assert result['actions'][0]['finding_ids'] == ['h1']
-    assert data == original
-
-
-def test_k8s_native_final_preserves_remaining_hardening_ai_inputs(environment, monkeypatch):
-    from peaso.ai import k8s_native_final
-    data = {'provider': 'k8s', 'findings': [
-        dict(finding('h1', check='k8s.deployment.non_root'), provider='k8s'),
-        dict(finding('h2', check='k8s.job.non_root'), provider='k8s')],
-        'resources': [], 'graphs': {}}
-    scope = data['findings'][0]['scope']
-    data['coverage'] = [
-        {'level': 'check', 'check_id': 'k8s.deployment.non_root', 'scope': scope,
-         'status': 'evaluated'},
-        {'level': 'collection', 'type': 'deployment', 'scope': scope,
-         'status': 'collected'}]
-    original = copy.deepcopy(data)
-    monkeypatch.setattr(k8s_native_final, 'admitted_check_ids', lambda: k8s_native_final.ELIGIBLE)
-    calls = []
-
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        calls.append((stage, [row['id'] for row in findings]))
-        return {'items': [review(row['id']) for row in findings]}
-
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2],
-                                  stages={'hardening'})
-    assert calls == [('hardening', ['h2'])]
-    assert result['native_final'] == {'hardening': ['h1']}
-    assert result['stage_inputs']['hardening'] == ['h2']
-    assert {row['finding_id']: row['verdict'] for row in result['reviews']['hardening']} == {
-        'h1': 'FAIL', 'h2': 'FAIL'}
-    assert data == original
-
-
-def test_failed_review_remains_unknown_and_scan_survives(environment, monkeypatch):
-    _, _, artifacts = environment
-    def invoke(*a, **kw):
-        raise RuntimeError('provider exception with secret data')
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(report(), {}, {}, tenant='alice', artifacts=artifacts)
-    assert result['status'] == 'partial'
-    assert all(r['verdict'] == 'UNKNOWN' for rows in result['reviews'].values() for r in rows)
-    assert 'secret data' not in json.dumps(result)
 
 
 class Identities:
@@ -646,34 +474,6 @@ def test_auth_compare_and_swap_prevents_refresh_or_disconnect_overwrite(environm
 def test_checked_in_schemas_match_contracts():
     for name, model in [('reviews', Reviews), ('recommendations', Recommendations)]:
         assert json.loads((Path('peaso/ai')/(name + '.schema.json')).read_text()) == model.model_json_schema()
-
-
-def test_runner_receives_only_file_credentials_and_clean_environment(tmp_path, monkeypatch):
-    import os
-    monkeypatch.setenv('AWS_SECRET_ACCESS_KEY', 'never-inherit-scanner-secret')
-    monkeypatch.setenv('PEASO_CREDENTIAL_SECRET_ARN', 'never-inherit-platform-secret')
-    observed = {}
-    class Process:
-        returncode = 0
-        def __init__(self, argv, *, cwd, env, **kw):
-            observed.update(argv=argv, env=env)
-            root = Path(cwd)
-            assert {path.name for path in root.iterdir()} == {'credentials.json', 'codex-auth.json', 'findings.json'}
-            assert json.loads((root/'findings.json').read_text()) == {'scan': {}, 'items': []}
-            assert (root/'credentials.json').stat().st_mode & 0o777 == 0o600
-            assert json.loads((root/'credentials.json').read_text())['entries'][0]['token'] == 'cloud-token'
-            assert json.loads((root/'codex-auth.json').read_text())['access_token'] == 'codex-token'
-            assert 'cloud-token' not in json.dumps(argv) + json.dumps(env)
-            assert 'codex-token' not in json.dumps(argv) + json.dumps(env)
-            (root/'result.json').write_text('{"items": []}')
-        def wait(self, **kw):
-            return 0
-    monkeypatch.setattr(pipeline.subprocess, 'Popen', Process)
-    monkeypatch.setattr(pipeline, 'kill_tree', lambda _: None)
-    assert pipeline.invoke('hardening', {'report': {'unrelated': 'must-not-be-written'}, 'inventory': ['unrelated'], 'least_privilege': {}}, [{'token': 'cloud-token'}], 'codex-token', [], [], 10) == {'items': []}
-    assert 'AWS_SECRET_ACCESS_KEY' not in observed['env'] and 'PEASO_CREDENTIAL_SECRET_ARN' not in observed['env']
-    assert 0 < int(observed['env']['PEASO_AI_AGENT_TIMEOUT_SECONDS']) <= 10
-    assert not Path(observed['env']['HOME']).exists()
 
 
 def test_multiple_aws_accounts_get_separate_frozen_credentials():
@@ -819,21 +619,6 @@ def test_reviewer_aws_access_excludes_unrelated_accounts_and_providers():
     assert pipeline.review_credentials(entries, 'gcp', [], {}) == entries[2:]
 
 
-def test_failed_prioritization_context_does_not_skip_finding_reviews(environment, monkeypatch):
-    _, _, artifacts = environment
-    calls = []
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        calls.append(stage)
-        return {'items': [review(row['id']) for row in findings]}
-    def broken_projection(*a, **kw):
-        raise RuntimeError('least_privilege_unavailable')
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    monkeypatch.setattr('peaso.least_privilege.project', broken_projection)
-    value = pipeline.review_scan(report(), {}, {}, tenant='alice', artifacts=artifacts)
-    assert calls == ['hardening', 'exposure']
-    assert value['status'] == 'partial' and value['coverage']['reviewed'] == 2
-
-
 @pytest.mark.parametrize('entry, expected, excluded', [
     ({'provider': 'aws', 'format': 'aws-session', 'aws_secret_access_key': 'never-show-secret'},
      ['AWS sessions', 'boto3.Session', 'account_id'], ['GCP', 'Azure', 'Kubernetes', 'Bearer']),
@@ -872,7 +657,7 @@ def test_no_access_prompt_has_no_irrelevant_cloud_login_instructions():
     assert not any(word in text for word in ('boto3', 'Bearer', 'kubeconfig', 'AWS', 'Azure', 'GCP'))
 
 
-@pytest.mark.parametrize('stage', ['hardening', 'exposure', 'network', 'priorities'])
+@pytest.mark.parametrize('stage', ['network', 'priorities'])
 def test_real_chack_yaml_loader_schema_and_dynamic_access_prompt(stage, monkeypatch):
     pytest.importorskip('chack_agent')
     import chack_agent.config as chack_config
@@ -910,7 +695,7 @@ def test_prioritizer_receives_compact_overview_and_indexed_details(monkeypatch):
             import sqlite3
             with sqlite3.connect(root/'context.sqlite') as db:
                 detail = json.loads(db.execute("SELECT detail FROM records WHERE domain='findings' AND id='h1'").fetchone()[0])
-                assert detail['review'] == review('h1')
+                assert detail['review'] is None
             assert (root/'context.sqlite').stat().st_mode & 0o777 == 0o600
             (root/'result.json').write_text('{"actions": [], "limitations": []}')
         def wait(self, **kw):
@@ -918,31 +703,6 @@ def test_prioritizer_receives_compact_overview_and_indexed_details(monkeypatch):
     monkeypatch.setattr(pipeline.subprocess, 'Popen', Process)
     monkeypatch.setattr(pipeline, 'kill_tree', lambda _: None)
     assert pipeline.invoke('priorities', platform, [], 'token', [finding('h1')], [review('h1')], 10)['actions'] == []
-
-
-def test_each_verifier_batch_receives_only_its_own_findings_and_resources(environment, monkeypatch):
-    _, _, artifacts = environment
-    hardening = [finding(f'h{i}') | {'resource_id': f'r{i}'} for i in range(41)]
-    exposure = [finding('e1', 'exposure', 'analysis.internet_exposure') | {'resource_id': 'exposed'}]
-    inventory = [{'id': row['resource_id'], 'scope': row['scope'], 'data': {}} for row in hardening + exposure]
-    inventory.append({'id': 'unrelated-resource', 'data': {'other': 'unrelated'}})
-    data = report() | {'findings': hardening + exposure, 'resources': inventory, 'graphs': {'network': {'context': 'priorities-only'}}}
-    monkeypatch.setattr('peaso.snapshot.resources', lambda _: inventory)
-    calls = []
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        calls.append((stage, len(findings)))
-        if stage == 'priorities':
-            assert platform['report'] == data and platform['inventory'] == inventory
-            assert len(reviews) == 42
-            return {'actions': [], 'limitations': []}
-        assert len(findings) <= 40 and {row['category'] for row in findings} == {stage}
-        assert {row['id'] for row in platform['resources']} == {row['resource_id'] for row in findings}
-        assert set(platform) == {'scan', 'resources'}
-        return {'items': [review(row['id']) for row in findings]}
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    value = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=artifacts)
-    assert value['status'] == 'completed'
-    assert calls == [('hardening', 21), ('exposure', 1), ('hardening', 20), ('priorities', 42)]
 
 
 @pytest.mark.parametrize('status', ['PASS', 'FAIL', 'UNKNOWN', 'DENIED', 'MANUAL', 'NOT_APPLICABLE', 'EMPTY'])
@@ -960,7 +720,7 @@ def test_review_reason_character_limit_is_enforced():
             validate_reviews({'items': [value | {'reason': reason}]}, [finding('h1')])
 
 
-@pytest.mark.parametrize('stage', ['hardening', 'exposure', 'priorities'])
+@pytest.mark.parametrize('stage', ['priorities'])
 @pytest.mark.parametrize('status', ['PASS', 'UNKNOWN', 'DENIED', 'MANUAL', 'NOT_APPLICABLE', 'EMPTY'])
 def test_agent_file_boundary_rejects_nonfailed_checks(stage, status, monkeypatch):
     monkeypatch.setattr(pipeline.subprocess, 'Popen', lambda *a, **kw: pytest.fail('Out-of-scope findings must never reach an agent'))
@@ -970,75 +730,17 @@ def test_agent_file_boundary_rejects_nonfailed_checks(stage, status, monkeypatch
         pipeline.invoke(stage, {}, [], 'token', rows, [], 10)
 
 
-@pytest.mark.parametrize('stage,category', [('hardening', 'exposure'), ('exposure', 'hardening'), ('priorities', 'privesc')])
+@pytest.mark.parametrize('stage,category', [('priorities', 'privesc')])
 def test_agent_file_boundary_rejects_other_categories(stage, category):
     with pytest.raises(ValueError, match='ai_findings_out_of_scope'):
         pipeline.invoke(stage, {}, [], 'token', [finding('wrong-category', category)], [], 10)
 
 
 @pytest.mark.parametrize('stage', ['hardening', 'exposure'])
-def test_actual_findings_file_contains_only_failed_checks_for_reviewer(stage, monkeypatch):
-    data = report()
-    data['findings'] += [finding(f'other-{status}', stage) | {'status': status}
-                         for status in ('PASS', 'UNKNOWN', 'DENIED', 'MANUAL', 'NOT_APPLICABLE', 'EMPTY')]
-    hardening, exposure, _ = pipeline.inputs(data)
-    rows = hardening if stage == 'hardening' else exposure
-    class Process:
-        returncode = 0
-        def __init__(self, argv, *, cwd, **kw):
-            root = Path(cwd)
-            document = json.loads((root/'findings.json').read_text())
-            written = [{**document.get('checks', {}).get(row.get('check_id'), {}), **row} for row in document['items']]
-            assert not (root/'evidence.json').exists()
-            assert len(written) == 1
-            assert written[0]['id'] == ('h1' if stage == 'hardening' else 'e1')
-            assert all(row['status'] == 'FAIL' and row['category'] == stage for row in written)
-            (root/'result.json').write_text(json.dumps({'items': [review(row['id']) for row in written]}))
-        def wait(self, **kw):
-            return 0
-    monkeypatch.setattr(pipeline.subprocess, 'Popen', Process)
-    monkeypatch.setattr(pipeline, 'kill_tree', lambda _: None)
-    result = pipeline.invoke(stage, {}, [], 'token', rows, [], 10)
-    assert len(result['items']) == 1
-
-
-@pytest.mark.parametrize('stage', ['hardening', 'exposure'])
-def test_combined_findings_file_keeps_each_checks_own_evidence(stage, monkeypatch):
-    rows = [finding('first', stage) | {'resource_id': 'r1', 'evidence': {'fact': 'first-fact', 'native_resource_ref': 'policy1'}},
-            finding('second', stage) | {'resource_id': 'r2', 'evidence': {'fact': 'second-fact'}}]
-    original = copy.deepcopy(rows)
-    context = {'scan': {'provider': 'aws', 'snapshot_id': 'snapshot', 'created_at': '2026-10-19T10:00:00Z', 'unrelated': 'omit'},
-               'resources': [{'id': 'r1', 'data': {'config': 'first-config'}},
-                             {'id': 'policy1', 'data': {'policy': 'first-policy'}},
-                             {'id': 'r2', 'data': {'config': 'second-config'}},
-                             {'id': 'unrelated', 'data': {'config': 'never-include'}}]}
-    class Process:
-        returncode = 0
-        def __init__(self, argv, *, cwd, **kw):
-            root = Path(cwd)
-            assert not (root/'evidence.json').exists()
-            document = json.loads((root/'findings.json').read_text())
-            assert set(document) == {'scan', 'checks', 'items'}
-            assert set(document['scan']) == {'provider', 'snapshot_id', 'created_at'}
-            # The shared control definition is written once; each item keeps
-            # its own evidence and resources and expands back exactly.
-            shared, = document['checks'].values()
-            assert 'evidence' not in shared and 'supporting_resources' not in shared
-            first, second = ({**document['checks'][row['check_id']], **row} for row in document['items'])
-            assert {key: first[key] for key in pipeline.SHARED_CHECK_FIELDS if key in rows[0]} == \
-                {key: rows[0][key] for key in pipeline.SHARED_CHECK_FIELDS if key in rows[0]}
-            assert first['evidence'] == rows[0]['evidence']
-            assert second['evidence'] == rows[1]['evidence']
-            assert {r['id'] for r in first['supporting_resources']} == {'r1', 'policy1'}
-            assert {r['id'] for r in second['supporting_resources']} == {'r2'}
-            assert 'never-include' not in json.dumps(document)
-            (root/'result.json').write_text(json.dumps({'items': [review(row['id']) for row in document['items']]}))
-        def wait(self, **kw):
-            return 0
-    monkeypatch.setattr(pipeline.subprocess, 'Popen', Process)
-    monkeypatch.setattr(pipeline, 'kill_tree', lambda _: None)
-    result = pipeline.invoke(stage, context, [], 'token', rows, [], 10)
-    assert len(result['items']) == 2 and rows == original
+def test_removed_agents_reject_direct_launch(stage, monkeypatch):
+    monkeypatch.setattr(pipeline.subprocess, 'Popen', lambda *a, **kw: pytest.fail('removed agent launched'))
+    with pytest.raises(ValueError, match='unknown_ai_stage'):
+        pipeline.invoke(stage, {}, [], 'token', [], [], 10)
 
 
 def test_every_confirmed_failure_is_returned_with_empty_reason():
@@ -1330,93 +1032,6 @@ def test_local_scheduler_does_not_launch_after_codex_access_is_removed(environme
     assert worker.schedule_tick() == []
 
 
-def test_reviewers_overlap_with_bounded_concurrency_and_priorities_wait(environment, monkeypatch):
-    import threading
-    monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', '2')
-    hardening = [finding(f'h{i}') | {'resource_id': f'rh{i}'} for i in range(81)]
-    exposure = [finding(f'e{i}', 'exposure', 'analysis.internet_exposure') | {'resource_id': f're{i}'} for i in range(41)]
-    data = report() | {'findings': hardening + exposure}
-    entered = {'hardening': threading.Event(), 'exposure': threading.Event()}
-    lock = threading.Lock()
-    active = peak = completed = 0
-    batches = []
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        nonlocal active, peak, completed
-        if stage == 'priorities':
-            assert active == 0 and completed == 5
-            assert [row['finding_id'] for row in reviews] == [row['id'] for row in hardening + exposure]
-            return {'actions': [], 'limitations': []}
-        with lock:
-            active += 1
-            peak = max(peak, active)
-            batches.append((stage, len(findings)))
-        try:
-            entered[stage].set()
-            assert entered['exposure' if stage == 'hardening' else 'hardening'].wait(2), 'Both reviewer types must overlap'
-            return {'items': [review(row['id']) for row in findings]}
-        finally:
-            with lock:
-                active -= 1
-                completed += 1
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    value = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
-    assert value['status'] == 'completed' and peak == 2
-    assert sorted(batches) == [('exposure', 20), ('exposure', 21), ('hardening', 27), ('hardening', 27), ('hardening', 27)]
-    assert value['coverage']['total'] == 122
-
-
-@pytest.mark.parametrize('slow_stage', ['hardening', 'exposure'])
-def test_priorities_waits_for_last_reviewer_and_receives_final_verdicts(environment, monkeypatch, slow_stage):
-    import threading
-    from concurrent.futures import ThreadPoolExecutor
-    from peaso import least_privilege
-
-    monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', '2')
-    data = report()
-    data['findings'].append(finding('duplicate', 'exposure'))
-    started = {stage: threading.Event() for stage in ('hardening', 'exposure')}
-    fast_finished = threading.Event()
-    release = threading.Event()
-    priorities_started = threading.Event()
-    projection_started = threading.Event()
-    received = []
-
-    def project(*args, **kwargs):
-        assert release.is_set() and fast_finished.is_set()
-        projection_started.set()
-        return {}
-
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        if stage == 'priorities':
-            priorities_started.set()
-            received.extend(reviews)
-            return {'actions': [], 'limitations': []}
-        started[stage].set()
-        assert started['exposure' if stage == 'hardening' else 'hardening'].wait(2)
-        if stage == slow_stage:
-            assert release.wait(5), 'Test did not release the last reviewer'
-        else:
-            fast_finished.set()
-        verdict = 'PASS' if stage == 'hardening' else 'MANUAL'
-        return {'items': [review(row['id'], verdict) for row in findings]}
-
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    monkeypatch.setattr(least_privilege, 'project', project)
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(pipeline.review_scan, data, {}, {}, tenant='alice', artifacts=environment[2])
-        try:
-            assert fast_finished.wait(2)
-            assert not priorities_started.is_set()
-            assert not projection_started.is_set()
-            assert not future.done()
-        finally:
-            release.set()
-        value = future.result(timeout=5)
-    assert value['status'] == 'completed'
-    assert priorities_started.is_set() and projection_started.is_set()
-    assert received == [review('h1', 'PASS'), review('e1', 'MANUAL'), review('duplicate', 'PASS')]
-
-
 @pytest.mark.parametrize('available_mib,requested,expected', [(4096, 2, 2), (4096, 4, 4), (4096, 6, 6), (2800, 6, 5), (700, 4, 1), (600, 2, 0)])
 def test_review_admission_respects_memory_headroom(available_mib, requested, expected, monkeypatch):
     monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', str(requested))
@@ -1446,32 +1061,6 @@ def test_available_memory_uses_container_limit_instead_of_host_ram(monkeypatch):
     assert pipeline.available_memory() == 1024**3
 
 
-def test_deadline_keeps_every_finding_and_stops_queued_agents(environment, monkeypatch):
-    clock = [100.0]
-    monkeypatch.setattr(pipeline.time, 'monotonic', lambda: clock[0])
-    rows = [finding(f'h{i}') for i in range(81)]
-    calls = []
-    def invoke(stage, platform, entries, token, findings, reviews, timeout):
-        calls.append([row['id'] for row in findings])
-        assert timeout == 1
-        clock[0] = 102.0
-        return {'items': [review(row['id']) for row in findings]}
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    output, failed = pipeline.review_batches(report(), {}, [], 'private', rows, [], 101)
-    assert len(calls) == 1 and failed is True
-    assert [row['finding_id'] for row in output['hardening']] == [row['id'] for row in rows]
-    assert all(row['verdict'] == 'FAIL' for row in output['hardening'][:27])
-    assert all(row['verdict'] == 'UNKNOWN' for row in output['hardening'][27:])
-
-
-def test_memory_pressure_skips_agents_without_losing_review_coverage(environment, monkeypatch):
-    monkeypatch.setattr(pipeline, 'available_memory', lambda: 400 * 1024**2)
-    monkeypatch.setattr(pipeline, 'invoke', lambda *a, **kw: pytest.fail('Insufficient headroom must not start an agent'))
-    value = pipeline.review_scan(report(), {}, {}, tenant='alice', artifacts=environment[2])
-    assert value['status'] == 'partial' and value['coverage']['total'] == 2
-    assert all(row['verdict'] == 'UNKNOWN' for rows in value['reviews'].values() for row in rows)
-
-
 def test_hosted_priorities_keep_startup_time_when_reviewers_use_their_budget(environment, monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(pipeline, 'time', SimpleNamespace(monotonic=lambda: clock[0], time=time.time))
@@ -1493,88 +1082,6 @@ def test_hosted_priorities_keep_startup_time_when_reviewers_use_their_budget(env
     monkeypatch.setattr(pipeline, 'invoke', priorities)
     value = pipeline.review_scan(report(), {}, {}, tenant='alice', artifacts=environment[2])
     assert value['status'] == 'completed'
-
-
-def test_one_parallel_batch_failure_does_not_discard_other_results(environment, monkeypatch):
-    monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', '2')
-    rows = [finding(f'h{i}') for i in range(81)]
-    def invoke(stage, platform, entries, token, findings, reviews, timeout):
-        if findings[0]['id'] == 'h27':
-            raise RuntimeError('one_batch_failed')
-        return {'items': [review(row['id']) for row in findings]}
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    output, failed = pipeline.review_batches(report(), {}, [], 'private', rows, [], time.monotonic() + 10)
-    assert failed is True and len(output['hardening']) == 81
-    assert [row['finding_id'] for row in output['hardening']] == [row['id'] for row in rows]
-    assert sum(row['verdict'] == 'UNKNOWN' for row in output['hardening']) == 27
-
-
-def test_parallel_invocations_keep_private_files_and_results_separate(monkeypatch):
-    import threading
-    from concurrent.futures import ThreadPoolExecutor
-    barrier = threading.Barrier(2)
-    roots = []
-    class Process:
-        returncode = 0
-        def __init__(self, argv, *, cwd, **kwargs):
-            root = Path(cwd)
-            roots.append(root)
-            row, = json.loads((root/'findings.json').read_text())['items']
-            own_token = json.loads((root/'credentials.json').read_text())['entries'][0]['token']
-            assert own_token == 'private-' + row['id']
-            assert root.stat().st_mode & 0o777 == 0o700
-            assert (root/'credentials.json').stat().st_mode & 0o777 == 0o600
-            barrier.wait(timeout=2)
-            (root/'result.json').write_text(json.dumps({'items': [review(row['id'])]}))
-        def wait(self, **kwargs):
-            return 0
-    monkeypatch.setattr(pipeline.subprocess, 'Popen', Process)
-    monkeypatch.setattr(pipeline, 'kill_tree', lambda _: None)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(pipeline.invoke, stage, {}, [{'token': 'private-' + stage}], 'codex',
-                               [finding(stage, stage)], [], 10) for stage in ('hardening', 'exposure')]
-        assert [future.result()['items'][0]['finding_id'] for future in futures] == ['hardening', 'exposure']
-    assert len(set(roots)) == 2 and all(not root.exists() for root in roots)
-
-
-def test_file_preparation_cannot_launch_an_agent_past_its_deadline(monkeypatch):
-    clock = [10.0]
-    private_json = pipeline.private_json
-    def write(*args):
-        private_json(*args)
-        clock[0] += 1
-    monkeypatch.setattr(pipeline.time, 'monotonic', lambda: clock[0])
-    monkeypatch.setattr(pipeline, 'private_json', write)
-    monkeypatch.setattr(pipeline.subprocess, 'Popen', lambda *a, **kw: pytest.fail('Expired work must not launch'))
-    with pytest.raises(TimeoutError):
-        pipeline.invoke('hardening', {}, [], 'private', [], [], 1)
-
-
-def test_review_queue_admits_six_workers_and_keeps_the_priorities_barrier(environment, monkeypatch):
-    import threading
-    monkeypatch.setenv('PEASO_AI_MAX_CONCURRENCY', '6')
-    monkeypatch.setattr(pipeline, 'available_memory', lambda: 4 * 1024**3)
-    rows = [finding(f'h{i}') for i in range(241)]
-    barrier, lock = threading.Barrier(6), threading.Lock()
-    active = peak = calls = completed = 0
-    def invoke(stage, platform, entries, selected_token, findings, reviews, timeout):
-        nonlocal active, peak, calls, completed
-        if stage == 'priorities':
-            assert active == 0 and completed == 7
-            return {'actions': [], 'limitations': []}
-        with lock:
-            active += 1; calls += 1
-            current = calls
-            peak = max(peak, active)
-        try:
-            if current <= 6: barrier.wait(timeout=3)
-            return {'items': [review(row['id']) for row in findings]}
-        finally:
-            with lock: active -= 1; completed += 1
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    value = pipeline.review_scan(report() | {'findings': rows}, {}, {}, tenant='alice', artifacts=environment[2])
-    assert value['status'] == 'completed' and peak == 6
-    assert value['coverage']['total'] == 241
 
 
 def test_review_queue_rejects_unbounded_concurrency(monkeypatch):

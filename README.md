@@ -25,7 +25,7 @@ flowchart LR
     E --> F[Web investigation and JSON / Markdown reports]
 ```
 
-Collection and evaluation are separate: a saved snapshot can be evaluated again without cloud calls. Reports identify their snapshot and preserve collection gaps. The web application adds authenticated workspaces, connector validation, queued workers, schedules, pagination and report storage. Local storage and hosted AWS services wrap the same engine. AI review defaults on for scans and schedules. After deterministic analysis, Chack agents verify failed findings and recommend up to 15 security actions. The analyzer uses network access and captured sessions for this optional phase; it cannot decrypt source connector credentials. See [AI review setup, prompts and schemas](docs/ai-review/README.md).
+Collection and evaluation are separate: a saved snapshot can be evaluated again without cloud calls. Reports identify their snapshot and preserve collection gaps. The web application adds authenticated workspaces, connector validation, queued workers, schedules, pagination and report storage. Local storage and hosted AWS services wrap the same engine. AI defaults on for scans and schedules. Native Hardening and Exposure findings are final; the remaining AI agents review network architecture and recommend up to 15 security actions from native findings. The analyzer uses network access and captured sessions for this optional phase; it cannot decrypt source connector credentials. See [AI review setup, prompts and schemas](docs/ai-review/README.md).
 
 See [local architecture and API](docs/peaso-local.md), [hosted AWS deployment](docs/peaso-aws.md), [the web interface](docs/peaso-ui.md) and [engine contracts](docs/peaso-engine-contract.md).
 

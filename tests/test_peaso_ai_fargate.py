@@ -131,7 +131,7 @@ def test_task_transport_never_exposes_real_model_token(configured,tmp_path,provi
     tasks,storage=Tasks(),Storage()
     from peaso.ai.providers import ModelAccess
     access = ModelAccess(provider, 'selected-model', 'medium', 'real-private-token') if provider else 'real-private-token'
-    assert fargate.invoke('hardening',tmp_path,access,30,ecs=tasks,s3=storage)=={'items':[]}
+    assert fargate.invoke('network',tmp_path,access,30,ecs=tasks,s3=storage)=={'items':[]}
     relay=next(v for k,v in storage.objects.items() if k.endswith('relay.json'))
     assert json.loads(relay)['token']=='real-private-token'
     assert json.loads(relay)['ai_configuration'] == ({'provider': provider, 'model': 'selected-model', 'thinking': 'medium'} if provider else {})
@@ -183,14 +183,22 @@ def test_archive_cannot_escape_or_inject_model_auth(tmp_path,name,kind):
 def test_pipeline_remote_branch_never_creates_model_auth_file(configured,monkeypatch):
     from peaso.ai import pipeline
     def invoke(stage,root,token,timeout):
-        assert stage=='hardening' and token=='private-token'
+        assert stage=='network' and token=='private-token'
         assert not (root/'codex-auth.json').exists()
         assert json.loads((root/'credentials.json').read_text())['entries']==[]
-        assert (root/'findings.json').is_file()
+        assert not (root/'findings.json').exists()
         return {'items':[]}
     monkeypatch.setattr(fargate,'invoke',invoke)
+    monkeypatch.setattr('peaso.ai.network.build',lambda *a: None)
     monkeypatch.setattr(pipeline.subprocess,'Popen',lambda *a,**kw:pytest.fail('local agent launched'))
-    assert pipeline.invoke('hardening',{},[],'private-token',[],[],10)=={'items':[]}
+    assert pipeline.invoke('network',{'report':{'provider':'aws','findings':[],'graphs':{}},'inventory':[]},[],'private-token',[],[],10)=={'items':[]}
+
+
+@pytest.mark.parametrize('stage', ['hardening', 'exposure'])
+def test_removed_model_stages_cannot_launch_ecs_tasks(stage, tmp_path, monkeypatch):
+    monkeypatch.setattr(fargate, 'configuration', lambda: pytest.fail('ECS configuration accessed'))
+    with pytest.raises(ValueError, match='invalid_agent_invocation'):
+        fargate.invoke(stage, tmp_path, 'inert', 10)
 
 
 def test_private_relay_has_no_auth_or_general_proxy_endpoint(monkeypatch):

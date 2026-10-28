@@ -206,10 +206,10 @@ def test_expiration_blocks_local_hosted_workflow_and_subsequent_launches(api, mo
     monkeypatch.setattr('peaso.ai.isolation.launcher', lambda: '/unused')
     monkeypatch.setattr(pipeline.subprocess, 'Popen', lambda *a, **k: pytest.fail('Do not launch a process'))
     with pytest.raises(providers.ConfigurationError):
-        pipeline.invoke('hardening', {}, [], access, [], [], 30)
+        pipeline.invoke('network', {'report': {'provider': 'aws', 'findings': [], 'graphs': {}}, 'inventory': []}, [], access, [], [], 30)
     monkeypatch.setattr(fargate, 'configuration', lambda: pytest.fail('Do not touch hosted infrastructure'))
     with pytest.raises(providers.ConfigurationError):
-        fargate.invoke('hardening', tmp_path, access, 30)
+        fargate.invoke('network', tmp_path, access, 30)
     settings = Settings(state_dir=tmp_path/'state', identity_dir=tmp_path/'identity', auth_mode=mode)
     monkeypatch.setattr('peaso.server.config.Settings', lambda: settings)
     monkeypatch.setattr('peaso.storage.runtime.stores', lambda _: (store, None))
@@ -233,7 +233,7 @@ def test_runner_refuses_to_construct_chack_after_preflight_failure(tmp_path, mon
     from types import SimpleNamespace
     from peaso.ai import runner
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, 'argv', ['runner', 'hardening'])
+    monkeypatch.setattr(sys, 'argv', ['runner', 'network'])
     (tmp_path/'codex-auth.json').write_text('{"access_token":"PRIVATE"}')
     (tmp_path/'credentials.json').write_text('{"entries":[]}')
     monkeypatch.setitem(sys.modules, 'chack_agent', SimpleNamespace(
@@ -256,6 +256,7 @@ def test_container_startup_validation_failure_records_warning_and_stops_the_pool
     monkeypatch.setattr('peaso.ai.isolation.remote', lambda: False)
     monkeypatch.setattr('peaso.ai.isolation.launcher', lambda: '/unused')
     monkeypatch.setattr('peaso.ai.isolation.wrap_command', lambda command, _: command)
+    monkeypatch.setattr('peaso.ai.network.build', lambda *args: None)
     monkeypatch.setattr(pipeline, 'kill_tree', lambda _: None)
     launches = []
     class Process:
@@ -264,9 +265,9 @@ def test_container_startup_validation_failure_records_warning_and_stops_the_pool
         def wait(self, **kwargs): pass
     monkeypatch.setattr(pipeline.subprocess, 'Popen', Process)
     with pytest.raises(providers.ConfigurationError, match='before starting the agent'):
-        pipeline.invoke('hardening', {}, [], access, [], [], 30)
+        pipeline.invoke('network', {'report': {'provider': 'aws', 'findings': [], 'graphs': {}}, 'inventory': []}, [], access, [], [], 30)
     with pytest.raises(providers.ConfigurationError):
-        pipeline.invoke('hardening', {}, [], access, [], [], 30)
+        pipeline.invoke('network', {'report': {'provider': 'aws', 'findings': [], 'graphs': {}}, 'inventory': []}, [], access, [], [], 30)
     assert len(launches) == 1
     with make() as client:
         status = client.get('/api/ai/configuration').json()
@@ -340,7 +341,7 @@ def test_codex_validation_requires_a_successful_terminal_inference_event(monkeyp
 
 
 @pytest.mark.parametrize('provider,model,backend', CASES)
-def test_scan_resolves_once_and_passes_same_selection_to_reviewers_and_priorities(api, monkeypatch, tmp_path, provider, model, backend):
+def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(api, monkeypatch, tmp_path, provider, model, backend):
     from types import SimpleNamespace
     from peaso.ai import pipeline
     _, store, cipher, _ = api
@@ -354,12 +355,13 @@ def test_scan_resolves_once_and_passes_same_selection_to_reviewers_and_prioritie
     monkeypatch.setattr(pipeline, 'AICipher', lambda _: cipher)
     monkeypatch.setattr('peaso.storage.runtime.stores', lambda _: (store, None))
     monkeypatch.setattr('peaso.snapshot.resources', lambda _: [])
+    monkeypatch.setattr('peaso.ai.network.prepare', lambda *a: {'inventory': []})
     monkeypatch.setattr('peaso.least_privilege.project', lambda *a, **k: {})
     monkeypatch.setattr(pipeline, 'review_concurrency', lambda: 1)
     captured = []
     def reviews(report, inventory, entries, access, *args, **kwargs):
         captured.append(access)
-        return {'hardening': [], 'exposure': []}, False
+        return {'network': {'status': 'completed', 'explanation': '', 'findings': []}}, False
     def priorities(stage, platform, entries, access, *args):
         captured.append(access)
         return {'actions': [], 'limitations': [secret]}
@@ -373,7 +375,7 @@ def test_scan_resolves_once_and_passes_same_selection_to_reviewers_and_prioritie
     assert secret not in json.dumps(result)
 
 
-@pytest.mark.parametrize('stage', ['hardening', 'exposure', 'network', 'priorities'])
+@pytest.mark.parametrize('stage', ['network', 'priorities'])
 @pytest.mark.parametrize('provider,model,backend', CASES)
 def test_every_stage_and_child_role_uses_the_exact_selection(monkeypatch, stage, provider, model, backend):
     from chack_agent import load_config
@@ -512,141 +514,6 @@ def test_hosted_relay_forwards_only_selected_provider_and_hides_real_credentials
         Response.status_code = 401
         status, _, raw = call('POST', route, json.dumps({'model': model}), capability)
         assert status == 502 and secret.encode() not in raw
-    finally:
-        server.shutdown()
-        thread.join(timeout=3)
-
-
-@pytest.mark.parametrize('provider', ['anthropic', 'anthropic_token'])
-def test_pinned_claude_and_chack_use_selected_model_effort_and_private_relay(tmp_path, provider):
-    """Actual pinned Claude CLI, fake local Messages SSE, no paid API call."""
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    import subprocess
-    import sys
-    import threading
-    binary = os.getenv('PEASO_TEST_CLAUDE_BIN')
-    if not binary:
-        pytest.skip('set PEASO_TEST_CLAUDE_BIN to the pinned Claude Code 2.1.304 executable')
-    requests = []
-    message = {'id': 'msg_test', 'type': 'message', 'role': 'assistant', 'model': 'claude-sonnet-4-6',
-               'content': [], 'stop_reason': None, 'stop_sequence': None,
-               'usage': {'input_tokens': 10, 'output_tokens': 1}}
-    events = [
-        {'type': 'message_start', 'message': message},
-        {'type': 'content_block_start', 'index': 0, 'content_block': {
-            'type': 'tool_use', 'id': 'toolu_structured', 'name': 'StructuredOutput', 'input': {}}},
-        {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'input_json_delta', 'partial_json': '{"items":[]}'}},
-        {'type': 'content_block_stop', 'index': 0},
-        {'type': 'message_delta', 'delta': {'stop_reason': 'tool_use', 'stop_sequence': None}, 'usage': {'output_tokens': 5}},
-        {'type': 'message_stop'},
-    ]
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args): pass
-        def do_GET(self):
-            if self.path == '/validate':
-                raw=b'{"valid":true}';self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw);return
-            self.send_response(403)
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-        def do_POST(self):
-            body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))) or b'{}')
-            if self.path == '/anthropic/v1/messages?beta=true':
-                requests.append((body, dict(self.headers)))
-                raw = ''.join('event: ' + event['type'] + '\ndata: ' + json.dumps(event) + '\n\n' for event in events).encode()
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/event-stream')
-            elif self.path == '/anthropic/v1/messages/count_tokens?beta=true':
-                raw = b'{"input_tokens":10}'
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-            else:
-                raw = b'{}'
-                self.send_response(403)
-            self.send_header('Content-Length', str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    bindir, root = tmp_path/'bin', tmp_path/'work'
-    bindir.mkdir()
-    root.mkdir()
-    (bindir/'claude').symlink_to(Path(binary).resolve())
-    (root/'credentials.json').write_text('{"entries":[]}')
-    (root/'findings.json').write_text('{"scan":{},"items":[]}')
-    (root/'codex-auth.json').write_text(json.dumps({'provider': provider, 'model': 'claude-sonnet-4-6',
-        'thinking': 'medium', 'access_token': 'task-local-capability'}))
-    env = {'PATH': str(bindir) + os.pathsep + os.environ['PATH'], 'HOME': str(root), 'TMPDIR': str(root),
-           'PYTHONPATH': str(Path(__file__).resolve().parents[1]),
-           'PEASO_AI_MODEL_RELAY': 'http://127.0.0.1:' + str(server.server_port),
-           'PEASO_AI_AGENT_TIMEOUT_SECONDS': '45', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1'}
-    try:
-        result = subprocess.run([sys.executable, '-B', '-m', 'peaso.ai.runner', 'hardening'], cwd=root,
-                                env=env, capture_output=True, text=True, timeout=50)
-        assert result.returncode == 0, result.stderr[-2000:]
-        assert json.loads((root/'result.json').read_text()) == {'items': []}
-        assert requests and all(body['model'] == 'claude-sonnet-4-6' and body['output_config']['effort'] == 'medium' for body, _ in requests)
-        headers = {key.lower(): value for key, value in requests[-1][1].items()}
-        assert headers.get('x-api-key') == 'task-local-capability' if provider == 'anthropic' else headers.get('authorization') == 'Bearer task-local-capability'
-    finally:
-        server.shutdown()
-        thread.join(timeout=3)
-
-
-def test_openrouter_chack_backend_uses_selected_model_effort_and_relay(tmp_path):
-    """Actual Chack/OpenRouter SDK; the entire model API is a local fixture."""
-    pytest.importorskip('agents')
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    import subprocess
-    import sys
-    import threading
-    requests = []
-    item = {'id': 'msg_fixture', 'type': 'message', 'status': 'completed', 'role': 'assistant',
-            'content': [{'type': 'output_text', 'text': '{"items":[]}', 'annotations': []}]}
-    response = {'id': 'resp_fixture', 'object': 'response', 'created_at': 1, 'status': 'completed',
-                'error': None, 'incomplete_details': None, 'model': 'openai/gpt-5.3-codex', 'output': [item],
-                'parallel_tool_calls': True, 'tools': [], 'tool_choice': 'auto',
-                'usage': {'input_tokens': 10, 'output_tokens': 5, 'total_tokens': 15,
-                          'input_tokens_details': {'cached_tokens': 0}, 'output_tokens_details': {'reasoning_tokens': 0}}}
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args): pass
-        def do_GET(self):
-            raw=b'{"valid":true}';self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
-        def do_POST(self):
-            body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
-            requests.append((self.path, body, self.headers.get('Authorization')))
-            assert self.path == '/openrouter/api/v1/responses'
-            if body.get('stream'):
-                events = [{'type': 'response.created', 'response': {**response, 'output': [], 'status': 'in_progress'}},
-                          {'type': 'response.output_item.done', 'output_index': 0, 'item': item},
-                          {'type': 'response.completed', 'response': response}]
-                raw = ''.join('data: ' + json.dumps(event) + '\n\n' for event in events).encode()
-            else:
-                raw = json.dumps(response).encode()
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/event-stream' if body.get('stream') else 'application/json')
-            self.send_header('Content-Length', str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    (tmp_path/'credentials.json').write_text('{"entries":[]}')
-    (tmp_path/'findings.json').write_text('{"scan":{},"items":[]}')
-    (tmp_path/'codex-auth.json').write_text(json.dumps({'provider': 'openrouter', 'model': 'openai/gpt-5.3-codex',
-        'thinking': 'high', 'access_token': 'task-local-capability'}))
-    env = {'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'TMPDIR': str(tmp_path),
-           'PYTHONPATH': str(Path(__file__).resolve().parents[1]),
-           'PEASO_AI_MODEL_RELAY': 'http://127.0.0.1:' + str(server.server_port),
-           'PEASO_AI_AGENT_TIMEOUT_SECONDS': '30', 'OPENAI_AGENTS_DISABLE_TRACING': '1'}
-    try:
-        result = subprocess.run([sys.executable, '-B', '-m', 'peaso.ai.runner', 'hardening'], cwd=tmp_path,
-                                env=env, capture_output=True, text=True, timeout=35)
-        assert result.returncode == 0, result.stderr[-2000:]
-        assert json.loads((tmp_path/'result.json').read_text()) == {'items': []}
-        assert requests and requests[-1][1]['model'] == 'openai/gpt-5.3-codex'
-        assert requests[-1][1]['reasoning']['effort'] == 'high'
-        assert requests[-1][2] == 'Bearer task-local-capability'
     finally:
         server.shutdown()
         thread.join(timeout=3)

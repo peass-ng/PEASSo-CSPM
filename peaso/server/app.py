@@ -312,7 +312,7 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         completed = {}
         stage_rows = store.stage_results(tenant, ident)
         for stage, entry in stage_rows.items():
-            if stage not in {"hardening", "exposure", "network"} or not isinstance(entry, dict):
+            if stage != "network" or not isinstance(entry, dict):
                 continue
             section = sections.get(stage)
             if (not isinstance(section, dict) or section.get("status") != "complete"
@@ -338,12 +338,6 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         for stage, result in completed.items():
             if stage == "network" and isinstance(result.get("network"), dict):
                 overlay["network"] = result["network"]
-            if stage in {"hardening", "exposure"} and isinstance(result.get("reviews", {}).get(stage), list):
-                overlay["reviews"][stage] = result["reviews"][stage]
-            if stage == "hardening" and isinstance(result.get("native_final"), dict):
-                ids = result["native_final"].get("hardening")
-                if isinstance(ids, list) and all(isinstance(ident, str) for ident in ids):
-                    overlay["native_final"] = {"hardening": ids}
             overlay["limitations"].extend(result.get("limitations", []) if isinstance(result.get("limitations"), list) else [])
         stage_revisions = {stage: entry["data_revision"] for stage, entry in stage_rows.items()
                            if stage in completed}
@@ -969,6 +963,9 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
             body = body.model_copy(update={'content_checks': prepared['content_checks']})
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
+        from peaso.ai.pipeline import selected_stages
+        if body.ai_enabled and not selected_stages(body.model_dump()):
+            body = body.model_copy(update={'ai_enabled': False})
         from peaso.ai.providers import review_disabled
         if body.ai_enabled and review_disabled(store, account.tenant_id):
             body = body.model_copy(update={'ai_enabled': False})
@@ -2254,6 +2251,9 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
             body = body.model_copy(update={'content_checks': prepared['content_checks']})
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
+        from peaso.ai.pipeline import selected_stages
+        if body.ai_enabled and not selected_stages(body.model_dump()):
+            body = body.model_copy(update={'ai_enabled': False})
         if body.ai_enabled:
             from peaso.ai.auth import require_local_codex
             require_local_codex(settings, store, account.tenant_id)
@@ -2278,7 +2278,11 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
             patch['content_checks'] = prepared['content_checks']
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        effective_ai = body.ai_enabled if body.ai_enabled is not None else current.get('ai_enabled', True)
+        from peaso.ai.pipeline import selected_stages
+        effective_ai = (body.ai_enabled if body.ai_enabled is not None else current.get('ai_enabled', True))
+        effective_ai = effective_ai and bool(selected_stages(dict(current, **patch)))
+        if not effective_ai:
+            patch['ai_enabled'] = False
         if effective_ai and (body.ai_enabled is True or body.enabled is not False):
             from peaso.ai.auth import require_local_codex
             owner = account.tenant_id if body.ai_enabled is True else current.get('ai_user_id', account.tenant_id)

@@ -6,11 +6,7 @@ Shell-enabled hosted reviews use the role-free Fargate isolation backend. A usab
 
 ## What runs
 
-Hardening and Exposure reviewers receive scope-bound collection receipts alongside
-referenced resources. An explicitly empty, complete inventory can establish that
-a required configuration is absent; denied or partial inventory cannot. These
-receipts contain only type, scope, status and counts, are bounded once per batch,
-and participate in review reuse fingerprints so changed coverage is rechecked.
+Native Hardening and Exposure verdicts are final for AWS, GCP, Azure and Kubernetes. Only the Network and Priorities agents run during scans.
 
 AI defaults to `true` in `ScanCreate` and schedules. The launch form can disable it. Existing schedules without a flag inherit `true`.
 
@@ -30,29 +26,20 @@ enter the code and finish signing in; CSPM polls for completion and stores retur
 tokens encrypted. Then choose the model and thinking effort and validate/save the
 selection. No localhost callback or CLI installation is required on your laptop.
 
-After deterministic analysis, Chack reviews failed Hardening and Exposure findings and runs a holistic Network agent in the same bounded parallel pool, then produces up to 15 prioritized actions. Priorities runs alone after all three types finish, receiving their final verdicts and new network findings. It starts with a complete compact `platform.json` decision brief and uses `context.py` for indexed lookups in `context.sqlite`. Its full evidence covers all security areas; the Network agent gets a separate network-only database and topology catalog. Each Hardening/Exposure verifier receives one `findings.json`: `scan` holds the scan identity/time and `items` contains only its assigned failed checks. Each check retains its evidence and has `supporting_resources` containing only native resource records explicitly referenced by that check. There is no separate evidence file. Verifiers receive no full report, inventory, graphs, least-privilege projection or other review batches. Credentials are selected by provider and referenced accounts, projects, subscriptions or cluster. Target lists narrow the handoff and instructions, not the provider permissions of the captured token. Agents do not need a platform administrator API token.
+After deterministic analysis, the Network agent reviews captured network architecture and Priorities produces up to 15 actions. Priorities receives native FAIL findings, including Hardening and Exposure, plus the Network result. Neither agent can revise native Hardening or Exposure verdicts. The analyzer starts no Hardening or Exposure model tasks, batches or ECS tasks.
 
-Both selection and the file-writing boundary enforce that findings.json contains only FAIL checks in the assigned category. Passed, unresolved, denied, manual, empty and inapplicable checks are excluded.
-
-Findings of one check, scope and resource type whose evidence is identical apart from their own resource identifiers form a group; only the group's first finding is sent to the reviewer. A confirmed FAIL is copied to the other members, while any other verdict sends each remaining member to its own review in the same pool, so a native failure is only overturned on that finding's own document. Findings without evidence are never grouped. Reviews run in balanced batches of at most 40, alternating Hardening and Exposure so both progress. Local concurrency defaults to two; the AWS deployment configures twelve, subject to the same memory admission checks. Its shared AI budget is 3,000 seconds, including Fargate startup and input preparation, and the scan deadline remains authoritative. The invocation’s remaining budget also configures the inner wrapper. Individual reviewer tasks remain bounded to 480 seconds, Network to 900 seconds and Priorities to 1,500 seconds, all below the 1,800-second task limit. On AWS, up to 300 seconds (at most a quarter of the time left) before the scan deadline are kept for the final report publication. Results retain their category and finding order; exact duplicates run once. Unprocessed or failed batches get explicit UNKNOWN results and partial AI status. Priorities waits for every active task to finish and clean up, with up to 600 seconds reserved on AWS and 60 seconds locally. Deterministic findings remain available when AI fails.
-
-Exposure is deduplicated only when its check ID, resource ID and scope exactly match a Hardening observation. Sharing an account or resource alone is not enough. A duplicate reuses the original review under its own finding ID. Distinct controls continue through the Exposure reviewer.
-
-Validated AI verdicts are applied to the existing Hardening and Exposure finding views before filtering, grouping and counting. Native evidence is preserved, with the original scanner status retained as `scanner_status` and the AI explanation attached to the finding. Failed or unavailable review attempts keep the scanner result. Existing reports receive the same projection when read. Each review retains its exact finding reference; unsupported or foreign references cannot change another finding.
+The collector can publish a complete Network section during collection, allowing Network AI to start early. Priorities runs after final native analysis. Native findings remain available if either AI stage fails.
 
 ## Local review files
 
-- [Hardening Chack YAML](../../peaso/ai/agents/hardening.yaml)
-- [Exposure Chack YAML](../../peaso/ai/agents/exposure.yaml)
 - [Network Chack YAML](../../peaso/ai/agents/network.yaml)
 - [Network output JSON Schema](../../peaso/ai/network.schema.json)
 - [Prioritization Chack YAML](../../peaso/ai/agents/priorities.yaml)
 - [Per-invocation access instruction builder](../../peaso/ai/prompting.py)
-- [Review JSON Schema](../../peaso/ai/reviews.schema.json)
 - [Action-table JSON Schema](../../peaso/ai/recommendations.schema.json)
 - [Illustrative result](example-result.json), using synthetic IDs and evidence
 
-Each task prompt follows the sectioned style of the existing FactChecker verifier, Trip Planner administrator and organization-recon Chack prompts: PERSONALITY, GOAL, INPUTS, GUIDELINES, WORKFLOW, OUTPUT and EXAMPLES. The user prompt has an AVAILABLE ACCESS section populated only from that invocation's credential entries. Instructions use natural language with good and bad examples. Pydantic validates output shape and cross references: exact review coverage, distinct IDs, supported verdicts and 500-character reasons, existing resource/finding references, consecutive ranks, at most 15 actions, and brief rationale/steps/verification fields. Findings reviewed as PASS, NOT_APPLICABLE or EMPTY cannot be recommended as outstanding remediation. The agents do not execute the proposed changes.
+Each task prompt uses sections for personality, goal, inputs, guidelines, workflow, output and examples. The user prompt has an AVAILABLE ACCESS section populated only from that invocation's credential entries. Pydantic validates output shape and cross references: existing resource/finding references, consecutive ranks, at most 15 actions, and brief rationale/steps/verification fields. Native PASS, NOT_APPLICABLE and EMPTY findings cannot be recommended as outstanding remediation. The agents do not execute the proposed changes.
 
 Recommendations use six fields per action: `rank`, `title`, `finding_ids`, `rationale`, `steps` and `verification`. Rationale combines decisive facts, expected benefit and action-specific uncertainty (1000 characters maximum). There are at most five steps of 500 characters each and a 700-character verification instruction. Necessary prerequisites and rollout cautions belong in steps; common limitations stay at the top level. Rank supplies the ordering, and finding references identify affected targets. Supporting evidence lists finding titles that open their details while keeping the action plan open. Separate priority, scope, provider, impact, effort, owner, dependency, rollback and evidence fields are no longer requested.
 
@@ -72,7 +59,7 @@ Network output has `explanation` and `findings`; it does not request or display 
 
 ### Prioritization brief
 
-For Hardening and Exposure, priorities receives only original FAIL checks whose final rechecker verdict is FAIL. PASS, UNKNOWN, DENIED, MANUAL, NOT_APPLICABLE, EMPTY and unreviewed checks are excluded before writing the decision brief and the underlying lookup database. Other security areas retain their own uncertainty states. Full original scanner findings and all review results remain available in the platform report and UI.
+For Hardening and Exposure, priorities receives native FAIL checks. PASS, UNKNOWN, DENIED, MANUAL, NOT_APPLICABLE and EMPTY checks are excluded from the decision brief and lookup database. Other security areas retain their own uncertainty states. The full native findings remain available in the platform report and UI.
 
 `briefing.py` stores original records in a mode-0600 local SQLite file. `decision_brief.py` creates one complete decision catalog in `platform.json`, replacing the former four-previews-per-domain approach. Every decision group is represented across five sections: findings, least privilege, privilege escalation, IAM and network. The agent compares these sections before fetching original evidence. Large sections can be paginated through the same local helper, without omitting candidates.
 

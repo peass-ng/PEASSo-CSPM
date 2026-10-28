@@ -64,8 +64,7 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
         isolation.launcher()
         from .providers import validate_before_launch
         token = validate_before_launch(token)
-    categories = {'hardening': {'hardening'}, 'exposure': {'exposure'},
-                  'network': set(), 'priorities': {'hardening', 'exposure'}}
+    categories = {'network': set(), 'priorities': {'hardening', 'exposure'}}
     if stage not in categories:
         raise ValueError('unknown_ai_stage')
     # Enforce the scope again before creating findings.json. A caller error
@@ -88,11 +87,6 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
         elif stage == 'network':
             from .network import build
             build(root, platform, reviews, private_json)
-        elif stage in ('hardening', 'exposure'):
-            # Reviewers never receive the complete report, inventory or graphs,
-            # even if a caller accidentally passes a broader context object.
-            files['findings'] = compact_document(findings_document(platform.get('scan', {}), findings,
-                                                                   platform.get('resources', [])))
         for name, data in files.items():
             private_json(root / (name + '.json'), data)
         if remote:
@@ -444,7 +438,7 @@ def review_concurrency():
 def review_batches(report, inventory_by_id, entries, token, hardening, exposure, end, *, network=None,
                    stages=None, cancel_event=None, coalesce_rechecks=False):
     """Bounded work queue: overlap independent stages, preserve result order."""
-    stages = frozenset(('hardening', 'exposure', 'network') if stages is None else stages)
+    stages = frozenset({'network'} if stages is None else set(stages) & {'network'})
     output = {stage: {} for stage in ('hardening', 'exposure') if stage in stages}
     failed = False
     from .collection_coverage import index
@@ -565,74 +559,54 @@ def review_batches(report, inventory_by_id, entries, token, hardening, exposure,
 
 
 def selected_stages(selectors, stages=None):
-    """Choose only the AI work requested for this assessment."""
-    # The hosted worker can retire these two model agents independently while
-    # retaining Network and Priorities. Default-on preserves local behavior;
-    # production sets both switches to 0 in the task definition.
-    disabled = {stage for stage, variable in (
-        ('hardening', 'PEASO_AI_HARDENING_AGENT_ENABLED'),
-        ('exposure', 'PEASO_AI_EXPOSURE_AGENT_ENABLED'))
-        if os.getenv(variable, '1') == '0'}
+    """Only Network and Priorities use model agents."""
     if stages is not None:
-        selected = set(stages)
+        selected = set(stages) & {'network', 'priorities'}
         if 'priorities' in selected:
-            selected |= {'hardening', 'exposure', 'network'}
-        return frozenset(selected - disabled)
+            selected.add('network')
+        return frozenset(selected)
     categories = set(selectors.get('categories') or ())
     if not categories:
         categories = {'hardening', 'exposure', 'network'}
     selected = set()
-    if categories - {'exposure', 'least_privilege', 'iam_graph', 'network', 'privesc'}:
-        selected.add('hardening')
-    if 'exposure' in categories:
-        selected.add('exposure')
     if 'network' in categories and selectors.get('ai_network_enabled', True):
         selected.add('network')
     if selectors.get('ai_priorities_enabled', True):
         selected.add('priorities')
-    return frozenset(selected - disabled)
+    return frozenset(selected)
 
 
 def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None, context=None,
                 stages=None, reused_stages=None, cancel_event=None, early_kind_window=False):
-    """Review selected independent stages, optionally reusing fenced stage outputs.
-
-    A stage output is the complete public result of a single-stage invocation.
-    Finding IDs are checked again before reuse because final native evaluation
-    may differ from a checkpoint even when the section was marked complete.
-    """
+    """Run remaining AI stages with native FAILs as final Priorities inputs."""
     selected = selected_stages(selectors, stages)
-    if not selected <= {'hardening', 'exposure', 'network', 'priorities'}:
-        raise ValueError('unknown_ai_stage')
-    reused_stages = reused_stages or {}
-    result = {'version': 1, 'status': 'skipped', 'actions': [], 'reviews': {'hardening': [], 'exposure': []},
-              'limitations': [], 'duplicates': {}, 'auth_source': None}
+    result = {'version': 1, 'status': 'skipped', 'actions': [],
+              'reviews': {'hardening': [], 'exposure': []}, 'limitations': [],
+              'duplicates': {}, 'auth_source': None}
     if not selectors.get('ai_enabled', True):
         result['reason'] = 'disabled_for_scan'
-        return result
-    hardening_native_only = os.getenv('PEASO_AI_HARDENING_AGENT_ENABLED', '1') == '0'
-    exposure_native_only = os.getenv('PEASO_AI_EXPOSURE_AGENT_ENABLED', '1') == '0'
-    k8s_native_exposure = (report.get('provider') == 'k8s' and 'exposure' in selected
-                           and selectors.get('ai_k8s_exposure_enabled') is not True)
-    if k8s_native_exposure and selected == {'exposure'}:
-        hardening, exposure, duplicates = inputs(report)
-        native_reviews = native_exposure_reviews(exposure, duplicates)
-        result.update(status='completed', reason='k8s_exposure_native_only', duplicates=duplicates,
-                      stage_inputs={'hardening': sorted(row['id'] for row in hardening),
-                                    'exposure': sorted(row['finding_id'] for row in native_reviews)},
-                      coverage={'hardening': len(hardening), 'exposure': len(native_reviews),
-                                'reviewed': len(native_reviews), 'total': len(native_reviews)})
-        result['reviews']['exposure'] = native_reviews
         return result
     if not selected:
         result['reason'] = 'no_ai_sections_selected'
         return result
+    hardening, exposure, duplicates = inputs(report)
+    from .native_final import reviews as native_reviews
+    result['reviews']['hardening'] = native_reviews(hardening)
+    result['reviews']['exposure'] = native_exposure_reviews(exposure, duplicates)
+    result['native_final'] = {
+        'hardening': [row['id'] for row in hardening],
+        'exposure': [row['finding_id'] for row in result['reviews']['exposure']]}
+    result['duplicates'] = duplicates
+    result['stage_inputs'] = {'hardening': [], 'exposure': []}
+    reviewed = result['reviews']['hardening'] + result['reviews']['exposure']
+    result['coverage'] = {'hardening': len(hardening), 'exposure': len(exposure) + len(duplicates),
+                          'reviewed': len(reviewed), 'total': len(reviewed)}
     try:
         from peaso.storage.runtime import stores
         settings = Settings()
         if context:
-            settings.state_dir = Path(context["state_dir"])
-            settings.identity_dir = Path(context["identity_dir"])
+            settings.state_dir = Path(context['state_dir'])
+            settings.identity_dir = Path(context['identity_dir'])
         store, _ = stores(settings)
         ai_user = selectors.get('ai_user_id', tenant)
         if ai_user != tenant and store.workspace_role(tenant, ai_user) not in ('write', 'admin'):
@@ -646,230 +620,82 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             auth_mode=settings.auth_mode, token_resolver=personal_token)
         if not isolation.available():
             result.update(status='unavailable', reason='ai_isolation_unavailable')
-            result['limitations'].append('AI agents were not started: this deployment has no configured isolation launcher. Deterministic scan findings remain available.')
+            result['limitations'].append('Network and Priorities agents were not started: this deployment has no configured isolation launcher.')
             return result
-        hardening, exposure, duplicates = inputs(report)
-        from .native_final import admitted_check_ids, partition, reviews as native_reviews
-        native_hardening, ai_hardening = ((hardening, []) if hardening_native_only else partition(
-            hardening, admitted_check_ids() if 'hardening' in selected else frozenset()))
-        if report['provider'] == 'gcp' and not hardening_native_only:
-            from .gcp_native_final import admitted_check_ids as gcp_admitted
-            from .gcp_native_final import partition as gcp_partition
-            gcp_native_hardening, ai_hardening = gcp_partition(
-                ai_hardening, gcp_admitted() if 'hardening' in selected else frozenset(),
-                report.get('coverage'))
-            native_hardening += gcp_native_hardening
-        if not hardening_native_only:
-            from .k8s_native_final import admitted_check_ids as k8s_admitted_check_ids
-            from .k8s_native_final import partition as k8s_partition
-            k8s_native_hardening, ai_hardening = k8s_partition(
-                ai_hardening, k8s_admitted_check_ids() if 'hardening' in selected else frozenset(),
-                report.get('coverage'))
-            native_hardening += k8s_native_hardening
-        if report['provider'] == 'azure' and 'hardening' in selected and not hardening_native_only:
-            from .native_final_azure import admitted_check_ids as admitted_azure_check_ids
-            from .native_final_azure import partition as partition_azure
-            azure_native, ai_hardening = partition_azure(
-                ai_hardening, admitted_azure_check_ids(), report.get('coverage'))
-            native_hardening.extend(azure_native)
-        result['reviews']['hardening'] = native_reviews(native_hardening)
-        result['native_final'] = {'hardening': [row['id'] for row in native_hardening]}
-        result['duplicates'] = duplicates
-        if k8s_native_exposure or exposure_native_only:
-            result['reviews']['exposure'] = native_exposure_reviews(exposure, duplicates)
-            result['native_final']['exposure'] = [row['finding_id']
-                                                  for row in result['reviews']['exposure']]
-        from .progressive_kinds import review_group_signatures
-        result['review_group_signatures'] = {
-            'hardening': review_group_signatures(hardening) if 'hardening' in selected else {}}
-        result['stage_inputs'] = {
-            'hardening': sorted(row['id'] for row in ai_hardening),
-            'exposure': [] if exposure_native_only else sorted(row['id'] for row in exposure),
-        }
         entries = []
         reference = snapshot.get('metadata', {}).get('ai_access_reference')
         if reference:
             entries = cipher.decrypt(artifacts.get(tenant, reference)['sealed'])['entries']
         from .access import bind_targets, eligible_entries
         entries = bind_targets(eligible_entries(entries, snapshot), snapshot)
-        if report['provider'] == 'aws':
-            result['limitations'].append('AWS AI review uses captured evidence only; no live AWS credentials are available to AI agents.')
+        if report.get('provider') == 'aws':
+            result['limitations'].append('AWS AI uses captured evidence only; no live AWS credentials are available to AI agents.')
         elif not entries:
-            result['limitations'].append('Live cloud credentials are unavailable; review is limited to captured evidence.')
+            result['limitations'].append('Live cloud credentials are unavailable; AI is limited to captured evidence.')
         from peaso.snapshot import resources
         inventory = resources(snapshot)
-        inventory_by_id = {row['id']: row for row in inventory}
-        identity = {'ai_user': ai_user, 'auth_source': result['auth_source'],
-                    'access_reference': reference}
-        result['review_fingerprint_version'] = 2
-        # A stage's fingerprints only fence reuse of that same stage's output,
-        # so a single-stage invocation proves only the stage it reviews.
-        result['review_fingerprints'] = {
-            stage: review_fingerprints(report, inventory_by_id, rows, identity=identity, entries=entries)
-            if stage in selected and not (k8s_native_exposure and stage == 'exposure') else {}
-            for stage, rows in (('hardening', ai_hardening), ('exposure', exposure))
-        }
-        # The final report publication follows this stage inside the same
-        # scan deadline, so keep its reserve out of the AI budget.
         from .review_groups import publish_reserve, stage_limit
         until_deadline = deadline - time.time() if deadline else 0
-        end = min(time.monotonic() + int(os.getenv('PEASO_AI_TIMEOUT_SECONDS', '600' if isolation.remote() else '300')),
+        end = min(time.monotonic() + int(os.getenv('PEASO_AI_TIMEOUT_SECONDS',
+                  '600' if isolation.remote() else '300')),
                   time.monotonic() + max(0, until_deadline - publish_reserve(until_deadline, isolation.remote()))
                   if deadline else float('inf'))
-        # Hosted priorities need their task startup and model budget after the
-        # reviewer barrier, while both phases remain inside the scan deadline.
-        review_end = end - min(600 if isolation.remote() else 60,
-                              max(0, end - time.monotonic()) * (.3 if isolation.remote() else .2))
         from .network import prepare, with_findings
-        # The projection feeds only the network reviewer (and its reuse check).
         network = prepare(report, inventory, snapshot) if 'network' in selected else None
-        # Completed outputs remain durable outside the advancing collector
-        # manifest. The caller fences them to complete section revisions.
-        pending = set(selected)
-        if k8s_native_exposure:
-            pending.discard('exposure')
-        reusable_reviews = {'hardening': {}, 'exposure': {}}
-        for stage in ('hardening', 'exposure', 'network'):
-            if k8s_native_exposure and stage == 'exposure':
-                continue
-            prior = reused_stages.get(stage)
-            if stage not in pending or not isinstance(prior, dict) or prior.get('status') not in ('completed', 'partial'):
-                continue
-            prior_reviews = prior.get('reviews')
-            value = prior.get('network') if stage == 'network' else (
-                prior_reviews.get(stage) if isinstance(prior_reviews, dict) else None)
-            if stage == 'network' and prior.get('status') == 'completed' and isinstance(value, dict) and value.get('status') == 'completed':
-                if network is not None:
-                    try:
-                        from .contracts import NetworkEvidence, NetworkFinding
-                        raw_rows = []
-                        for row in value['findings']:
-                            item = {key: row[key] for key in NetworkFinding.model_fields}
-                            item['evidence'] = {key: row['evidence'][key]
-                                                for key in NetworkEvidence.model_fields}
-                            raw_rows.append(item)
-                        raw = {'explanation': value['explanation'], 'findings': raw_rows}
-                        checked = validate_network(raw, network)
-                        if checked['findings'] == value['findings']:
-                            result['network'] = copy.deepcopy(value)
-                            pending.remove(stage)
-                    except (KeyError, TypeError, ValueError):
-                        pass
-            elif stage != 'network' and isinstance(value, list):
-                if prior.get('review_fingerprint_version') != 2:
-                    continue
-                proofs = prior.get('review_fingerprints')
-                inputs_by_stage = prior.get('stage_inputs')
-                proof = proofs.get(stage) if isinstance(proofs, dict) else None
-                current = result['review_fingerprints'][stage]
-                if not isinstance(proof, dict) or not isinstance(inputs_by_stage, dict):
-                    continue
-                prior_ids = inputs_by_stage.get(stage)
-                prior_groups = prior.get('review_group_signatures', {})
-                prior_groups = (prior_groups.get(stage) if isinstance(prior_groups, dict) else None)
-                if (not isinstance(prior_ids, list) or
-                        not all(isinstance(ident, str) for ident in prior_ids) or
-                        len(prior_ids) != len(set(prior_ids)) or set(proof) != set(prior_ids)):
-                    continue
-                try:
-                    checked = validate_reviews({'items': value},
-                        [{'id': ident} for ident in prior_ids])
-                except (TypeError, ValueError):
-                    continue
-                reusable_reviews[stage] = {row['finding_id']: copy.deepcopy(row)
-                    for row in checked['items'] if row['verdict'] in ('PASS', 'FAIL', 'NOT_APPLICABLE', 'EMPTY')
-                    and proof.get(row['finding_id']) == current.get(row['finding_id'])
-                    and (not prior.get('early_kind') or
-                         isinstance(prior_groups, dict) and
-                         prior_groups.get(row['finding_id']) ==
-                         result['review_group_signatures'][stage].get(row['finding_id']))}
-                if len(reusable_reviews[stage]) == len(current):
-                    ordered = [reusable_reviews[stage][row['id']]
-                        for row in (ai_hardening if stage == 'hardening' else exposure)]
-                    try:
-                        validated = validate_reviews({'items': ordered},
-                            ai_hardening if stage == 'hardening' else exposure)['items']
-                        result['reviews'][stage] = (native_reviews(native_hardening) + validated
-                            if stage == 'hardening' else validated)
-                    except (TypeError, ValueError):
-                        continue
-                    pending.remove(stage)
-        # Independent reviewers can start as each section becomes complete.
-        # Priorities below wait for the selected reviewer calls to settle.
-        missing_hardening = [row for row in ai_hardening if row['id'] not in reusable_reviews['hardening']]
-        missing_exposure = [] if k8s_native_exposure or exposure_native_only else [row for row in exposure if row['id'] not in reusable_reviews['exposure']]
-        if not pending & {'hardening', 'exposure', 'network'}:
-            fresh, failed_stage = {}, False
-        elif pending == {'hardening', 'exposure', 'network', 'priorities'}:
-            args = (report, inventory_by_id, entries, token, missing_hardening, missing_exposure, review_end)
-            fresh, failed_stage = (review_batches(*args, network=network) if cancel_event is None else
-                review_batches(*args, network=network, cancel_event=cancel_event))
-        else:
-            fresh, failed_stage = review_batches(report, inventory_by_id, entries, token,
-                missing_hardening, missing_exposure, review_end, network=network, stages=pending,
-                coalesce_rechecks=early_kind_window,
-                **({'cancel_event': cancel_event} if cancel_event is not None else {}))
-        for stage in ('hardening', 'exposure'):
-            if stage in fresh:
-                by_id = {**reusable_reviews[stage], **{row['finding_id']: row for row in fresh[stage]}}
-                expected = ai_hardening if stage == 'hardening' else exposure
-                validated = validate_reviews({'items':
-                    [by_id[row['id']] for row in expected]}, expected)['items']
-                result['reviews'][stage] = (native_reviews(native_hardening) + validated
-                    if stage == 'hardening' else validated)
-        if 'network' in fresh:
-            result['network'] = fresh['network']
-        result['network'] = result.get('network', {
+        prior = (reused_stages or {}).get('network')
+        if (network is not None and isinstance(prior, dict) and prior.get('status') == 'completed'
+                and isinstance(prior.get('network'), dict) and prior['network'].get('status') == 'completed'):
+            try:
+                from .contracts import NetworkEvidence, NetworkFinding
+                raw_rows = []
+                for row in prior['network']['findings']:
+                    item = {key: row[key] for key in NetworkFinding.model_fields}
+                    item['evidence'] = {key: row['evidence'][key] for key in NetworkEvidence.model_fields}
+                    raw_rows.append(item)
+                checked = validate_network({'explanation': prior['network']['explanation'],
+                                            'findings': raw_rows}, network)
+                if checked['findings'] == prior['network']['findings']:
+                    result['network'] = copy.deepcopy(prior['network'])
+            except (KeyError, TypeError, ValueError):
+                pass
+        failed_stage = False
+        if network is not None and 'network' not in result:
+            try:
+                review_end = end - min(600 if isolation.remote() else 60,
+                    max(0, end - time.monotonic()) * (.3 if isolation.remote() else .2))
+                fresh, failed_stage = review_batches(report,
+                    {row['id']: row for row in inventory}, entries, token, [], [], review_end,
+                    network=network, stages={'network'},
+                    **({'cancel_event': cancel_event} if cancel_event is not None else {}))
+                result['network'] = fresh.get('network')
+            except Exception:
+                failed_stage = True
+        result['network'] = result.get('network') or {
             'status': 'not_available', 'explanation': '', 'findings': [],
-            'reason': 'network_inventory_unavailable'})
+            'reason': 'network_inventory_unavailable'}
         priorities_report = with_findings(report, result['network']['findings'])
-        reviewed = result['reviews']['hardening'] + result['reviews']['exposure']
-        by_id = {row['finding_id']: row for row in reviewed}
-        if {'hardening', 'exposure'} <= selected and not k8s_native_exposure:
-            for duplicate, original in duplicates.items():
-                if original not in by_id:
-                    continue
-                review = dict(by_id[original], finding_id=duplicate)
-                result['reviews']['exposure'].append(review)
-                reviewed.append(review)
-        try:
-            if 'priorities' not in selected:
-                raise _SkipPriorities()
-            remaining = end - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError()
-            if review_concurrency() == 0:
-                raise MemoryError('ai_memory_headroom_unavailable')
-            from peaso.least_privilege import project
-            platform = {'report': priorities_report, 'inventory': inventory,
-                        'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
-                        'network_review': {key: result['network'][key] for key in ('status', 'explanation')}}
-            remaining = end - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError()
-            args = ('priorities', platform, entries, token, hardening + exposure, reviewed, end,
-                    stage_limit('priorities', isolation.remote()))
-            data = (invoke_before_deadline(*args) if cancel_event is None else
-                    invoke_before_deadline(*args, cancel_event=cancel_event))
-            recommendations = validate_actions(data, priorities_report, reviewed, require_assessment=True)
-            result['actions'] = recommendations['actions']
-            result['limitations'].extend(recommendations['limitations'])
-        except _SkipPriorities:
-            pass
-        except Exception:
-            failed_stage = True
-            result['limitations'].append('Prioritized recommendations could not be completed.')
+        if 'priorities' in selected:
+            try:
+                if end - time.monotonic() <= 0:
+                    raise TimeoutError()
+                if review_concurrency() == 0:
+                    raise MemoryError('ai_memory_headroom_unavailable')
+                from peaso.least_privilege import project
+                platform = {'report': priorities_report, 'inventory': inventory,
+                            'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
+                            'network_review': {key: result['network'][key]
+                                               for key in ('status', 'explanation')}}
+                data = invoke_before_deadline('priorities', platform, entries, token,
+                    hardening + exposure, reviewed, end, stage_limit('priorities', isolation.remote()),
+                    **({'cancel_event': cancel_event} if cancel_event is not None else {}))
+                recommendations = validate_actions(data, priorities_report, reviewed,
+                                                    require_assessment=True)
+                result['actions'] = recommendations['actions']
+                result['limitations'].extend(recommendations['limitations'])
+            except Exception:
+                failed_stage = True
+                result['limitations'].append('Prioritized recommendations could not be completed.')
         result['status'] = 'partial' if failed_stage else 'completed'
-        native_review_ids = {ident for ids in result['native_final'].values() for ident in ids}
-        result['coverage'] = {'hardening': len(hardening), 'exposure': len(exposure) + len(duplicates),
-            'reviewed': sum(row['verdict'] in ('PASS', 'FAIL', 'NOT_APPLICABLE', 'EMPTY') for row in reviewed),
-            'native_final': sum(row['finding_id'] in native_review_ids for row in reviewed),
-            'model_reviewed': sum(row['finding_id'] not in native_review_ids
-                                  and row['verdict'] in ('PASS', 'FAIL', 'NOT_APPLICABLE', 'EMPTY')
-                                  for row in reviewed),
-            'total': len(reviewed)}
-        # Redact exact cloud and AI credential values before durable publication.
-        # Retain public IDs/metadata: only credential-bearing fields are secrets.
         secrets = [credential_value(token), *getattr(getattr(token, 'guard', None), 'secrets', ())] + [value for entry in entries for key, value in entry.items()
             if key in ('token', 'aws_access_key_id', 'aws_secret_access_key', 'aws_session_token') and isinstance(value, str)]
         for entry in entries:
@@ -877,13 +703,9 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                 for user in entry['kubeconfig'].get('users', []):
                     secrets.extend(secret_values(user.get('user', {})))
         sanitized = redact(result, tuple(secrets))
-        if 'network' in sanitized:
-            sanitized['network']['explanation'] = sanitized['network']['explanation'][:12000]
-        for rows in sanitized['reviews'].values():
-            for row in rows:
-                row['reason'] = row['reason'][:500]
+        sanitized['network']['explanation'] = sanitized['network']['explanation'][:12000]
         return sanitized
     except Exception:
-        result.update(status='unavailable', reason='ai_setup_unavailable', actions=[], reviews={'hardening': [], 'exposure': []})
-        result['limitations'].append('AI authentication, runtime or scan context is unavailable. Scan findings remain available.')
+        result.update(status='unavailable', reason='ai_setup_unavailable', actions=[])
+        result['limitations'].append('AI authentication, runtime or scan context is unavailable. Native findings remain final.')
         return result

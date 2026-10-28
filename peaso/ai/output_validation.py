@@ -16,8 +16,6 @@ class InvalidAgentOutput(ValueError):
 
 
 def context(stage, root):
-    if stage in ('hardening', 'exposure'):
-        return json.loads((root/'findings.json').read_text())['items']
     import sqlite3
     from contextlib import closing
     with closing(sqlite3.connect((root/'context.sqlite').as_uri() + '?mode=ro', uri=True)) as db:
@@ -52,10 +50,8 @@ def context(stage, root):
 
 
 def validate(stage, data, original):
-    from .contracts import validate_actions, validate_network, validate_reviews
-    if stage in ('hardening', 'exposure'):
-        validate_reviews(data, original)
-    elif stage == 'network':
+    from .contracts import validate_actions, validate_network
+    if stage == 'network':
         validate_network(data, original)
     else:
         validate_actions(data, original['report'], original['reviews'], require_assessment=True)

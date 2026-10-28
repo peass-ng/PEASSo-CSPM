@@ -380,7 +380,7 @@ def _reusable_stages(artifacts, tenant, sections, stage_results):
     """Accept only stage artifacts bound to a complete final data revision."""
     reused = {}
     for stage, result in (stage_results or {}).items():
-        if stage not in {"network", "hardening", "exposure"} or not isinstance(result, dict):
+        if stage != "network" or not isinstance(result, dict):
             continue
         section = sections.get(stage)
         if (not isinstance(section, dict) or section.get("status") != "complete"

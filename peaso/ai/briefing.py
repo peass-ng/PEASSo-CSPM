@@ -118,9 +118,9 @@ def build(root, platform, assigned, reviews, write_json):
             ident = raw.get('id', str(index))
             row = assigned_by_id.get(ident) or hydrate_finding(raw, report.get('check_frameworks'),
                 report.get('check_meta'), report.get('check_meta_encoding'), report.get('remediation_templates'))
-            review = reviewed.get(ident)
             category = row.get('category')
-            verdict = review['verdict'] if review else ('UNKNOWN' if category in ('hardening', 'exposure') and row.get('status') == 'FAIL' else row.get('status'))
+            review = None if category in ('hardening', 'exposure') else reviewed.get(ident)
+            verdict = review['verdict'] if review else row.get('status')
             # Priorities receives only confirmed failing Hardening/Exposure
             # checks, including in the underlying evidence lookup database.
             if category in ('hardening', 'exposure') and (row.get('status') != 'FAIL' or verdict != 'FAIL'):

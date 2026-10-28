@@ -95,6 +95,6 @@ def access_instructions(entries):
 
 
 def agent_config_path(stage):
-    if stage not in ('hardening', 'exposure', 'network', 'priorities'):
+    if stage not in ('network', 'priorities'):
         raise ValueError('unknown_ai_stage')
     return AGENTS / (stage + '.yaml')

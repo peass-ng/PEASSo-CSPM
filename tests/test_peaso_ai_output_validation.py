@@ -11,12 +11,16 @@ from peaso.ai import deadline, output_validation, runner
 def inputs(tmp_path, monkeypatch, outputs, clock=None):
     monkeypatch.setattr(runner, 'validate_runtime', lambda *args: None)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, 'argv', ['runner', 'hardening'])
+    monkeypatch.setattr(sys, 'argv', ['runner', 'priorities'])
     monkeypatch.setenv(deadline.ENVIRONMENT_KEY, '520')
     monkeypatch.delenv('PEASO_AI_MODEL_RELAY', raising=False)
     (tmp_path/'codex-auth.json').write_text('{"access_token":"task-capability"}')
     (tmp_path/'credentials.json').write_text('{"entries":[]}')
-    (tmp_path/'findings.json').write_text('{"items":[{"id":"assigned"}]}')
+    with sqlite3.connect(tmp_path/'context.sqlite') as db:
+        db.execute('CREATE TABLE records(domain TEXT,id TEXT,detail TEXT)')
+        db.execute('INSERT INTO records VALUES(?,?,?)', ('findings', 'assigned', json.dumps({
+            'finding': {'id': 'assigned', 'status': 'FAIL', 'category': 'hardening'},
+            'review': None})))
     config = SimpleNamespace(agent=SimpleNamespace(max_runtime_minutes=5), credentials=SimpleNamespace())
     calls = []
     class Chack:
@@ -29,7 +33,12 @@ def inputs(tmp_path, monkeypatch, outputs, clock=None):
     return calls
 
 
-def review(ident): return {'items':[{'finding_id':ident,'verdict':'FAIL','reason':''}]}
+def review(ident):
+    return {'actions': [{'rank': 1, 'title': 'Review native finding',
+        'finding_ids': [ident], 'severity': 'high', 'effort': 'medium',
+        'rationale': 'The recorded native failure needs a bounded remediation plan.',
+        'steps': ['Validate the owner and apply the selected configuration.'],
+        'verification': 'Check the resulting native configuration.'}], 'limitations': []}
 
 
 def test_invalid_reference_is_corrected_against_original_inputs_with_remaining_budget(tmp_path, monkeypatch):
@@ -40,7 +49,7 @@ def test_invalid_reference_is_corrected_against_original_inputs_with_remaining_b
     assert len(calls) == 2 and [v['minutes'] for v in calls] == [9, 7]
     assert 'validation-feedback.json' in calls[1]['text']
     assert json.loads((tmp_path/'result.json').read_text()) == review('assigned')
-    assert json.loads((tmp_path/'validation-feedback.json').read_text()) == {'code':'review_coverage_mismatch'}
+    assert json.loads((tmp_path/'validation-feedback.json').read_text()) == {'code':'unknown_action_reference'}
     assert (tmp_path/'candidate-output.json').stat().st_mode & 0o777 == 0o600
 
 
@@ -134,7 +143,8 @@ def test_network_output_binds_resource_and_graph_references(tmp_path):
 
 
 def test_semantic_schema_error_can_be_corrected_without_changing_verdict(tmp_path, monkeypatch):
-    bad = {'items':[{'finding_id':'assigned','verdict':'FAIL','reason':'Invalid nonempty FAIL reason'}]}
+    bad = review('assigned')
+    bad['actions'][0]['steps'] = []
     calls = inputs(tmp_path, monkeypatch, [bad, review('assigned')])
     runner.main()
     assert len(calls) == 2

@@ -255,7 +255,7 @@ def model_access(access):
     from .prompting import agent_config_path
     # Lambda intentionally has no Chack/model SDK. Read the same shipped stage
     # YAML and resolve its alias with the exact worker pin's small pure helper.
-    config = yaml.safe_load(agent_config_path('hardening').read_text())['agent']
+    config = yaml.safe_load(agent_config_path('network').read_text())['agent']
     alias = config['primary']
     # The platform default uses a Codex credential. The shared OpenAI alias
     # can name a model unavailable to that account while the central catalog

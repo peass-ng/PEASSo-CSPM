@@ -45,7 +45,7 @@ def read(root, *args):
     return json.loads(result.stdout)
 
 
-def test_priorities_keeps_only_final_failed_hardening_and_exposure_in_every_lookup(tmp_path):
+def test_priorities_keeps_native_failed_hardening_and_exposure_in_every_lookup(tmp_path):
     platform, rows, reviews = fixture()
     findings, final = [], []
     for category in ('hardening', 'exposure'):
@@ -58,13 +58,16 @@ def test_priorities_keeps_only_final_failed_hardening_and_exposure_in_every_look
     findings.append(dict(rows[0], id='network-advice', category='network', status='MANUAL'))
     platform['report']['findings'] = findings
     build(tmp_path, platform, findings, final, private_json)
-    expected = {'hardening-FAIL', 'exposure-FAIL', 'network-advice'}
+    expected = {category + '-' + verdict for category in ('hardening', 'exposure')
+                for verdict in ('FAIL', 'PASS', 'UNKNOWN', 'DENIED', 'MANUAL', 'NOT_APPLICABLE', 'EMPTY', 'unreviewed')}
+    expected.add('network-advice')
     with sqlite3.connect(tmp_path / 'context.sqlite') as db:
         assert {row[0] for row in db.execute("SELECT id FROM records WHERE domain='findings'")} == expected
         assert {row[0] for row in db.execute('SELECT finding_id FROM members')} == expected
     brief = json.loads((tmp_path / 'platform.json').read_text())
-    assert brief['review_counts'] == {'hardening:FAIL': 1, 'exposure:FAIL': 1, 'network:MANUAL': 1}
-    assert {case['example']['id'] for case in brief['sections']['findings']} == expected
+    assert brief['review_counts'] == {'hardening:FAIL': 8, 'exposure:FAIL': 8, 'network:MANUAL': 1}
+    assert {case['example']['id'] for case in brief['sections']['findings']} <= expected
+    assert {case['facts']['category'] for case in brief['sections']['findings']} == {'hardening', 'exposure', 'network'}
 
 
 def test_small_overview_keeps_full_native_details_and_all_five_domains(tmp_path):
@@ -77,11 +80,11 @@ def test_small_overview_keeps_full_native_details_and_all_five_domains(tmp_path)
     for section in ('findings', 'least_privilege', 'privesc', 'iam', 'network'):
         assert overview['counts']['cases'][section] > 0
     group, = overview['sections']['findings']
-    assert group['count'] == 59 and group['facts']['scope_count'] == 2
+    assert group['count'] == 60 and group['facts']['scope_count'] == 2
     assert group['facts']['evidence_variant_count'] == 2
     assert group['example']['id'] == 'f7' and group['severity'] == 'critical'
     assert group['facts']['scope_sample'] == ['projects/p0', 'projects/p1']
-    assert overview['review_counts'] == {'hardening:FAIL': 59}
+    assert overview['review_counts'] == {'hardening:FAIL': 60}
     detail = read(tmp_path, 'get', 'findings', 'f0', '--path', '/finding/evidence/raw')
     assert detail == rows[0]['evidence']['raw']
     assert read(tmp_path, 'get', 'resources', 'r0', '--path', '/data/policy') == {'mode': 'private'}
@@ -96,11 +99,11 @@ def test_reader_lists_all_members_and_never_silently_truncates_evidence(tmp_path
     build(tmp_path, platform, rows, reviews, private_json)
     group = read(tmp_path, 'list', 'finding_groups')['items'][0]
     first = read(tmp_path, 'members', group['id'], '--limit', '20')
-    assert first['total'] == 59 and len(first['items']) == 20
+    assert first['total'] == 60 and len(first['items']) == 20
     second = read(tmp_path, 'members', group['id'], '--limit', '20', '--offset', '20')
     assert {row['id'] for row in first['items']}.isdisjoint(row['id'] for row in second['items'])
     assert all(row['verdict'] == 'FAIL' for row in first['items'])
-    assert read(tmp_path, 'get', 'findings', 'f59') == {'error': 'record_not_found'}
+    assert read(tmp_path, 'get', 'findings', 'f59') != {'error': 'record_not_found'}
     with sqlite3.connect(tmp_path/'context.sqlite') as db:
         db.execute('INSERT INTO records VALUES(?,?,?,?,?,?)', ('resources', 'large', '{}', json.dumps({'large': 'x' * 13000, 'small': 1}), 4, 0))
     assert read(tmp_path, 'get', 'resources', 'large', '--path', '/large')['error'] == 'selected_value_too_large'
@@ -139,15 +142,15 @@ def test_decision_catalog_includes_every_case_without_top_n_sampling(tmp_path):
         row['check_id'] = 'control-' + str(i)
     build(tmp_path, platform, rows, reviews, private_json)
     brief = json.loads((tmp_path/'platform.json').read_text())
-    assert brief['counts']['cases']['findings'] == 59
-    assert len(brief['sections']['findings']) == 59
+    assert brief['counts']['cases']['findings'] == 60
+    assert len(brief['sections']['findings']) == 60
     offset, ids = 0, set()
     while offset is not None:
         page = read(tmp_path, 'list', 'decision_findings', '--limit', '20', '--offset', str(offset))
         assert 0 < len(page['items']) <= 20
         ids.update(row['id'] for row in page['items'])
         offset = page['next_offset']
-    assert len(ids) == 59
+    assert len(ids) == 60
 
 
 def test_gcp_principal_links_use_provider_identity_fields_not_display_names(tmp_path):
@@ -180,7 +183,7 @@ def test_decision_brief_prejoins_related_risks_and_keeps_provider_advice_separat
     assert linked['total'] == sum(case['related'].values())
     assert {'decision_privesc', 'decision_iam', 'decision_network'} <= {item['domain'] for item in linked['items']}
     members = read(tmp_path, 'members', 'decision_findings', case['id'], '--limit', '4')
-    assert members['total'] == 59 and len(members['items']) == 4
+    assert members['total'] == 60 and len(members['items']) == 4
     assert all(item['domain'] == 'findings' and item['summary']['verdict'] == 'FAIL' for item in members['items'])
 
 

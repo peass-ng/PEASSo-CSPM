@@ -48,6 +48,8 @@ def output_text(result):
 def main():
     started = time.monotonic()
     stage = sys.argv[1]
+    if stage not in ('network', 'priorities'):
+        raise ValueError('unknown_ai_stage')
     root = Path.cwd()
     if stage == 'priorities':
         from .briefing import materialize_context
