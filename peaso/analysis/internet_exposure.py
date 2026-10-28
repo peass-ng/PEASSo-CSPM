@@ -10363,6 +10363,52 @@ def _azure_public_edge(snapshot, inventory, resource):
     return a
 
 
+def _azure_traffic_manager(snapshot, inventory, resource):
+    """Detect a public DNS referral from one collected Traffic Manager profile."""
+    a = Assessment(resource, "public_dns")
+    props = resource["data"].get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "Traffic Manager profile properties missing")
+        return a
+    status = props.get("profileStatus")
+    if status == "Disabled":
+        a.step("listener", "block", profile_status=status)
+        a.ports = {}
+        return a
+    if status != "Enabled":
+        a.gap("listener", "Traffic Manager profile status unresolved")
+        return a
+    dns = props.get("dnsConfig")
+    hostname = dns.get("fqdn") if isinstance(dns, dict) else None
+    endpoints = props.get("endpoints")
+    if not isinstance(hostname, str) or not hostname.strip():
+        a.gap("inventory", "Traffic Manager DNS name missing")
+        return a
+    if not isinstance(endpoints, list) or any(not isinstance(row, dict) or not isinstance(row.get("properties"), dict)
+                                             for row in endpoints):
+        a.gap("inventory", "Traffic Manager endpoints incomplete")
+        return a
+    enabled = [row for row in endpoints if row["properties"].get("endpointStatus") == "Enabled"]
+    unknown = [row for row in endpoints if row["properties"].get("endpointStatus") not in ("Enabled", "Disabled")]
+    if not enabled:
+        if unknown:
+            a.gap("listener", "Traffic Manager endpoint status unresolved")
+        else:
+            a.step("listener", "block", reason="no enabled endpoint referrals")
+            a.ports = {}
+        return a
+    a.addresses = [hostname.strip()]
+    a.endpoint = hostname.strip()
+    a.ports = union(pset("udp", 53, 53), pset("tcp", 53, 53))
+    a.step("listener", "allow", endpoint_ids=[row.get("id") for row in enabled])
+    targets = sorted({row["properties"][key] for row in enabled for key in ("target", "targetResourceId")
+                      if isinstance(row["properties"].get(key), str) and row["properties"][key]})
+    if targets:
+        a.step("backend", "unknown", declared_targets=targets)
+    a.gap("target", "DNS referral does not prove target port or reachability")
+    return a
+
+
 def _azure_api_management(snapshot, inventory, resource):
     """Assess the managed gateway listener, independently of API authorization."""
     props = resource["data"].get("properties") or {}
@@ -11096,7 +11142,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11112,7 +11158,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -11204,6 +11250,7 @@ def assess(snapshot, resources):
                   "container_app": _azure_container_app,
                   "azure_firewall": _azure_firewall,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
+                  "traffic_manager_profile": _azure_traffic_manager,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
