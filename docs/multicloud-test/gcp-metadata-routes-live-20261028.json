@@ -1,0 +1,89 @@
+{
+  "cloud": "gcp",
+  "read_only": true,
+  "rows": [
+    {
+      "service": "cloudtasks",
+      "status": "unavailable",
+      "error": {
+        "code": "api_error",
+        "http_status": 403,
+        "reason": "SERVICE_DISABLED",
+        "consumer": "projects/peaso-test-20261028",
+        "service": "cloudtasks.googleapis.com"
+      },
+      "wall_s": 0.629
+    },
+    {
+      "service": "dialogflow",
+      "status": "unavailable",
+      "error": {
+        "code": "api_error",
+        "http_status": 403,
+        "reason": "SERVICE_DISABLED",
+        "consumer": "projects/13349295483",
+        "service": "dialogflow.googleapis.com"
+      },
+      "wall_s": 0.421
+    },
+    {
+      "service": "recaptchaenterprise",
+      "status": "unavailable",
+      "error": {
+        "code": "api_error",
+        "http_status": 403,
+        "reason": "SERVICE_DISABLED",
+        "consumer": "projects/peaso-test-20261028",
+        "service": "recaptchaenterprise.googleapis.com"
+      },
+      "wall_s": 0.288
+    },
+    {
+      "service": "gkemulticloud",
+      "status": "unavailable",
+      "error": {
+        "code": "api_error",
+        "http_status": 404
+      },
+      "wall_s": 0.961
+    },
+    {
+      "service": "modelarmor-floor",
+      "status": "unavailable",
+      "error": {
+        "code": "api_error",
+        "http_status": 403,
+        "reason": "SERVICE_DISABLED",
+        "consumer": "projects/peaso-test-20261028",
+        "service": "modelarmor.googleapis.com"
+      },
+      "wall_s": 0.848
+    },
+    {
+      "service": "modelarmor-discovery",
+      "status": "unavailable",
+      "error": {
+        "code": "api_error",
+        "http_status": 403,
+        "reason": "SERVICE_DISABLED",
+        "consumer": "projects/peaso-test-20261028",
+        "service": "modelarmor.googleapis.com"
+      },
+      "wall_s": 0.744
+    },
+    {
+      "service": "modelarmor-templates",
+      "status": "unavailable",
+      "error": {
+        "code": "api_error",
+        "http_status": 403,
+        "reason": "SERVICE_DISABLED",
+        "consumer": "projects/peaso-test-20261028",
+        "service": "modelarmor.googleapis.com"
+      },
+      "wall_s": 0.204
+    }
+  ],
+  "api_calls": 7,
+  "note": "Native APIs reached after metadata-route admission. SERVICE_DISABLED and 404 remain unavailable; no resource absence inferred. No production connector changed."
+}

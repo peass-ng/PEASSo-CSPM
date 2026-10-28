@@ -61,6 +61,38 @@ def endpoint_page_size(url, method="GET"):
     return None
 
 
+def _exposure_metadata_read(method, parsed, scope, params, body):
+    """Project-bound metadata routes for exposure services outside HOSTS."""
+    if (method != 'GET' or body is not None or not isinstance(scope, str)
+            or re.fullmatch(r'projects/[A-Za-z0-9_-]+', scope) is None
+            or parsed.fragment):
+        return False
+    project = re.escape(scope)
+    host, path = parsed.hostname, parsed.path
+    if host == 'cloudtasks.googleapis.com':
+        root = '/v2/' + project + r'/locations'
+        if re.fullmatch(root + r'(?:/[a-z0-9-]+/queues)?', path):
+            return True
+        return bool(re.fullmatch(root + r'/[a-z0-9-]+/queues/[A-Za-z0-9_-]+/tasks', path)
+                    and isinstance(params, dict) and params.get('responseView') == 'BASIC')
+    if host == 'dialogflow.googleapis.com':
+        return bool(re.fullmatch('/v2/' + project + r'/agent(?::search|/fulfillment|/environments)', path))
+    if host == 'recaptchaenterprise.googleapis.com':
+        return bool(re.fullmatch('/v1/' + project + r'/keys(?:/[A-Za-z0-9_-]+/policy)?', path))
+    if host == 'modelarmor.googleapis.com':
+        return path == '/v1/' + scope + '/locations/global/floorSetting'
+    armor = re.fullmatch(r'modelarmor\.([a-z][a-z0-9-]*)\.rep\.googleapis\.com', host or '')
+    if armor and armor[1] != 'global':
+        root = '/v1/' + project + '/locations'
+        return bool(re.fullmatch(root, path) or re.fullmatch(root + '/' + re.escape(armor[1]) + '/templates', path))
+    regional = re.fullmatch(r'([a-z][a-z0-9-]*[0-9])-gkemulticloud\.googleapis\.com', host or '')
+    if regional:
+        root = '/v1/' + project + '/locations'
+        return bool(re.fullmatch(root, path) or re.fullmatch(root + '/' + re.escape(regional[1])
+            + r'/(?:attachedClusters|awsClusters|azureClusters)', path))
+    return False
+
+
 def _scoped_privesc_read(method, parsed, scope, params, body):
     """Admit only the four documented project-bound inventory API routes."""
     if not isinstance(scope, str) or not re.fullmatch(r"projects/[a-z][a-z0-9-]{4,28}[a-z0-9]", scope):
@@ -609,12 +641,13 @@ class Transport:
                  or re.fullmatch(r"/api/v3/namespaces/[A-Za-z0-9_-]+/preferences", parsed.path)
                  or re.fullmatch(r"/api/v3/namespaces/[A-Za-z0-9_-]+/artifacts/[A-Za-z0-9_.-]+/versions/[A-Za-z0-9_.-]+/extensions(?:/[a-z]+)?", parsed.path))))
         privesc_read = _scoped_privesc_read(method, parsed, scope, params, body)
+        exposure_metadata = _exposure_metadata_read(method, parsed, scope, params, body)
         # This service is also in the general host inventory. Keep its
         # project-scoped reads behind the exact route and parameter contract.
         if (parsed.hostname == "firebaseapphosting.googleapis.com"
                 and parsed.path.startswith("/v1/projects/") and not privesc_read):
             raise ReadError("unsupported", "unsafe_api_endpoint")
-        if parsed.scheme != "https" or (parsed.hostname not in HOSTS and not regional_metadata and not cdap_read and not privesc_read) or parsed.port not in (None, 443) or parsed.username or parsed.password or parsed.query:
+        if parsed.scheme != "https" or (parsed.hostname not in HOSTS and not regional_metadata and not cdap_read and not privesc_read and not exposure_metadata) or parsed.port not in (None, 443) or parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ReadError("unsupported", "unsafe_api_endpoint")
         # POST is used by a few provider read methods. Bind each action to
         # its documented service and resource path before credentials are read.
