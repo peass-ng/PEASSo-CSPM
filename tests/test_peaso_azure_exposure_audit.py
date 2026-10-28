@@ -1351,10 +1351,12 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
                     "httpRouteConfigs")
 
     def decision(routes, status="collected", public="Enabled", app_rules=None, external=False,
-                 runtime=None):
+                 runtime=None, traffic=None):
         ingress = {"external": external, "transport": "http"}
         if app_rules is not None:
             ingress["ipSecurityRestrictions"] = app_rules
+        if traffic is not None:
+            ingress["traffic"] = traffic
         collections = [
             {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": env_id, "properties": {"publicNetworkAccess": public,
@@ -1400,6 +1402,13 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
     labeled = {**targeted, "properties": {**targeted["properties"], "rules": [{"targets": [
         {"containerApp": "app", "label": "preview"}]}]}}
     assert decision([labeled], runtime=runtime)[0].verdict() == "UNKNOWN"
+    assert decision([labeled], runtime=runtime, traffic=[
+        {"label": "preview", "revisionName": "old", "weight": 0}]) == []
+    assert decision([labeled], runtime=runtime, traffic=[
+        {"label": "preview", "revisionName": "current", "weight": 0}])[0].verdict() == "FAIL"
+    assert decision([labeled], runtime=runtime, traffic=[
+        {"label": "preview", "revisionName": "current", "weight": 0},
+        {"label": "preview", "revisionName": "old", "weight": 0}])[0].verdict() == "UNKNOWN"
 
 
 def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():

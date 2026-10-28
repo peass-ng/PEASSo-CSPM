@@ -5247,6 +5247,18 @@ def _azure_container_app(snapshot, inventory, resource):
                                 route_hosts.append(fqdn)
                             elif active is not False:
                                 route_target_unresolved = True
+                        elif isinstance(label, str) and label and revision is None and complete_revisions:
+                            traffic = ingress.get("traffic")
+                            matches = [entry for entry in traffic if isinstance(entry, dict) and
+                                       entry.get("label") == label] if isinstance(traffic, list) else []
+                            if len(matches) != 1 or not isinstance(matches[0].get("revisionName"), str):
+                                route_target_unresolved = True
+                                continue
+                            active = revision_states.get(matches[0]["revisionName"].casefold())
+                            if active is True and isinstance(fqdn, str) and fqdn:
+                                route_hosts.append(fqdn)
+                            elif active is not False:
+                                route_target_unresolved = True
                         else:
                             route_target_unresolved = True
         if (ingress.get("external") is False and not route_hosts and not route_target_unresolved and
