@@ -547,12 +547,13 @@ class CheckpointSession:
                 if "privesc" in ready_ids:
                     categories.add("privesc")
                 if (not force and self.provider == 'aws' and self.content_tail_active
-                        and len(self.collections) >= 256):
+                        and len(self.collections) >= 256
+                        and completed_sections <= self.published_sections):
                     # The collector has already committed a large inventory
-                    # in bounded raw batches. Rebuilding its cumulative
-                    # Markdown competes with the remaining image scan; the
-                    # analyzer publishes the complete final report. An
-                    # interrupted scan still forces its latest partial view.
+                    # in bounded raw batches. New sections remain visible to
+                    # progressive analysis; category-only refreshes wait for
+                    # Analyze instead of rebuilding cumulative Markdown.
+                    # An interrupted scan still forces its latest partial.
                     return None
                 if (not force and self.content_tail_active
                         and categories <= self.published_categories

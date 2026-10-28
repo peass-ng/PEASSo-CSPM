@@ -349,7 +349,7 @@ def test_new_section_publishes_immediately_during_active_content_tail(monkeypatc
         session.close()
 
 
-def test_large_aws_content_tail_defers_routine_markdown_but_keeps_explicit_partial(monkeypatch, tmp_path):
+def test_large_aws_content_tail_keeps_late_sections_and_explicit_partial(monkeypatch, tmp_path):
     session, _, refs, now = manual_session(monkeypatch, tmp_path)
     try:
         commit(session, 0)
@@ -363,9 +363,14 @@ def test_large_aws_content_tail_defers_routine_markdown_but_keeps_explicit_parti
         with session.lock:
             session._flush_pending()
         assert len(session.collections) >= 256
-        assert session._maybe_publish() is None
-        assert len([row for row in refs if row[2]]) == 1
-        assert session.flush() is not None
+        assert session._maybe_publish() is not None
+        assert 'leaks' in session.published_sections
         assert len([row for row in refs if row[2]]) == 2
+        session.published_categories.clear()
+        commit(session, 320)
+        assert session._maybe_publish() is None
+        assert len([row for row in refs if row[2]]) == 2
+        assert session.flush() is not None
+        assert len([row for row in refs if row[2]]) == 3
     finally:
         session.close()
