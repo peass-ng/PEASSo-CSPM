@@ -432,7 +432,8 @@ def _api_domain_mappings(requests, session, region, items):
             current["RoutingRules"] = (_child(requests.pages(session, "apigatewayv2", region,
                 "list_routing_rules", "RoutingRules", DomainName=name),
                 lambda row: {"RoutingRuleId": row.get("RoutingRuleId"),
-                             "ConditionCount": len(row.get("Conditions", [])) if isinstance(row.get("Conditions"), list) else None,
+                             "Priority": row.get("Priority"),
+                             "ConditionCount": len(row["Conditions"]) if isinstance(row.get("Conditions"), list) else None,
                              "Actions": [{"InvokeApi": _pick(action["InvokeApi"], ("ApiId", "Stage"))}
                                          for action in row.get("Actions", []) if isinstance(action, dict)
                                          and isinstance(action.get("InvokeApi"), dict)]})

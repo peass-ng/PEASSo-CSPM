@@ -539,7 +539,7 @@ def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
            "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
     domain = {"domainName": "api.example.com", "endpointConfiguration": {"types": ["REGIONAL"]},
               "routingMode": "ROUTING_RULE_ONLY", "RoutingRules": {"collection_status": "collected", "items": [
-                  {"RoutingRuleId": "rule-1", "ConditionCount": 1,
+                  {"RoutingRuleId": "rule-1", "Priority": 1, "ConditionCount": 0,
                    "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]}]}}
     def row():
         return one(aws(coll("rest_api", [api], service="apigateway"),
@@ -547,6 +547,17 @@ def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
     result = row()
     assert result["status"] == "FAIL"
     assert result["evidence"]["public_addresses"] == ["https://api.example.com"]
+    domain["RoutingRules"]["items"][0]["ConditionCount"] = 1
+    assert row()["status"] == "UNKNOWN"
+    domain["RoutingRules"]["items"][0]["ConditionCount"] = 0
+    domain["RoutingRules"]["items"].insert(0, {"RoutingRuleId": "rule-0", "Priority": 0,
+        "ConditionCount": 0, "Actions": [{"InvokeApi": {"ApiId": "other", "Stage": "prod"}}]})
+    assert row()["status"] == "UNKNOWN"  # Invalid priority cannot prove routing.
+    domain["RoutingRules"]["items"][0]["Priority"] = 1
+    domain["RoutingRules"]["items"][1]["Priority"] = 2
+    assert row()["status"] == "PASS"  # Earlier catch-all shadows the target rule.
+    domain["RoutingRules"]["items"][0]["ConditionCount"] = 1
+    assert row()["status"] == "UNKNOWN"  # Earlier conditional rule may shadow it.
     domain["RoutingRules"]["items"] = []
     assert row()["status"] == "PASS"
     domain["RoutingRules"] = {"collection_status": "denied"}
@@ -566,6 +577,14 @@ def test_api_gateway_custom_mapping_requires_its_own_active_stage():
     assert rest_row()["status"] == "PASS"
     rest_domain["BasePathMappings"]["items"][0]["stage"] = "prod"
     assert rest_row()["status"] == "FAIL"
+    rest_domain["routingMode"] = "ROUTING_RULE_THEN_API_MAPPING"
+    rest_domain["RoutingRules"] = {"collection_status": "collected", "items": [{
+        "RoutingRuleId": "rule-1", "Priority": 1, "ConditionCount": 0,
+        "Actions": [{"InvokeApi": {"ApiId": "other", "Stage": "prod"}}]}]}
+    assert rest_row()["status"] == "PASS"  # The catch-all rule shadows the mapping.
+    rest_domain["RoutingRules"]["items"][0]["ConditionCount"] = 1
+    assert rest_row()["status"] == "FAIL"  # The mapping handles requests that miss the rule.
+    del rest_domain["routingMode"], rest_domain["RoutingRules"]
     rest_domain["BasePathMappings"] = {"collection_status": "empty", "items": []}
     assert rest_row()["status"] == "PASS"
     http = {"ApiId": "http1", "DisableExecuteApiEndpoint": True, "ProtocolType": "HTTP",

@@ -1,5 +1,7 @@
 {
   "aws_alias_function_url_review": "AWS Exposure alias-qualified Lambda Function URL: one read-only GetFunctionUrlConfig and GetPolicy per collected alias through the existing per-scan single-flight cache; collected alias ARN and URL FunctionArn are checked. Internet exposure adds lambda_alias handling with no new direct API SDK client call; 30 direct client sites and 15 reviewed API service names remain unchanged.",
+  "aws_api_routing_review": "AWS Exposure REST custom-domain routing rules now retain priority and condition count from the existing cached read. The analyzer sorts rules, proves only an initial unconditional target with an active stage, and accounts for catch-all rule precedence over mappings. Conditional target satisfiability remains unknown. No new SDK call, service, credential source, or direct client site; 30 direct sites and 15 reviewed services remain.",
+  "aws_nlb_alb_host_review": "AWS Exposure NLB static IPv6 and ALB exact public-host NACL positive witnesses use already cached ELBv2, security-group and network-ACL facts only; no new API SDK call, service or credential source. The reviewed direct API client closure remains 30 sites within the same 15 services.",
   "azure_refresh_capture_closure_review": "Azure refresh includes both ACR images/leaks only when both were selected originally, preserving shared capture authority without provenance relabeling; no new SDK clients/services.",
   "collection_coverage_review": "Scope-bound collection status/count summaries for AI reviewers, indexed once per fingerprint/batch preparation; explicit empty inventory conserved, unavailable/truncated data not interpreted as absence. No native objects, provider errors or new SDK operations.30 direct SDK sites/15 services unchanged.",
   "composed_registry_auth_review": "Exact bounded registry_auth public routing fix plus curated finite inverse closure on c7e3, original50/predecessor ZIP conserved; root Azure refresh closure and startup spans preserved.30 SDK clients/15 services unchanged.",
@@ -1040,7 +1042,7 @@
     "peaso/collectors/aws_eks_admission_native.py": "1aa16f26865241d10b2e6d70d3851f0879827b0559092080b76a5c1ea56ccc7c",
     "peaso/collectors/aws_environment_boundaries_native.py": "284c7f394112055793a72bace877e0fdc1fdda7f7b86225270e4aae1cf8271d6",
     "peaso/collectors/aws_facts_cb_ca.py": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe",
-    "peaso/collectors/aws_facts_compute_edge.py": "3b70c41b331834265c153f2dead4953a858eeac74e93b8bc39b3a7c9bfbf35d8",
+    "peaso/collectors/aws_facts_compute_edge.py": "3c0d33615d0da69c6f440bacf04a664993fca2a1b3cbb2942a28a73352875f69",
     "peaso/collectors/aws_facts_data_identity.py": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0",
     "peaso/collectors/aws_facts_ext.py": "23ead20f34fc137547db5844fb403c8847032132d762af0d2965a62ed5284762",
     "peaso/collectors/aws_facts_gap.py": "edc56fe1a1dc77e9cec2321f41b1fd665b003807125c8f37b88d6f35296e6fbf",

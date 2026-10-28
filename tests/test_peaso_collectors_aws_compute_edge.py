@@ -60,6 +60,9 @@ def test_rest_custom_domain_routing_rules_are_cached_and_projected(sdk):
     row = {"domainName": "api.example.com", "routingMode": "ROUTING_RULE_ONLY"}
     projected = edge.ENRICHERS["apigateway_domain_name"](aws.Requests({}), session, REGION, [row])[0]
     assert projected["RoutingRules"]["collection_status"] == "collected"
+    assert projected["RoutingRules"]["items"][0]["Priority"] == 1
+    assert projected["RoutingRules"]["items"][0]["ConditionCount"] == 0
+    assert "Conditions" not in projected["RoutingRules"]["items"][0]
     assert projected["RoutingRules"]["items"][0]["Actions"] == [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]
 
 

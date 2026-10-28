@@ -1112,18 +1112,39 @@ def _aws_rest_api(snapshot, inventory, resource):
             rules = domain["data"].get("RoutingRules")
             if not isinstance(rules, dict) or rules.get("collection_status") not in ("collected", "empty") or not isinstance(rules.get("items"), list):
                 routing_domains.append(domain["data"].get("domainName") or native_id(domain))
+                continue
             else:
-                for rule in rules["items"]:
-                    if not isinstance(rule, dict):
-                        continue
-                    for action in as_list(rule.get("Actions")):
-                        invoke = action.get("InvokeApi") if isinstance(action, dict) else None
-                        if isinstance(invoke, dict) and invoke.get("ApiId") == native_id(resource):
-                            if active_stage_names is not None and invoke.get("Stage") in active_stage_names:
+                ordered = rules["items"]
+                valid = all(isinstance(rule, dict) and type(rule.get("Priority")) is int
+                            and 1 <= rule["Priority"] <= 1000000
+                            and type(rule.get("ConditionCount")) is int and 0 <= rule["ConditionCount"] <= 3
+                            and isinstance(rule.get("Actions"), list) and len(rule["Actions"]) == 1
+                            and isinstance(rule["Actions"][0], dict)
+                            and isinstance(rule["Actions"][0].get("InvokeApi"), dict)
+                            and isinstance(rule["Actions"][0]["InvokeApi"].get("ApiId"), str)
+                            and isinstance(rule["Actions"][0]["InvokeApi"].get("Stage"), str)
+                            for rule in ordered)
+                valid = valid and len({rule["Priority"] for rule in ordered}) == len(ordered)
+                if not valid:
+                    routing_domains.append(domain["data"].get("domainName") or native_id(domain))
+                    continue
+                catch_all = False
+                for index, rule in enumerate(sorted(ordered, key=lambda item: item["Priority"])):
+                    invoke = rule["Actions"][0]["InvokeApi"]
+                    if invoke["ApiId"] == native_id(resource):
+                        if active_stage_names is None:
+                            routing_domains.append(domain["data"].get("domainName") or native_id(domain))
+                        elif index == 0 and rule["ConditionCount"] == 0:
+                            if invoke["Stage"] in active_stage_names:
                                 domains.append(str(domain["data"].get("domainName") or native_id(domain)))
-                            elif active_stage_names is None or not isinstance(invoke.get("Stage"), str):
-                                routing_domains.append(domain["data"].get("domainName") or native_id(domain))
-            if "ONLY" in routing_mode:
+                        elif invoke["Stage"] in active_stage_names:
+                            # Header/path conditions and earlier rules require a
+                            # request witness before this target can be claimed.
+                            routing_domains.append(domain["data"].get("domainName") or native_id(domain))
+                    if rule["ConditionCount"] == 0:
+                        catch_all = True
+                        break
+            if "ONLY" in routing_mode or catch_all:
                 continue
         mappings = domain["data"].get("BasePathMappings") or {}
         if mappings.get("collection_status") not in ("collected", "empty"):
