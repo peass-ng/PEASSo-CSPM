@@ -3472,7 +3472,7 @@ def gcp_secret_external_accessor_findings(snapshot, resources):
                 "The condition has no recorded request evaluation.",
                 "A service account from another GCP project may access secret-version payloads if other controls allow it." if unconditional else
                 "If the condition is satisfied, that service account may access secret-version payloads.",
-                "Project ownership, IAM denies, version state, and actual payload reads remain unresolved.")),
+                "Those payloads could contain credentials or data meant to stay within this project.")),
             "direct_accessor_grants": grants,
             "permission": "secretmanager.versions.access",
             "source": source(snapshot, resource, "iamPolicy.bindings"),
