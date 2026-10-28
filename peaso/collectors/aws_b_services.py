@@ -160,6 +160,31 @@ def _acm_certificates(requests, session, region, account):
 def _detail(requests, session, region, service, operation, **arguments):
     detail = requests.detail(session, service, region, operation, **arguments)
     output = _metadata(detail)
+    if (service, operation) == ('ecs', 'describe_task_definition') and isinstance(output, dict):
+        # Requests.call has already removed plaintext values. Carry only its
+        # admitted environment names into the native view so the later ECS
+        # enricher needs no second DescribeTaskDefinition read.
+        source = detail.get('taskDefinition') if isinstance(detail, dict) else None
+        target = output.get('taskDefinition')
+        arn = arguments.get('taskDefinition')
+        if (isinstance(source, dict) and isinstance(target, dict)
+                and source.get('taskDefinitionArn') == target.get('taskDefinitionArn') == arn):
+            original = source.get('containerDefinitions')
+            copied = target.get('containerDefinitions')
+            if isinstance(original, list) and isinstance(copied, list) and len(original) == len(copied):
+                names = []
+                for before, after in zip(original, copied):
+                    if not isinstance(before, dict) or not isinstance(after, dict) or before.get('name') != after.get('name'):
+                        break
+                    entries = before.get('environment', [])
+                    if (not isinstance(entries, list) or any(not isinstance(entry, dict)
+                            or set(entry) - {'name', 'type'} or not isinstance(entry.get('name'), str)
+                            or not entry['name'] for entry in entries)):
+                        break
+                    names.append([{'name': entry['name']} for entry in entries])
+                if len(names) == len(copied):
+                    for after, entries in zip(copied, names):
+                        after['environment'] = entries
     error = detail.get("error") if isinstance(detail, dict) else None
     if isinstance(output, dict) and isinstance(error, dict) and isinstance(error.get("code"), str):
         # Collector-sanitized read error codes are status metadata, not the

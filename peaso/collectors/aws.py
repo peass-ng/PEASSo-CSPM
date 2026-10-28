@@ -449,10 +449,14 @@ class Requests:
                     **({'ignore_configured_endpoint_urls': True, 'use_fips_endpoint': False, 'use_dualstack_endpoint': False}
                        if _metadata_profile == 'aws-selected-configuration-content-v1' else {})))
             raw_reads = getattr(self, 'raw_reads', None)
-            if _metadata_profile is None and raw_reads is not None:
+            share_ecs_definition = (_metadata_profile == 'aws-selected-configuration-content-v1'
+                and service == 'ecs')
+            if (_metadata_profile is None or share_ecs_definition) and raw_reads is not None:
                 from botocore.client import BaseClient
                 if isinstance(client, BaseClient):
                     raw_reads.install(client, session)
+                    if share_ecs_definition:
+                        client._peaso_content_ecs_definition_share = True
             return client
         return cached_client(create)
 

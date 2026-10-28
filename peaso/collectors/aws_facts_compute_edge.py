@@ -292,23 +292,14 @@ def _lambda_variable_count(requests, session, region, items):
 
 
 def _ecs_environment_names(requests, session, region, items):
-    """Add only ECS environment *names* from a matching complete cached detail.
-
-    Values never enter the snapshot. A failed, malformed or identity-mismatched
-    second view leaves environment absent so checks return UNKNOWN.
-    """
+    """Use the names carried by the one ARN-bound native detail read."""
     output = []
     for original in items:
         item = copy.deepcopy(original)
         detail = item.get("Definition")
         definition = detail.get("taskDefinition") if isinstance(detail, dict) else None
         if isinstance(detail, dict) and detail.get("collection_status") == "collected" and isinstance(definition, dict):
-            try:
-                raw = requests.call(session, "ecs", region, "describe_task_definition",
-                                    taskDefinition=item["taskDefinitionArn"])
-            except Exception:
-                raw = None
-            raw_definition = raw.get("taskDefinition") if isinstance(raw, dict) else None
+            raw_definition = definition
             raw_containers = raw_definition.get("containerDefinitions") if isinstance(raw_definition, dict) else None
             projected_containers = definition.get("containerDefinitions")
             if (isinstance(raw_definition, dict) and
@@ -320,7 +311,7 @@ def _ecs_environment_names(requests, session, region, items):
                     if not isinstance(container, dict) or not isinstance(container.get("name"), str) or not container["name"] or container["name"] in names:
                         valid = False
                         break
-                    environment = container.get("environment", [])
+                    environment = container.get("environment")
                     if not isinstance(environment, list) or any(not isinstance(entry, dict) or not isinstance(entry.get("name"), str)
                             or not entry["name"] for entry in environment):
                         valid = False
