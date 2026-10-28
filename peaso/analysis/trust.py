@@ -578,4 +578,8 @@ def azure_federated_credential(snapshot, resource):
                                     "claim_selectors": clauses}
     if not subject:
         return "UNKNOWN", "info", {**evidence, "reason": "subject not collected"}
-    return "PASS", "info", evidence
+    audiences = props.get("audiences")
+    if (not issuer.startswith("https://") or not host or not isinstance(audiences, list)
+            or len(audiences) != 1 or not isinstance(audiences[0], str) or not audiences[0]):
+        return "UNKNOWN", "info", {**evidence, "reason": "exact credential issuer or audience is incomplete"}
+    return "MANUAL", "medium", {**evidence, "reason": "exact subject is pinned; external issuer ownership is unverified"}

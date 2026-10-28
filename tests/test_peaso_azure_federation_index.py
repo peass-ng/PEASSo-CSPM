@@ -168,7 +168,7 @@ def test_complete_federation_findings_graph_and_principals_match_literal_scan(mo
     expected = run_stage(snapshot, inventory)
     assert json.dumps(actual) == json.dumps(expected)
     assert digest(snapshot) == before
-    assert {'PASS', 'FAIL', 'UNKNOWN'} <= {row['status'] for row in actual['findings']}
+    assert {'MANUAL', 'FAIL', 'UNKNOWN'} <= {row['status'] for row in actual['findings']}
 
 
 def test_fresh_projection_observes_changed_credential_targets():

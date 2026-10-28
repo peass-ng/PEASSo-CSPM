@@ -51,7 +51,21 @@ def test_collected_graph_app_federated_credential_reaches_native_exposure_review
                              metadata={"tenant_id": "home"})
     rows = federated_findings(snapshot, resources(snapshot))
     assert len(rows) == 1 and rows[0]["check_id"] == "analysis.federated_trust"
+    assert rows[0]["status"] == "MANUAL"
     assert rows[0]["evidence"]["subject"] == item["subject"]
+
+
+def test_exact_azure_federation_subject_needs_issuer_ownership_review():
+    credential = {"data": {"issuer": "https://token.actions.githubusercontent.com",
+        "subject": "repo:other-org/project:ref:refs/heads/main",
+        "audiences": ["api://AzureADTokenExchange"]}}
+    status, _, evidence = azure_federated_credential({}, credential)
+    assert status == "MANUAL" and evidence["subject"] == credential["data"]["subject"]
+    credential["data"]["issuer"] = ""
+    assert azure_federated_credential({}, credential)[0] == "UNKNOWN"
+    credential["data"]["issuer"] = "https://token.actions.githubusercontent.com"
+    credential["data"].pop("audiences")
+    assert azure_federated_credential({}, credential)[0] == "UNKNOWN"
 
 
 @pytest.mark.parametrize("issuer,value,expected", [
