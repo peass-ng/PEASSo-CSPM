@@ -117,7 +117,7 @@
       "examples": [
         {
           "status": "UNKNOWN",
-          "example": "The scan lacks complete inventory for access analyzer and apigateway domain name and 21 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed.",
+          "example": "The scan lacks complete inventory for access analyzer and apigateway domain name and 23 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed.",
           "evidence_keys": [
             "gaps",
             "risk_state"
@@ -157,6 +157,27 @@
       ],
       "native_snapshot_test": "tests/test_peaso_analysis_provider_observations.py",
       "examples": [
+        {
+          "status": "UNKNOWN",
+          "example": "The resource policy owner, conditions or applicable Deny could not be resolved; foreign use remains uncertain.",
+          "evidence_keys": [
+            "authenticated_endpoint",
+            "blocked_by",
+            "collector_facts_needed",
+            "data_exposure",
+            "exposed_ports",
+            "exposure_kind",
+            "external_scope_ids",
+            "notes",
+            "observed",
+            "path",
+            "public_addresses",
+            "risk_state",
+            "semantics",
+            "source",
+            "unresolved"
+          ]
+        },
         {
           "status": "UNKNOWN",
           "example": "The API endpoint cannot be resolved; inventory evidence is incomplete. Missing path layers prevent a public-reachability conclusion.",
@@ -324,11 +345,15 @@
           "status": "MANUAL",
           "example": "Issuer https://token.actions.githubusercontent.com has no attribute condition, so its token holders may exchange tokens. IAM grants and provider-side claims still affect access.",
           "evidence_keys": [
+            "actor_providers",
             "attribute_condition",
             "attribute_mapping",
             "aws_account",
+            "direct_resource_bindings",
             "issuer",
             "problem",
+            "provider_type",
+            "service_account_bindings",
             "source"
           ]
         }
@@ -520,7 +545,7 @@
       "examples": [
         {
           "status": "FAIL",
-          "example": "The web application endpoint at demo.azurewebsites.net is configured to accept internet traffic on tcp/443. This can admit internet callers; no connection was attempted.",
+          "example": "The App Service allows public network access, and its main site IP rules allow a public source.\nA request may reach the main site endpoint if its hostname and service are active.\nIf authentication also allows it, that could expose app data.",
           "evidence_keys": [
             "authenticated_endpoint",
             "blocked_by",

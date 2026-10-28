@@ -609,7 +609,7 @@ def test_native_service_coverage_and_configuration_fixture():
     # Content-only inventories require a separately named, opted-in request.
     from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
     organization_network_types = {kind for kind, plan in PRIVATE_SERVICES.items() if plan.get('scope_kind') == 'organizations'}
-    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod"})
+    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_httproute", "gke_exposure_endpointslice"})
     transport = NativeDataFixtureTransport(resolve)
     result = gcp.GCPCollector(connector(kinds, scopes=["projects/p-one01"], cloud_identity_customers=["Cfixture"], regions=["r"],
         sw51_policy={'scope': 'projects/p-one01', 'status': 'collected', 'approved_asset_types': ['compute.googleapis.com/Instance']}),
@@ -1081,6 +1081,54 @@ def test_gke_exposure_pod_job_runs_after_cluster_inventory(monkeypatch):
     assert len(rows) == 2
     assert any(row.get("inventoryStatus") == "collected" and row["podCount"] == 1 for row in rows)
     assert any(row.get("hostNetwork") is True for row in rows)
+
+
+def test_gke_exposure_node_job_runs_after_cluster_inventory(monkeypatch):
+    from peaso.collectors import gcp_gke_exposure_services as services
+    monkeypatch.setattr(services, "cluster_binding", lambda _, scope, selection: {
+        "selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    monkeypatch.setattr(services.NodeReader, "pages", lambda self: iter([([{
+        "name": self.binding["selection"] + "/nodes/gke-node-1", "cluster": self.binding["selection"],
+        "providerID": "gce://p1/us-central1-a/gke-node-1"}], "node-request")]))
+    result, _ = snapshot(["gke_exposure_node"], lambda r: {
+        "clusters": [{"name": "c1", "location": "r1"}]} if r["url"].endswith("/locations/-/clusters") else {"items": []})
+    rows = collection(result, "gke_exposure_node")["items"]
+    assert len(rows) == 2
+    assert any(row.get("inventoryStatus") == "collected" and row["nodeCount"] == 1 for row in rows)
+    assert any(row.get("providerID") == "gce://p1/us-central1-a/gke-node-1" for row in rows)
+
+
+def test_gke_gateway_and_httproute_jobs_run_after_cluster_inventory(monkeypatch):
+    from peaso.collectors import gcp_gke_exposure_services as services
+    monkeypatch.setattr(services, "cluster_binding", lambda _, scope, selection: {
+        "selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    for reader, kind in ((services.GatewayReader, "gateways"),
+                         (services.HTTPRouteReader, "httproutes")):
+        monkeypatch.setattr(reader, "pages", lambda self, kind=kind: iter([([{
+            "name": self.binding["selection"] + "/namespaces/default/" + kind + "/web",
+            "cluster": self.binding["selection"]}], kind + "-request")]))
+    result, _ = snapshot(["gke_exposure_gateway", "gke_exposure_httproute"], lambda r: {
+        "clusters": [{"name": "c1", "location": "r1"}]} if r["url"].endswith("/locations/-/clusters") else {"items": []})
+    for kind, label in (("gke_exposure_gateway", "gateway"), ("gke_exposure_httproute", "httproute")):
+        rows = collection(result, kind)["items"]
+        assert len(rows) == 2
+        assert any(row.get("inventoryStatus") == "collected" and row[label + "Count"] == 1 for row in rows)
+
+
+def test_gke_endpointslice_job_runs_after_cluster_inventory(monkeypatch):
+    from peaso.collectors import gcp_gke_exposure_services as services
+    monkeypatch.setattr(services, "cluster_binding", lambda _, scope, selection: {
+        "selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    monkeypatch.setattr(services.EndpointSliceReader, "pages", lambda self: iter([([{
+        "name": self.binding["selection"] + "/namespaces/default/endpointslices/web-abc",
+        "cluster": self.binding["selection"], "serviceName": "web",
+        "readyEndpointCount": 1, "readyNodeNames": ["node-a"]}], "slice-request")]))
+    result, _ = snapshot(["gke_exposure_endpointslice"], lambda r: {
+        "clusters": [{"name": "c1", "location": "r1"}]} if r["url"].endswith("/locations/-/clusters") else {"items": []})
+    rows = collection(result, "gke_exposure_endpointslice")["items"]
+    assert len(rows) == 2
+    assert any(row.get("inventoryStatus") == "collected" and row["endpointsliceCount"] == 1 for row in rows)
+    assert any(row.get("readyNodeNames") == ["node-a"] for row in rows)
 
 
 def test_sanitize_drops_inline_environment_and_project_metadata_values():

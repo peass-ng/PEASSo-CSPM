@@ -88,6 +88,7 @@ ENDPOINTS = {
     "nsg": ("Microsoft.Network/networkSecurityGroups", "2023-09-01"),
     "nic": ("Microsoft.Network/networkInterfaces", "2023-09-01"),
     "route_table": ("Microsoft.Network/routeTables", "2025-07-01"),
+    "ip_group": ("Microsoft.Network/ipGroups", "2025-05-01"),
     "nat_gateway": ("Microsoft.Network/natGateways", "2023-09-01"),
     "public_ip": ("Microsoft.Network/publicIPAddresses", "2023-09-01"),
     "load_balancer": ("Microsoft.Network/loadBalancers", "2023-09-01"),
@@ -110,7 +111,7 @@ ENDPOINTS = {
     "metric_alert": ("Microsoft.Insights/metricAlerts", "2018-03-01"),
     "scheduled_query_rule": ("Microsoft.Insights/scheduledQueryRules", "2021-08-01"),
     "action_group": ("Microsoft.Insights/actionGroups", "2023-01-01"),
-    "storage_account": ("Microsoft.Storage/storageAccounts", "2023-05-01"),
+    "storage_account": ("Microsoft.Storage/storageAccounts", "2026-06-01"),
     "sql_server": ("Microsoft.Sql/servers", "2023-08-01"),
     "aks_cluster": ("Microsoft.ContainerService/managedClusters", "2024-05-01"),
     "vault": ("Microsoft.KeyVault/vaults", "2023-07-01"),
@@ -208,6 +209,7 @@ ACTIVITY_SELECT = ("eventTimestamp,submissionTimestamp,operationName,operationId
                    "resourceProviderName,resourceGroupName,eventDataId,category,level,correlationId,subscriptionId,tenantId")
 # Parent embeds are authoritative child GET/list responses, with field coverage.
 EMBEDDED_LISTS = {
+    "container_app_environment": (("httpRouteConfigs", "httpRouteConfigs", "2026-01-01"),),
     "batch_account": (("pools", "pools", "2025-06-01"),),
     "vm_scale_set": (("virtualMachines", "virtualMachines", "2024-07-01"),),
     "app_service": (("slots", "slots", "2023-12-01"), ("vnetConnections", "virtualNetworkConnections", "2023-12-01")),
@@ -217,6 +219,7 @@ EMBEDDED_LISTS = {
     "container_registry": (("replications", "replications", "2023-07-01"), ("tokens", "tokens", "2023-07-01"), ("scopeMaps", "scopeMaps", "2023-07-01"), ("cacheRules", "cacheRules", "2023-07-01")),
     "aks_cluster": (("managedNamespaces", "managedNamespaces", "2025-10-01"),),
     "eventhub_namespace": (("eventHubs", "eventhubs", "2024-01-01"), ("authorizationRules", "authorizationRules", "2024-01-01"), ("disasterRecoveryConfigs", "disasterRecoveryConfigs", "2024-01-01")),
+    "servicebus_namespace": (("authorizationRules", "AuthorizationRules", "2024-01-01"),),
     "network_watcher": (("flowLogs", "flowLogs", "2023-09-01"),),
     "mysql_flexible_server": (("configurations", "configurations", "2023-12-30"), ("firewallRules", "firewallRules", "2023-12-30"), ("administrators", "administrators", "2023-12-30")),
     "postgresql_flexible_server": (("configurations", "configurations", "2024-08-01"), ("firewallRules", "firewallRules", "2024-08-01"), ("administrators", "administrators", "2024-08-01")),
@@ -330,6 +333,28 @@ def _network_platform_native_identity(row, scope, kind):
 def _child_rows(rows, parent_id, field):
     if any(not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].lower().startswith(parent_id.lower() + "/") for row in rows):
         raise ValueError("malformed or foreign embedded child identity")
+    if field == "httpRouteConfigs":
+        seen = set()
+        for row in rows:
+            rid = row["id"]
+            if (not re.fullmatch(re.escape(parent_id + "/httpRouteConfigs/") + r"[^/?#%\\\s]+", rid, re.I)
+                    or str(row.get("type", "")).casefold() != "microsoft.app/managedenvironments/httprouteconfigs"
+                    or not isinstance(row.get("properties"), dict)
+                    or rid.casefold() in seen):
+                raise ValueError("duplicate, foreign or malformed Container Apps HTTP route")
+            props = row["properties"]
+            rules = props.get("rules")
+            if (props.get("provisioningState") == "Succeeded"
+                    and (not isinstance(props.get("fqdn"), str) or not props["fqdn"])):
+                raise ValueError("successful Container Apps HTTP route lacks its FQDN")
+            if (not isinstance(rules, list) or any(
+                    not isinstance(rule, dict) or not isinstance(rule.get("targets"), list)
+                    or any(not isinstance(target, dict)
+                           or not isinstance(target.get("containerApp"), str)
+                           for target in rule["targets"])
+                    for rule in rules)):
+                raise ValueError("malformed Container Apps HTTP route targets")
+            seen.add(rid.casefold())
     if field == "pools":
         seen, safe = set(), []
         for row in rows:
@@ -412,6 +437,22 @@ def _child_rows(rows, parent_id, field):
              "eventSubscriptions": "providers/Microsoft.EventGrid/eventSubscriptions"}
     if field in paths and any(not re.fullmatch(re.escape(parent_id + "/" + paths[field]) + r"/[^/?#]+", row["id"], re.I) for row in rows):
         raise ValueError("foreign embedded child kind")
+    if field == "authorizationRules":
+        projected, seen = [], set()
+        for row in rows:
+            properties = row.get("properties")
+            rights = properties.get("rights") if isinstance(properties, dict) else None
+            identity = row["id"].casefold()
+            if (identity in seen or not isinstance(row.get("name"), str)
+                    or row["name"].casefold() != row["id"].rsplit("/", 1)[-1].casefold()
+                    or not str(row.get("type", "")).casefold().endswith("/authorizationrules")
+                    or not isinstance(rights, list)
+                    or any(right not in ("Manage", "Send", "Listen") for right in rights)):
+                raise ValueError("malformed messaging authorization rule")
+            seen.add(identity)
+            projected.append({"id": row["id"], "name": row["name"], "type": row["type"],
+                              "parent_id": parent_id, "properties": {"rights": rights}})
+        return projected
     if field in ("localUsers", "extensions", "backupShortTermRetentionPolicies"):
         seen = set()
         allowed = {"localUsers": {"permissionScopes", "homeDirectory", "hasSshPassword", "hasSshKey", "allowAclAuthorization", "sid", "hasSharedKey"},
@@ -578,6 +619,47 @@ def _bind_service_diagnostic_receipt(collection, reader):
         collection.setdefault('_provenance', {}).update(proof)
 
 
+def _function_trigger_rows(rows, site_id):
+    """Keep only HTTP trigger declarations from FunctionEnvelope LIST rows."""
+    safe = []
+    expected_types = ({"microsoft.web/sites/slots/functions", "microsoft.web/sites/functions"}
+                      if "/slots/" in site_id.casefold() else {"microsoft.web/sites/functions"})
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("malformed FunctionEnvelope")
+        rid = row.get("id")
+        if (not isinstance(rid, str) or not re.fullmatch(
+                re.escape(site_id + "/functions/") + r"[^/?#%\\\s]+", rid, re.I)
+                or str(row.get("type", "")).casefold() not in expected_types):
+            raise ValueError("foreign or malformed FunctionEnvelope identity")
+        props = row.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("malformed FunctionEnvelope properties")
+        config = props.get("config")
+        bindings = config.get("bindings") if isinstance(config, dict) else None
+        complete = isinstance(bindings, list)
+        triggers = []
+        if complete:
+            for binding in bindings:
+                if not isinstance(binding, dict) or not isinstance(binding.get("type"), str):
+                    complete = False
+                    continue
+                if binding["type"].casefold() != "httptrigger":
+                    continue
+                methods = binding.get("methods")
+                if methods is not None and (not isinstance(methods, list) or
+                                            any(not isinstance(method, str) for method in methods)):
+                    complete = False
+                    methods = None
+                triggers.append({"authLevel": binding.get("authLevel") if isinstance(binding.get("authLevel"), str) else None,
+                                 "methods": methods,
+                                 "route": binding.get("route") if isinstance(binding.get("route"), str) else None})
+        safe.append({"id": rid, "type": row["type"], "name": row.get("name"),
+                     "properties": {"isDisabled": props.get("isDisabled") if type(props.get("isDisabled")) is bool else None,
+                                    "httpTriggers": triggers, "triggerConfigComplete": complete}})
+    return safe
+
+
 def _embed(reader, request, parents, diagnostics=None, skip=()):
     """Bound independent child reads; never fabricate empty on denied/partial.
 
@@ -586,9 +668,16 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
     """
     jobs = []
     diagnostics = diagnostics or {}
+    function_sites = {item["id"].casefold() for collection in reader.collections
+                      if collection["type"] == "app_service" for item in collection["items"]
+                      if isinstance(item.get("id"), str) and "functionapp" in
+                      {part.strip().casefold() for part in str(item.get("kind", "")).split(",")}}
     for kind, item in parents:
         rid = item["id"]
         specs = list(EMBEDDED_LISTS.get(kind, ()))
+        site_id = re.split(r"/slots/", rid, maxsplit=1, flags=re.I)[0] if kind == "app_service_slot" else rid
+        if kind in ("app_service", "app_service_slot") and site_id.casefold() in function_sites:
+            specs.append(("functions", "functions", "2025-05-01"))
         if kind == "container_registry" and item.get("sku", {}).get("name") != "Premium":
             specs = [spec for spec in specs if spec[0] != "replications"]
         known = diagnostics.get(rid.casefold())
@@ -626,7 +715,24 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                     return
                 backup_seen = {}
                 workspace_va_seen = {}
+                messaging_rule_seen = set()
                 for page in reader.pages(request, url):
+                    if field == "functions":
+                        projected = _function_trigger_rows(page, rid)
+                        for row in projected:
+                            key = row["id"].casefold()
+                            if key in backup_seen:
+                                raise ValueError("duplicate function across pages")
+                            backup_seen[key] = row
+                        yield projected
+                        continue
+                    if field == "authorizationRules":
+                        projected = _child_rows(page, rid, field)
+                        if any(row["id"].casefold() in messaging_rule_seen for row in projected):
+                            raise ValueError("duplicate messaging rule across pages")
+                        messaging_rule_seen.update(row["id"].casefold() for row in projected)
+                        yield projected
+                        continue
                     if field == "workspaceVulnerabilityAssessments":
                         projected = []
                         for row in _child_rows(page, rid, field):
@@ -756,6 +862,151 @@ def _collect_gallery_versions(reader, request, parents):
             image.setdefault("_coverage", {})["versions"] = {key: read[key] for key in ("status", "error") if key in read}
             if read["status"] in ("collected", "empty") or read["items"]:
                 image["versions"] = read["items"]
+
+
+def _collect_servicebus_entity_rules(reader, request, parents):
+    """Read queue/topic SAS rule rights through bound, paged ARM LISTs."""
+    for kind, namespace in parents:
+        if kind != "servicebus_namespace":
+            continue
+        rid = namespace["id"]
+        for field in ("queues", "topics"):
+            list_url = ARM + rid + "/" + field + "?api-version=2024-01-01"
+            def list_entities(list_url=list_url, rid=rid, field=field):
+                seen = set()
+                for page in reader.pages(request, list_url):
+                    projected = []
+                    for row in page:
+                        entity_id = row.get("id") if isinstance(row, dict) else None
+                        if (not isinstance(entity_id, str) or not re.fullmatch(
+                                re.escape(rid + "/" + field + "/") + r"[^/?#%\\\s]+", entity_id, re.I)
+                                or str(row.get("type", "")).casefold() !=
+                                "microsoft.servicebus/namespaces/" + field
+                                or not isinstance(row.get("name"), str)
+                                or row["name"].casefold() != entity_id.rsplit("/", 1)[-1].casefold()
+                                or entity_id.casefold() in seen):
+                            raise ValueError("duplicate or malformed Service Bus entity")
+                        seen.add(entity_id.casefold())
+                        projected.append({"id": entity_id, "name": row["name"], "type": row["type"]})
+                    yield projected
+            read = reader._read(("servicebus_" + field, rid, "Microsoft.Resources", list_entities))
+            namespace.setdefault("_coverage", {})[field] = {key: read[key] for key in ("status", "error") if key in read}
+            if read["status"] in ("collected", "empty") or read["items"]:
+                namespace[field] = read["items"]
+            for entity in namespace.get(field, []):
+                entity_id = entity["id"]
+                rule_url = ARM + entity_id + "/authorizationRules?api-version=2024-01-01"
+                def list_rules(rule_url=rule_url, entity_id=entity_id):
+                    seen = set()
+                    for page in reader.pages(request, rule_url):
+                        projected = _child_rows(page, entity_id, "authorizationRules")
+                        if any(row["id"].casefold() in seen for row in projected):
+                            raise ValueError("duplicate Service Bus rule across pages")
+                        seen.update(row["id"].casefold() for row in projected)
+                        yield projected
+                rule_read = reader._read(("servicebus_" + field + "_rules", entity_id,
+                                          "Microsoft.Resources", list_rules))
+                entity.setdefault("_coverage", {})["authorizationRules"] = {
+                    key: rule_read[key] for key in ("status", "error") if key in rule_read}
+                if rule_read["status"] in ("collected", "empty") or rule_read["items"]:
+                    entity["authorizationRules"] = rule_read["items"]
+
+
+def _collect_hsm_local_assignments(reader, request, transport, parents):
+    """Read Managed HSM local RBAC at broad and observed key scopes."""
+    for kind, hsm in parents:
+        if kind != "managed_hsm":
+            continue
+        rid = hsm["id"]
+        uri = (hsm.get("properties") or {}).get("hsmUri")
+        coverage = hsm.setdefault("_coverage", {})
+        try:
+            name = rid.rsplit("/", 1)[-1]
+            parsed = urlsplit(uri) if isinstance(uri, str) else None
+            host = parsed.netloc.lower() if parsed else ""
+            if (parsed is None or parsed.scheme != "https" or parsed.username or parsed.password
+                    or parsed.port or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                    or re.fullmatch(r"(?:[a-z0-9-]+\.)?" + re.escape(name.lower())
+                                    + r"\.managedhsm\.azure\.net", host) is None):
+                raise ValueError("HSM data-plane URI does not match selected ARM parent")
+            if hasattr(transport, "allow_hsm"):
+                transport.allow_hsm(uri, name)
+        except (ValueError, AzureReadError):
+            coverage["localRoleAssignments"] = {"status": "malformed"}
+            continue
+        origin = "https://" + host
+        found, states = {}, []
+        def key_names():
+            for page in reader.pages(request, origin + "/keys?api-version=2025-07-01", audience=VAULT):
+                projected = []
+                for row in page:
+                    kid = row.get("kid") if isinstance(row, dict) else None
+                    if (not isinstance(kid, str) or re.fullmatch(re.escape(origin + "/keys/")
+                            + r"[^/?#%\\\s]+", kid, re.I) is None):
+                        raise ValueError("foreign or malformed HSM key identity")
+                    projected.append({"id": kid})
+                yield projected
+        key_read = reader._read(("embedded_hsmKeyNames", rid, "Microsoft.KeyVault", key_names))
+        coverage["localRoleAssignmentKeys"] = {key: key_read[key] for key in ("status", "error") if key in key_read}
+        scopes = ["/", "/keys"] + ["/keys/" + row["id"].rsplit("/", 1)[-1] for row in key_read["items"]]
+        for scope in scopes:
+            path = "/" + scope + ("/" if scope != "/" else "") + "providers/Microsoft.Authorization/roleAssignments"
+            url = origin + path + "?api-version=2025-07-01"
+            def fetch(url=url, scope=scope):
+                for page in reader.pages(request, url, audience=VAULT):
+                    projected = []
+                    for row in page:
+                        props = row.get("properties") if isinstance(row, dict) else None
+                        assignment_id = row.get("id") if isinstance(row, dict) else None
+                        if (not isinstance(props, dict) or not isinstance(assignment_id, str)
+                                or not re.fullmatch(re.escape(scope.rstrip("/") + "/providers/Microsoft.Authorization/roleAssignments/")
+                                                    + r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", assignment_id, re.I)
+                                or props.get("scope") != scope
+                                or not isinstance(props.get("principalId"), str)
+                                or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", props["principalId"], re.I)
+                                or not isinstance(props.get("roleDefinitionId"), str)
+                                or not re.fullmatch(r"/(?:keys(?:/[^/?#%\\\s]+)?/)?providers/Microsoft\.Authorization/roleDefinitions/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", props["roleDefinitionId"], re.I)
+                                or str(row.get("type", "")).casefold() != "microsoft.authorization/roleassignments"):
+                            raise ValueError("malformed HSM local role assignment")
+                        projected.append({"id": assignment_id, "name": row.get("name"), "type": row["type"],
+                                          "properties": {key: props[key] for key in ("principalId", "roleDefinitionId", "scope")}})
+                    yield projected
+            read = reader._read(("embedded_hsmLocalRoleAssignments", rid + scope, "Microsoft.KeyVault", fetch))
+            states.append({"scope": scope, **{key: read[key] for key in ("status", "error") if key in read}})
+            for row in read["items"]:
+                found.setdefault(row["id"].casefold(), row)
+        coverage["localRoleAssignments"] = {"status": "collected" if key_read["status"] in ("collected", "empty") and all(state["status"] in ("collected", "empty") for state in states)
+                                            else "partial", "scopes": states}
+        hsm["localRoleAssignments"] = list(found.values())
+        def role_definitions():
+            url = origin + "//keys/providers/Microsoft.Authorization/roleDefinitions?api-version=2025-07-01"
+            for page in reader.pages(request, url, audience=VAULT):
+                projected = []
+                for row in page:
+                    definition_id = row.get("id") if isinstance(row, dict) else None
+                    props = row.get("properties") if isinstance(row, dict) else None
+                    if (not isinstance(definition_id, str)
+                            or re.fullmatch(r"/(?:keys/)?providers/Microsoft\.Authorization/roleDefinitions/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", definition_id, re.I) is None
+                            or str(row.get("type", "")).casefold() != "microsoft.authorization/roledefinitions"
+                            or not isinstance(props, dict) or not isinstance(props.get("permissions"), list)):
+                        raise ValueError("malformed HSM local role definition")
+                    permissions = []
+                    for permission in props["permissions"]:
+                        if not isinstance(permission, dict):
+                            raise ValueError("malformed HSM role permissions")
+                        selected = {}
+                        for field in ("actions", "notActions", "dataActions", "notDataActions"):
+                            values = permission.get(field, [])
+                            if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+                                raise ValueError("malformed HSM role permission actions")
+                            selected[field] = values
+                        permissions.append(selected)
+                    projected.append({"id": definition_id, "name": row.get("name"), "type": row["type"],
+                                      "properties": {"roleName": props.get("roleName"), "permissions": permissions}})
+                yield projected
+        definitions_read = reader._read(("embedded_hsmLocalRoleDefinitions", rid, "Microsoft.KeyVault", role_definitions))
+        coverage["localRoleDefinitions"] = {key: definitions_read[key] for key in ("status", "error") if key in definitions_read}
+        hsm["localRoleDefinitions"] = definitions_read["items"]
 
 
 AUTHORIZATION = {
@@ -961,8 +1212,9 @@ def _validate_readonly_post(url, audience, body):
               version_valid and set(query) <= {"api-version", "$filter", "$top", "$skiptoken", "$skipToken", "$select", "$orderby", "$apply", "$expand", "$from", "$to"} and
               body == {})
     from . import azure_graph_batch
-    graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and
-                   parsed.path == "/v1.0/$batch" and not query and azure_graph_batch.valid_body(body))
+    graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and not query and
+                   (parsed.path == "/v1.0/$batch" and azure_graph_batch.valid_body(body) or
+                    parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_members_only=True)))
     if not (arg or logs or policy or graph_batch):
         raise AzureReadError("cloud_mutation_prohibited")
 
@@ -1297,6 +1549,19 @@ class AzureTransport:
             raise AzureReadError("untrusted_vault_endpoint")
         with self.lock:
             self.vault_hosts.add(parsed.netloc.lower())
+
+    def allow_hsm(self, uri, name):
+        """Bind a Managed HSM data-plane origin to its selected ARM parent."""
+        parsed = urlsplit(uri)
+        host = parsed.netloc.lower()
+        if (parsed.scheme != "https" or parsed.username or parsed.password or parsed.port
+                or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                or not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9-]{3,24}", name)
+                or re.fullmatch(r"(?:[a-z0-9-]+\.)?" + re.escape(name.lower())
+                                + r"\.managedhsm\.azure\.net", host) is None):
+            raise AzureReadError("untrusted_hsm_endpoint")
+        with self.lock:
+            self.vault_hosts.add(host)
 
     def allow_storage(self, uri, account, service):
         parsed = urlsplit(uri)
@@ -3113,7 +3378,10 @@ def collect(connector, requirements=None, *, transport=None):
         if "batch_pool" not in wanted:
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
+        _collect_servicebus_entity_rules(reader, request, embedded_parents)
         _collect_gallery_versions(reader, request, embedded_parents)
+        if "managed_hsm" in wanted:
+            _collect_hsm_local_assignments(reader, request, transport, embedded_parents)
         azure_swc.collect_nested_metadata(reader, request, embedded_parents)
         azure_network_catalog.collect_children(reader, request, scopes, wanted)
         azure_swc.collect_diagnostic_categories(reader, request, embedded_parents, scopes, wanted)
@@ -3587,10 +3855,13 @@ def collect(connector, requirements=None, *, transport=None):
                 reader.run(jobs)
         if "directory_membership" in wanted:
             jobs, graph_urls = [], []
+            # Graph v1.0 omits service-principal group members. Exposure scans
+            # need the documented beta workaround to see outside SP grantees.
+            member_version = "beta" if "role_assignment" in wanted else "v1.0"
             for c in reader.collections:
                 if c["type"] == "directory_group":
                     for group in c["items"]:
-                        url = GRAPH + "/v1.0/groups/" + quote(group["id"], safe="") + "/members?$select=id"
+                        url = GRAPH + "/" + member_version + "/groups/" + quote(group["id"], safe="") + "/members?$select=id"
                         graph_urls.append(url)
                         jobs.append(("directory_membership", tenant_scope + "/groups/" + group["id"], "Microsoft.Graph", lambda url=url: reader.pages(graph_request, url, audience=GRAPH, next_key="@odata.nextLink")))
             with azure_graph_batch.first_pages(reader, transport, request, graph_urls, enabled=graph_batching) as graph_request:

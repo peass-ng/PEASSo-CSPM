@@ -276,7 +276,7 @@ def _public_iam(item, *, write_only=False):
             found |= bool({'allUsers', 'allAuthenticatedUsers'} & set(members))
         elif {'allUsers', 'allAuthenticatedUsers'} & set(members):
             # Custom and inherited role permissions need an explicit resolved fact.
-            if role in {'roles/storage.objectCreator', 'roles/storage.objectAdmin', 'roles/storage.admin', 'roles/owner', 'roles/editor', 'roles/storage.legacyBucketWriter', 'roles/storage.legacyObjectOwner'}:
+            if role in {'roles/storage.objectCreator', 'roles/storage.objectUser', 'roles/storage.objectAdmin', 'roles/storage.admin', 'roles/owner', 'roles/editor', 'roles/storage.legacyBucketWriter', 'roles/storage.legacyBucketOwner', 'roles/storage.legacyObjectOwner'}:
                 found = True
             elif role not in {'roles/storage.objectViewer', 'roles/storage.legacyBucketReader', 'roles/storage.legacyObjectReader', 'roles/viewer'}:
                 raise Unavailable('unresolved public IAM role permissions')

@@ -322,7 +322,7 @@ def _grants(resource):
             broad = role in {"roles/owner", "roles/editor"}
             result.append({"path": f"bindings[{i}]", "native_grant": binding,
                 "severity": "high" if broad else "info", "broad": broad,
-                "allowed_declaration": True, "conditional": bool(binding.get("condition")),
+                "allowed_declaration": True, "conditional": binding.get("condition") is not None,
                 "effective_access": "unknown", "permission_definition": "not inferred from role name"})
         for i, permission in enumerate(as_list(data.get("includedPermissions"))):
             level = permission_severity(provider, permission)
@@ -397,6 +397,39 @@ def principals(resource):
 
 def _principals(resource):
     data = resource["data"]
+    if resource["provider"] == "azure" and resource["type"] == "vault":
+        props = data.get("properties") or {}
+        if isinstance(props, dict) and (props.get("enableRbacAuthorization") is None
+                                        or props.get("enableRbacAuthorization") is False):
+            tenant = props.get("tenantId")
+            for index, policy in enumerate(as_list(props.get("accessPolicies"))):
+                if not isinstance(policy, dict) or not isinstance(tenant, str) or not tenant:
+                    continue
+                policy_tenant = policy.get("tenantId")
+                principal = policy.get("objectId")
+                permissions = policy.get("permissions")
+                if (not isinstance(policy_tenant, str) or policy_tenant.casefold() != tenant.casefold()
+                        or not isinstance(principal, str) or not isinstance(permissions, dict)
+                        or not any(isinstance(permissions.get(kind), list)
+                                   and any(isinstance(action, str) and action for action in permissions[kind])
+                                   for kind in ("keys", "secrets", "certificates", "storage"))):
+                    continue
+                yield principal, f"properties.accessPolicies[{index}].objectId", {
+                    **policy, "keyVaultAccessPolicy": True, "enableRbacAuthorization": False}, "VaultAccessPolicy"
+    if resource["provider"] == "azure" and resource["type"] == "managed_hsm":
+        definitions = {item["id"].casefold(): item for item in as_list(data.get("localRoleDefinitions"))
+                       if isinstance(item, dict) and isinstance(item.get("id"), str)}
+        for index, assignment in enumerate(as_list(data.get("localRoleAssignments"))):
+            props = assignment.get("properties") if isinstance(assignment, dict) else None
+            principal = props.get("principalId") if isinstance(props, dict) else None
+            if isinstance(principal, str) and principal:
+                role_id = props.get("roleDefinitionId")
+                definition = definitions.get(role_id.casefold()) if isinstance(role_id, str) else None
+                yield principal, f"localRoleAssignments[{index}].properties.principalId", {
+                    **props, "hsmLocalRbac": True, "roleAssignmentId": assignment.get("id"),
+                    "roleDefinition": definition.get("properties") if definition else None,
+                    "roleDefinitionCoverage": (data.get("_coverage") or {}).get("localRoleDefinitions"),
+                    "coverage": (data.get("_coverage") or {}).get("localRoleAssignments")}, "HsmLocalRoleAssignment"
     if resource["provider"] == "k8s":
         if resource["type"] in {"kcc_iampolicy", "kcc_iampartialpolicy"}:
             spec, status = data.get("spec") or {}, data.get("status") or {}
@@ -437,6 +470,23 @@ def _principals(resource):
             for member in as_list(binding.get("members")):
                 if isinstance(member, str):
                     yield member, f"bindings[{i}].members", binding, "member"
+    if resource["provider"] == "gcp" and resource["type"] == "project" and data.get("name") == resource.get("scope"):
+        coverage = (data.get("_coverage") or {}).get("_inherited_iam_policies") if isinstance(data.get("_coverage"), dict) else None
+        ancestors = data.get("_inherited_iam_policies")
+        if isinstance(coverage, dict) and coverage.get("status") == "collected" and isinstance(ancestors, list):
+            for i, ancestor in enumerate(ancestors):
+                if not isinstance(ancestor, dict):
+                    continue
+                identity = ancestor.get("ancestor")
+                if (not isinstance(identity, str) or not re.fullmatch(r"(?:folders|organizations)/[0-9]+", identity)
+                        or ancestor.get("name") != identity or ancestor.get("collection_status") != "collected"):
+                    continue
+                for j, binding in enumerate(as_list(ancestor.get("bindings"))):
+                    if not isinstance(binding, dict):
+                        continue
+                    for member in as_list(binding.get("members")):
+                        if isinstance(member, str):
+                            yield member, f"_inherited_iam_policies[{i}].bindings[{j}].members", binding, "member"
     if resource["provider"] == "gcp" and resource["type"] == "bigquery_dataset":
         # Dataset ACLs predate IAM and are returned by datasets.get as access[].
         # They can grant public or third-party read without an IAM binding.
@@ -452,6 +502,25 @@ def _principals(resource):
                 if isinstance(value, str) and value:
                     identity = f"{prefix}:{value}" if prefix else value
                     yield identity, f"access[{i}].{field}", access, "member"
+    if resource["provider"] == "gcp" and resource["type"] in ("bucket_acl", "object_acl"):
+        # The collector retains only a hash of a private ACL identity. A
+        # separately projected kind/domain is enough to establish a foreign
+        # trust boundary without restoring the user or group address.
+        kind, domain = data.get("principalKind"), data.get("principalDomain")
+        if (isinstance(data.get("entity"), str) and data["entity"].startswith("sha256:")
+                and data.get("role") in (("READER", "OWNER") if resource["type"] == "object_acl"
+                                         else ("READER", "OWNER", "WRITER"))):
+            project, team = data.get("principalProject"), data.get("principalTeam")
+            if (kind == "project" and team in ("owners", "editors", "viewers")
+                    and isinstance(project, str) and re.fullmatch(r"[0-9]{1,20}", project)):
+                member_kind = {"owners": "projectOwner", "editors": "projectEditor",
+                               "viewers": "projectViewer"}[team]
+                yield member_kind + ":" + project, "principalProject", data, "acl_project_team"
+            elif (kind in ("user", "group", "domain") and isinstance(domain, str)
+                    and re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", domain)):
+                yield "domain:" + domain, "principalDomain", data, "acl_" + kind + "_domain"
+            else:
+                yield data["entity"], "entity", data, "acl_unattributed"
     if resource["provider"] == "gcp" and resource["type"] == "bucket" and (
             (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess") or {}).get("enabled") is False:
         for field in ("bucketAccessControls", "objectAccessControls"):
@@ -589,7 +658,43 @@ def _azure_gallery_rbac_reviews(snapshot, resources, group_members):
         return []
     definitions = {_azure_role_guid(row["data"].get("name") or native_id(row)): row
                    for row in resources if row["type"] == "role_definition"}
+    denials = [row for row in resources if row["type"] == "deny_assignment"]
     action = "microsoft.compute/galleries/images/versions/read"
+
+    def broad_read_deny(gallery):
+        # A deny inherited by every image version blocks this one read action
+        # for every principal. Narrower principal, condition or scope matches
+        # need effective evaluation and must not suppress a declared grant.
+        for row in denials:
+            props = row["data"].get("properties") or {}
+            if not isinstance(props, dict):
+                continue
+            scope = props.get("scope")
+            principals = props.get("principals")
+            excluded = props.get("excludePrincipals", [])
+            if (not isinstance(scope, str) or not isinstance(principals, list)
+                    or not isinstance(excluded, list) or excluded or props.get("condition")
+                    or props.get("doNotApplyToChildScopes") not in (None, False)):
+                continue
+            scope = scope.casefold().rstrip("/")
+            if scope and scope != gallery and not gallery.startswith(scope + "/"):
+                continue
+            if not any(isinstance(principal, dict)
+                       and str(principal.get("id", "")).casefold() == "00000000-0000-0000-0000-000000000000"
+                       and principal.get("type") == "SystemDefined" for principal in principals):
+                continue
+            for block in props.get("permissions") or []:
+                if (not isinstance(block, dict) or block.get("condition")
+                        or not isinstance(block.get("actions"), list)
+                        or not isinstance(block.get("notActions", []), list)):
+                    continue
+                if (any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                        for pattern in block["actions"])
+                        and not any(isinstance(pattern, str) and fnmatchcase(action, pattern.casefold())
+                                    for pattern in block.get("notActions", []))):
+                    return row
+        return None
+
     output, seen = [], set()
     for assignment in resources:
         if assignment["type"] != "role_assignment":
@@ -630,17 +735,21 @@ def _azure_gallery_rbac_reviews(snapshot, resources, group_members):
                     continue
                 seen.add(key)
                 condition = props.get("condition")
+                deny = broad_read_deny(gallery)
                 evidence = {"source": source(snapshot, assignment, "properties.roleDefinitionId"),
                     "role_definition_source": source(snapshot, definition, "properties.permissions"),
                     "gallery_id": gallery, "assignment_scope": scope, "principal_id": identity,
                     "via_group": principal if group_path else None, "group_path": group_path,
                     "membership_source": source(snapshot, membership, "id") if membership else None,
                     "role_definition_id": props.get("roleDefinitionId"), "action": action,
-                    "condition": condition, "effective_access": "unknown",
-                    "uncertainty": "Deny assignments, PIM activation, and runtime authorization may narrow declared access."}
+                    "condition": condition, "effective_access": "blocked_for_gallery_image_version_read" if deny else "unknown",
+                    "deny_source": source(snapshot, deny, "properties.permissions") if deny else None,
+                    "uncertainty": "Other permissions and data paths are outside this image-version read decision." if deny else
+                                   "Deny assignments, PIM activation, and runtime authorization may narrow declared access."}
                 output.append(finding(snapshot, assignment, "exposure", "analysis.azure_gallery_rbac_share",
-                    "Review external Azure Compute Gallery image read grant", "medium", evidence,
-                    status="MANUAL" if condition else "FAIL"))
+                    "Gallery image-version read blocked by deny assignment" if deny else
+                    "Review external Azure Compute Gallery image read grant", "info" if deny else "medium", evidence,
+                    status="PASS" if deny else "MANUAL" if condition else "FAIL"))
     return output
 
 
@@ -674,7 +783,7 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
         # Public/external principal triage (peaso.analysis.trust): unconditional public
         # or out-of-boundary principals FAIL, restrictive conditions MANUAL, unattributable UNKNOWN.
         from .trust import principal_exposure
-        declarations = [(identity, path, fact, kind, fact.get("tenantId"))
+        declarations = [(identity, path, fact, kind, None if kind == "VaultAccessPolicy" else fact.get("tenantId"))
                         for identity, path, fact, kind in principals(resource)]
         if external_group_members and resource["type"] == "role_assignment":
             props = resource["data"].get("properties") or {}
@@ -683,6 +792,15 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
                 for member, (group_path, membership) in external_group_members(group_id).items():
                     declarations.append((member, "properties.principalId",
                         {**props, "viaGroup": group_id, "groupPath": group_path,
+                         "membershipSource": source(snapshot, membership, "id")},
+                        "GroupMember", None))
+        if external_group_members and resource["type"] in ("managed_hsm", "vault"):
+            for group_id, path, grant, kind, _ in tuple(declarations):
+                if kind not in ("HsmLocalRoleAssignment", "VaultAccessPolicy"):
+                    continue
+                for member, (group_path, membership) in external_group_members(group_id).items():
+                    declarations.append((member, path,
+                        {**grant, "viaGroup": group_id, "groupPath": group_path,
                          "membershipSource": source(snapshot, membership, "id")},
                         "GroupMember", None))
         verdict = principal_exposure(snapshot, resource, declarations)

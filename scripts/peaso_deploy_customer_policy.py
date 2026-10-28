@@ -444,6 +444,16 @@ RECHECK_METADATA_READ_REFERENCES = {
 }
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | set(RECHECK_METADATA_READ_REFERENCES)
 
+# Exact metadata and list actions introduced by the Exposure A/B collectors.
+# Each action is listed in its provider's AWS service authorization reference.
+EXPOSURE_METADATA_READ_REFERENCES = {
+    'cloudfront:GetCloudFrontOriginAccessIdentity': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudfront.html',
+    'cloudfront:GetOriginAccessControl': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudfront.html',
+    'logs:DescribeAccountPolicies': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_logs.html',
+    'sns:ListSubscriptionsByTopic': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_sns.html',
+}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | set(EXPOSURE_METADATA_READ_REFERENCES)
+
 
 def policy_size(policy):
     # IAM excludes whitespace; every generated permission token is ASCII.

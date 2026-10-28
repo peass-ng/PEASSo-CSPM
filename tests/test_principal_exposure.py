@@ -49,6 +49,52 @@ def test_external_aws_admin_is_critical_but_same_org_is_trusted():
     assert not project(trusted, resources(trusted))[ARN]["exposures"]
 
 
+def test_foreign_lambda_invoke_maps_function_alias_and_version_to_execution_roles():
+    function_arn = f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:public-api"
+    latest_role = f"arn:aws:iam::{ACCOUNT}:role/latest"
+    version_role = f"arn:aws:iam::{ACCOUNT}:role/version-three"
+    canary_role = f"arn:aws:iam::{ACCOUNT}:role/version-four"
+
+    def policy(arn):
+        return {"collection_status": "collected", "Policy": {"Statement": [{
+            "Effect": "Allow", "Principal": {"AWS": "999988887777"},
+            "Action": "lambda:InvokeFunction", "Resource": arn}]}}
+
+    function = {"FunctionName": "public-api", "FunctionArn": function_arn, "Role": latest_role,
+                "Policy": policy(function_arn)}
+    version_three = {"FunctionName": "public-api", "BaseFunctionArn": function_arn,
+                     "FunctionArn": function_arn + ":3", "Version": "3", "Role": version_role,
+                     "Policy": policy(function_arn + ":3")}
+    version_four = {"FunctionName": "public-api", "BaseFunctionArn": function_arn,
+                    "FunctionArn": function_arn + ":4", "Version": "4", "Role": canary_role,
+                    "Policy": {"collection_status": "empty", "absent": True}}
+    alias = {"AliasArn": function_arn + ":live", "Name": "live", "FunctionArn": function_arn,
+             "FunctionVersion": "3", "RoutingConfig": {"AdditionalVersionWeights": {"4": 0.1}},
+             "Policy": policy(function_arn + ":live")}
+    snap = snapshot("aws", {"lambda_function": [function], "lambda_version": [version_three, version_four],
+                            "lambda_alias": [alias]})
+    cards = project(snap, resources(snap))
+    assert len([s for s in cards[latest_role]["exposures"] if s["kind"] == "external_workload"]) == 1
+    assert len([s for s in cards[version_role]["exposures"] if s["kind"] == "external_workload"]) == 2
+    assert len([s for s in cards[canary_role]["exposures"] if s["kind"] == "external_workload"]) == 1
+    assert all(s["state"] == "declared" and s["requires_application_compromise"] is True
+               and s["caller_permissions_unobserved"] is True
+               for role in (latest_role, version_role, canary_role)
+               for s in cards[role]["exposures"] if s["kind"] == "external_workload")
+
+    conflicting = {**version_three, "Role": f"arn:aws:iam::{ACCOUNT}:role/conflicting"}
+    snap = snapshot("aws", {"lambda_function": [function], "lambda_version": [version_three, conflicting, version_four],
+                            "lambda_alias": [alias]})
+    cards = project(snap, resources(snap))
+    assert version_role not in cards and canary_role not in cards
+
+    version_three["Role"] = f"arn:aws:iam::999988887777:role/other"
+    snap = snapshot("aws", {"lambda_function": [function], "lambda_version": [version_three, version_four],
+                            "lambda_alias": [alias]})
+    cards = project(snap, resources(snap))
+    assert version_role not in cards and canary_role not in cards
+
+
 def test_conditional_trust_and_deny_never_become_unrestricted_access():
     role = aws_role("*", {"StringEquals": {"aws:PrincipalOrgID": "o-home"}})
     snap = snapshot("aws", {"iam_role": [role]})

@@ -31,7 +31,7 @@ def base_policies(requests,session,region,account):
    if not statements or any(not isinstance(s,dict)for s in statements)or arn in seen:raise ValueError()
    json.dumps(document,allow_nan=False)
   except (ValueError,TypeError):fail();return
-  seen.add(arn);rows.append({'ResourceArn':arn,'Policy':document,'_provenance':{'read_only':True,'source_operation':service+':'+operation,'covered_services':['sns','sqs','lambda','ecr'],'coverage_boundary':'Four regional service families only; Lambda unqualified functions only, not version or alias policies; other AWS resource-policy families are not assessed'}})
+  seen.add(arn);rows.append({'ResourceArn':arn,'Policy':document,'_provenance':{'read_only':True,'owner_account':account,'source_region':region,'collection_region':region,'families':[service+'-base'],'source_operation':service+':'+operation,'covered_services':['sns','sqs','lambda','ecr'],'coverage_boundary':'Four regional service families only; Lambda unqualified functions only, not version or alias policies; other AWS resource-policy families are not assessed'}})
  for service,operation,expression in [('sns','list_topics','Topics'),('sqs','list_queues','QueueUrls || `[]`'),('lambda','list_functions','Functions'),('ecr','describe_repositories','repositories')]:
   read=requests.pages(session,service,region,operation,expression,**({'MaxResults':1000}if service=='sqs'else{}))
   if read.status not in OK:fail(read.status,(read.error or{}).get('code','resource_policy_listing_incomplete'))

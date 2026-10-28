@@ -1,6 +1,7 @@
 """Internet-to-asset exposure (peaso.analysis.internet_exposure): PASS/FAIL/UNKNOWN per scenario."""
 import copy
 import ipaddress
+import json
 
 import pytest
 
@@ -15,6 +16,10 @@ CHECK = "analysis.internet_exposure"
 
 
 def coll(kind, items, scope=SCOPE, status=None, service="ec2"):
+    if kind == "load_balancer":
+        # Existing ELBv2 fixtures represent serving load balancers unless a test overrides State.
+        items = [{**item, "State": item.get("State", {"Code": "active"}),
+                  "IpAddressType": item.get("IpAddressType", "ipv4")} for item in items]
     return {"type": kind, "scope": scope, "service": service, "status": status or ("collected" if items else "empty"), "items": items}
 
 
@@ -26,7 +31,9 @@ def exposure(snapshot, kind=None):
 def one(snapshot, resource_type):
     report = analyze(snapshot)
     ids = {r["id"]: r["type"] for r in report["resources"]}
-    found = [f for f in report["findings"] if f["check_id"] == CHECK and ids.get(f["resource_id"]) == resource_type]
+    found = [f for f in report["findings"] if f["check_id"] == CHECK and ids.get(f["resource_id"]) == resource_type
+             and (resource_type not in ("lambda_function", "lambda_alias") or f["evidence"].get("exposure_kind") == "function_url")
+             and (resource_type != "ecr_registry" or f["evidence"].get("exposure_kind") == "external_share")]
     assert len(found) == 1, found
     return found[0]
 
@@ -64,6 +71,13 @@ def aws_network(sg_rules=None, nacl_entries=None, igw=True, extra=()):
         coll("network_acl", [{"NetworkAclId": "acl-1", "VpcId": "vpc-1", "Associations": [{"SubnetId": "subnet-1"}], "Entries": nacl_entries}]),
         coll("security_group", [{"GroupId": "sg-1", "VpcId": "vpc-1", "IpPermissions": sg_rules}]),
         *extras]
+
+
+def with_ipv6_subnet(network, attribute="public"):
+    subnet = next(c for c in network if c["type"] == "subnet")["items"][0]
+    subnet["Ipv6CidrBlockAssociationSet"] = [{"Ipv6CidrBlock": "2600:1f18:abcd::/64",
+        "Ipv6AddressAttribute": attribute, "Ipv6CidrBlockState": {"State": "associated"}}]
+    return network
 
 
 def instance(public=True, groups=("sg-1",)):
@@ -200,6 +214,44 @@ def test_aws_client_vpn_managed_listener_and_inactive_state():
     assert one(aws(coll("client_vpn_endpoint", [incomplete])), "client_vpn_endpoint")["status"] == "UNKNOWN"
 
 
+def test_client_vpn_all_authenticated_clients_authorization_declaration():
+    from peaso.finding_observation import evidence_summary
+
+    endpoint = {"ClientVpnEndpointId": "cvpn-endpoint-1", "Status": {"Code": "available"},
+                "DnsName": "*.cvpn-endpoint-1.prod.clientvpn.us-east-1.amazonaws.com",
+                "AuthorizationRules": {"ClientVpnEndpointId": "cvpn-endpoint-1", "collection_status": "collected",
+                                       "items": [{"Status": {"Code": "active"}, "AuthorizeAllGroups": True,
+                                                  "DestinationCidr": "10.20.0.0/16"}]}}
+
+    def grants(row):
+        return [f for f in exposure(aws(coll("client_vpn_endpoint", [row], service="ec2")))
+                if f["evidence"].get("exposure_kind") == "vpn_client_authorization"]
+
+    found = grants(endpoint)
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["path"][0]["destination_cidrs"] == ["10.20.0.0/16"]
+    assert "Route and destination controls remain unverified" in evidence_summary(found[0])
+    assert "authorization rule" in found[0]["remediation"]
+    scoped = copy.deepcopy(endpoint)
+    scoped["AuthorizationRules"]["items"][0]["AuthorizeAllGroups"] = False
+    assert grants(scoped) == []
+    inactive = copy.deepcopy(endpoint)
+    inactive["Status"]["Code"] = "deleted"
+    assert grants(inactive) == []
+    pending = copy.deepcopy(endpoint)
+    pending["AuthorizationRules"]["items"][0]["Status"]["Code"] = "authorizing"
+    assert grants(pending) == []
+    malformed = copy.deepcopy(endpoint)
+    malformed["AuthorizationRules"]["items"][0]["DestinationCidr"] = "not-a-cidr"
+    assert grants(malformed)[0]["status"] == "UNKNOWN"
+    partial = copy.deepcopy(endpoint)
+    partial["AuthorizationRules"]["collection_status"] = "partial"
+    assert grants(partial)[0]["status"] == "UNKNOWN"
+    wrong = copy.deepcopy(endpoint)
+    wrong["AuthorizationRules"]["ClientVpnEndpointId"] = "cvpn-endpoint-foreign"
+    assert grants(wrong)[0]["status"] == "UNKNOWN"
+
+
 def test_aws_vpc_endpoint_service_external_principal_permissions():
     service = {"ServiceId": "vpce-svc-1", "ServiceState": "Available",
                "AcceptanceRequired": False, "AllowedPrincipals": ["*"], "EndpointConnections": []}
@@ -267,6 +319,81 @@ def test_aws_ecr_registry_cross_account_image_replication():
     assert one(aws(coll("ecr_registry", [malformed], service="ecr")), "ecr_registry")["status"] == "UNKNOWN"
 
 
+def test_ecr_registry_policy_foreign_pull_actions():
+    prefix = f"arn:aws:ecr:us-east-1:{ACCOUNT}:repository/"
+    principal = {"AWS": "arn:aws:iam::444455556666:root"}
+
+    def policy(action=None, resource=prefix + "*", who=principal, **extra):
+        return {"collection_status": "collected", "policyText": {"Statement": [{
+            "Effect": "Allow", "Principal": who,
+            "Action": action or ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+            "Resource": resource, **extra}]}}
+
+    def result(read, registry_id=ACCOUNT):
+        registry = {"id": f"ecr-registry/{ACCOUNT}/us-east-1", "registryId": registry_id,
+                    "Replication": {"collection_status": "collected", "rules": []}, "RegistryPolicy": read}
+        return [f for f in exposure(aws(coll("ecr_registry", [registry], service="ecr")))
+                if f["evidence"].get("exposure_kind") == "external_registry_policy_pull"]
+
+    named = result(policy())
+    assert len(named) == 1 and named[0]["status"] == "FAIL"
+    assert named[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert result(policy(who="*"))[0]["status"] == "FAIL"
+    assert result(policy(action="ecr:BatchGetImage")) == []
+    assert result(policy(resource=f"arn:aws:ecr:us-east-1:999988887777:repository/*")) == []
+    assert result(policy(who={"AWS": f"arn:aws:iam::{ACCOUNT}:root"})) == []
+    assert result({"collection_status": "empty", "absent": True}) == []
+    assert result(policy(Condition={"StringEquals": {"aws:PrincipalOrgID": "o-1234567890"}}))[0]["status"] == "UNKNOWN"
+    denied = policy()
+    denied["policyText"]["Statement"].append({"Effect": "Deny", "Principal": principal,
+                                                 "Action": "ecr:*", "Resource": "*"})
+    assert result(denied)[0]["status"] == "UNKNOWN"
+    denied_one = policy()
+    denied_one["policyText"]["Statement"].append({"Effect": "Deny", "Principal": principal,
+                                                     "Action": "ecr:BatchGetImage", "Resource": "*"})
+    assert result(denied_one)[0]["status"] == "UNKNOWN"
+    assert result({"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+    assert result(policy(), registry_id="000000000000")[0]["status"] == "UNKNOWN"
+
+
+def test_ecr_creation_template_foreign_pull_applies_only_to_future_repositories():
+    principal = {"AWS": "arn:aws:iam::444455556666:root"}
+
+    def statement(who=principal, actions=None, **extra):
+        return {"Effect": "Allow", "Principal": who,
+                "Action": actions or ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+                **extra}
+
+    def result(rows, status="collected"):
+        registry = {"id": f"ecr-registry/{ACCOUNT}/us-east-1", "registryId": ACCOUNT,
+                    "Replication": {"collection_status": "collected", "rules": []},
+                    "RegistryPolicy": {"collection_status": "empty", "absent": True},
+                    "RepositoryCreationTemplates": {"collection_status": status, "items": rows}}
+        return [f for f in exposure(aws(coll("ecr_registry", [registry], service="ecr")))
+                if f["evidence"].get("exposure_kind") == "external_registry_template_pull"]
+
+    def template(policy=None):
+        return {"prefix": "prod", "appliedFor": ["REPLICATION"],
+                "repositoryPolicy": {"Statement": [statement()]} if policy is None else policy}
+
+    found = result([template()])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert found[0]["evidence"]["path"][0]["future_grants"][0]["prefix"] == "prod"
+    assert "future" in found[0]["evidence"]["semantics"]
+    assert result([template({"Statement": [statement(who="*")]})])[0]["status"] == "FAIL"
+    assert result([template({"Statement": [statement(actions="ecr:BatchGetImage")]})]) == []
+    assert result([template({"Statement": [statement(who={"AWS": f"arn:aws:iam::{ACCOUNT}:root"})]})]) == []
+    assert result([{"prefix": "ROOT", "appliedFor": ["CREATE_ON_PUSH"]}]) == []
+    assert result([], status="empty") == []
+    assert result([template({"Statement": [statement(Condition={"StringEquals": {"aws:PrincipalOrgID": "o-123"}})]})])[0]["status"] == "UNKNOWN"
+    assert result([template({"Statement": [statement(), {"Effect": "Deny", "Principal": principal,
+                                                     "Action": "ecr:*", "Resource": "*"}]})])[0]["status"] == "UNKNOWN"
+    assert result([template({"Statement": [statement(), {"Effect": "Deny", "Principal": principal,
+                                                     "Action": "ecr:BatchGetImage", "Resource": "*"}]})])[0]["status"] == "UNKNOWN"
+    assert result([template()], status="denied")[0]["status"] == "UNKNOWN"
+
+
 def test_ecr_public_repository_declares_anonymous_pull_without_image_inventory():
     from peaso.finding_observation import evidence_summary
 
@@ -306,6 +433,333 @@ def test_cloudwatch_subscription_filter_targets_foreign_log_destination():
     assert one(aws(coll("log_subscription_filter", [malformed], service="logs")), "log_subscription_filter")["status"] == "UNKNOWN"
     trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
     assert not exposure(aws(coll("log_subscription_filter", [subscription], service="logs"), trusted))
+
+
+def test_cloudwatch_account_subscription_policy_targets_foreign_log_destination():
+    from peaso.finding_observation import evidence_summary
+    from peaso.analysis.catalog import REQUIRED_TYPES
+
+    kind = "log_account_subscription_policy"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    policy = {"id": f"{ACCOUNT}/us-east-1/log-account-policy/export",
+              "accountId": ACCOUNT, "policyName": "export", "policyType": "SUBSCRIPTION_FILTER_POLICY",
+              "DestinationArn": "arn:aws:logs:us-east-1:999988887777:destination:partner",
+              "selectionCriteria": 'LogGroupName NOT IN ["skip"]'}
+    found = one(aws(coll(kind, [policy], service="logs")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "account policy export" in evidence_summary(found)
+    assert "delivery was not verified" in evidence_summary(found)
+    own = {**policy, "DestinationArn": f"arn:aws:logs:us-east-1:{ACCOUNT}:destination:own"}
+    assert not exposure(aws(coll(kind, [own], service="logs")))
+    malformed = {**policy, "DestinationArn": "unknown"}
+    assert one(aws(coll(kind, [malformed], service="logs")), kind)["status"] == "UNKNOWN"
+    wrong_scope = {**policy, "accountId": "999988887777"}
+    assert one(aws(coll(kind, [wrong_scope], service="logs")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [policy], service="logs"), trusted))
+
+
+def test_cloudwatch_destination_access_policy_grants_foreign_sender():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+
+    assert "log_destination" in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:logs:us-east-1:{ACCOUNT}:destination:receiver"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+                 "Action": ["logs:PutSubscriptionFilter", "logs:PutAccountPolicy"], "Resource": arn}
+
+    def findings(statements, **changes):
+        row = {"arn": arn, "destinationName": "receiver", "targetArn": f"arn:aws:kinesis:us-east-1:{ACCOUNT}:stream/receiver",
+               "accessPolicy": json.dumps({"Statement": statements}), **changes}
+        return [f for f in exposure(aws(coll("log_destination", [row], service="logs")))
+                if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+
+    found = findings([statement])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert found[0]["evidence"]["path"][0]["external_grants"][0]["actions"] == sorted(statement["Action"])
+    assert findings([{**statement, "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]) == []
+    assert findings([{**statement, "Resource": arn + "-other"}]) == []
+    assert findings([statement, {**statement, "Effect": "Deny"}])[0]["status"] == "UNKNOWN"
+    assert findings([{**statement, "Condition": {"StringEquals": {"aws:PrincipalOrgID": "o-123"}}}])[0]["status"] == "UNKNOWN"
+    assert findings([statement], arn=arn.replace(ACCOUNT, "000000000000"))[0]["status"] == "UNKNOWN"
+    assert findings([statement], accessPolicy="{broken")[0]["status"] == "UNKNOWN"
+    assert findings([statement], accessPolicy="") == []
+
+
+def test_private_ecr_repository_policy_foreign_image_pull_grant():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "ecr_repository"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:ecr:us-east-1:{ACCOUNT}:repository/team/app"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::999988887777:root"},
+                 "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"], "Resource": arn}
+    repo = {"repositoryArn": arn, "repositoryName": "team/app", "registryId": ACCOUNT,
+            "Policy": {"collection_status": "collected", "registryId": ACCOUNT,
+                       "repositoryName": "team/app", "policyText": {"Statement": [statement]}}}
+    found = one(aws(coll(kind, [repo], service="ecr")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert any("authentication" in gap.get("reason", "").lower() for gap in found["evidence"]["unresolved"])
+    assert "image pulls were not observed" in evidence_summary(found)
+    assert "ECR repository" in found["remediation"]
+    own = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [{**statement,
+           "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]}}}
+    assert not exposure(aws(coll(kind, [own], service="ecr")))
+    wrong_action = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [{**statement,
+                    "Action": "ecr:DescribeImages"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="ecr")))
+    wrong_resource = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [{**statement,
+                      "Resource": arn + "-different"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_resource], service="ecr")))
+    restricted = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [{**statement,
+                  "Condition": {"StringEquals": {"aws:SourceAccount": "999988887777"}}}]}}}
+    assert one(aws(coll(kind, [restricted], service="ecr")), kind)["status"] == "UNKNOWN"
+    denied = {**repo, "Policy": {**repo["Policy"], "policyText": {"Statement": [statement,
+              {"Effect": "Deny", "Principal": "*", "Action": "ecr:*", "Resource": arn}]}}}
+    assert one(aws(coll(kind, [denied], service="ecr")), kind)["status"] == "UNKNOWN"
+    missing = {**repo, "Policy": {"collection_status": "denied"}}
+    assert one(aws(coll(kind, [missing], service="ecr")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [repo], service="ecr"), trusted))
+
+
+def test_secret_policy_foreign_read_requires_customer_key_candidate():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "secret"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:secretsmanager:us-east-1:{ACCOUNT}:secret:app/db-AbCdEf"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::999988887777:role/reader"},
+                 "Action": "secretsmanager:GetSecretValue", "Resource": arn}
+    secret = {"ARN": arn, "Name": "app/db", "KmsKeyId": f"arn:aws:kms:us-east-1:{ACCOUNT}:key/abc",
+              "_coverage": {"KmsKeyId": {"status": "collected"}},
+              "Policy": {"collection_status": "collected", "ARN": arn, "Name": "app/db",
+                         "ResourcePolicy": {"Statement": [statement]}}}
+    found = one(aws(coll(kind, [secret], service="secretsmanager")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "no secret value was read" in evidence_summary(found)
+    assert "KMS key policy" in found["remediation"]
+    default = {**secret, "KmsKeyId": None, "_coverage": {"KmsKeyId": {"status": "empty",
+               "documented_default": "aws/secretsmanager"}}}
+    assert one(aws(coll(kind, [default], service="secretsmanager")), kind)["status"] == "PASS"
+    missing_key = {**secret, "_coverage": {"KmsKeyId": {"status": "denied"}}}
+    assert one(aws(coll(kind, [missing_key], service="secretsmanager")), kind)["status"] == "UNKNOWN"
+    own = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [{**statement,
+           "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]}}}
+    assert not exposure(aws(coll(kind, [own], service="secretsmanager")))
+    wrong_action = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [{**statement,
+                    "Action": "secretsmanager:DescribeSecret"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="secretsmanager")))
+    wrong_resource = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [{**statement,
+                      "Resource": arn + "-other"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_resource], service="secretsmanager")))
+    conditioned = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [{**statement,
+                   "Condition": {"StringEquals": {"aws:SourceAccount": "999988887777"}}}]}}}
+    assert one(aws(coll(kind, [conditioned], service="secretsmanager")), kind)["status"] == "UNKNOWN"
+    denied = {**secret, "Policy": {**secret["Policy"], "ResourcePolicy": {"Statement": [statement,
+              {"Effect": "Deny", "Principal": "*", "Action": "secretsmanager:GetSecretValue", "Resource": arn}]}}}
+    assert one(aws(coll(kind, [denied], service="secretsmanager")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [secret], service="secretsmanager"), trusted))
+
+
+def test_sqs_queue_policy_foreign_receive_respects_key_and_scope():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "sqs_queue"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:sqs:us-east-1:{ACCOUNT}:events"
+    url = f"https://sqs.us-east-1.amazonaws.com/{ACCOUNT}/events"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+                 "Action": "sqs:ReceiveMessage", "Resource": arn}
+    attrs = {"QueueArn": arn, "Policy": {"Statement": [statement]}, "KmsMasterKeyId": "",
+             "_coverage": {"KmsMasterKeyId": {"status": "empty"}}}
+    queue = {"QueueUrl": url, "Attributes": {"collection_status": "collected", "Attributes": attrs}}
+    found = one(aws(coll(kind, [queue], service="sqs")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "no messages were read" in evidence_summary(found)
+    assert "SQS queue" in found["remediation"]
+    managed = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {
+               **attrs, "KmsMasterKeyId": "alias/aws/sqs"}}}
+    assert one(aws(coll(kind, [managed], service="sqs")), kind)["status"] == "PASS"
+    own = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+           "Policy": {"Statement": [{**statement, "Principal": {"AWS": ACCOUNT}}]}}}}
+    assert not exposure(aws(coll(kind, [own], service="sqs")))
+    wrong_action = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+                    "Policy": {"Statement": [{**statement, "Action": "sqs:SendMessage"}]}}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="sqs")))
+    wrong_resource = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+                      "Policy": {"Statement": [{**statement, "Resource": arn + "-other"}]}}}}
+    assert not exposure(aws(coll(kind, [wrong_resource], service="sqs")))
+    conditioned = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+                   "Policy": {"Statement": [{**statement, "Condition": {"StringEquals": {"aws:SourceAccount": "999988887777"}}}]}}}}
+    assert one(aws(coll(kind, [conditioned], service="sqs")), kind)["status"] == "UNKNOWN"
+    denied = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+              "Policy": {"Statement": [statement, {"Effect": "Deny", "Principal": "*",
+                       "Action": "sqs:ReceiveMessage", "Resource": arn}]}}}}
+    assert one(aws(coll(kind, [denied], service="sqs")), kind)["status"] == "UNKNOWN"
+    mismatched = {**queue, "Attributes": {**queue["Attributes"], "Attributes": {**attrs,
+                  "QueueArn": arn + "-other"}}}
+    assert one(aws(coll(kind, [mismatched], service="sqs")), kind)["status"] == "UNKNOWN"
+    unread = {**queue, "Attributes": {"collection_status": "denied"}}
+    assert one(aws(coll(kind, [unread], service="sqs")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [queue], service="sqs"), trusted))
+
+
+def test_confirmed_foreign_owned_sns_topic_subscription():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "sns_topic_subscription"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    topic = f"arn:aws:sns:us-east-1:{ACCOUNT}:events"
+    foreign = "999988887777"
+    subscription = f"arn:aws:sns:us-east-1:{foreign}:events:12345678-1234-1234-1234-123456789012"
+    row = {"id": subscription, "TopicArn": topic, "SubscriptionArn": subscription,
+           "Owner": foreign, "Protocol": "https"}
+    found = one(aws(coll(kind, [row], service="sns")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == [foreign]
+    assert "message delivery was not observed" in evidence_summary(found)
+    assert "SNS topic" in found["remediation"]
+    pending = {**row, "SubscriptionArn": "PendingConfirmation"}
+    assert one(aws(coll(kind, [pending], service="sns")), kind)["status"] == "UNKNOWN"
+    mismatched = {**row, "TopicArn": topic.replace(ACCOUNT, foreign)}
+    assert one(aws(coll(kind, [mismatched], service="sns")), kind)["status"] == "UNKNOWN"
+    own = {**row, "Owner": ACCOUNT, "SubscriptionArn": subscription.replace(foreign, ACCOUNT)}
+    assert not exposure(aws(coll(kind, [own], service="sns")))
+    trusted = coll("organization_account", [{"Id": foreign}], service="organizations")
+    assert not exposure(aws(coll(kind, [row], service="sns"), trusted))
+
+
+def test_sns_topic_policy_foreign_and_wildcard_subscribe_grants():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "sns_topic"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    arn = f"arn:aws:sns:us-east-1:{ACCOUNT}:events"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+                 "Action": "sns:Subscribe", "Resource": arn}
+    attrs = {"TopicArn": arn, "Owner": ACCOUNT, "Policy": {"Statement": [statement]}}
+    topic = {"TopicArn": arn, "Attributes": {"collection_status": "collected", "Attributes": attrs}}
+    found = one(aws(coll(kind, [topic], service="sns")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "no message delivery was observed" in evidence_summary(found)
+    assert "Subscribe grant" in found["remediation"]
+    wildcard = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                "Policy": {"Statement": [{**statement, "Principal": "*"}]}}}}
+    public = one(aws(coll(kind, [wildcard], service="sns")), kind)
+    assert public["status"] == "FAIL" and public["evidence"]["external_scope_ids"] == ["*"]
+    assert "any principal" in evidence_summary(public)
+    own = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+           "Policy": {"Statement": [{**statement, "Principal": {"AWS": ACCOUNT}}]}}}}
+    assert not exposure(aws(coll(kind, [own], service="sns")))
+    wrong_action = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                    "Policy": {"Statement": [{**statement, "Action": "sns:Publish"}]}}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="sns")))
+    wrong_resource = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                      "Policy": {"Statement": [{**statement, "Resource": arn + "-other"}]}}}}
+    assert not exposure(aws(coll(kind, [wrong_resource], service="sns")))
+    conditioned = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                   "Policy": {"Statement": [{**statement,
+                              "Condition": {"StringEquals": {"sns:Protocol": "https"}}}]}}}}
+    assert one(aws(coll(kind, [conditioned], service="sns")), kind)["status"] == "UNKNOWN"
+    denied = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+              "Policy": {"Statement": [statement, {"Effect": "Deny", "Principal": "*",
+                       "Action": "sns:Subscribe", "Resource": arn}]}}}}
+    assert one(aws(coll(kind, [denied], service="sns")), kind)["status"] == "UNKNOWN"
+    bad_owner = {**topic, "Attributes": {**topic["Attributes"], "Attributes": {**attrs,
+                 "Owner": "999988887777"}}}
+    assert one(aws(coll(kind, [bad_owner], service="sns")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [topic], service="sns"), trusted))
+
+
+def test_kms_key_policy_foreign_decrypt_grant_requires_enabled_customer_key():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "kms_key"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    key_id = "12345678-1234-1234-1234-123456789012"
+    arn = f"arn:aws:kms:us-east-1:{ACCOUNT}:key/{key_id}"
+    metadata = {"KeyId": key_id, "Arn": arn, "KeyManager": "CUSTOMER",
+                "KeyUsage": "ENCRYPT_DECRYPT", "KeyState": "Enabled", "Enabled": True}
+    statement = {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::999988887777:root"},
+                 "Action": "kms:Decrypt", "Resource": "*"}
+    key = {"KeyId": key_id, "KeyArn": arn,
+           "Metadata": {"collection_status": "collected", "KeyMetadata": metadata},
+           "Policy": {"collection_status": "collected", "Policy": {"Statement": [statement]}}}
+    found = one(aws(coll(kind, [key], service="kms")), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "no decryption was observed" in evidence_summary(found)
+    assert "KMS key policy" in found["remediation"]
+    wildcard = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [{**statement, "Principal": "*"}]}}}
+    assert one(aws(coll(kind, [wildcard], service="kms")), kind)["evidence"]["external_scope_ids"] == ["*"]
+    own = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [{**statement,
+           "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]}}}
+    assert not exposure(aws(coll(kind, [own], service="kms")))
+    wrong_action = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [{**statement,
+                    "Action": "kms:DescribeKey"}]}}}
+    assert not exposure(aws(coll(kind, [wrong_action], service="kms")))
+    disabled = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+                **metadata, "KeyState": "Disabled", "Enabled": False}}}
+    assert one(aws(coll(kind, [disabled], service="kms")), kind)["status"] == "PASS"
+    managed = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+               **metadata, "KeyManager": "AWS"}}}
+    assert not exposure(aws(coll(kind, [managed], service="kms")))
+    signing = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+               **metadata, "KeyUsage": "SIGN_VERIFY"}}}
+    assert not exposure(aws(coll(kind, [signing], service="kms")))
+    unknown_manager = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+                       field: value for field, value in metadata.items() if field != "KeyManager"}}}
+    assert one(aws(coll(kind, [unknown_manager], service="kms")), kind)["status"] == "UNKNOWN"
+    conditioned = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [{**statement,
+                   "Condition": {"StringEquals": {"kms:CallerAccount": "999988887777"}}}]}}}
+    assert one(aws(coll(kind, [conditioned], service="kms")), kind)["status"] == "UNKNOWN"
+    denied = {**key, "Policy": {**key["Policy"], "Policy": {"Statement": [statement,
+              {"Effect": "Deny", "Principal": "*", "Action": "kms:Decrypt", "Resource": "*"}]}}}
+    assert one(aws(coll(kind, [denied], service="kms")), kind)["status"] == "UNKNOWN"
+    unread = {**key, "Policy": {"collection_status": "denied"}}
+    assert one(aws(coll(kind, [unread], service="kms")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll(kind, [key], service="kms"), trusted))
+
+
+def test_foreign_kms_grant_joins_key_state_policy_and_constraints():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.finding_observation import evidence_summary
+    kind = "kms_grant"
+    assert kind in REQUIRED_TYPES["aws"]["exposure"]
+    key_id = "12345678-1234-1234-1234-123456789012"
+    arn = f"arn:aws:kms:us-east-1:{ACCOUNT}:key/{key_id}"
+    metadata = {"KeyId": key_id, "Arn": arn, "KeyManager": "CUSTOMER",
+                "KeyUsage": "ENCRYPT_DECRYPT", "KeyState": "Enabled", "Enabled": True}
+    key = {"KeyId": key_id, "KeyArn": arn,
+           "Metadata": {"collection_status": "collected", "KeyMetadata": metadata},
+           "Policy": {"collection_status": "collected", "Policy": {"Statement": [
+               {"Effect": "Allow", "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"},
+                "Action": "kms:*", "Resource": "*"}]}}}
+    grant = {"id": arn + "/grant/g1", "GrantId": "g1", "KeyId": key_id, "KeyArn": arn,
+             "GranteePrincipal": "arn:aws:iam::999988887777:role/reader", "Operations": ["Decrypt"]}
+    collections = lambda row, key_row=key: aws(coll("kms_key", [key_row], service="kms"), coll(kind, [row], service="kms"))
+    found = one(collections(grant), kind)
+    assert found["status"] == "FAIL" and found["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert "ciphertext were not observed" in evidence_summary(found)
+    assert "revoke the KMS grant" in found["remediation"]
+    same = {**grant, "GranteePrincipal": f"arn:aws:iam::{ACCOUNT}:role/reader"}
+    assert not exposure(collections(same))
+    encrypt_only = {**grant, "Operations": ["Encrypt"]}
+    assert not exposure(collections(encrypt_only))
+    constrained = {**grant, "ConstraintKeys": {"EncryptionContextEquals": ["tenant"]}}
+    assert one(collections(constrained), kind)["status"] == "UNKNOWN"
+    disabled_key = {**key, "Metadata": {"collection_status": "collected", "KeyMetadata": {
+                    **metadata, "KeyState": "Disabled", "Enabled": False}}}
+    assert one(collections(grant, disabled_key), kind)["status"] == "PASS"
+    deny_key = {**key, "Policy": {"collection_status": "collected", "Policy": {"Statement": [
+                {"Effect": "Deny", "Principal": "*", "Action": "kms:Decrypt", "Resource": "*"}]}}}
+    assert one(collections(grant, deny_key), kind)["status"] == "UNKNOWN"
+    assert one(aws(coll(kind, [grant], service="kms")), kind)["status"] == "UNKNOWN"
+    trusted = coll("organization_account", [{"Id": "999988887777"}], service="organizations")
+    assert not exposure(aws(coll("kms_key", [key], service="kms"), coll(kind, [grant], service="kms"), trusted))
 
 
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
@@ -369,6 +823,27 @@ def test_opensearch_fine_grained_auth_honors_anonymous_migration_setting():
     assert finding()["evidence"]["authenticated_endpoint"] is False
 
 
+def test_opensearch_dualstack_endpoint_v2_and_missing_host():
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    status = {"DomainName": "search", "ARN": arn, "IPAddressType": "dualstack",
+              "EndpointV2": "search.aos.us-east-1.on.aws",
+              "AccessPolicies": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                  "Action": "es:ESHttpGet", "Resource": arn + "/*"}]}}
+    item = {"DomainName": "search", "Domain": {"collection_status": "collected", "DomainStatus": status}}
+    def finding():
+        return one(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["public_addresses"] == ["search.aos.us-east-1.on.aws"]
+    status["Endpoint"] = "search.es.amazonaws.com"
+    assert finding()["evidence"]["public_addresses"] == ["search.aos.us-east-1.on.aws", "search.es.amazonaws.com"]
+    del status["Endpoint"], status["EndpointV2"]
+    unresolved = finding()
+    assert unresolved["status"] == "UNKNOWN" and unresolved["evidence"]["public_addresses"] == []
+    assert "opensearch:DescribeDomain" in unresolved["evidence"]["collector_facts_needed"]
+    status["VPCOptions"] = {}
+    assert not exposure(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
+
+
 def test_aws_instance_open_ssh_fails_with_path_evidence():
     result = one(aws(*aws_network(), instance()), "instance")
     assert result["status"] == "FAIL" and result["severity"] == "high"
@@ -377,6 +852,76 @@ def test_aws_instance_open_ssh_fails_with_path_evidence():
     assert result["title"] == "Internet access to tcp/22 at 54.1.2.3"
     assert result["evidence"]["observed"] == "Internet access to tcp/22 at 54.1.2.3 is allowed."
     assert [s["layer"] for s in result["evidence"]["path"]] == ["security_group", "route", "network_acl"]
+
+
+@pytest.mark.parametrize("kind", ["instance", "network_interface"])
+def test_aws_ec2_public_eni_narrow_sg_nacl_same_source_witness(kind):
+    sg = [{"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22,
+           "IpRanges": [{"CidrIp": "8.8.8.8/32"}]}]
+    item = instance() if kind == "instance" else coll("network_interface", [{
+        "NetworkInterfaceId": "eni-1", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+        "Association": {"PublicIp": "54.1.2.3"}, "Groups": [{"GroupId": "sg-1"}]}])
+    def finding(return_source):
+        acl = [{"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+                "CidrBlock": "8.8.8.8/32", "PortRange": {"From": 22, "To": 22}},
+               {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+                "CidrBlock": return_source, "PortRange": {"From": 1024, "To": 65535}}]
+        return one(aws(*aws_network(sg_rules=sg, nacl_entries=acl), item), kind)
+    admitted = finding("8.8.8.8/32")
+    assert admitted["status"] == "FAIL" and admitted["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert any(step["layer"] == "network_acl_host" and step["public_host_witnesses"][0]["source_ip"] == "8.8.8.8"
+               for step in admitted["evidence"]["path"])
+    assert finding("1.1.1.1/32")["status"] == "PASS"
+
+
+@pytest.mark.parametrize("kind", ["instance", "network_interface"])
+def test_aws_ec2_public_eni_ipv6_host_sg_nacl_witness(kind):
+    host = "2606:4700:4700::1111"
+    sg = [{"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22,
+           "Ipv6Ranges": [{"CidrIpv6": host + "/128"}]}]
+    item = instance(public=False) if kind == "instance" else coll("network_interface", [{
+        "NetworkInterfaceId": "eni-1", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+        "Groups": [{"GroupId": "sg-1"}], "DenyAllIgwTraffic": False,
+        "Ipv6Addresses": [{"Ipv6Address": "2600:1f18:abcd::1"}]}])
+    if kind == "instance":
+        item["items"][0]["NetworkInterfaces"][0]["Ipv6Addresses"] = [{"Ipv6Address": "2600:1f18:abcd::1"}]
+    def finding(return_source, ip_source=None):
+        network = with_ipv6_subnet(aws_network(sg_rules=sg, nacl_entries=[
+            {"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+             "Ipv6CidrBlock": host + "/128", "PortRange": {"From": 22, "To": 22}},
+            {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+             "Ipv6CidrBlock": return_source, "PortRange": {"From": 1024, "To": 65535}}]))
+        if ip_source:
+            association = next(c for c in network if c["type"] == "subnet")["items"][0]["Ipv6CidrBlockAssociationSet"][0]
+            del association["Ipv6AddressAttribute"]
+            association["IpSource"] = ip_source
+        table = next(c for c in network if c["type"] == "route_table")
+        table["items"][0]["Routes"].append({"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"})
+        detail = (coll("network_interface", [{"NetworkInterfaceId": "eni-1", "DenyAllIgwTraffic": False}]),) if kind == "instance" else ()
+        return one(aws(*network, item, *detail), kind)
+    admitted = finding(host + "/128")
+    assert admitted["status"] == "FAIL" and admitted["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert any(step["layer"] == "network_acl_host" and step["public_host_witnesses"][0]["source_ip"] == host
+               for step in admitted["evidence"]["path"])
+    assert finding(host + "/128", ip_source="amazon")["status"] == "FAIL"
+    assert finding("2606:4700:4700::1001/128")["status"] == "PASS"
+    private = instance(public=False) if kind == "instance" else coll("network_interface", [{
+        "NetworkInterfaceId": "eni-private", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+        "Groups": [{"GroupId": "sg-1"}], "Ipv6Addresses": [{"Ipv6Address": "fd80::1"}]}])
+    if kind == "instance":
+        private["items"][0]["NetworkInterfaces"][0]["Ipv6Addresses"] = [{"Ipv6Address": "fd80::1"}]
+    assert not exposure(aws(*aws_network(sg_rules=sg), private))
+    gua = instance(public=False) if kind == "instance" else coll("network_interface", [{
+        "NetworkInterfaceId": "eni-private-gua", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+        "Groups": [{"GroupId": "sg-1"}], "DenyAllIgwTraffic": False,
+        "Ipv6Addresses": [{"Ipv6Address": "2600:1f18:abcd::1"}]}])
+    if kind == "instance":
+        gua["items"][0]["NetworkInterfaces"][0]["Ipv6Addresses"] = [{"Ipv6Address": "2600:1f18:abcd::1"}]
+    gua_detail = (coll("network_interface", [{"NetworkInterfaceId": "eni-1", "DenyAllIgwTraffic": False}]),) if kind == "instance" else ()
+    assert not exposure(aws(*with_ipv6_subnet(aws_network(sg_rules=sg), "private"), gua, *gua_detail))
+    unresolved = one(aws(*aws_network(sg_rules=sg), gua, *gua_detail), kind)
+    assert unresolved["status"] == "UNKNOWN"
+    assert "ec2:DescribeSubnets" in unresolved["evidence"]["collector_facts_needed"]
 
 
 def test_aws_nacl_deny_before_allow_blocks():
@@ -416,6 +961,35 @@ def test_aws_no_igw_route_passes_and_private_sg_passes():
     assert result["status"] == "PASS" and result["evidence"]["blocked_by"] == "security_group"
 
 
+def test_aws_missing_route_or_public_access_block_read_is_unknown():
+    for missing_type, source in (("route_table", "ec2:DescribeRouteTables"),
+                                 ("vpc_block_public_access_options", "ec2:DescribeVpcBlockPublicAccessOptions")):
+        network = [c for c in aws_network() if c["type"] != missing_type]
+        network.append(coll(missing_type, [], status="denied"))
+        result = one(aws(*network, instance()), "instance")
+        assert result["status"] == "UNKNOWN"
+        assert source in result["evidence"]["collector_facts_needed"]
+
+
+def test_aws_missing_nacl_association_or_entries_is_unknown():
+    for acl in (coll("network_acl", [], status="denied"),
+                coll("network_acl", [{"NetworkAclId": "acl-1", "VpcId": "vpc-1",
+                    "Associations": [{"SubnetId": "subnet-1"}]}])):
+        network = [c for c in aws_network() if c["type"] != "network_acl"] + [acl]
+        result = one(aws(*network, instance()), "instance")
+        assert result["status"] == "UNKNOWN"
+        assert "ec2:DescribeNetworkAcls" in result["evidence"]["collector_facts_needed"]
+
+
+def test_aws_public_instance_missing_subnet_association_is_unknown():
+    item = instance()["items"][0]
+    del item["SubnetId"]
+    del item["NetworkInterfaces"][0]["SubnetId"]
+    result = one(aws(*aws_network(), coll("instance", [item])), "instance")
+    assert result["status"] == "UNKNOWN"
+    assert "ec2:DescribeInstances" in result["evidence"]["collector_facts_needed"]
+
+
 def test_aws_vpc_public_access_block_and_igw_attachment():
     def options(mode):
         return coll("vpc_block_public_access_options", [{"VpcBlockPublicAccessOptions": {
@@ -431,11 +1005,28 @@ def test_aws_vpc_public_access_block_and_igw_attachment():
     assert one(aws(*aws_network(extra=[options("block-bidirectional"), egress_only]), instance()), "instance")["status"] == "PASS"
     detached = coll("internet_gateway", [{"InternetGatewayId": "igw-1", "Attachments": []}])
     assert one(aws(*aws_network(extra=[options("off"), detached]), instance()), "instance")["status"] == "PASS"
+    missing = coll("internet_gateway", [], status="denied")
+    unresolved = one(aws(*aws_network(extra=[options("off"), missing]), instance()), "instance")
+    assert unresolved["status"] == "UNKNOWN"
+    assert "ec2:DescribeInternetGateways" in unresolved["evidence"]["collector_facts_needed"]
+    assert next(step for step in unresolved["evidence"]["path"] if step["layer"] == "route")["decision"] == "unknown"
+    for attachments in (None, [{"VpcId": "vpc-1"}], [{"VpcId": "vpc-1", "State": "attaching"}]):
+        igw = coll("internet_gateway", [{"InternetGatewayId": "igw-1", **(
+            {"Attachments": attachments} if attachments is not None else {})}])
+        unresolved = one(aws(*aws_network(extra=[options("off"), igw]), instance()), "instance")
+        assert unresolved["status"] == "UNKNOWN"
+        assert next(step for step in unresolved["evidence"]["path"] if step["layer"] == "route")["decision"] == "unknown"
 
 
 def test_aws_missing_security_group_inventory_is_unknown():
     network = [c for c in aws_network() if c["type"] != "security_group"] + [coll("security_group", [], status="denied")]
     assert one(aws(*network, instance()), "instance")["status"] == "UNKNOWN"
+
+
+def test_aws_missing_attached_security_group_ids_is_unknown():
+    result = one(aws(*aws_network(), instance(groups=())), "instance")
+    assert result["status"] == "UNKNOWN"
+    assert any(gap["layer"] == "security_group" for gap in result["evidence"]["unresolved"])
 
 
 def test_aws_security_group_managed_prefix_list_world_entry():
@@ -455,21 +1046,43 @@ def test_aws_instance_without_public_ip_is_not_assessed():
 
 def test_aws_ipv6_instance_requires_matching_sg_acl_and_igw_route():
     ipv6_instance = instance(public=False)
-    ipv6_instance["items"][0]["NetworkInterfaces"][0]["Ipv6Addresses"] = [{"Ipv6Address": "2001:db8::10"}]
-    network = aws_network()
+    ipv6_instance["items"][0]["NetworkInterfaces"][0]["Ipv6Addresses"] = [{"Ipv6Address": "2600:1f18:abcd::10"}]
+    network = with_ipv6_subnet(aws_network())
     # An IPv4 path cannot make an IPv6-only address reachable.
-    assert one(aws(*network, ipv6_instance), "instance")["status"] == "PASS"
+    eni_detail = coll("network_interface", [{"NetworkInterfaceId": "eni-1", "DenyAllIgwTraffic": False}])
+    assert one(aws(*network, ipv6_instance, eni_detail), "instance")["status"] == "PASS"
     sg = next(c for c in network if c["type"] == "security_group")
     sg["items"][0]["IpPermissions"][0]["Ipv6Ranges"] = [{"CidrIpv6": "::/0"}]
     acl = next(c for c in network if c["type"] == "network_acl")
     for entry in acl["items"][0]["Entries"]:
         entry["Ipv6CidrBlock"] = "::/0"
-    assert one(aws(*network, ipv6_instance), "instance")["status"] == "PASS"
+    assert one(aws(*network, ipv6_instance, eni_detail), "instance")["status"] == "PASS"
     table = next(c for c in network if c["type"] == "route_table")
     table["items"][0]["Routes"].append({"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"})
-    result = one(aws(*network, ipv6_instance), "instance")
+    result = one(aws(*network, ipv6_instance, eni_detail), "instance")
     assert result["status"] == "FAIL"
     assert result["evidence"]["exposed_ports"] == ["tcp/22"]
+    eni_detail["items"][0]["DenyAllIgwTraffic"] = True
+    assert not exposure(aws(*network, ipv6_instance, eni_detail))
+    eni_detail["items"][0].pop("DenyAllIgwTraffic")
+    missing = one(aws(*network, ipv6_instance, eni_detail), "instance")
+    assert missing["status"] == "UNKNOWN"
+    assert "ec2:DescribeNetworkInterfaces" in missing["evidence"]["collector_facts_needed"]
+
+
+def test_aws_standalone_eni_ipv6_igw_denial_blocks_public_path():
+    network = with_ipv6_subnet(aws_network(sg_rules=[{"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22,
+                                            "Ipv6Ranges": [{"CidrIpv6": "::/0"}]}], nacl_entries=[
+        {"RuleNumber": 100, "Egress": False, "Protocol": "-1", "RuleAction": "allow", "Ipv6CidrBlock": "::/0"},
+        {"RuleNumber": 100, "Egress": True, "Protocol": "-1", "RuleAction": "allow", "Ipv6CidrBlock": "::/0"}]))
+    next(c for c in network if c["type"] == "route_table")["items"][0]["Routes"].append(
+        {"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"})
+    eni = coll("network_interface", [{"NetworkInterfaceId": "eni-1", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+                                      "Groups": [{"GroupId": "sg-1"}], "Ipv6Addresses": [{"Ipv6Address": "2600:1f18:abcd::1"}],
+                                      "DenyAllIgwTraffic": True}])
+    assert not exposure(aws(*network, eni))
+    eni["items"][0]["DenyAllIgwTraffic"] = False
+    assert one(aws(*network, eni), "network_interface")["status"] == "FAIL"
 
 
 def test_aws_attached_eip_fills_missing_instance_public_association():
@@ -486,6 +1099,38 @@ def test_aws_attached_eip_fills_missing_instance_public_association():
     assert not exposure(aws(*aws_network(), instance(public=False), unattached))
 
 
+def test_aws_service_managed_addresses_and_interfaces_are_not_standalone_ec2_paths():
+    service_eip = coll("elastic_ip", [{"AllocationId": "eipalloc-1", "AssociationId": "eipassoc-1",
+                                      "NetworkInterfaceId": "eni-1", "PublicIp": "54.1.2.3",
+                                      "ServiceManaged": "alb"}])
+    assert not exposure(aws(*aws_network(), instance(public=False), service_eip))
+    eni = {"NetworkInterfaceId": "eni-2", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+           "Association": {"PublicIp": "54.1.2.4"}, "Groups": [{"GroupId": "sg-1"}]}
+    def assessed():
+        return exposure(aws(*aws_network(), coll("network_interface", [eni])))
+    assert any(finding["resource_id"] for finding in assessed())
+    for field, value in (("InterfaceType", "lambda"), ("RequesterManaged", True),
+                         ("Operator", {"Managed": True, "Principal": "amazonaws.com"})):
+        eni[field] = value
+        assert not assessed()
+        del eni[field]
+
+
+def test_aws_public_instance_requires_observed_lifecycle_state():
+    item = instance()["items"][0]
+    def finding():
+        return one(aws(*aws_network(), coll("instance", [item])), "instance")
+    assert finding()["status"] == "FAIL"
+    item.pop("State")
+    missing = finding()
+    assert missing["status"] == "UNKNOWN"
+    assert "ec2:DescribeInstances.State.Name" in missing["evidence"]["collector_facts_needed"]
+    item["State"] = {"Name": "unknown-future-state"}
+    assert finding()["status"] == "UNKNOWN"
+    item["State"] = {"Name": "stopped"}
+    assert finding()["status"] == "FAIL"
+
+
 def test_aws_internet_facing_alb_listener_and_sg():
     lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/web/1", "Scheme": "internet-facing", "Type": "application",
           "DNSName": "web-1.us-east-1.elb.amazonaws.com", "VpcId": "vpc-1", "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
@@ -498,6 +1143,113 @@ def test_aws_internet_facing_alb_listener_and_sg():
     assert not exposure(aws(*aws_network(sg_rules=rules), coll("load_balancer", [internal], service="elbv2")))
     unknown = copy.deepcopy(lb) | {"Listeners": {"collection_status": "denied", "items": []}}
     assert one(aws(*aws_network(sg_rules=rules), coll("load_balancer", [unknown], service="elbv2")), "load_balancer")["status"] == "UNKNOWN"
+
+
+def test_aws_elbv2_observed_state_gates_current_listener_path():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
+          "Scheme": "internet-facing", "Type": "application", "DNSName": "web.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS"}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def finding(state):
+        row = dict(lb)
+        if state is not None:
+            row["State"] = {"Code": state}
+        collection = coll("load_balancer", [row], service="elbv2")
+        if state is None:
+            del collection["items"][0]["State"]
+        return one(aws(*aws_network(sg_rules=sg), collection), "load_balancer")
+    assert finding("active")["status"] == "FAIL"
+    impaired = finding("active_impaired")
+    assert impaired["status"] == "FAIL"
+    assert any("impaired scaling" in note for note in impaired["evidence"]["notes"])
+    assert finding("failed")["status"] == "PASS"
+    for state in (None, "provisioning"):
+        unknown = finding(state)
+        assert unknown["status"] == "UNKNOWN"
+        assert "elbv2:DescribeLoadBalancers.State.Code" in unknown["evidence"]["collector_facts_needed"]
+
+
+def test_aws_load_balancer_public_host_is_observed():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
+          "Scheme": "internet-facing", "Type": "application", "VpcId": "vpc-1", "SecurityGroups": ["sg-1"],
+          "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS"}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def finding(kind, row, service):
+        return one(aws(*aws_network(sg_rules=sg), coll(kind, [row], service=service)), kind)
+    unknown = finding("load_balancer", lb, "elbv2")
+    assert unknown["status"] == "UNKNOWN"
+    assert "elbv2:DescribeLoadBalancers.DNSName" in unknown["evidence"]["collector_facts_needed"]
+    lb["DNSName"] = "web.example.com"
+    assert finding("load_balancer", lb, "elbv2")["status"] == "FAIL"
+    lb.pop("DNSName")
+    lb["Type"] = "network"
+    lb["Listeners"]["items"][0]["Protocol"] = "TLS"
+    lb["AvailabilityZones"][0]["LoadBalancerAddresses"] = [{"IpAddress": "54.1.2.3"}]
+    nlb = finding("load_balancer", lb, "elbv2")
+    assert nlb["status"] == "FAIL" and "54.1.2.3" in nlb["evidence"]["public_addresses"]
+    classic = {"LoadBalancerName": "web", "Scheme": "internet-facing", "VPCId": "vpc-1",
+               "Subnets": ["subnet-1"], "SecurityGroups": ["sg-1"],
+               "ListenerDescriptions": [{"Listener": {"LoadBalancerPort": 443, "Protocol": "HTTPS"}}]}
+    unknown_classic = finding("classic_load_balancer", classic, "elb")
+    assert unknown_classic["status"] == "UNKNOWN"
+    assert "elasticloadbalancing:DescribeLoadBalancers.DNSName" in unknown_classic["evidence"]["collector_facts_needed"]
+    classic["DNSName"] = "classic.example.com"
+    assert finding("classic_load_balancer", classic, "elb")["status"] == "FAIL"
+
+
+def test_aws_alb_address_family_uses_observed_ip_address_type():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
+          "Scheme": "internet-facing", "Type": "application", "DNSName": "web.example.com",
+          "VpcId": "vpc-1", "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS"}]}}
+    ipv4_sg = {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+               "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}
+    ipv6_sg = {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+               "Ipv6Ranges": [{"CidrIpv6": "::/0"}]}
+    ipv6_acl = [
+        {"RuleNumber": 100, "Egress": False, "Protocol": "-1", "RuleAction": "allow", "Ipv6CidrBlock": "::/0"},
+        {"RuleNumber": 100, "Egress": True, "Protocol": "-1", "RuleAction": "allow", "Ipv6CidrBlock": "::/0"},
+    ]
+    def finding(rules, nacl):
+        return one(aws(*aws_network(sg_rules=rules, nacl_entries=nacl),
+                       coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    lb["IpAddressType"] = "dualstack-without-public-ipv4"
+    assert finding([ipv4_sg], ipv6_acl)["status"] == "PASS"
+    assert finding([ipv4_sg, ipv6_sg], ipv6_acl)["status"] == "FAIL"
+    lb["IpAddressType"] = "dualstack"
+    assert finding([ipv6_sg], ipv6_acl)["status"] == "FAIL"
+    lb["IpAddressType"] = "ipv4"
+    assert finding([ipv6_sg], ipv6_acl)["status"] == "PASS"
+    lb.pop("IpAddressType")
+    collection = coll("load_balancer", [lb], service="elbv2")
+    del collection["items"][0]["IpAddressType"]
+    unknown = one(aws(*aws_network(sg_rules=[ipv4_sg], nacl_entries=ipv6_acl), collection), "load_balancer")
+    assert unknown["status"] == "UNKNOWN"
+    assert "elbv2:DescribeLoadBalancers.IpAddressType" in unknown["evidence"]["collector_facts_needed"]
+
+
+@pytest.mark.parametrize("kind,valid,invalid", [("application", "HTTPS", "TCP"), ("network", "TCP", "GENEVE")])
+def test_aws_elbv2_malformed_listener_is_not_collected_empty(kind, valid, invalid):
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/{'app' if kind == 'application' else 'net'}/web/1",
+          "Scheme": "internet-facing", "Type": kind, "DNSName": "web.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": valid}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def finding():
+        return one(aws(*aws_network(sg_rules=sg), coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    assert finding()["status"] == "FAIL"
+    lb["Listeners"]["items"] = []
+    assert finding()["status"] == "PASS"
+    lb["Listeners"]["items"] = [{"Port": 0, "Protocol": valid}]
+    assert finding()["status"] == "UNKNOWN"
+    lb["Listeners"]["items"] = [{"Port": 443, "Protocol": invalid}]
+    assert finding()["status"] == "UNKNOWN"
+    lb["Listeners"]["items"] = [{"Port": 443, "Protocol": valid}, {"Port": 0, "Protocol": valid}]
+    assert finding()["status"] == "FAIL"
 
 
 def test_aws_load_balancer_narrow_public_sg_and_world_nacl():
@@ -516,6 +1268,22 @@ def test_aws_load_balancer_narrow_public_sg_and_world_nacl():
                "classic_load_balancer")["status"] == "FAIL"
     private = [{**narrow[0], "IpRanges": [{"CidrIp": "10.0.0.0/8"}]}]
     assert one(aws(*aws_network(sg_rules=private), coll("load_balancer", [lb], service="elbv2")), "load_balancer")["status"] == "PASS"
+
+
+def test_aws_classic_listener_missing_differs_from_collected_empty():
+    classic = {"LoadBalancerName": "web", "Scheme": "internet-facing", "DNSName": "classic.example.com",
+               "VPCId": "vpc-1", "Subnets": ["subnet-1"], "SecurityGroups": ["sg-1"]}
+    def finding():
+        return one(aws(*aws_network(), coll("classic_load_balancer", [classic], service="elb")), "classic_load_balancer")
+    missing = finding()
+    assert missing["status"] == "UNKNOWN"
+    assert "elasticloadbalancing:DescribeLoadBalancers" in missing["evidence"]["collector_facts_needed"]
+    classic["ListenerDescriptions"] = []
+    assert finding()["status"] == "PASS"
+    classic["ListenerDescriptions"] = [{"Listener": {"LoadBalancerPort": 0, "Protocol": "HTTP"}}]
+    assert finding()["status"] == "UNKNOWN"
+    classic["ListenerDescriptions"] = [{"Listener": {"LoadBalancerPort": 22, "Protocol": "TCP"}}]
+    assert finding()["status"] == "FAIL"
 
 
 def test_aws_alb_exact_public_nacl_host_witness_requires_same_source_and_world_sg():
@@ -614,7 +1382,7 @@ def test_aws_load_balancer_intersecting_public_sg_and_nacl_cidrs(lb_type):
     lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/{'app' if lb_type == 'application' else 'net'}/cidr/1",
           "Scheme": "internet-facing", "Type": lb_type, "DNSName": "cidr.example.com", "VpcId": "vpc-1",
           "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
-          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "TCP"}]}}
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS" if lb_type == "application" else "TCP"}]}}
     acl = [
         {"RuleNumber": 50, "Egress": False, "Protocol": "6", "RuleAction": "deny",
          "CidrBlock": "8.8.8.0/25", "PortRange": {"From": 443, "To": 443}},
@@ -666,7 +1434,7 @@ def test_aws_nlb_static_public_ipv4_is_in_listener_evidence():
 
 def test_aws_nlb_static_ipv6_uses_ipv6_sg_and_nacl_path():
     lb = {"LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/net/v6/1",
-          "Scheme": "internet-facing", "Type": "network", "DNSName": "v6.example.com", "VpcId": "vpc-1",
+          "Scheme": "internet-facing", "Type": "network", "IpAddressType": "dualstack", "DNSName": "v6.example.com", "VpcId": "vpc-1",
           "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1", "LoadBalancerAddresses": [
               {"IPv6Address": "2600:1f18:abcd::1"}, {"IPv6Address": "fd00::1"}]}],
           "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "TCP"}]}}
@@ -686,13 +1454,68 @@ def test_aws_nlb_static_ipv6_uses_ipv6_sg_and_nacl_path():
     assert finding(rules=[])["status"] == "PASS"
 
 
+def test_aws_nlb_quic_and_tcp_quic_listener_transport_matches_sg():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/net/quic/1",
+          "Scheme": "internet-facing", "Type": "network", "DNSName": "quic.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "QUIC"}]}}
+    udp = {"IpProtocol": "udp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}
+    tcp = {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}
+    def finding(rules):
+        return one(aws(*aws_network(sg_rules=rules), coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    quic = finding([udp])
+    assert quic["status"] == "FAIL" and quic["evidence"]["exposed_ports"] == ["udp/443"]
+    assert finding([tcp])["status"] == "PASS"
+    lb["Listeners"]["items"][0]["Protocol"] = "TCP_QUIC"
+    both = finding([tcp, udp])
+    assert both["status"] == "FAIL" and both["evidence"]["exposed_ports"] == ["tcp/443", "udp/443"]
+
+
 def test_aws_public_rds_instance():
     db = {"DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:prod", "PubliclyAccessible": True, "Engine": "postgres", "Endpoint": {"Address": "prod.x.rds.amazonaws.com", "Port": 5432},
           "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}], "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}}
     rules = [{"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
     result = one(aws(*aws_network(sg_rules=rules), coll("rds_instance", [db], service="rds")), "rds_instance")
     assert result["status"] == "FAIL" and result["severity"] == "critical" and result["evidence"]["exposed_ports"] == ["tcp/5432"]
+    half_internet = [{**rules[0], "IpRanges": [{"CidrIp": "0.0.0.0/1"}]}]
+    assert one(aws(*aws_network(sg_rules=half_internet), coll("rds_instance", [db], service="rds")), "rds_instance")["status"] == "FAIL"
     assert one(aws(*aws_network(), coll("rds_instance", [db], service="rds")), "rds_instance")["status"] == "PASS"
+    db["DBInstanceStatus"] = "stopped"
+    dormant = one(aws(*aws_network(sg_rules=rules), coll("rds_instance", [db], service="rds")), "rds_instance")
+    assert dormant["status"] == "FAIL" and dormant["severity"] == "high"
+    assert "DB instance is stopped" in dormant["evidence"]["observed"]
+    del db["Endpoint"]["Address"]
+    missing_host = one(aws(*aws_network(sg_rules=rules), coll("rds_instance", [db], service="rds")), "rds_instance")
+    assert missing_host["status"] == "UNKNOWN" and missing_host["evidence"]["public_addresses"] == []
+
+
+@pytest.mark.parametrize("port", [None, 0, 65536, True, "5432"])
+def test_aws_rds_endpoint_needs_observed_valid_listener_port(port):
+    db = {"DBInstanceIdentifier": "db-1", "PubliclyAccessible": True, "DbInstancePort": 5432,
+          "Endpoint": {"Address": "db.example.com"}, "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}],
+          "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}}
+    if port is not None:
+        db["Endpoint"]["Port"] = port
+    sg = [{"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    unknown = one(aws(*aws_network(sg_rules=sg), coll("rds_instance", [db], service="rds")), "rds_instance")
+    assert unknown["status"] == "UNKNOWN"
+    assert "rds:DescribeDBInstances.Endpoint.Port" in unknown["evidence"]["collector_facts_needed"]
+    db["Endpoint"]["Port"] = 5432
+    assert one(aws(*aws_network(sg_rules=sg), coll("rds_instance", [db], service="rds")), "rds_instance")["status"] == "FAIL"
+
+
+@pytest.mark.parametrize("kind,service,fact", [
+    ("rds_instance", "rds", "rds:DescribeDBInstances.PubliclyAccessible"),
+    ("redshift_cluster", "redshift", "redshift:DescribeClusters.PubliclyAccessible"),
+])
+def test_aws_database_missing_public_flag_is_unresolved(kind, service, fact):
+    row = {"DBInstanceIdentifier": "db-1"} if kind == "rds_instance" else {"ClusterIdentifier": "cluster-1"}
+    finding = one(aws(coll(kind, [row], service=service)), kind)
+    assert finding["status"] == "UNKNOWN"
+    assert fact in finding["evidence"]["collector_facts_needed"]
+    row["PubliclyAccessible"] = False
+    assert not exposure(aws(coll(kind, [row], service=service)))
 
 
 def test_aws_redshift_public_cluster_uses_collected_subnet_route_and_acl():
@@ -706,12 +1529,49 @@ def test_aws_redshift_public_cluster_uses_collected_subnet_route_and_acl():
         return one(aws(*network, coll("redshift_cluster", [cluster], service="redshift"),
                        *([group] if include_group else [])), "redshift_cluster")
     assert row(aws_network(sg_rules=rules))["status"] == "FAIL"
+    cluster["ClusterStatus"] = "paused"
+    dormant = row(aws_network(sg_rules=rules))
+    assert dormant["status"] == "FAIL" and dormant["severity"] == "medium"
+    assert "Redshift cluster is paused" in dormant["evidence"]["observed"]
     assert row(aws_network(sg_rules=rules, igw=False))["status"] == "PASS"
     assert row(aws_network(sg_rules=rules), include_group=False)["status"] == "UNKNOWN"
     del cluster["Endpoint"]["Port"]
     unresolved = row(aws_network(sg_rules=rules))
     assert unresolved["status"] == "UNKNOWN" and unresolved["evidence"]["exposed_ports"] == []
     assert any(gap["layer"] == "listener" for gap in unresolved["evidence"]["unresolved"])
+    cluster["Endpoint"]["Port"] = 5439
+    del cluster["Endpoint"]["Address"]
+    missing_host = row(aws_network(sg_rules=rules))
+    assert missing_host["status"] == "UNKNOWN" and missing_host["evidence"]["public_addresses"] == []
+
+
+@pytest.mark.parametrize("kind,port", [("rds_instance", 5432), ("redshift_cluster", 5439)])
+def test_aws_public_database_narrow_sg_nacl_same_source_witness(kind, port):
+    sg = [{"IpProtocol": "tcp", "FromPort": port, "ToPort": port,
+           "IpRanges": [{"CidrIp": "8.8.8.8/32"}]}]
+    def row(return_source):
+        acl = [{"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+                "CidrBlock": "8.8.8.8/32", "PortRange": {"From": port, "To": port}},
+               {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+                "CidrBlock": return_source, "PortRange": {"From": 1024, "To": 65535}}]
+        if kind == "rds_instance":
+            db = {"DBInstanceArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:db:narrow", "PubliclyAccessible": True,
+                  "Endpoint": {"Address": "narrow.rds.amazonaws.com", "Port": port},
+                  "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}],
+                  "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}}
+            extra = [coll(kind, [db], service="rds")]
+        else:
+            db = {"ClusterIdentifier": "narrow", "PubliclyAccessible": True,
+                  "Endpoint": {"Address": "narrow.redshift.amazonaws.com", "Port": port},
+                  "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1"}], "ClusterSubnetGroupName": "g"}
+            extra = [coll(kind, [db], service="redshift"), coll("redshift_subnet_group", [
+                {"ClusterSubnetGroupName": "g", "VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]}], service="redshift")]
+        return one(aws(*aws_network(sg_rules=sg, nacl_entries=acl), *extra), kind)
+    admitted = row("8.8.8.8/32")
+    assert admitted["status"] == "FAIL" and admitted["evidence"]["exposed_ports"] == [f"tcp/{port}"]
+    assert any(step["layer"] == "network_acl_host" and step["public_host_witnesses"][0]["source_ip"] == "8.8.8.8"
+               for step in admitted["evidence"]["path"])
+    assert row("1.1.1.1/32")["status"] == "PASS"
 
 
 @pytest.mark.parametrize("kind,field,permission,operation", [
@@ -820,7 +1680,7 @@ def test_aws_ram_share_requires_active_resource_and_external_principal_associati
 
 
 def test_aws_cloudfront_enabled_viewer_endpoint_and_missing_config():
-    base = {"ARN": "arn:aws:cloudfront::111122223333:distribution/D1", "Id": "D1", "DomainName": "d123.cloudfront.net"}
+    base = {"ARN": "arn:aws:cloudfront::111122223333:distribution/D1", "Id": "D1", "DomainName": "d123.cloudfront.net", "Status": "Deployed"}
     config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
               "DefaultCacheBehavior": {"ViewerProtocolPolicy": "redirect-to-https"}}}
     def row(value):
@@ -829,11 +1689,50 @@ def test_aws_cloudfront_enabled_viewer_endpoint_and_missing_config():
     assert exposed["status"] == "FAIL" and exposed["evidence"]["exposed_ports"] == ["tcp/80", "tcp/443"]
     assert row({"collection_status": "denied"})["status"] == "UNKNOWN"
     assert not exposure(aws(coll("cloudfront_distribution", [{**base, "Config": {**config, "DistributionConfig": {**config["DistributionConfig"], "Enabled": False}}}], service="cloudfront")))
+    base["Status"] = "InProgress"
+    assert row(config)["status"] == "UNKNOWN"
+    base.pop("Status")
+    assert row(config)["status"] == "UNKNOWN"
+
+
+def test_aws_cloudfront_origin_target_join_is_observed_separately_from_viewer():
+    config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+              "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only", "TargetOriginId": "used"},
+              "Origins": {"Quantity": 1, "Items": [{"Id": "other", "DomainName": "other.example.com"}]}}}
+    distribution = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1", "Id": "D1",
+                    "DomainName": "d123.cloudfront.net", "Status": "Deployed", "Config": config}
+    def finding():
+        return one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront")),
+                   "cloudfront_distribution")
+    missing = finding()
+    assert missing["status"] == "FAIL"
+    assert any("no matching origin" in gap["reason"] for gap in missing["evidence"]["unresolved"])
+    origins = config["DistributionConfig"]["Origins"]
+    origins["Items"][0]["Id"] = "used"
+    assert not [gap for gap in finding()["evidence"]["unresolved"] if gap["layer"] == "origin"]
+    origins["Items"].append({"Id": "used", "DomainName": "duplicate.example.com"})
+    origins["Quantity"] = 2
+    assert any("not unique" in gap["reason"] for gap in finding()["evidence"]["unresolved"])
+    origins["Items"].pop()
+    assert any("quantity and items disagree" in gap["reason"] for gap in finding()["evidence"]["unresolved"])
+
+
+def test_aws_cloudfront_staging_distribution_has_no_direct_viewer_host_witness():
+    distribution = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/STAGING", "Id": "STAGING",
+                    "DomainName": "staging.cloudfront.net", "Status": "Deployed", "Staging": True,
+                    "Config": {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+                        "Staging": True, "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only"}}}}
+    result = one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront")), "cloudfront_distribution")
+    assert result["status"] == "UNKNOWN" and result["evidence"]["public_addresses"] == []
+    assert "cloudfront:GetContinuousDeploymentPolicy" in result["evidence"]["collector_facts_needed"]
+    distribution["Staging"] = False
+    distribution["Config"]["DistributionConfig"]["Staging"] = False
+    assert one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront")), "cloudfront_distribution")["status"] == "FAIL"
 
 
 def test_aws_cloudfront_signed_viewer_access_is_per_behavior_and_options_exception():
     base = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1", "Id": "D1",
-            "DomainName": "d123.cloudfront.net"}
+            "DomainName": "d123.cloudfront.net", "Status": "Deployed"}
     signed = {"ViewerProtocolPolicy": "https-only",
               "AllowedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"]},
               "TrustedKeyGroups": {"Enabled": True, "Quantity": 1, "Items": ["key-group-1"]}}
@@ -863,7 +1762,7 @@ def test_aws_cloudfront_observed_oai_bucket_policy_grant_requires_used_origin_an
               "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only", "TargetOriginId": "s3-main"},
               "Origins": {"Items": [{"Id": "s3-main", "DomainName": "private-bucket.s3.us-east-1.amazonaws.com",
                                      "S3OriginConfig": {"OriginAccessIdentity": "origin-access-identity/cloudfront/E123ABC"}}]}}}
-    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net", "Config": config}
+    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net", "Status": "Deployed", "Config": config}
     policy = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"AWS": oai_arn},
               "Action": "s3:GetObject", "Resource": "arn:aws:s3:::private-bucket/*"}]}
     bucket = {"Name": "private-bucket", "Policy": {"collection_status": "collected", "Policy": policy}}
@@ -886,6 +1785,62 @@ def test_aws_cloudfront_observed_oai_bucket_policy_grant_requires_used_origin_an
     assert not [step for step in finding()["evidence"]["path"] if step["layer"] == "origin_policy"]
 
 
+def test_aws_cloudfront_oai_canonical_user_bucket_policy_grant_is_exact():
+    canonical = "a" * 64
+    config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+              "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only", "TargetOriginId": "s3-main"},
+              "Origins": {"Items": [{"Id": "s3-main", "DomainName": "private-bucket.s3.us-east-1.amazonaws.com",
+                                     "S3OriginConfig": {"OriginAccessIdentity": "origin-access-identity/cloudfront/E123ABC"}}]}}}
+    distribution = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1", "Id": "D1",
+                    "DomainName": "d123.cloudfront.net", "Status": "Deployed", "Config": config,
+                    "OriginAccessIdentities": {"E123ABC": {"collection_status": "collected", "Id": "E123ABC",
+                                                         "S3CanonicalUserId": canonical}}}
+    policy = {"Statement": [{"Effect": "Allow", "Principal": {"CanonicalUser": canonical},
+              "Action": "s3:GetObject", "Resource": "arn:aws:s3:::private-bucket/*"}]}
+    bucket = {"Name": "private-bucket", "Policy": {"collection_status": "collected", "Policy": policy}}
+    def grants():
+        result = one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront"),
+                         coll("bucket", [bucket], service="s3")), "cloudfront_distribution")
+        return [step for step in result["evidence"]["path"] if step["layer"] == "origin_policy"]
+    assert len(grants()) == 1 and grants()[0]["principal"] == canonical
+    policy["Statement"][0]["Principal"]["CanonicalUser"] = "b" * 64
+    assert not grants()
+    policy["Statement"][0]["Principal"]["CanonicalUser"] = canonical
+    distribution["OriginAccessIdentities"]["E123ABC"]["collection_status"] = "denied"
+    assert not grants()
+
+
+def test_aws_cloudfront_used_vpc_origin_requires_deployed_exact_detail():
+    endpoint = f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/backend/1"
+    config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+              "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only", "TargetOriginId": "private"},
+              "Origins": {"Items": [{"Id": "private", "VpcOriginConfig": {"VpcOriginId": "vo-one"}}]}}}
+    distribution = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1", "Id": "D1",
+                    "DomainName": "d123.cloudfront.net", "Status": "Deployed", "Config": config}
+    vpc = {"Id": "vo-one", "Status": "Deployed", "VpcOrigin": {"Id": "vo-one", "Status": "Deployed",
+           "VpcOriginEndpointConfig": {"Arn": endpoint, "HTTPPort": 80, "HTTPSPort": 443,
+                                       "OriginProtocolPolicy": "https-only"}}}
+    def result():
+        return one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront"),
+                       coll("cloudfront_vpc_origin", [vpc], service="cloudfront")), "cloudfront_distribution")
+    observed = result()
+    assert observed["status"] == "FAIL"
+    steps = [step for step in observed["evidence"]["path"] if step["layer"] == "origin"]
+    assert steps == [{"layer": "origin", "decision": "allow_declaration", "origin_id": "private",
+                      "vpc_origin_id": "vo-one", "origin_endpoint_arn": endpoint,
+                      "vpc_origin_status": "Deployed", "semantics": steps[0]["semantics"]}]
+    vpc["VpcOrigin"]["Id"] = "vo-other"
+    mismatched = result()
+    assert not [step for step in mismatched["evidence"]["path"] if step["layer"] == "origin"]
+    assert any(gap.get("collector_fact") == "cloudfront:GetVpcOrigin" for gap in mismatched["evidence"]["unresolved"])
+    vpc["VpcOrigin"]["Id"] = "vo-one"
+    vpc["Status"] = "InProgress"
+    assert not [step for step in result()["evidence"]["path"] if step["layer"] == "origin"]
+    vpc["Status"] = "Deployed"
+    config["DistributionConfig"]["DefaultCacheBehavior"]["TargetOriginId"] = "other"
+    assert not [step for step in result()["evidence"]["path"] if step["layer"] == "origin"]
+
+
 def test_aws_cloudfront_oac_requires_observed_signing_and_exact_distribution_policy():
     distribution_arn = f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1"
     config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
@@ -894,7 +1849,7 @@ def test_aws_cloudfront_oac_requires_observed_signing_and_exact_distribution_pol
                                "S3OriginConfig": {"OriginAccessIdentity": ""}, "OriginAccessControlId": "OAC1"}]}}}
     oac = {"collection_status": "collected", "Id": "OAC1", "SigningBehavior": "always",
            "SigningProtocol": "sigv4", "OriginAccessControlOriginType": "s3"}
-    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net",
+    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net", "Status": "Deployed",
                     "Config": config, "OriginAccessControls": {"OAC1": oac}}
     statement = {"Effect": "Allow", "Principal": {"Service": "cloudfront.amazonaws.com"},
                  "Action": "s3:GetObject", "Resource": "arn:aws:s3:::private-bucket/*",
@@ -936,7 +1891,7 @@ def test_aws_cloudfront_lambda_url_oac_requires_exact_host_and_both_policy_actio
                                "OriginAccessControlId": "OAC1"}]}}}
     oac = {"collection_status": "collected", "Id": "OAC1", "SigningBehavior": "always",
            "SigningProtocol": "sigv4", "OriginAccessControlOriginType": "lambda"}
-    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net",
+    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net", "Status": "Deployed",
                     "Config": config, "OriginAccessControls": {"OAC1": oac}}
     actions = ("lambda:InvokeFunctionUrl", "lambda:InvokeFunction")
     statements = [{"Effect": "Allow", "Principal": {"Service": "cloudfront.amazonaws.com"},
@@ -1056,6 +2011,39 @@ def test_lambda_function_url_auth_none():
     assert one(aws(coll("lambda_function", [denied], service="lambda")), "lambda_function")["status"] == "UNKNOWN"
 
 
+def test_lambda_aws_iam_url_reports_exact_external_policy_declaration():
+    function = lambda_function(auth="AWS_IAM")
+    arn = function["FunctionArn"]
+    external = "arn:aws:iam::444455556666:role/client"
+    function["Policy"]["Policy"]["Statement"] = [
+        {"Effect": "Allow", "Principal": {"AWS": external}, "Action": "lambda:InvokeFunctionUrl", "Resource": arn},
+        {"Effect": "Allow", "Principal": {"AWS": external}, "Action": "lambda:InvokeFunction", "Resource": arn}]
+    def finding():
+        return one(aws(coll("lambda_function", [function], service="lambda")), "lambda_function")
+    reported = finding()
+    assert reported["status"] == "UNKNOWN" and reported["evidence"]["authenticated_endpoint"] is True
+    grants = [step for step in reported["evidence"]["path"] if step["layer"] == "policy"]
+    assert len(grants) == 1 and grants[0]["decision"] == "allow_declaration" and grants[0]["principal"] == external
+    function["Policy"]["Policy"]["Statement"][0]["Condition"] = {"StringEquals": {"lambda:FunctionUrlAuthType": "AWS_IAM"}}
+    function["Policy"]["Policy"]["Statement"][1]["Condition"] = {"Bool": {"lambda:InvokedViaFunctionUrl": "true"}}
+    assert finding()["status"] == "UNKNOWN"
+    function["Policy"]["Policy"]["Statement"][0]["Condition"]["StringEquals"]["lambda:FunctionUrlAuthType"] = "NONE"
+    assert finding()["status"] == "PASS"
+    function["Policy"]["Policy"]["Statement"][0]["Condition"]["StringEquals"]["lambda:FunctionUrlAuthType"] = "AWS_IAM"
+    function["Policy"]["Policy"]["Statement"][1]["Condition"]["Bool"]["lambda:InvokedViaFunctionUrl"] = "false"
+    assert finding()["status"] == "PASS"
+    function["Policy"]["Policy"]["Statement"][1]["Condition"]["Bool"]["lambda:InvokedViaFunctionUrl"] = "true"
+    function["Policy"]["Policy"]["Statement"][1]["Resource"] = arn + ":other"
+    assert finding()["status"] == "PASS"
+    function["Policy"]["Policy"]["Statement"][1]["Resource"] = arn
+    function["Policy"]["Policy"]["Statement"].append({"Effect": "Deny", "Principal": "*",
+                                                         "Action": "lambda:InvokeFunction", "Resource": arn})
+    assert finding()["status"] == "PASS"
+    function["Policy"] = {"collection_status": "denied"}
+    assert finding()["status"] == "UNKNOWN"
+    assert "lambda:GetPolicy" in finding()["evidence"]["collector_facts_needed"]
+
+
 def test_lambda_function_url_requires_both_public_invocation_actions_for_new_urls():
     base = lambda_function()
     policy = base["Policy"]["Policy"]
@@ -1111,6 +2099,94 @@ def test_lambda_alias_url_uses_qualified_policy_and_keeps_failed_reads_unknown()
     assert row(foreign_alias)["status"] == "UNKNOWN"
 
 
+def test_lambda_direct_invoke_policy_covers_function_and_alias_without_urls():
+    base = lambda_function(auth="AWS_IAM")
+    arn = base["FunctionArn"]
+    alias_arn = arn + ":live"
+
+    def findings(policy_read, target=arn, alias=False):
+        resource = {"id": target, "FunctionName": "f", "FunctionArn": arn,
+                    "FunctionUrl": {"collection_status": "empty", "absent": True}, "Policy": policy_read}
+        if alias:
+            resource.update({"AliasArn": target, "Name": "live"})
+        kind = "lambda_alias" if alias else "lambda_function"
+        return [f for f in exposure(aws(coll(kind, [resource], service="lambda")))
+                if f["evidence"].get("exposure_kind") == "external_lambda_invoke"]
+
+    def policy(principal, action="lambda:InvokeFunction", resource=arn, **extra):
+        return {"collection_status": "collected", "Policy": {"Statement": [{
+            "Effect": "Allow", "Principal": principal, "Action": action, "Resource": resource, **extra}]}}
+
+    external = {"AWS": "arn:aws:iam::444455556666:root"}
+    result = findings(policy(external))
+    assert len(result) == 1 and result[0]["status"] == "FAIL"
+    assert result[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert result[0]["evidence"]["authenticated_endpoint"] is True
+    assert len(findings(policy(external, resource=alias_arn), alias=True, target=alias_arn)) == 1
+    assert findings(policy(external, action="lambda:Invoke*", resource="*"))[0]["status"] == "FAIL"
+    assert findings(policy(external, action="lambda:InvokeFunctionUrl")) == []
+    assert findings(policy(external, resource=alias_arn)) == []
+    assert findings(policy({"AWS": "arn:aws:iam::111122223333:root"})) == []
+    assert findings({"collection_status": "empty", "absent": True}) == []
+    assert findings(policy(external, Condition={"Bool": {"lambda:InvokedViaFunctionUrl": "true"}}))[0]["status"] == "UNKNOWN"
+    denied = policy(external)
+    denied["Policy"]["Statement"].append({"Effect": "Deny", "Principal": external,
+                                              "Action": "lambda:InvokeFunction", "Resource": arn})
+    assert findings(denied)[0]["status"] == "UNKNOWN"
+    assert findings({"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+
+
+def test_lambda_layer_version_policy_foreign_get_layer_version():
+    base = f"arn:aws:lambda:us-east-1:{ACCOUNT}:layer:shared"
+    arn = base + ":2"
+
+    def result(read, **changes):
+        layer = {"id": arn, "LayerName": "shared", "LayerArn": base,
+                 "LayerVersionArn": arn, "Version": 2, "Policy": read, **changes}
+        return [f for f in exposure(aws(coll("lambda_layer_version", [layer], service="lambda")))
+                if f["evidence"].get("exposure_kind") == "external_layer_share"]
+
+    def policy(principal, action="lambda:GetLayerVersion", resource=arn, **extra):
+        return {"collection_status": "collected", "Policy": {"Statement": [{
+            "Effect": "Allow", "Principal": principal, "Action": action, "Resource": resource, **extra}]}}
+
+    foreign = {"AWS": f"arn:aws:iam::444455556666:root"}
+    named = result(policy(foreign))
+    assert len(named) == 1 and named[0]["status"] == "FAIL"
+    assert named[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert result(policy("*"))[0]["status"] == "FAIL"
+    assert result(policy(foreign, action="lambda:InvokeFunction")) == []
+    assert result(policy(foreign, resource=base + ":3")) == []
+    assert result(policy({"AWS": f"arn:aws:iam::{ACCOUNT}:root"})) == []
+    assert result({"collection_status": "empty", "absent": True}) == []
+    assert result(policy("*", Condition={"StringEquals": {"aws:PrincipalOrgID": "o-1234567890"}}))[0]["status"] == "UNKNOWN"
+    denied = policy(foreign)
+    denied["Policy"]["Statement"].append({"Effect": "Deny", "Principal": foreign,
+                                              "Action": "lambda:GetLayerVersion", "Resource": arn})
+    assert result(denied)[0]["status"] == "UNKNOWN"
+    assert result({"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+    assert result(policy(foreign), LayerVersionArn=base + ":3")[0]["status"] == "UNKNOWN"
+
+
+def test_lambda_published_version_direct_invoke_policy():
+    base = f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:app"
+    arn = base + ":3"
+    policy = {"collection_status": "collected", "Policy": {"Statement": [{
+        "Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::444455556666:root"},
+        "Action": "lambda:InvokeFunction", "Resource": arn}]}}
+
+    def result(**changes):
+        version = {"id": arn, "FunctionName": "app", "BaseFunctionArn": base,
+                   "FunctionArn": arn, "Version": "3", "Policy": policy, **changes}
+        return [f for f in exposure(aws(coll("lambda_version", [version], service="lambda")))
+                if f["evidence"].get("exposure_kind") == "external_lambda_invoke"]
+
+    assert result()[0]["status"] == "FAIL"
+    assert result()[0]["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert result(BaseFunctionArn=base + ":other")[0]["status"] == "UNKNOWN"
+    assert result(Policy={"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+
+
 def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():
     api = {"id": "a1b2", "name": "api", "endpointConfiguration": {"types": ["REGIONAL"]},
            "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
@@ -1121,9 +2197,9 @@ def test_api_gateway_auth_not_collected_is_unknown_and_private_passes():
     http = {"ApiId": "h1", "ApiEndpoint": "https://h1.execute-api.us-east-1.amazonaws.com", "ProtocolType": "HTTP",
             "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}],
             "Stages": {"collection_status": "collected", "items": [{"StageName": "$default", "AutoDeploy": True}]}}
-    assert one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")["status"] == "FAIL"
+    assert one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")["status"] == "UNKNOWN"
     http["Routes"] = [{"RouteKey": "GET /", "AuthorizationType": "JWT"}]
-    assert one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")["status"] == "PASS"
+    assert one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")["status"] == "UNKNOWN"
 
 
 def test_rest_api_collected_method_authorization():
@@ -1186,7 +2262,7 @@ def test_api_gateway_requires_collected_deployed_stage():
         return one(aws(coll("http_api", [http], service="apigatewayv2")), "http_api")
     assert http_row()["status"] == "PASS"
     http["Stages"]["items"][0]["AutoDeploy"] = True
-    assert http_row()["status"] == "FAIL"
+    assert http_row()["status"] == "UNKNOWN"
 
 
 def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
@@ -1287,7 +2363,7 @@ def test_api_gateway_custom_mapping_requires_its_own_active_stage():
                        coll("apigatewayv2_domain_name", [http_domain], service="apigatewayv2")), "http_api")
     assert http_row()["status"] == "PASS"
     http_domain["ApiMappings"]["items"][0]["Stage"] = "prod"
-    assert http_row()["status"] == "FAIL"
+    assert http_row()["status"] == "UNKNOWN"
     http_domain["ApiMappings"] = {"collection_status": "empty", "items": []}
     assert http_row()["status"] == "PASS"
 
@@ -1303,6 +2379,166 @@ def test_public_and_external_rds_snapshots():
     assert one(aws(coll("rds_snapshot", [snap([ACCOUNT])], service="rds")), "rds_snapshot")["status"] == "PASS"
     missing = snap([]) | {"Attributes": {"collection_status": "denied"}}
     assert one(aws(coll("rds_snapshot", [missing], service="rds")), "rds_snapshot")["status"] == "UNKNOWN"
+
+
+def test_redshift_manual_snapshot_restore_authorizations():
+    arn = f"arn:aws:redshift:us-east-1:{ACCOUNT}:snapshot:warehouse/nightly"
+
+    def result(**changes):
+        data = {"SnapshotArn": arn, "SnapshotIdentifier": "nightly", "ClusterIdentifier": "warehouse",
+                "OwnerAccount": ACCOUNT, "SnapshotType": "manual", "Status": "available",
+                "AccountsWithRestoreAccess": [{"AccountId": "999988887777"}], **changes}
+        return [f for f in exposure(aws(coll("redshift_snapshot", [data], service="redshift")))
+                if f["evidence"].get("exposure_kind") == "external_redshift_snapshot_share"]
+
+    found = result()
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert found[0]["evidence"]["path"][0]["snapshot_arn"] == arn
+    assert result(AccountsWithRestoreAccess=[{"AccountAlias": "amazon-redshift-support"}])[0]["status"] == "FAIL"
+    assert result(AccountsWithRestoreAccess=[{"AccountId": ACCOUNT}]) == []
+    assert result(AccountsWithRestoreAccess=[]) == []
+    assert result(SnapshotType="automated") == []
+    assert result(Status="creating")[0]["status"] == "UNKNOWN"
+    assert result(OwnerAccount="000000000000")[0]["status"] == "UNKNOWN"
+    assert result(SnapshotArn=arn + "-wrong")[0]["status"] == "UNKNOWN"
+    assert result(AccountsWithRestoreAccess=[{"AccountId": "invalid"}])[0]["status"] == "UNKNOWN"
+
+
+def test_redshift_serverless_snapshot_namespace_and_provisioned_restore_grants():
+    arn = f"arn:aws:redshift-serverless:us-east-1:{ACCOUNT}:snapshot/11111111-2222-3333-4444-555555555555"
+
+    def result(**changes):
+        data = {"id": arn, "snapshotArn": arn, "ownerAccount": ACCOUNT, "status": "AVAILABLE",
+                "accountsWithRestoreAccess": ["999988887777"],
+                "accountsWithProvisionedRestoreAccess": ["444455556666"], **changes}
+        return [f for f in exposure(aws(coll("redshiftserverless_snapshot", [data], service="redshift-serverless")))
+                if f["evidence"].get("exposure_kind") == "external_redshift_serverless_snapshot_share"]
+
+    found = result()
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["444455556666", "999988887777"]
+    targets = found[0]["evidence"]["path"][0]["external_targets"]
+    assert targets == {"namespace": ["999988887777"], "provisioned_cluster": ["444455556666"]}
+    assert result(accountsWithRestoreAccess=[ACCOUNT], accountsWithProvisionedRestoreAccess=[]) == []
+    assert result(accountsWithRestoreAccess=[], accountsWithProvisionedRestoreAccess=[]) == []
+    assert result(status="CREATING")[0]["status"] == "UNKNOWN"
+    assert result(ownerAccount="000000000000")[0]["status"] == "UNKNOWN"
+    assert result(snapshotArn=arn + "-other")[0]["status"] == "UNKNOWN"
+    assert result(accountsWithRestoreAccess=["invalid"])[0]["status"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize("kind,service", [("docdb_cluster_snapshot", "docdb"),
+                                          ("neptune_cluster_snapshot", "neptune")])
+def test_documentdb_neptune_manual_snapshot_restore_shares(kind, service):
+    arn = f"arn:aws:rds:us-east-1:{ACCOUNT}:cluster-snapshot:shared"
+
+    def result(values, **changes):
+        data = {"id": arn, "DBClusterSnapshotIdentifier": "shared", "DBClusterSnapshotArn": arn,
+                "SnapshotType": "manual", "Status": "available", "StorageEncrypted": False,
+                "Engine": service, "Attributes": {"collection_status": "collected",
+                    "DBClusterSnapshotAttributesResult": {"DBClusterSnapshotIdentifier": "shared",
+                        "DBClusterSnapshotAttributes": [{"AttributeName": "restore", "AttributeValues": values}]}}, **changes}
+        return [f for f in exposure(aws(coll(kind, [data], service=service)))
+                if f["evidence"].get("exposure_kind") == "external_cluster_snapshot_share"]
+
+    public = result(["all"])
+    assert len(public) == 1 and public[0]["status"] == "FAIL" and public[0]["severity"] == "critical"
+    assert public[0]["evidence"]["external_scope_ids"] == ["*"]
+    foreign = result(["999988887777"], StorageEncrypted=True)
+    assert foreign[0]["status"] == "FAIL" and foreign[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert result([ACCOUNT]) == []
+    assert result([]) == []
+    assert result(["all"], StorageEncrypted=True)[0]["status"] == "UNKNOWN"
+    assert result(["999988887777"], SnapshotType="automated") == []
+    assert result(["999988887777"], Status="creating")[0]["status"] == "UNKNOWN"
+    assert result(["999988887777"], DBClusterSnapshotArn=arn + "-wrong")[0]["status"] == "UNKNOWN"
+    assert result(["999988887777"], Attributes={"collection_status": "denied"})[0]["status"] == "UNKNOWN"
+    assert result(["invalid"])[0]["status"] == "UNKNOWN"
+
+
+def test_source_attributed_resource_policy_declares_foreign_grant():
+    arn = f"arn:aws:elasticfilesystem:us-east-1:{ACCOUNT}:file-system/fs-12345678"
+    principal = {"AWS": "arn:aws:iam::999988887777:root"}
+
+    def result(statements, **changes):
+        row = {"ResourceArn": arn, "Policy": {"Statement": statements},
+               "_provenance": {"read_only": True, "owner_account": ACCOUNT,
+                               "families": ["efs-filesystems"], "source_region": "us-east-1"}, **changes}
+        return [f for f in exposure(aws(coll("aws_resource_policy", [row], service="efs")))
+                if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+
+    allow = {"Effect": "Allow", "Principal": principal, "Action": "elasticfilesystem:ClientMount", "Resource": arn}
+    found = result([allow])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert found[0]["evidence"]["path"][0]["external_grants"][0]["actions"] == ["elasticfilesystem:ClientMount"]
+    assert result([{**allow, "Principal": "*"}])[0]["status"] == "FAIL"
+    assert result([{**allow, "Principal": {"AWS": principal["AWS"], "Service": "backup.amazonaws.com"}}])[0]["status"] == "FAIL"
+    assert result([{**allow, "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]) == []
+    assert result([{**allow, "Principal": {"Service": "backup.amazonaws.com"}}]) == []
+    assert result([{**allow, "Resource": "arn:aws:elasticfilesystem:us-east-1:000000000000:file-system/fs-12345678"}]) == []
+    assert result([{"Effect": "Deny", "Principal": principal, "Action": "elasticfilesystem:ClientMount", "Resource": arn}]) == []
+    assert result([allow, {**allow, "Effect": "Deny"}])[0]["status"] == "UNKNOWN"
+    assert result([{**allow, "Condition": {"StringEquals": {"aws:PrincipalOrgID": "o-123"}}}])[0]["status"] == "UNKNOWN"
+    bad_owner = {"read_only": True, "owner_account": "000000000000", "families": ["efs-filesystems"]}
+    assert result([allow], _provenance=bad_owner)[0]["status"] == "UNKNOWN"
+    assert result([allow], _provenance={"covered_services": ["efs"]})[0]["status"] == "UNKNOWN"
+
+    serverless = f"arn:aws:redshift-serverless:us-east-1:{ACCOUNT}:snapshot/11111111-2222-3333-4444-555555555555"
+    policy = {"ResourceArn": serverless, "Policy": {"Statement": [{"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+              "Action": "redshift-serverless:RestoreFromSnapshot"}]},
+              "_provenance": {"read_only": True, "owner_account": ACCOUNT, "families": ["redshift-snapshots"]}}
+    shares = [f for f in exposure(aws(coll("aws_resource_policy", [policy], service="redshift-serverless")))
+              if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+    assert shares[0]["status"] == "FAIL"
+
+
+def test_owned_iam_role_trust_declares_foreign_assume_role():
+    arn = f"arn:aws:iam::{ACCOUNT}:role/team/Reader"
+    statement = {"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::999988887777:root"},
+                 "Action": "sts:AssumeRole"}
+
+    def findings(statements, **changes):
+        row = {"Arn": arn, "RoleName": "Reader", "AssumeRolePolicyDocument": {"Statement": statements}, **changes}
+        return [f for f in exposure(aws(coll("iam_role", [row], service="iam")))
+                if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+
+    found = findings([statement])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["external_scope_ids"] == ["999988887777"]
+    assert found[0]["evidence"]["path"][0]["external_grants"][0]["actions"] == ["sts:AssumeRole"]
+    assert findings([{**statement, "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"}}]) == []
+    assert findings([{**statement, "Action": "sts:TagSession"}]) == []
+    assert findings([{**statement, "Action": "sts:AssumeR*"}])[0]["status"] == "FAIL"
+    assert findings([statement, {**statement, "Effect": "Deny"}])[0]["status"] == "UNKNOWN"
+    assert findings([statement, {"Effect": "Deny", "Principal": "*", "NotAction": "sts:TagSession"}])[0]["status"] == "UNKNOWN"
+    assert findings([{**statement, "Condition": {"StringEquals": {"sts:ExternalId": "partner"}}}])[0]["status"] == "UNKNOWN"
+    assert findings([statement], Arn=arn.replace(ACCOUNT, "000000000000"))[0]["status"] == "UNKNOWN"
+    assert findings([statement], AssumeRolePolicyDocument="{broken")[0]["status"] == "UNKNOWN"
+    assert findings([{**statement, "Principal": "*"}])[0]["evidence"]["external_scope_ids"] == ["*"]
+
+
+@pytest.mark.parametrize("service,tail,action,dedicated", [
+    ("sns", "topic", "sns:Publish", "sns:Subscribe"),
+    ("sqs", "queue", "sqs:SendMessage", "sqs:ReceiveMessage"),
+    ("ecr", "repository/fixture", "ecr:PutImage", "ecr:BatchGetImage"),
+])
+def test_base_resource_policy_additional_foreign_actions(service, tail, action, dedicated):
+    arn = f"arn:aws:{service}:us-east-1:{ACCOUNT}:{tail}"
+    provenance = {"read_only": True, "owner_account": ACCOUNT, "families": [service + "-base"],
+                  "covered_services": ["sns", "sqs", "lambda", "ecr"]}
+
+    def findings(actions):
+        row = {"ResourceArn": arn, "Policy": {"Statement": [{"Effect": "Allow", "Principal": {"AWS": "999988887777"},
+               "Action": actions, "Resource": arn}]}, "_provenance": provenance}
+        return [f for f in exposure(aws(coll("aws_resource_policy", [row], service=service)))
+                if f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
+
+    assert findings([dedicated]) == []
+    found = findings([dedicated, action])
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    assert found[0]["evidence"]["path"][0]["external_grants"][0]["actions"] == [action]
 
 
 def bucket(public_policy=True, bucket_pab=None):
@@ -1328,10 +2564,33 @@ def test_eks_public_endpoint_honours_cidrs():
         return {"name": "c", "Cluster": {"cluster": {"endpoint": "https://x.eks.amazonaws.com", "resourcesVpcConfig": {"endpointPublicAccess": True, "publicAccessCidrs": cidrs}}}}
     assert one(aws(coll("eks_cluster", [cluster(["0.0.0.0/0"])], service="eks")), "eks_cluster")["status"] == "FAIL"
     narrowed = one(aws(coll("eks_cluster", [cluster(["8.8.8.8/32"])], service="eks")), "eks_cluster")
-    assert narrowed["status"] == "FAIL" and narrowed["evidence"]["authenticated_endpoint"] is True
+    assert narrowed["status"] == "FAIL" and narrowed["evidence"]["authenticated_endpoint"] is False
+    assert any("anonymous" in note for note in narrowed["evidence"]["notes"])
     assert one(aws(coll("eks_cluster", [cluster(["2600::/32"])], service="eks")), "eks_cluster")["status"] == "FAIL"
     assert one(aws(coll("eks_cluster", [cluster(["10.0.0.0/8"])], service="eks")), "eks_cluster")["status"] == "PASS"
     assert one(aws(coll("eks_cluster", [cluster(["203.0.113.0/24"])], service="eks")), "eks_cluster")["status"] == "PASS"
+    assert one(aws(coll("eks_cluster", [cluster(["0.0.0.0/1"])], service="eks")), "eks_cluster")["status"] == "FAIL"
+    assert one(aws(coll("eks_cluster", [cluster(["::/1"])], service="eks")), "eks_cluster")["status"] == "FAIL"
+    assert one(aws(coll("eks_cluster", [cluster(["fc00::/7"])], service="eks")), "eks_cluster")["status"] == "PASS"
+    assert one(aws(coll("eks_cluster", [cluster(["2001:db8::/32"])], service="eks")), "eks_cluster")["status"] == "PASS"
+    missing_host = cluster(["0.0.0.0/0"])
+    del missing_host["Cluster"]["cluster"]["endpoint"]
+    unresolved = one(aws(coll("eks_cluster", [missing_host], service="eks")), "eks_cluster")
+    assert unresolved["status"] == "UNKNOWN" and unresolved["evidence"]["public_addresses"] == []
+    assert "eks:DescribeCluster" in unresolved["evidence"]["collector_facts_needed"]
+
+
+def test_eks_missing_public_endpoint_flag_is_unresolved():
+    row = {"name": "c", "Cluster": {"cluster": {"endpoint": "https://x.eks.amazonaws.com",
+           "resourcesVpcConfig": {}}}}
+    def finding():
+        return one(aws(coll("eks_cluster", [row], service="eks")), "eks_cluster")
+    assert finding()["status"] == "UNKNOWN"
+    assert "eks:DescribeCluster.resourcesVpcConfig.endpointPublicAccess" in finding()["evidence"]["collector_facts_needed"]
+    row["Cluster"]["cluster"].pop("resourcesVpcConfig")
+    assert "eks:DescribeCluster.resourcesVpcConfig" in finding()["evidence"]["collector_facts_needed"]
+    row["Cluster"]["cluster"]["resourcesVpcConfig"] = {"endpointPublicAccess": False}
+    assert not exposure(aws(coll("eks_cluster", [row], service="eks")))
 
 
 def test_eks_new_ipv6_endpoint_without_cidrs_has_dual_stack_public_default():
@@ -1341,7 +2600,7 @@ def test_eks_new_ipv6_endpoint_without_cidrs_has_dual_stack_public_default():
     def finding():
         return one(aws(coll("eks_cluster", [cluster], service="eks")), "eks_cluster")
     current = finding()
-    assert current["status"] == "FAIL" and current["evidence"]["authenticated_endpoint"] is True
+    assert current["status"] == "FAIL" and current["evidence"]["authenticated_endpoint"] is False
     step = next(x for x in current["evidence"]["path"] if x["layer"] == "source_ranges")
     assert step["public_access_cidrs"] == ["0.0.0.0/0", "::/0"]
     assert step["source"] == "documented_default"
@@ -1473,6 +2732,17 @@ def test_gcp_terminal_hierarchical_firewall_rule_preempts_vpc_rules():
     rule["action"] = "allow"
     assert assessment()["status"] == "FAIL"
     assert_gcp_observed_style(assessment(), "vm")
+    effective["firewallPolicys"].insert(0, {"name": "network-policy", "type": "NETWORK", "rules": []})
+    result = assessment()
+    assert result["status"] == "FAIL"
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "effective_firewall")["policy"] == "org-policy"
+    effective["firewallPolicys"].append({"name": "second-hierarchy", "type": "HIERARCHY", "rules": []})
+    assert assessment()["status"] == "UNKNOWN"
+    effective["firewallPolicys"].pop()
+    effective["firewallPolicys"][0]["type"] = "UNKNOWN_TYPE"
+    assert assessment()["status"] == "UNKNOWN"
+    effective["firewallPolicys"][0]["type"] = "NETWORK"
+    effective["firewallPolicys"].pop(0)
     rule["match"]["srcAddressGroups"] = ["projects/p/locations/global/addressGroups/g"]
     assert assessment()["status"] == "UNKNOWN"
     del rule["match"]["srcAddressGroups"]
@@ -1497,6 +2767,530 @@ def test_gcp_terminal_hierarchical_firewall_rule_preempts_vpc_rules():
     effective["firewallPolicys"][0]["rules"].append({"priority": 200, "direction": "INGRESS", "action": "allow",
         "match": {"srcIpRanges": ["8.8.8.0/24"], "layer4Configs": [{"ipProtocol": "tcp", "ports": ["443"]}]}})
     assert assessment()["status"] == "UNKNOWN"
+
+
+def test_gcp_global_network_policy_precedes_classic_when_vpc_sets_before_order():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    network = {"name": "n", "selfLink": NET,
+               "networkFirewallPolicyEnforcementOrder": "BEFORE_CLASSIC_FIREWALL"}
+    rule = {"priority": 100, "ruleName": "net-ssh", "direction": "INGRESS", "action": "allow",
+            "match": {"srcIpRanges": ["0.0.0.0/0"],
+                      "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-deny", 1000, "denied", ["22"])],
+                 "firewallPolicys": [{"name": "locations/global/firewallPolicies/net", "type": "NETWORK", "rules": [rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("network", [network]),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "effective_firewall")["basis"] == \
+        "terminal global network ingress rule"
+    assert "effective global network rule" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    rule["action"] = "deny"
+    rule["match"]["layer4Configs"] = []
+    assert finding()["status"] == "PASS"
+    rule["action"] = "allow"
+    rule["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    network["networkFirewallPolicyEnforcementOrder"] = "AFTER_CLASSIC_FIREWALL"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "vm")
+    network["networkFirewallPolicyEnforcementOrder"] = "BEFORE_CLASSIC_FIREWALL"
+    effective["firewallPolicys"].append({"name": "system", "type": "SYSTEM_REGIONAL", "rules": []})
+    assert finding()["status"] == "FAIL"
+    effective["firewallPolicys"][-1]["rules"] = [{"priority": 100, "direction": "INGRESS", "action": "allow",
+        "match": {"srcIpRanges": ["8.8.8.0/24"], "layer4Configs": []}}]
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_regional_system_policy_precedes_network_and_classic_rules():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    rule = {"priority": 100, "ruleName": "system-ssh", "direction": "INGRESS", "action": "allow",
+            "match": {"srcIpRanges": ["0.0.0.0/0"],
+                      "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-deny", 1000, "denied", ["22"])],
+                 "firewallPolicys": [
+                     {"name": "locations/us-central1/firewallPolicies/system", "type": "SYSTEM_REGIONAL", "rules": [rule]},
+                     {"name": "locations/global/firewallPolicies/network", "type": "NETWORK", "rules": [
+                         {"priority": 200, "direction": "INGRESS", "action": "deny",
+                          "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert "effective regional system rule" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    rule["action"] = "deny"
+    rule["match"]["layer4Configs"] = []
+    assert finding()["status"] == "PASS"
+    rule["action"] = "allow"
+    rule["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    effective["firewallPolicys"].append({"name": "system-2", "type": "SYSTEM_REGIONAL", "rules": []})
+    assert finding()["status"] == "UNKNOWN"
+    effective["firewallPolicys"].pop()
+    effective["firewallPolicys"].append({"name": "system-global", "type": "SYSTEM_GLOBAL", "rules": []})
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_hierarchy_goto_next_reaches_regional_system_policy():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    hierarchy = {"priority": 100, "ruleName": "continue", "direction": "INGRESS", "action": "goto_next",
+                 "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    system = {"priority": 100, "ruleName": "system-open", "direction": "INGRESS", "action": "allow",
+              "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-deny", 1000, "denied", ["22"])],
+                 "firewallPolicys": [
+                     {"name": "locations/global/firewallPolicies/100", "type": "HIERARCHY", "rules": [hierarchy]},
+                     {"name": "locations/us-central1/firewallPolicies/system", "type": "SYSTEM_REGIONAL", "rules": [system]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert any(step["layer"] == "hierarchy_transition" for step in result["evidence"]["path"])
+    assert "effective regional system rule" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    hierarchy["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    system["match"]["layer4Configs"] = []
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    hierarchy["match"]["srcIpRanges"] = ["8.8.8.0/24"]
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_hierarchy_goto_next_reaches_before_classic_global_network_policy():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    network = {"name": "n", "selfLink": NET,
+               "networkFirewallPolicyEnforcementOrder": "BEFORE_CLASSIC_FIREWALL"}
+    hierarchy = {"priority": 100, "ruleName": "continue", "direction": "INGRESS", "action": "goto_next",
+                 "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    global_rule = {"priority": 100, "ruleName": "network-open", "direction": "INGRESS", "action": "allow",
+                   "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-deny", 1000, "denied", ["22"])],
+                 "firewallPolicys": [
+                     {"name": "locations/global/firewallPolicies/100", "type": "HIERARCHY", "rules": [hierarchy]},
+                     {"name": "locations/global/firewallPolicies/net", "type": "NETWORK", "rules": [global_rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("network", [network]),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert "effective global network rule" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    hierarchy["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    global_rule["match"]["layer4Configs"] = []
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    network["networkFirewallPolicyEnforcementOrder"] = "AFTER_CLASSIC_FIREWALL"
+    assert finding()["status"] == "UNKNOWN"
+    network["networkFirewallPolicyEnforcementOrder"] = "BEFORE_CLASSIC_FIREWALL"
+    hierarchy["match"]["srcIpRanges"] = ["8.8.8.0/24"]
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_regional_network_policy_precedes_classic_without_global_policy():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    network = {"name": "n", "selfLink": NET,
+               "networkFirewallPolicyEnforcementOrder": "BEFORE_CLASSIC_FIREWALL"}
+    rule = {"priority": 100, "ruleName": "regional-open", "direction": "INGRESS", "action": "allow",
+            "match": {"srcIpRanges": ["0.0.0.0/0"],
+                      "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-deny", 1000, "denied", ["22"])],
+                 "firewallPolicys": [{"name": "regions/us-central1/firewallPolicies/r", "type": "NETWORK_REGIONAL",
+                                     "rules": [rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("network", [network]),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert "effective regional network rule" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    rule["action"] = "deny"
+    rule["match"]["layer4Configs"] = []
+    assert finding()["status"] == "PASS"
+    rule["action"] = "allow"
+    rule["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    effective["firewallPolicys"].append({"name": "locations/global/firewallPolicies/100", "type": "HIERARCHY",
+        "rules": [{"priority": 100, "direction": "INGRESS", "action": "goto_next",
+                   "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}]})
+    assert finding()["status"] == "FAIL"
+    effective["firewallPolicys"].pop()
+    effective["firewallPolicys"].append({"name": "locations/global/firewallPolicies/g", "type": "NETWORK", "rules": []})
+    assert finding()["status"] == "FAIL"
+    effective["firewallPolicys"][-1]["rules"] = [{"priority": 100, "direction": "INGRESS", "action": "allow",
+        "match": {"srcIpRanges": ["8.8.8.0/24"], "layer4Configs": []}}]
+    assert finding()["status"] == "UNKNOWN"
+    effective["firewallPolicys"].pop()
+    network["networkFirewallPolicyEnforcementOrder"] = "AFTER_CLASSIC_FIREWALL"
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_global_network_goto_next_reaches_regional_network_policy():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    network = {"name": "n", "selfLink": NET,
+               "networkFirewallPolicyEnforcementOrder": "BEFORE_CLASSIC_FIREWALL"}
+    global_rule = {"priority": 100, "ruleName": "continue", "direction": "INGRESS", "action": "goto_next",
+                   "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    regional_rule = {"priority": 100, "ruleName": "regional-open", "direction": "INGRESS", "action": "allow",
+                     "match": {"srcIpRanges": ["0.0.0.0/0"],
+                               "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-deny", 1000, "denied", ["22"])],
+                 "firewallPolicys": [
+                     {"name": "locations/global/firewallPolicies/g", "type": "NETWORK", "rules": [global_rule]},
+                     {"name": "regions/us-central1/firewallPolicies/r", "type": "NETWORK_REGIONAL", "rules": [regional_rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("network", [network]),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert any(step["layer"] == "network_transition" and step["decision"] == "goto_next"
+               for step in result["evidence"]["path"])
+    assert_gcp_observed_style(result, "vm")
+    global_rule["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    regional_rule["match"]["layer4Configs"] = []
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    regional_rule["action"] = "deny"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert "global network policy" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    regional_rule["action"] = "allow"
+    network["networkFirewallPolicyEnforcementOrder"] = "AFTER_CLASSIC_FIREWALL"
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_regional_system_goto_next_reaches_before_classic_network_policy():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    network = {"name": "n", "selfLink": NET,
+               "networkFirewallPolicyEnforcementOrder": "BEFORE_CLASSIC_FIREWALL"}
+    system_rule = {"priority": 100, "ruleName": "system-continue", "direction": "INGRESS", "action": "goto_next",
+                   "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    network_rule = {"priority": 100, "ruleName": "network-open", "direction": "INGRESS", "action": "allow",
+                    "match": {"srcIpRanges": ["0.0.0.0/0"],
+                              "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-deny", 1000, "denied", ["22"])],
+                 "firewallPolicys": [
+                     {"name": "regions/us-central1/firewallPolicies/system", "type": "SYSTEM_REGIONAL", "rules": [system_rule]},
+                     {"name": "locations/global/firewallPolicies/global", "type": "NETWORK", "rules": [network_rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("network", [network]),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert any(step["layer"] == "system_transition" for step in result["evidence"]["path"])
+    assert_gcp_observed_style(result, "vm")
+    system_rule["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    network_rule["match"]["layer4Configs"] = []
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    network_rule["action"] = "deny"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert "regional system policy" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    network_rule["action"] = "allow"
+    effective["firewallPolicys"][1]["type"] = "NETWORK_REGIONAL"
+    assert finding()["status"] == "FAIL"
+    system_rule["match"]["srcIpRanges"] = ["8.8.8.0/24"]
+    assert finding()["status"] == "UNKNOWN"
+    system_rule["match"]["srcIpRanges"] = ["0.0.0.0/0"]
+    network["networkFirewallPolicyEnforcementOrder"] = "AFTER_CLASSIC_FIREWALL"
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_classic_allow_precedes_network_policy_after_resolved_higher_layers():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    network = {"name": "n", "selfLink": NET,
+               "networkFirewallPolicyEnforcementOrder": "AFTER_CLASSIC_FIREWALL"}
+    hierarchy = {"priority": 100, "ruleName": "hierarchy-continue", "direction": "INGRESS", "action": "goto_next",
+                 "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    system = {"priority": 100, "ruleName": "system-continue", "direction": "INGRESS", "action": "goto_next",
+              "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-open", 1000, "allowed", ["22"])],
+                 "firewallPolicys": [
+                     {"name": "locations/global/firewallPolicies/100", "type": "HIERARCHY", "rules": [hierarchy]},
+                     {"name": "regions/us-central1/firewallPolicies/system", "type": "SYSTEM_REGIONAL", "rules": [system]},
+                     {"name": "locations/global/firewallPolicies/g", "type": "NETWORK", "rules": [
+                         {"priority": 100, "direction": "INGRESS", "action": "deny",
+                          "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("network", [network]),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert "classic rule classic-open" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    network.pop("networkFirewallPolicyEnforcementOrder")
+    assert finding()["status"] == "FAIL"
+    network["networkFirewallPolicyEnforcementOrder"] = "AFTER_CLASSIC_FIREWALL"
+    effective["firewalls"][0]["sourceTags"] = ["trusted"]
+    assert finding()["status"] == "UNKNOWN"
+    effective["firewalls"][0].pop("sourceTags")
+    effective["firewalls"][0]["destinationRanges"] = ["10.0.0.0/8"]
+    assert finding()["status"] == "UNKNOWN"
+    effective["firewalls"][0].pop("destinationRanges")
+    effective["firewalls"][0]["allowed"][0]["ports"] = ["invalid"]
+    assert finding()["status"] == "UNKNOWN"
+    effective["firewalls"][0]["allowed"][0]["ports"] = ["22"]
+    system["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    effective["firewalls"][0]["allowed"][0]["ports"] = ["22", "80"]
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    effective["firewalls"][0]["allowed"][0]["ports"] = ["80"]
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "vm")
+    network["networkFirewallPolicyEnforcementOrder"] = "BEFORE_CLASSIC_FIREWALL"
+    assert finding()["status"] != "FAIL"
+
+
+def test_gcp_classic_allow_matches_public_interface_address_family():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    interface = vm["items"][0]["networkInterfaces"][0]
+    interface["accessConfigs"] = []
+    interface["ipv6AccessConfigs"] = [{"externalIpv6": "2600:1900::1"}]
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("classic-open", 1000, "allowed", ["22"], sources=())],
+                 "firewallPolicys": [{"name": "locations/global/firewallPolicies/g", "type": "NETWORK", "rules": []}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    network = {"name": "n", "selfLink": NET, "networkFirewallPolicyEnforcementOrder": "AFTER_CLASSIC_FIREWALL"}
+    def finding():
+        return one(gcp(vm, gcoll("network", [network]), gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "vm")
+    effective["firewalls"][0]["sourceRanges"] = ["::/0"]
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert_gcp_observed_style(result, "vm")
+
+
+def test_gcp_empty_classic_vpc_rules_continue_to_network_policy_after_classic():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    network = {"name": "n", "selfLink": NET,
+               "networkFirewallPolicyEnforcementOrder": "AFTER_CLASSIC_FIREWALL"}
+    network_rule = {"priority": 100, "ruleName": "network-https", "direction": "INGRESS", "action": "allow",
+                    "match": {"srcIpRanges": ["0.0.0.0/0"],
+                              "layer4Configs": [{"ipProtocol": "tcp", "ports": ["443"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [],
+                 "firewallPolicys": [{"name": "locations/global/firewallPolicies/g", "type": "NETWORK",
+                                     "rules": [network_rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def finding():
+        return one(gcp(vm, gcoll("network", [network]),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+    assert any(step["layer"] == "classic_transition" and step["vpc_rule_count"] == 0
+               for step in result["evidence"]["path"])
+    assert "network-https" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    network.pop("networkFirewallPolicyEnforcementOrder")
+    assert finding()["status"] == "FAIL"
+    effective["firewalls"] = [fw("classic-deny", 1000, "denied", ["443"])]
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "vm")
+    effective["firewalls"] = []
+    effective["firewallPolicys"].append({"name": "unexpected", "type": "UNKNOWN_TYPE", "rules": []})
+    assert finding()["status"] == "UNKNOWN"
+    effective["firewallPolicys"].pop()
+    effective["firewalls"] = [fw("private-only", 1000, "denied", ["443"], sources=("10.0.0.0/8",))]
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+    assert any(step["layer"] == "classic_transition" and step["vpc_rule_count"] == 1
+               for step in result["evidence"]["path"])
+    effective["firewalls"][0]["sourceRanges"] = ["0.0.0.0/0"]
+    assert finding()["status"] == "UNKNOWN"
+    effective["firewalls"][0]["targetTags"] = ["other"]
+    assert finding()["status"] == "FAIL"
+    effective["firewalls"][0].pop("targetTags")
+    effective["firewalls"][0]["disabled"] = True
+    assert finding()["status"] == "FAIL"
+
+
+def test_gcp_hierarchical_firewall_skips_private_only_earlier_rule_for_public_vm():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    private_rule = {"priority": 100, "ruleName": "private-ssh", "direction": "INGRESS", "action": "allow",
+                    "match": {"srcIpRanges": ["10.0.0.0/8", "fc00::/7"],
+                              "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}
+    public_rule = {"priority": 200, "ruleName": "public-all", "direction": "INGRESS", "action": "deny",
+                   "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-ssh", 1000, "allowed", ["22"])],
+                 "firewallPolicys": [{"name": "org-policy", "type": "HIERARCHY", "rules": [private_rule, public_rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+
+    def assessment():
+        return one(gcp(vm, gcoll("firewall", [], status="denied"),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+
+    assert assessment()["status"] == "PASS"
+    public_rule["action"] = "allow"
+    assert assessment()["status"] == "FAIL"
+    assert_gcp_observed_style(assessment(), "vm")
+    public_rule["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    result = assessment()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert any(gap["layer"] == "firewall" and gap["decisive"] is False
+               for gap in result["evidence"]["unresolved"])
+    assert_gcp_observed_style(result, "vm")
+    public_rule["action"] = "deny"
+    assert assessment()["status"] == "UNKNOWN"
+    public_rule["action"] = "allow"
+    public_rule["match"]["layer4Configs"][0]["ports"] = ["70000"]
+    assert assessment()["status"] == "UNKNOWN"
+    public_rule["match"]["layer4Configs"] = []
+    private_rule["match"]["srcIpRanges"].append("8.8.8.0/24")
+    assert assessment()["status"] == "UNKNOWN"
+    private_rule["match"]["srcIpRanges"].pop()
+    private_rule["match"]["srcSecureTags"] = [{"name": "tagValues/123", "state": "EFFECTIVE"}]
+    assert assessment()["status"] == "UNKNOWN"
+    private_rule["match"].pop("srcSecureTags")
+    private_rule["match"]["srcIpRanges"] = ["invalid"]
+    assert assessment()["status"] == "UNKNOWN"
+
+
+def test_gcp_hierarchical_port_deny_excludes_later_allow_subset():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    deny = {"priority": 100, "ruleName": "deny-443", "direction": "INGRESS", "action": "deny",
+            "match": {"srcIpRanges": ["0.0.0.0/0"],
+                      "layer4Configs": [{"ipProtocol": "tcp", "ports": ["443"]}]}}
+    allow = {"priority": 200, "ruleName": "allow-web-range", "direction": "INGRESS", "action": "allow",
+             "match": {"srcIpRanges": ["0.0.0.0/0"],
+                       "layer4Configs": [{"ipProtocol": "tcp", "ports": ["443-445"]}]}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-ssh", 1000, "allowed", ["22"])],
+                 "firewallPolicys": [{"name": "org-policy", "type": "HIERARCHY", "rules": [allow, deny]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def assessment():
+        return one(gcp(vm, gcoll("firewall", [], status="denied"),
+                       gcoll("instance_effective_firewall", [effective])), "instance")
+    result = assessment()
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["exposed_ports"] == ["tcp/444-445"]
+    assert_gcp_observed_style(result, "vm")
+    deny["match"]["layer4Configs"][0]["ports"] = ["443-445"]
+    assert assessment()["status"] == "UNKNOWN"
+    deny["match"]["layer4Configs"][0]["ports"] = ["443"]
+    deny["match"]["srcIpRanges"] = ["8.8.8.0/24"]
+    assert assessment()["status"] == "UNKNOWN"
+    deny["match"]["srcIpRanges"] = ["0.0.0.0/0"]
+    deny["match"]["layer4Configs"][0]["ports"] = ["70000"]
+    assert assessment()["status"] == "UNKNOWN"
+
+
+def test_gcp_multiple_hierarchical_policies_use_ancestor_association_order():
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    ancestry = [{"resourceId": {"type": "project", "id": "p1"}},
+                {"resourceId": {"type": "folder", "id": "20"}},
+                {"resourceId": {"type": "organization", "id": "10"}}]
+    project = {"name": GSCOPE, "_ancestry": ancestry}
+    org_rule = {"priority": 100, "ruleName": "org-allow", "direction": "INGRESS", "action": "allow",
+                "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    folder_rule = {"priority": 100, "ruleName": "folder-deny", "direction": "INGRESS", "action": "deny",
+                   "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": []}}
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-ssh", 1000, "allowed", ["22"])],
+                 "firewallPolicys": [
+                     {"name": "locations/global/firewallPolicies/200", "type": "HIERARCHY", "rules": [folder_rule]},
+                     {"name": "locations/global/firewallPolicies/100", "type": "HIERARCHY", "rules": [org_rule]}],
+                 "effective_source_operation": "instances.getEffectiveFirewalls"}
+    org_association = {"name": "org-association", "attachmentTarget": "organizations/10",
+                       "firewallPolicyId": "100", "priority": 1000}
+    folder_association = {"name": "folder-association", "attachmentTarget": "folders/20",
+                          "firewallPolicyId": "200", "priority": 1000}
+    def assessment():
+        return one(gcp(vm, gcoll("project", [project], service="resourcemanager"),
+                       gcoll("instance_effective_firewall", [effective]),
+                       coll("firewall_policy_association", [org_association], scope="organizations/10", service="compute"),
+                       coll("firewall_policy_association", [folder_association], scope="folders/20", service="compute")),
+                   "instance")
+    result = assessment()
+    assert result["status"] == "FAIL"
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "effective_firewall")["policy"] == \
+        "locations/global/firewallPolicies/100"
+    assert_gcp_observed_style(result, "vm")
+    org_association["firewallPolicyId"] = "999"
+    result = assessment()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "vm")
+    org_association["firewallPolicyId"] = "100"
+    org_rule["action"] = "goto_next"
+    result = assessment()
+    assert result["status"] == "PASS"
+    assert any(step["layer"] == "hierarchy_transition" and step["policy"] == "locations/global/firewallPolicies/100"
+               for step in result["evidence"]["path"])
+    folder_rule["action"] = "allow"
+    result = assessment()
+    assert result["status"] == "FAIL"
+    assert_gcp_observed_style(result, "vm")
+    org_rule["action"] = "deny"
+    org_rule["match"]["srcIpRanges"] = ["10.0.0.0/8"]
+    assert assessment()["status"] == "FAIL"
+    org_rule["match"]["srcIpRanges"] = ["0.0.0.0/0"]
+    org_rule["action"] = "goto_next"
+    org_rule["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["22"]}]
+    result = assessment()
+    assert result["status"] == "FAIL"
+    terminal = next(step for step in result["evidence"]["path"] if step["layer"] == "effective_firewall")
+    assert terminal["allowed_ports"] == ["tcp/22"]
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "hierarchy_transition")["ports"] == ["tcp/22"]
+    assert_gcp_observed_style(result, "vm")
+    folder_rule["match"]["layer4Configs"] = [{"ipProtocol": "tcp", "ports": ["443"]}]
+    result = assessment()
+    assert result["status"] == "UNKNOWN"
+    assert "tcp/22" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "vm")
+    folder_rule["match"]["layer4Configs"] = []
+    folder_rule["action"] = "deny"
+    result = assessment()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "vm")
 
 
 def test_gcp_bigtable_direct_cross_project_reader_grant():
@@ -1830,6 +3624,9 @@ def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     result = one(gcp(gcoll("bigquery_dataset", [public], service="bigquery")), "bigquery_dataset")
     assert result["status"] == "FAIL" and result["evidence"]["data_exposure"]
     assert result["evidence"]["authenticated_endpoint"]
+    public["access"][0]["role"] = "roles/bigquery.metadataViewer"
+    assert one(gcp(gcoll("bigquery_dataset", [public], service="bigquery")), "bigquery_dataset")["status"] == "UNKNOWN"
+    public["access"][0]["role"] = "READER"
     delegated = {"name": "projects/p1/datasets/source", "datasetReference": {"projectId": "p1", "datasetId": "source"},
                  "access": [{"view": {"projectId": "foreign", "datasetId": "views", "tableId": "v"}}]}
     result = one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")
@@ -1841,6 +3638,11 @@ def test_gcp_bigquery_legacy_acl_and_authorized_resource():
                                  "target_types": ["VIEWS"]}}]
     result = one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")
     assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["foreign"]
+    delegated["access"] = [{"routine": {"projectId": "foreign", "datasetId": "api", "routineId": "r"},
+                            "role": "roles/bigquery.routineMetadataViewer"}]
+    assert one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")["status"] == "UNKNOWN"
+    delegated["access"][0]["role"] = "roles/bigquery.routineDataViewer"
+    assert one(gcp(gcoll("bigquery_dataset", [delegated], service="bigquery")), "bigquery_dataset")["status"] == "FAIL"
 
 
 def test_gcp_authorized_resource_uses_scanned_project_id_and_number_boundary():
@@ -2132,6 +3934,9 @@ def test_gcp_authorized_resources_join_project_inherited_public_permissions():
     assert len(result.path[-1]["public_routines"]) == 1
     policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert assessment().verdict() == "UNKNOWN"
+    policy["bindings"][0].pop("condition")
+    policy["name"] = "projects/unrelated"
+    assert assessment().verdict() == "UNKNOWN"
 
 
 def test_gcp_authorized_view_joins_verified_ancestor_public_readers():
@@ -2178,15 +3983,26 @@ def test_gcp_authorized_routine_joins_verified_ancestor_public_invocation():
             {"role": "roles/bigquery.routineDataViewer", "members": ["allAuthenticatedUsers"]}]}],
         "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
     role = {"name": "roles/bigquery.routineDataViewer", "includedPermissions": ["bigquery.routines.get"]}
-    snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
-               gcoll("bigquery_routine_metadata", [routine], service="bigquery"),
-               gcoll("project", [project], service="cloudresourcemanager"),
-               gcoll("iam_role", [role], service="iam"))
-    items = resources(snap)
-    current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
-    result = _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    def assessment():
+        snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
+                   gcoll("bigquery_routine_metadata", [routine], service="bigquery"),
+                   gcoll("project", [project], service="cloudresourcemanager"),
+                   gcoll("iam_role", [role], service="iam"))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
     assert result.verdict() == "FAIL"
     assert result.path[-1]["public_routines"][0]["inherited_public"][0]["scope"] == "organizations/9"
+    assert result.path[-1]["public_routines"][0]["mutation_possible"] is True
+    source["access"][0]["role"] = "roles/bigquery.routineMetadataViewer"
+    assert assessment().verdict() == "UNKNOWN"
+    source["access"][0]["role"] = "roles/bigquery.routineDataViewer"
+    result = assessment()
+    assert result.verdict() == "FAIL" and result.path[-1]["public_routines"][0]["mutation_possible"] is False
+    source["access"][0]["role"] = "roles/bigquery.routineDataEditor"
+    result = assessment()
+    assert result.verdict() == "FAIL" and result.path[-1]["public_routines"][0]["mutation_possible"] is True
 
 
 def test_gcp_authorized_resources_join_direct_custom_role_permissions():
@@ -2292,6 +4108,42 @@ def test_gcp_cloud_run_invoker_and_ingress():
     assert one(gcp(gcoll("cloudrun_service", [no_policy], service="run")), "cloudrun_service")["status"] == "UNKNOWN"
 
 
+def test_gcp_cloud_run_instance_public_url_invoker_and_state():
+    instance = {"name": "projects/p1/locations/us-central1/instances/i", "ingress": "INGRESS_TRAFFIC_ALL",
+                "urls": ["https://i.run.app/path?token=secret"], "reconciling": False,
+                "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+                "iamPolicy": {"bindings": [{"role": "roles/run.invoker", "members": ["allUsers"]}]}}
+    def finding():
+        return one(gcp(gcoll("cloudrun_instance", [instance], service="run")), "cloudrun_instance")
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["https://i.run.app"]
+    assert "secret" not in str(result)
+    assert_gcp_observed_style(result, instance["name"])
+    instance["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert finding()["status"] == "UNKNOWN"
+    instance["iamPolicy"]["bindings"][0].pop("condition")
+    instance["iamPolicy"]["bindings"] = []
+    assert finding()["status"] == "UNKNOWN"
+    instance["invokerIamDisabled"] = True
+    assert finding()["status"] == "FAIL"
+    instance["iapEnabled"] = True
+    assert finding()["status"] == "UNKNOWN"
+    instance["iapEnabled"] = False
+    instance["reconciling"] = True
+    assert finding()["status"] == "UNKNOWN"
+    instance["reconciling"] = False
+    instance["defaultUriDisabled"] = True
+    assert finding()["status"] == "UNKNOWN"
+    instance["defaultUriDisabled"] = False
+    instance["ingress"] = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+    assert not exposure(gcp(gcoll("cloudrun_instance", [instance], service="run")), "cloudrun_instance")
+    instance.pop("ingress")
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, instance["name"])
+
+
 @pytest.mark.parametrize("kind,service,role", [
     ("cloudrun_service", "run", "roles/run.invoker"),
     ("function", "cloudfunctions", "roles/cloudfunctions.invoker"),
@@ -2366,6 +4218,121 @@ def test_gcp_proxy_lb_cloud_armor():
     assert one(gcp(gcoll("forwarding_rule", [no_address])), "forwarding_rule")["status"] == "UNKNOWN"
 
 
+def test_gcp_public_url_map_redirect_without_backend_service():
+    fr = {"name": "redirect-fr", "loadBalancingScheme": "EXTERNAL_MANAGED", "IPAddress": "34.2.2.2",
+          "IPProtocol": "TCP", "portRange": "80-80", "target": "https://x/targetHttpProxies/p"}
+    proxy = {"selfLink": fr["target"], "urlMap": "https://x/urlMaps/m"}
+    url_map = {"selfLink": proxy["urlMap"], "defaultUrlRedirect": {
+        "hostRedirect": "new.example.com", "httpsRedirect": True, "stripQuery": False,
+        "redirectResponseCode": "MOVED_PERMANENTLY_DEFAULT"}}
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [fr]), gcoll("target_proxy", [proxy]),
+                       gcoll("url_map", [url_map])), "forwarding_rule")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/80"]
+    assert any(step["layer"] == "url_redirect" and step["routes"][0]["host_redirect"] == "new.example.com"
+               for step in result["evidence"]["path"])
+    assert_gcp_observed_style(result, "redirect-fr")
+    url_map["hostRules"] = [{"hosts": ["old.example.com"], "pathMatcher": "redirect-matcher"}]
+    url_map["pathMatchers"] = [{"name": "redirect-matcher", "defaultUrlRedirect": {
+        "hostRedirect": "new.example.com", "stripQuery": True}}]
+    url_map.pop("defaultUrlRedirect")
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert "stripQuery set to true" in result["evidence"]["observed"]
+    url_map["pathMatchers"][0]["pathRules"] = [{"paths": ["/old/*"], "urlRedirect": {
+        "hostRedirect": "new.example.com", "redirectResponseCode": "FOUND"}}]
+    assert finding()["status"] == "FAIL"
+    url_map["pathMatchers"][0]["pathRules"][0]["urlRedirect"]["redirectResponseCode"] = "BAD"
+    assert finding()["status"] == "UNKNOWN"
+    url_map["pathMatchers"][0]["pathRules"][0]["urlRedirect"]["redirectResponseCode"] = "FOUND"
+    url_map["hostRules"][0]["pathMatcher"] = "unrelated"
+    assert finding()["status"] == "UNKNOWN"
+    url_map["hostRules"][0]["pathMatcher"] = "redirect-matcher"
+    url_map["defaultService"] = "https://x/backendServices/missing"
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert any(gap["layer"] == "backend" and gap["decisive"] is False
+               for gap in result["evidence"]["unresolved"])
+    fr.pop("IPAddress")
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "redirect-fr")
+    fr["IPAddress"] = "34.2.2.2"
+    matcher = url_map["pathMatchers"][0]
+    matcher.pop("pathRules")
+    matcher["routeRules"] = [
+        {"priority": 200, "matchRules": [{"prefixMatch": "/other"}],
+         "service": "https://x/backendServices/missing"},
+        {"priority": 100, "matchRules": [{"prefixMatch": "/"}],
+         "urlRedirect": {"hostRedirect": "new.example.com", "redirectResponseCode": "FOUND"}}]
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert any(step["layer"] == "url_redirect" and step["routes"][0]["route"] == "first_route_rule"
+               for step in result["evidence"]["path"])
+    matcher["routeRules"][0]["priority"] = 50
+    matcher["routeRules"][0]["matchRules"] = [{"prefixMatch": "/"}]
+    assert finding()["status"] == "UNKNOWN"
+    matcher["routeRules"][0]["priority"] = 200
+    matcher["routeRules"][1]["matchRules"] = [{"prefixMatch": "/", "headerMatches": [{"headerName": "X-Test"}]}]
+    assert finding()["status"] == "UNKNOWN"
+    matcher["routeRules"][1]["matchRules"] = [{"prefixMatch": "/signin"}]
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "url_redirect")["routes"][0]["match_path"] == "/signin"
+    assert "request path prefix /signin" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "redirect-fr")
+    matcher["routeRules"][1]["matchRules"] = [{"fullPathMatch": "/signin/finish"}]
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "url_redirect")["routes"][0]["match_path_type"] == "fullPathMatch"
+    assert "request path exact /signin/finish" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "redirect-fr")
+    matcher["routeRules"][1]["matchRules"] = [{"prefixMatch": "signin"}]
+    assert finding()["status"] == "UNKNOWN"
+    matcher["routeRules"][1]["matchRules"] = [{"prefixMatch": "/signin", "queryParameterMatches": [{}]}]
+    assert finding()["status"] == "UNKNOWN"
+    matcher["routeRules"][0]["priority"] = 50
+    matcher["routeRules"][0]["matchRules"] = [{"prefixMatch": "/api"}]
+    matcher["routeRules"][1]["matchRules"] = [{"fullPathMatch": "/signin/finish"}]
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "url_redirect")["routes"][0]["route"] == "disjoint_route_rule"
+    assert_gcp_observed_style(result, "redirect-fr")
+    matcher["routeRules"][0]["matchRules"] = [{"prefixMatch": "/"}]
+    assert finding()["status"] == "UNKNOWN"
+    matcher["routeRules"][0]["matchRules"] = [{"prefixMatch": "/api"}, {"fullPathMatch": "/signin/finish"}]
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_http_url_map_default_redirect_for_unmatched_exact_host_rules():
+    forwarding = {"name": "http-redirect", "IPAddress": "34.2.2.2", "IPProtocol": "TCP",
+                  "portRange": "80-80", "loadBalancingScheme": "EXTERNAL_MANAGED",
+                  "target": "https://x/targetHttpProxies/p"}
+    proxy = {"selfLink": forwarding["target"], "urlMap": "https://x/urlMaps/m"}
+    url_map = {"selfLink": proxy["urlMap"],
+               "hostRules": [{"hosts": ["site.example.com"], "pathMatcher": "site"}],
+               "pathMatchers": [{"name": "site", "defaultService": "https://x/backendServices/private"}],
+               "defaultUrlRedirect": {"hostRedirect": "landing.example.com", "redirectResponseCode": "FOUND"}}
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [forwarding]), gcoll("target_proxy", [proxy]),
+                       gcoll("url_map", [url_map])), "forwarding_rule")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/80"]
+    route = next(step for step in result["evidence"]["path"] if step["layer"] == "url_redirect")["routes"][0]
+    assert route["route"] == "unmatched_host_default" and route["host_witness"] == "peaso-unmatched.invalid"
+    assert "unmatched host peaso-unmatched.invalid" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "http-redirect")
+    url_map["hostRules"][0]["hosts"] = ["*.example.com", "*"]
+    assert finding()["status"] == "UNKNOWN"
+    url_map["hostRules"][0]["hosts"] = ["peaso-unmatched.invalid"]
+    assert finding()["status"] == "UNKNOWN"
+    url_map["hostRules"][0]["hosts"] = ["site.example.com"]
+    forwarding["target"] = "https://x/targetHttpsProxies/p"
+    proxy["selfLink"] = forwarding["target"]
+    assert finding()["status"] == "UNKNOWN"
+
+
 def test_gcp_passthrough_lb_joins_healthy_vm_firewall_without_vm_public_ip():
     base = "https://compute.googleapis.com/compute/v1/projects/p1"
     vm_ref = base + "/zones/us-central1-a/instances/vm"
@@ -2391,12 +4358,112 @@ def test_gcp_ha_and_classic_vpn_public_ike_and_esp_endpoints():
                                                  {"id": 1, "ipAddress": "10.0.0.2", "interconnectAttachment": "vlan"}]}
     result = one(gcp(gcoll("vpn_gateway", [gateway])), "vpn_gateway")
     assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["udp/500", "udp/4500", "esp"]
+    assert_gcp_observed_style(result, "ha")
     gateway["vpnInterfaces"][0]["interconnectAttachment"] = "vlan"
     assert not exposure(gcp(gcoll("vpn_gateway", [gateway])))
     classic = {"name": "classic-esp", "IPAddress": "34.2.2.3", "IPProtocol": "ESP",
                "target": "https://compute.googleapis.com/compute/v1/projects/p1/regions/us/targetVpnGateways/vpn"}
     result = one(gcp(gcoll("forwarding_rule", [classic])), "forwarding_rule")
     assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["esp"]
+    assert_gcp_observed_style(result, "classic-esp")
+
+
+def test_gcp_established_ha_vpn_tunnel_joins_public_gateway_interface_and_external_peer():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/regions/us/"
+    gateway_ref = prefix + "vpnGateways/ha"
+    gateway = {"name": "ha", "selfLink": gateway_ref,
+               "vpnInterfaces": [{"id": 0, "ipAddress": "34.2.2.2"},
+                                 {"id": 1, "ipAddress": "34.2.2.3"}]}
+    tunnel = {"name": "peer-tunnel", "status": "ESTABLISHED", "vpnGateway": gateway_ref,
+              "vpnGatewayInterface": 0, "peerExternalGateway": prefix + "externalVpnGateways/peer",
+              "localTrafficSelector": ["10.0.0.0/8"]}
+    def finding(gateways=None):
+        return one(gcp(gcoll("vpn_gateway", [gateway] if gateways is None else gateways),
+                       gcoll("vpn_tunnel", [tunnel])), "vpn_tunnel")
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["34.2.2.2"]
+    assert result["evidence"]["exposed_ports"] == ["udp/500", "udp/4500", "esp"]
+    assert "established" in result["title"].lower() and "peer gateway" in result["evidence"]["observed"]
+    assert "10.0.0.0/8" not in result["evidence"]["observed"]  # selector is not a routed service path
+    assert_gcp_observed_style(result, "peer-tunnel")
+    result = finding([])
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "peer-tunnel")
+    gateway["vpnInterfaces"][0]["interconnectAttachment"] = "vlan"
+    assert finding()["status"] == "UNKNOWN"
+    gateway["vpnInterfaces"][0].pop("interconnectAttachment")
+    tunnel["status"] = "STOPPED"
+    assert not any("peer-tunnel" in str(row["evidence"]) for row in
+                   exposure(gcp(gcoll("vpn_gateway", [gateway]), gcoll("vpn_tunnel", [tunnel]))))
+    tunnel["status"] = "ESTABLISHED"
+    tunnel.pop("peerExternalGateway")
+    tunnel["peerGcpGateway"] = prefix + "vpnGateways/another"
+    assert not any("peer-tunnel" in str(row["evidence"]) for row in
+                   exposure(gcp(gcoll("vpn_gateway", [gateway]), gcoll("vpn_tunnel", [tunnel]))))
+    tunnel["peerGcpGateway"] = "https://compute.googleapis.com/compute/v1/projects/p2/regions/us/vpnGateways/peer"
+    result = finding()
+    assert result["status"] == "FAIL" and "project p2" in result["evidence"]["observed"]
+    assert "third party" not in result["evidence"]["observed"].lower()
+    assert_gcp_observed_style(result, "peer-tunnel")
+    tunnel["peerGcpGateway"] += "?unexpected=1"
+    assert not any("peer-tunnel" in str(row["evidence"]) for row in
+                   exposure(gcp(gcoll("vpn_gateway", [gateway]), gcoll("vpn_tunnel", [tunnel]))))
+
+
+def test_gcp_established_classic_vpn_tunnel_requires_public_forwarding_triplet():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/regions/us/"
+    gateway_ref = prefix + "targetVpnGateways/classic"
+    tunnel = {"name": "classic-peer", "status": "ESTABLISHED", "targetVpnGateway": gateway_ref,
+              "peerIp": "8.8.8.8", "localTrafficSelector": ["10.0.0.0/8"]}
+    rules = [{"name": "esp", "target": gateway_ref, "IPAddress": "34.2.2.2",
+              "IPProtocol": "ESP", "loadBalancingScheme": "EXTERNAL"},
+             {"name": "ike", "target": gateway_ref, "IPAddress": "34.2.2.2",
+              "IPProtocol": "UDP", "ports": ["500"], "loadBalancingScheme": "EXTERNAL"},
+             {"name": "nat-t", "target": gateway_ref, "IPAddress": "34.2.2.2",
+              "IPProtocol": "UDP", "portRange": "4500-4500", "loadBalancingScheme": "EXTERNAL"}]
+    def finding():
+        return one(gcp(gcoll("vpn_gateway", [{"name": "classic", "selfLink": gateway_ref}]),
+                       gcoll("vpn_tunnel", [tunnel]), gcoll("forwarding_rule", rules)), "vpn_tunnel")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["public_addresses"] == ["34.2.2.2"]
+    assert "peer 8.8.8.8" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "classic-peer")
+    rules.pop()
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "classic-peer")
+    rules.append({"name": "nat-t", "target": gateway_ref, "IPAddress": "34.2.2.3",
+                  "IPProtocol": "UDP", "ports": ["4500"], "loadBalancingScheme": "EXTERNAL"})
+    assert finding()["status"] == "UNKNOWN"
+    rules[-1]["IPAddress"] = "34.2.2.2"
+    rules[-1]["ports"] = ["443"]
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_active_cross_project_vpc_peering_is_unresolved_without_route_and_firewall():
+    network = {"name": "local-vpc", "selfLink": NET,
+               "peerings": [{"name": "partner-link", "network":
+                             "https://compute.googleapis.com/compute/v1/projects/p2/global/networks/peer-vpc",
+                             "state": "ACTIVE", "importCustomRoutes": False, "exportCustomRoutes": True}]}
+    def snapshot():
+        return gcp(gcoll("network", [network]))
+    result = one(snapshot(), "network")
+    assert result["status"] == "UNKNOWN" and "project p2" in result["evidence"]["observed"]
+    assert result["evidence"]["public_addresses"] == []
+    assert "third party" not in result["evidence"]["observed"].lower()
+    assert_gcp_observed_style(result, "local-vpc")
+    report = evaluate_snapshot(snapshot(), categories=["exposure", "network"])
+    assert not any(edge["type"] == "internet_exposure" for edge in report["graphs"]["network"]["edges"])
+    network["peerings"][0]["state"] = "INACTIVE"
+    assert not exposure(snapshot())
+    network["peerings"][0]["state"] = "ACTIVE"
+    network["peerings"][0]["network"] = "projects/p1/global/networks/peer-vpc"
+    assert not exposure(snapshot())
+    network["peerings"][0]["network"] = "projects/p2/global/networks/peer-vpc"
+    assert one(snapshot(), "network")["status"] == "UNKNOWN"
+    network["peerings"][0]["network"] = "https://compute.googleapis.com/compute/v1/projects/p2/global/networks/peer-vpc?bad=1"
+    assert not exposure(snapshot())
 
 
 def test_gcp_gke_and_sql():
@@ -2499,6 +4566,32 @@ def test_gcp_collected_bucket_acl_public_read_and_pap():
     assert not any(row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL" for row in rows)
 
 
+def test_gcp_object_acl_exposure_keeps_exact_hashed_object_generation():
+    bucket = {"name": "sample-bucket", "iamConfiguration": {
+        "uniformBucketLevelAccess": {"enabled": False}, "publicAccessPrevention": "not_enforced"},
+        "iamPolicy": {"bindings": []},
+        "bucketAccessControls": {"status": "collected", "all_pages": True, "items": []},
+        "objectAccessControls": {"status": "collected", "all_pages": True,
+            "all_objects": True, "all_versions": True, "source_inventory": "object_acl",
+            "source_requests": ["request-1"],
+            "items": [{"entity": "allUsers", "role": "READER"},
+                      {"entity": "allUsers", "role": "READER"}]}}
+    native = [{"name": "sample-bucket/objects/" + ref + "/acl/public", "bucket": "sample-bucket",
+               "entity": "allUsers", "role": "READER", "objectRef": ref,
+               "generation": generation,
+               "_provenance": {"source_requests": ["request-1"]}}
+              for ref, generation in (("a" * 64, "123"), ("b" * 64, "456"))]
+    def result():
+        return one(gcp(gcoll("bucket", [bucket], service="storage"),
+                       gcoll("object_acl", native, service="storage")), "bucket")
+    evidence = str(result()["evidence"])
+    assert result()["status"] == "FAIL"
+    assert "a" * 64 in evidence and "b" * 64 in evidence
+    assert "123" in evidence and "456" in evidence
+    native[0]["_provenance"]["source_requests"] = ["foreign-request"]
+    assert "a" * 64 not in str(result()["evidence"])
+
+
 def test_gcp_live_gke_service_inventory_candidates_and_missing_cluster():
     from peaso.analysis.internet_exposure import GCP_TYPES
     from peaso.engine import plan_collection
@@ -2544,6 +4637,168 @@ def test_gcp_live_gke_ingress_inventory_candidate_and_gap():
     assert not exposure(gcp(gcoll("gke_exposure_ingress", [marker], service="kubernetes")))
 
 
+def test_gcp_loadbalancer_service_joins_controller_backend_cloud_edge(monkeypatch):
+    from types import SimpleNamespace
+    from peaso.analysis import internet_exposure as exposure_module
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_service
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    backend_ref = "https://compute.googleapis.com/compute/v1/projects/p1/regions/us-central1/backendServices/k8s-be-web"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "namespace": "default", "kubernetesName": "web",
+               "spec": {"type": "LoadBalancer", "ports": [{"port": 8080, "protocol": "TCP"}]},
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}},
+               "annotations": {"service.kubernetes.io/tcp-forwarding-rule": "k8s-fw-web",
+                               "service.kubernetes.io/backend-service": "k8s-be-web"}}
+    marker = {"name": cluster + "/serviceInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "serviceCount": 1}
+    forwarding = {"name": "k8s-fw-web", "loadBalancingScheme": "EXTERNAL",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "8080-8080",
+                  "backendService": backend_ref}
+    backend = {"name": "k8s-be-web", "selfLink": backend_ref}
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("tcp", 8080, 8080), path=[]))
+    def assessment():
+        snap = gcp(gcoll("gke_exposure_service", [service, marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding]), gcoll("backend_service", [backend]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "gke_exposure_service"
+                       and row["data"]["name"] == service["name"])
+        return _gcp_gke_exposure_service(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL"
+    assert describe(assessment().ports) == ["tcp/8080"]
+    monkeypatch.setattr(exposure_module, "_gcp_gke_nodeport_direct_node", lambda *args:
+                        pset("tcp", 30080, 30080))
+    assert describe(assessment().ports) == ["tcp/8080", "tcp/30080"]
+    monkeypatch.setattr(exposure_module, "_gcp_gke_nodeport_direct_node", lambda *args: None)
+    forwarding["IPAddress"] = "34.1.2.4"
+    assert assessment().verdict() == "UNKNOWN"
+    forwarding["IPAddress"] = "34.1.2.3"
+    forwarding["backendService"] = backend_ref.replace("k8s-be-web", "unrelated")
+    assert assessment().verdict() == "UNKNOWN"
+    forwarding["backendService"] = backend_ref
+    marker["inventoryStatus"] = "unavailable"
+    assert assessment().verdict() == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    service["annotations"].pop("service.kubernetes.io/tcp-forwarding-rule")
+    service["annotations"]["service.kubernetes.io/l3-forwarding-rule"] = "k8s-fw-web"
+    service["spec"]["ports"].append({"port": 8081, "protocol": "UDP"})
+    forwarding.update(IPProtocol="L3_DEFAULT", allPorts=True)
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("all"), path=[]))
+    assert describe(assessment().ports) == ["tcp/8080", "udp/8081"]
+    forwarding["allPorts"] = False
+    assert assessment().verdict() == "UNKNOWN"
+
+
+def test_gcp_l3_default_forwarding_rule_all_ports_includes_tcp_and_udp():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
+    from peaso.snapshot import resources
+    forwarding = {"name": "mixed", "loadBalancingScheme": "EXTERNAL", "IPAddress": "34.1.2.3",
+                  "IPProtocol": "L3_DEFAULT", "allPorts": True,
+                  "backendService": "https://compute.googleapis.com/compute/v1/projects/p1/regions/r1/backendServices/mixed"}
+    snap = gcp(gcoll("forwarding_rule", [forwarding]))
+    items = resources(snap)
+    rule = next(row for row in items if row["type"] == "forwarding_rule")
+    edge = _gcp_forwarding_rule(snap, Inventory(snap, items), rule)
+    assert intersect(edge.ports, pset("tcp", 8080, 8080))
+    assert intersect(edge.ports, pset("udp", 8081, 8081))
+
+
+def test_gcp_legacy_loadbalancer_service_joins_exact_target_pool(monkeypatch):
+    from types import SimpleNamespace
+    from peaso.analysis import internet_exposure as exposure_module
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_service
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    pool_ref = "https://compute.googleapis.com/compute/v1/projects/p1/regions/us-central1/targetPools/k8s-pool-web"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "spec": {"type": "LoadBalancer", "ports": [{"port": 8080, "protocol": "TCP"}]},
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}},
+               "annotations": {"service.kubernetes.io/tcp-forwarding-rule": "k8s-fw-web"}}
+    marker = {"name": cluster + "/serviceInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "serviceCount": 1}
+    forwarding = {"name": "k8s-fw-web", "loadBalancingScheme": "EXTERNAL",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "8080-8080", "target": pool_ref}
+    pool = {"name": "k8s-pool-web", "selfLink": pool_ref}
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("tcp", 8080, 8080), path=[]))
+    def assessment():
+        snap = gcp(gcoll("gke_exposure_service", [service, marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding]), gcoll("target_pool", [pool]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "gke_exposure_service"
+                       and row["data"]["name"] == service["name"])
+        return _gcp_gke_exposure_service(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL"
+    forwarding["target"] = pool_ref.replace("k8s-pool-web", "unrelated")
+    assert assessment().verdict() == "UNKNOWN"
+
+
+def test_gcp_ingress_joins_exact_controller_cloud_edge():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_ingress
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    base = "https://compute.googleapis.com/compute/v1/projects/p1/global"
+    proxy_ref = base + "/targetHttpProxies/k8s-tp-web"
+    map_ref = base + "/urlMaps/k8s-um-web"
+    backend_ref = base + "/backendServices/k8s-be-web"
+    ingress = {"name": cluster + "/namespaces/default/ingresses/web", "cluster": cluster,
+               "annotations": {"kubernetes.io/ingress.class": "gce",
+                               "ingress.kubernetes.io/forwarding-rule": "k8s-fw-web",
+                               "ingress.kubernetes.io/target-proxy": "k8s-tp-web",
+                               "ingress.kubernetes.io/url-map": "k8s-um-web"},
+               "hosts": ["example.com"],
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}}}
+    marker = {"name": cluster + "/ingressInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "ingressCount": 1}
+    forwarding = {"name": "k8s-fw-web", "loadBalancingScheme": "EXTERNAL_MANAGED",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "80-80",
+                  "target": proxy_ref}
+    proxy = {"name": "k8s-tp-web", "selfLink": proxy_ref, "urlMap": map_ref}
+    url_map = {"name": "k8s-um-web", "selfLink": map_ref, "defaultService": backend_ref}
+    backend = {"name": "k8s-be-web", "selfLink": backend_ref}
+    def assessment():
+        snap = gcp(gcoll("gke_exposure_ingress", [ingress, marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding]), gcoll("target_proxy", [proxy]),
+                   gcoll("url_map", [url_map]), gcoll("backend_service", [backend]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "gke_exposure_ingress"
+                       and row["data"]["name"] == ingress["name"])
+        return _gcp_gke_exposure_ingress(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL" and describe(result.ports) == ["tcp/80"]
+    assert result.path[-1]["forwarding_rule"] == "k8s-fw-web"
+    ingress["hosts"] = []
+    assert assessment().verdict() == "UNKNOWN"
+    ingress["hosts"] = ["example.com"]
+    ingress["annotations"].pop("ingress.kubernetes.io/forwarding-rule")
+    ingress["annotations"].pop("ingress.kubernetes.io/target-proxy")
+    ingress["annotations"].update({"ingress.kubernetes.io/https-forwarding-rule": "k8s-fs-web",
+                                   "ingress.kubernetes.io/https-target-proxy": "k8s-ts-web"})
+    forwarding.update(name="k8s-fs-web", portRange="443-443",
+                      target=base + "/targetHttpsProxies/k8s-ts-web")
+    proxy["selfLink"] = forwarding["target"]
+    assert assessment().verdict() == "FAIL" and describe(assessment().ports) == ["tcp/443"]
+    ingress["annotations"].update({"ingress.kubernetes.io/forwarding-rule": "k8s-fw-web",
+                                   "ingress.kubernetes.io/target-proxy": "k8s-tp-web"})
+    ingress["annotations"].pop("ingress.kubernetes.io/https-forwarding-rule")
+    ingress["annotations"].pop("ingress.kubernetes.io/https-target-proxy")
+    forwarding.update(name="k8s-fw-web", portRange="80-80", target=proxy_ref)
+    proxy["selfLink"] = proxy_ref
+    ingress["annotations"]["kubernetes.io/ingress.class"] = "gce-internal"
+    assert assessment().verdict() == "UNKNOWN"
+    ingress["annotations"]["kubernetes.io/ingress.class"] = "gce"
+    forwarding["target"] = base + "/targetHttpProxies/unrelated"
+    assert assessment().verdict() == "UNKNOWN"
+    forwarding["target"] = proxy_ref
+    marker["inventoryStatus"] = "unavailable"
+    assert assessment().verdict() == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    url_map["defaultService"] = base + "/backendServices/missing"
+    assert assessment().verdict() == "UNKNOWN"
+
+
 def test_gcp_live_gke_host_bound_pod_candidate_and_gap():
     from peaso.analysis.internet_exposure import GCP_TYPES
     from peaso.engine import plan_collection
@@ -2564,6 +4819,257 @@ def test_gcp_live_gke_host_bound_pod_candidate_and_gap():
                "gke_exposure_pod")["status"] == "UNKNOWN"
 
 
+def test_gcp_live_gke_node_inventory_is_supporting_evidence():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    assert "gke_exposure_node" in GCP_TYPES
+    assert "gke_exposure_node" in plan_collection({
+        "connector": {"provider": "gcp"}, "categories": ["exposure"]})
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    node = {"name": cluster + "/nodes/gke-node-1", "cluster": cluster,
+            "providerID": "gce://p1/us-central1-a/gke-node-1",
+            "addresses": [{"type": "ExternalIP", "address": "34.1.2.3"}]}
+    assert not exposure(gcp(gcoll("gke_exposure_node", [node], service="kubernetes")))
+    marker = {"name": cluster + "/nodeInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
+    assert one(gcp(gcoll("gke_exposure_node", [marker], service="kubernetes")),
+               "gke_exposure_node")["status"] == "UNKNOWN"
+
+
+def test_gcp_hostport_joins_exact_live_node_vm_and_effective_firewall():
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    pod = {"name": cluster + "/namespaces/default/pods/web", "cluster": cluster,
+           "hostNetwork": False, "hostPorts": [{"hostPort": 8080, "protocol": "TCP"}],
+           "nodeName": "node-a", "hostIP": "10.1.2.3", "phase": "Running"}
+    node = {"name": cluster + "/nodes/node-a", "cluster": cluster,
+            "kubernetesName": "node-a", "providerID": "gce://p1/us-central1-a/vm",
+            "addresses": [{"type": "InternalIP", "address": "10.1.2.3"},
+                          {"type": "ExternalIP", "address": "34.1.1.1"}]}
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-hostport", 1000, "allowed", ["8080"], ["web"])],
+                 "firewallPolicys": [], "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def result():
+        return one(gcp(gcoll("gke_exposure_pod", [pod], service="kubernetes"),
+                       gcoll("gke_exposure_node", [node], service="kubernetes"), vm,
+                       gcoll("instance_effective_firewall", [effective]),
+                       gcoll("firewall", [], status="denied")), "gke_exposure_pod")
+    assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/8080"]
+    pod["hostPorts"][0]["bindIP"] = "127.0.0.1"
+    assert result()["status"] == "UNKNOWN"
+    pod["hostPorts"][0]["bindIP"] = "10.1.2.3"
+    assert result()["status"] == "UNKNOWN"
+    vm["items"][0]["networkInterfaces"][0]["networkIP"] = "10.1.2.3"
+    assert result()["status"] == "FAIL"
+    vm["items"][0]["networkInterfaces"][0]["networkIP"] = "10.1.2.4"
+    assert result()["status"] == "UNKNOWN"
+    pod["hostPorts"][0]["bindIP"] = "0.0.0.0"
+    assert result()["status"] == "FAIL"
+    pod["hostNetwork"] = True
+    pod["hostPorts"][0]["portSource"] = "hostNetwork"
+    assert result()["status"] == "FAIL"
+    pod["hostNetwork"] = False
+    pod["hostPorts"][0].pop("portSource")
+    node["addresses"][1]["address"] = "34.1.1.2"
+    assert result()["status"] == "UNKNOWN"
+    node["addresses"][1]["address"] = "34.1.1.1"
+    effective["firewallPolicys"] = [{"type": "HIERARCHY", "name": "organizations/9/locations/global/firewallPolicies/1",
+                                    "rules": [{"priority": 100, "direction": "INGRESS", "action": "allow",
+                                               "match": {"srcIpRanges": ["0.0.0.0/0"]}}]}]
+    assert result()["status"] == "FAIL"
+    effective["firewallPolicys"] = [{"name": "unresolved-policy"}]
+    assert result()["status"] == "UNKNOWN"
+
+
+def test_gcp_nodeport_joins_ready_backend_node_vm_and_effective_firewall():
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "namespace": "default", "kubernetesName": "web",
+               "spec": {"type": "NodePort", "externalTrafficPolicy": "Local",
+                        "ports": [{"name": "http", "port": 80, "targetPort": 8080,
+                                   "nodePort": 30080, "protocol": "TCP"}]}}
+    service_marker = {"name": cluster + "/serviceInventory", "cluster": cluster,
+                      "inventoryStatus": "collected", "serviceCount": 1}
+    slice_row = {"name": cluster + "/namespaces/default/endpointslices/web-abc", "cluster": cluster,
+                 "namespace": "default", "serviceName": "web", "addressType": "IPv4",
+                 "ports": [{"name": "http", "port": 8080, "protocol": "TCP"}],
+                 "readyEndpointCount": 1, "readyNodeNames": ["node-a"]}
+    slice_marker = {"name": cluster + "/endpointsliceInventory", "cluster": cluster,
+                    "inventoryStatus": "collected", "endpointsliceCount": 1}
+    node = {"name": cluster + "/nodes/node-a", "cluster": cluster, "kubernetesName": "node-a",
+            "providerID": "gce://p1/us-central1-a/vm",
+            "addresses": [{"type": "ExternalIP", "address": "34.1.1.1"}]}
+    node_marker = {"name": cluster + "/nodeInventory", "cluster": cluster,
+                   "inventoryStatus": "collected", "nodeCount": 1}
+    vm = copy.deepcopy(gcp_instance())
+    vm["items"][0]["selfLink"] = "https://compute.googleapis.com/compute/v1/projects/p1/zones/us-central1-a/instances/vm"
+    effective = {"name": "projects/p1/zones/us-central1-a/instances/vm/interfaces/nic0/effectiveFirewalls",
+                 "instance": "projects/p1/zones/us-central1-a/instances/vm", "networkInterface": "nic0",
+                 "firewalls": [fw("allow-nodeport", 1000, "allowed", ["30080"], ["web"])],
+                 "firewallPolicys": [], "effective_source_operation": "instances.getEffectiveFirewalls"}
+    def result():
+        report = analyze(gcp(gcoll("gke_exposure_service", [service, service_marker], service="kubernetes"),
+                             gcoll("gke_exposure_endpointslice", [slice_row, slice_marker], service="kubernetes"),
+                             gcoll("gke_exposure_node", [node, node_marker], service="kubernetes"), vm,
+                             gcoll("instance_effective_firewall", [effective]),
+                             gcoll("firewall", [], status="denied")))
+        resource_id = next(row["id"] for row in report["resources"] if row["type"] == "gke_exposure_service"
+                           and row["data"]["name"] == service["name"])
+        return next(row for row in report["findings"] if row["check_id"] == CHECK
+                    and row["resource_id"] == resource_id)
+    assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/30080"]
+    service["spec"]["type"] = "LoadBalancer"
+    service["spec"]["allocateLoadBalancerNodePorts"] = False
+    assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/30080"]
+    service["spec"]["type"] = "NodePort"
+    slice_row["readyNodeNames"] = ["other-node"]
+    assert result()["status"] == "UNKNOWN"
+    service["spec"]["externalTrafficPolicy"] = "Cluster"
+    assert result()["status"] == "FAIL"
+    slice_row["ports"][0]["port"] = 8081
+    assert result()["status"] == "UNKNOWN"
+    slice_row["ports"][0]["port"] = 8080
+    slice_marker["inventoryStatus"] = "unavailable"
+    assert result()["status"] == "UNKNOWN"
+    slice_marker["inventoryStatus"] = "collected"
+    effective["firewallPolicys"] = [{"name": "unresolved-policy"}]
+    assert result()["status"] == "UNKNOWN"
+    effective["firewallPolicys"] = []
+    service_marker["inventoryStatus"] = "unavailable"
+    assert result()["status"] == "UNKNOWN"
+    service_marker["inventoryStatus"] = "collected"
+    service["spec"].update(type="ClusterIP", externalIPs=["34.1.1.1"])
+    effective["firewalls"] = [fw("allow-external-ip", 1000, "allowed", ["80"], ["web"])]
+    assert result()["status"] == "UNKNOWN"
+    service["spec"]["externalTrafficPolicy"] = "unrecognized"
+    assert result()["status"] == "UNKNOWN"
+
+
+def test_gcp_live_gke_gateway_and_httproute_candidates():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    selected = set(plan_collection({"connector": {"provider": "gcp"}, "categories": ["exposure"]}))
+    assert {"gke_exposure_gateway", "gke_exposure_gatewayclass", "gke_exposure_httproute"} <= set(GCP_TYPES) & selected
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    gateway = {"name": cluster + "/namespaces/default/gateways/web", "cluster": cluster,
+               "namespace": "default", "kubernetesName": "web",
+               "gatewayClassName": "gke-l7-global-external-managed",
+               "listeners": [{"name": "https", "port": 443, "protocol": "HTTPS"}],
+               "addresses": [{"type": "IPAddress", "value": "34.1.2.3"}]}
+    route = {"name": cluster + "/namespaces/default/httproutes/web", "cluster": cluster,
+             "hostnames": ["example.com"], "parentRefs": [{"name": "web"}],
+             "backendRefs": [{"name": "svc", "port": 8080}]}
+    result = one(gcp(gcoll("gke_exposure_gateway", [gateway], service="kubernetes")), "gke_exposure_gateway")
+    assert result["status"] == "UNKNOWN" and "tcp/443" in str(result["evidence"])
+    result = one(gcp(gcoll("gke_exposure_httproute", [route], service="kubernetes")), "gke_exposure_httproute")
+    assert result["status"] == "UNKNOWN" and "example.com" in str(result["evidence"])
+    marker = {"name": cluster + "/gatewayInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
+    assert one(gcp(gcoll("gke_exposure_gateway", [marker], service="kubernetes")),
+               "gke_exposure_gateway")["status"] == "UNKNOWN"
+
+
+def test_gcp_gateway_joins_exact_controller_cloud_edge():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_gateway, _gcp_gke_exposure_httproute
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    base = "https://compute.googleapis.com/compute/v1/projects/p1/global"
+    proxy_ref = base + "/targetHttpsProxies/gkegw-tp1"
+    map_ref = base + "/urlMaps/gkegw-url-map1"
+    backend_ref = base + "/backendServices/gkegw-be1"
+    gateway = {"name": cluster + "/namespaces/default/gateways/web", "cluster": cluster,
+               "namespace": "default", "kubernetesName": "web",
+               "gatewayClassName": "gke-l7-global-external-managed",
+               "listeners": [{"name": "https", "port": 443, "protocol": "HTTPS"}],
+               "addresses": [{"type": "IPAddress", "value": "34.1.2.3"}],
+               "annotations": {"networking.gke.io/forwarding-rules": "gkegw-fr1",
+                               "networking.gke.io/target-proxies": "gkegw-tp1",
+                               "networking.gke.io/url-maps": "gkegw-url-map1"}}
+    marker = {"name": cluster + "/gatewayInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "gatewayCount": 1}
+    gateway_class = {"name": cluster + "/gatewayclasses/gke-l7-global-external-managed",
+                     "cluster": cluster, "kubernetesName": "gke-l7-global-external-managed",
+                     "controllerName": "networking.gke.io/gateway"}
+    class_marker = {"name": cluster + "/gatewayclassInventory", "cluster": cluster,
+                    "inventoryStatus": "collected", "gatewayclassCount": 1}
+    forwarding = {"name": "gkegw-fr1", "loadBalancingScheme": "EXTERNAL_MANAGED",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "443-443",
+                  "target": proxy_ref}
+    proxy = {"name": "gkegw-tp1", "selfLink": proxy_ref, "urlMap": map_ref}
+    url_map = {"name": "gkegw-url-map1", "selfLink": map_ref, "defaultService": backend_ref}
+    backend = {"name": "gkegw-be1", "selfLink": backend_ref}
+    route = {"name": cluster + "/namespaces/default/httproutes/web", "cluster": cluster,
+             "namespace": "default", "generation": 3, "hostnames": ["example.com"],
+             "parentRefs": [{"name": "web", "sectionName": "https"}],
+             "backendRefs": [{"name": "app", "port": 8080}],
+             "parentStatus": [{"controllerName": "networking.gke.io/gateway",
+                               "parentRef": {"name": "web", "sectionName": "https"},
+                               "conditions": [{"type": "Accepted", "status": "True", "observedGeneration": 3},
+                                              {"type": "Reconciled", "status": "True", "observedGeneration": 3}]}]}
+    route_marker = {"name": cluster + "/httprouteInventory", "cluster": cluster,
+                    "inventoryStatus": "collected", "httprouteCount": 1}
+    extra = []
+    def assessment(kind="gke_exposure_gateway"):
+        snap = gcp(gcoll("gke_exposure_gateway", [gateway, marker], service="kubernetes"),
+                   gcoll("gke_exposure_gatewayclass", [gateway_class, class_marker], service="kubernetes"),
+                   gcoll("gke_exposure_httproute", [route, route_marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding, *extra]), gcoll("target_proxy", [proxy]),
+                   gcoll("url_map", [url_map]), gcoll("backend_service", [backend]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == kind
+                       and row["data"]["name"] == (gateway if kind == "gke_exposure_gateway" else route)["name"])
+        evaluator = _gcp_gke_exposure_gateway if kind == "gke_exposure_gateway" else _gcp_gke_exposure_httproute
+        return evaluator(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL" and describe(assessment().ports) == ["tcp/443"]
+    assert assessment().path[-1]["forwarding_rule"] == "gkegw-fr1"
+    assert assessment("gke_exposure_httproute").verdict() == "FAIL"
+    gateway["gatewayClassName"] = "gke-l7-rilb"
+    assert assessment().verdict() == "UNKNOWN"
+    gateway["gatewayClassName"] = "gke-l7-global-external-managed"
+    url_map["selfLink"] = base + "/urlMaps/unrelated"
+    assert assessment().verdict() == "UNKNOWN"
+    url_map["selfLink"] = map_ref
+    marker["inventoryStatus"] = "unavailable"
+    assert assessment().verdict() == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    gateway_class["controllerName"] = "unrelated.example/controller"
+    assert assessment().verdict() == "UNKNOWN"
+    gateway_class["controllerName"] = "networking.gke.io/gateway"
+    extra.append({**forwarding, "selfLink": base + "/forwardingRules/duplicate"})
+    assert assessment().verdict() == "UNKNOWN"
+    extra.clear()
+    route["parentStatus"][0]["conditions"][0]["observedGeneration"] = 2
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    route["parentStatus"][0]["conditions"][0]["observedGeneration"] = 3
+    route["parentRefs"][0]["sectionName"] = "http"
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    route["parentRefs"][0]["sectionName"] = "https"
+    route["parentStatus"][0]["conditions"].append(
+        {"type": "ResolvedRefs", "status": "False", "observedGeneration": 3})
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    route["parentStatus"][0]["conditions"].pop()
+    route["parentStatus"][0]["controllerName"] = "unrelated.example/controller"
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+
+
+def test_gcp_gke_endpointslice_inventory_gap_is_unknown():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    selected = set(plan_collection({"connector": {"provider": "gcp"}, "categories": ["exposure"]}))
+    assert "gke_exposure_endpointslice" in set(GCP_TYPES) & selected
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    marker = {"name": cluster + "/endpointsliceInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
+    assert one(gcp(gcoll("gke_exposure_endpointslice", [marker], service="kubernetes")),
+               "gke_exposure_endpointslice")["status"] == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    assert not [finding for finding in exposure(gcp(gcoll("gke_exposure_endpointslice", [marker],
+                                                       service="kubernetes")))
+                if finding["resource_type"] == "gke_exposure_endpointslice"]
+
+
 def test_gcp_nonuniform_bucket_missing_acl_inventory_is_unknown():
     bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False},
               "publicAccessPrevention": "not_enforced"}, "iamPolicy": {"bindings": []}}
@@ -2574,7 +5080,7 @@ def test_gcp_nonuniform_bucket_missing_acl_inventory_is_unknown():
     bucket["bucketAccessControls"] = {"status": "collected", "all_pages": True, "items": []}
     bucket["objectAccessControls"] = {"status": "collected", "all_pages": True,
                                        "all_objects": True, "all_versions": True, "items": []}
-    assert not exposure(gcp(gcoll("bucket", [bucket], service="storage")))
+    assert one(gcp(gcoll("bucket", [bucket], service="storage")), "bucket")["status"] == "UNKNOWN"
 
 
 def test_gcp_bucket_inherited_public_grant_and_effective_pap():
@@ -2597,6 +5103,28 @@ def test_gcp_bucket_inherited_public_grant_and_effective_pap():
     policy["spec"]["rules"].append({"enforce": False})
     assert assessment(gcoll("org_policy_effective", [policy], service="orgpolicy")).verdict() == "UNKNOWN"
     assert assessment().verdict() == "UNKNOWN"
+
+
+def test_gcp_bucket_requires_complete_negative_ancestor_iam_before_no_finding():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bucket
+    from peaso.snapshot import resources
+    bucket = {"name": "sample-bucket", "iamPolicy": {"bindings": []},
+              "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True},
+                                   "publicAccessPrevention": "not_enforced"}}
+    effective = {"name": "sample-bucket", "resolutionComplete": True, "publicAccess": False}
+    def assessment(*extra):
+        snap = gcp(gcoll("bucket", [bucket], service="storage"),
+                   gcoll("managed_folder", [], status="empty", service="storage"), *extra)
+        items = resources(snap)
+        return _gcp_bucket(snap, Inventory(snap, items), next(row for row in items if row["type"] == "bucket"))
+    missing = assessment()
+    assert missing is not None and missing.verdict() == "UNKNOWN"
+    assert missing.path[-1]["effective_iam_unresolved"] is True
+    assert assessment(gcoll("bucket_effective_iam", [effective], service="storage")) is None
+    effective["resolutionComplete"] = False
+    assert assessment(gcoll("bucket_effective_iam", [effective], service="storage")).verdict() == "UNKNOWN"
+    effective.update(resolutionComplete=True, publicAccess=True)
+    assert assessment(gcoll("bucket_effective_iam", [effective], service="storage")).verdict() == "FAIL"
 
 
 def test_gcp_bucket_ip_filter_blocks_direct_public_grant_without_public_network_range():
@@ -2646,7 +5174,7 @@ def test_gcp_bucket_custom_role_permissions_gate_public_object_exposure():
     assert assessment().verdict() == "UNKNOWN"
     bucket["iamPolicy"]["bindings"][0].pop("condition")
     role["includedPermissions"] = ["logging.logEntries.list"]
-    assert assessment() is None
+    assert assessment().verdict() == "UNKNOWN"  # Ancestor IAM remains uncollected.
     assert assessment(with_role=False).verdict() == "UNKNOWN"
 
 
@@ -2699,7 +5227,7 @@ def test_gcp_managed_folder_parent_prefix_and_incomplete_inventory():
     assert incomplete.verdict() == "UNKNOWN"
     assert incomplete.path[-1]["managed_folder_unresolved"] == [
         {"reason": "managed folder inventory incomplete"}]
-    assert assessment([], status="empty") is None
+    assert assessment([], status="empty").verdict() == "UNKNOWN"  # Ancestor IAM remains uncollected.
 
 
 @pytest.mark.parametrize("kind,record,expected", [
@@ -2728,7 +5256,98 @@ def test_gcp_managed_folder_parent_prefix_and_incomplete_inventory():
                                        "uri": "https://b.hosted.app"}, "FAIL"),
 ])
 def test_gcp_managed_service_public_endpoints(kind, record, expected):
-    assert one(gcp(gcoll(kind, [record], service="managed")), kind)["status"] == expected
+    extra = ([gcoll("app_engine_firewall_rule", [{"priority": 2147483647, "sourceRange": "*",
+                                                 "action": "ALLOW"}], service="appengine")]
+             if kind == "app_engine_application" else [])
+    assert one(gcp(gcoll(kind, [record], service="managed"), *extra), kind)["status"] == expected
+
+
+def test_gcp_app_engine_ordered_ingress_firewall_controls_public_hostname():
+    app = {"name": "apps/p1", "defaultHostname": "p1.uc.r.appspot.com", "servingStatus": "SERVING"}
+    missing = one(gcp(gcoll("app_engine_application", [app], service="appengine")),
+                  "app_engine_application")
+    assert missing["status"] == "UNKNOWN"
+    assert_gcp_observed_style(missing, "apps/p1")
+    rules = [{"priority": 100, "sourceRange": "10.0.0.0/8", "action": "ALLOW"},
+             {"priority": 2147483647, "sourceRange": "*", "action": "DENY"}]
+    def finding(status=None):
+        return one(gcp(gcoll("app_engine_application", [app], service="appengine"),
+                       gcoll("app_engine_firewall_rule", [] if status == "denied" else rules,
+                             status=status, service="appengine")),
+                   "app_engine_application")
+    assert finding()["status"] == "PASS"
+    rules[1]["action"] = "ALLOW"
+    result = finding()
+    assert result["status"] == "FAIL" and "priority 2147483647" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "apps/p1")
+    rules[0] = {"priority": 100, "sourceRange": "8.8.8.0/24", "action": "ALLOW"}
+    rules[1]["action"] = "DENY"
+    result = finding()
+    assert result["status"] == "FAIL" and "source 8.8.8.0/24" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "apps/p1")
+    rules[0]["action"] = "DENY"
+    assert finding()["status"] == "UNKNOWN"  # other public sources may use a later rule
+    rules[0]["sourceRange"] = "0.0.0.0/0"
+    assert finding()["status"] == "UNKNOWN"  # IPv6 and earlier public overlap remain unresolved
+    rules[0]["sourceRange"] = "10.0.0.0/8"
+    assert finding(status="denied")["status"] == "UNKNOWN"
+    rules[1]["priority"] = 100
+    assert finding()["status"] == "UNKNOWN"
+    rules[1]["priority"] = 2147483647
+    app["servingStatus"] = "UNSPECIFIED"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "apps/p1")
+
+
+def test_gcp_dataproc_component_gateway_declared_endpoint_and_limits():
+    cluster = {"projectId": "p1", "clusterName": "spark-a", "status": {"state": "RUNNING"},
+               "config": {"endpointConfig": {"enableHttpPortAccess": True,
+                   "httpPorts": {"YARN ResourceManager": "https://gateway.dataproc.google.com/yarn/?token=secret"}}}}
+    def finding():
+        return one(gcp(gcoll("dataproc_cluster", [cluster], service="dataproc")), "dataproc_cluster")
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["https://gateway.dataproc.google.com"]
+    assert "secret" not in str(result)
+    assert_gcp_observed_style(result, "spark-a")
+    cluster["status"]["state"] = "STOPPED"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "spark-a")
+    cluster["status"]["state"] = "RUNNING"
+    cluster["config"]["endpointConfig"]["httpPorts"] = {}
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "spark-a")
+    cluster["config"]["endpointConfig"]["httpPorts"] = {"YARN": "https://gateway.example.com:8443/yarn/"}
+    assert finding()["status"] == "UNKNOWN"
+    cluster["config"]["endpointConfig"]["enableHttpPortAccess"] = False
+    assert not exposure(gcp(gcoll("dataproc_cluster", [cluster], service="dataproc")), "dataproc_cluster")
+
+
+def test_gcp_workbench_jupyter_proxy_declared_endpoint_and_limits():
+    instance = {"name": "projects/p1/locations/us-central1-a/instances/book-a", "state": "ACTIVE",
+                "disableProxyAccess": False,
+                "proxyUri": "https://book-a.notebooks.googleusercontent.com/lab/?ticket=secret"}
+    def finding():
+        return one(gcp(gcoll("workbench_instance", [instance], service="notebooks")), "workbench_instance")
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["public_addresses"] == ["https://book-a.notebooks.googleusercontent.com"]
+    assert "secret" not in str(result)
+    assert_gcp_observed_style(result, instance["name"])
+    instance["state"] = "STOPPED"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, instance["name"])
+    instance["state"] = "ACTIVE"
+    instance["proxyUri"] = "http://book-a.example.com/lab/"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, instance["name"])
+    instance["disableProxyAccess"] = True
+    assert not exposure(gcp(gcoll("workbench_instance", [instance], service="notebooks")), "workbench_instance")
 
 
 def test_gcp_workstation_public_gateway_and_private_cluster():
@@ -2773,6 +5392,48 @@ def test_gcp_tpu_external_port_joins_collected_target_tags_and_firewall():
         return _gcp_tpu_node(snap, Inventory(snap, items), next(row for row in items if row["type"] == "tpu_node"))
     allowed = assessment()
     assert allowed.verdict() == "FAIL" and allowed.ports == pset("tcp", 22, 22)
+    node["networkConfigs"] = [{"network": NET, "subnetwork": "subnet-a"},
+                              {"network": NET, "subnetwork": "subnet-b"}]
+    node.pop("networkConfig")
+    assert assessment().verdict() == "FAIL"
+    node["networkConfigs"][1]["network"] = "https://www.googleapis.com/compute/v1/projects/p1/global/networks/other"
+    assert assessment().verdict() == "UNKNOWN"
+    distinct = one(gcp(gcoll("tpu_node", [node], service="tpu"),
+                       gcoll("firewall", [rule]), gcoll("firewall_policy", [], status="empty")), "tpu_node")
+    assert "distinct VPC networks" in distinct["evidence"]["observed"]
+    assert_gcp_observed_style(distinct, node["name"])
+    node["networkConfigs"][0]["enableExternalIps"] = True
+    node["networkConfigs"][1]["enableExternalIps"] = False
+    selected = assessment()
+    assert selected.verdict() == "FAIL" and selected.ports == pset("tcp", 22, 22)
+    assert any(step["layer"] == "tpu_network_config" and step["network"] == NET for step in selected.path)
+    selected_finding = one(gcp(gcoll("tpu_node", [node], service="tpu"),
+        gcoll("firewall", [rule]), gcoll("firewall_policy", [], status="empty")), "tpu_node")
+    assert "selected VPC" in selected_finding["evidence"]["observed"]
+    assert_gcp_observed_style(selected_finding, node["name"])
+    node["networkConfigs"][1]["enableExternalIps"] = True
+    assert assessment().verdict() == "UNKNOWN"
+    node["networkConfigs"][1]["enableExternalIps"] = False
+    node["networkConfigs"][0].pop("enableExternalIps")
+    assert assessment().verdict() == "UNKNOWN"
+    node["networkConfigs"][0]["enableExternalIps"] = True
+    node["networkConfigs"][0]["enableExternalIps"] = False
+    node["networkConfigs"][1]["enableExternalIps"] = True
+    assert assessment().verdict() == "UNKNOWN"
+    node["networkConfigs"][0].pop("enableExternalIps")
+    node["networkConfigs"][1].pop("enableExternalIps")
+    node["networkConfigs"][1]["network"] = NET
+    assert_gcp_observed_style(one(gcp(gcoll("tpu_node", [node], service="tpu"),
+        gcoll("firewall", [rule]), gcoll("firewall_policy", [], status="empty")), "tpu_node"), node["name"])
+    rule["allowed"][0]["ports"] = ["22", "80"]
+    assert assessment().ports == pset("tcp", 22, 22)
+    node["networkEndpoints"][0]["port"] = 443
+    assert assessment().verdict() == "UNKNOWN"
+    assert_gcp_observed_style(one(gcp(gcoll("tpu_node", [node], service="tpu"),
+        gcoll("firewall", [rule]), gcoll("firewall_policy", [], status="empty")), "tpu_node"), node["name"])
+    node["networkEndpoints"][0].pop("port")
+    assert assessment().verdict() == "UNKNOWN"
+    node["networkEndpoints"][0]["port"] = 22
     node.pop("tags")
     assert assessment().verdict() == "UNKNOWN"
     node["tags"] = ["web"]
@@ -2865,6 +5526,169 @@ def test_gcp_backend_bucket_joins_private_origin_service_agent_grant():
     assert origin["decision"] == "unknown"
 
 
+def test_gcp_backend_bucket_joins_direct_public_origin_read_grant():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map, backend = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendBuckets", "b")))
+    bucket = {"name": "origin-bucket",
+              "iamPolicy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]},
+              "_coverage": {"iamPolicy": {"status": "collected"}},
+              "iamConfiguration": {"publicAccessPrevention": "not_enforced"}}
+    url_map_row = {"name": "m", "selfLink": url_map, "defaultService": backend}
+
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [{"name": "fr", "IPAddress": "34.4.4.4",
+                    "IPProtocol": "TCP", "ports": ["443"], "target": target}]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                   gcoll("url_map", [url_map_row]),
+                   gcoll("backend_bucket", [{"name": "b", "selfLink": backend,
+                                              "bucketName": "origin-bucket", "enableCdn": True}]),
+                   gcoll("bucket", [bucket], service="storage")), "forwarding_rule")
+
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert_gcp_observed_style(result, "fr")
+    origin = next(step for step in result["evidence"]["path"] if step["layer"] == "cdn_origin")
+    assert origin["decision"] == "allow"
+    assert origin["public_origin_read_grants"] == [{"role": "roles/storage.objectViewer", "member": "allUsers"}]
+    assert origin["cdn_service_agent_read_grant"] is False
+    url_map_row["hostRules"] = [{"hosts": ["*"], "pathMatcher": "site"}]
+    url_map_row["pathMatchers"] = [{"name": "site", "defaultService": prefix + "backendServices/other"}]
+    assert finding()["status"] == "UNKNOWN"
+    url_map_row["hostRules"][0]["hosts"] = ["site.example.com"]
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert "unmatched Host peaso-unmatched.invalid" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "fr")
+    url_map_row.pop("hostRules")
+    url_map_row.pop("pathMatchers")
+    bucket["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    bucket["iamPolicy"]["bindings"][0].pop("condition")
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "enforced"
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "not_enforced"
+    bucket["ipFilter"] = {"mode": "Enabled", "publicNetworkSource": {"allowedIpCidrRanges": []}}
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    bucket.pop("ipFilter")
+    bucket["iamPolicy"]["bindings"][0]["role"] = "roles/storage.objectCreator"
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    bucket["iamPolicy"]["bindings"][0]["role"] = "roles/storage.objectViewer"
+    bucket["iamPolicy"]["bindings"][0]["members"] = ["allAuthenticatedUsers"]
+    bucket["ipFilter"] = {"mode": "Disabled"}
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "allow"
+    bucket["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+
+
+def test_gcp_backend_bucket_joins_complete_public_object_acl_on_default_route():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map_ref, backend = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendBuckets", "b")))
+    url_map = {"name": "m", "selfLink": url_map_ref, "defaultService": backend}
+    acl = {"status": "collected", "all_pages": True, "all_objects": True, "all_versions": True,
+           "projection": "full", "source_inventory": "object_acl", "source_requests": ["storage.objects.list"],
+           "items": [{"entity": "allUsers", "role": "READER"}]}
+    bucket = {"name": "origin-bucket", "iamPolicy": {"bindings": []},
+              "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False},
+                                   "publicAccessPrevention": "not_enforced"},
+              "objectAccessControls": acl}
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [{"name": "acl-fr", "IPAddress": "34.4.4.4",
+                    "IPProtocol": "TCP", "ports": ["443"], "target": target}]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map_ref}]),
+                   gcoll("url_map", [url_map]),
+                   gcoll("backend_bucket", [{"name": "b", "selfLink": backend,
+                                              "bucketName": "origin-bucket", "enableCdn": True}]),
+                   gcoll("bucket", [bucket], service="storage")), "forwarding_rule")
+    result = finding()
+    assert result["status"] == "FAIL"
+    origin = next(step for step in result["evidence"]["path"] if step["layer"] == "cdn_origin")
+    assert origin["public_object_acl_grants"] == [{"role": "object ACL READER", "member": "allUsers",
+                                                   "source": "objectAccessControls"}]
+    assert "At least one origin object" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "acl-fr")
+    acl["all_versions"] = False
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    acl["all_versions"] = True
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "enforced"
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "not_enforced"
+    bucket["ipFilter"] = {"mode": "Enabled", "publicNetworkSource": {"allowedIpCidrRanges": []}}
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    bucket.pop("ipFilter")
+    url_map["hostRules"] = [{"hosts": ["site.example.com"], "pathMatcher": "other"}]
+    url_map["pathMatchers"] = [{"name": "other", "defaultService": prefix + "backendServices/other"}]
+    result = finding()
+    origin = next(step for step in result["evidence"]["path"] if step["layer"] == "cdn_origin")
+    assert result["status"] == "FAIL" and origin["host_witness"] == "peaso-unmatched.invalid"
+    assert "unmatched Host peaso-unmatched.invalid" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "acl-fr")
+    url_map["hostRules"] = [{"hosts": ["*"], "pathMatcher": "other"}]
+    url_map["pathMatchers"] = [{"name": "other", "defaultService": prefix + "backendServices/other"}]
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert not any(step["layer"] == "cdn_origin" for step in result["evidence"]["path"])
+    url_map["pathMatchers"][0]["defaultService"] = backend
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert_gcp_observed_style(result, "acl-fr")
+    url_map["pathMatchers"][0]["pathRules"] = [{"paths": ["/*"], "service": prefix + "backendServices/other"}]
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert not any(step["layer"] == "cdn_origin" for step in result["evidence"]["path"])
+
+
+def test_gcp_backend_bucket_joins_public_managed_folder_on_default_route():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map_ref, backend = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendBuckets", "b")))
+    bucket = {"name": "origin-bucket", "iamPolicy": {"bindings": []},
+              "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True},
+                                   "publicAccessPrevention": "not_enforced"}}
+    folder = {"name": "public/", "bucket": "origin-bucket", "iamPolicy": {"bindings": [
+        {"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}}
+    role = {"name": "projects/p1/roles/folderObjectReader", "includedPermissions": ["storage.objects.get"]}
+    url_map = {"name": "m", "selfLink": url_map_ref, "defaultService": backend}
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [{"name": "folder-fr", "IPAddress": "34.4.4.4",
+                    "IPProtocol": "TCP", "ports": ["443"], "target": target}]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map_ref}]),
+                   gcoll("url_map", [url_map]),
+                   gcoll("backend_bucket", [{"name": "b", "selfLink": backend,
+                                              "bucketName": "origin-bucket", "enableCdn": True}]),
+                   gcoll("bucket", [bucket], service="storage"),
+                   gcoll("managed_folder", [folder], service="storage"),
+                   gcoll("iam_role", [role], service="iam")), "forwarding_rule")
+    result = finding()
+    assert result["status"] == "FAIL"
+    origin = next(step for step in result["evidence"]["path"] if step["layer"] == "cdn_origin")
+    assert origin["public_managed_folder_grants"] == [{"role": "roles/storage.objectViewer",
+        "member": "allUsers", "folder": "public/", "source": "managed_folder"}]
+    assert "managed folder public/" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "folder-fr")
+    folder["iamPolicy"]["bindings"][0]["role"] = role["name"]
+    assert finding()["status"] == "FAIL"
+    role["includedPermissions"] = ["storage.objects.list"]
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    role["includedPermissions"] = ["storage.objects.get"]
+    folder["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    folder["iamPolicy"]["bindings"][0].pop("condition")
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "enforced"
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "not_enforced"
+    folder["bucket"] = "other-bucket"
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    folder["bucket"] = "origin-bucket"
+    url_map["hostRules"] = [{"hosts": ["site.example.com"], "pathMatcher": "site"}]
+    url_map["pathMatchers"] = [{"name": "site", "defaultService": prefix + "backendServices/other"}]
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert "unmatched Host peaso-unmatched.invalid" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "folder-fr")
+
+
 def test_gcp_backend_bucket_joins_project_inherited_service_agent_read_grant():
     from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
     from peaso.snapshot import resources
@@ -2899,6 +5723,63 @@ def test_gcp_backend_bucket_joins_project_inherited_service_agent_read_grant():
     assert next(step for step in assessment().path if step["layer"] == "cdn_origin")["decision"] == "unknown"
 
 
+def test_gcp_backend_bucket_joins_project_public_object_viewer_grant():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map, backend = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendBuckets", "b")))
+    bucket = {"name": "origin-bucket", "iamPolicy": {"bindings": []},
+              "_coverage": {"iamPolicy": {"status": "collected"}},
+              "iamConfiguration": {"publicAccessPrevention": "not_enforced"}}
+    project_policy = {"name": GSCOPE, "bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}
+    custom_role = {"name": "projects/p1/roles/originReader", "stage": "GA",
+                   "includedPermissions": ["storage.objects.get"]}
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [{"name": "fr", "IPAddress": "34.4.4.4",
+                    "IPProtocol": "TCP", "ports": ["443"], "target": target}]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                   gcoll("url_map", [{"name": "m", "selfLink": url_map, "defaultService": backend}]),
+                   gcoll("backend_bucket", [{"name": "b", "selfLink": backend,
+                                              "bucketName": "origin-bucket", "enableCdn": True}]),
+                   gcoll("bucket", [bucket], service="storage"),
+                   gcoll("iam_policy", [project_policy], service="cloudasset"),
+                   gcoll("iam_role", [custom_role], service="iam")), "forwarding_rule")
+    result = finding()
+    assert result["status"] == "FAIL"
+    assert_gcp_observed_style(result, "fr")
+    origin = next(step for step in result["evidence"]["path"] if step["layer"] == "cdn_origin")
+    assert origin["public_origin_read_grants"] == [
+        {"role": "roles/storage.objectViewer", "member": "allUsers", "scope": GSCOPE}]
+    assert GSCOPE in result["evidence"]["observed"]
+    project_policy["bindings"][0]["role"] = custom_role["name"]
+    result = finding()
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "cdn_origin")["public_origin_read_grants"] == [
+        {"role": custom_role["name"], "member": "allUsers", "scope": GSCOPE,
+         "permission": "storage.objects.get"}]
+    assert "including storage.objects.get" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "fr")
+    custom_role["includedPermissions"] = ["storage.objects.create"]
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    custom_role["includedPermissions"] = ["storage.objects.get"]
+    custom_role["stage"] = "DISABLED"
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    custom_role["stage"] = "GA"
+    project_policy["bindings"] = []
+    bucket["iamPolicy"]["bindings"] = [{"role": custom_role["name"], "members": ["allUsers"]}]
+    origin = next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")
+    assert origin["public_origin_read_grants"] == [
+        {"role": custom_role["name"], "member": "allUsers", "permission": "storage.objects.get"}]
+    bucket["iamPolicy"]["bindings"] = []
+    project_policy["bindings"] = [{"role": custom_role["name"], "members": ["allUsers"]}]
+    project_policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    project_policy["bindings"][0].pop("condition")
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "enforced"
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+    bucket["iamConfiguration"]["publicAccessPrevention"] = "not_enforced"
+    bucket["ipFilter"] = {"mode": "Enabled", "publicNetworkSource": {"allowedIpCidrRanges": []}}
+    assert next(step for step in finding()["evidence"]["path"] if step["layer"] == "cdn_origin")["decision"] == "unknown"
+
+
 def test_gcp_url_map_weighted_and_route_rule_backends_join_armor():
     from peaso.analysis.internet_exposure import Inventory, _gcp_forwarding_rule
     from peaso.snapshot import resources
@@ -2910,10 +5791,34 @@ def test_gcp_url_map_weighted_and_route_rule_backends_join_armor():
     policy = {"name": "deny", "selfLink": policy_ref, "rules": [
         {"priority": 2147483647, "action": "deny(403)", "match": {"config": {"srcIpRanges": ["*"]}}}]}
     action = {"weightedBackendServices": [{"backendService": backend, "weight": 100}]}
-    for mapping in ({"defaultRouteAction": action},
-                    {"pathMatchers": [{"defaultRouteAction": action}]},
-                    {"pathMatchers": [{"pathRules": [{"routeAction": action}]}]},
-                    {"pathMatchers": [{"routeRules": [{"routeAction": action}]}]}):
+    for mapping, expected in (
+            ({"defaultRouteAction": action}, "PASS"),
+            ({"pathMatchers": [{"defaultRouteAction": action}]}, "UNKNOWN"),
+            ({"pathMatchers": [{"pathRules": [{"routeAction": action}]}]}, "UNKNOWN"),
+            ({"pathMatchers": [{"routeRules": [{"routeAction": action}]}]}, "UNKNOWN"),
+            ({"hostRules": [{"hosts": ["site.example.com"], "pathMatcher": "site"}],
+              "pathMatchers": [{"name": "site", "defaultRouteAction": action}]}, "PASS"),
+            ({"hostRules": [{"hosts": ["*"], "pathMatcher": "site"}],
+              "pathMatchers": [{"name": "site", "routeRules": [{"priority": 100,
+                  "matchRules": [{"prefixMatch": "/"}], "routeAction": action}]}]}, "PASS"),
+            ({"hostRules": [{"hosts": ["*"], "pathMatcher": "site"}],
+              "pathMatchers": [{"name": "site", "routeRules": [{"priority": 100,
+                  "matchRules": [{"prefixMatch": "/"}], "routeAction": action},
+                  {"priority": 200, "matchRules": [{"fullPathMatch": "/later"}],
+                   "service": prefix + "backendServices/missing"}]}]}, "PASS"),
+            ({"hostRules": [{"hosts": ["*"], "pathMatcher": "site"}],
+              "pathMatchers": [{"name": "site", "routeRules": [{"priority": 100,
+                  "matchRules": [{"prefixMatch": "/"}], "routeAction": action},
+                  {"priority": 100, "matchRules": [{"fullPathMatch": "/later"}],
+                   "service": prefix + "backendServices/missing"}]}]}, "UNKNOWN"),
+            ({"hostRules": [{"hosts": ["*"], "pathMatcher": "site"}],
+              "pathMatchers": [{"name": "site", "routeRules": [{"priority": 100,
+                  "matchRules": [{"prefixMatch": "/", "headerMatches": [{"headerName": "X-Test"}]}],
+                  "routeAction": action}]}]}, "UNKNOWN"),
+            ({"hostRules": [{"hosts": ["*"], "pathMatcher": "site"}],
+              "pathMatchers": [{"name": "site", "defaultRouteAction": action, "routeRules": [
+                  {"priority": 100, "matchRules": [{"prefixMatch": "/"}],
+                   "service": prefix + "backendServices/missing"}]}]}, "UNKNOWN")):
         snap = gcp(gcoll("forwarding_rule", [forwarding]),
                    gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
                    gcoll("url_map", [{"name": "m", "selfLink": url_map, **mapping}]),
@@ -2922,7 +5827,184 @@ def test_gcp_url_map_weighted_and_route_rule_backends_join_armor():
         items = resources(snap)
         result = _gcp_forwarding_rule(snap, Inventory(snap, items),
                                       next(row for row in items if row["type"] == "forwarding_rule"))
-        assert result.verdict() == "PASS"
+        assert result.verdict() == expected, mapping
+        if any(step["layer"] == "url_route_rule" for step in result.path) and expected == "UNKNOWN":
+            assert_gcp_observed_style(one(snap, "forwarding_rule"), "fr")
+    policy["rules"][0]["action"] = "allow"
+    universal = {"hostRules": [{"hosts": ["*"], "pathMatcher": "site"}],
+                 "pathMatchers": [{"name": "site", "routeRules": [{"priority": 100,
+                     "matchRules": [{"prefixMatch": "/"}], "routeAction": action}]}]}
+    result = one(gcp(gcoll("forwarding_rule", [forwarding]),
+                     gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                     gcoll("url_map", [{"name": "m", "selfLink": url_map, **universal}]),
+                     gcoll("backend_service", [{"name": "b", "selfLink": backend, "securityPolicy": policy_ref}]),
+                     gcoll("security_policy", [policy])), "forwarding_rule")
+    assert result["status"] == "FAIL" and "priority 100" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "fr")
+    universal["pathMatchers"][0]["routeRules"].append({"priority": 200,
+        "matchRules": [{"fullPathMatch": "/later"}], "service": prefix + "backendServices/missing"})
+    result = one(gcp(gcoll("forwarding_rule", [forwarding]),
+                     gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                     gcoll("url_map", [{"name": "m", "selfLink": url_map, **universal}]),
+                     gcoll("backend_service", [{"name": "b", "selfLink": backend, "securityPolicy": policy_ref}]),
+                     gcoll("security_policy", [policy])), "forwarding_rule")
+    assert result["status"] == "FAIL"
+    assert_gcp_observed_style(result, "fr")
+
+
+def test_gcp_path_rule_backend_bucket_requires_selected_host_path_and_public_origin():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target = prefix + "targetHttpProxies/p"
+    url_map = prefix + "urlMaps/m"
+    backend = prefix + "backendBuckets/b"
+    other = prefix + "backendBuckets/other"
+    mapping = {"name": "m", "selfLink": url_map,
+               "hostRules": [{"hosts": ["site.example.com"], "pathMatcher": "site"}],
+               "pathMatchers": [{"name": "site", "defaultService": other,
+                                 "pathRules": [{"paths": ["/public/*"], "service": backend}]}]}
+    bucket = {"name": "origin-bucket", "iamPolicy": {"bindings": [
+        {"role": "roles/storage.objectViewer", "members": ["allUsers"]}]},
+        "_coverage": {"iamPolicy": {"status": "collected"}},
+        "iamConfiguration": {"publicAccessPrevention": "not_enforced"}}
+
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [{"name": "fr", "IPAddress": "34.4.4.4",
+                    "IPProtocol": "TCP", "ports": ["80"], "target": target}]),
+                   gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                   gcoll("url_map", [mapping]),
+                   gcoll("backend_bucket", [{"name": "b", "selfLink": backend,
+                                              "bucketName": "origin-bucket", "enableCdn": True}]),
+                   gcoll("bucket", [bucket], service="storage")), "forwarding_rule")
+
+    result = finding()
+    assert result["status"] == "FAIL", result
+    assert_gcp_observed_style(result, "fr")
+    assert "Host site.example.com path /public/peaso-witness" in result["evidence"]["observed"]
+    assert any(step["layer"] == "url_path_rule" for step in result["evidence"]["path"])
+    mapping["pathMatchers"][0]["pathRules"].insert(0, {"paths": ["/public/peaso-witness"], "service": other})
+    assert finding()["status"] == "UNKNOWN"
+    mapping["pathMatchers"][0]["pathRules"][0]["paths"] = ["/public/other"]
+    assert finding()["status"] == "FAIL"
+    mapping["pathMatchers"][0]["pathRules"][1]["paths"] = ["public/*"]
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_gcp_path_rule_backend_cloud_armor_deny_is_partial_unknown():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map, backend, policy_ref = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"),
+        ("backendServices", "b"), ("securityPolicies", "deny")))
+    mapping = {"name": "m", "selfLink": url_map,
+               "hostRules": [{"hosts": ["*"], "pathMatcher": "site"}],
+               "pathMatchers": [{"name": "site", "pathRules": [
+                   {"paths": ["/private/*"], "service": backend}]}]}
+    policy = {"name": "deny", "selfLink": policy_ref, "rules": [
+        {"priority": 2147483647, "action": "deny(403)",
+         "match": {"config": {"srcIpRanges": ["*"]}}}]}
+    snap = gcp(gcoll("forwarding_rule", [{"name": "fr", "IPAddress": "34.4.4.4",
+                    "IPProtocol": "TCP", "ports": ["80"], "target": target}]),
+               gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+               gcoll("url_map", [mapping]),
+               gcoll("backend_service", [{"name": "b", "selfLink": backend,
+                                           "securityPolicy": policy_ref}]),
+               gcoll("security_policy", [policy]))
+    result = one(snap, "forwarding_rule")
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "fr")
+    assert "path rule /private/*" in result["evidence"]["observed"]
+    mapping["pathMatchers"][0]["pathRules"][0]["paths"] = ["/*"]
+    universal = one(gcp(gcoll("forwarding_rule", [{"name": "fr", "IPAddress": "34.4.4.4",
+                    "IPProtocol": "TCP", "ports": ["80"], "target": target}]),
+                gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map}]),
+                gcoll("url_map", [mapping]),
+                gcoll("backend_service", [{"name": "b", "selfLink": backend,
+                                            "securityPolicy": policy_ref}]),
+                gcoll("security_policy", [policy])), "forwarding_rule")
+    assert universal["status"] == "PASS"
+
+
+def test_gcp_first_route_rule_backend_path_witness_is_positive_only():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map_ref, backend, policy_ref = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendServices", "b"), ("securityPolicies", "armor")))
+    forwarding = {"name": "route-fr", "IPAddress": "34.4.4.4", "IPProtocol": "TCP",
+                  "ports": ["80"], "target": target, "loadBalancingScheme": "EXTERNAL_MANAGED"}
+    rule = {"priority": 10, "matchRules": [{"fullPathMatch": "/admin"}], "service": backend}
+    url_map = {"name": "m", "selfLink": url_map_ref,
+               "hostRules": [{"hosts": ["site.example.com"], "pathMatcher": "site"}],
+               "pathMatchers": [{"name": "site", "defaultService": prefix + "backendServices/other",
+                                 "routeRules": [rule]}]}
+    policy = {"name": "armor", "selfLink": policy_ref,
+              "rules": [{"priority": 2147483647, "action": "allow", "match": {"config": {"srcIpRanges": ["*"]}}}]}
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [forwarding]),
+                       gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map_ref}]),
+                       gcoll("url_map", [url_map]),
+                       gcoll("backend_service", [{"name": "b", "selfLink": backend,
+                                                  "securityPolicy": policy_ref}]),
+                       gcoll("security_policy", [policy])), "forwarding_rule")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/80"]
+    assert "Host site.example.com" in result["evidence"]["observed"]
+    assert "path exact /admin" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "route-fr")
+    policy["rules"][0]["action"] = "deny(403)"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert any("other host and path routes" in gap["reason"] for gap in result["evidence"]["unresolved"])
+    assert_gcp_observed_style(result, "route-fr")
+    policy["rules"][0]["action"] = "allow"
+    rule["matchRules"] = [{"prefixMatch": "/admin"}]
+    assert finding()["status"] == "FAIL"
+    rule["matchRules"] = [{"prefixMatch": "/admin", "headerMatches": [{"headerName": "X-Token"}]}]
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert not any(step["layer"] == "url_route_rule" for step in result["evidence"]["path"])
+
+
+def test_gcp_later_path_route_rule_backend_requires_disjoint_predecessors():
+    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
+    target, url_map_ref, backend, policy_ref = (prefix + kind + "/" + name for kind, name in (
+        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendServices", "b"), ("securityPolicies", "armor")))
+    forwarding = {"name": "later-fr", "IPAddress": "34.4.4.4", "IPProtocol": "TCP",
+                  "ports": ["80"], "target": target, "loadBalancingScheme": "EXTERNAL_MANAGED"}
+    earlier = {"priority": 10, "matchRules": [{"prefixMatch": "/old",
+                   "headerMatches": [{"headerName": "X-Choice", "exactMatch": "old"}]}],
+               "service": prefix + "backendServices/missing"}
+    later = {"priority": 20, "matchRules": [{"fullPathMatch": "/admin"}], "service": backend}
+    url_map = {"name": "m", "selfLink": url_map_ref,
+               "hostRules": [{"hosts": ["site.example.com"], "pathMatcher": "site"}],
+               "pathMatchers": [{"name": "site", "routeRules": [earlier, later]}]}
+    policy = {"name": "armor", "selfLink": policy_ref,
+              "rules": [{"priority": 2147483647, "action": "allow", "match": {"config": {"srcIpRanges": ["*"]}}}]}
+    def finding():
+        return one(gcp(gcoll("forwarding_rule", [forwarding]),
+                       gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map_ref}]),
+                       gcoll("url_map", [url_map]),
+                       gcoll("backend_service", [{"name": "b", "selfLink": backend,
+                                                  "securityPolicy": policy_ref}]),
+                       gcoll("security_policy", [policy])), "forwarding_rule")
+    result = finding()
+    assert result["status"] == "FAIL" and "priority 20" in result["evidence"]["observed"]
+    assert "path exact /admin" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "later-fr")
+    policy["rules"][0]["action"] = "deny(403)"
+    result = finding()
+    assert result["status"] == "UNKNOWN"
+    assert_gcp_observed_style(result, "later-fr")
+    policy["rules"][0]["action"] = "allow"
+    earlier["matchRules"][0]["prefixMatch"] = "/"
+    assert finding()["status"] == "UNKNOWN"
+    earlier["matchRules"][0]["prefixMatch"] = "/old"
+    later["matchRules"] = [{"prefixMatch": "/admin"}]
+    result = finding()
+    assert result["status"] == "FAIL" and "path prefix /admin" in result["evidence"]["observed"]
+    assert_gcp_observed_style(result, "later-fr")
+    earlier["matchRules"][0]["prefixMatch"] = "/admin"
+    assert finding()["status"] == "UNKNOWN"
+    later["matchRules"] = [{"fullPathMatch": "/admin"}]
+    earlier["matchRules"] = [{"pathTemplateMatch": "/{path=**}"}]
+    assert finding()["status"] == "UNKNOWN"
 
 
 def test_gcp_cdn_backend_service_edge_policy_precedes_cache_and_backend_policy():
@@ -3345,15 +6427,16 @@ def test_stopped_instance_keeps_fail_with_lower_severity():
     assert "stopped or deallocated" in result["evidence"]["observed"]
 
 
-def test_public_https_observation_and_action_are_specific_and_brief():
+def test_http_api_live_route_does_not_claim_deployed_public_access():
     endpoint = "https://9gi0nszlth.execute-api.ca-central-1.amazonaws.com"
     api = {"ApiId": "9gi0nszlth", "ApiEndpoint": endpoint, "ProtocolType": "HTTP",
            "Routes": [{"RouteKey": "GET /", "AuthorizationType": "NONE"}],
            "Stages": {"collection_status": "collected", "items": [{"StageName": "$default", "AutoDeploy": True}]}}
     result = one(aws(coll("http_api", [api], service="apigatewayv2")), "http_api")
-    assert result["status"] == "FAIL" and result["severity"] == "medium"
-    assert result["evidence"]["observed"] == f"Internet access to tcp/443 at {endpoint} is allowed."
-    assert result["remediation"] == "Consider whether this endpoint needs internet access; restrict unnecessary source networks or ports."
+    assert result["status"] == "UNKNOWN" and result["severity"] == "info"
+    assert "apigatewayv2:ExportApi" in result["evidence"]["collector_facts_needed"]
+    assert result["evidence"]["public_addresses"] == [endpoint]
+    assert result["evidence"]["observed"] == "Internet access could not be determined because required configuration is missing."
     assert "no traffic was sent" in result["evidence"]["semantics"]
 
 

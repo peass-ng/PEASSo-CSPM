@@ -141,7 +141,8 @@ def test_raw_observed_code_cannot_create_an_internet_path_claim():
     assert dispatch({'check_id':'analysis.internet_exposure','provider':'aws','status':'FAIL','evidence':{'observed':'000000'}}) is None
     from peaso.analysis.finding_clarity import evidence_summary as explain
     assert explain({'check_id':'analysis.internet_exposure','provider':'aws','status':'FAIL','evidence':{'observed':'000000'}}) is None
-    finding=next(f for f in analyze_findings(provider_snapshot('aws')) if f['check_id']=='analysis.internet_exposure')
+    finding=next(f for f in analyze_findings(provider_snapshot('aws'))
+                 if f['check_id']=='analysis.internet_exposure' and f['evidence'].get('exposure_kind')=='api')
     finding['evidence']['path']=[{'layer':'authorization','decision':'block'}]
     explanation = explain(finding)
     assert explanation is not None and 'cannot be resolved' in explanation
@@ -188,7 +189,8 @@ def test_review_ledger_examples_match_the_current_native_analysis_callback(provi
     findings=analyze_findings(provider_snapshot(provider))
     for row in ledger['checks'].values():
         if row['provider']!=provider:continue
-        actual=[{'status':f['status'],'example':evidence_summary(f)} for f in findings if f['check_id']==row['check_id']]
+        actual=[{'status':f['status'],'example':evidence_summary(f) or f['evidence'].get('observed')}
+                for f in findings if f['check_id']==row['check_id']]
         expected=[{'status':x['status'],'example':x['example']} for x in row['examples']]
         assert actual==expected
 

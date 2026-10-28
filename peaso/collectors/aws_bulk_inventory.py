@@ -4,6 +4,7 @@ All requests use the shared cache, pagination and scan budgets. A failure in
 any child listing preserves the parent failure instead of certifying absence.
 """
 import json
+import hashlib
 import re
 import ipaddress
 from .aws_facts_data_identity import _pick
@@ -22,7 +23,9 @@ SPECS = {
     'resolver_query_log_config': ('route53resolver', 'list_resolver_query_log_configs', 'ResolverQueryLogConfigs'),
     'resolver_query_log_config_association': ('route53resolver', 'list_resolver_query_log_config_associations', 'ResolverQueryLogConfigAssociations'),
     'log_subscription_filter': ('logs', 'describe_subscription_filters', 'subscriptionFilters'),
+    'log_account_subscription_policy': ('logs', 'describe_account_policies', 'accountPolicies'),
     'log_destination': ('logs', 'describe_destinations', 'destinations'),
+    'sns_topic_subscription': ('sns', 'list_subscriptions_by_topic', 'Subscriptions'),
     'ec2_instance_type': ('ec2', 'describe_instance_types', 'InstanceTypes'),
     'eks_version_catalog': ('eks', 'describe_cluster_versions', 'clusterVersions'),
     'elbv2_listener': ('elbv2', 'describe_listeners', 'Listeners'),
@@ -41,7 +44,8 @@ READ_ACTIONS = {('appsync','list_graphql_apis')}
 READ_ACTIONS.update({('route53resolver', 'list_firewall_rule_groups'), ('logs', 'describe_log_groups'), ('elbv2', 'describe_load_balancers')})
 READ_ACTIONS.add(('wafv2', 'get_ip_set'))
 NATIVE_IDS.update({kind: 'Id' for kind in ('resolver_firewall_rule_group_association', 'resolver_query_log_config', 'resolver_query_log_config_association')})
-NATIVE_IDS.update({'resolver_firewall_rule': 'id', 'log_subscription_filter': 'id', 'log_destination': 'arn', 'ec2_instance_type': 'InstanceType', 'eks_version_catalog': 'region', 'elbv2_listener': 'ListenerArn'})
+NATIVE_IDS.update({'resolver_firewall_rule': 'id', 'log_subscription_filter': 'id', 'log_account_subscription_policy': 'id', 'log_destination': 'arn', 'sns_topic_subscription': 'id', 'ec2_instance_type': 'InstanceType', 'eks_version_catalog': 'region', 'elbv2_listener': 'ListenerArn'})
+READ_ACTIONS.add(('sns', 'list_topics'))
 NATIVE_IDS.update({'inspector_finding': 'findingArn', 'securityhub_finding': 'Id'})
 NATIVE_IDS['wafv2_ip_set'] = 'ARN'
 
@@ -208,6 +212,87 @@ def _subscriptions(requests, session, region, account):
     return _finish(rows, failures)
 
 
+def _account_subscription_policies(requests, session, region, account):
+    """Read the regional account-level subscription, with no log-event access."""
+    from .aws import ReadResult
+    read = requests.pages(session, 'logs', region, 'describe_account_policies', 'accountPolicies',
+                          policyType='SUBSCRIPTION_FILTER_POLICY')
+    rows, failures, seen = [], [], set()
+    if read.status not in ('collected', 'empty'):
+        failures.append(read)
+    for item in read.items:
+        if not isinstance(item, dict):
+            failures.append(ReadResult([], 'malformed', {'code': 'invalid_account_subscription_policy'}))
+            continue
+        name, owner, document = item.get('policyName'), item.get('accountId'), item.get('policyDocument')
+        if (not isinstance(name, str) or not name or name in seen or
+                owner not in (None, account) or item.get('policyType') != 'SUBSCRIPTION_FILTER_POLICY'):
+            failures.append(ReadResult([], 'malformed', {'code': 'invalid_account_subscription_policy'}))
+            continue
+        seen.add(name)
+        try:
+            policy = json.loads(document) if isinstance(document, str) else None
+        except (ValueError, TypeError):
+            policy = None
+        if not isinstance(policy, dict):
+            failures.append(ReadResult([], 'malformed', {'code': 'invalid_account_subscription_document'}))
+            continue
+        rows.append({'id': f'{account}/{region}/log-account-policy/{name}', 'accountId': account,
+                     'policyName': name, 'policyType': 'SUBSCRIPTION_FILTER_POLICY',
+                     'DestinationArn': policy.get('DestinationArn'),
+                     'selectionCriteria': item.get('selectionCriteria'),
+                     '_provenance': {'source_operation': 'DescribeAccountPolicies', 'read_only': True}})
+    return _finish(rows, failures)
+
+
+def _sns_topic_subscriptions(requests, session, region, account):
+    """Read each owned topic's subscribers without retaining endpoint values."""
+    from .aws import ReadResult
+    topics = requests.pages(session, 'sns', region, 'list_topics', 'Topics')
+    rows, failures, seen_topics, seen_subscriptions = [], [], set(), set()
+    if topics.status not in ('collected', 'empty'):
+        failures.append(topics)
+    partition = 'aws-cn' if region.startswith('cn-') else 'aws-us-gov' if region.startswith('us-gov-') else 'aws'
+    for topic in topics.items:
+        arn = topic.get('TopicArn') if isinstance(topic, dict) else None
+        match = re.fullmatch(r'arn:' + partition + r':sns:' + re.escape(region) + ':' + re.escape(account) + r':([A-Za-z0-9_-]{1,256}(?:\.fifo)?)', arn) if isinstance(arn, str) else None
+        if match is None or arn in seen_topics:
+            failures.append(ReadResult([], 'malformed', {'code': 'invalid_sns_topic_identity'}))
+            continue
+        seen_topics.add(arn)
+        read = requests.pages(session, 'sns', region, 'list_subscriptions_by_topic', 'Subscriptions', TopicArn=arn)
+        if read.status not in ('collected', 'empty'):
+            failures.append(read)
+        for item in read.items:
+            if not isinstance(item, dict) or item.get('TopicArn') != arn:
+                failures.append(ReadResult([], 'malformed', {'code': 'invalid_sns_subscription_topic'}))
+                continue
+            owner, sub_arn, protocol = item.get('Owner'), item.get('SubscriptionArn'), item.get('Protocol')
+            if (not isinstance(owner, str) or not re.fullmatch(r'[0-9]{12}', owner) or
+                    not isinstance(protocol, str) or not protocol):
+                failures.append(ReadResult([], 'malformed', {'code': 'invalid_sns_subscription_identity'}))
+                continue
+            if sub_arn == 'PendingConfirmation':
+                endpoint = item.get('Endpoint')
+                if not isinstance(endpoint, str) or not endpoint:
+                    failures.append(ReadResult([], 'malformed', {'code': 'invalid_sns_pending_subscription'}))
+                    continue
+                identity = arn + '/pending/' + hashlib.sha256(endpoint.encode()).hexdigest()[:16]
+            elif isinstance(sub_arn, str) and re.fullmatch(r'arn:' + partition + r':sns:' + re.escape(region) + ':' + owner + ':' + re.escape(match.group(1)) + r':[0-9a-fA-F-]{36}', sub_arn):
+                identity = sub_arn
+            else:
+                failures.append(ReadResult([], 'malformed', {'code': 'invalid_sns_subscription_arn'}))
+                continue
+            if identity in seen_subscriptions:
+                failures.append(ReadResult([], 'malformed', {'code': 'duplicate_sns_subscription'}))
+                continue
+            seen_subscriptions.add(identity)
+            rows.append({'id': identity, 'TopicArn': arn, 'SubscriptionArn': sub_arn,
+                         'Owner': owner, 'Protocol': protocol,
+                         '_provenance': {'source_operation': 'ListSubscriptionsByTopic', 'read_only': True}})
+    return _finish(rows, failures)
+
+
 def _eks_versions(requests, session, region, account):
     from .aws import ReadResult
     read = requests.pages(session, 'eks', region, 'describe_cluster_versions', 'clusterVersions', includeAll=True)
@@ -348,7 +433,9 @@ FETCHERS = {
     'resolver_query_log_config': _native_list('route53resolver', 'list_resolver_query_log_configs', 'ResolverQueryLogConfigs', ['Id', 'Arn', 'Name', 'OwnerId', 'DestinationArn', 'Status', 'ShareStatus'], 'Id', 'Arn'),
     'resolver_query_log_config_association': _native_list('route53resolver', 'list_resolver_query_log_config_associations', 'ResolverQueryLogConfigAssociations', ['Id', 'Arn', 'ResolverQueryLogConfigId', 'ResourceId', 'Status', 'Error'], 'Id', 'Arn'),
     'log_subscription_filter': _subscriptions,
+    'log_account_subscription_policy': _account_subscription_policies,
     'log_destination': _native_list('logs', 'describe_destinations', 'destinations', ['destinationName', 'targetArn', 'roleArn', 'accessPolicy', 'arn', 'creationTime'], 'arn', 'arn'),
+    'sns_topic_subscription': _sns_topic_subscriptions,
     'ec2_instance_type': _native_list('ec2', 'describe_instance_types', 'InstanceTypes', ['InstanceType', 'Hypervisor', 'CurrentGeneration'], 'InstanceType'),
     'eks_version_catalog': _eks_versions,
     'elbv2_listener': _listeners,

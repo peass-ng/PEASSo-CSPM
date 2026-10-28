@@ -41,6 +41,10 @@ OK = ("collected", "empty")
 
 SPECS = {
     "lambda_layer_version": ("lambda", "list_layers", "Layers"),
+    "lambda_version": ("lambda", "list_versions_by_function", "Versions"),
+    "redshiftserverless_snapshot": ("redshift-serverless", "list_snapshots", "snapshots"),
+    "docdb_cluster_snapshot": ("docdb", "describe_db_cluster_snapshots", "DBClusterSnapshots"),
+    "neptune_cluster_snapshot": ("neptune", "describe_db_cluster_snapshots", "DBClusterSnapshots"),
     "lambda_alias": ("lambda", "list_aliases", "Aliases"),
     "lambda_event_source_mapping": ("lambda", "list_event_source_mappings", "EventSourceMappings"),
     "ecr_registry": ("ecr", "describe_registry", None),
@@ -71,10 +75,12 @@ SPECS = {
 NATIVE_IDS = {kind: "id" for kind in SPECS}
 GLOBAL_TYPES = {"route53_record_set"}
 READ_ACTIONS = {
-    ("lambda", "list_functions"), ("lambda", "list_layer_versions"), ("lambda", "get_layer_version_policy"),
+    ("lambda", "list_functions"), ("lambda", "list_layer_versions"), ("lambda", "list_versions_by_function"), ("lambda", "get_layer_version_policy"),
     ("lambda", "get_function_url_config"), ("lambda", "get_policy"),
     ("lambda", "get_function_configuration"), ("lambda", "get_runtime_management_config"),
     ("ecr", "get_registry_policy"), ("ecr", "describe_pull_through_cache_rules"), ("ecr", "describe_repository_creation_templates"),
+    ("redshift-serverless", "list_snapshots"),
+    ("docdb", "describe_db_cluster_snapshot_attributes"), ("neptune", "describe_db_cluster_snapshot_attributes"),
     ("eks", "list_clusters"), ("eks", "describe_access_entry"), ("eks", "list_associated_access_policies"),
     ("eks", "describe_pod_identity_association"),
     ("kms", "list_keys"), ("kms", "describe_key"),
@@ -279,6 +285,84 @@ def _layer_versions(requests, session, region, account):
     return _finish(items, failure)
 
 
+def _versions(requests, session, region, account):
+    functions = _functions(requests, session, region)
+    if functions.status not in OK:
+        return _finish([], _cause(functions))
+    items, failure = [], None
+    for function in functions.items:
+        name = function.get("FunctionName") if isinstance(function, dict) else None
+        base = function.get("FunctionArn") if isinstance(function, dict) else None
+        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or
+                base != f"arn:{_partition(region)}:lambda:{region}:{account}:function:{name}"):
+            failure = failure or ("malformed", {"code": "lambda_function_identity_mismatch"})
+            continue
+        versions = requests.pages(session, "lambda", region, "list_versions_by_function", "Versions", FunctionName=name)
+        if versions.status not in OK:
+            failure = failure or _cause(versions)
+        for version in versions.items:
+            number = version.get("Version") if isinstance(version, dict) else None
+            arn = version.get("FunctionArn") if isinstance(version, dict) else None
+            if number == "$LATEST":
+                continue
+            if (not isinstance(number, str) or not number.isdigit() or int(number) < 1 or
+                    arn != f"{base}:{number}"):
+                failure = failure or ("malformed", {"code": "lambda_version_identity_mismatch"})
+                continue
+            policy = requests.detail(session, "lambda", region, "get_policy",
+                                     FunctionName=name, Qualifier=number, absent=("ResourceNotFoundException",))
+            if "Policy" in policy:
+                policy["Policy"] = _aws()._policy(policy["Policy"])
+            items.append({"id": arn, "FunctionName": name, "BaseFunctionArn": base,
+                          "FunctionArn": arn, "Version": number, "Role": version.get("Role"), "Policy": policy})
+    return _finish(items, failure)
+
+
+def _redshiftserverless_snapshots(requests, session, region, account):
+    read = requests.pages(session, "redshift-serverless", region, "list_snapshots", "snapshots")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    items, failure = [], None
+    for item in read.items:
+        if not isinstance(item, dict) or not isinstance(item.get("snapshotArn"), str):
+            failure = failure or ("malformed", {"code": "malformed_serverless_snapshot"})
+            continue
+        row = _pick(item, ("snapshotArn", "snapshotName", "ownerAccount", "status", "kmsKeyId",
+                           "accountsWithRestoreAccess", "accountsWithProvisionedRestoreAccess"))
+        row["id"] = item["snapshotArn"]
+        items.append(row)
+    return _finish(items, failure)
+
+
+def _cluster_snapshots(service):
+    def fetch(requests, session, region, account):
+        read = requests.pages(session, service, region, "describe_db_cluster_snapshots", "DBClusterSnapshots",
+                              IncludeShared=False, IncludePublic=False)
+        if read.status not in OK:
+            return _finish([], _cause(read))
+        items, failure = [], None
+        for item in read.items:
+            name = item.get("DBClusterSnapshotIdentifier") if isinstance(item, dict) else None
+            arn = item.get("DBClusterSnapshotArn") if isinstance(item, dict) else None
+            if not isinstance(name, str) or not name or not isinstance(arn, str):
+                failure = failure or ("malformed", {"code": "malformed_cluster_snapshot"})
+                continue
+            row = _pick(item, ("DBClusterSnapshotIdentifier", "DBClusterSnapshotArn", "DBClusterIdentifier",
+                               "SnapshotType", "Status", "StorageEncrypted", "KmsKeyId", "Engine"))
+            row["id"] = arn
+            if item.get("SnapshotType") == "manual":
+                detail = requests.detail(session, service, region, "describe_db_cluster_snapshot_attributes",
+                                         DBClusterSnapshotIdentifier=name, absent=("DBClusterSnapshotNotFoundFault",))
+                row["Attributes"] = _status(detail)
+                if detail.get("collection_status") == "collected":
+                    row["Attributes"]["DBClusterSnapshotAttributesResult"] = _pick(
+                        detail.get("DBClusterSnapshotAttributesResult"),
+                        ("DBClusterSnapshotIdentifier", "DBClusterSnapshotAttributes"))
+            items.append(row)
+        return _finish(items, failure)
+    return fetch
+
+
 def _aliases(requests, session, region, account):
     functions = _functions(requests, session, region)
     if functions.status not in OK:
@@ -308,12 +392,11 @@ def _aliases(requests, session, region, account):
             if url.get("collection_status") == "collected" and url.get("FunctionArn") != alias["AliasArn"]:
                 url = {"collection_status": "malformed", "error": {"code": "lambda_alias_url_identity_mismatch"}}
             row["FunctionUrl"] = url
-            if url.get("collection_status") == "collected":
-                policy = requests.detail(session, "lambda", region, "get_policy",
-                                         FunctionName=name, Qualifier=alias_name, absent=("ResourceNotFoundException",))
-                if "Policy" in policy:
-                    policy["Policy"] = _aws()._policy(policy["Policy"])
-                row["Policy"] = policy
+            policy = requests.detail(session, "lambda", region, "get_policy",
+                                     FunctionName=name, Qualifier=alias_name, absent=("ResourceNotFoundException",))
+            if "Policy" in policy:
+                policy["Policy"] = _aws()._policy(policy["Policy"])
+            row["Policy"] = policy
             items.append(row)
     return _finish(items, failure)
 
@@ -1082,6 +1165,10 @@ def _account_assignments(requests, session, region, account):
 
 FETCHERS = {
     "lambda_layer_version": _layer_versions,
+    "lambda_version": _versions,
+    "redshiftserverless_snapshot": _redshiftserverless_snapshots,
+    "docdb_cluster_snapshot": _cluster_snapshots("docdb"),
+    "neptune_cluster_snapshot": _cluster_snapshots("neptune"),
     "lambda_alias": _aliases,
     "lambda_event_source_mapping": _event_source_mappings,
     "ecr_registry": _ecr_registry,
