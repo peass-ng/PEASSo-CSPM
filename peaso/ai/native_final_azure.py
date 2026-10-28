@@ -19,7 +19,7 @@ SOURCE_HASHES = {
     'peaso/checks/azure.py': '616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e',
     'peaso/checks/azure_extended.py': '9c05c602d4279a46c6926b04041a9c8a4d67b3532d8677eb3ca07ee08927517a',
     'peaso/checks/facts.py': '15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926',
-    'peaso/collectors/azure.py': '7f44e70205f6fb4ffbea3b787af2947871236d16e50095eb8660f6ac846d690f',
+    'peaso/collectors/azure.py': 'ba4b8bc54cdcbb1e35ef50a7dea9d04928a6fe5ed6ca885e4722ec1c8e750d67',
 }
 EXPECTED = {
     'azure.defender.standard_tier': (12, 'security_pricing', ('name', 'properties.pricingTier')),
