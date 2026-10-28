@@ -646,6 +646,52 @@ def test_nsg_unresolved_public_source_tag_cannot_prove_closed_path():
     assert any(gap["layer"] == "nsg" and "service tag" in gap["reason"] for gap in row.unresolved)
 
 
+def test_nic_public_return_route_uses_complete_effective_table():
+    nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
+    subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
+    nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/nsg"
+    pip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/pip"
+
+    def verdict(hop=None, *, status="collected", extra=()):
+        collections = [
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": pip_id, "sku": {"name": "Standard"},
+                        "properties": {"ipAddress": "52.1.2.3"}}]},
+            {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": nsg_id, "properties": {"securityRules": [{"name": "allow-ssh",
+                 "properties": {"priority": 100, "direction": "Inbound", "access": "Allow",
+                                "protocol": "Tcp", "sourceAddressPrefix": "*",
+                                "destinationAddressPrefix": "*", "destinationPortRange": "22"}}]}}]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": subnet_id, "properties": {}}]},
+            {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": nic_id, "properties": {"networkSecurityGroup": {"id": nsg_id},
+                 "ipConfigurations": [{"name": "primary", "properties": {"subnet": {"id": subnet_id},
+                     "publicIPAddress": {"id": pip_id}, "privateIPAddress": "10.0.0.4"}}]}}]},
+        ]
+        if hop is not None:
+            routes = [{"state": "Active", "source": "User", "addressPrefix": ["0.0.0.0/0"],
+                       "nextHopType": hop},
+                      {"state": "Active", "source": "Default", "addressPrefix": ["10.0.0.0/8"],
+                       "nextHopType": "VnetLocal"}, *extra]
+            items = [{"id": nic_id + f"/effectiveRoutes/{i}", "nic_id": nic_id,
+                      "route": route, "_provenance": {"source_operation": "effectiveRouteTable",
+                      "read_only": True, "nic_id": nic_id}} for i, route in enumerate(routes)]
+            collections.append({"type": "effective_route", "scope": SCOPE, "service": "network",
+                                "status": status, "items": items})
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "nic")
+
+    assert verdict().verdict() == "FAIL"  # No route inventory in this snapshot.
+    dropped = verdict("None")
+    assert dropped.verdict() == "PASS" and dropped.blocked_by == "return_route"
+    assert verdict("VirtualAppliance").verdict() == "UNKNOWN"
+    assert verdict("None", status="partial").verdict() == "UNKNOWN"
+    exception = {"state": "Active", "source": "User", "addressPrefix": ["8.8.8.0/24"],
+                 "nextHopType": "Internet"}
+    assert verdict("None", extra=(exception,)).verdict() == "UNKNOWN"
+
+
 def test_nsg_joins_cached_subscription_service_tag_prefixes():
     nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"

@@ -3984,10 +3984,76 @@ def _azure_public_ips(inventory):
     return output
 
 
+def _azure_nic_public_return_route(inventory, nic, public_address):
+    """Prove a dropped public return route only from complete NIC effective routes."""
+    if "effective_route" not in inventory.status:
+        return None
+    if inventory.state("effective_route", nic["scope"]) != "collected":
+        return "unknown"
+    try:
+        family = ipaddress.ip_address(public_address).version
+    except (TypeError, ValueError):
+        return "unknown"
+    nic_id = str(nic["data"].get("id", ""))
+    rows = [row["data"] for row in inventory.items("effective_route")
+            if row["scope"] == nic["scope"] and
+            str(row["data"].get("nic_id", "")).casefold() == nic_id.casefold()]
+    if not rows:
+        return "unknown"
+    default_drop = False
+    public_override = False
+    forced_tunnel = False
+    seen = set()
+    for row in rows:
+        rid = row.get("id")
+        proof = row.get("_provenance")
+        route = row.get("route")
+        if (not isinstance(rid, str) or not rid.casefold().startswith(
+                (nic_id + "/effectiveRoutes/").casefold()) or rid.casefold() in seen
+                or not isinstance(proof, dict) or proof.get("source_operation") != "effectiveRouteTable"
+                or proof.get("read_only") is not True or
+                str(proof.get("nic_id", "")).casefold() != nic_id.casefold()
+                or not isinstance(route, dict) or route.get("state") not in ("Active", "Invalid")):
+            return "unknown"
+        seen.add(rid.casefold())
+        if route["state"] == "Invalid":
+            continue
+        prefixes = route.get("addressPrefix")
+        if not isinstance(prefixes, list) or not prefixes:
+            return "unknown"
+        for prefix in prefixes:
+            try:
+                network = ipaddress.ip_network(prefix, strict=False)
+            except (TypeError, ValueError):
+                return "unknown"
+            if network.version != family:
+                continue
+            hop = route.get("nextHopType")
+            source = route.get("source")
+            if source not in ("User", "VirtualNetworkGateway", "Default") or hop not in (
+                    "Internet", "None", "VnetLocal", "VnetPeering", "VirtualAppliance",
+                    "VirtualApplianceEcmp", "VirtualNetworkGateway", "VirtualNetworkServiceEndpoint"):
+                return "unknown"
+            if network.prefixlen == 0 and source == "User":
+                if hop == "None":
+                    default_drop = True
+                elif hop in ("VirtualAppliance", "VirtualApplianceEcmp", "VirtualNetworkGateway"):
+                    forced_tunnel = True
+                else:
+                    public_override = True
+            elif network.is_global and network.prefixlen > 0 and hop != "None":
+                public_override = True
+    if default_drop:
+        return "unknown" if public_override or forced_tunnel else "block"
+    if forced_tunnel:
+        return "unknown"
+    return None
+
+
 def _azure_nic(snapshot, inventory, resource, public_ips):
     props = _props(resource)
     a = Assessment(resource, "public_ip")
-    total, found = {}, False
+    total, found, unresolved_route = {}, False, False
     for config in as_list(props.get("ipConfigurations")):
         if not isinstance(config, dict):
             continue
@@ -4006,13 +4072,28 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
                 a.addresses.append(_props(public)["ipAddress"])
             a.step("public_ip", "allow", public_ip=native_id(public), sku=sku, address=_props(public).get("ipAddress"))
         groups = [g.get("id") for g in as_list(cp.get("applicationSecurityGroups")) if isinstance(g, dict)]
-        total = union(total, _azure_nsg_path(inventory, a, (props.get("networkSecurityGroup") or {}).get("id"), (cp.get("subnet") or {}).get("id"),
-                                             dict(FULL), cp.get("privateIPAddress"), groups, sku, config.get("name")))
+        allowed = _azure_nsg_path(inventory, a, (props.get("networkSecurityGroup") or {}).get("id"), (cp.get("subnet") or {}).get("id"),
+                                  dict(FULL), cp.get("privateIPAddress"), groups, sku, config.get("name"))
+        if not empty(allowed):
+            route = _azure_nic_public_return_route(inventory, resource,
+                                                    _props(public).get("ipAddress") if public else None)
+            if route == "block":
+                a.step("return_route", "block", reason="complete NIC effective routes drop public return traffic",
+                       nic=native_id(resource), at=config.get("name"))
+                allowed = {}
+            elif route == "unknown":
+                a.step("return_route", "unknown", reason="public return traffic uses an unresolved effective route",
+                       nic=native_id(resource), at=config.get("name"))
+                unresolved_route = True
+                allowed = {}
+        total = union(total, allowed)
     if not found:
         return None
     a.ports = total
     if not empty(total):
         a.blocked_by = None
+    elif unresolved_route:
+        a.explicit = "UNKNOWN"
     vm = (props.get("virtualMachine") or {}).get("id")
     target = inventory.get("vm", vm) if vm else None
     if target is not None:
