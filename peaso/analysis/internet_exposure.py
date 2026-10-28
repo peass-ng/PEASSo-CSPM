@@ -9821,6 +9821,66 @@ def _azure_private_dns_zone(snapshot, inventory, resource):
     return a
 
 
+def _azure_devops_project(snapshot, inventory, resource):
+    """Public DevOps projects grant anonymous access to project contents."""
+    a = Assessment(resource, "external_share")
+    a.ports = {}
+    visibility = resource["data"].get("visibility")
+    if visibility == "public":
+        a.data_exposure = True
+        a.authenticated = False
+        a.step("project_visibility", "allow", visibility=visibility)
+    elif visibility == "private":
+        a.step("project_visibility", "block", visibility=visibility)
+    else:
+        a.gap("inventory", "DevOps project visibility is unavailable or inconsistent")
+    return a
+
+
+def _azure_eventgrid_publisher(snapshot, inventory, resource):
+    """Assess the topic or domain event-publishing endpoint and IP gate."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    access = props.get("publicNetworkAccess", "Enabled")
+    if access == "Disabled":
+        a.step("public_network", "block", public_network_access=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "Event Grid public network access is unrecognized")
+        return a
+    endpoint = props.get("endpoint")
+    parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+    if parsed is None or parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        a.gap("inventory", "Event Grid publishing endpoint is unavailable or malformed")
+        return a
+    a.addresses = [parsed.hostname]
+    a.endpoint = "https://" + parsed.hostname
+    rules = props.get("inboundIpRules", [])
+    if not isinstance(rules, list):
+        a.gap("inventory", "Event Grid inbound IP rules are unavailable")
+        return a
+    if not rules:
+        a.step("public_network", "allow", reason="public access has no inbound IP restrictions")
+        a.ports = pset("tcp", 443, 443)
+        return a
+    public = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("action") != "Allow" or not isinstance(rule.get("ipMask"), str) or _cidr(rule["ipMask"]) is None:
+            a.gap("inventory", "Event Grid inbound IP rule is malformed")
+            return a
+        if _public_source(rule["ipMask"]):
+            public.append(rule["ipMask"])
+    if public:
+        a.step("public_network", "allow", public_sources=public)
+        a.ports = pset("tcp", 443, 443)
+    else:
+        a.step("public_network", "block", reason="inbound IP rules contain no public source")
+        a.ports = {}
+    return a
+
+
 def _azure_vpn_gateway(snapshot, inventory, resource):
     """Assess configured VPN tunnel listeners on observed gateway public IPs."""
     a = Assessment(resource, "vpn_gateway")
@@ -12250,7 +12310,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "devops_project", "eventgrid_topic", "eventgrid_domain", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12265,7 +12325,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "private_link_service",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "devops_project", "eventgrid_topic", "eventgrid_domain", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "bastion_host", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12362,6 +12422,9 @@ def assess(snapshot, resources):
                   "attestation_provider": _azure_attestation_provider,
                   "dns_zone": _azure_dns_zone,
                   "private_dns_zone": _azure_private_dns_zone,
+                  "devops_project": _azure_devops_project,
+                  "eventgrid_topic": _azure_eventgrid_publisher,
+                  "eventgrid_domain": _azure_eventgrid_publisher,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "analysis_server": _azure_analysis_server,
