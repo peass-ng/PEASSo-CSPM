@@ -1261,7 +1261,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
-    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot",
+    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot", "acat_report", "acat_webhook",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -2557,6 +2557,8 @@ def _selected(options, requirements):
         selected.add("managed_grafana_snapshot")
     if "managed_grafana_snapshot" in selected:
         selected.add("managed_grafana")
+    if selected.intersection(("acat_report", "acat_webhook")):
+        selected.update(("acat_report", "acat_webhook"))
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -3362,6 +3364,62 @@ def collect(connector, requirements=None, *, transport=None):
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
+        if "acat_report" in wanted:
+            def acat_reports():
+                url = ARM + "/providers/Microsoft.AppComplianceAutomation/reports?api-version=2024-06-27"
+                for page in reader.pages(request, url):
+                    projected = []
+                    for row in page:
+                        name = row.get("name") if isinstance(row, dict) else None
+                        props = row.get("properties") if isinstance(row, dict) else None
+                        if not isinstance(name, str) or re.fullmatch(r"[-a-zA-Z0-9_]{1,50}", name) is None or not isinstance(props, dict):
+                            raise ValueError("malformed App Compliance report")
+                        storage = props.get("storageInfo")
+                        if storage is not None and not isinstance(storage, dict):
+                            raise ValueError("malformed App Compliance report storage")
+                        subscriptions = props.get("subscriptions")
+                        if subscriptions is not None and (not isinstance(subscriptions, list) or any(not isinstance(s, str) for s in subscriptions)):
+                            raise ValueError("malformed App Compliance report subscriptions")
+                        projected.append({"id": "/providers/Microsoft.AppComplianceAutomation/reports/" + name,
+                                          "name": name, "type": "Microsoft.AppComplianceAutomation/reports",
+                                          "properties": {"status": props.get("status"), "tenantId": props.get("tenantId"),
+                                                         "subscriptions": subscriptions,
+                                                         "storageInfo": {"subscriptionId": storage.get("subscriptionId")}
+                                                         if storage is not None else None}})
+                    yield projected
+            reader.run([("acat_report", tenant_scope, "Microsoft.AppComplianceAutomation", acat_reports)])
+        if "acat_webhook" in wanted:
+            acat_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "acat_report" or collection["status"] not in ("collected", "empty", "partial"):
+                    continue
+                for report in collection["items"]:
+                    rid = report["id"]
+                    def acat_webhooks(rid=rid):
+                        url = ARM + rid + "/webhooks?api-version=2024-06-27"
+                        for page in reader.pages(request, url):
+                            projected = []
+                            for row in page:
+                                hook = row.get("name") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                if not isinstance(hook, str) or re.fullmatch(r"[-a-zA-Z0-9_]{1,50}", hook) is None or not isinstance(props, dict):
+                                    raise ValueError("malformed App Compliance webhook")
+                                payload = props.get("payloadUrl")
+                                parts = urlsplit(payload) if isinstance(payload, str) else None
+                                if parts is not None and (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password):
+                                    raise ValueError("malformed App Compliance webhook URL")
+                                projected.append({"id": rid + "/webhooks/" + hook, "name": hook,
+                                                  "type": "Microsoft.AppComplianceAutomation/reports/webhooks",
+                                                  "properties": {"status": props.get("status"),
+                                                                 "provisioningState": props.get("provisioningState"),
+                                                                 "deliveryStatus": props.get("deliveryStatus"),
+                                                                 "payloadHost": parts.hostname if parts else None,
+                                                                 "payloadScheme": parts.scheme if parts else None,
+                                                                 "events": props.get("events"),
+                                                                 "sendAllEvents": props.get("sendAllEvents")}})
+                            yield projected
+                    acat_jobs.append(("acat_webhook", rid, "Microsoft.AppComplianceAutomation", acat_webhooks))
+            reader.run(acat_jobs)
         if "managed_grafana_snapshot" in wanted:
             snapshot_jobs = []
             for collection in reader.collections:

@@ -10680,6 +10680,66 @@ def _azure_data_share_recipient(snapshot, inventory, resource):
     return a
 
 
+def _azure_acat_report(snapshot, inventory, resource):
+    """Report storage outside its source subscriptions is a data recipient."""
+    a = Assessment(resource, "external_report_delivery")
+    a.ports = {}
+    props = _props(resource)
+    sources = props.get("subscriptions")
+    storage = props.get("storageInfo")
+    if storage is None:
+        a.step("storage_destination", "none", reason="no customer storage destination")
+    elif not isinstance(storage, dict) or not isinstance(storage.get("subscriptionId"), str) or not storage["subscriptionId"]:
+        a.gap("inventory", "App Compliance storage subscription is unavailable")
+    elif not isinstance(sources, list) or not sources or any(not isinstance(source, str) or not source for source in sources):
+        a.gap("inventory", "App Compliance source subscriptions are unavailable")
+    elif storage["subscriptionId"].casefold() not in {source.casefold() for source in sources}:
+        a.data_exposure = True
+        a.external_ids = [storage["subscriptionId"]]
+        a.step("storage_destination", "allow", destination_subscription=storage["subscriptionId"])
+    else:
+        a.step("storage_destination", "same_source", reason="storage belongs to a source subscription")
+    state = inventory.state("acat_webhook", native_id(resource))
+    if state not in ("collected", "empty"):
+        a.gap("inventory", "App Compliance webhook list is incomplete")
+        if a.data_exposure:
+            a.unresolved[-1]["decisive"] = False
+    elif not a.data_exposure and not a.unresolved:
+        a.step("delivery", "block", reason="no cross-subscription storage destination")
+    return a
+
+
+def _azure_acat_webhook(snapshot, inventory, resource):
+    """Assess configured delivery of report events to a webhook receiver."""
+    a = Assessment(resource, "external_report_delivery")
+    a.ports = {}
+    props = _props(resource)
+    status = props.get("status")
+    if status == "Disabled":
+        a.step("webhook", "block", status=status)
+        return a
+    if status != "Enabled" or props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "App Compliance webhook active state is unresolved")
+        return a
+    events = props.get("events")
+    all_events = props.get("sendAllEvents")
+    if not isinstance(events, list) or any(not isinstance(event, str) for event in events) or all_events not in ("true", "false"):
+        a.gap("inventory", "App Compliance webhook event selection is unresolved")
+        return a
+    if not events and all_events == "false":
+        a.step("webhook", "block", reason="no subscribed report events")
+        return a
+    host, scheme = props.get("payloadHost"), props.get("payloadScheme")
+    if not isinstance(host, str) or not host or scheme not in ("http", "https"):
+        a.gap("inventory", "App Compliance webhook destination is unavailable")
+        return a
+    a.data_exposure = True
+    a.external_ids = [host]
+    a.step("webhook", "allow", receiver_host=host, scheme=scheme, events=events,
+           all_events=all_events == "true", delivery_status=props.get("deliveryStatus"))
+    return a
+
+
 def _azure_private_link_service(snapshot, inventory, resource):
     """Assess provider-side private access to subscriptions outside this service's own."""
     a = Assessment(resource, "external_share")
@@ -11456,7 +11516,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11471,7 +11531,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "analysis_server", "private_link_service",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "analysis_server", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11581,6 +11641,8 @@ def assess(snapshot, resources):
                   "compute_gallery": _azure_compute_gallery,
                   "data_share_invitation": _azure_data_share_recipient,
                   "data_share_provider_subscription": _azure_data_share_recipient,
+                  "acat_report": _azure_acat_report,
+                  "acat_webhook": _azure_acat_webhook,
                   "lighthouse_assignment": _azure_lighthouse_assignment,
                   "managed_application": _azure_managed_application,
                   "managed_grafana": _azure_managed_grafana,
@@ -11623,6 +11685,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] in ("acat_report", "acat_webhook"):
+        return ("App Compliance report has an external delivery destination" if status == "FAIL" else
+                "App Compliance report delivery unresolved" if status == "UNKNOWN" else
+                "App Compliance report has no active external delivery")
     if assessment.resource["type"] == "private_link_service":
         return ("Azure Private Link Service grants another subscription private access" if status == "FAIL" else
                 "Azure Private Link Service access unresolved" if status == "UNKNOWN" else
@@ -11724,6 +11790,13 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] in ("acat_report", "acat_webhook"):
+        if status == "FAIL":
+            return ("The report stores results outside its source subscriptions or an enabled webhook is configured "
+                    "to send report events to a URL. Only destination subscription or host metadata is retained.")
+        if status == "PASS":
+            return "The report has no external storage destination, or this webhook is disabled or has no subscribed events."
+        return "Report storage, webhook inventory, active state, event selection, or destination is unresolved."
     if assessment.resource["type"] == "private_link_service":
         if status == "FAIL":
             return ("The provider's Private Link Service auto-approves another subscription or has an approved "
