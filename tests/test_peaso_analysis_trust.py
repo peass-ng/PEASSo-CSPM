@@ -4,7 +4,8 @@ import pytest
 
 from peaso.analysis import analyze
 from peaso.analysis.trust import restrictive_conditions, trusted_scopes
-from peaso.snapshot import make_snapshot
+from peaso.snapshot import make_snapshot, resources
+from peaso.analysis.iam import review_findings
 
 ACCOUNT = "111122223333"
 SCOPE = f"{ACCOUNT}/us-east-1"
@@ -38,6 +39,41 @@ def trust(principal_value, condition=None, action="sts:AssumeRole"):
     if condition:
         statement["Condition"] = condition
     return statement
+
+
+def test_azure_group_role_assignment_reaches_nested_guest():
+    tenant, subscription = "/tenants/home", "/subscriptions/sub"
+    role = {"id": "assignment", "properties": {"principalId": "outer", "principalType": "Group",
+        "roleDefinitionId": subscription + "/providers/Microsoft.Authorization/roleDefinitions/reader",
+        "scope": subscription}}
+    snapshot = make_snapshot("azure", [subscription], [
+        coll("role_assignment", [role], scope=subscription),
+        coll("directory_group", [{"id": "outer"}, {"id": "inner"}], scope=tenant),
+        coll("directory_user", [{"id": "guest", "userType": "Guest"}], scope=tenant),
+        coll("directory_membership", [{"id": "inner"}], scope=tenant + "/groups/outer"),
+        coll("directory_membership", [{"id": "guest"}], scope=tenant + "/groups/inner"),
+    ], metadata={"tenant_id": "home"})
+    found = [row for row in review_findings(snapshot, resources(snapshot))
+             if row["check_id"] == "analysis.principal_exposure"]
+    assert len(found) == 1 and found[0]["status"] == "FAIL"
+    guest = next(row for row in found[0]["evidence"]["principals"] if row["principal"] == "guest")
+    assert guest["native_grant"]["viaGroup"] == "outer"
+    assert guest["native_grant"]["groupPath"] == ["outer", "inner"]
+    assert guest["native_grant"]["membershipSource"]
+
+
+def test_azure_group_role_assignment_without_observed_external_member_is_not_claimed():
+    subscription, tenant = "/subscriptions/sub", "/tenants/home"
+    role = {"id": "assignment", "properties": {"principalId": "outer", "principalType": "Group",
+        "roleDefinitionId": subscription + "/providers/Microsoft.Authorization/roleDefinitions/reader",
+        "scope": subscription}}
+    snapshot = make_snapshot("azure", [subscription], [
+        coll("role_assignment", [role], scope=subscription),
+        coll("directory_group", [{"id": "outer"}], scope=tenant),
+        coll("directory_membership", [{"id": "missing"}], status="partial", scope=tenant + "/groups/outer"),
+    ], metadata={"tenant_id": "home"})
+    assert not [row for row in review_findings(snapshot, resources(snapshot))
+                if row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL"]
 
 
 def test_scanned_account_and_org_members_are_trusted_by_default():
