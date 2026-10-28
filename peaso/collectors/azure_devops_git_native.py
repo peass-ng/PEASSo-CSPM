@@ -71,7 +71,9 @@ def project_response(raw,path,continuation=None):
     url_credentials(url,resource_id=out['projectId'] or out['id'],path=field,check_id='azure.review.devops.visible_clone_urls_without_userinfo',source=path+'/repository/'+str(out['id']))
    out['url_assessments']=assess_urls(row)
    out['remote_assessment']=assess_urls({'remoteUrl':row.get('remoteUrl'),'validRemoteUrls':[]})
-  else:out['state']=row.get('state')
+  else:
+   out['state']=row.get('state')
+   out['visibility']=row.get('visibility') if row.get('visibility') in ('public','private') else None
   return out
  repository='/_apis/git/repositories'in path
  listing=path.endswith('/projects')or path.endswith('/repositories')
@@ -131,7 +133,7 @@ def collect(reader,request,transport,scopes,wanted,options,auth):
    for pid in policy['project_ids']:
     row=visible[pid];detail=read('/_apis/projects/'+pid)
     if detail.get('id','').lower()!=pid or row.get('state')!='wellFormed'or detail.get('state')!='wellFormed':raise ValueError('DevOps project LIST GET identity or state mismatch')
-    project={'id':pid,'_provenance':{'native_devops_git_schema':2,'source_operations':OPERATIONS.copy(),'read_only':True,'api_version':'7.1','includeHidden':True,'includeAllUrls':True,'owner_scope':scope.lower(),'organization':org,'project_id':pid,'declared_project_ids':policy['project_ids'].copy(),'capture_id':capture},'repositories':[],'_coverage':{}}
+    project={'id':pid,'visibility':detail.get('visibility') if detail.get('visibility')==row.get('visibility') else None,'_provenance':{'native_devops_git_schema':2,'source_operations':OPERATIONS.copy(),'read_only':True,'api_version':'7.1','includeHidden':True,'includeAllUrls':True,'owner_scope':scope.lower(),'organization':org,'project_id':pid,'declared_project_ids':policy['project_ids'].copy(),'capture_id':capture},'repositories':[],'_coverage':{}}
     try:
      rows=read('/'+pid+'/_apis/git/repositories','&includeHidden=true&includeAllUrls=true')['items'];seen=set()
      for repo in rows:

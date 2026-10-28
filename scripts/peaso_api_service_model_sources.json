@@ -1157,7 +1157,7 @@
     "peaso/collectors/azure_databricks_workspace_ip_native.py": "d79f224039d6b4897165efe16b1ada0a1b2c63f8c66646156136f612a1fe473a",
     "peaso/collectors/azure_defender_network_native.py": "9b026e54b06abec9b29019b3fbfa29e7175c3a927cdecb795de4153d9d6098e3",
     "peaso/collectors/azure_detection_telemetry.py": "d0c1e354f8c5fbfd8504667dd0268f3e685444e6aa1a5507abb336d16817758d",
-    "peaso/collectors/azure_devops_git_native.py": "aa627a331825c3466c692ab79d46944d8f57c182ac4f7e5bc610ef5388157d9a",
+    "peaso/collectors/azure_devops_git_native.py": "7f1220a71b00aed55d575db0e34e9df9114fbaddd954dec59e7329f7244ab871",
     "peaso/collectors/azure_devops_pipeline_native.py": "e1935267538ee628145317772fd10ed4fa120819a88ebc70f0bf3e22adad54f2",
     "peaso/collectors/azure_devops_selected_content_secret_indicators.py": "03035c9d97862a0788c2b9fd3fb23236e099ebe8f2d178ae67bb010fa7717039",
     "peaso/collectors/azure_devtestlab_native.py": "75a99c17f59e1a0e7f0ec66da4e312a117c21b47fda048a0fe225395ba7f5a30",

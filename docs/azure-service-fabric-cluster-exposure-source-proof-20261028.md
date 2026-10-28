@@ -1,0 +1,5 @@
+# Service Fabric cluster endpoint source proof
+
+The [classic cluster subscription LIST](https://learn.microsoft.com/en-us/rest/api/servicefabric/sfrp-api-clusters_list) returns a management endpoint and node-type client/HTTP ports. The [managed-cluster subscription LIST](https://learn.microsoft.com/en-us/rest/api/servicefabric/managedclusters/managed-clusters/list-by-subscription?view=rest-servicefabric-managedclusters-2026-02-01) returns the public load-balancer FQDN or IP and client, HTTP gateway and token-auth ports. Both reads are cached and paged at selected subscription scope. The collector retains only identity, readiness, endpoint hosts and ports; URL paths and query strings, certificates, credentials, administrator names, arbitrary settings and tags are discarded.
+
+Native analysis surfaces ready public control endpoints and their TCP ports. Ingress is UNKNOWN until the relevant Service Fabric network security rules and any customer VNet path are joined; a public FQDN alone does not prove reachability from every internet source. Application-specific ports and authentication are residual UNKNOWN.

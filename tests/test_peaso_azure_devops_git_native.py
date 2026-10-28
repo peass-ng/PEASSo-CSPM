@@ -16,8 +16,9 @@ OTHER='55555555-5555-5555-5555-555555555555';TOKEN='private-devops-test-token'
 URL='https://example.org/repo';SERVER='https://dev.azure.com/own-org'
 def options():return {'retries':0,'compliance_parameters':{'azure_devops_git':{'subscriptions':[{'scope':SCOPE,'organization':'own-org','project_ids':[PID]}]}}}
 def auth():return {'tenant_id':Transport.tenant,'devops_credentials':[{'server':SERVER,'method':'pat','token':TOKEN}]}
-def capture(monkeypatch,mode='good',via='direct',url=URL):
+def capture(monkeypatch,mode='good',via='direct',url=URL,visibility=None):
  p={'id':PID,'state':'wellFormed'};repo={'id':RID,'project':{'id':PID},'remoteUrl':url,'validRemoteUrls':[url],'description':TOKEN}
+ if visibility is not None:p['visibility']=visibility
  routes={'/own-org/_apis/projects':{'count':1,'value':[p]},'/own-org/_apis/projects/'+PID:p,'/own-org/'+PID+'/_apis/git/repositories':{'count':1,'value':[repo]},'/own-org/'+PID+'/_apis/git/repositories/'+RID:repo}
  o=options();a=auth();calls=[]
  if mode=='no_policy':o={};a.pop('devops_credentials')
@@ -77,6 +78,18 @@ def test_public_native_git_pipeline(monkeypatch,via):
  s,c=capture(monkeypatch,via=via);assert verdict(s,CHECK)=='UNKNOWN';assert len(c)==4
  assert all('api-version=7.1'in u for u in c)
  assert TOKEN not in json.dumps(s)and URL not in json.dumps(s)
+
+
+@pytest.mark.parametrize('visibility,expected',[('public','FAIL'),('private','PASS'),(None,'UNKNOWN')])
+def test_devops_project_visibility_is_native_exposure(monkeypatch,visibility,expected):
+ from peaso.analysis.internet_exposure import assess
+ from peaso.snapshot import resources
+ snapshot,_=capture(monkeypatch,visibility=visibility)
+ project=next(c for c in snapshot['collections']if c['type']=='devops_project')['items'][0]
+ assert project['visibility']==visibility
+ row=next(r for r in assess(snapshot,resources(snapshot))if r.resource['type']=='devops_project')
+ assert row.verdict()==expected
+ if visibility=='public':assert row.data_exposure and row.authenticated is False
 
 @pytest.mark.parametrize('mode,expected',[(m,'UNKNOWN')for m in ['no_policy','no_credential','missing_project','project_duplicate','project_get_foreign','project_not_ready','repo_foreign','repo_get_foreign','repo_duplicate','missing_urls','repo_denied','projects_denied','budget','partial','repeated','page_cap','repo_continuation','tenant_mismatch']]+[('empty','UNKNOWN'),('extra_visible','UNKNOWN'),('get_omits_urls','UNKNOWN'),('paging','UNKNOWN')])
 def test_pipeline_native_bounds(monkeypatch,mode,expected):
