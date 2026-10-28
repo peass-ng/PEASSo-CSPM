@@ -410,6 +410,39 @@ def test_app_service_stopped_and_disabled_hostname_surfaces():
     assert decision(hostnames_disabled=True, scm_default="Deny").verdict() == "PASS"
 
 
+def test_app_service_client_certificate_is_a_request_gate_not_network_block():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+
+    def cert_decision(*, enabled=True, mode="Required", excluded="", https_only=True,
+                      main_default="Allow"):
+        site = {"id": site_id, "properties": {
+            "defaultHostName": "app.azurewebsites.net", "publicNetworkAccess": "Enabled",
+            "enabledHostNames": ["app.azurewebsites.net"], "httpsOnly": https_only,
+            "clientCertEnabled": enabled, "clientCertMode": mode,
+            "clientCertExclusionPaths": excluded}}
+        config = {"id": site_id + "/config/web", "parent_id": site_id, "properties": {
+            "ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": main_default,
+            "scmIpSecurityRestrictionsUseMain": False, "scmIpSecurityRestrictions": [],
+            "scmIpSecurityRestrictionsDefaultAction": "Deny"}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected", "items": [site]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected", "items": [config]}])
+        result = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+        step = next((step for step in result.path if step["layer"] == "client_certificate"), None)
+        return result, step
+
+    protected, cert = cert_decision()
+    assert protected.verdict() == "FAIL" and protected.authenticated is False
+    assert cert["decision"] == "certificate_required" and cert["excluded_paths"] == []
+    assert "application code" in cert["validation"]
+    assert cert_decision(excluded="/public;/health")[1]["decision"] == "partial"
+    assert cert_decision(https_only=False)[1]["decision"] == "partial"
+    assert cert_decision(mode="Optional")[1]["decision"] == "optional"
+    assert cert_decision(enabled=False)[1]["decision"] == "not_required"
+    blocked, cert = cert_decision(main_default="Deny")
+    assert blocked.verdict() == "PASS" and cert is None
+
+
 def test_function_http_trigger_auth_levels_are_native_evidence():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/fn"
 

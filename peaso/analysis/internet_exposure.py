@@ -4322,6 +4322,35 @@ def _azure_app_authentication(assessment, resource, main, scm):
                         excluded_paths=excluded if isinstance(excluded, list) else None)
 
 
+def _azure_app_client_certificate(assessment, props, main):
+    """Describe the main-site certificate presentation gate, not app validation."""
+    if main == "block":
+        return
+    enabled = props.get("clientCertEnabled")
+    mode = props.get("clientCertMode")
+    excluded = props.get("clientCertExclusionPaths")
+    if enabled is None or enabled is False:
+        assessment.step("client_certificate", "not_required", client_cert_enabled=enabled)
+        return
+    if enabled is not True or (excluded is not None and not isinstance(excluded, str)):
+        assessment.step("client_certificate", "unknown", client_cert_enabled=enabled,
+                        client_cert_mode=mode)
+        return
+    exclusions = [path.strip() for path in re.split(r"[,;]", excluded) if path.strip()] if excluded else []
+    if mode == "Required" and props.get("httpsOnly") is True and not exclusions:
+        decision = "certificate_required"
+    elif mode == "Required":
+        decision = "partial"
+    elif mode in ("Optional", "OptionalInteractiveUser"):
+        decision = "optional"
+    else:
+        decision = "unknown"
+    assessment.step("client_certificate", decision, client_cert_enabled=True,
+                    client_cert_mode=mode, https_only=props.get("httpsOnly") is True,
+                    excluded_paths=exclusions,
+                    validation="application code must validate the forwarded certificate")
+
+
 def _azure_function_triggers(assessment, inventory, resource):
     site = resource["data"]
     kind = site.get("kind")
@@ -4451,6 +4480,7 @@ def _azure_app_service(snapshot, inventory, resource, configs):
     decision = ("allow" if "allow" in (main, scm) else
                 "block" if main == scm == "block" else "unknown")
     _azure_app_authentication(a, resource, main, scm)
+    _azure_app_client_certificate(a, props, main)
     a.step("access_restrictions", decision, main={"decision": main, **main_detail},
            scm={"decision": scm, **scm_detail}, scm_hosts=scm_hosts)
     if decision == "unknown":
