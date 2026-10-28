@@ -108,8 +108,8 @@ large object never becomes inaccessible. Literal full-detail search and exact
 resource-type filtering support uncatalogued native fields. Prompts require
 exact native evidence rather than sampled focus bundles. Explicit index
 metadata remains available with `--summary`; it is not the default evidence
-read. Existing reasoning, tool-output, turn, transport and deadline limits
-are preserved.
+read. Existing reasoning, tool-output, turn and deadline limits are preserved.
+Disk/transport ceilings are increased below to accommodate the full evidence.
 
 `source_snapshot` contains all noncollection snapshot fields (including
 account metadata) and full collection receipts with item counts. Native item
@@ -195,3 +195,37 @@ without sampling or any AWS/model call. Its receipt will include fragment
 counts/maxima, exact source comparisons and the unchanged transport cap.
 
 Bounded-storage focused suite: **218 passed, 1 skipped**; the final large-value and Unicode/chunk-boundary regressions also passed independently (2 tests).
+
+## Full-dataset disk and streamed transport
+
+The first complete bounded Priorities replay correctly rejected a database
+exceeding the previous 2 GiB expansion ceiling. The data was not sampled or
+dropped. The exact SQLite expansion ceiling is now **4 GiB**, and the bounded
+compressed workspace/transport ceiling is **512 MiB** (previously 256 MiB).
+Both are larger limits, independent of the 128 KiB exact-read fragment bound.
+A 4 GiB database plus input archive, compressed database and temporary sort
+files uses under 6 GiB of scratch space, within the task's default 20 GiB disk.
+
+Input bootstrap now streams the relay response in **64 KiB chunks to an
+anonymous disk file**, and tar unpacking reads that file directly. It avoids
+whole-archive bytearray/bytes/BytesIO copies in the agent task. The relay's S3
+response already streams in 64 KiB chunks. Existing archive path/type/count
+checks, byte limits and deadlines remain enforced.
+
+An isolated read-only/no-network test downloaded and verified **192 MiB** of
+synthetic cached bytes under a **128 MiB memory limit/no swap**. It completed
+in 10.52s wall / 5.152s CPU, with **48,676,864 bytes
+process peak RSS. Cgroup peak reached its 128 MiB limit while writing disk
+cache; the kernel reclaimed those file pages and the transfer completed.
+This explicitly tests a stream larger than available RAM. No AWS request or
+model call occurred. The receipt is
+`full-data-stream-bootstrap-memory-20261028.json`; source/image hashes and
+the exact-byte SHA256 are recorded there.
+
+The replacement complete Priorities replay also supplies the two saved
+Network findings and complete Network output from the same bf67 scan. Its
+native report is augmented exactly as the production pipeline does, and the
+receipt checks reachability of the cached high-run action citations. This
+remains a data-access comparison until a new model output is validated.
+
+Final cap/stream regression suite: **284 passed, 4 skipped** (182.24s wall), including exact data, large-value paging, compressed transport, Fargate safety and output validation. No source-attestation gate was run.

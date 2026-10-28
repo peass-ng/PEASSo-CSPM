@@ -1,0 +1,16 @@
+{
+  "cgroup_memory.max": "134217728",
+  "cgroup_memory.peak": "134217728",
+  "chunk_bytes": 65536,
+  "cloud_api_calls": 0,
+  "cpu_seconds": 5.152,
+  "download_bytes": 201326592,
+  "exact_bytes_verified": 201326592,
+  "network": "none",
+  "process_peak_rss_bytes": 48676864,
+  "sha256": "200a3023f7ab59c939fb4cca2b7ee4d46de605025183e607c40988a16c3bf2a0",
+  "wall_seconds": 10.52,
+  "image_sha256": "sha256:9d85e74975e33685f946907f386696ceb891a636d2f4adf0a218bbc33298335e",
+  "task_runtime_sha256": "4b42dfac962fe27af82b896f59e11470715fb42e06db56056550f7f78cb60d67",
+  "fargate_sha256": "340add88e08be5baecbde28b658ecb9c19d041df0cc6ba9126794b6b18a95abb"
+}

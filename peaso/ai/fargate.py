@@ -10,7 +10,7 @@ import tarfile
 import time
 import uuid
 
-MAX_INPUT = 256 * 1024 * 1024
+MAX_INPUT = 512 * 1024 * 1024
 MAX_OUTPUT = 8_000_000
 STAGES = {'network', 'priorities'}
 

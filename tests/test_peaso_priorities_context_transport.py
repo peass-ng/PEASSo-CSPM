@@ -24,7 +24,7 @@ def test_lossless_bytes_queries_and_bounded_archive(tmp_path, monkeypatch):
     assert not path.exists() and packed.stat().st_mode & 0o777 == 0o600
     assert gzip.decompress(packed.read_bytes()) == original
     # Retain the transport limit; a large uncompressed database need not enter it.
-    assert fargate.MAX_INPUT == 256 * 1024 * 1024
+    assert fargate.MAX_INPUT == 512 * 1024 * 1024
     monkeypatch.setattr(fargate, 'MAX_INPUT', packed.stat().st_size + 4096)
     assert len(original) > fargate.MAX_INPUT
     archive = fargate.pack_workspace(tmp_path)
@@ -115,3 +115,39 @@ def test_invalid_context_rejected_before_agent_import(tmp_path,monkeypatch):
     (tmp_path/'context.sqlite.gz').write_bytes(b'bad')
     with pytest.raises(gzip.BadGzipFile):runner.main()
     assert not (tmp_path/'context.sqlite').exists()
+
+
+def test_relay_archive_download_streams_to_disk_with_same_limit(tmp_path, monkeypatch):
+    class Response:
+        status_code = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def iter_content(self, size):
+            assert size == 65536
+            yield b'a' * 65536
+            yield b'b' * 65536
+    class Session:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def request(self, *args, **kwargs):
+            assert kwargs['stream'] is True
+            return Response()
+    monkeypatch.setattr('requests.Session', Session)
+    with (tmp_path/'input.tgz').open('w+b') as output:
+        assert task_runtime.relay_request('GET', '/input', 'synthetic', sink=output, limit=131072) is None
+        output.seek(0)
+        assert output.read() == b'a' * 65536 + b'b' * 65536
+    with (tmp_path/'too-large.tgz').open('w+b') as output:
+        with pytest.raises(ValueError, match='relay_transfer_limit'):
+            task_runtime.relay_request('GET', '/input', 'synthetic', sink=output, limit=131071)
+
+
+def test_archive_file_input_preserves_every_byte(tmp_path):
+    source=tmp_path/'source';source.mkdir()
+    (source/'evidence.json').write_text('{"exact":"full native evidence"}')
+    archive=fargate.pack_workspace(source)
+    packed=tmp_path/'input.tgz';packed.write_bytes(archive)
+    destination=tmp_path/'destination';destination.mkdir()
+    with packed.open('rb') as stream:
+        task_runtime.unpack(stream,destination)
+    assert (destination/'evidence.json').read_bytes()==(source/'evidence.json').read_bytes()

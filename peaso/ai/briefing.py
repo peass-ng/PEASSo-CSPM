@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 RISK = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
 REJECTED = {'PASS', 'NOT_APPLICABLE', 'EMPTY'}
 CONTEXT_COMPRESS_THRESHOLD = 64 * 1024 * 1024
-MAX_CONTEXT_BYTES = 2 * 1024 * 1024 * 1024
+MAX_CONTEXT_BYTES = 4 * 1024 * 1024 * 1024
 
 
 def encode(value, *, canonical=False):

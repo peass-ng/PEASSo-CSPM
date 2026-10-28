@@ -40,9 +40,13 @@ def main():
     parser.add_argument('--baseline', default='ec306486')
     parser.add_argument('--output', required=True)
     parser.add_argument('--only-after', action='store_true')
+    parser.add_argument('--saved-ai', help='Cached AI result from the exact same scan; no live call')
     parser.add_argument('--retain-workspace', help='Private directory for bounded reader measurement')
     args = parser.parse_args()
     snapshot, report = load(args.snapshot), load(args.report)
+    saved_ai = load(args.saved_ai) if args.saved_ai else report.get('ai', {})
+    if saved_ai.get('network', {}).get('findings'):
+        report = network.with_findings(report, saved_ai['network']['findings'])
     inventory = resources(snapshot)
     from peaso.engine import hydrate_finding
     findings = [hydrate_finding(row, report.get('check_frameworks'), report.get('check_meta'),
@@ -67,10 +71,12 @@ def main():
         platform = {'report': report, 'inventory': inventory,
                     'snapshot_context': network.snapshot_context(snapshot),
                     'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
-                    'network_review': (report.get('ai') or {}).get('network', {'status': 'not_saved'})}
+                    'network_review': saved_ai.get('network', {'status': 'not_saved'})}
     result = {'stage': args.stage, 'baseline_revision': args.baseline,
               'snapshot_sha256': sha(args.snapshot), 'report_sha256': sha(args.report),
               'provider': report['provider'], 'snapshot_id': snapshot['snapshot_id'],
+              'saved_ai_sha256': sha(args.saved_ai) if args.saved_ai else None,
+              'cached_network_findings_added': len(saved_ai.get('network', {}).get('findings', [])),
               'input_inventory_by_type': dict(Counter(row['type'] for row in inventory)),
               'input_findings_by_category_status': dict(expected_findings), 'catalog': catalog, 'measurements': {}}
     with tempfile.TemporaryDirectory(prefix='ai-quality-baseline-') as baseline_dir:
@@ -146,6 +152,11 @@ def main():
                         metrics['exact_original_report_fields_verified'] = len(report)
                         if args.stage == 'priorities':
                             assert metrics['findings_by_category_status'] == dict(expected_findings)
+                        baseline_ids = {ident for action in saved_ai.get('actions', []) for ident in action.get('finding_ids', [])}
+                        present_ids = {ident for (ident,) in db.execute("SELECT id FROM records WHERE domain='findings'")}
+                        metrics['cached_high_action_citations'] = {'total': len(baseline_ids),
+                            'reachable': len(baseline_ids & present_ids), 'missing_ids': sorted(baseline_ids - present_ids)}
+                        metrics['network_review_status'] = platform.get('network_review', {}).get('status') if args.stage == 'priorities' else None
                         metrics['critical_categories_preserved'] = sorted({row.get('category') for row in findings if row.get('severity') == 'critical'})
                         metrics['verification'] = 'Every original inventory record and every report field compared by decoded exact equality; all native statuses retained. This is input coverage, not a model-output quality claim.'
                     if arm == 'after':
@@ -155,7 +166,7 @@ def main():
                             assert metrics['largest_fragment_bytes'] <= 128 * 1024
                         assert metrics['largest_record_bytes'] <= 128 * 1024
                 metrics['transport_total_bytes'] = sum(metrics['transport_file_bytes'].values())
-                assert metrics['transport_total_bytes'] < 256 * 1024 * 1024, 'workspace_transport_exceeds_existing_cap'
+                assert metrics['transport_total_bytes'] < 512 * 1024 * 1024, 'workspace_transport_exceeds_cap'
                 if arm == 'after' and args.retain_workspace:
                     import shutil
                     target = Path(args.retain_workspace)

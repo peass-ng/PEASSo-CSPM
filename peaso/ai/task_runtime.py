@@ -55,7 +55,7 @@ def transfer(method, url, *, body=None, limit=MAX_INPUT):
 def unpack(data, root):
     import re
     total = count = 0
-    with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+    with tarfile.open(fileobj=io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data, mode='r:gz') as archive:
         for member in archive:
             count += 1
             total += member.size
@@ -82,7 +82,12 @@ def run_agent(config):
     remaining = timeout_seconds(config.get('timeout'))
     with tempfile.TemporaryDirectory(prefix='ai-', dir='/tmp') as directory:
         root = Path(directory)
-        unpack(relay_request('GET', '/input', config['relay_token']), root)
+        # The archive is disk-backed, not a second copy of a large bytearray.
+        # Both HTTP hops stream in 64 KiB chunks before the model starts.
+        with tempfile.TemporaryFile(dir=root) as archive:
+            relay_request('GET', '/input', config['relay_token'], sink=archive)
+            archive.seek(0)
+            unpack(archive, root)
         # This file carries a task-local relay capability, not the real model credential.
         fd = os.open(root/'codex-auth.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
@@ -129,7 +134,7 @@ def read_result(root):
     return result
 
 
-def relay_request(method, path, capability, *, body=None, limit=MAX_INPUT):
+def relay_request(method, path, capability, *, body=None, limit=MAX_INPUT, sink=None):
     import requests
     with requests.Session() as session:
         session.trust_env = False
@@ -137,12 +142,17 @@ def relay_request(method, path, capability, *, body=None, limit=MAX_INPUT):
                 headers={'Authorization': 'Bearer ' + capability}, stream=True, timeout=(5, 60)) as response:
             if response.status_code != 200:
                 raise RuntimeError('relay_transfer_failed')
-            output = bytearray()
+            output = bytearray() if sink is None else None
+            total = 0
             for chunk in response.iter_content(65536):
-                if len(chunk) > limit - len(output):
+                if len(chunk) > limit - total:
                     raise ValueError('relay_transfer_limit')
-                output.extend(chunk)
-            return bytes(output)
+                total += len(chunk)
+                if sink is None:
+                    output.extend(chunk)
+                else:
+                    sink.write(chunk)
+            return bytes(output) if sink is None else None
 
 
 def main():
