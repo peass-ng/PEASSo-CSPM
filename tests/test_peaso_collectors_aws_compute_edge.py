@@ -101,6 +101,25 @@ def test_rest_routing_single_base_path_condition_retains_shape_without_path(sdk)
     assert "Conditions" not in rule and "private-candidate-path" not in json.dumps(projected)
 
 
+def test_rest_routing_header_and_base_path_shape_discards_both_values(sdk):
+    import json
+
+    session, add = sdk
+    add("apigateway").add_response("get_base_path_mappings", {"items": []}, {"domainName": "api.example.com"})
+    add("apigatewayv2").add_response("list_routing_rules", {"RoutingRules": [{
+        "RoutingRuleId": "rule-1", "Priority": 1,
+        "Conditions": [{"MatchBasePaths": {"AnyOf": ["private-path"]}},
+                       {"MatchHeaders": {"AnyOf": [{"Header": "x-secret-route", "ValueGlob": "private-value"}]}}],
+        "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod", "StripBasePath": True}}]}]},
+        {"DomainName": "api.example.com"})
+    projected = edge.ENRICHERS["apigateway_domain_name"](aws.Requests({}), session, REGION, [
+        {"domainName": "api.example.com", "routingMode": "ROUTING_RULE_ONLY"}])[0]
+    rule = projected["RoutingRules"]["items"][0]
+    assert rule["ConditionCount"] == 2 and rule["HeaderAndBasePathConditions"] is True
+    assert "Conditions" not in rule
+    assert all(value not in json.dumps(projected) for value in ("private-path", "x-secret-route", "private-value"))
+
+
 def test_launch_configuration_pagination_strips_user_data(sdk):
     session, add = sdk
     stub = add("autoscaling")

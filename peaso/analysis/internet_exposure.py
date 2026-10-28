@@ -1233,14 +1233,16 @@ def _aws_rest_api(snapshot, inventory, resource):
                                 a.step("routing_condition", "allow", domain=domain["data"].get("domainName"),
                                        condition_kind="single_header", condition_count=1,
                                        semantics="A client-supplied header can select this first-priority rule; no request was made")
-                        elif (index == 0 and rule["ConditionCount"] == 1
-                              and rule.get("SingleBasePathCondition") is True and invoke.get("StripBasePath") is True):
+                        elif (index == 0 and invoke.get("StripBasePath") is True
+                              and ((rule["ConditionCount"] == 1 and rule.get("SingleBasePathCondition") is True)
+                                   or (rule["ConditionCount"] == 2 and rule.get("HeaderAndBasePathConditions") is True))):
                             if invoke["Stage"] in active_stage_names:
                                 domains.append(str(domain["data"].get("domainName") or native_id(domain)))
                                 reachable_stage_names.add(invoke["Stage"])
                                 a.step("routing_condition", "allow", domain=domain["data"].get("domainName"),
-                                       condition_kind="single_base_path_strip", condition_count=1,
-                                       semantics="A client-supplied base path selects this first-priority rule and is stripped before the deployed method; no request was made")
+                                       condition_kind="header_and_base_path_strip" if rule["ConditionCount"] == 2 else "single_base_path_strip",
+                                       condition_count=rule["ConditionCount"],
+                                       semantics="Client-supplied base path and optional header select this first-priority rule; the base path is stripped before the deployed method; no request was made")
                         elif invoke["Stage"] in active_stage_names:
                             # Header/path conditions and earlier rules require a
                             # request witness before this target can be claimed.
