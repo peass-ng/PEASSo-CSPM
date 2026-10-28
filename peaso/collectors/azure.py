@@ -5458,9 +5458,14 @@ def collect(connector, requirements=None, *, transport=None):
         pass  # Continue the same metadata assembly after scope/owner preflight.
     except Exception as exc:
         existing = {(c["type"], c["scope"]) for c in reader.collections}
+        # These envelopes are derived below from their native dependencies,
+        # including unavailable dependencies. A generic failure placeholder
+        # here would collide with the authoritative projection at sealing.
+        projected_after_collection = {"apim_api_evidence", "apim_diagnostic_evidence",
+            "azure_unused_arm_role_evidence", "entra_user", "sql_database_inventory", "sql_tde_inventory"}
         for scope in scopes or [tenant_scope]:
             for kind in sorted(wanted):
-                if (kind, scope) not in existing:
+                if kind not in projected_after_collection and (kind, scope) not in existing:
                     reader.unavailable(kind, scope, "azure", exc)
     finally:
         if owned and transport is not None:
