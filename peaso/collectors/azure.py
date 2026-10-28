@@ -160,7 +160,7 @@ ENDPOINTS = {
     'mysql_single_server': ('Microsoft.DBforMySQL/servers', '2017-12-01'),
     'mariadb_server': ('Microsoft.DBforMariaDB/servers', '2018-06-01'),
     'logic_app_workflow': ('Microsoft.Logic/workflows', '2019-05-01'),
-    'ml_workspace': ('Microsoft.MachineLearningServices/workspaces', '2024-04-01'),
+    'ml_workspace': ('Microsoft.MachineLearningServices/workspaces', '2026-03-01'),
     'mssql_managed_instance': ('Microsoft.Sql/managedInstances', '2023-08-01'),
     'mysql_flexible_server': ('Microsoft.DBforMySQL/flexibleServers', '2023-12-30'),
     'postgresql_flexible_server': ('Microsoft.DBforPostgreSQL/flexibleServers', '2024-08-01'),

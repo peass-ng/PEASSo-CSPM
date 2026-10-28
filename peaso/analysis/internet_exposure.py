@@ -5331,7 +5331,7 @@ def _azure_ml_workspace(snapshot, inventory, resource):
                 a.gap("online_endpoint", "ML online endpoint public access gate is unresolved")
     acls = props.get("networkAcls")
     if not isinstance(acls, dict):
-        a.gap("firewall", "ML workspace selected-IP networkAcls are unavailable in the collected 2024-04-01 response")
+        a.gap("firewall", "ML workspace selected-IP networkAcls are absent from the collected response")
         return a
     action = acls.get("defaultAction")
     if action == "Allow":
