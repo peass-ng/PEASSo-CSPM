@@ -5415,7 +5415,45 @@ def _azure_sql(snapshot, inventory, resource, rules, ipv6_rules):
     props = _props(resource)
     public_access = props.get("publicNetworkAccess")
     if str(public_access).lower() == "disabled":
-        return None
+        a = Assessment(resource, "database")
+        a.step("public_network_access", "block", value=public_access)
+        # That gate blocks public SQL, but it is not a block on Private Link.
+        a.blocked_by = None
+        connections = props.get("privateEndpointConnections")
+        coverage = (props.get("_coverage") or {}).get("privateEndpointConnections") or {}
+        if not isinstance(connections, list) or coverage.get("status") == "malformed":
+            a.gap("inventory", "SQL private endpoint connection inventory is unavailable or malformed",
+                  "Microsoft.Sql/servers GET privateEndpointConnections")
+            return a
+        approved, unresolved = [], False
+        server_id = str(resource["data"].get("id", ""))
+        for connection in connections:
+            cp = connection.get("properties") if isinstance(connection, dict) else None
+            state = cp.get("privateLinkServiceConnectionState") if isinstance(cp, dict) else None
+            endpoint = cp.get("privateEndpoint") if isinstance(cp, dict) else None
+            endpoint_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+            valid = (isinstance(connection, dict) and isinstance(connection.get("id"), str) and
+                     re.fullmatch(re.escape(server_id + "/privateEndpointConnections/") + r"[^/?#%\\\s]+",
+                                  connection["id"], re.I) is not None and
+                     isinstance(endpoint_id, str) and re.fullmatch(
+                         r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+",
+                         endpoint_id, re.I) is not None and isinstance(state, dict))
+            if not valid:
+                unresolved = True
+                continue
+            if (state.get("status") == "Approved" and cp.get("provisioningState") == "Ready"):
+                approved.append(endpoint_id)
+            elif state.get("status") not in ("Rejected", "Disconnected"):
+                unresolved = True
+        if approved:
+            a.step("private_endpoint", "unknown", approved_endpoint_ids=sorted(set(approved)))
+            a.gap("authorization", "SQL private endpoint consumer ownership, route and database login are not joined")
+            a.ports = pset("tcp", 1433, 1433)
+        elif unresolved:
+            a.gap("inventory", "SQL private endpoint connection state is incomplete")
+        else:
+            return None
+        return a
     a = Assessment(resource, "database")
     a.addresses = [props.get("fullyQualifiedDomainName")] if props.get("fullyQualifiedDomainName") else []
     if str(public_access).lower() != "enabled":
@@ -7556,7 +7594,17 @@ def assess(snapshot, resources):
     return output
 
 
+def _azure_sql_public_blocked(assessment):
+    return (assessment.resource["type"] == "sql_server" and any(
+        step["layer"] == "public_network_access" and step["decision"] == "block"
+        for step in assessment.path))
+
+
 def _title(assessment, status):
+    if status == "UNKNOWN" and _azure_sql_public_blocked(assessment):
+        return ("SQL private endpoint consumer path unresolved" if any(
+            step["layer"] == "private_endpoint" for step in assessment.path) else
+            "SQL private endpoint connection inventory unresolved")
     if assessment.kind == "gallery_share":
         return ("Compute Gallery community sharing permitted" if status == "FAIL" else
                 "Compute Gallery community sharing blocked" if status == "PASS" else
@@ -7768,6 +7816,19 @@ def _observed(assessment, status):
                      if status == "FAIL" else
                      "The regional public request path is unresolved by its VNet or inventory settings.\n")
                     + "API authorization, backend health, and successful requests were not tested.")
+    if assessment.resource["type"] == "sql_server" and status == "UNKNOWN":
+        private = next((step for step in assessment.path if step["layer"] == "private_endpoint"), None)
+        if private is not None:
+            endpoint_id = private["approved_endpoint_ids"][0]
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Azure SQL server {name} blocks its public endpoint but records an Approved, Ready connection to private endpoint {endpoint_id}.\n"
+                    "That named private consumer may have a path; its tenant ownership and effective route are not established.\n"
+                    "Database authorization, DNS delivery and a successful SQL connection were not tested.")
+        if _azure_sql_public_blocked(assessment):
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Azure SQL server {name} has publicNetworkAccess Disabled.\n"
+                    "Its private endpoint connection inventory is missing, malformed, or has an unresolved state.\n"
+                    "Possible private consumers and their SQL authorization could not be determined from this snapshot.")
     if assessment.resource["type"] == "sql_server" and status == "UNKNOWN" and any(
             "database-level firewall rules" in gap["reason"] for gap in assessment.unresolved):
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
@@ -8040,7 +8101,9 @@ def internet_findings(snapshot, resources):
                     "collector_facts_needed": sorted({g["collector_fact"] for g in assessment.unresolved if g.get("collector_fact")}),
                     "source": source(snapshot, assessment.resource, "data"),
                     "risk_state": "observed" if status == "FAIL" else "reviewed" if status == "PASS" else "unknown",
-                    "semantics": "Declared-configuration path model from 0.0.0.0/0; no traffic was sent."}
+                    "semantics": ("Private endpoint consumer inventory; the public SQL route is blocked and no traffic was sent."
+                                  if _azure_sql_public_blocked(assessment) else
+                                  "Declared-configuration path model from 0.0.0.0/0; no traffic was sent.")}
         severity = "high" if assessment.kind == "external_share" and status == "FAIL" else assessment.adjusted_severity()
         current = finding(snapshot, assessment.resource, "exposure", CHECK, _title(assessment, status), severity, evidence, status=status)
         current["remediation"] = exposure_action(evidence, status)
@@ -8085,7 +8148,8 @@ def coverage_findings(snapshot, resources):
 
 def annotate_network(graph, snapshot, resources):
     """Add an Internet node and ``internet_exposure`` edges to every exposed or unresolved asset."""
-    assessments = [a for a in assess(snapshot, resources) if a.verdict() in ("FAIL", "UNKNOWN") and a.kind != "external_share"]
+    assessments = [a for a in assess(snapshot, resources) if a.verdict() in ("FAIL", "UNKNOWN")
+                   and a.kind != "external_share" and not _azure_sql_public_blocked(a)]
     if not assessments:
         return graph
     nodes = {n["id"]: n for n in graph.get("nodes", [])}

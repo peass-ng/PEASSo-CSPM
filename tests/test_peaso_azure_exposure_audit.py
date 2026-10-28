@@ -1280,6 +1280,7 @@ def test_sql_missing_public_gate_and_partial_firewall_pages_stay_unknown():
     private = [("private", "10.0.0.1", "10.0.0.2")]
     public = [("public", "8.8.8.8", "8.8.8.8")]
     assert decision(None, "collected", public).verdict() == "UNKNOWN"
+    assert decision("SecuredByPerimeter", "collected", private).verdict() == "UNKNOWN"
     assert decision("Enabled", "partial", private).verdict() == "UNKNOWN"
     assert decision("Enabled", "partial", public).verdict() == "FAIL"
     assert decision("Enabled", "collected", private).verdict() == "UNKNOWN"
@@ -1322,8 +1323,57 @@ def test_sql_ready_vnet_rule_joins_regional_subnet_service_endpoint():
     disabled = make_snapshot("azure", [SCOPE], [{"type": "sql_server", "scope": SCOPE,
         "service": "sql", "status": "collected", "items": [{"id": server_id,
             "properties": {"publicNetworkAccess": "Disabled"}}]}])
-    assert not any(row.resource["type"] == "sql_server"
-                   for row in assess(disabled, resources(disabled)))
+    disabled_row = next(row for row in assess(disabled, resources(disabled))
+                        if row.resource["type"] == "sql_server")
+    assert disabled_row.verdict() == "UNKNOWN"
+    assert any("private endpoint connection inventory" in gap["reason"]
+               for gap in disabled_row.unresolved)
+    assert "private endpoint connection inventory is missing" in _observed(disabled_row, "UNKNOWN")
+
+
+def test_sql_disabled_public_gate_retains_approved_private_endpoint_candidate():
+    server_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Sql/servers/sql"
+    endpoint_id = "/subscriptions/consumer/resourceGroups/other/providers/Microsoft.Network/privateEndpoints/sql"
+    connection_id = server_id + "/privateEndpointConnections/consumer"
+
+    def check(status="Approved", provisioning="Ready", *, include=True, malformed=False,
+              return_snapshot=False):
+        properties = {"publicNetworkAccess": "Disabled"}
+        if include:
+            properties["privateEndpointConnections"] = [{"id": connection_id,
+                "properties": {"privateEndpoint": {"id": endpoint_id},
+                    "privateLinkServiceConnectionState": {"status": status},
+                    "provisioningState": provisioning}}]
+            if malformed:
+                properties["_coverage"] = {"privateEndpointConnections": {"status": "malformed"}}
+        snap = make_snapshot("azure", [SCOPE], [{"type": "sql_server", "scope": SCOPE,
+            "service": "sql", "status": "collected", "items": [{"id": server_id,
+                "name": "sql", "properties": properties}]}])
+        if return_snapshot:
+            return snap
+        return next((row for row in assess(snap, resources(snap))
+                     if row.resource["type"] == "sql_server"), None)
+
+    approved = check()
+    assert approved.verdict() == "UNKNOWN" and approved.ports == {"tcp": ((1433, 1433),)}
+    assert approved.path[-1]["approved_endpoint_ids"] == [endpoint_id]
+    assert any(gap["layer"] == "authorization" for gap in approved.unresolved)
+    assert _observed(approved, "UNKNOWN").splitlines() == [
+        f"The Azure SQL server sql blocks its public endpoint but records an Approved, Ready connection to private endpoint {endpoint_id}.",
+        "That named private consumer may have a path; its tenant ownership and effective route are not established.",
+        "Database authorization, DNS delivery and a successful SQL connection were not tested."]
+    from peaso.analysis.internet_exposure import annotate_network, internet_findings
+    snap = check(return_snapshot=True)
+    finding = next(row for row in internet_findings(snap, resources(snap))
+                   if row["title"] == "SQL private endpoint consumer path unresolved")
+    assert finding["status"] == "UNKNOWN"
+    assert "public SQL route is blocked" in finding["evidence"]["semantics"]
+    assert annotate_network({"nodes": [], "edges": []}, snap, resources(snap)) == {"nodes": [], "edges": []}
+    assert check("Pending").verdict() == "UNKNOWN"
+    assert check("Approved", "Approving").verdict() == "UNKNOWN"
+    assert check(include=False).verdict() == "UNKNOWN"
+    assert check(malformed=True).verdict() == "UNKNOWN"
+    assert check("Rejected") is None
 
 
 def test_sql_ipv6_firewall_rules_join_enabled_public_server():
