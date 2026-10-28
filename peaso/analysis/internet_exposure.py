@@ -5306,6 +5306,7 @@ def _azure_container_app(snapshot, inventory, resource):
     environment = inventory.get("container_app_environment", env_id)
     runtime = inventory.get("container_app_runtime", resource["data"].get("id"))
     route_hosts = []
+    route_default_fqdn = False
     route_state = None
     route_target_unresolved = False
     if ingress.get("external") is not True:
@@ -5329,6 +5330,12 @@ def _azure_container_app(snapshot, inventory, resource):
                     route_target_unresolved = True
                     continue
                 fqdn = route_props.get("fqdn")
+                bound_domains = [domain["name"] for domain in as_list(route_props.get("customDomains"))
+                                 if isinstance(domain, dict) and isinstance(domain.get("name"), str)
+                                 and domain["name"] and domain.get("bindingType") == "SniEnabled"
+                                 and isinstance(domain.get("certificateId"), str)
+                                 and domain["certificateId"]]
+                hosts = ([fqdn] if isinstance(fqdn, str) and fqdn else []) + bound_domains
                 for rule in as_list(route_props.get("rules")):
                     for target in as_list(rule.get("targets")) if isinstance(rule, dict) else []:
                         if (not isinstance(target, dict) or
@@ -5340,14 +5347,16 @@ def _azure_container_app(snapshot, inventory, resource):
                         revision = target.get("revision")
                         label = target.get("label")
                         if revision is None and label is None:
-                            if isinstance(fqdn, str) and fqdn:
-                                route_hosts.append(fqdn)
+                            if hosts:
+                                route_hosts.extend(hosts)
+                                route_default_fqdn |= fqdn in hosts
                             else:
                                 route_target_unresolved = True
                         elif isinstance(revision, str) and revision and label is None and complete_revisions:
                             active = revision_states.get(revision.rsplit("/", 1)[-1].casefold())
-                            if active is True and isinstance(fqdn, str) and fqdn:
-                                route_hosts.append(fqdn)
+                            if active is True and hosts:
+                                route_hosts.extend(hosts)
+                                route_default_fqdn |= fqdn in hosts
                             elif active is not False:
                                 route_target_unresolved = True
                         elif isinstance(label, str) and label and revision is None and complete_revisions:
@@ -5358,8 +5367,9 @@ def _azure_container_app(snapshot, inventory, resource):
                                 route_target_unresolved = True
                                 continue
                             active = revision_states.get(matches[0]["revisionName"].casefold())
-                            if active is True and isinstance(fqdn, str) and fqdn:
-                                route_hosts.append(fqdn)
+                            if active is True and hosts:
+                                route_hosts.extend(hosts)
+                                route_default_fqdn |= fqdn in hosts
                             elif active is not False:
                                 route_target_unresolved = True
                         else:
@@ -5424,13 +5434,15 @@ def _azure_container_app(snapshot, inventory, resource):
         else:
             a.gap("listener", "Container App TCP exposedPort is unavailable")
     elif transport in ("auto", "http", "http2"):
-        a.ports = union(pset("tcp", 80, 80), pset("tcp", 443, 443))
-        insecure = ingress.get("allowInsecure")
-        if insecure is not None and type(insecure) is not bool:
-            a.gap("listener", "Container App allowInsecure HTTP redirect mode is unresolved")
-        else:
-            a.step("http_port_80", "allow" if insecure is True else "redirect",
-                   allow_insecure=insecure if insecure is not None else False)
+        a.ports = (pset("tcp", 443, 443) if route_hosts and not route_default_fqdn else
+                   union(pset("tcp", 80, 80), pset("tcp", 443, 443)))
+        if not route_hosts or route_default_fqdn:
+            insecure = ingress.get("allowInsecure")
+            if insecure is not None and type(insecure) is not bool:
+                a.gap("listener", "Container App allowInsecure HTTP redirect mode is unresolved")
+            else:
+                a.step("http_port_80", "allow" if insecure is True else "redirect",
+                       allow_insecure=insecure if insecure is not None else False)
     else:
         a.gap("listener", "Container App ingress transport is unrecognized")
     for mapping in as_list(ingress.get("additionalPortMappings")):

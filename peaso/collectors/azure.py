@@ -342,9 +342,16 @@ def _child_rows(rows, parent_id, field):
                 raise ValueError("duplicate, foreign or malformed Container Apps HTTP route")
             props = row["properties"]
             rules = props.get("rules")
+            domains = props.get("customDomains")
+            certified_domain = isinstance(domains, list) and any(
+                isinstance(domain, dict) and isinstance(domain.get("name"), str) and domain["name"]
+                and domain.get("bindingType") == "SniEnabled"
+                and isinstance(domain.get("certificateId"), str) and domain["certificateId"]
+                for domain in domains)
             if (props.get("provisioningState") == "Succeeded"
-                    and (not isinstance(props.get("fqdn"), str) or not props["fqdn"])):
-                raise ValueError("successful Container Apps HTTP route lacks its FQDN")
+                    and (not isinstance(props.get("fqdn"), str) or not props["fqdn"])
+                    and not certified_domain):
+                raise ValueError("successful Container Apps HTTP route lacks a supported hostname")
             if (not isinstance(rules, list) or any(
                     not isinstance(rule, dict) or not isinstance(rule.get("targets"), list)
                     or any(not isinstance(target, dict)
