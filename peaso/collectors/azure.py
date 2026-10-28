@@ -226,6 +226,7 @@ EMBEDDED_LISTS = {
     "web_pubsub": (("privateEndpointConnections", "privateEndpointConnections", "2024-03-01"),),
     "ml_workspace": (("privateEndpointConnections", "privateEndpointConnections", "2024-04-01"),
                      ("onlineEndpoints", "onlineEndpoints", "2024-04-01")),
+    "compute_gallery": (("images", "images", "2025-12-03"),),
     "recovery_vault": (("backupPolicies", "backupPolicies", "2024-04-01"), ("backupProtectedItems", "backupProtectedItems", "2024-04-01"),
                        ("backupJobs", "backupJobs", "2024-04-01")),
     "mssql_managed_instance": (("instanceAdministrators", "administrators", "2023-08-01"),
@@ -643,6 +644,17 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                                               "properties": {name: data for name, data in row["properties"].items() if name == "recurringScans"}})
                         yield projected
                         continue
+                    if field == "images":
+                        projected = []
+                        for row in page:
+                            image_id = row.get("id") if isinstance(row, dict) else None
+                            if (not isinstance(image_id, str) or re.fullmatch(
+                                    re.escape(rid + "/images/") + r"[^/?#%\\\s]+", image_id, re.I) is None
+                                    or str(row.get("type", "")).casefold() != "microsoft.compute/galleries/images"):
+                                raise ValueError("foreign or malformed gallery image definition")
+                            projected.append({"id": image_id, "name": row.get("name"), "type": row["type"]})
+                        yield projected
+                        continue
                     if field in ("backupJobs", "backupProtectedItems", "configurations", "firewallRules", "administrators", "diagnosticSettings", "backupPolicies", "slots", "serverAdministrators", "instanceAdministrators", "azureADOnlyAuthentications", "virtualNetworkRules", "securityAlertPolicies", "vulnerabilityAssessmentScans", "vulnerabilityAssessments", "encryptionProtectors", "onlineEndpoints"):
                         distinct = []
                         for row in page:
@@ -708,6 +720,42 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                 item[field] = read["items"] if is_list else read["items"][0]
             elif read["items"]:
                 item[field] = read["items"] if is_list else read["items"][0]
+
+
+def _collect_gallery_versions(reader, request, parents):
+    """Resolve image-version identities only for observed gallery image definitions."""
+    for kind, gallery in parents:
+        if kind != "compute_gallery":
+            continue
+        image_coverage = (gallery.get("_coverage") or {}).get("images") or {}
+        if image_coverage.get("status") not in ("collected", "empty"):
+            continue
+        for image in gallery.get("images", []):
+            image_id = image["id"]
+            url = ARM + image_id + "/versions?api-version=2025-12-03"
+            def fetch(url=url, image_id=image_id):
+                for page in reader.pages(request, url):
+                    projected = []
+                    for row in page:
+                        version_id = row.get("id") if isinstance(row, dict) else None
+                        if (not isinstance(version_id, str) or re.fullmatch(
+                                re.escape(image_id + "/versions/") + r"[^/?#%\\\s]+", version_id, re.I) is None
+                                or str(row.get("type", "")).casefold() != "microsoft.compute/galleries/images/versions"):
+                            raise ValueError("foreign or malformed gallery image version")
+                        props = row.get("properties") or {}
+                        if not isinstance(props, dict):
+                            raise ValueError("malformed gallery image version properties")
+                        publishing = props.get("publishingProfile") or {}
+                        if not isinstance(publishing, dict):
+                            raise ValueError("malformed gallery image publishing profile")
+                        projected.append({"id": version_id, "name": row.get("name"), "type": row["type"],
+                                          "properties": {"provisioningState": props.get("provisioningState"),
+                                                         "publishingProfile": {key: publishing[key] for key in ("publishedDate", "excludeFromLatest") if key in publishing}}})
+                    yield projected
+            read = reader._read(("embedded_galleryVersions", image_id, "Microsoft.Resources", fetch))
+            image.setdefault("_coverage", {})["versions"] = {key: read[key] for key in ("status", "error") if key in read}
+            if read["status"] in ("collected", "empty") or read["items"]:
+                image["versions"] = read["items"]
 
 
 AUTHORIZATION = {
@@ -3065,6 +3113,7 @@ def collect(connector, requirements=None, *, transport=None):
         if "batch_pool" not in wanted:
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
+        _collect_gallery_versions(reader, request, embedded_parents)
         azure_swc.collect_nested_metadata(reader, request, embedded_parents)
         azure_network_catalog.collect_children(reader, request, scopes, wanted)
         azure_swc.collect_diagnostic_categories(reader, request, embedded_parents, scopes, wanted)

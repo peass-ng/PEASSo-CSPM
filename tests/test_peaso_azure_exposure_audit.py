@@ -238,6 +238,26 @@ def test_compute_gallery_community_and_direct_sharing_policy():
         "The gallery has no recorded sharingProfile.permissions value.")
 
 
+def test_gallery_public_policy_reports_observed_versions_and_partial_child_inventory():
+    image_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images/images/base"
+    def gallery(version_status, versions):
+        item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images",
+                "properties": {"sharingProfile": {"permissions": "Community"}},
+                "_coverage": {"images": {"status": "collected"}},
+                "images": [{"id": image_id, "_coverage": {"versions": {"status": version_status}},
+                            "versions": versions}]}
+        snap = make_snapshot("azure", [SCOPE], [{"type": "compute_gallery", "scope": SCOPE,
+            "service": "compute", "status": "collected", "items": [item]}])
+        return assess(snap, resources(snap))[0]
+    version = image_id + "/versions/1.0.0"
+    complete = gallery("collected", [{"id": version}])
+    assert complete.verdict() == "FAIL"
+    assert any(version in note for note in complete.notes)
+    partial = gallery("partial", [{"id": version}])
+    assert partial.verdict() == "FAIL"
+    assert any("incomplete" in note for note in partial.notes)
+
+
 def test_container_instance_public_ports_and_private_group():
     exposed = decision("container_group", {"ipAddress": {"type": "Public", "ip": "8.8.8.8",
         "ports": [{"protocol": "TCP", "port": 8080}]}})
