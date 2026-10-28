@@ -4164,6 +4164,13 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
     if target is not None:
         a.resource = target
         a.notes.append(f"via network interface {native_id(resource)}")
+        view = _props(target).get("instanceView")
+        statuses = view.get("statuses") if isinstance(view, dict) else None
+        power = [row.get("code") for row in statuses if isinstance(row, dict)
+                 and str(row.get("code", "")).startswith("PowerState/")] if isinstance(statuses, list) else []
+        if len(power) == 1 and power[0] in ("PowerState/stopped", "PowerState/deallocated"):
+            a.dormant = True
+            a.step("vm_power_state", "stopped", state=power[0])
     return a
 
 
@@ -7570,6 +7577,13 @@ def _observed(assessment, status):
                     f"That address uniquely matches NIC {item['nic']} on VM {item['vm']} with "
                     f"recorded {item['power_state']}.\n"
                     "The firewall's effective route to that private address is not observed, so the backend path remains unresolved.")
+    if assessment.resource["type"] == "vm" and status == "FAIL" and assessment.dormant:
+        power = next((step["state"] for step in assessment.path if step["layer"] == "vm_power_state"), None)
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        address = assessment.addresses[0] if assessment.addresses else "an unobserved address"
+        return (f"The Azure VM {name} has a public NIC path at {address} admitted by the collected network rules.\n"
+                f"Its instanceView records {power}, so the VM cannot currently serve requests.\n"
+                "Starting the VM could activate this configured path; a guest listener was not tested.")
     if assessment.resource["type"] == "application_gateway":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
         if status == "UNKNOWN" and any("public frontend address" in gap["reason"]

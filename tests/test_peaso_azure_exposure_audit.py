@@ -1508,6 +1508,42 @@ def test_nic_public_ip_reference_requires_assigned_global_address():
     assert mixed.verdict() == "FAIL" and mixed.addresses == ["8.8.8.8"]
 
 
+def test_nic_vm_instance_view_power_state_marks_configured_path_dormant():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    nic_id, pip_id = base + "/networkInterfaces/nic", base + "/publicIPAddresses/pip"
+    subnet_id = base + "/virtualNetworks/vnet/subnets/app"
+    vm_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm"
+
+    def check(statuses):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected", "items": [
+                {"id": nic_id, "properties": {"virtualMachine": {"id": vm_id},
+                    "ipConfigurations": [{"id": nic_id + "/ipConfigurations/main", "properties": {
+                        "privateIPAddress": "10.0.0.4", "subnet": {"id": subnet_id},
+                        "publicIPAddress": {"id": pip_id}}}]}}]},
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected", "items": [
+                {"id": pip_id, "sku": {"name": "Basic"}, "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected", "items": [
+                {"id": subnet_id, "properties": {}}]},
+            {"type": "vm", "scope": SCOPE, "service": "compute", "status": "collected", "items": [
+                {"id": vm_id, "name": "vm", "properties": {"instanceView": {"statuses": statuses}}}]},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "vm")
+
+    running = check([{"code": "PowerState/running"}])
+    assert running.verdict() == "FAIL" and not running.dormant
+    for power in ("stopped", "deallocated"):
+        off = check([{"code": "PowerState/" + power}])
+        assert off.verdict() == "FAIL" and off.dormant
+        assert off.adjusted_severity() == "high"
+        assert _observed(off, "FAIL").splitlines() == [
+            "The Azure VM vm has a public NIC path at 8.8.8.8 admitted by the collected network rules.",
+            f"Its instanceView records PowerState/{power}, so the VM cannot currently serve requests.",
+            "Starting the VM could activate this configured path; a guest listener was not tested."]
+    assert not check([]).dormant
+    assert not check([{"code": "PowerState/stopped"}, {"code": "PowerState/running"}]).dormant
+
+
 def test_nic_finding_lists_only_frontends_with_an_admitted_path():
     base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
     nic_id, subnet_id = base + "/networkInterfaces/nic", base + "/virtualNetworks/v/subnets/s"
