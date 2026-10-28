@@ -2,7 +2,7 @@
 
 The Azure collector changed from SHA-256
 `ba4b8bc54cdcbb1e35ef50a7dea9d04928a6fe5ed6ca885e4722ec1c8e750d67`
-to `e031abe7aeb40bdd394c1076d6cdd30feb8979a261053d78bea53c078ac75193`.
+to `e6739b54f408957f1504a9fa7d2014fce9cae90d09be7ccafb5574fee1c81110`.
 The collector diff only changes the existing subscription workspace LIST from
 `2024-04-01` to `2026-03-01`. It remains one paged, read-only ARM request through
 the per-scan reader; no second workspace fetch is introduced. The current

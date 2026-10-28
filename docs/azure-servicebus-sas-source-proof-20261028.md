@@ -1,7 +1,7 @@
 # Service Bus namespace SAS rule source proof
 
 The Azure collector SHA-256 after this change is
-`e031abe7aeb40bdd394c1076d6cdd30feb8979a261053d78bea53c078ac75193`.
+`e6739b54f408957f1504a9fa7d2014fce9cae90d09be7ccafb5574fee1c81110`.
 The added [Service Bus authorization-rule LIST](https://learn.microsoft.com/en-us/rest/api/servicebus/controlplane/namespaces/list-authorization-rules?view=rest-servicebus-controlplane-2024-01-01)
 is `GET {namespace}/AuthorizationRules?api-version=2024-01-01`. It uses the
 existing paged, read-only per-scan ARM reader. Only rule identity and `rights`

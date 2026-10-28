@@ -595,6 +595,47 @@ def _bind_service_diagnostic_receipt(collection, reader):
         collection.setdefault('_provenance', {}).update(proof)
 
 
+def _function_trigger_rows(rows, site_id):
+    """Keep only HTTP trigger declarations from FunctionEnvelope LIST rows."""
+    safe = []
+    expected_types = ({"microsoft.web/sites/slots/functions", "microsoft.web/sites/functions"}
+                      if "/slots/" in site_id.casefold() else {"microsoft.web/sites/functions"})
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("malformed FunctionEnvelope")
+        rid = row.get("id")
+        if (not isinstance(rid, str) or not re.fullmatch(
+                re.escape(site_id + "/functions/") + r"[^/?#%\\\s]+", rid, re.I)
+                or str(row.get("type", "")).casefold() not in expected_types):
+            raise ValueError("foreign or malformed FunctionEnvelope identity")
+        props = row.get("properties")
+        if not isinstance(props, dict):
+            raise ValueError("malformed FunctionEnvelope properties")
+        config = props.get("config")
+        bindings = config.get("bindings") if isinstance(config, dict) else None
+        complete = isinstance(bindings, list)
+        triggers = []
+        if complete:
+            for binding in bindings:
+                if not isinstance(binding, dict) or not isinstance(binding.get("type"), str):
+                    complete = False
+                    continue
+                if binding["type"].casefold() != "httptrigger":
+                    continue
+                methods = binding.get("methods")
+                if methods is not None and (not isinstance(methods, list) or
+                                            any(not isinstance(method, str) for method in methods)):
+                    complete = False
+                    methods = None
+                triggers.append({"authLevel": binding.get("authLevel") if isinstance(binding.get("authLevel"), str) else None,
+                                 "methods": methods,
+                                 "route": binding.get("route") if isinstance(binding.get("route"), str) else None})
+        safe.append({"id": rid, "type": row["type"], "name": row.get("name"),
+                     "properties": {"isDisabled": props.get("isDisabled") if type(props.get("isDisabled")) is bool else None,
+                                    "httpTriggers": triggers, "triggerConfigComplete": complete}})
+    return safe
+
+
 def _embed(reader, request, parents, diagnostics=None, skip=()):
     """Bound independent child reads; never fabricate empty on denied/partial.
 
@@ -603,9 +644,16 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
     """
     jobs = []
     diagnostics = diagnostics or {}
+    function_sites = {item["id"].casefold() for collection in reader.collections
+                      if collection["type"] == "app_service" for item in collection["items"]
+                      if isinstance(item.get("id"), str) and "functionapp" in
+                      {part.strip().casefold() for part in str(item.get("kind", "")).split(",")}}
     for kind, item in parents:
         rid = item["id"]
         specs = list(EMBEDDED_LISTS.get(kind, ()))
+        site_id = re.split(r"/slots/", rid, maxsplit=1, flags=re.I)[0] if kind == "app_service_slot" else rid
+        if kind in ("app_service", "app_service_slot") and site_id.casefold() in function_sites:
+            specs.append(("functions", "functions", "2025-05-01"))
         if kind == "container_registry" and item.get("sku", {}).get("name") != "Premium":
             specs = [spec for spec in specs if spec[0] != "replications"]
         known = diagnostics.get(rid.casefold())
@@ -645,6 +693,15 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                 workspace_va_seen = {}
                 messaging_rule_seen = set()
                 for page in reader.pages(request, url):
+                    if field == "functions":
+                        projected = _function_trigger_rows(page, rid)
+                        for row in projected:
+                            key = row["id"].casefold()
+                            if key in backup_seen:
+                                raise ValueError("duplicate function across pages")
+                            backup_seen[key] = row
+                        yield projected
+                        continue
                     if field == "authorizationRules":
                         projected = _child_rows(page, rid, field)
                         if any(row["id"].casefold() in messaging_rule_seen for row in projected):

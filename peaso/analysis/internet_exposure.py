@@ -4322,6 +4322,54 @@ def _azure_app_authentication(assessment, resource, main, scm):
                         excluded_paths=excluded if isinstance(excluded, list) else None)
 
 
+def _azure_function_triggers(assessment, inventory, resource):
+    site = resource["data"]
+    kind = site.get("kind")
+    if resource["type"] == "app_service_slot" and site.get("parent_id"):
+        parent = inventory.get("app_service", site["parent_id"])
+        kind = parent["data"].get("kind") if parent is not None else kind
+    kinds = {part.strip().casefold() for part in kind.split(",")} if isinstance(kind, str) else set()
+    if "functionapp" not in kinds and "functions" not in (site.get("_coverage") or {}):
+        return
+    coverage = (site.get("_coverage") or {}).get("functions") or {}
+    functions = site.get("functions")
+    if coverage.get("status") not in ("collected", "empty") or not isinstance(functions, list):
+        assessment.step("function_triggers", "unknown", reason="Function LIST not complete")
+        return
+    anonymous, keyed, unresolved = [], [], []
+    site_id = str(site.get("id", ""))
+    for function in functions:
+        if not isinstance(function, dict) or not re.fullmatch(
+                re.escape(site_id + "/functions/") + r"[^/?#%\\\s]+", str(function.get("id", "")), re.I):
+            unresolved.append("malformed function identity")
+            continue
+        name = function["id"].rsplit("/", 1)[-1]
+        props = function.get("properties")
+        if not isinstance(props, dict) or props.get("triggerConfigComplete") is not True:
+            unresolved.append(name)
+            continue
+        triggers = props.get("httpTriggers")
+        if not isinstance(triggers, list):
+            unresolved.append(name)
+            continue
+        for trigger in triggers:
+            if not isinstance(trigger, dict) or props.get("isDisabled") is None:
+                unresolved.append(name)
+            elif props["isDisabled"] is True:
+                continue
+            elif str(trigger.get("authLevel", "")).casefold() == "anonymous":
+                anonymous.append(name)
+            elif str(trigger.get("authLevel", "")).casefold() in ("function", "admin"):
+                keyed.append(name)
+            else:
+                unresolved.append(name)
+    decision = ("anonymous" if anonymous else "unknown" if unresolved else
+                "key_required" if keyed else "none")
+    assessment.step("function_triggers", decision, anonymous_functions=sorted(set(anonymous)),
+                    keyed_functions=sorted(set(keyed)), unresolved_functions=sorted(set(unresolved)),
+                    listed_functions=len(functions))
+
+
 def _azure_app_service(snapshot, inventory, resource, configs):
     props = _props(resource)
     a = Assessment(resource, "web_app")
@@ -4364,6 +4412,7 @@ def _azure_app_service(snapshot, inventory, resource, configs):
     if config is None:
         a.gap("access_restrictions", "site config (main and SCM restrictions) not collected", "Microsoft.Web/sites/config/web")
         a.ports = ports
+        _azure_function_triggers(a, inventory, resource)
         return a
     cp = _props(config)
     main, main_detail = _azure_app_restriction_decision(cp, "")
@@ -4407,6 +4456,7 @@ def _azure_app_service(snapshot, inventory, resource, configs):
     if decision == "unknown":
         a.gap("access_restrictions", "main or SCM public-site restriction decision is unresolved")
     a.ports = ports if decision == "allow" else {}
+    _azure_function_triggers(a, inventory, resource)
     return a
 
 

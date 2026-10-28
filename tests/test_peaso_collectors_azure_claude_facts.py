@@ -62,6 +62,45 @@ def test_plans_environments_slots_and_site_logs_are_collected_without_sas_urls()
     assert "SASTOKEN9" not in repr(snapshot)
 
 
+def test_function_trigger_inventory_projects_parent_and_slot_without_files_or_keys():
+    def handler(url, body, audience):
+        path = urlsplit(url).path
+        if path == SUB + "/providers/Microsoft.Web/sites":
+            return {"value": [{"id": SITE, "kind": "functionapp", "properties": {}}]}
+        if path == SITE + "/slots":
+            return {"value": [{"id": SITE + "/slots/staging", "kind": "functionapp",
+                              "type": "Microsoft.Web/sites/slots", "properties": {}}]}
+        if path in (SITE + "/functions", SITE + "/slots/staging/functions"):
+            child = path + "/Ping"
+            return {"value": [{"id": child, "name": "Ping",
+                              "type": "Microsoft.Web/sites/slots/functions" if "/slots/" in path else "Microsoft.Web/sites/functions",
+                              "properties": {"isDisabled": False, "config": {"bindings": [
+                                  {"type": "httpTrigger", "authLevel": "anonymous", "methods": ["get"],
+                                   "route": "ping", "secret": "TRIGGER_SECRET"},
+                                  {"type": "queueTrigger", "connection": "QUEUE_SECRET"}]},
+                                  "files": {"source.py": "SOURCE_SECRET"}, "test_data": "TEST_SECRET",
+                                  "invoke_url_template": "https://app.azurewebsites.net/api/ping?code=URL_SECRET"}}]}
+        if path.endswith("/config/web") or path.endswith("/config/authsettingsV2"):
+            return {"id": path, "properties": {}}
+        return {"value": []}
+
+    api = FakeAzure(handler)
+    snapshot = azure.collect({"scopes": ["sub-a"]}, ["app_service", "app_service_slot"], transport=api)
+    assert validate(snapshot) == snapshot
+    parent = rows(snapshot, "app_service", SUB)[0]["items"][0]
+    slot = rows(snapshot, "app_service_slot", SUB)[0]["items"][0]
+    for site in (parent, slot):
+        assert site["_coverage"]["functions"]["status"] == "collected"
+        trigger = site["functions"][0]["properties"]["httpTriggers"][0]
+        assert trigger == {"authLevel": "anonymous", "methods": ["get"], "route": "ping"}
+        assert site["functions"][0]["properties"]["triggerConfigComplete"] is True
+    paths = [urlsplit(url).path for url, _, _ in api.calls]
+    assert paths.count(SITE + "/functions") == 1
+    assert paths.count(SITE + "/slots/staging/functions") == 1
+    assert all(secret not in repr(snapshot) for secret in
+               ("TRIGGER_SECRET", "QUEUE_SECRET", "SOURCE_SECRET", "TEST_SECRET", "URL_SECRET"))
+
+
 def test_automation_variables_keep_encryption_flag_but_never_values():
     def handler(url, body, audience):
         path = urlsplit(url).path

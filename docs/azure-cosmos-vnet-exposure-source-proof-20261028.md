@@ -4,4 +4,4 @@ The existing Cosmos account collection includes `publicNetworkAccess`, `ipRules`
 
 [Cosmos VNet access guidance](https://learn.microsoft.com/en-us/azure/cosmos-db/how-to-configure-vnet-service-endpoint) says a VNet rule admits a named subnet through a service endpoint; that request carries the subnet identity rather than the client's public IP. A VNet-only allow list therefore blocks direct internet sources when the IP list is empty and network ACL bypass is explicitly absent. The analyzer validates every subnet resource ID before making that decision. A subnet in another subscription remains `UNKNOWN` for effective third-party access and records the cross-subscription IDs. Missing or malformed rules and bypass data remain `UNKNOWN`. [Cosmos IP firewall guidance](https://learn.microsoft.com/en-us/azure/cosmos-db/how-to-configure-firewall) documents that both IP and VNet lists determine allowed sources and that authorization is still required.
 
-Current exposure analyzer SHA-256: `cb9663d0fca67cd95ac0cfcc826ab2ee96aa20771633f86ea9fa91ea943d451a`.
+Current exposure analyzer SHA-256: `8263329b85e01375f2b693f71c5e886b6827c866e656b8571fc99af3138e11c3`.
