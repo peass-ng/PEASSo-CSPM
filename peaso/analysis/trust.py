@@ -409,6 +409,8 @@ def principal_verdict(snapshot, entry, statement, path):
             return "MANUAL", "external_conditional"
         if kind in ("VaultAccessPolicy", "GroupMember") and isinstance(statement, dict) and statement.get("keyVaultAccessPolicy") and statement.get("applicationId"):
             return "MANUAL", "application_and_principal_required"
+        if snapshot["provider"] == "azure" and condition:
+            return "MANUAL", "external_conditional"
         return "FAIL", "external"
     if classification == "everyone_authenticated":
         return "MANUAL", "everyone_authenticated"
@@ -891,10 +893,41 @@ def azure_federated_credential(snapshot, resource):
     evidence = {"issuer": issuer, "subject": subject or None, "audiences": copy.deepcopy(props.get("audiences")),
                 "claims_matching_expression": copy.deepcopy(expression)}
     host = re.sub(r"^https?://", "", issuer).lower()
-    value = expression.get("value") if isinstance(expression, dict) else expression
-    if isinstance(value, str) and "*" in value:
-        wild = _wildcard_subject(host, re.sub(r"^.*?['\"]", "", value).rstrip("'\""))
-        return ("FAIL" if wild else "PASS"), ("critical" if wild else "info"), {**evidence, "wildcard_expression": wild}
-    if not subject and not value:
+    if expression is not None:
+        if (subject or not isinstance(expression, dict) or type(expression.get("languageVersion")) is not int
+                or expression["languageVersion"] != 1
+                or not isinstance(expression.get("value"), str)):
+            return "UNKNOWN", "info", {**evidence, "reason": "invalid flexible credential shape"}
+        clauses = {}
+        for clause in expression["value"].split(" and "):
+            parsed = re.fullmatch(r"claims\['([A-Za-z_][A-Za-z0-9_]*)'\] (eq|matches) '([^']*)'", clause)
+            if not parsed or parsed[1] in clauses:
+                return "UNKNOWN", "info", {**evidence, "reason": "unsupported flexible credential expression"}
+            clauses[parsed[1]] = {"operator": parsed[2], "value": parsed[3]}
+        sub = clauses.get("sub")
+        if not sub:
+            return "UNKNOWN", "info", {**evidence, "reason": "flexible credential has no subject selector"}
+        if host == "token.actions.githubusercontent.com":
+            bound = any(clauses.get(key, {}).get("operator") == "eq"
+                        and re.fullmatch(r"[0-9]+", clauses[key]["value"])
+                        for key in ("repository_id", "repository_owner_id") if key in clauses)
+            if not bound:
+                return "UNKNOWN", "info", {**evidence, "reason": "GitHub immutable repository selector is unavailable"}
+        elif host == "gitlab.com" or host.startswith("gitlab."):
+            project = clauses.get("project_id", {})
+            if project.get("operator") != "eq" or not re.fullmatch(r"[0-9]+", project.get("value", "")):
+                return "UNKNOWN", "info", {**evidence, "reason": "GitLab immutable project selector is unavailable"}
+        elif host in ("app.terraform.io", "app.eu.terraform.io"):
+            if sub["operator"] == "matches" and _wildcard_subject(host, sub["value"]):
+                return "FAIL", "critical", {**evidence, "reason": "Terraform subject selector admits arbitrary workloads"}
+        else:
+            return "UNKNOWN", "info", {**evidence, "reason": "flexible credential issuer syntax is unsupported"}
+        return "MANUAL", "medium", {**evidence, "reason": "flexible credential is bounded by observed claims; external issuer ownership is unverified",
+                                    "claim_selectors": clauses}
+    if not subject:
         return "UNKNOWN", "info", {**evidence, "reason": "subject not collected"}
-    return "PASS", "info", evidence
+    audiences = props.get("audiences")
+    if (not issuer.startswith("https://") or not host or not isinstance(audiences, list)
+            or len(audiences) != 1 or not isinstance(audiences[0], str) or not audiences[0]):
+        return "UNKNOWN", "info", {**evidence, "reason": "exact credential issuer or audience is incomplete"}
+    return "MANUAL", "medium", {**evidence, "reason": "exact subject is pinned; external issuer ownership is unverified"}
