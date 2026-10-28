@@ -11525,6 +11525,35 @@ def _azure_service_fabric_cluster(snapshot, inventory, resource):
     return a
 
 
+def _azure_ml_compute(snapshot, inventory, resource):
+    """Compute-instance public SSH policy from the cached workspace compute LIST."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    if props.get("computeType") != "ComputeInstance":
+        a.gap("compute_type", "ML compute type has no compute-instance SSH policy")
+        return a
+    instance = props.get("properties")
+    settings = instance.get("sshSettings") if isinstance(instance, dict) else None
+    if not isinstance(settings, dict):
+        a.gap("ssh_policy", "compute-instance SSH settings unavailable")
+        return a
+    public = settings.get("sshPublicAccess")
+    if public == "Disabled":
+        a.step("public_ssh", "block", setting=public)
+        a.explicit = "PASS"
+    elif public == "Enabled":
+        port = settings.get("sshPort")
+        if type(port) is int and 1 <= port <= 65535:
+            a.ports = pset("tcp", port, port)
+        a.step("public_ssh", "conditional", setting=public, port=port)
+        a.gap("ingress", "VNet/subnet policy and public SSH address are not joined")
+        a.explicit = "UNKNOWN"
+    else:
+        a.gap("ssh_policy", "compute-instance public SSH setting unavailable")
+    return a
+
+
 def _azure_recovery_vault(snapshot, inventory, resource):
     """Recovery Services public network gate and approved foreign private links."""
     a = Assessment(resource, "managed_endpoint")
@@ -13853,7 +13882,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "powerbi_capacity", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "newrelic_monitor", "newrelic_monitored_resource", "service_fabric_cluster", "service_fabric_managed_cluster", "recovery_vault", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "powerbi_capacity", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "newrelic_monitor", "newrelic_monitored_resource", "service_fabric_cluster", "service_fabric_managed_cluster", "ml_compute", "recovery_vault", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -13869,7 +13898,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "management_group", "subscription", "powerbi_capacity", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export",
-                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "newrelic_monitor", "newrelic_monitored_resource", "service_fabric_cluster", "service_fabric_managed_cluster", "recovery_vault", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "newrelic_monitor", "newrelic_monitored_resource", "service_fabric_cluster", "service_fabric_managed_cluster", "ml_compute", "recovery_vault", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -13990,6 +14019,7 @@ def assess(snapshot, resources):
                   "newrelic_monitored_resource": _azure_newrelic_monitored_resource,
                   "service_fabric_cluster": _azure_service_fabric_cluster,
                   "service_fabric_managed_cluster": _azure_service_fabric_cluster,
+                  "ml_compute": _azure_ml_compute,
                   "recovery_vault": _azure_recovery_vault,
                   "fabric_workspace": _azure_fabric_workspace,
                   "fabric_item": _azure_fabric_workspace,
