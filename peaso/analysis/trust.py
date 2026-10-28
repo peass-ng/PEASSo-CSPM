@@ -153,6 +153,63 @@ def provider_service(provider, text):
     return False
 
 
+def _gcp_group_membership(snapshot, email):
+    """Classify an owned group from its observed Cloud Identity membership graph."""
+    def index():
+        groups = {}
+        members = {}
+        statuses = {}
+        for collection in snapshot.get("collections", []):
+            if collection.get("type") == "group_membership":
+                statuses[collection.get("scope")] = collection.get("status")
+        for collection in snapshot.get("collections", []):
+            if collection.get("type") != "group" or collection.get("status") not in ("collected", "partial"):
+                continue
+            for row in collection.get("items", []):
+                if not isinstance(row, dict):
+                    continue
+                key = row.get("groupKey")
+                if isinstance(key, dict) and isinstance(key.get("id"), str):
+                    groups.setdefault(key["id"].lower(), []).append((row, collection.get("scope")))
+        for row in _items(snapshot, "group_membership"):
+            if isinstance(row.get("group"), str):
+                members.setdefault(row["group"], []).append(row)
+        return groups, members, statuses
+    groups, members, statuses = _cache(snapshot, "gcp_group_membership_index", index)
+    matches = groups.get(email.lower(), [])
+    if len(matches) != 1:
+        return "unknown", None
+    group, scope = matches[0]
+    group_name = group.get("name")
+    external = []
+    unresolved = False
+    for row in members.get(group_name, []):
+        keys = as_list(row.get("preferredMemberKey"))
+        if not keys or (row.get("membershipCoverage") or {}).get("completeTransitiveClosure") is not True:
+            unresolved = True
+        for key in keys:
+            if not isinstance(key, dict) or key.get("namespace") or not isinstance(key.get("id"), str):
+                unresolved = True
+                continue
+            member = key["id"]
+            if "@" in member:
+                from .common import externality
+                classification = externality(snapshot, "serviceAccount:" + member)
+                if classification == "external":
+                    external.append(member)
+                elif classification == "unknown":
+                    unresolved = True
+            else:
+                unresolved = True
+    evidence = {"group": group_name, "external_members": sorted(set(external)),
+                "transitive_memberships_status": ((group.get("_coverage") or {}).get("transitiveMemberships") or {}).get("status")}
+    if external:
+        return "external", evidence
+    complete = (not unresolved and evidence["transitive_memberships_status"] == "collected" and
+                statuses.get(scope) in ("collected", "empty"))
+    return ("allowlisted" if complete else "unknown"), evidence
+
+
 def classify(snapshot, principal, scope=None):
     """public, everyone_authenticated, allowlisted, external, provider_service, or unknown."""
     text = str(principal)
@@ -179,6 +236,10 @@ def classify(snapshot, principal, scope=None):
         # domain:X grants every identity of a Google Workspace/Cloud Identity domain.
         if kind == "domain" and value:
             return "allowlisted" if value.lower() in domains else "external"
+        if kind == "group" and "@" in value:
+            if value.rsplit("@", 1)[1].lower() not in domains:
+                return "external"
+            return _gcp_group_membership(snapshot, value)[0]
         if "@" in value and not value.endswith(".gserviceaccount.com"):
             return "allowlisted" if value.split("@", 1)[1] in domains else "external"
     if provider == "azure":
@@ -370,6 +431,10 @@ def principal_exposure(snapshot, resource, declared):
         entry = {"principal": identity, "classification": classification,
                  "source": source(snapshot, resource, path), "native_grant": fact,
                  "condition": fact.get("Condition", fact.get("condition")), "principal_kind": kind}
+        if snapshot["provider"] == "gcp" and str(identity).startswith("group:"):
+            _, group_evidence = _gcp_group_membership(snapshot, str(identity)[len("group:"):])
+            if group_evidence is not None:
+                entry["group_membership"] = group_evidence
         verdict, reason = principal_verdict(snapshot, entry, fact, path)
         if verdict == "FAIL" and reason == "public" and _aws_network_bound_policy(resource):
             verdict, reason = "MANUAL", "public_network_bound"

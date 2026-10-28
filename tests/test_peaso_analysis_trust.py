@@ -248,6 +248,31 @@ def test_gcp_member_forms_attribute_to_scanned_projects_and_org_domain():
     assert principal(snapshot)["status"] == "UNKNOWN"
 
 
+def test_gcp_owned_group_with_external_transitive_member_is_third_party_grant():
+    scope = "projects/p1"
+    policy = {"name": scope, "bindings": [{"role": "roles/viewer", "members": ["group:team@example.com"]}]}
+    group = {"name": "groups/123", "groupKey": {"id": "team@example.com"},
+             "_coverage": {"transitiveMemberships": {"status": "collected"}}}
+    member = {"name": "groups/123/transitive/users/guest", "group": "groups/123",
+              "membershipKind": "transitive", "preferredMemberKey": [{"id": "guest@outside.example"}],
+              "membershipCoverage": {"status": "collected", "completeTransitiveClosure": True}}
+    def result(status="collected", members=None):
+        snap = make_snapshot("gcp", [scope], [
+            coll("iam_policy", [policy], scope=scope),
+            coll("group", [group], scope=scope),
+            coll("group_membership", [member] if members is None else members, status=status, scope=scope)],
+            created_at="2026-10-10T00:00:00+00:00", metadata={"trusted_domains": ["example.com"]})
+        return principal(snap)
+    exposed = result()
+    assert exposed["status"] == "FAIL"
+    assert exposed["evidence"]["principals"][0]["group_membership"]["external_members"] == ["guest@outside.example"]
+    member["preferredMemberKey"][0]["id"] = "alice@example.com"
+    assert result() is None
+    assert result(status="partial")["status"] == "UNKNOWN"
+    member["preferredMemberKey"] = [{"id": "unattributed", "namespace": "identity-source"}]
+    assert result()["status"] == "UNKNOWN"
+
+
 def test_cognito_guest_role_on_pinned_pool_is_manual():
     statement = trust({"Federated": "cognito-identity.amazonaws.com"}, {"StringEquals": {"cognito-identity.amazonaws.com:aud": "us-east-1:pool"},
                       "ForAnyValue:StringLike": {"cognito-identity.amazonaws.com:amr": "unauthenticated"}}, "sts:AssumeRoleWithWebIdentity")
