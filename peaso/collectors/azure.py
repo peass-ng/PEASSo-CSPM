@@ -759,7 +759,7 @@ def _collect_gallery_versions(reader, request, parents):
 
 
 def _collect_hsm_local_assignments(reader, request, transport, parents):
-    """Read Managed HSM local RBAC at its two HSM-wide scopes."""
+    """Read Managed HSM local RBAC at broad and observed key scopes."""
     for kind, hsm in parents:
         if kind != "managed_hsm":
             continue
@@ -782,8 +782,21 @@ def _collect_hsm_local_assignments(reader, request, transport, parents):
             continue
         origin = "https://" + host
         found, states = {}, []
-        for scope in ("/", "/keys"):
-            path = "//" + ("keys/" if scope == "/keys" else "") + "providers/Microsoft.Authorization/roleAssignments"
+        def key_names():
+            for page in reader.pages(request, origin + "/keys?api-version=2025-07-01", audience=VAULT):
+                projected = []
+                for row in page:
+                    kid = row.get("kid") if isinstance(row, dict) else None
+                    if (not isinstance(kid, str) or re.fullmatch(re.escape(origin + "/keys/")
+                            + r"[^/?#%\\\s]+", kid, re.I) is None):
+                        raise ValueError("foreign or malformed HSM key identity")
+                    projected.append({"id": kid})
+                yield projected
+        key_read = reader._read(("embedded_hsmKeyNames", rid, "Microsoft.KeyVault", key_names))
+        coverage["localRoleAssignmentKeys"] = {key: key_read[key] for key in ("status", "error") if key in key_read}
+        scopes = ["/", "/keys"] + ["/keys/" + row["id"].rsplit("/", 1)[-1] for row in key_read["items"]]
+        for scope in scopes:
+            path = "/" + scope + ("/" if scope != "/" else "") + "providers/Microsoft.Authorization/roleAssignments"
             url = origin + path + "?api-version=2025-07-01"
             def fetch(url=url, scope=scope):
                 for page in reader.pages(request, url, audience=VAULT):
@@ -792,12 +805,13 @@ def _collect_hsm_local_assignments(reader, request, transport, parents):
                         props = row.get("properties") if isinstance(row, dict) else None
                         assignment_id = row.get("id") if isinstance(row, dict) else None
                         if (not isinstance(props, dict) or not isinstance(assignment_id, str)
-                                or not re.fullmatch(r"/(?:keys/)?providers/Microsoft\.Authorization/roleAssignments/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", assignment_id, re.I)
-                                or props.get("scope") not in ("/", "/keys")
+                                or not re.fullmatch(re.escape(scope.rstrip("/") + "/providers/Microsoft.Authorization/roleAssignments/")
+                                                    + r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", assignment_id, re.I)
+                                or props.get("scope") != scope
                                 or not isinstance(props.get("principalId"), str)
                                 or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", props["principalId"], re.I)
                                 or not isinstance(props.get("roleDefinitionId"), str)
-                                or not re.fullmatch(r"/(?:keys/)?providers/Microsoft\.Authorization/roleDefinitions/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", props["roleDefinitionId"], re.I)
+                                or not re.fullmatch(r"/(?:keys(?:/[^/?#%\\\s]+)?/)?providers/Microsoft\.Authorization/roleDefinitions/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", props["roleDefinitionId"], re.I)
                                 or str(row.get("type", "")).casefold() != "microsoft.authorization/roleassignments"):
                             raise ValueError("malformed HSM local role assignment")
                         projected.append({"id": assignment_id, "name": row.get("name"), "type": row["type"],
@@ -807,7 +821,7 @@ def _collect_hsm_local_assignments(reader, request, transport, parents):
             states.append({"scope": scope, **{key: read[key] for key in ("status", "error") if key in read}})
             for row in read["items"]:
                 found.setdefault(row["id"].casefold(), row)
-        coverage["localRoleAssignments"] = {"status": "collected" if all(state["status"] in ("collected", "empty") for state in states)
+        coverage["localRoleAssignments"] = {"status": "collected" if key_read["status"] in ("collected", "empty") and all(state["status"] in ("collected", "empty") for state in states)
                                             else "partial", "scopes": states}
         hsm["localRoleAssignments"] = list(found.values())
 

@@ -56,6 +56,41 @@ def test_hsm_local_assignments_read_once_per_top_level_scope():
     assert sum("/roleAssignments" in urlsplit(url).path for url, _ in transport.calls) == 2
 
 
+def test_hsm_local_assignments_include_individual_key_scope():
+    class KeyTransport(Transport):
+        def request(self, url, *, body=None, audience=azure.ARM):
+            path = urlsplit(url).path
+            if path == "/keys":
+                self.calls.append((url, audience))
+                return {"value": [{"kid": URI + "/keys/one"}]}
+            if path.endswith("//keys/one/providers/Microsoft.Authorization/roleAssignments"):
+                self.calls.append((url, audience))
+                return {"value": [{**ASSIGNMENT,
+                    "id": "/keys/one/providers/Microsoft.Authorization/roleAssignments/44444444-4444-4444-4444-444444444444",
+                    "properties": {**ASSIGNMENT["properties"], "scope": "/keys/one"}}]}
+            return super().request(url, body=body, audience=audience)
+    transport = KeyTransport()
+    snapshot = azure.collect({"scopes": [SUB], "options": {"retries": 0}}, ["managed_hsm"], transport=transport)
+    hsm = next(c for c in snapshot["collections"] if c["type"] == "managed_hsm")["items"][0]
+    assert hsm["_coverage"]["localRoleAssignmentKeys"]["status"] == "collected"
+    assert hsm["_coverage"]["localRoleAssignments"]["status"] == "collected"
+    assert {row["properties"]["scope"] for row in hsm["localRoleAssignments"]} == {"/keys", "/keys/one"}
+    assert sum("/roleAssignments" in urlsplit(url).path for url, _ in transport.calls) == 3
+
+
+def test_hsm_key_inventory_denial_keeps_local_rbac_partial():
+    class DeniedKeyTransport(Transport):
+        def request(self, url, *, body=None, audience=azure.ARM):
+            if urlsplit(url).path == "/keys":
+                raise azure.AzureReadError("key list denied", status_code=403)
+            return super().request(url, body=body, audience=audience)
+    snapshot = azure.collect({"scopes": [SUB], "options": {"retries": 0}}, ["managed_hsm"], transport=DeniedKeyTransport())
+    hsm = next(c for c in snapshot["collections"] if c["type"] == "managed_hsm")["items"][0]
+    assert hsm["_coverage"]["localRoleAssignmentKeys"]["status"] != "collected"
+    assert hsm["_coverage"]["localRoleAssignments"]["status"] == "partial"
+    assert hsm["localRoleAssignments"][0]["properties"]["scope"] == "/keys"
+
+
 def test_hsm_data_plane_origin_is_bound_to_arm_name():
     transport = azure.AzureTransport({"method": "token", "vault_token": "fixture"})
     transport.allow_hsm(URI, "hsm")
