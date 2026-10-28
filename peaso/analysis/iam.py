@@ -699,6 +699,15 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
                         {**props, "viaGroup": group_id, "groupPath": group_path,
                          "membershipSource": source(snapshot, membership, "id")},
                         "GroupMember", None))
+        if external_group_members and resource["type"] == "managed_hsm":
+            for group_id, path, grant, kind, _ in tuple(declarations):
+                if kind != "HsmLocalRoleAssignment":
+                    continue
+                for member, (group_path, membership) in external_group_members(group_id).items():
+                    declarations.append((member, path,
+                        {**grant, "viaGroup": group_id, "groupPath": group_path,
+                         "membershipSource": source(snapshot, membership, "id")},
+                        "GroupMember", None))
         verdict = principal_exposure(snapshot, resource, declarations)
         if verdict:
             status, severity, evidence = verdict
