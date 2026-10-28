@@ -15,7 +15,7 @@ There are still **13 PARTIAL**, **0 MISSING**, and **1 IMPOSSIBLE-FROM-API** row
 | Vector | Status | Remaining observable fact or join |
 | --- | --- | --- |
 | EC2/ENI public path | PARTIAL | Managed ENI type and attachment, appliance/Gateway Load Balancer route targets, and source-specific IPv4/IPv6 SG, NACL and route witnesses. |
-| Public IPs/EIPs | PARTIAL | Other services' published address associations where their APIs expose them. NLB static IPv6 is now joined; DNS answers are not an inventory association. |
+| Public IPs/EIPs | PARTIAL | NLB static IPv4/IPv6 and Global Accelerator static IPv4/IPv6 now join from cached API inventory; enabled/deployed accelerators with a collected listener yield a public frontend finding. Other services' published address associations remain; DNS answers are not an inventory association. |
 | ALB/NLB/Classic listeners | PARTIAL | Exact public NACL host with world SG is now witnessed for ALB. Wider and intersecting source-specific ACL/SG variants, NLB/Classic narrow NACL hosts, LB and target subnet ACL directions, and other target types remain. |
 | API Gateway REST/HTTP | PARTIAL | Deployed route/method version, routing-rule condition satisfiability, and resource-policy action/resource/condition evaluation. Cached rules now retain `Priority` and `ConditionCount`: an initial unconditional rule can prove a target, and a catch-all blocks later rules or base-path mappings. The projection omits `Conditions[]`, so conditional targets remain unknown. |
 | CloudFront origins | PARTIAL | Origin/OAC/OAI/VPC-origin association to effective S3 or custom-origin policy and backend route. |

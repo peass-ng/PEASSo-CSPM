@@ -380,6 +380,29 @@ def test_aws_cloudfront_enabled_viewer_endpoint_and_missing_config():
     assert not exposure(aws(coll("cloudfront_distribution", [{**base, "Config": {**config, "DistributionConfig": {**config["DistributionConfig"], "Enabled": False}}}], service="cloudfront")))
 
 
+def test_aws_global_accelerator_static_ips_and_public_listener():
+    accelerator = {"AcceleratorArn": f"arn:aws:globalaccelerator::{ACCOUNT}:accelerator/a",
+                   "Enabled": True, "Status": "DEPLOYED", "IpSets": [
+                       {"IpFamily": "IPv4", "IpAddresses": ["8.8.8.8"]},
+                       {"IpFamily": "IPv6", "IpAddresses": ["2606:4700:4700::1111"]}]}
+    listener = {"ListenerArn": "arn:aws:globalaccelerator::111122223333:accelerator/a/listener/l",
+                "AcceleratorArn": accelerator["AcceleratorArn"], "Protocol": "TCP",
+                "PortRanges": [{"FromPort": 443, "ToPort": 443}]}
+    def snapshot(accelerator_row, listeners=None, listener_status=None):
+        return aws(coll("globalaccelerator_accelerator", [accelerator_row], service="globalaccelerator"),
+                   coll("globalaccelerator_listener", [listener] if listeners is None else listeners,
+                        status=listener_status, service="globalaccelerator"))
+    exposed = one(snapshot(accelerator), "globalaccelerator_accelerator")
+    assert exposed["status"] == "FAIL"
+    assert exposed["evidence"]["public_addresses"] == ["2606:4700:4700::1111", "8.8.8.8"]
+    assert exposed["evidence"]["exposed_ports"] == ["tcp/443"]
+    assert not exposure(snapshot({**accelerator, "Enabled": False}))
+    assert one(snapshot(accelerator, []), "globalaccelerator_accelerator")["status"] == "PASS"
+    assert one(snapshot(accelerator, [], "denied"), "globalaccelerator_accelerator")["status"] == "UNKNOWN"
+    assert one(snapshot(accelerator, [{**listener, "PortRanges": [{}]}]), "globalaccelerator_accelerator")["status"] == "UNKNOWN"
+    assert one(snapshot({**accelerator, "IpSets": [{"IpFamily": "IPv4", "IpAddresses": ["192.0.2.1"]}]}), "globalaccelerator_accelerator")["status"] == "UNKNOWN"
+
+
 def test_aws_app_runner_public_default_private_and_missing_detail():
     base = {"ServiceArn": f"arn:aws:apprunner:us-east-1:{ACCOUNT}:service/test/1", "ServiceUrl": "test.awsapprunner.com", "Status": "RUNNING"}
     def row(ingress):

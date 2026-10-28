@@ -1485,6 +1485,60 @@ def _aws_cloudfront(snapshot, inventory, resource):
     return a
 
 
+def _aws_global_accelerator(snapshot, inventory, resource):
+    data = resource["data"]
+    if data.get("Enabled") is False:
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    if data.get("Enabled") is not True or data.get("Status") != "DEPLOYED":
+        a.gap("inventory", "Global Accelerator enabled/deployed state unresolved", "globalaccelerator:ListAccelerators")
+        return a
+    ip_sets = data.get("IpSets")
+    if not isinstance(ip_sets, list) or not ip_sets:
+        a.gap("inventory", "Global Accelerator static IP sets missing", "globalaccelerator:ListAccelerators")
+        return a
+    addresses = []
+    for ip_set in ip_sets:
+        if not isinstance(ip_set, dict) or ip_set.get("IpFamily") not in ("IPv4", "IPv6") or not isinstance(ip_set.get("IpAddresses"), list):
+            a.gap("inventory", "Global Accelerator IP set malformed", "globalaccelerator:ListAccelerators")
+            return a
+        for address in ip_set["IpAddresses"]:
+            if not isinstance(address, str) or not _public_ip(address) or ipaddress.ip_address(address).version != (4 if ip_set["IpFamily"] == "IPv4" else 6):
+                a.gap("inventory", "Global Accelerator static IP not globally routable or family mismatched", "globalaccelerator:ListAccelerators")
+                return a
+            addresses.append(address)
+    if not addresses:
+        a.gap("inventory", "Global Accelerator static IP list empty", "globalaccelerator:ListAccelerators")
+        return a
+    a.addresses = sorted(set(addresses))
+    arn = data.get("AcceleratorArn")
+    if not isinstance(arn, str) or not arn:
+        a.gap("inventory", "Global Accelerator ARN missing", "globalaccelerator:ListAccelerators")
+        return a
+    listeners = [r["data"] for r in inventory.items("globalaccelerator_listener")
+                 if r["data"].get("AcceleratorArn") == arn]
+    if not listeners and inventory.state("globalaccelerator_listener") not in ("collected", "empty"):
+        a.gap("listener", "Global Accelerator listeners unavailable", "globalaccelerator:ListListeners")
+        return a
+    ports = {}
+    for listener in listeners:
+        protocol = listener.get("Protocol")
+        ranges = listener.get("PortRanges")
+        if protocol not in ("TCP", "UDP") or not isinstance(ranges, list) or not ranges:
+            a.gap("listener", "Global Accelerator listener protocol or port ranges malformed", "globalaccelerator:ListListeners")
+            continue
+        for port_range in ranges:
+            if not isinstance(port_range, dict) or type(port_range.get("FromPort")) is not int or type(port_range.get("ToPort")) is not int or not 1 <= port_range["FromPort"] <= port_range["ToPort"] <= 65535:
+                a.gap("listener", "Global Accelerator listener port range malformed", "globalaccelerator:ListListeners")
+                continue
+            ports = union(ports, pset(protocol.lower(), port_range["FromPort"], port_range["ToPort"]))
+    a.ports = ports
+    if not a.unresolved:
+        a.step("listener", "allow" if ports else "block", accelerator_arn=arn, static_ips=a.addresses, ports=describe(ports))
+    a.notes.append("Static IP and listener configuration proves a public frontend, not endpoint health or backend delivery")
+    return a
+
+
 def _aws_app_runner(snapshot, inventory, resource):
     data = resource["data"]
     details = data.get("NetworkDetails")
@@ -5718,7 +5772,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "app_runner_service", "amplify_app"]
+             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "workload_identity_provider",
@@ -5737,7 +5791,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "app_runner_service", "amplify_app"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -5780,7 +5834,8 @@ def assess(snapshot, resources):
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
                 "ram_resource_share": _aws_ram_share,
-                "cloudfront_distribution": _aws_cloudfront, "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
+                "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
+                "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
                 "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket,
                 "bigquery_dataset": _gcp_bigquery_dataset, "firebase_rules_release": _gcp_firebase_rules,
