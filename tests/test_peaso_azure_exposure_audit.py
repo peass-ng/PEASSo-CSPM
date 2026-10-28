@@ -145,7 +145,7 @@ def test_application_gateway_public_frontend_requires_observed_address():
     gateway_id = base + "/applicationGateways/gateway"
     subnet_id = base + "/virtualNetworks/vnet/subnets/gateway"
 
-    def check(addresses, listener_fronts=("first",)):
+    def check(addresses, listener_fronts=("first",), nsg_rules=None):
         fronts = [{"id": gateway_id + "/frontendIPConfigurations/" + name,
                    "properties": {"publicIPAddress": {"id": base + "/publicIPAddresses/" + name}}}
                   for name in addresses]
@@ -162,8 +162,13 @@ def test_application_gateway_public_frontend_requires_observed_address():
              "items": [{"id": base + "/publicIPAddresses/" + name,
                         "properties": {"ipAddress": address}} for name, address in addresses.items() if address is not None]},
             {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
-             "items": [{"id": subnet_id, "properties": {}}]},
+             "items": [{"id": subnet_id, "properties": {"networkSecurityGroup": {"id": base + "/networkSecurityGroups/gateway"}}
+                       if nsg_rules is not None else {}}]},
         ]
+        if nsg_rules is not None:
+            collections.append({"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
+                "items": [{"id": base + "/networkSecurityGroups/gateway",
+                           "properties": {"securityRules": nsg_rules}}]})
         snapshot = make_snapshot("azure", [SCOPE], collections)
         return next(row for row in assess(snapshot, resources(snapshot))
                     if row.resource["type"] == "application_gateway")
@@ -178,6 +183,19 @@ def test_application_gateway_public_frontend_requires_observed_address():
     mixed = check({"first": "8.8.8.8", "second": None}, ("first", "second"))
     assert mixed.verdict() == "FAIL" and mixed.addresses == ["8.8.8.8"]
     assert check({"first": None}, ()).verdict() == "PASS"
+    def allow_destination(address):
+        return {"name": "allow-specific-frontend", "properties": {"priority": 100,
+            "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+            "sourceAddressPrefix": "*", "destinationAddressPrefix": address,
+            "destinationPortRange": "443"}}
+    assert check({"first": "8.8.8.8"}, nsg_rules=[allow_destination("8.8.8.8/32")]).verdict() == "FAIL"
+    assert check({"first": "8.8.8.8"}, nsg_rules=[allow_destination("9.9.9.9/32")]).verdict() == "PASS"
+    dual = check({"first": "8.8.8.8", "second": "9.9.9.9"}, ("first", "second"),
+                 [allow_destination("9.9.9.9/32")])
+    assert dual.verdict() == "FAIL" and "assigned public address 9.9.9.9" in _observed(dual, "FAIL")
+    mixed_blocked = check({"first": "8.8.8.8", "second": None}, ("first", "second"),
+                          [allow_destination("9.9.9.9/32")])
+    assert mixed_blocked.verdict() == "UNKNOWN"
 
 
 @pytest.mark.parametrize("kind,field", [

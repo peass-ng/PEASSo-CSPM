@@ -4401,7 +4401,7 @@ def _azure_appgw(snapshot, inventory, resource):
         return None
     a = Assessment(resource, "load_balancer")
     port_map = {str(p.get("id", "")).lower(): (p.get("properties") or {}).get("port") for p in as_list(props.get("frontendPorts")) if isinstance(p, dict)}
-    ports = {}
+    ports, address_ports = {}, {}
     unresolved_fronts = []
     for listener in as_list(props.get("httpListeners")) + as_list(props.get("listeners")):
         lp = (listener or {}).get("properties") or {}
@@ -4413,6 +4413,7 @@ def _azure_appgw(snapshot, inventory, resource):
                 address = _props(public).get("ipAddress") if public is not None else None
                 if address and _public_ip(address):
                     ports = union(ports, pset("tcp", port, port))
+                    address_ports[address] = union(address_ports.get(address, {}), pset("tcp", port, port))
                     if address not in a.addresses:
                         a.addresses.append(address)
                 else:
@@ -4425,7 +4426,32 @@ def _azure_appgw(snapshot, inventory, resource):
         a.notes.append("Other Application Gateway public frontend addresses are not collected")
     a.step("listener", "allow" if not empty(ports) else "block", listener_ports=describe(ports))
     subnet = next((((c.get("properties") or {}).get("subnet") or {}).get("id") for c in as_list(props.get("gatewayIPConfigurations")) if isinstance(c, dict)), None)
-    a.ports = _azure_nsg_path(inventory, a, None, subnet, ports, sku="basic", where="gateway subnet")
+    allowed, unresolved_nsg, paths = {}, [], []
+    for address, listener_ports in address_ports.items():
+        path = Assessment(resource, "application_gateway")
+        open_ports = _azure_nsg_path(inventory, path, None, subnet, listener_ports,
+                                     address=address, sku="basic", where="gateway subnet")
+        known_ports = {} if path.unresolved else open_ports
+        paths.append({"address": address, "listener_ports": describe(listener_ports),
+                      "allowed_ports": describe(known_ports), "nsg": path.path})
+        if path.unresolved:
+            unresolved_nsg.extend({**gap, "reason": f"{address}: {gap['reason']}"}
+                                  for gap in path.unresolved)
+        else:
+            allowed = union(allowed, known_ports)
+    if not empty(allowed):
+        if unresolved_nsg:
+            a.notes.append("Other public frontend subnet NSG paths are unresolved")
+        a.step("nsg", "allow", frontends=paths, allowed=describe(allowed))
+    elif unresolved_nsg or unresolved_fronts:
+        a.unresolved.extend(unresolved_nsg)
+        if unresolved_fronts:
+            a.gap("inventory", "Other Application Gateway public frontend addresses are not collected",
+                  "Microsoft.Network/publicIPAddresses")
+        a.step("nsg", "unknown", frontends=paths)
+    else:
+        a.step("nsg", "block", frontends=paths)
+    a.ports = allowed
     waf = props.get("webApplicationFirewallConfiguration") or props.get("firewallPolicy")
     a.notes.append("WAF configured" if waf else "no WAF configuration on the gateway")
     return a
@@ -6696,8 +6722,11 @@ def _observed(assessment, status):
                     "The referenced public IP resource has no collected assigned public address.\n"
                     "The public listener path remains unresolved until that address is observed.")
         if status == "FAIL" and assessment.addresses:
+            nsg = next((step for step in assessment.path if step["layer"] == "nsg"), {})
+            open_frontend = next((front["address"] for front in nsg.get("frontends", [])
+                                  if front.get("allowed_ports")), assessment.addresses[0])
             return (f"The Application Gateway {name} has a listener on assigned public address "
-                    f"{assessment.addresses[0]}.\n"
+                    f"{open_frontend}.\n"
                     "The recorded gateway subnet rules allow the listener port from a public source.\n"
                     "Backend routing, WAF behavior, and a successful request were not observed.")
     terminal = next((step for step in assessment.path
