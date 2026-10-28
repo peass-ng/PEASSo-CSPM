@@ -2451,16 +2451,6 @@
       "NextToken"
     ]
   },
-  "oam_link": {
-    "identity": "Arn",
-    "key": "Items",
-    "operation": "list_links",
-    "service": "oam",
-    "tokens": [
-      "NextToken",
-      "NextToken"
-    ]
-  },
   "osis_endpoint_connection": {
     "identity": "EndpointId",
     "key": "PipelineEndpointConnections",
