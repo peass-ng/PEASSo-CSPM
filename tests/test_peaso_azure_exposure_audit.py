@@ -832,6 +832,16 @@ def test_cosmos_ip_allow_rules_and_cross_tenant_azure_marker():
     assert decision("cosmos_account", {**base, "ipRules": [{"ipAddressOrRange": "bad"}]}).verdict() == "UNKNOWN"
     assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
         "ipRules": []}).verdict() == "UNKNOWN"
+    closed = decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "None",
+        "networkAclBypassResourceIds": []})
+    assert closed.verdict() == "PASS" and closed.ports == {}
+    assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [], "networkAclBypass": "AzureServices",
+        "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"
+    assert decision("cosmos_account", {**base, "isVirtualNetworkFilterEnabled": True,
+        "ipRules": [], "virtualNetworkRules": [{"id": "/subscriptions/other/subnets/s"}],
+        "networkAclBypass": "None", "networkAclBypassResourceIds": []}).verdict() == "UNKNOWN"
     assert decision("cosmos_account", {**base, "ipRules": None}).verdict() == "UNKNOWN"
 
 
