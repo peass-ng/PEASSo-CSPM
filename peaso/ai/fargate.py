@@ -93,7 +93,8 @@ def pack_workspace(root):
     return data
 
 
-def invoke(stage, root, token, timeout, *, ecs=None, s3=None, clock=time.monotonic, sleep=time.sleep):
+def invoke(stage, root, token, timeout, *, prepare=None, ecs=None, s3=None,
+           clock=time.monotonic, sleep=time.sleep):
     if stage not in STAGES or not 0 < timeout <= 1800:
         raise ValueError('invalid_agent_invocation')
     deadline = clock() + timeout
@@ -112,8 +113,12 @@ def invoke(stage, root, token, timeout, *, ecs=None, s3=None, clock=time.monoton
     keys = {name: prefix + name for name in ('input.tgz', 'relay.json', 'result.json')}
     task = None
     try:
-        data = pack_workspace(root)
-        s3.put_object(Bucket=config['bucket'], Key=keys['input.tgz'], Body=data, ServerSideEncryption='AES256')
+        def upload_input():
+            data = pack_workspace(root)
+            s3.put_object(Bucket=config['bucket'], Key=keys['input.tgz'], Body=data, ServerSideEncryption='AES256')
+
+        if prepare is None:
+            upload_input()
         lifetime = min(3600, max(60, int(timeout) + 30))
         def url(operation, name):
             return s3.generate_presigned_url(operation, Params={'Bucket': config['bucket'], 'Key': keys[name]}, ExpiresIn=lifetime)
@@ -137,6 +142,11 @@ def invoke(stage, root, token, timeout, *, ecs=None, s3=None, clock=time.monoton
         if len(tasks) != 1:
             raise RuntimeError('ai_task_launch_failed')
         task = tasks[0]['taskArn']
+        if prepare is not None:
+            # Image pull and task startup overlap local context construction.
+            # The relay waits for this exact input object before exposing it.
+            prepare()
+            upload_input()
         while clock() < deadline:
             response = ecs.describe_tasks(cluster=config['cluster'], tasks=[task])
             rows = response.get('tasks', [])

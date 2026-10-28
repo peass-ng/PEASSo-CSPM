@@ -91,23 +91,27 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
         if not remote:
             from .providers import auth_document
             files['codex-auth'] = auth_document(token)
-        if stage == 'priorities':
-            from .briefing import build
-            build(root, platform, findings, reviews, private_json)
-        elif stage == 'network':
-            from .network import build
-            build(root, platform, reviews, private_json)
-        for name, data in files.items():
-            private_json(root / (name + '.json'), data)
+        def prepare_workspace():
+            if stage == 'priorities':
+                from .briefing import build
+                build(root, platform, findings, reviews, private_json)
+            elif stage == 'network':
+                from .network import build
+                build(root, platform, reviews, private_json)
+            for name, data in files.items():
+                private_json(root / (name + '.json'), data)
+
         if remote:
             from .fargate import invoke as invoke_remote
-            if cancel_event is None:
-                return invoke_remote(stage, root, token, max(.001, stop_at - time.monotonic()))
-            def cancellable_sleep(seconds):
-                if cancel_event.wait(seconds):
-                    raise CancelledError()
-            return invoke_remote(stage, root, token, max(.001, stop_at - time.monotonic()),
-                                 sleep=cancellable_sleep)
+            kwargs = {'prepare': prepare_workspace}
+            if cancel_event is not None:
+                def cancellable_sleep(seconds):
+                    if cancel_event.wait(seconds):
+                        raise CancelledError()
+                kwargs['sleep'] = cancellable_sleep
+            return invoke_remote(stage, root, token, max(.001, stop_at - time.monotonic()), **kwargs)
+
+        prepare_workspace()
         # Allowlist, never a copy of os.environ: scanner/cloud/platform credentials
         # and default credential discovery locations must not reach the agent.
         env = {'PATH': os.getenv('PATH', '/usr/local/bin:/usr/bin:/bin'), 'HOME': directory,

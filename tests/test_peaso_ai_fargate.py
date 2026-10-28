@@ -147,6 +147,30 @@ def test_task_transport_never_exposes_real_model_token(configured,tmp_path,provi
     assert tasks.stops and len(storage.deleted)==3
 
 
+def test_prepared_task_starts_before_context_and_stops_on_preparation_failure(configured,tmp_path):
+    events=[]
+    class OrderedTasks(Tasks):
+        def run_task(self,**kw):
+            events.append('launch')
+            return super().run_task(**kw)
+    class OrderedStorage(Storage):
+        def put_object(self,**kw):
+            events.append(kw['Key'].rsplit('/',1)[-1])
+            return super().put_object(**kw)
+    tasks,storage=OrderedTasks(),OrderedStorage()
+    def prepare():
+        events.append('prepare')
+        (tmp_path/'credentials.json').write_text('{"entries":[]}')
+        (tmp_path/'platform.json').write_text('{"scan":{}}')
+    assert fargate.invoke('network',tmp_path,'private',30,prepare=prepare,ecs=tasks,s3=storage)=={'items':[]}
+    assert events[:4]==['relay.json','launch','prepare','input.tgz']
+    tasks,storage=OrderedTasks(),OrderedStorage()
+    with pytest.raises(RuntimeError,match='context_failed'):
+        fargate.invoke('network',tmp_path,'private',30,prepare=lambda: (_ for _ in ()).throw(RuntimeError('context_failed')),
+                       ecs=tasks,s3=storage)
+    assert tasks.stops and len(storage.deleted)==3
+
+
 def test_timeout_stops_task_and_deletes_transport(configured,tmp_path):
     (tmp_path/'credentials.json').write_text('{"entries":[]}')
     tasks,storage,now=Tasks(False),Storage(),[0]
@@ -201,10 +225,23 @@ def test_removed_model_stages_cannot_launch_ecs_tasks(stage, tmp_path, monkeypat
         fargate.invoke(stage, tmp_path, 'inert', 10)
 
 
+def test_pipeline_remote_network_prepares_only_after_task_launch(configured,monkeypatch):
+    from peaso.ai import pipeline,network
+    monkeypatch.setattr(network,'build',lambda root,*args:(root/'platform.json').write_text('{}'))
+    def invoke(stage,root,token,timeout,**kwargs):
+        assert stage=='network' and token=='private-token'
+        assert not list(root.iterdir())
+        kwargs['prepare']()
+        assert {path.name for path in root.iterdir()}=={'platform.json','credentials.json'}
+        return {'findings':[]}
+    monkeypatch.setattr(fargate,'invoke',invoke)
+    assert pipeline.invoke('network',{},[],'private-token',[],[],10)=={'findings':[]}
+
+
 def test_private_relay_has_no_auth_or_general_proxy_endpoint(monkeypatch):
     claims={'https://api.openai.com/auth':{'chatgpt_account_id':'account'}}
     token='e30.'+base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')+'.private-signature'
-    captured,upstream,ready=[],[],threading.Event()
+    captured,upstream,ready,downloads=[],[],threading.Event(),[]
     def factory(address,handler):
         server=ThreadingHTTPServer(('127.0.0.1',0),handler)
         captured.append(server);ready.set();return server
@@ -218,7 +255,12 @@ def test_private_relay_has_no_auth_or_general_proxy_endpoint(monkeypatch):
         def __enter__(self):return self
         def __exit__(self,*args):pass
         def request(self,method,url,**kw):upstream.append((method,url,kw));return Response()
-        def get(self,url,**kw):upstream.append(('GET',url,kw));return Response()
+        def get(self,url,**kw):
+            upstream.append(('GET',url,kw));downloads.append(True)
+            if len(downloads)<=2:
+                class Pending(Response):status_code=403 if len(downloads)==1 else 404
+                return Pending()
+            return Response()
     monkeypatch.setattr('requests.Session',Session)
     config={'token':token,'stage':'hardening','timeout':10,'input_url':'https://private-ai-bucket.s3.us-east-1.amazonaws.com/input?sig=inert','output_url':'https://private-ai-bucket.s3.us-east-1.amazonaws.com/output?sig=inert'}
     thread=threading.Thread(target=lambda:model_relay.serve(config,server_class=factory),daemon=True)
@@ -242,6 +284,7 @@ def test_private_relay_has_no_auth_or_general_proxy_endpoint(monkeypatch):
         assert upstream[0][2]['headers']['Authorization']=='Bearer '+token
         assert upstream[0][2]['allow_redirects'] is False
         assert call('GET','/input',auth=capability)[2]==b'data: {"ok":true}\n\n'
+        assert len(downloads)==3
         assert call('POST','/result','{"items":[]}',capability)[0]==200
         assert any(method=='PUT' and url==config['output_url'] for method,url,kw in upstream)
         Response.status_code=401

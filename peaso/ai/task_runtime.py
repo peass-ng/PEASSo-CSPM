@@ -139,7 +139,8 @@ def relay_request(method, path, capability, *, body=None, limit=MAX_INPUT, sink=
     with requests.Session() as session:
         session.trust_env = False
         with session.request(method, 'http://127.0.0.1:8765' + path, data=body,
-                headers={'Authorization': 'Bearer ' + capability}, stream=True, timeout=(5, 60)) as response:
+                headers={'Authorization': 'Bearer ' + capability}, stream=True,
+                timeout=(5, 600 if path == '/input' else 60)) as response:
             if response.status_code != 200:
                 raise RuntimeError('relay_transfer_failed')
             output = bytearray() if sink is None else None

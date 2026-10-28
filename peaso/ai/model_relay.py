@@ -102,20 +102,28 @@ def serve(config, *, server_class=ThreadingHTTPServer):
             try:
                 with requests.Session() as session:
                     session.trust_env = False
-                    with session.get(config['input_url'], stream=True, allow_redirects=False, timeout=(10, 60)) as response:
-                        if response.status_code != 200:
-                            return self.reply(502, {'error': 'input_transfer_failed'})
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/octet-stream')
-                        self.send_header('Connection', 'close')
-                        self.end_headers()
-                        total = 0
-                        for chunk in response.iter_content(65536):
-                            total += len(chunk)
-                            if total > MAX_INPUT or time.monotonic() >= deadline:
-                                break
-                            self.wfile.write(chunk)
-                        self.close_connection = True
+                    while time.monotonic() < deadline:
+                        with session.get(config['input_url'], stream=True, allow_redirects=False, timeout=(10, 60)) as response:
+                            # S3 reports a not-yet-uploaded object as 404 or
+                            # 403, depending on ListBucket permission.
+                            if response.status_code in (403, 404):
+                                time.sleep(min(.5, max(0, deadline - time.monotonic())))
+                                continue
+                            if response.status_code != 200:
+                                return self.reply(502, {'error': 'input_transfer_failed'})
+                            self.send_response(200)
+                            self.send_header('Content-Type', 'application/octet-stream')
+                            self.send_header('Connection', 'close')
+                            self.end_headers()
+                            total = 0
+                            for chunk in response.iter_content(65536):
+                                total += len(chunk)
+                                if total > MAX_INPUT or time.monotonic() >= deadline:
+                                    break
+                                self.wfile.write(chunk)
+                            self.close_connection = True
+                            return
+                    return self.reply(502, {'error': 'input_transfer_failed'})
             except Exception:
                 self.close_connection = True
 
