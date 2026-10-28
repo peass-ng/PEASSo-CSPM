@@ -127,8 +127,8 @@ def test_search_ip_restrictions_and_app_configuration_public_gate():
     assert decision("search_service", {**search, "networkRuleSet": {"ipRules": [{"value": "8.8.8.8"}]}}).verdict() == "FAIL"
     assert decision("search_service", {**search, "networkRuleSet": {"ipRules": [{"value": "10.0.0.0/8"}]}}).verdict() == "PASS"
     assert decision("search_service", {**search, "networkRuleSet": {"ipRules": [{"value": "invalid"}]}}).verdict() == "UNKNOWN"
-    assert decision("app_configuration", {"publicNetworkAccess": "Enabled", "endpoint": "https://c.azconfig.io"}).verdict() == "FAIL"
-    assert decision("app_configuration", {"publicNetworkAccess": "Disabled", "endpoint": "https://c.azconfig.io"}).verdict() == "PASS"
+    assert decision("app_configuration", {"publicNetworkAccess": "Enabled", "endpoint": "https://c.azconfig.io"}).verdict() == "UNKNOWN"
+    assert decision("app_configuration", {"publicNetworkAccess": "Disabled", "endpoint": "https://c.azconfig.io"}).verdict() == "UNKNOWN"
 
 
 @pytest.mark.parametrize("kind", ["servicebus_namespace", "eventhub_namespace"])

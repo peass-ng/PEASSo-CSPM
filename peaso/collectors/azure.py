@@ -76,6 +76,7 @@ from peaso.check_services import service_for
 from . import azure_network_catalog
 
 ARM = "https://management.azure.com"
+GRAFANA = "https://dashboard.azure.com"
 GRAPH = "https://graph.microsoft.com"
 VAULT = "https://vault.azure.net"
 STORAGE = "https://storage.azure.com"
@@ -94,7 +95,7 @@ ENDPOINTS = {
     "load_balancer": ("Microsoft.Network/loadBalancers", "2023-09-01"),
     "application_gateway": ("Microsoft.Network/applicationGateways", "2023-09-01"),
     "private_endpoint": ("Microsoft.Network/privateEndpoints", "2023-09-01"),
-    "private_link_service": ("Microsoft.Network/privateLinkServices", "2023-09-01"),
+    "private_link_service": ("Microsoft.Network/privateLinkServices", "2025-05-01"),
     "private_dns_zone": ("Microsoft.Network/privateDnsZones", "2020-06-01"),
     "dns_zone": ("Microsoft.Network/dnsZones", "2018-05-01"),
     "vm": ("Microsoft.Compute/virtualMachines", "2023-09-01"),
@@ -119,6 +120,9 @@ ENDPOINTS = {
     "cognitive_account": ("Microsoft.CognitiveServices/accounts", "2024-10-01"),
     "app_configuration": ("Microsoft.AppConfiguration/configurationStores", "2024-06-01"),
     "data_factory": ("Microsoft.DataFactory/factories", "2018-06-01"),
+    "data_share_account": ("Microsoft.DataShare/accounts", "2021-08-01"),
+    "managed_application": ("Microsoft.Solutions/applications", "2019-07-01"),
+    "managed_grafana": ("Microsoft.Dashboard/grafana", "2025-08-01"),
     "devtest_lab": ("Microsoft.DevTestLab/labs", "2018-09-15"),
     "api_management": ("Microsoft.ApiManagement/service", "2024-05-01"),
     "analysis_server": ("Microsoft.AnalysisServices/servers", "2017-08-01"),
@@ -311,6 +315,143 @@ def _arm_parent_native_type(row, kind):
         return
     if not isinstance(value, str) or value.casefold() != expected.casefold():
         raise ValueError("native ARM parent type contradicts selected endpoint")
+
+
+def _managed_application_metadata(row):
+    """Retain delegation facts without application parameters or outputs."""
+    properties = row.get("properties")
+    if not isinstance(properties, dict):
+        raise ValueError("managed application properties are missing")
+    kept = {key: row[key] for key in ("id", "name", "type", "location") if key in row}
+    scalar_fields = ("provisioningState", "publisherTenantId", "managementMode", "managedResourceGroupId")
+    if any(key in properties and not isinstance(properties[key], str) for key in scalar_fields):
+        raise ValueError("malformed managed application delegation field")
+    safe = {key: properties[key] for key in scalar_fields if key in properties}
+    grants = properties.get("authorizations")
+    if isinstance(grants, list):
+        if any(not isinstance(grant, dict) or any(
+                key in grant and not isinstance(grant[key], str)
+                for key in ("principalId", "roleDefinitionId")) for grant in grants):
+            raise ValueError("malformed managed application authorization")
+        safe["authorizations"] = [
+            {key: grant[key] for key in ("principalId", "roleDefinitionId") if key in grant}
+            for grant in grants]
+    elif "authorizations" in properties:
+        raise ValueError("malformed managed application authorizations")
+    policy = properties.get("jitAccessPolicy")
+    if isinstance(policy, dict):
+        if "jitAccessEnabled" in policy and type(policy["jitAccessEnabled"]) is not bool:
+            raise ValueError("malformed managed application JIT policy")
+        safe["jitAccessPolicy"] = {"jitAccessEnabled": policy["jitAccessEnabled"]} if "jitAccessEnabled" in policy else {}
+    elif "jitAccessPolicy" in properties:
+        raise ValueError("malformed managed application JIT policy")
+    kept["properties"] = safe
+    kept["_provenance"] = {"source_operation": "Applications_ListBySubscription", "api_version": "2019-07-01", "read_only": True,
+                            "representation": "delegation_metadata"}
+    return kept
+
+
+def _managed_grafana_metadata(row):
+    """Keep public-listener and snapshot flags, never Grafana SMTP credentials."""
+    props = row.get("properties")
+    if not isinstance(props, dict):
+        raise ValueError("managed Grafana properties are missing")
+    fields = ("provisioningState", "publicNetworkAccess", "endpoint")
+    if any(key in props and not isinstance(props[key], str) for key in fields):
+        raise ValueError("malformed managed Grafana listener field")
+    kept = {key: row[key] for key in ("id", "name", "type", "location") if key in row}
+    safe = {key: props[key] for key in fields if key in props}
+    config = props.get("grafanaConfigurations")
+    if config is not None:
+        if not isinstance(config, dict):
+            raise ValueError("malformed managed Grafana configuration")
+        snapshots = config.get("snapshots")
+        if snapshots is not None:
+            if not isinstance(snapshots, dict) or ("externalEnabled" in snapshots and type(snapshots["externalEnabled"]) is not bool):
+                raise ValueError("malformed managed Grafana snapshot setting")
+            safe["grafanaConfigurations"] = {"snapshots": {"externalEnabled": snapshots["externalEnabled"]} if "externalEnabled" in snapshots else {}}
+    kept["properties"] = safe
+    kept["_provenance"] = {"source_operation": "Grafana_List", "api_version": "2025-08-01", "read_only": True,
+                            "representation": "listener_and_snapshot_metadata"}
+    return kept
+
+
+def _private_link_service_metadata(row):
+    """Retain only provider-side access grants from the private service GET."""
+    props = row.get("properties")
+    if not isinstance(props, dict):
+        raise ValueError("private link service properties are missing")
+    kept = {key: row[key] for key in ("id", "name", "type", "location") if key in row}
+    safe = {key: props[key] for key in ("provisioningState", "accessMode") if key in props}
+    for field in ("visibility", "autoApproval"):
+        value = props.get(field)
+        if not isinstance(value, dict) or not isinstance(value.get("subscriptions"), list) or any(
+                not isinstance(sub, str) for sub in value["subscriptions"]):
+            raise ValueError("private link service subscription list is missing or malformed")
+        safe[field] = {"subscriptions": value["subscriptions"]}
+    connections = props.get("privateEndpointConnections")
+    if not isinstance(connections, list):
+        raise ValueError("private link service connections are missing")
+    safe_connections = []
+    for connection in connections:
+        fields = connection.get("properties") if isinstance(connection, dict) else None
+        endpoint = fields.get("privateEndpoint") if isinstance(fields, dict) else None
+        state = fields.get("privateLinkServiceConnectionState") if isinstance(fields, dict) else None
+        if (not isinstance(endpoint, dict) or not isinstance(endpoint.get("id"), str)
+                or not isinstance(state, dict) or not isinstance(state.get("status"), str)):
+            raise ValueError("private link service connection is malformed")
+        safe_connections.append({"privateEndpoint": {"id": endpoint["id"]},
+                                 "status": state["status"]})
+    safe["privateEndpointConnections"] = safe_connections
+    kept["properties"] = safe
+    kept["_provenance"] = {"source_operation": "PrivateLinkServices_Get", "api_version": "2025-05-01",
+                            "read_only": True, "representation": "provider_access_metadata"}
+    return kept
+
+
+def _analysis_server_metadata(row):
+    """Keep Analysis Services ingress and admin metadata, never backup SAS URLs."""
+    props = row.get("properties")
+    if not isinstance(props, dict):
+        raise ValueError("Analysis Services properties are missing")
+    kept = {key: row[key] for key in ("id", "name", "type", "location") if key in row}
+    if any(key in props and not isinstance(props[key], str)
+           for key in ("state", "provisioningState", "serverFullName")):
+        raise ValueError("malformed Analysis Services state or endpoint")
+    endpoint = props.get("serverFullName")
+    if endpoint is not None:
+        parsed = urlsplit(endpoint)
+        if (parsed.scheme not in ("asazure", "aspaaseastus2") or not parsed.hostname
+                or parsed.username or parsed.password or parsed.query or parsed.fragment
+                or not re.fullmatch(r"/[A-Za-z][A-Za-z0-9]*", parsed.path)):
+            raise ValueError("malformed Analysis Services endpoint")
+    safe = {key: props[key] for key in ("state", "provisioningState", "serverFullName") if key in props}
+    settings = props.get("ipV4FirewallSettings")
+    if settings is not None:
+        if (not isinstance(settings, dict)
+                or "enablePowerBIService" in settings and type(settings["enablePowerBIService"]) is not bool
+                or not isinstance(settings.get("firewallRules", []), list)):
+            raise ValueError("malformed Analysis Services firewall")
+        rules = []
+        for rule in settings.get("firewallRules", []):
+            if (not isinstance(rule, dict)
+                    or any(not isinstance(rule.get(key), str) for key in ("rangeStart", "rangeEnd"))):
+                raise ValueError("malformed Analysis Services firewall rule")
+            rules.append({key: rule[key] for key in ("firewallRuleName", "rangeStart", "rangeEnd")
+                          if key in rule and isinstance(rule[key], str)})
+        safe["ipV4FirewallSettings"] = {"firewallRules": rules}
+        if "enablePowerBIService" in settings:
+            safe["ipV4FirewallSettings"]["enablePowerBIService"] = settings["enablePowerBIService"]
+    admins = props.get("asAdministrators")
+    if admins is not None:
+        if (not isinstance(admins, dict) or not isinstance(admins.get("members"), list)
+                or any(not isinstance(member, str) for member in admins["members"])):
+            raise ValueError("malformed Analysis Services administrators")
+        safe["asAdministrators"] = {"members": admins["members"]}
+    kept["properties"] = safe
+    kept["_provenance"] = {"source_operation": "Servers_GetDetails", "api_version": "2017-08-01",
+                            "read_only": True, "representation": "ingress_and_administrator_metadata"}
+    return kept
 
 
 def _network_platform_native_identity(row, scope, kind):
@@ -608,6 +749,65 @@ def _sql_projected_child_pages(reader, request, url, parent_id, kind, segment):
         yield safe
 
 
+def _data_share_child_pages(reader, request, url, parent_id, kind):
+    contracts = {
+        "data_share_share": ("shares", "Microsoft.DataShare/accounts/shares", ()),
+        "data_share_invitation": ("invitations", "Microsoft.DataShare/accounts/shares/invitations",
+                                  ("invitationStatus", "targetActiveDirectoryId", "targetObjectId", "targetEmail")),
+        "data_share_provider_subscription": ("providerShareSubscriptions",
+            "Microsoft.DataShare/accounts/shares/providerShareSubscriptions",
+            ("shareSubscriptionStatus", "consumerTenantName", "consumerEmail")),
+    }
+    segment, native_type, fields = contracts[kind]
+    if url != ARM + parent_id + "/" + segment + "?api-version=2021-08-01":
+        raise ValueError("Data Share child request differs from parent")
+    seen = set()
+    for page in reader.pages(request, url):
+        safe = []
+        for row in page:
+            rid = row.get("id") if isinstance(row, dict) else None
+            if (not isinstance(rid, str) or re.fullmatch(
+                    re.escape(parent_id + "/" + segment + "/") + r"[A-Za-z0-9_.-]+", rid, re.I) is None
+                    or rid.rsplit("/", 1)[-1] in (".", "..")
+                    or str(row.get("type", "")).casefold() != native_type.casefold()
+                    or rid.casefold() in seen or not isinstance(row.get("properties"), dict)):
+                raise ValueError("foreign, duplicate or malformed Data Share child")
+            seen.add(rid.casefold())
+            safe.append({"id": rid, "type": row["type"], "name": rid.rsplit("/", 1)[-1],
+                         "properties": {key: row["properties"][key] for key in fields if key in row["properties"]}})
+        yield safe
+
+
+def _lighthouse_assignment_pages(reader, request, url, scope):
+    """Read one expanded, scoped assignment list without a definition GET."""
+    seen = set()
+    prefix = scope + "/providers/Microsoft.ManagedServices/registrationAssignments/"
+    for page in reader.pages(request, url):
+        safe = []
+        for row in page:
+            rid = row.get("id") if isinstance(row, dict) else None
+            props = row.get("properties") if isinstance(row, dict) else None
+            definition = props.get("registrationDefinition") if isinstance(props, dict) else None
+            detail = definition.get("properties") if isinstance(definition, dict) else None
+            if (not isinstance(rid, str) or re.fullmatch(re.escape(prefix) + r"[A-Za-z0-9-]+", rid, re.I) is None
+                    or str(row.get("type", "")).casefold() != "microsoft.managedservices/registrationassignments"
+                    or rid.casefold() in seen or not isinstance(props, dict)):
+                raise ValueError("foreign, duplicate or malformed Lighthouse assignment")
+            seen.add(rid.casefold())
+            if definition is not None and not isinstance(detail, dict):
+                raise ValueError("malformed expanded Lighthouse registration definition")
+            projected = {"id": rid, "name": rid.rsplit("/", 1)[-1], "type": row["type"],
+                         "properties": {"provisioningState": props.get("provisioningState"),
+                                        "registrationDefinitionId": props.get("registrationDefinitionId")}}
+            if isinstance(detail, dict):
+                projected["properties"]["registrationDefinition"] = {
+                    "properties": {key: detail[key] for key in (
+                        "managedByTenantId", "manageeTenantId", "provisioningState",
+                        "authorizations", "eligibleAuthorizations") if key in detail}}
+            safe.append(projected)
+        yield safe
+
+
 def _service_diagnostic_settings_pages(reader, request, url, parent_id):
     """The two reviewed gateway kinds reuse exact native diagnostic LIST guards."""
     if re.fullmatch(r"/subscriptions/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Network/(?:applicationGateways|loadBalancers)/[^/?#%\\\s]+", parent_id, re.I) is None:
@@ -676,6 +876,23 @@ def _function_trigger_rows(rows, site_id):
                      "properties": {"isDisabled": props.get("isDisabled") if type(props.get("isDisabled")) is bool else None,
                                     "httpTriggers": triggers, "triggerConfigComplete": complete}})
     return safe
+
+
+def _app_configuration_private_link_metadata(row):
+    """Retain private endpoint ownership and approval, omitting free-form descriptions."""
+    props = row.get("properties")
+    if not isinstance(props, dict) or not isinstance(props.get("privateEndpointConnections"), list):
+        return row
+    projected = []
+    for connection in props["privateEndpointConnections"]:
+        details = connection.get("properties") if isinstance(connection, dict) else None
+        endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+        state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+        projected.append({"id": connection.get("id"), "name": connection.get("name"), "type": connection.get("type"),
+                          "properties": {"privateEndpoint": {"id": endpoint.get("id")} if isinstance(endpoint, dict) else None,
+                                         "privateLinkServiceConnectionState": {"status": state.get("status")} if isinstance(state, dict) else None,
+                                         "provisioningState": details.get("provisioningState") if isinstance(details, dict) else None}})
+    return {**row, "properties": {**props, "privateEndpointConnections": projected}}
 
 
 def _embed(reader, request, parents, diagnostics=None, skip=()):
@@ -1111,7 +1328,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     *azure_wave_network_controls.NATIVE_TYPES,
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
-    "sql_firewall_rule", "sql_ipv6_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
+    'sql_firewall_rule', 'sql_audit', 'sql_security', 'secret_metadata', 'dns_record', 'data_share_share', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_grafana_snapshot', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_nsp', 'app_configuration_nsp_membership', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'app_configuration_event_action_group', 'bastion_shareable_link', 'web_pubsub_hub',
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -1144,7 +1361,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery", "redis_enterprise_cluster",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment"})
+                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration", "bastion_host", "signalr_service", "attestation_provider", "dns_zone"})
 
 
 def _canonicalize_embedded(collections):
@@ -1589,6 +1806,7 @@ class AzureTransport:
         self.tenant = auth.get("tenant_id")
         self.vault_hosts = set()
         self.storage_hosts = set()
+        self.grafana_hosts = set()
         self.verified_tenant = None
         from .scan_cache import RawResponseCache
         # Per-scan, per-credential single-flight cache of complete read bodies.
@@ -1621,6 +1839,16 @@ class AzureTransport:
             raise AzureReadError("untrusted_storage_endpoint")
         with self.lock:
             self.storage_hosts.add(parsed.netloc.lower())
+
+    def allow_grafana(self, uri):
+        parsed = urlsplit(uri)
+        host = parsed.netloc.lower()
+        if (parsed.scheme != "https" or parsed.username or parsed.password or parsed.port
+                or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                or re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.grafana\.azure\.com", host) is None):
+            raise AzureReadError("untrusted_grafana_endpoint")
+        with self.lock:
+            self.grafana_hosts.add(host)
 
     def request_xml(self, url):
         parsed = urlsplit(url)
@@ -1689,7 +1917,8 @@ class AzureTransport:
                 raise AzureReadError("token_audience_mismatch", 401)
             from peaso.ai.access import bearer
             endpoints = (["https://" + host for host in self.vault_hosts] if audience == VAULT else
-                         ["https://" + host for host in self.storage_hosts] if audience == STORAGE else [audience])
+                         ["https://" + host for host in self.storage_hosts] if audience == STORAGE else
+                         ["https://" + host for host in self.grafana_hosts] if audience == GRAFANA else [audience])
             bearer("azure", audience, token, context_id=self.ai_context_id, tenant_id=self.tenant,
                    expires_at=None if direct else cached.expires_on, endpoints=endpoints)
             return token
@@ -1724,6 +1953,10 @@ class AzureTransport:
             origin_allowed = (parsed.hostname or "").lower() in self.vault_hosts and parsed.port in (None, 443)
         if audience == LOGS:
             origin_allowed = (parsed.hostname or "").lower() == "api.loganalytics.azure.com" and parsed.port in (None, 443)
+        if audience == GRAFANA:
+            origin_allowed = (body is None and (parsed.hostname or "").lower() in self.grafana_hosts
+                              and parsed.port in (None, 443) and parsed.path == "/api/dashboard/snapshots"
+                              and parse_qs(parsed.query) == {"limit": ["10000"]})
         from .azure_network_data import is_network_audience, allowed_route
         if is_network_audience(audience):
             origin_allowed = body is None and allowed_route(url, audience)
@@ -1867,7 +2100,7 @@ def _metadata_only(value, secret=False):
     if not isinstance(value, dict):
         return value
     result = {key: _metadata_only(item, secret) for key, item in value.items() if not (secret and key.lower() == "value") and key.lower() not in (
-        "password", "adminpassword", "clientsecret", "accesstoken", "token",
+        "password", "adminpassword", "clientsecret", "radiusserversecret", "accesstoken", "token",
         "connectionstring", "primarykey", "secondarykey", "privatekey", "customdata",
         "userdata", "protectedsettings", "protectedsettingsfromkeyvault", "appsettings",
         "machinekey", "decryptionkey", "validationkey", "sourceuri", "accesssas",
@@ -2233,7 +2466,12 @@ class _Reader:
                     normalized = identifier.lower() if service != "kubernetes" else identifier
                     if normalized not in items and self.budget.max_items is not None and len(items) >= self.budget.max_items:
                         raise AzureReadError("resource_limit")
-                    projected = item if service == "kubernetes" else _metadata_only(item, kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
+                    projected = item if service == "kubernetes" else _metadata_only(
+                        _managed_application_metadata(item) if kind == "managed_application" else
+                        _managed_grafana_metadata(item) if kind == "managed_grafana" else
+                        _analysis_server_metadata(item) if kind == "analysis_server" else
+                        _private_link_service_metadata(item) if kind == "private_link_service" else item,
+                        kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
                     if kind == "app_service":
                         projected = azure_functions_runtime_native.safe_site_inventory(projected)
                     if kind in azure_alert_routing_native.CONTRACTS:
@@ -2385,7 +2623,25 @@ def _selected(options, requirements):
     if selected.intersection(("backup_protected_item", "backup_policy")):
         selected.add("recovery_vault")
     if "virtual_network_gateway" in selected:
-        selected.add("resource_group")
+        selected.update(("resource_group", "public_ip", "virtual_network_gateway_connection"))
+    if "lighthouse_assignment" in selected:
+        selected.update(("resource_group", "subscription"))
+    if "managed_application" in selected:
+        selected.add("subscription")
+    if "managed_grafana" in selected:
+        selected.add("managed_grafana_snapshot")
+    if "managed_grafana_snapshot" in selected:
+        selected.add("managed_grafana")
+    if selected.intersection(("acat_report", "acat_webhook")):
+        selected.update(("acat_report", "acat_webhook"))
+    if "cost_export" in selected:
+        selected.update(("resource_group", "management_group"))
+    if selected.intersection(("app_configuration", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group")):
+        selected.update(("app_configuration", "app_configuration_nsp", "app_configuration_nsp_membership", "app_configuration_private_connection", "app_configuration_event_subscription", "app_configuration_event_action_group"))
+    if selected.intersection(("bastion_host", "bastion_shareable_link")):
+        selected.update(("bastion_host", "bastion_shareable_link", "public_ip", "vnet", "nsg"))
+    if selected.intersection(("web_pubsub", "web_pubsub_hub")):
+        selected.update(("web_pubsub", "web_pubsub_hub", "eventhub_namespace"))
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -2981,7 +3237,7 @@ def collect(connector, requirements=None, *, transport=None):
                                 yield page
                 jobs.append(("virtual_network_gateway", scope, "Microsoft.Network", gateways))
         # Discovery supplies IDs; ARM GET provides authoritative current details.
-        child_dependencies = {"batch_pool": "batch_account", "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_ipv6_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "secret_metadata": "vault", "dns_record": "dns_zone", "private_dns_link": "private_dns_zone", "app_service_config": "app_service", "app_service_identity_detail": "app_service", "sql_tde": "sql_server", "managed_identity_federated_credential": "managed_identity", "key_metadata": "vault", "key_rotation_policy": "vault", "key_vault_certificate_policy": "vault", "sql_vulnerability_assessment": "sql_server", "sql_encryption_protector": "sql_server", "storage_container": "storage_account", "storage_encryption_scope": "storage_account", "app_service_slot": "app_service", "automation_variable": "automation_account", "apim_native": "api_management"}
+        child_dependencies = {'batch_pool': 'batch_account', 'subnet': 'vnet', 'vnet_peering': 'vnet', 'storage_service': 'storage_account', 'sql_database': 'sql_server', 'sql_firewall_rule': 'sql_server', 'sql_ipv6_firewall_rule': 'sql_server', 'sql_audit': 'sql_server', 'sql_security': 'sql_server', 'secret_metadata': 'vault', 'dns_record': 'dns_zone', 'private_dns_link': 'private_dns_zone', 'app_service_config': 'app_service', 'app_service_identity_detail': 'app_service', 'sql_tde': 'sql_server', 'managed_identity_federated_credential': 'managed_identity', 'key_metadata': 'vault', 'key_rotation_policy': 'vault', 'key_vault_certificate_policy': 'vault', 'sql_vulnerability_assessment': 'sql_server', 'sql_encryption_protector': 'sql_server', 'storage_container': 'storage_account', 'storage_encryption_scope': 'storage_account', 'app_service_slot': 'app_service', 'automation_variable': 'automation_account', 'apim_native': 'api_management', 'data_share_share': 'data_share_account', 'data_share_invitation': 'data_share_account', 'data_share_provider_subscription': 'data_share_account'}
         parents = wanted.intersection(ENDPOINTS) | {parent for child, parent in child_dependencies.items() if child in wanted}
         parents |= azure_network_catalog.required_parents(wanted)
         if "diagnostic_setting" in wanted:
@@ -3081,6 +3337,18 @@ def collect(connector, requirements=None, *, transport=None):
                             if not isinstance(rid, str) or not _policy_assignment_scope_allowed(kind, scope, rid):
                                 raise ValueError("resource outside selected subscription")
                             _arm_parent_native_type(item, kind)
+                            if kind == "managed_application":
+                                expected = re.escape(scope) + r"/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Solutions/applications/[^/?#%\\\s]+"
+                                if (re.fullmatch(expected, rid, re.I) is None
+                                        or str(item.get("type", "")).casefold() != "microsoft.solutions/applications"
+                                        or not isinstance(item.get("properties"), dict)):
+                                    raise ValueError("malformed managed application identity or properties")
+                            if kind == "managed_grafana":
+                                expected = re.escape(scope) + r"/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Dashboard/grafana/[^/?#%\\\s]+"
+                                if (re.fullmatch(expected, rid, re.I) is None
+                                        or str(item.get("type", "")).casefold() != "microsoft.dashboard/grafana"
+                                        or not isinstance(item.get("properties"), dict)):
+                                    raise ValueError("malformed managed Grafana identity or properties")
                             _network_platform_native_identity(item, scope, kind)
                             _database_crypto_parent_identity(item, scope, kind)
                             if not _remaining_service_parent_identity(item, scope, kind, remaining_service_seen):
@@ -3119,6 +3387,63 @@ def collect(connector, requirements=None, *, transport=None):
                             _remaining_services_private_links(result, kind)
                             if kind in FULL_GET_KINDS:
                                 result = azure_swc.full_detail(result, kind, version)
+                            if kind == "attestation_provider":
+                                # The provider schema permits private JWK fields in signing certificates.
+                                # Public exposure requires only these control-plane properties.
+                                attestation_props = result["properties"]
+                                result = {**result, "properties": {
+                                    key: attestation_props[key] for key in
+                                    ("status", "attestUri", "publicNetworkAccess", "tpmAttestationAuthentication", "trustModel")
+                                    if key in attestation_props}}
+                                connections = attestation_props.get("privateEndpointConnections")
+                                if isinstance(connections, list):
+                                    result["properties"]["privateEndpointConnections"] = [
+                                        {"id": connection.get("id"), "properties": {
+                                            "privateEndpoint": {"id": details["privateEndpoint"]["id"]},
+                                            "privateLinkServiceConnectionState": {"status": state.get("status")}}}
+                                        for connection in connections if isinstance(connection, dict)
+                                        for details in [connection.get("properties")]
+                                        if isinstance(details, dict)
+                                        for state in [details.get("privateLinkServiceConnectionState")]
+                                        if isinstance(state, dict) and isinstance(details.get("privateEndpoint"), dict)
+                                        and isinstance(details["privateEndpoint"].get("id"), str)]
+                            if kind == "bastion_host":
+                                bastion_props = result["properties"]
+                                result = {**result, "properties": {
+                                    key: bastion_props[key] for key in ("provisioningState", "dnsName", "enablePrivateOnlyBastion", "enableShareableLink")
+                                    if key in bastion_props}}
+                                configurations = bastion_props.get("ipConfigurations")
+                                result["properties"]["ipConfigurations"] = [
+                                    {"properties": {key: config["properties"][key]
+                                                    for key in ("publicIPAddress", "subnet", "provisioningState")
+                                                    if key in config["properties"]}}
+                                    for config in configurations
+                                    if isinstance(config, dict) and isinstance(config.get("properties"), dict)] if isinstance(configurations, list) else None
+                                acls = bastion_props.get("networkAcls")
+                                rules = acls.get("ipRules") if isinstance(acls, dict) else None
+                                if rules is not None:
+                                    result["properties"]["networkAcls"] = {"ipRules": [
+                                        {"addressPrefix": row.get("addressPrefix") if isinstance(row, dict) else None}
+                                        for row in rules]} if isinstance(rules, list) else {"ipRules": None}
+                                elif acls is not None and not isinstance(acls, dict):
+                                    result["properties"]["networkAcls"] = {"ipRules": None}
+                            if kind == "signalr_service":
+                                signalr_props = result["properties"]
+                                upstream = signalr_props.pop("upstream", None)
+                                templates = upstream.get("templates") if isinstance(upstream, dict) else [] if upstream is None else None
+                                hosts, complete = [], isinstance(templates, list)
+                                for template in templates if isinstance(templates, list) else []:
+                                    url = template.get("urlTemplate") if isinstance(template, dict) else None
+                                    parts = urlsplit(url) if isinstance(url, str) else None
+                                    if (parts is None or parts.scheme not in ("http", "https") or not parts.hostname
+                                            or parts.username or parts.password):
+                                        complete = False
+                                    else:
+                                        hosts.append(parts.hostname)
+                                signalr_props["upstreamHosts"] = sorted(set(hosts))
+                                signalr_props["upstreamComplete"] = complete
+                            if kind == "app_configuration":
+                                result = _app_configuration_private_link_metadata(result)
                             if kind == "mongo_cluster":
                                 result = azure_mongo_cluster_metadata.project(result)
                             if kind in ("frontdoor", "cdn_profile"):
@@ -3184,6 +3509,537 @@ def collect(connector, requirements=None, *, transport=None):
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
+        if "web_pubsub_hub" in wanted:
+            hub_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "web_pubsub" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for service in collection["items"]:
+                    rid = service.get("id")
+                    if not isinstance(rid, str):
+                        continue
+                    def hubs(rid=rid):
+                        endpoint = rid + "/hubs"
+                        seen = set()
+                        for page in reader.pages(request, ARM + endpoint + "?api-version=2024-03-01"):
+                            projected = []
+                            for row in page:
+                                hub_id = row.get("id") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                if (not isinstance(hub_id, str) or
+                                        re.fullmatch(re.escape(endpoint) + r"/[^/?#%\\\s]+", hub_id, re.I) is None or
+                                        hub_id.casefold() in seen or not isinstance(props, dict)):
+                                    raise ValueError("foreign or malformed Web PubSub hub")
+                                seen.add(hub_id.casefold())
+                                handlers = props.get("eventHandlers") or []
+                                listeners = props.get("eventListeners") or []
+                                if not isinstance(handlers, list) or not isinstance(listeners, list):
+                                    raise ValueError("malformed Web PubSub delivery lists")
+                                hosts, namespaces = [], []
+                                for handler in handlers:
+                                    if not isinstance(handler, dict):
+                                        raise ValueError("malformed Web PubSub event handler")
+                                    pattern, events = handler.get("userEventPattern"), handler.get("systemEvents")
+                                    if (pattern is not None and not isinstance(pattern, str)) or (events is not None and
+                                            (not isinstance(events, list) or any(not isinstance(event, str) for event in events))):
+                                        raise ValueError("malformed Web PubSub event handler filter")
+                                    if not pattern and not events:
+                                        continue
+                                    url = handler.get("urlTemplate")
+                                    parts = urlsplit(url) if isinstance(url, str) else None
+                                    if (parts is None or parts.scheme not in ("http", "https") or not parts.hostname or
+                                            parts.username or parts.password or "{" in parts.hostname or "}" in parts.hostname):
+                                        raise ValueError("malformed Web PubSub event handler URL")
+                                    hosts.append(parts.hostname)
+                                for listener in listeners:
+                                    endpoint_data = listener.get("endpoint") if isinstance(listener, dict) else None
+                                    filtering = listener.get("filter") if isinstance(listener, dict) else None
+                                    if not isinstance(endpoint_data, dict) or not isinstance(filtering, dict):
+                                        raise ValueError("malformed Web PubSub event listener")
+                                    pattern, events = filtering.get("userEventPattern"), filtering.get("systemEvents")
+                                    if (filtering.get("type") not in (None, "EventName") or
+                                            (pattern is not None and not isinstance(pattern, str)) or (events is not None and
+                                            (not isinstance(events, list) or any(not isinstance(event, str) for event in events)))):
+                                        raise ValueError("malformed Web PubSub event listener filter")
+                                    if not pattern and not events:
+                                        continue
+                                    namespace = endpoint_data.get("fullyQualifiedNamespace")
+                                    if (endpoint_data.get("type") != "EventHub" or not isinstance(namespace, str) or
+                                            not re.fullmatch(r"[A-Za-z0-9.-]+", namespace) or "." not in namespace or
+                                            not isinstance(endpoint_data.get("eventHubName"), str)):
+                                        raise ValueError("malformed Web PubSub Event Hub destination")
+                                    namespaces.append(namespace.casefold())
+                                policy = props.get("anonymousConnectPolicy", "deny")
+                                if policy not in ("allow", "deny"):
+                                    raise ValueError("malformed Web PubSub anonymous-connect policy")
+                                projected.append({"id": hub_id, "type": "Microsoft.SignalRService/WebPubSub/hubs",
+                                                  "properties": {"handlerHosts": sorted(set(hosts)),
+                                                                 "eventHubNamespaces": sorted(set(namespaces)),
+                                                                 "anonymousConnectPolicy": policy}})
+                            yield projected
+                    hub_jobs.append(("web_pubsub_hub", rid, "Microsoft.SignalRService", hubs))
+            reader.run(hub_jobs)
+        if "bastion_shareable_link" in wanted:
+            links_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "bastion_host" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for host in collection["items"]:
+                    rid = host.get("id")
+                    props = host.get("properties")
+                    if not isinstance(rid, str) or not isinstance(props, dict):
+                        continue
+                    if props.get("enableShareableLink") is not True:
+                        continue
+                    def shareable_links(rid=rid):
+                        endpoint = rid + "/getShareableLinks"
+                        url = ARM + endpoint + "?api-version=2025-05-01"
+                        seen_pages, targets = set(), set()
+                        for _ in range(100):
+                            if url in seen_pages:
+                                raise ValueError("repeated Bastion shareable-link page")
+                            seen_pages.add(url)
+                            parts = urlsplit(url)
+                            if (parts.scheme != "https" or parts.netloc.casefold() != urlsplit(ARM).netloc.casefold()
+                                    or parts.path.casefold() != endpoint.casefold() or parts.fragment or parts.username or parts.password):
+                                raise ValueError("untrusted Bastion shareable-link continuation")
+                            response = reader.call(request, url, body={"vms": []})
+                            if not isinstance(response, dict) or not isinstance(response.get("value"), list):
+                                raise ValueError("malformed Bastion shareable-link result")
+                            projected = []
+                            for row in response["value"]:
+                                vm = row.get("vm") if isinstance(row, dict) else None
+                                vm_id = vm.get("id") if isinstance(vm, dict) else None
+                                if (not isinstance(vm_id, str) or re.fullmatch(r"/subscriptions/[^?#%\\\s]+/providers/Microsoft\.Compute/(?:virtualMachines/[^/?#%\\\s]+|virtualMachineScaleSets/[^/?#%\\\s]+(?:/virtualMachines/[^/?#%\\\s]+)?)", vm_id, re.I) is None
+                                        or vm_id.casefold() in targets or not isinstance(row.get("bsl"), str) or not row["bsl"]):
+                                    raise ValueError("malformed Bastion shareable-link target")
+                                targets.add(vm_id.casefold())
+                                projected.append({"id": rid + "/shareableLinks/" + hashlib.sha256(vm_id.casefold().encode()).hexdigest()[:24],
+                                                  "properties": {"bastionId": rid, "vmId": vm_id, "active": True}})
+                            yield projected
+                            token = response.get("nextLink")
+                            if token is None:
+                                return
+                            if not isinstance(token, str) or not token:
+                                raise ValueError("malformed Bastion shareable-link continuation")
+                            url = token
+                        raise AzureReadError("page_limit")
+                    links_jobs.append(("bastion_shareable_link", rid, "Microsoft.Network", shareable_links))
+            reader.run(links_jobs)
+        if "app_configuration_event_subscription" in wanted:
+            event_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "app_configuration" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for store in collection["items"]:
+                    rid = store.get("id")
+                    if not isinstance(rid, str):
+                        continue
+                    def events(rid=rid):
+                        endpoint = rid + "/providers/Microsoft.EventGrid/eventSubscriptions"
+                        seen = set()
+                        for page in reader.pages(request, ARM + endpoint + "?api-version=2025-02-15"):
+                            projected = []
+                            for row in page:
+                                identity = row.get("id") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                if (not isinstance(identity, str) or re.fullmatch(re.escape(endpoint) + r"/[^/?#%\\\s]+", identity, re.I) is None
+                                        or identity.casefold() in seen or not isinstance(props, dict)):
+                                    raise ValueError("foreign or malformed App Configuration event subscription")
+                                seen.add(identity.casefold())
+                                wrapped = props.get("deliveryWithResourceIdentity")
+                                destination = wrapped.get("destination") if isinstance(wrapped, dict) else props.get("destination")
+                                if not isinstance(destination, dict):
+                                    raise ValueError("App Configuration event destination unavailable")
+                                dest_props = destination.get("properties")
+                                if not isinstance(dest_props, dict):
+                                    raise ValueError("App Configuration event destination properties unavailable")
+                                url = dest_props.get("endpointBaseUrl") or dest_props.get("endpointUrl")
+                                parts = urlsplit(url) if isinstance(url, str) else None
+                                if parts is not None and (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password):
+                                    raise ValueError("malformed App Configuration event webhook URL")
+                                resource_id = dest_props.get("resourceId")
+                                if resource_id is not None and (not isinstance(resource_id, str) or re.fullmatch(r"/subscriptions/[^?#%\\\s]+", resource_id, re.I) is None):
+                                    raise ValueError("malformed App Configuration event destination resource")
+                                action_groups = dest_props.get("actionGroups") or []
+                                if not isinstance(action_groups, list) or any(not isinstance(group, str) or re.fullmatch(r"/subscriptions/[^?#%\\\s]+", group, re.I) is None for group in action_groups):
+                                    raise ValueError("malformed App Configuration event action groups")
+                                dead = props.get("deadLetterWithResourceIdentity") or props.get("deadLetterDestination")
+                                if isinstance(dead, dict) and "deadLetterDestination" in dead:
+                                    dead = dead["deadLetterDestination"]
+                                dead_props = dead.get("properties") if isinstance(dead, dict) else None
+                                dead_id = dead_props.get("resourceId") if isinstance(dead_props, dict) else None
+                                if dead_id is not None and (not isinstance(dead_id, str) or re.fullmatch(r"/subscriptions/[^?#%\\\s]+", dead_id, re.I) is None):
+                                    raise ValueError("malformed App Configuration dead-letter destination")
+                                projected.append({"id": identity, "type": "Microsoft.EventGrid/eventSubscriptions",
+                                                  "properties": {"provisioningState": props.get("provisioningState"),
+                                                                 "expirationTimeUtc": props.get("expirationTimeUtc"),
+                                                                 "endpointType": destination.get("endpointType"),
+                                                                 "destinationHost": parts.hostname if parts else None,
+                                                                 "destinationScheme": parts.scheme if parts else None,
+                                                                 "destinationResourceId": resource_id,
+                                                                 "actionGroupIds": action_groups,
+                                                                 "deadLetterResourceId": dead_id}})
+                            yield projected
+                    event_jobs.append(("app_configuration_event_subscription", rid, "Microsoft.EventGrid", events))
+            reader.run(event_jobs)
+            if "app_configuration_event_action_group" in wanted:
+                # Foreign group IDs already prove external delivery. Inspect local groups.
+                group_ids = sorted({group for collection in reader.collections
+                                    if collection["type"] == "app_configuration_event_subscription" and collection["status"] in ("collected", "partial")
+                                    for event in collection["items"] for group in event["properties"].get("actionGroupIds", [])
+                                    if group.casefold().startswith("/subscriptions/" + collection["scope"].split("/")[2].casefold() + "/")})
+                group_jobs = []
+                for group_id in group_ids:
+                    def action_group(group_id=group_id):
+                        value = reader.call(request, ARM + group_id + "?api-version=2021-09-01")
+                        if (not isinstance(value, dict) or str(value.get("id", "")).casefold() != group_id.casefold()
+                                or not isinstance(value.get("properties"), dict)):
+                            raise ValueError("malformed App Configuration event action group")
+                        props = value["properties"]
+                        channels, resource_subscriptions, webhook_hosts = [], [], []
+                        unresolved = False
+                        for field, channel in (("emailReceivers", "email"), ("smsReceivers", "sms"),
+                                               ("voiceReceivers", "voice"), ("azureAppPushReceivers", "mobile_push")):
+                            rows = props.get(field) or []
+                            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                                raise ValueError("malformed action-group receiver list")
+                            if any(row.get("status") in (None, "Enabled") for row in rows):
+                                channels.append(channel)
+                        for field in ("webhookReceivers", "secureWebhookReceivers"):
+                            rows = props.get(field) or []
+                            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                                raise ValueError("malformed action-group webhook list")
+                            for row in rows:
+                                url = row.get("serviceUri")
+                                parts = urlsplit(url) if isinstance(url, str) else None
+                                if parts is None or parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
+                                    unresolved = True
+                                else:
+                                    webhook_hosts.append(parts.hostname)
+                        for field, key in (("azureFunctionReceivers", "functionAppResourceId"),
+                                           ("logicAppReceivers", "resourceId"),
+                                           ("automationRunbookReceivers", "automationAccountId")):
+                            rows = props.get(field) or []
+                            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                                raise ValueError("malformed action-group Azure receiver list")
+                            for row in rows:
+                                match = re.match(r"^/subscriptions/([^/]+)/", row.get(key), re.I) if isinstance(row.get(key), str) else None
+                                if match is None:
+                                    unresolved = True
+                                else:
+                                    resource_subscriptions.append(match.group(1))
+                        event_hubs = props.get("eventHubReceivers") or []
+                        if not isinstance(event_hubs, list):
+                            raise ValueError("malformed action-group Event Hub receiver list")
+                        for row in event_hubs:
+                            if not isinstance(row, dict) or not isinstance(row.get("subscriptionId"), str):
+                                unresolved = True
+                            else:
+                                resource_subscriptions.append(row["subscriptionId"])
+                        if any(props.get(field) for field in ("itsmReceivers", "armRoleReceivers")):
+                            unresolved = True
+                        yield [{"id": group_id, "properties": {"enabled": props.get("enabled", True),
+                                "channels": channels, "webhookHosts": sorted(set(webhook_hosts)),
+                                "resourceSubscriptions": sorted(set(resource_subscriptions)),
+                                "unresolvedReceivers": unresolved}}]
+                    group_jobs.append(("app_configuration_event_action_group", group_id, "Microsoft.Insights", action_group))
+                reader.run(group_jobs)
+        if "app_configuration_private_connection" in wanted:
+            connection_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "app_configuration" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for store in collection["items"]:
+                    rid = store.get("id")
+                    if not isinstance(rid, str):
+                        continue
+                    def private_connections(store=store, rid=rid):
+                        props = store.get("properties")
+                        rows = props.get("privateEndpointConnections") if isinstance(props, dict) else None
+                        if not isinstance(rows, list) or (props.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status") == "malformed":
+                            raise ValueError("App Configuration private endpoint references unavailable")
+                        seen, projected = set(), []
+                        for row in rows:
+                            identity = row.get("id") if isinstance(row, dict) else None
+                            details = row.get("properties") if isinstance(row, dict) else None
+                            endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+                            endpoint_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+                            state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+                            if (not isinstance(identity, str) or re.fullmatch(re.escape(rid + "/privateEndpointConnections/") + r"[^/?#%\\\s]+", identity, re.I) is None
+                                    or identity.casefold() in seen or not isinstance(endpoint_id, str)
+                                    or re.fullmatch(r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Network/privateEndpoints/[^/?#%\\\s]+", endpoint_id, re.I) is None):
+                                raise ValueError("malformed App Configuration private endpoint identity")
+                            seen.add(identity.casefold())
+                            projected.append({"id": identity, "type": "Microsoft.AppConfiguration/configurationStores/privateEndpointConnections",
+                                              "properties": {"privateEndpointId": endpoint_id,
+                                                             "status": state.get("status") if isinstance(state, dict) else None,
+                                                             "provisioningState": details.get("provisioningState")}})
+                        yield projected
+                    connection_jobs.append(("app_configuration_private_connection", rid, "Microsoft.AppConfiguration", private_connections))
+            reader.run(connection_jobs)
+        if "app_configuration_nsp" in wanted:
+            nsp_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "app_configuration" or collection["status"] not in ("collected", "partial"):
+                    continue
+                for store in collection["items"]:
+                    rid = store.get("id")
+                    if not isinstance(rid, str):
+                        continue
+                    def app_configuration_nsp(rid=rid):
+                        endpoint = rid + "/networkSecurityPerimeterConfigurations"
+                        seen = set()
+                        for page in reader.pages(request, ARM + endpoint + "?api-version=2025-08-01-preview"):
+                            projected = []
+                            for row in page:
+                                identity = row.get("id") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                if (not isinstance(identity, str) or re.fullmatch(
+                                        re.escape(endpoint) + r"/[^/?#%\\\s]+", identity, re.I) is None
+                                        or identity.casefold() in seen or not isinstance(props, dict)
+                                        or str(row.get("type", "")).casefold() != "microsoft.appconfiguration/configurationstores/networksecurityperimeterconfigurations"):
+                                    raise ValueError("foreign or malformed App Configuration NSP identity")
+                                seen.add(identity.casefold())
+                                association = props.get("resourceAssociation")
+                                perimeter = props.get("networkSecurityPerimeter")
+                                perimeter_id = perimeter.get("id") if isinstance(perimeter, dict) else None
+                                if perimeter_id is not None and (not isinstance(perimeter_id, str) or re.fullmatch(
+                                        r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Network/networkSecurityPerimeters/[^/?#%\\\s]+", perimeter_id, re.I) is None):
+                                    raise ValueError("malformed App Configuration perimeter identity")
+                                profile = props.get("profile")
+                                rules = profile.get("accessRules") if isinstance(profile, dict) else None
+                                inbound = []
+                                if isinstance(rules, list):
+                                    for rule in rules:
+                                        rule_props = rule.get("properties") if isinstance(rule, dict) else None
+                                        if not isinstance(rule_props, dict):
+                                            raise ValueError("malformed App Configuration NSP access rule")
+                                        if rule_props.get("direction") != "Inbound":
+                                            continue
+                                        prefixes = rule_props.get("addressPrefixes") or []
+                                        subscriptions = rule_props.get("subscriptions") or []
+                                        perimeters = rule_props.get("networkSecurityPerimeters") or []
+                                        if (not isinstance(prefixes, list) or any(not isinstance(v, str) for v in prefixes)
+                                                or not isinstance(subscriptions, list) or any(not isinstance(v, dict) or not isinstance(v.get("id"), str) for v in subscriptions)
+                                                or not isinstance(perimeters, list) or any(not isinstance(v, dict) or not isinstance(v.get("id"), str) for v in perimeters)):
+                                            raise ValueError("malformed App Configuration NSP inbound rule")
+                                        inbound.append({"addressPrefixes": prefixes,
+                                                        "subscriptions": [v["id"] for v in subscriptions],
+                                                        "perimeterIds": [v["id"] for v in perimeters]})
+                                projected.append({"id": identity, "type": row["type"],
+                                                  "properties": {"provisioningState": props.get("provisioningState"),
+                                                                 "hasProvisioningIssues": bool(props.get("provisioningIssues")),
+                                                                 "perimeterId": perimeter_id,
+                                                                 "accessMode": association.get("accessMode") if isinstance(association, dict) else None,
+                                                                 "inboundRules": inbound if isinstance(rules, list) else None}})
+                            yield projected
+                    nsp_jobs.append(("app_configuration_nsp", rid, "Microsoft.AppConfiguration", app_configuration_nsp))
+            reader.run(nsp_jobs)
+            if "app_configuration_nsp_membership" in wanted:
+                perimeter_ids = sorted({item["properties"]["perimeterId"] for collection in reader.collections
+                                        if collection["type"] == "app_configuration_nsp" and collection["status"] in ("collected", "partial")
+                                        for item in collection["items"] if item["properties"].get("perimeterId")})
+                membership_jobs = []
+                for perimeter_id in perimeter_ids:
+                    def memberships(perimeter_id=perimeter_id):
+                        endpoint = perimeter_id + "/resourceAssociations"
+                        seen = set()
+                        for page in reader.pages(request, ARM + endpoint + "?api-version=2025-05-01"):
+                            projected = []
+                            for row in page:
+                                identity = row.get("id") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                protected = props.get("privateLinkResource") if isinstance(props, dict) else None
+                                protected_id = protected.get("id") if isinstance(protected, dict) else None
+                                if (not isinstance(identity, str) or re.fullmatch(re.escape(endpoint) + r"/[^/?#%\\\s]+", identity, re.I) is None
+                                        or identity.casefold() in seen or not isinstance(protected_id, str)
+                                        or re.fullmatch(r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/[^/?#%\\\s]+/[^/?#%\\\s]+/[^/?#%\\\s]+", protected_id, re.I) is None):
+                                    raise ValueError("malformed App Configuration perimeter membership")
+                                seen.add(identity.casefold())
+                                projected.append({"id": identity, "properties": {"protectedResourceId": protected_id,
+                                                  "accessMode": props.get("accessMode"),
+                                                  "provisioningState": props.get("provisioningState"),
+                                                  "hasProvisioningIssues": props.get("hasProvisioningIssues")}})
+                            yield projected
+                    membership_jobs.append(("app_configuration_nsp_membership", perimeter_id, "Microsoft.Network", memberships))
+                reader.run(membership_jobs)
+        if "cost_export" in wanted:
+            def billing_export_scopes():
+                account_url = ARM + "/providers/Microsoft.Billing/billingAccounts?api-version=2024-04-01&includeAll=true"
+                accounts = []
+                seen_accounts = set()
+                for page in reader.pages(request, account_url):
+                    projected = []
+                    for row in page:
+                        rid = row.get("id") if isinstance(row, dict) else None
+                        props = row.get("properties") if isinstance(row, dict) else None
+                        if (not isinstance(rid, str) or re.fullmatch(
+                                r"/providers/Microsoft\.Billing/billingAccounts/[^/?#%\\\s]+", rid, re.I) is None
+                                or rid.casefold() in seen_accounts or not isinstance(props, dict)):
+                            raise ValueError("malformed billing account identity")
+                        seen_accounts.add(rid.casefold())
+                        agreement = props.get("agreementType")
+                        accounts.append((rid, agreement))
+                        projected.append({"id": rid})
+                    yield projected
+                def children(parent, kind):
+                    path = parent + "/" + kind
+                    url = ARM + path + "?api-version=2024-04-01"
+                    seen = set()
+                    for page in reader.pages(request, url):
+                        projected = []
+                        for row in page:
+                            rid = row.get("id") if isinstance(row, dict) else None
+                            if (not isinstance(rid, str) or re.fullmatch(
+                                    re.escape(path) + r"/[^/?#%\\\s]+", rid, re.I) is None
+                                    or rid.casefold() in seen):
+                                raise ValueError("malformed billing hierarchy identity")
+                            seen.add(rid.casefold())
+                            projected.append({"id": rid})
+                        yield projected
+                for account, agreement in accounts:
+                    if agreement == "EnterpriseAgreement":
+                        yield from children(account, "departments")
+                        yield from children(account, "enrollmentAccounts")
+                    elif agreement in ("MicrosoftCustomerAgreement", "MicrosoftPartnerAgreement"):
+                        profiles = []
+                        for page in children(account, "billingProfiles"):
+                            profiles.extend(item["id"] for item in page)
+                            yield page
+                        if agreement == "MicrosoftCustomerAgreement":
+                            for profile in profiles:
+                                yield from children(profile, "invoiceSections")
+                        else:
+                            yield from children(account, "customers")
+                    elif agreement not in ("MicrosoftOnlineServicesProgram",):
+                        raise ValueError("unsupported billing agreement type for Cost exports")
+            reader.run([("cost_export_billing_scope", tenant_scope, "Microsoft.Billing", billing_export_scopes)])
+            def cost_exports(scope):
+                url = ARM + scope + "/providers/Microsoft.CostManagement/exports?api-version=2025-03-01"
+                prefix = scope + "/providers/Microsoft.CostManagement/exports/"
+                seen = set()
+                for page in reader.pages(request, url):
+                    projected = []
+                    for row in page:
+                        rid = row.get("id") if isinstance(row, dict) else None
+                        props = row.get("properties") if isinstance(row, dict) else None
+                        if (not isinstance(rid, str) or not rid.casefold().startswith(prefix.casefold())
+                                or re.fullmatch(r"[^/?#%\\\s]+", rid[len(prefix):]) is None
+                                or rid.casefold() in seen or not isinstance(props, dict)):
+                            raise ValueError("foreign, duplicate or malformed Cost Management export")
+                        seen.add(rid.casefold())
+                        delivery = props.get("deliveryInfo")
+                        destination = delivery.get("destination") if isinstance(delivery, dict) else None
+                        if destination is None:
+                            destination = {}
+                        if not isinstance(destination, dict):
+                            raise ValueError("Cost Management export destination malformed")
+                        target = destination.get("resourceId")
+                        if target is not None and (not isinstance(target, str) or re.fullmatch(
+                                r"/subscriptions/[^/?#%\\\s]+/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Storage/storageAccounts/[^/?#%\\\s]+", target, re.I) is None):
+                            raise ValueError("Cost Management export storage identity malformed")
+                        projected.append({"id": rid, "name": rid.rsplit("/", 1)[-1],
+                                          "type": "Microsoft.CostManagement/exports",
+                                          "properties": {"sourceScope": scope,
+                                                         "destination": {"resourceId": target,
+                                                                         "hasPartnerSasDestination": bool(destination.get("storageAccount"))}}})
+                    yield projected
+            export_scopes = list(scopes)
+            for collection in reader.collections:
+                if collection["type"] in ("resource_group", "management_group", "cost_export_billing_scope") and collection["status"] in ("collected", "empty", "partial"):
+                    export_scopes.extend(item["id"] for item in collection["items"] if isinstance(item.get("id"), str))
+            export_scopes = list(dict.fromkeys(export_scopes))
+            reader.run([("cost_export", scope, "Microsoft.CostManagement", lambda scope=scope: cost_exports(scope)) for scope in export_scopes])
+        if "acat_report" in wanted:
+            def acat_reports():
+                url = ARM + "/providers/Microsoft.AppComplianceAutomation/reports?api-version=2024-06-27"
+                for page in reader.pages(request, url):
+                    projected = []
+                    for row in page:
+                        name = row.get("name") if isinstance(row, dict) else None
+                        props = row.get("properties") if isinstance(row, dict) else None
+                        if not isinstance(name, str) or re.fullmatch(r"[-a-zA-Z0-9_]{1,50}", name) is None or not isinstance(props, dict):
+                            raise ValueError("malformed App Compliance report")
+                        storage = props.get("storageInfo")
+                        if storage is not None and not isinstance(storage, dict):
+                            raise ValueError("malformed App Compliance report storage")
+                        subscriptions = props.get("subscriptions")
+                        if subscriptions is not None and (not isinstance(subscriptions, list) or any(not isinstance(s, str) for s in subscriptions)):
+                            raise ValueError("malformed App Compliance report subscriptions")
+                        projected.append({"id": "/providers/Microsoft.AppComplianceAutomation/reports/" + name,
+                                          "name": name, "type": "Microsoft.AppComplianceAutomation/reports",
+                                          "properties": {"status": props.get("status"), "tenantId": props.get("tenantId"),
+                                                         "subscriptions": subscriptions,
+                                                         "storageInfo": {"subscriptionId": storage.get("subscriptionId")}
+                                                         if storage is not None else None}})
+                    yield projected
+            reader.run([("acat_report", tenant_scope, "Microsoft.AppComplianceAutomation", acat_reports)])
+        if "acat_webhook" in wanted:
+            acat_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "acat_report" or collection["status"] not in ("collected", "empty", "partial"):
+                    continue
+                for report in collection["items"]:
+                    rid = report["id"]
+                    def acat_webhooks(rid=rid):
+                        url = ARM + rid + "/webhooks?api-version=2024-06-27"
+                        for page in reader.pages(request, url):
+                            projected = []
+                            for row in page:
+                                hook = row.get("name") if isinstance(row, dict) else None
+                                props = row.get("properties") if isinstance(row, dict) else None
+                                if not isinstance(hook, str) or re.fullmatch(r"[-a-zA-Z0-9_]{1,50}", hook) is None or not isinstance(props, dict):
+                                    raise ValueError("malformed App Compliance webhook")
+                                payload = props.get("payloadUrl")
+                                parts = urlsplit(payload) if isinstance(payload, str) else None
+                                if parts is not None and (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password):
+                                    raise ValueError("malformed App Compliance webhook URL")
+                                projected.append({"id": rid + "/webhooks/" + hook, "name": hook,
+                                                  "type": "Microsoft.AppComplianceAutomation/reports/webhooks",
+                                                  "properties": {"status": props.get("status"),
+                                                                 "provisioningState": props.get("provisioningState"),
+                                                                 "deliveryStatus": props.get("deliveryStatus"),
+                                                                 "payloadHost": parts.hostname if parts else None,
+                                                                 "payloadScheme": parts.scheme if parts else None,
+                                                                 "events": props.get("events"),
+                                                                 "sendAllEvents": props.get("sendAllEvents")}})
+                            yield projected
+                    acat_jobs.append(("acat_webhook", rid, "Microsoft.AppComplianceAutomation", acat_webhooks))
+            reader.run(acat_jobs)
+        if "managed_grafana_snapshot" in wanted:
+            snapshot_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "managed_grafana" or collection["status"] not in ("collected", "empty"):
+                    continue
+                for workspace in collection["items"]:
+                    wid = workspace["id"]
+                    endpoint = (workspace.get("properties") or {}).get("endpoint")
+                    def grafana_snapshots(wid=wid, endpoint=endpoint):
+                        if not isinstance(endpoint, str):
+                            raise ValueError("Grafana workspace endpoint missing")
+                        if hasattr(transport, "allow_grafana"):
+                            transport.allow_grafana(endpoint)
+                        url = endpoint.rstrip("/") + "/api/dashboard/snapshots?limit=10000"
+                        rows = reader.call(request, url, audience=GRAFANA)
+                        if not isinstance(rows, list) or len(rows) >= 10000:
+                            raise ValueError("Grafana snapshot list malformed or truncated")
+                        seen = set()
+                        projected = []
+                        for row in rows:
+                            if not isinstance(row, dict) or type(row.get("id")) is not int or row["id"] < 0 or row["id"] in seen:
+                                raise ValueError("malformed Grafana snapshot identity")
+                            seen.add(row["id"])
+                            if type(row.get("external")) is not bool or not isinstance(row.get("expires"), str):
+                                raise ValueError("malformed Grafana snapshot exposure state")
+                            sid = wid + "/snapshots/" + str(row["id"])
+                            projected.append({"id": sid, "type": "Microsoft.Dashboard/grafana/snapshots",
+                                              "properties": {"external": row["external"], "expires": row["expires"]},
+                                              "_provenance": {"source_operation": "GrafanaSnapshot_List", "read_only": True,
+                                                              "representation": "exposure_metadata"}})
+                        yield projected
+                    snapshot_jobs.append(("managed_grafana_snapshot", wid, "Microsoft.Dashboard", grafana_snapshots))
+            reader.run(snapshot_jobs)
         for collection in reader.collections:
             if collection["type"] == "activity_log":
                 collection["queryWindow"] = {"start": start, "end": end, "endExclusive": True}
@@ -3249,6 +4105,8 @@ def collect(connector, requirements=None, *, transport=None):
                         jobs.append(("storage_service", child_scope, "Microsoft.Storage", storage_config))
                 if kind == "sql_server":
                     child_paths.extend((child, path, version) for child, path, version in (("sql_database", "databases", "2023-08-01"), ("sql_firewall_rule", "firewallRules", "2023-08-01"), ("sql_ipv6_firewall_rule", "ipv6FirewallRules", "2025-01-01"), ("sql_audit", "auditingSettings", "2023-08-01"), ("sql_security", "securityAlertPolicies", "2023-08-01")) if child in wanted)
+                if kind == "data_share_account" and wanted.intersection({"data_share_share", "data_share_invitation", "data_share_provider_subscription"}):
+                    child_paths.append(("data_share_share", "shares", "2021-08-01"))
                 if kind == "vault" and "key_metadata" in wanted:
                     def vault_keys(item=item, rid=rid):
                         origin = _bound_vault_metadata_origin(item, rid)
@@ -3355,11 +4213,54 @@ def collect(connector, requirements=None, *, transport=None):
                     # One storage collection per account, not duplicate service scopes.
                     child_scope = rid + "/" + path if child == "storage_service" else rid
                     fetch = lambda url=url: reader.pages(request, url)
+                    if child == "data_share_share":
+                        fetch = lambda url=url, rid=rid: _data_share_child_pages(reader, request, url, rid, "data_share_share")
                     if kind == "sql_server" and child in ("sql_database", "sql_firewall_rule", "sql_ipv6_firewall_rule", "sql_audit", "sql_security"):
                         fetch = lambda url=url, rid=rid, child=child, path=path: _sql_projected_child_pages(reader, request, url, rid, child, path)
                     jobs.append((child, child_scope, ENDPOINTS[kind][0].split("/")[0], fetch))
         reader.run(jobs)
         jobs = []
+        if "lighthouse_assignment" in wanted:
+            group_scopes = []
+            for collection in reader.collections:
+                if collection["type"] != "resource_group" or collection["status"] not in ("collected", "empty"):
+                    continue
+                for item in collection["items"]:
+                    rid = item.get("id") if isinstance(item, dict) else None
+                    if (not isinstance(rid, str) or re.fullmatch(
+                            re.escape(collection["scope"]) + r"/resourceGroups/[A-Za-z0-9_.()-]+", rid, re.I) is None
+                            or str(item.get("type", "")).casefold() != "microsoft.resources/resourcegroups"):
+                        collection["status"] = "partial"
+                        collection["error"] = {"code": "malformed_resource_group_identity"}
+                        break
+                    group_scopes.append(rid)
+            for target_scope in dict.fromkeys([*scopes, *group_scopes]):
+                url = (ARM + target_scope + "/providers/Microsoft.ManagedServices/registrationAssignments"
+                       "?api-version=2022-10-01&$expandRegistrationDefinition=true")
+                jobs.append(("lighthouse_assignment", target_scope, "Microsoft.ManagedServices",
+                             lambda url=url, target_scope=target_scope:
+                             _lighthouse_assignment_pages(reader, request, url, target_scope)))
+            reader.run(jobs)
+            jobs = []
+        if wanted.intersection({"data_share_invitation", "data_share_provider_subscription"}):
+            for collection in reader.collections:
+                if collection["type"] != "data_share_share":
+                    continue
+                for share in collection["items"]:
+                    share_id = share.get("id") if isinstance(share, dict) else None
+                    if (not isinstance(share_id, str) or re.fullmatch(
+                            re.escape(collection["scope"]) + r"/shares/[A-Za-z0-9_.-]+", share_id, re.I) is None
+                            or str(share.get("type", "")).casefold() != "microsoft.datashare/accounts/shares"):
+                        continue
+                    for child, path in (("data_share_invitation", "invitations"),
+                                        ("data_share_provider_subscription", "providerShareSubscriptions")):
+                        if child in wanted:
+                            url = ARM + share_id + "/" + path + "?api-version=2021-08-01"
+                            jobs.append((child, share_id, "Microsoft.DataShare",
+                                         lambda url=url, share_id=share_id, child=child:
+                                         _data_share_child_pages(reader, request, url, share_id, child)))
+            reader.run(jobs)
+            jobs = []
         if options.get("_azure_app_service_runtime_checks") == ["azure.review.app_service.runtime_support_declared"]:
             from . import azure_app_service_runtime_producer_20261021
             azure_app_service_runtime_producer_20261021.collect_selected(

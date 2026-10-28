@@ -164,10 +164,13 @@ def _connections(reader, request, scopes):
                         if not isinstance(props, dict):
                             raise ValueError('VPN properties unavailable')
                         safe = {}
-                        for key in ('virtualNetworkGateway1', 'virtualNetworkGateway2'):
+                        for key in ('virtualNetworkGateway1', 'virtualNetworkGateway2', 'localNetworkGateway2'):
                             if key in props:
                                 value = props[key]
                                 safe[key] = {'id': value.get('id')} if isinstance(value, dict) else value
+                        for key in ('connectionType', 'connectionStatus', 'provisioningState'):
+                            if key in props:
+                                safe[key] = props[key]
                         if 'tunnelConnectionStatus' in props:
                             tunnels = props['tunnelConnectionStatus']
                             if not isinstance(tunnels, list) or any(not isinstance(t, dict) for t in tunnels):
