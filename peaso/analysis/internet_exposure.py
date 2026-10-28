@@ -5876,6 +5876,28 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
         a.gap("inventory", "Redis Enterprise publicNetworkAccess is absent or unrecognized")
         return a
     a.step("public_network_access", "allow", value=access)
+    firewall = props.get("firewallRules")
+    if not isinstance(firewall, list):
+        a.gap("firewall", "Redis Enterprise cluster firewall rules are not observed")
+    elif not firewall:
+        a.step("firewall", "allow", reason="no configured cluster firewall rules")
+    else:
+        public, malformed = False, False
+        for rule in firewall:
+            prefix = rule.get("sourceAddressPrefix") if isinstance(rule, dict) else None
+            network = _cidr(prefix) if isinstance(prefix, str) else None
+            if network is None:
+                malformed = True
+            else:
+                public |= _azure_public_remainder([network], [])
+        if public:
+            a.step("firewall", "allow", reason="rule admits a public source")
+        elif malformed:
+            a.gap("firewall", "Redis Enterprise cluster firewall rule has an unresolved source")
+        else:
+            a.step("firewall", "block", reason="no rule admits a public source")
+            a.ports = {}
+            return a
     hostname = props.get("hostName")
     if isinstance(hostname, str) and hostname:
         a.addresses.append(hostname)
@@ -5899,7 +5921,8 @@ def _azure_redis_enterprise(snapshot, inventory, resource):
         a.gap("inventory", "Redis Enterprise database child inventory or listener port is incomplete")
     if ports:
         a.ports = ports
-        a.explicit = "FAIL"
+        if not any(gap["layer"] == "firewall" for gap in a.unresolved):
+            a.explicit = "FAIL"
     elif status in ("collected", "empty") and not malformed:
         a.step("listener", "block", reason="no database listener in complete child inventory")
         a.ports = {}

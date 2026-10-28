@@ -191,9 +191,11 @@ def test_ml_workspace_online_endpoint_and_selected_ip_acl():
 
 def test_redis_enterprise_managed_redis_database_listener_gates():
     cluster = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Cache/redisEnterprise/cache"
-    def evaluate(access, child_status="collected", database_port=10000):
+    def evaluate(access, child_status="collected", database_port=10000, firewall=None):
         item = {"id": cluster, "properties": {"publicNetworkAccess": access,
-                "hostName": "cache.westus.redis.azure.net"}}
+                "hostName": "cache.westus.redis.azure.net", "firewallRules": [] if firewall is None else firewall}}
+        if firewall == "missing":
+            del item["properties"]["firewallRules"]
         database = {"id": cluster + "/databases/default", "properties": {
             "port": database_port, "clientProtocol": "Encrypted"}}
         snap = make_snapshot("azure", [SCOPE], [
@@ -214,6 +216,13 @@ def test_redis_enterprise_managed_redis_database_listener_gates():
     assert evaluate("Enabled", child_status="partial", database_port=None).verdict() == "UNKNOWN"
     assert evaluate("Enabled", database_port=None).verdict() == "UNKNOWN"
     assert evaluate(None).verdict() == "UNKNOWN"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "8.8.8.8/32"}]).verdict() == "FAIL"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "10.0.0.0/8"}]).verdict() == "PASS"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "2001:4860::/32"}]).verdict() == "FAIL"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "bad"}]).verdict() == "UNKNOWN"
+    assert evaluate("Enabled", firewall="missing").verdict() == "UNKNOWN"
+    assert evaluate("Enabled", firewall=[{"sourceAddressPrefix": "bad"},
+                                        {"sourceAddressPrefix": "8.8.8.8/32"}]).verdict() == "FAIL"
 
 
 def test_databricks_arm_public_gate_keeps_external_ingress_policy_unknown():
