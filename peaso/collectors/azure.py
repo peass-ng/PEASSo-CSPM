@@ -78,6 +78,7 @@ from . import azure_network_catalog
 from . import azure_notification_hubs_native
 from . import azure_relay_native
 from . import azure_lighthouse_native
+from . import azure_nginx_native
 
 ARM = "https://management.azure.com"
 GRAPH = "https://graph.microsoft.com"
@@ -133,6 +134,7 @@ ENDPOINTS = {
     "purview_account": ("Microsoft.Purview/accounts", "2021-12-01"),
     "databox_job": ("Microsoft.DataBox/jobs", "2025-07-01"),
     "mongo_cluster": ("Microsoft.DocumentDB/mongoClusters", "2026-06-01"),
+    "nginx_deployment": (azure_nginx_native.TYPE, azure_nginx_native.VERSION),
     "databricks_workspace": ("Microsoft.Databricks/workspaces", "2024-05-01"),
     "kusto_cluster": ("Microsoft.Kusto/clusters", "2024-04-13"),
     'vm_scale_set': ('Microsoft.Compute/virtualMachineScaleSets', '2024-07-01'),
@@ -4108,6 +4110,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_notification_hubs_native.collect(reader, request, scopes, wanted)
         azure_relay_native.collect(reader, request, scopes, wanted)
         azure_lighthouse_native.collect(reader, request, scopes, wanted)
+        azure_nginx_native.collect(reader, request, scopes, wanted)
         azure_mongo_cluster_exposure.collect(reader, request, scopes, wanted)
         azure_disclosure_native.collect(reader, transport, scopes, options,
                                         credential_context_id, customer_context_id)

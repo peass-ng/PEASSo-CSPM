@@ -10839,6 +10839,59 @@ def _azure_lighthouse(snapshot, inventory, resource):
     return a
 
 
+def _azure_nginx(snapshot, inventory, resource):
+    """Public NGINX frontends with ports derived from active configuration files."""
+    a = Assessment(resource, "public_endpoint")
+    a.ports = {}
+    data = resource["data"]
+    if (data.get("_coverage") or {}).get("nginxExposure", {}).get("status") != "collected":
+        a.gap("inventory", "NGINX frontend or configuration read unavailable")
+        return a
+    projection = data.get("nginxExposure")
+    if not isinstance(projection, dict):
+        a.gap("inventory", "NGINX exposure projection missing")
+        return a
+    state = projection.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed"):
+        a.step("deployment_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", None):
+        a.gap("inventory", "NGINX deployment state unresolved")
+        return a
+    public_ids = projection.get("publicIpIds")
+    if not isinstance(public_ids, list):
+        a.gap("inventory", "NGINX public IP references missing")
+        return a
+    if not public_ids:
+        a.step("public_frontend", "block", reason="no public IP address attached")
+        return a
+    a.step("public_frontend", "allow", public_ip_ids=public_ids)
+    for public_id in public_ids:
+        ip = inventory.get("public_ip", public_id)
+        address = (ip.get("data", {}).get("properties") or {}).get("ipAddress") if isinstance(ip, dict) else None
+        if isinstance(address, str):
+            a.addresses.append(address)
+    a.endpoint = a.addresses[0] if a.addresses else None
+    listeners = projection.get("listeners")
+    if not isinstance(listeners, list):
+        a.gap("listener", "NGINX listener inventory missing")
+        return a
+    for entry in listeners:
+        if (not isinstance(entry, (tuple, list)) or len(entry) != 2
+                or entry[0] not in ("tcp", "udp") or type(entry[1]) is not int
+                or not 1 <= entry[1] <= 65535):
+            a.gap("listener", "NGINX listener port malformed")
+            return a
+        a.ports = union(a.ports, pset(entry[0], entry[1], entry[1]))
+    if listeners:
+        a.step("listener", "allow", listeners=listeners)
+    if projection.get("listenerCoverage") != "collected":
+        a.gap("listener", "NGINX configuration includes or package leave listeners unresolved")
+    elif not listeners:
+        a.step("listener", "block", reason="no active network listen directives")
+    return a
+
+
 def _azure_traffic_manager(snapshot, inventory, resource):
     """Detect a public DNS referral from one collected Traffic Manager profile."""
     a = Assessment(resource, "public_dns")
@@ -11618,7 +11671,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11634,7 +11687,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -11732,6 +11785,7 @@ def assess(snapshot, resources):
                   "relay_namespace": _azure_relay,
                   "mongo_cluster": _azure_mongo_cluster,
                   "lighthouse_delegation": _azure_lighthouse,
+                  "nginx_deployment": _azure_nginx,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
