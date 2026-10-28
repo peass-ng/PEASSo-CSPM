@@ -1147,7 +1147,7 @@
     "peaso/collectors/azure_conditional_access_native.py": "fdf81a064fc4638d0a28c8b073eeadad220dffae761884138e996a98e1a4abb9",
     "peaso/collectors/azure_conditional_access_risk_native.py": "a9786e25e9196522fbfe0559f117ceb503f52f784eac375c4130014e4c785edc",
     "peaso/collectors/azure_containerapp_jobs.py": "a275c6e6f3b11d06846cb1643507c6840d648c68ad8f95427d87023f9c9b1538",
-    "peaso/collectors/azure_containerapp_runtime.py": "d5be682d4768c2582ad431e121a7c290b122553580268721d45e7bbdd1a5e9fc",
+    "peaso/collectors/azure_containerapp_runtime.py": "9d95c3f3f554bd0a7281e46cdd4fc64488971e5d296c8d0e7e51bfa3cb4312b5",
     "peaso/collectors/azure_database_native.py": "b012ad7658518ea644b980749aea4a192e659ca1c0e205610a27d7b5a2354b15",
     "peaso/collectors/azure_databricks_native.py": "3c6c56e700376316c7f711f7dc4981b4f02ec145bacf6553d9163326f7e64359",
     "peaso/collectors/azure_databricks_notebook_secret_indicators.py": "2c341ba97b78cb309fb5612b0c01ac6c45b2b8039d948268f919e43376e8510a",

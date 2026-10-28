@@ -1195,6 +1195,46 @@ def test_container_app_recorded_stopped_runtime_blocks_external_ingress():
     assert "public request path is unresolved" in _observed(progressing, "UNKNOWN")
 
 
+def test_container_app_active_revision_label_routes_with_zero_app_traffic_weight():
+    from peaso.collectors.azure_containerapp_runtime import _project
+
+    app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
+    env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
+    label_fqdn = "app---staging.example.azurecontainerapps.io"
+    projected = _project({"id": app_id, "type": "Microsoft.App/containerApps",
+                          "identity": {"type": "None"},
+                          "properties": {"runningStatus": "Running", "provisioningState": "Succeeded"}},
+                         [{"id": app_id + "/revisions/rev1", "properties": {
+                             "active": True, "trafficWeight": 0, "healthState": "Healthy",
+                             "fqdn": "app--rev1.example.azurecontainerapps.io",
+                             "template": {"secrets": ["must-not-copy"]}}},
+                          {"id": app_id + "/revisions/old", "properties": {
+                             "active": False, "trafficWeight": 0, "fqdn": "old.example.azurecontainerapps.io"}}], app_id)
+    assert "must-not-copy" not in repr(projected)
+    assert projected["revisions"][0]["properties"]["trafficWeight"] == 0
+    snap = make_snapshot("azure", [SCOPE], [
+        {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
+         "items": [{"id": env_id, "properties": {"publicNetworkAccess": "Enabled",
+             "defaultDomain": "example.azurecontainerapps.io",
+             "vnetConfiguration": {"internal": False}}}]},
+        {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
+         "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
+             "configuration": {"ingress": {"external": True, "transport": "http",
+                 "fqdn": "app.example.azurecontainerapps.io",
+                 "traffic": [{"revisionName": "rev1", "weight": 0, "label": "staging"},
+                             {"revisionName": "old", "weight": 0, "label": "old"}]}},
+             "provisioningState": "Succeeded"}}]},
+        {"type": "container_app_runtime", "scope": SCOPE, "service": "app", "status": "collected",
+         "items": [projected]},
+    ])
+    row = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "container_app")
+    assert row.verdict() == "FAIL"
+    assert label_fqdn in row.addresses
+    assert "app---old.example.azurecontainerapps.io" not in row.addresses
+    assert "traffic weight" in _observed(row, "FAIL")
+    assert len(_observed(row, "FAIL").splitlines()) == 3
+
+
 def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     ip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
     firewall_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw"

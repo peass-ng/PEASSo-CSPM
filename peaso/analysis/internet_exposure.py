@@ -5239,6 +5239,29 @@ def _azure_container_app(snapshot, inventory, resource):
         a.addresses.append(fqdn)
     else:
         a.gap("inventory", "Container App public ingress FQDN is not collected")
+    if (transport in ("auto", "http", "http2") and environment is not None
+            and runtime is not None and inventory.state("container_app_runtime", resource["scope"]) == "collected"
+            and (runtime["data"].get("_provenance") or {}).get("method") == "GET+LIST"
+            and (runtime["data"].get("_provenance") or {}).get("read_only") is True):
+        domain = _props(environment).get("defaultDomain")
+        traffic = ingress.get("traffic")
+        revisions = runtime["data"].get("revisions")
+        if isinstance(domain, str) and domain and isinstance(traffic, list) and isinstance(revisions, list):
+            active = {str(rev.get("id", "")).rsplit("/", 1)[-1].casefold()
+                      for rev in revisions if isinstance(rev, dict)
+                      and isinstance(rev.get("properties"), dict)
+                      and rev["properties"].get("active") is True}
+            labels = sorted({entry["label"] for entry in traffic if isinstance(entry, dict)
+                             and isinstance(entry.get("label"), str)
+                             and re.fullmatch(r"[a-z](?:[a-z0-9-]{0,62}[a-z0-9])?", entry["label"])
+                             and "--" not in entry["label"]
+                             and str(entry.get("revisionName", "")).casefold() in active})
+            if labels:
+                name = str(resource["data"].get("id", "")).rsplit("/", 1)[-1]
+                label_hosts = [f"{name}---{label}.{domain}" for label in labels]
+                a.addresses.extend(host for host in label_hosts if host not in a.addresses)
+                a.step("revision_labels", "allow", active_label_fqdns=label_hosts,
+                       source="ARM ingress traffic, environment defaultDomain and complete revisions LIST")
     if props.get("provisioningState") not in (None, "Succeeded"):
         a.gap("inventory", "Container App provisioning is not confirmed successful")
     a.step("listener", "allow" if a.ports else "unknown", transport=transport, ports=describe(a.ports or {}))
@@ -6941,6 +6964,14 @@ def _observed(assessment, status):
                 "An open path could expose workflow settings or data if IAM also grants access.")
     if assessment.resource["type"] == "container_app":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        labels = next((step for step in assessment.path
+                       if step["layer"] == "revision_labels"), None)
+        if status == "FAIL" and labels is not None:
+            return (f"The Container App {name} has external HTTP ingress and an active revision label "
+                    f"FQDN {labels['active_label_fqdns'][0]}.\n"
+                    "Recorded ingress traffic, environment domain and complete revision list establish a "
+                    "label route independent of the app URL traffic weight.\n"
+                    "The public network gates admit a source; a successful request was not tested.")
         http_port = next((step for step in assessment.path if step["layer"] == "http_port_80"), None)
         if status == "FAIL" and http_port is not None:
             fqdn = assessment.addresses[0] if assessment.addresses else "an unobserved FQDN"

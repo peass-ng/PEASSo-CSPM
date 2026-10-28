@@ -63,7 +63,8 @@ def _project(app, revisions, app_id):
         seen.add(rid.casefold())
         rev_props = revision["properties"]
         projected_revisions.append({"id": rid, "properties": {
-            key: rev_props[key] for key in ("active", "provisioningState", "runningState", "replicas")
+            key: rev_props[key] for key in ("active", "provisioningState", "runningState", "replicas",
+                                           "healthState", "trafficWeight", "fqdn")
             if key in rev_props}})
     return {
         "id": app_id, "type": "Microsoft.App/containerApps", "identity": projected_identity,
