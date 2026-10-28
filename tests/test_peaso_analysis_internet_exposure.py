@@ -546,6 +546,36 @@ def test_aws_cloudfront_signed_viewer_access_is_per_behavior_and_options_excepti
     assert finding()["evidence"]["authenticated_endpoint"] is False
 
 
+def test_aws_cloudfront_observed_oai_bucket_policy_grant_requires_used_origin_and_exact_principal():
+    distribution_arn = f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1"
+    oai_arn = "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity E123ABC"
+    config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+              "DefaultCacheBehavior": {"ViewerProtocolPolicy": "https-only", "TargetOriginId": "s3-main"},
+              "Origins": {"Items": [{"Id": "s3-main", "DomainName": "private-bucket.s3.us-east-1.amazonaws.com",
+                                     "S3OriginConfig": {"OriginAccessIdentity": "origin-access-identity/cloudfront/E123ABC"}}]}}}
+    distribution = {"ARN": distribution_arn, "Id": "D1", "DomainName": "d123.cloudfront.net", "Config": config}
+    policy = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"AWS": oai_arn},
+              "Action": "s3:GetObject", "Resource": "arn:aws:s3:::private-bucket/*"}]}
+    bucket = {"Name": "private-bucket", "Policy": {"collection_status": "collected", "Policy": policy}}
+    def finding():
+        return one(aws(coll("cloudfront_distribution", [distribution], service="cloudfront"),
+                       coll("bucket", [bucket], service="s3")), "cloudfront_distribution")
+    result = finding()
+    assert result["status"] == "FAIL"
+    grants = [step for step in result["evidence"]["path"] if step["layer"] == "origin_policy"]
+    assert len(grants) == 1 and grants[0]["decision"] == "allow_declaration"
+    assert grants[0]["bucket"] == "private-bucket" and grants[0]["principal"] == oai_arn
+    config["DistributionConfig"]["DefaultCacheBehavior"]["TargetOriginId"] = "other"
+    assert not [step for step in finding()["evidence"]["path"] if step["layer"] == "origin_policy"]
+    config["DistributionConfig"]["DefaultCacheBehavior"]["TargetOriginId"] = "s3-main"
+    policy["Statement"][0]["Principal"]["AWS"] = oai_arn + "-other"
+    assert not [step for step in finding()["evidence"]["path"] if step["layer"] == "origin_policy"]
+    policy["Statement"][0]["Principal"]["AWS"] = oai_arn
+    policy["Statement"].append({"Effect": "Deny", "Principal": "*", "Action": "s3:GetObject",
+                                 "Resource": "arn:aws:s3:::private-bucket/*"})
+    assert not [step for step in finding()["evidence"]["path"] if step["layer"] == "origin_policy"]
+
+
 def test_aws_global_accelerator_static_ips_and_public_listener():
     accelerator = {"AcceleratorArn": f"arn:aws:globalaccelerator::{ACCOUNT}:accelerator/a",
                    "Enabled": True, "Status": "DEPLOYED", "IpSets": [

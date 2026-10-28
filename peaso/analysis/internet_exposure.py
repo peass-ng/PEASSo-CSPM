@@ -1598,6 +1598,51 @@ def _aws_cloudfront(snapshot, inventory, resource):
            unresolved_paths=sorted(set(unresolved_behaviors)),
            semantics="Signed URL/cookie settings apply per cache behavior; CloudFront can forward OPTIONS without a signature")
     a.authenticated = bool(signed_behaviors) and not unsigned_behaviors and not unresolved_behaviors
+    origin_config = distribution.get("Origins")
+    origins = origin_config.get("Items") if isinstance(origin_config, dict) else None
+    targets = {behavior.get("TargetOriginId") for behavior in behaviors if isinstance(behavior.get("TargetOriginId"), str)}
+    if isinstance(origins, list) and targets:
+        from .iam import document
+        from fnmatch import fnmatchcase
+        distribution_arn = data.get("ARN")
+        partition = distribution_arn.split(":", 2)[1] if isinstance(distribution_arn, str) and distribution_arn.startswith("arn:") else None
+        for origin in origins:
+            if not isinstance(origin, dict) or origin.get("Id") not in targets:
+                continue
+            s3_config = origin.get("S3OriginConfig")
+            identity = s3_config.get("OriginAccessIdentity") if isinstance(s3_config, dict) else None
+            match = re.fullmatch(r"origin-access-identity/cloudfront/([A-Z0-9]+)", identity) if isinstance(identity, str) else None
+            hostname = origin.get("DomainName")
+            bucket_host = (re.fullmatch(r"(.+)\.s3(?:[.-][a-z]{2}(?:-[a-z]+)+-\d+)?\.amazonaws\.com", hostname)
+                           if isinstance(hostname, str) else None)
+            bucket_name = bucket_host.group(1) if bucket_host else None
+            if not match or not bucket_name or not partition:
+                continue
+            bucket = next((item for item in inventory.items("bucket") if item["scope"].split("/", 1)[0] == resource["scope"].split("/", 1)[0]
+                           and item["data"].get("Name") == bucket_name), None)
+            policy = bucket["data"].get("Policy") if bucket else None
+            if not isinstance(policy, dict) or policy.get("collection_status") != "collected" or "Policy" not in policy:
+                continue
+            statements = as_list((document(policy["Policy"]) or {}).get("Statement"))
+            if any(isinstance(statement, dict) and statement.get("Effect") == "Deny" for statement in statements):
+                continue
+            principal = f"arn:{partition}:iam::cloudfront:user/CloudFront Origin Access Identity {match.group(1)}"
+            object_arn = f"arn:{partition}:s3:::{bucket_name}/*"
+            for statement in statements:
+                if not isinstance(statement, dict) or statement.get("Effect") != "Allow" or statement.get("Condition") or any(
+                        key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+                    continue
+                aws_principal = statement.get("Principal", {}).get("AWS") if isinstance(statement.get("Principal"), dict) else None
+                if principal not in as_list(aws_principal):
+                    continue
+                if not any(isinstance(action, str) and fnmatchcase("s3:GetObject", action) for action in as_list(statement.get("Action"))):
+                    continue
+                if object_arn not in as_list(statement.get("Resource")):
+                    continue
+                a.step("origin_policy", "allow_declaration", origin_id=origin["Id"], bucket=bucket_name,
+                       principal=principal, action="s3:GetObject", resource=object_arn,
+                       semantics="Collected bucket policy grants the configured OAI object read; object existence, ACL, KMS and response are not established")
+                break
     a.notes.append("CloudFront viewer reachability does not establish origin reachability or authorization")
     return a
 
