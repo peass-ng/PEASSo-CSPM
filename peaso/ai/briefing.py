@@ -85,14 +85,22 @@ def build(root, platform, assigned, reviews, write_json):
         report = platform.get('report', {})
         assigned_by_id = {row['id']: row for row in assigned}
         reviewed = {row['finding_id']: row for row in reviews}
+        pending_records = []
+
+        def flush_records():
+            if pending_records:
+                db.executemany('INSERT INTO records VALUES(?,?,?,?,?,?)', pending_records)
+                pending_records.clear()
 
         def put(domain, ident, summary, detail, *, severity='info', candidate=False, names=(), identities=()):
             ident = str(ident)
             summary = {key: value if key in ('source', 'target', 'resource_id', 'native_id') else bounded(value)
                        for key, value in summary.items()}
             summary['id'] = ident
-            db.execute('INSERT INTO records VALUES(?,?,?,?,?,?)',
-                       (domain, ident, encode(summary), encode(detail), RISK.get(severity, 4), int(candidate)))
+            pending_records.append((domain, ident, encode(summary), encode(detail),
+                                    RISK.get(severity, 4), int(candidate)))
+            if len(pending_records) >= 512:
+                flush_records()
             provider = detail.get('provider') if isinstance(detail, dict) else None
             if not provider and isinstance(detail, dict) and isinstance(detail.get('finding'), dict):
                 provider = detail['finding'].get('provider')
@@ -148,6 +156,7 @@ def build(root, platform, assigned, reviews, write_json):
                            scope_count=len(group['scopes']), scope_sample=sorted(scope for scope in group['scopes'] if isinstance(scope, str))[:3],
                            evidence_variant_count=len(group['variants']))
             put('finding_groups', ident, summary, summary, severity=group['severity'], candidate=True)
+            flush_records()
             db.executemany('INSERT INTO members VALUES(?,?)', ((ident, member) for member in group['members']))
 
         for index, row in enumerate(platform.get('inventory', [])):
@@ -219,10 +228,12 @@ def build(root, platform, assigned, reviews, write_json):
         put('metadata', 'coverage_gaps', {'count': len(gaps), 'sample': compact(gaps[:3])}, gaps)
         scan = {key: report[key] for key in ('provider', 'snapshot_id', 'created_at', 'scopes') if key in report}
         put('metadata', 'scan', compact(scan), scan)
+        flush_records()
 
         # Link only exact, unambiguous record references. No topology or access is
         # inferred from matching names, public addresses or broad permissions.
         rows = db.execute('SELECT domain,id,detail FROM records WHERE domain != ? ORDER BY domain,id', ('finding_groups',))
+        pending_links = []
         for domain, ident, detail in rows:
             for value in set(strings(json.loads(detail))):
                 matches = set(aliases.get(value, ())) | identity_aliases.get((providers.get((domain, ident)), value), set())
@@ -231,7 +242,12 @@ def build(root, platform, assigned, reviews, write_json):
                     by_domain[target[0]].append(target)
                 for targets in by_domain.values():
                     if len(targets) == 1 and targets[0] != (domain, ident):
-                        db.execute('INSERT OR IGNORE INTO links VALUES(?,?,?,?)', (domain, ident, *targets[0]))
+                        pending_links.append((domain, ident, *targets[0]))
+                        if len(pending_links) >= 512:
+                            db.executemany('INSERT OR IGNORE INTO links VALUES(?,?,?,?)', pending_links)
+                            pending_links.clear()
+        if pending_links:
+            db.executemany('INSERT OR IGNORE INTO links VALUES(?,?,?,?)', pending_links)
         # Secondary indexes are built once after the bulk load (same schema and
         # rows) instead of being maintained on every insert.
         db.executescript('''

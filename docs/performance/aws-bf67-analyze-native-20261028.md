@@ -82,3 +82,28 @@ Rendering fell from 54.08 to 37.32 s wall and 39.94 to 33.54 s CPU. A paired
 10,000-resource sample fell from 1.58 to 1.49 s median wall, with identical
 44,845,156-byte output. The focused Markdown suite passed 105/105; the
 1,717-file API source gate passed. Production benefit is not yet measured.
+
+## Priorities context SQLite writes
+
+With Hardening and Exposure model stages removed, the remaining Priorities
+agent builds a local evidence context. Profiling the saved AWS snapshot with
+16,789 native reviews found hundreds of thousands of individual SQLite record
+and link inserts. The builder now batches those inserts in groups of 512 and
+flushes before group membership inserts, retaining the original insertion
+order. The full generated `context.sqlite.gz`, `platform.json`, and
+`context.py` files were byte-identical within each paired before/after run.
+The first run produced a 147,940,610-byte compressed context with SHA-256
+`b2c99908062a910fe19fedb3ee193fb39c8d0e313381061086a0f76c025af2b1`;
+the second run also matched within its pair. Hashes varied across separate
+processes because existing unordered source data varies between runs.
+
+| Pair order | Before wall / CPU | After wall / CPU |
+| --- | ---: | ---: |
+| Before, after | 56.83 / 33.16 s | 54.47 / 31.20 s |
+| After, before | 60.75 / 32.66 s | 60.21 / 32.41 s |
+
+The gain is small and affected by host load. Pair-process peak RSS ranged
+1.82–1.94 GB; the process high-water mark cannot separate the two builds.
+The saved replay made zero cloud/API calls. The focused briefing and context
+tests passed 31/31, and the 1,717-file API source gate passed with its
+30-client-call closure unchanged. Hosted benefit is not yet measured.
