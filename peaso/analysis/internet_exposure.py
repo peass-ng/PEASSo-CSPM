@@ -3493,24 +3493,25 @@ def _aws_snapshot_share(snapshot, inventory, resource, attribute_path, name):
         a.gap("attributes", f"{name} sharing attributes {'not collected' if not isinstance(attributes, dict) else attributes.get('collection_status')}",
               "rds describe_db_cluster_snapshot_attributes" if name == "cluster snapshot" else "rds describe_db_snapshot_attributes")
         return a
-    a.step("listener", "allow", port=port)
-    groups = [g.get("VpcSecurityGroupId") for g in as_list(data.get("VpcSecurityGroups")) if isinstance(g, dict)]
-    name = data.get("ClusterSubnetGroupName")
-    group = next((r["data"] for r in inventory.items("redshift_subnet_group") if r["scope"] == resource["scope"]
-                  and r["data"].get("ClusterSubnetGroupName") == name), None)
-    if not isinstance(group, dict):
-        a.gap("inventory", "Redshift subnet group not collected", "redshift:DescribeClusterSubnetGroups")
+    result = attributes
+    for key in attribute_path:
+        result = result.get(key, {}) if isinstance(result, dict) else {}
+    values = [v for x in as_list(result) if isinstance(x, dict) and x.get("AttributeName") == "restore" for v in as_list(x.get("AttributeValues"))]
+    trusted = trusted_scopes(snapshot)["ids"]
+    if "all" in values:
+        a.step("attributes", "allow", restore=["all"])
+        a.data_exposure = True
+        a.ports = {}
         return a
-    subnets = [s.get("SubnetIdentifier") for s in as_list(group.get("Subnets"))
-               if isinstance(s, dict) and s.get("SubnetIdentifier")]
-    if not subnets:
-        a.gap("inventory", "Redshift subnet group has no collected subnets", "redshift:DescribeClusterSubnetGroups")
+    foreign = [v for v in values if trusted and v not in trusted]
+    if foreign:
+        a.step("attributes", "allow", restore=values, external_accounts=foreign)
+        a.external_ids = foreign
+        a.kind = "external_share"
+        a.explicit = "FAIL"
         return a
-    a.ports = _aws_vpc_path(inventory, a, subnets, groups, pset("tcp", port, port), native_id(resource),
-                            vpc_id=group.get("VpcId"), narrow_public=True, public_host_witness=True)
-    if data.get("ClusterStatus") == "paused":
-        a.dormant = True
-        a.notes.append("Redshift cluster is paused; retained endpoint configuration applies after resume")
+    a.step("attributes", "block", restore=values)
+    a.ports = {}
     return a
 
 
