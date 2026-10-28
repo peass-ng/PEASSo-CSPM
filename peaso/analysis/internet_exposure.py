@@ -5100,7 +5100,7 @@ def _aws_quicksight_public_dashboard(snapshot, inventory, resource):
 
 
 def _aws_license_manager_distributed_grant(snapshot, inventory, resource):
-    """Active account-scoped distributed license entitlement to a foreign account."""
+    """Active license entitlement to a foreign account, organization or OU."""
     from .trust import trusted_scopes
 
     data = resource["data"]
@@ -5118,12 +5118,28 @@ def _aws_license_manager_distributed_grant(snapshot, inventory, resource):
         return a
     recipient = data.get("GranteePrincipalArn")
     match = re.fullmatch(rf"arn:{partition}:iam::([0-9]{{12}}):root", recipient) if isinstance(recipient, str) else None
-    if match is None:
-        a.gap("recipient", "License Manager grantee is not an exact AWS account principal")
-        return a
-    target = match.group(1)
-    if target in trusted_scopes(snapshot)["ids"]:
-        return None
+    if match is not None:
+        target = match.group(1)
+        if target in trusted_scopes(snapshot)["ids"]:
+            return None
+    else:
+        selector = (re.fullmatch(
+            rf"arn:{partition}:organizations::([0-9]{{12}}):organization/(o-[a-z0-9]{{10,32}})", recipient) or
+            re.fullmatch(
+            rf"arn:{partition}:organizations::([0-9]{{12}}):ou/(o-[a-z0-9]{{10,32}})/ou-[a-z0-9]{{4,32}}-[a-z0-9]{{8,32}}", recipient)) if isinstance(recipient, str) else None
+        if selector is None:
+            a.gap("recipient", "License Manager grantee is not an exact account, organization or OU ARN")
+            return a
+        own_organization = _aws_account_organization(inventory, account)
+        if own_organization is None:
+            a.gap("recipient", "License Manager organization grantee cannot be compared with the local organization")
+            return a
+        if selector.group(2) == own_organization[0]:
+            if selector.group(1) == own_organization[1]:
+                return None
+            a.gap("recipient", "License Manager organization ARN owner differs from the local management account")
+            return a
+        target = recipient
     if data.get("GrantStatus") != "ACTIVE":
         if data.get("GrantStatus") in {"PENDING_WORKFLOW", "PENDING_ACCEPT", "REJECTED",
                                        "FAILED_WORKFLOW", "DELETED", "PENDING_DELETE", "DISABLED"}:
@@ -5137,7 +5153,7 @@ def _aws_license_manager_distributed_grant(snapshot, inventory, resource):
     a.external_ids = [target]
     a.explicit = "FAIL"
     a.step("license_grant", "allow", grant_arn=grant, license_arn=license_arn,
-           recipient_account=target, granted_operations=sorted(set(operations)))
+           recipient_principal=recipient, granted_operations=sorted(set(operations)))
     a.gap("use", "Recipient license use and issuer-side restrictions were not observed")
     return a
 
