@@ -2326,6 +2326,26 @@ def test_api_management_public_gateway_and_network_gates():
     assert decision("api_management", {**base, "gatewayUrl": None}).verdict() == "UNKNOWN"
 
 
+def test_api_management_enabled_developer_portal_survives_disabled_gateway():
+    base = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
+            "disableGateway": True, "developerPortalStatus": "Enabled",
+            "developerPortalUrl": "https://api.developer.azure-api.net"}
+    portal = decision("api_management", base)
+    assert portal.verdict() == "FAIL" and portal.addresses == [base["developerPortalUrl"]]
+    assert portal.ports == {"tcp": ((443, 443),)}
+    assert portal.path[-1]["layer"] == "developer_portal"
+    assert _observed(portal, "FAIL").splitlines() == [
+        "The API Management service has its gateway disabled but records an enabled developer portal at https://api.developer.azure-api.net.",
+        "Its public network gate and non-VNet mode admit the portal HTTPS listener.",
+        "Portal content, sign-in policy, DNS delivery, and a successful request were not tested."]
+    assert decision("api_management", {**base, "developerPortalStatus": "Disabled"}).verdict() == "PASS"
+    assert decision("api_management", {**base, "developerPortalUrl": None}).verdict() == "UNKNOWN"
+    external = decision("api_management", {**base, "virtualNetworkType": "External"})
+    assert external.verdict() == "UNKNOWN"
+    assert "External VNet subnet NSG path is unresolved" in _observed(external, "UNKNOWN")
+    assert decision("api_management", {**base, "publicNetworkAccess": "Disabled"}).verdict() == "PASS"
+
+
 def test_api_management_enabled_secondary_gateway_survives_primary_disable():
     base = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "None",
             "disableGateway": True, "gatewayUrl": "https://primary.azure-api.net",

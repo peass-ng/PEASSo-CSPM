@@ -6738,6 +6738,21 @@ def _azure_api_management(snapshot, inventory, resource):
         if location.get("disableGateway") is not True:
             regional.append(location)
     if not primary_enabled and not regional and not a.unresolved:
+        portal = props.get("developerPortalUrl")
+        if props.get("developerPortalStatus") == "Enabled":
+            if not isinstance(portal, str) or not portal.startswith("https://"):
+                a.gap("inventory", "enabled API Management developer portal URL is not collected")
+                return a
+            a.addresses = [portal]
+            if network == "External":
+                a.step("developer_portal", "unknown", status="Enabled", url=portal,
+                       gateway_state="disabled")
+                a.gap("nsg", "External VNet developer portal subnet NSG path is not resolved")
+            else:
+                a.step("developer_portal", "allow", status="Enabled", url=portal,
+                       gateway_state="disabled")
+            a.ports = pset("tcp", 443, 443)
+            return a
         a.step("listener", "block", reason="primary and regional managed gateways disabled")
         a.ports = {}
         return a
@@ -7702,6 +7717,14 @@ def _observed(assessment, status):
                     f"{len(regional_block['regional_gateway_urls'])} enabled regional gateways.\n"
                     "Each regional gateway's collected External VNet subnet NSG blocks public HTTPS ingress.\n"
                     "This blocks the recorded public gateway path; external proxies and backend health were not tested.")
+    if assessment.resource["type"] == "api_management" and status in ("FAIL", "UNKNOWN"):
+        portal = next((step for step in assessment.path if step["layer"] == "developer_portal"), None)
+        if portal is not None:
+            return (f"The API Management service has its gateway disabled but records an enabled developer portal at {portal['url']}.\n"
+                    + ("Its public network gate and non-VNet mode admit the portal HTTPS listener.\n"
+                       if status == "FAIL" else
+                       "Its External VNet subnet NSG path is unresolved, so public portal admission is unknown.\n")
+                    + "Portal content, sign-in policy, DNS delivery, and a successful request were not tested.")
     if assessment.resource["type"] == "api_management" and status in ("FAIL", "UNKNOWN"):
         props = _props(assessment.resource)
         if props.get("disableGateway") is True and assessment.addresses:
