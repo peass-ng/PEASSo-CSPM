@@ -410,6 +410,38 @@ def test_app_service_stopped_and_disabled_hostname_surfaces():
     assert decision(hostnames_disabled=True, scm_default="Deny").verdict() == "PASS"
 
 
+def test_function_http_trigger_auth_levels_are_native_evidence():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/fn"
+
+    def trigger_decision(auth_level="anonymous", *, disabled=False, status="collected", complete=True):
+        function = {"id": site_id + "/functions/Ping", "type": "Microsoft.Web/sites/functions",
+                    "properties": {"isDisabled": disabled, "triggerConfigComplete": complete,
+                                   "httpTriggers": [{"authLevel": auth_level, "methods": ["get"], "route": "ping"}]}}
+        site = {"id": site_id, "kind": "functionapp", "properties": {
+            "defaultHostName": "fn.azurewebsites.net", "publicNetworkAccess": "Enabled",
+            "enabledHostNames": ["fn.azurewebsites.net"]},
+            "_coverage": {"functions": {"status": status}}, "functions": [function]}
+        config = {"id": site_id + "/config/web", "parent_id": site_id, "properties": {
+            "ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": "Allow",
+            "scmIpSecurityRestrictionsUseMain": False, "scmIpSecurityRestrictions": [],
+            "scmIpSecurityRestrictionsDefaultAction": "Deny"}}
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected", "items": [site]},
+            {"type": "app_service_config", "scope": SCOPE, "service": "web", "status": "collected", "items": [config]}])
+        result = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+        return result, next(step for step in result.path if step["layer"] == "function_triggers")
+
+    public, trigger = trigger_decision()
+    assert public.verdict() == "FAIL" and trigger["decision"] == "anonymous"
+    assert trigger["anonymous_functions"] == ["Ping"]
+    assert trigger_decision("function")[1]["decision"] == "key_required"
+    assert trigger_decision("admin")[1]["decision"] == "key_required"
+    assert trigger_decision(disabled=True)[1]["decision"] == "none"
+    assert trigger_decision(auth_level=None)[1]["decision"] == "unknown"
+    assert trigger_decision(complete=False)[1]["decision"] == "unknown"
+    assert trigger_decision(status="partial")[1]["decision"] == "unknown"
+
+
 def test_app_service_slot_uses_its_own_cached_configuration():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     slot_id = site_id + "/slots/staging"
