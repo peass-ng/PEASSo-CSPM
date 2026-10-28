@@ -1635,6 +1635,36 @@ def _aws_vpn_connection(snapshot, inventory, resource):
     return a
 
 
+def _aws_client_vpn_endpoint(snapshot, inventory, resource):
+    """Assess the managed OpenVPN listener, not post-login destination access."""
+    data = resource["data"]
+    status = data.get("Status")
+    state = status.get("Code") if isinstance(status, dict) else None
+    a = Assessment(resource, "vpn_gateway")
+    if state in ("pending-associate", "pending", "deleting", "deleted"):
+        a.ports = {}
+        a.step("endpoint_state", "block", state=state)
+        return a
+    if state != "available":
+        a.gap("inventory", "Client VPN endpoint state is unresolved")
+        return a
+    dns = data.get("DnsName")
+    if not isinstance(dns, str) or not dns.strip():
+        a.gap("inventory", "Available Client VPN endpoint has no collected DNS name")
+        return a
+    protocol = data.get("TransportProtocol", "udp")
+    port = data.get("VpnPort", 443)
+    if protocol not in ("tcp", "udp") or port not in (443, 1194):
+        a.gap("inventory", "Client VPN transport protocol or port is malformed")
+        return a
+    a.endpoint = dns.removeprefix("*.")
+    a.ports = pset(protocol, port, port)
+    a.authenticated = True
+    a.step("managed_vpn_listener", "allow", dns_name=a.endpoint, protocol=protocol, port=port)
+    a.notes.append("Client VPN requires authentication; authorization rules and routes control post-login destinations")
+    return a
+
+
 def _aws_cloudfront(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("Config")
@@ -6600,7 +6630,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpn_connection",
+AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpn_connection", "client_vpn_endpoint",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
@@ -6622,7 +6652,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6665,6 +6695,7 @@ def assess(snapshot, resources):
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
                 "ram_resource_share": _aws_ram_share, "vpn_connection": _aws_vpn_connection,
+                "client_vpn_endpoint": _aws_client_vpn_endpoint,
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,

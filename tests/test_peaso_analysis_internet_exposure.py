@@ -111,6 +111,25 @@ def test_aws_site_to_site_vpn_public_ipsec_frontend():
     assert one(aws(coll("vpn_connection", [missing])), "vpn_connection")["status"] == "UNKNOWN"
 
 
+def test_aws_client_vpn_managed_listener_and_inactive_state():
+    endpoint = {"ClientVpnEndpointId": "cvpn-endpoint-1", "Status": {"Code": "available"},
+                "DnsName": "*.cvpn-endpoint-1.prod.clientvpn.us-east-1.amazonaws.com",
+                "TransportProtocol": "tcp", "VpnPort": 1194}
+    result = one(aws(coll("client_vpn_endpoint", [endpoint])), "client_vpn_endpoint")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["exposed_ports"] == ["tcp/1194"]
+    assert result["evidence"]["authenticated_endpoint"] is True
+    assert result["evidence"]["path"][0]["dns_name"] == "cvpn-endpoint-1.prod.clientvpn.us-east-1.amazonaws.com"
+
+    inactive = copy.deepcopy(endpoint)
+    inactive["Status"]["Code"] = "pending-associate"
+    assert one(aws(coll("client_vpn_endpoint", [inactive])), "client_vpn_endpoint")["status"] == "PASS"
+
+    incomplete = copy.deepcopy(endpoint)
+    del incomplete["DnsName"]
+    assert one(aws(coll("client_vpn_endpoint", [incomplete])), "client_vpn_endpoint")["status"] == "UNKNOWN"
+
+
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
     (["es:DescribeDomain"], "/*", False, True),
     (["es:ESHttpGet"], "/other/*", False, False),
