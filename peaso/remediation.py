@@ -372,6 +372,8 @@ def exposure_action(evidence, status):
         return "Collect the missing configuration before deciding whether access needs to change."
     if status == "PASS":
         return "Keep the access restrictions in place."
+    if evidence.get("exposure_kind") == "external_network":
+        return "Review whether this VPC peering route and external account connection are needed; remove unnecessary routes or peering."
     if evidence.get("exposure_kind") == "external_share" or evidence.get("external_scope_ids"):
         return "Restrict snapshot restore access to the accounts that need it."
     if evidence.get("data_exposure"):

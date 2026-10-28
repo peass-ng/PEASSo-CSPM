@@ -392,7 +392,7 @@ _EXPOSURE_KINDS={
     'public_ip':'public IP path','load_balancer':'load-balancer frontend','database':'database endpoint',
     'managed_endpoint':'managed service endpoint','control_plane':'cluster control-plane endpoint',
     'function_url':'Lambda function URL','api':'API endpoint','data_share':'stored-data sharing',
-    'external_share':'external snapshot sharing','serverless':'serverless endpoint','web_app':'web application endpoint',
+    'external_share':'external snapshot sharing','external_network':'external VPC peering route','serverless':'serverless endpoint','web_app':'web application endpoint',
     'service':'Kubernetes service','ingress':'Kubernetes ingress','malformed':'internet path',
 }
 
@@ -403,6 +403,17 @@ def _internet_summary(finding):
         return _coverage_summary(e)
     if not isinstance(kind,str) or kind not in _EXPOSURE_KINDS:return None
     label=_EXPOSURE_KINDS[kind]
+    if kind=='external_network':
+        path=e.get('path')
+        routes=[step for step in path if isinstance(step,dict) and step.get('layer')=='peering_route'] if isinstance(path,list) else []
+        external=e.get('external_scope_ids')
+        if status=='FAIL' and len(routes)==1 and routes[0].get('decision')=='allow' and _strings(external) and external and routes[0].get('peer_account')==external[0] and isinstance(routes[0].get('routes'),list) and routes[0]['routes']:
+            return 'An active VPC peering connection has a local route toward external account '+external[0]+'. Peer routing, endpoint filtering and application access remain unverified.'
+        if status=='PASS' and len(routes)==1 and routes[0].get('decision')=='block':
+            return 'The active external VPC peering connection has no active local route in the collected route tables.'
+        if status=='UNKNOWN' and isinstance(e.get('unresolved'),list) and e['unresolved']:
+            return 'The external VPC peering state or local route inventory is incomplete; access cannot be resolved.'
+        return None
     if status=='UNKNOWN':
         if finding.get('provider')=='k8s' and kind in ('service','ingress') and isinstance(e.get('path'),list):
             invalid=[value for step in e['path'] if isinstance(step,dict)

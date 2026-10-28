@@ -77,6 +77,35 @@ def aws(*collections, metadata=None):
     return make_snapshot("aws", [SCOPE], list(collections), created_at="2026-10-10T00:00:00+00:00", metadata=metadata)
 
 
+def test_foreign_vpc_peering_requires_active_connection_and_local_route():
+    from peaso.finding_observation import evidence_summary
+
+    peer = {"VpcPeeringConnectionId": "pcx-1", "Status": {"Code": "active"},
+            "RequesterVpcInfo": {"OwnerId": ACCOUNT, "VpcId": "vpc-local"},
+            "AccepterVpcInfo": {"OwnerId": "444455556666", "VpcId": "vpc-peer"}}
+    route = {"RouteTableId": "rtb-local", "VpcId": "vpc-local", "Routes": [
+        {"VpcPeeringConnectionId": "pcx-1", "State": "active", "DestinationCidrBlock": "10.8.0.0/16"}]}
+    connection = coll("vpc_peering", [peer])
+    table = coll("route_table", [route])
+    finding = one(aws(connection, table), "vpc_peering")
+    assert finding["status"] == "FAIL"
+    assert finding["evidence"]["exposure_kind"] == "external_network"
+    assert finding["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert "Peer routing, endpoint filtering" in evidence_summary(finding)
+    assert "VPC peering route" in finding["remediation"]
+
+    blocked = one(aws(connection, coll("route_table", [{**route, "Routes": []}])), "vpc_peering")
+    assert blocked["status"] == "PASS"
+    assert "no active local route" in evidence_summary(blocked)
+    unknown = one(aws(connection), "vpc_peering")
+    assert unknown["status"] == "UNKNOWN"
+    assert "route inventory is incomplete" in evidence_summary(unknown)
+    malformed = one(aws(connection, coll("route_table", [{**route, "Routes": [None]}])), "vpc_peering")
+    assert malformed["status"] == "UNKNOWN"
+    assert not exposure(aws(coll("vpc_peering", [{**peer, "Status": {"Code": "pending-acceptance"}}]), table))
+    assert not exposure(aws(coll("vpc_peering", [{**peer, "AccepterVpcInfo": {"OwnerId": ACCOUNT, "VpcId": "vpc-peer"}}]), table))
+
+
 def deployed_rest(api, *, stage="prod", authorization=None, api_key_required=None):
     methods = api.get("Methods") or []
     row = methods[0] if methods else {}

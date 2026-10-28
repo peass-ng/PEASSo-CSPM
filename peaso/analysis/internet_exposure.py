@@ -1594,6 +1594,67 @@ def _aws_ram_share(snapshot, inventory, resource):
     return a
 
 
+def _aws_vpc_peering(snapshot, inventory, resource):
+    """Identify an active foreign peer with a local route into the connection."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    status = data.get("Status")
+    state = status.get("Code") if isinstance(status, dict) else None
+    if state in ("deleted", "deleting", "rejected", "expired", "failed", "pending-acceptance", "initiating-request", "provisioning"):
+        return None
+    a = Assessment(resource, "external_network")
+    if state != "active":
+        a.gap("connection", "VPC peering state is not active or is unresolved")
+        return a
+    account = str(resource.get("scope", "")).split("/", 1)[0]
+    requester, accepter = data.get("RequesterVpcInfo"), data.get("AccepterVpcInfo")
+    if not isinstance(requester, dict) or not isinstance(accepter, dict):
+        a.gap("inventory", "VPC peering owners or VPC IDs are not collected")
+        return a
+    sides = [(requester, accepter), (accepter, requester)]
+    local = next((side for side in sides if side[0].get("OwnerId") == account), None)
+    if local is None or not all(isinstance(value, str) and value for value in
+                                (local[0].get("VpcId"), local[1].get("VpcId"))) or not re.fullmatch(r"[0-9]{12}", str(local[1].get("OwnerId", ""))):
+        a.gap("inventory", "Local and peer VPC ownership could not be resolved")
+        return a
+    peer = local[1]["OwnerId"]
+    if peer in trusted_scopes(snapshot)["ids"]:
+        return None
+    peer_id = data.get("VpcPeeringConnectionId")
+    if not isinstance(peer_id, str) or not peer_id:
+        a.gap("inventory", "VPC peering connection ID is missing")
+        return a
+    routes = []
+    malformed = False
+    for table in inventory.items("route_table"):
+        if table["scope"].split("/", 1)[0] != account or table["data"].get("VpcId") != local[0]["VpcId"]:
+            continue
+        entries = table["data"].get("Routes")
+        if not isinstance(entries, list):
+            malformed = True
+            continue
+        if any(not isinstance(route, dict) for route in entries):
+            malformed = True
+        routes.extend({"route_table": table["data"].get("RouteTableId"),
+                       "destination": route.get("DestinationCidrBlock") or route.get("DestinationIpv6CidrBlock")}
+                      for route in entries if isinstance(route, dict) and route.get("VpcPeeringConnectionId") == peer_id
+                      and route.get("State") == "active")
+    if routes:
+        a.step("peering_route", "allow", local_vpc=local[0]["VpcId"], peer_vpc=local[1]["VpcId"],
+               peer_account=peer, routes=routes)
+        a.external_ids = [peer]
+        a.explicit = "FAIL"
+        a.gap("backend", "Peer-side route, subnet ACL, security group and application access are not established")
+    elif inventory.state("route_table", resource["scope"]) in ("collected", "empty") and not malformed:
+        a.step("peering_route", "block", local_vpc=local[0]["VpcId"], peer_account=peer,
+               reason="no active local route to this peer")
+        a.ports = {}
+    else:
+        a.gap("peering_route", "Local route-table inventory is incomplete", "ec2:DescribeRouteTables")
+    return a
+
+
 def _aws_vpn_connection(snapshot, inventory, resource):
     """Report the public IPsec frontend, separately from routed tunnel traffic."""
     data = resource["data"]
@@ -6753,7 +6814,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
+AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
@@ -6775,7 +6836,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry", "vpc_peering"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6817,7 +6878,7 @@ def assess(snapshot, resources):
                 "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot"),
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
-                "ram_resource_share": _aws_ram_share, "vpn_connection": _aws_vpn_connection,
+                "ram_resource_share": _aws_ram_share, "vpc_peering": _aws_vpc_peering, "vpn_connection": _aws_vpn_connection,
                 "client_vpn_endpoint": _aws_client_vpn_endpoint,
                 "vpc_endpoint_service": _aws_vpc_endpoint_service,
                 "ecr_registry": _aws_ecr_registry_replication,
@@ -6887,6 +6948,10 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.kind == "external_network":
+        return ("Active route to external VPC peer" if status == "FAIL" else
+                "No active route to external VPC peer" if status == "PASS" else
+                "External VPC peering route unresolved")
     if assessment.kind == "gallery_share":
         return ("Compute Gallery community sharing permitted" if status == "FAIL" else
                 "Compute Gallery community sharing blocked" if status == "PASS" else
@@ -6922,6 +6987,22 @@ def _observed(assessment, status):
                 "The controller's treatment of that value is not recorded, so its public source rule is unclear.\n"
                 "The source rule may admit public requests if the controller ignores that range.\n"
                 f"That could expose data served through this {noun}.")
+    if assessment.kind == "external_network":
+        if status == "FAIL":
+            return ("An active VPC peering connection has a local route to account "
+                    + assessment.external_ids[0] + ".\n"
+                    "That route may carry traffic to the peer if its routes and filters also allow it.\n"
+                    "Peer routing and endpoint rules are not recorded for this connection.\n"
+                    "Traffic across that path could expose data in connected resources.")
+        if status == "PASS":
+            return ("The external VPC peering connection has no active local route in the recorded route tables.\n"
+                    "This VPC has no recorded path through that connection.\n"
+                    "That may limit traffic to resources in the peer network.\n"
+                    "Data on those resources could remain out of reach through this route.")
+        return ("The external VPC peering state or local route inventory is incomplete.\n"
+                "A route toward the peer account cannot be resolved from those records.\n"
+                "Traffic may cross this connection if active routes and peer rules allow it.\n"
+                "That could expose data in connected resources.")
     terminal = next((step for step in assessment.path
                      if step.get("layer") == "effective_firewall"
                      and step.get("basis") == "terminal hierarchical ingress rule"), None)
@@ -7081,8 +7162,10 @@ def internet_findings(snapshot, resources):
                     "collector_facts_needed": sorted({g["collector_fact"] for g in assessment.unresolved if g.get("collector_fact")}),
                     "source": source(snapshot, assessment.resource, "data"),
                     "risk_state": "observed" if status == "FAIL" else "reviewed" if status == "PASS" else "unknown",
-                    "semantics": "Declared-configuration path model from 0.0.0.0/0; no traffic was sent."}
-        severity = "high" if assessment.kind == "external_share" and status == "FAIL" else assessment.adjusted_severity()
+                    "semantics": ("Declared cross-account VPC peering and local route; peer route and endpoint access are unverified."
+                                  if assessment.kind == "external_network" else
+                                  "Declared-configuration path model from 0.0.0.0/0; no traffic was sent.")}
+        severity = "high" if assessment.kind in ("external_share", "external_network") and status == "FAIL" else assessment.adjusted_severity()
         current = finding(snapshot, assessment.resource, "exposure", CHECK, _title(assessment, status), severity, evidence, status=status)
         current["remediation"] = exposure_action(evidence, status)
         current["id"] = stable_id("exposure", CHECK, node_id(assessment.resource), node_id(assessment.origin), assessment.kind)
