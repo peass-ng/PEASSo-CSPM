@@ -1290,9 +1290,10 @@ def test_sql_ready_vnet_rule_joins_regional_subnet_service_endpoint():
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/app"
 
     def decision(*, rule_state="Ready", endpoint_state="Succeeded", endpoint_region="westeurope",
-                 child_status="collected", subnet_status="collected", public_gate="Enabled"):
+                 child_status="collected", subnet_status="collected", public_gate="Enabled",
+                 rule_subnet_id=subnet_id):
         rule = {"id": server_id + "/virtualNetworkRules/app", "properties": {
-            "virtualNetworkSubnetId": subnet_id, "state": rule_state}}
+            "virtualNetworkSubnetId": rule_subnet_id, "state": rule_state}}
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "sql_server", "scope": SCOPE, "service": "sql", "status": "collected", "items": [
                 {"id": server_id, "name": "sql", "location": "westeurope", "properties": {
@@ -1300,7 +1301,7 @@ def test_sql_ready_vnet_rule_joins_regional_subnet_service_endpoint():
                  "virtualNetworkRules": [rule], "_coverage": {"virtualNetworkRules": {"status": child_status}}}]},
             {"type": "sql_firewall_rule", "scope": SCOPE, "service": "sql", "status": "empty", "items": []},
             {"type": "subnet", "scope": SCOPE, "service": "network", "status": subnet_status, "items": [
-                {"id": subnet_id, "properties": {"serviceEndpoints": [{"service": "Microsoft.Sql",
+                {"id": rule_subnet_id, "properties": {"serviceEndpoints": [{"service": "Microsoft.Sql",
                     "provisioningState": endpoint_state, "locations": [endpoint_region]}]}}]},
         ])
         return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "sql_server")
@@ -1315,7 +1316,8 @@ def test_sql_ready_vnet_rule_joins_regional_subnet_service_endpoint():
         "Subnet workload, database authorization, DNS delivery, and a successful connection were not tested."]
     for values in ({"rule_state": "InProgress"}, {"endpoint_state": "Updating"},
                    {"endpoint_region": "eastus"}, {"child_status": "partial"},
-                   {"subnet_status": "partial"}):
+                   {"subnet_status": "partial"}, {"rule_subnet_id": subnet_id.replace(
+                       "/subscriptions/test/", "/subscriptions/foreign/")}):
         assert decision(**values).verdict() == "UNKNOWN"
     disabled = make_snapshot("azure", [SCOPE], [{"type": "sql_server", "scope": SCOPE,
         "service": "sql", "status": "collected", "items": [{"id": server_id,

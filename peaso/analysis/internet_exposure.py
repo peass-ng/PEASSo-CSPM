@@ -5357,6 +5357,8 @@ def _azure_sql_virtual_network_subnets(inventory, server):
         return [], True
     allowed, unresolved = [], False
     server_id = str(data.get("id", ""))
+    if len(server_id.split("/")) < 3:
+        return [], True
     for rule in rules:
         rp = rule.get("properties") if isinstance(rule, dict) else None
         subnet_id = rp.get("virtualNetworkSubnetId") if isinstance(rp, dict) else None
@@ -5367,6 +5369,12 @@ def _azure_sql_virtual_network_subnets(inventory, server):
                 re.fullmatch(r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/"
                              r"virtualNetworks/[^/]+/subnets/[^/]+", subnet_id, re.I) is None or
                 rp.get("state") != "Ready"):
+            unresolved = True
+            continue
+        # Cross-subscription rules require a shared Entra tenant. A subnet in
+        # this server's subscription has that identity; foreign ownership is
+        # not established by the two ARM resource IDs alone.
+        if subnet_id.split("/")[2].casefold() != server_id.split("/")[2].casefold():
             unresolved = True
             continue
         subnet, _ = _azure_subnet(inventory, subnet_id)
