@@ -32235,6 +32235,194 @@ def gcp_firestore_database_reader_findings(snapshot, resources):
     return output
 
 
+def _aws_cleanrooms_collaboration(snapshot, inventory, resource):
+    """Active Clean Rooms membership grants collaboration abilities to foreign accounts."""
+    from .trust import trusted_scopes
+    data = resource["data"]
+    a = Assessment(resource, "external_data_collaboration")
+    trusted = trusted_scopes(snapshot)["ids"]
+    account = str(resource.get("scope", "")).partition("/")[0]
+    if f":{account}:membership/" not in str(data.get("MembershipArn", "")):
+        a.gap("inventory", "Clean Rooms membership is outside the scoped account")
+        return a
+    if data.get("MemberReadStatus") not in ("collected", "empty") or data.get("AssociationReadStatus") not in ("collected", "empty"):
+        a.gap("inventory", "Clean Rooms member or table association inventory is incomplete")
+        return a
+    foreign = sorted({x.get("accountId") for x in as_list(data.get("MemberAccounts"))
+                      if isinstance(x, dict) and x.get("status") == "ACTIVE" and
+                      re.fullmatch(r"[0-9]{12}", str(x.get("accountId", ""))) and x["accountId"] not in trusted})
+    if not foreign:
+        return None
+    if not data.get("AssociatedTableCount"):
+        a.gap("data", "Foreign collaboration is active but no owned configured table association was observed")
+        return a
+    a.external_ids = foreign
+    a.explicit = "FAIL"
+    a.data_exposure = True
+    a.step("collaboration_members", "allow_declaration", recipient_accounts=foreign,
+           associated_table_count=data["AssociatedTableCount"])
+    a.gap("data", "Effective analysis rules and resulting records were not evaluated")
+    return a
+
+
+def _aws_auditmanager_report_destination(snapshot, inventory, resource):
+    """Report/export bucket configured outside the account's owned S3 inventory."""
+    data = resource["data"]
+    a = Assessment(resource, "external_audit_report_delivery")
+    account = str(resource.get("scope", "")).partition("/")[0]
+    if f":{account}:" not in str(data.get("id", "")):
+        a.gap("inventory", "Audit Manager destination is outside the scoped account")
+        return a
+    parsed = urlsplit(str(data.get("Destination", "")))
+    bucket = parsed.netloc if parsed.scheme == "s3" else None
+    if not bucket or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+        a.gap("destination", "Audit Manager S3 destination is malformed")
+        return a
+    scope = f"{account}/global"
+    if inventory.state("bucket", scope) not in ("collected", "empty"):
+        a.gap("inventory", "Owned S3 bucket inventory is incomplete")
+        return a
+    owned = {x.get("data", {}).get("Name") for x in inventory.items("bucket") if x.get("scope") == scope}
+    if bucket in owned:
+        return None
+    a.external_ids = [bucket]
+    a.explicit = "FAIL"
+    a.step("report_destination", "allow_declaration", destination_bucket=bucket,
+           destination_kind=data.get("DestinationKind"))
+    a.gap("delivery", "Bucket ownership, successful delivery and reader grants were not observed")
+    return a
+
+
+def _aws_lightsail_public_endpoint(snapshot, inventory, resource):
+    """Lightsail instances, databases, load balancers and container HTTPS fronts."""
+    data, kind = resource["data"], resource["type"]
+    a = Assessment(resource, "public_service_endpoint")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    arn = data.get("arn")
+    if not isinstance(arn, str) or not arn.startswith(f"arn:aws:lightsail:{region}:{account}:"):
+        a.gap("inventory", "Lightsail resource identity is outside the scoped account")
+        return a
+    if kind == "lightsail_instance":
+        state = data.get("state") or {}
+        if not isinstance(state, dict) or state.get("name") != "running":
+            return None
+        addresses = [x for x in [data.get("publicIpAddress"), *as_list(data.get("ipv6Addresses"))] if _public_ip(x)]
+        if not addresses:
+            return None
+        ports = (data.get("networking") or {}).get("ports")
+        if not isinstance(ports, list):
+            a.gap("listener", "Lightsail instance inbound firewall ports are unavailable")
+            return a
+        allowed = []
+        for entry in ports:
+            if not isinstance(entry, dict) or entry.get("accessDirection") != "inbound":
+                continue
+            sources = as_list(entry.get("cidrs")) + as_list(entry.get("ipv6Cidrs"))
+            if any(_public_source(source) for source in sources):
+                start, end = entry.get("fromPort"), entry.get("toPort")
+                if isinstance(start, int) and isinstance(end, int) and 0 <= start <= end <= 65535:
+                    allowed.append((str(entry.get("protocol") or "tcp").lower(), start, end))
+        if not allowed:
+            return None
+        a.addresses = addresses
+        for proto, start, end in allowed:
+            if proto in ("tcp", "udp", "all", "icmp"):
+                a.ports = union(a.ports or {}, pset(proto, start, end))
+        a.step("lightsail_firewall", "allow_declaration", open_ports=allowed)
+    elif kind == "lightsail_database":
+        if data.get("publiclyAccessible") is not True:
+            return None
+        endpoint = data.get("masterEndpoint") or {}
+        host, port = endpoint.get("address"), endpoint.get("port")
+        if not isinstance(host, str) or not host or not isinstance(port, int):
+            a.gap("listener", "Public Lightsail database endpoint is unavailable")
+            return a
+        a.endpoint, a.ports = host, pset("tcp", port, port)
+        a.step("database_public_access", "allow_declaration", endpoint=host, port=port)
+    elif kind == "lightsail_load_balancer":
+        if data.get("state") not in ("active", "active_impaired"):
+            return None
+        host = data.get("dnsName")
+        ports = data.get("publicPorts")
+        if not isinstance(host, str) or not host or not isinstance(ports, list):
+            a.gap("listener", "Lightsail load balancer DNS name or public ports are unavailable")
+            return a
+        public_ports = [x for x in ports if isinstance(x, int) and 1 <= x <= 65535]
+        if not public_ports:
+            return None
+        a.endpoint = host
+        for port in public_ports:
+            a.ports = union(a.ports or {}, pset("tcp", port, port))
+        a.step("load_balancer", "allow_declaration", endpoint=host, public_ports=public_ports)
+    elif kind == "lightsail_bucket":
+        rules = data.get("accessRules")
+        if not isinstance(rules, dict) or rules.get("getObject") not in ("public", "private"):
+            a.gap("authorization", "Lightsail bucket public access rule is unavailable")
+            return a
+        if rules["getObject"] != "public":
+            if rules.get("allowPublicOverrides") is True:
+                a.gap("authorization", "Individual Lightsail objects may have public access overrides")
+                return a
+            return None
+        a.data_exposure = True
+        a.step("bucket_public_read", "allow_declaration", access_rule="public")
+    elif kind == "lightsail_distribution":
+        if data.get("isEnabled") is not True:
+            return None
+        host = data.get("domainName")
+        if not isinstance(host, str) or not host:
+            a.gap("listener", "Lightsail CDN domain name is unavailable")
+            return a
+        a.endpoint, a.ports = host, pset("tcp", 443, 443)
+        a.step("cdn_public_endpoint", "allow_declaration", endpoint=host)
+    else:
+        endpoint = data.get("publicEndpoint")
+        url = data.get("url")
+        if not isinstance(endpoint, dict) or not isinstance(url, str) or not url.startswith("https://"):
+            return None
+        a.endpoint, a.ports = url, pset("tcp", 443, 443)
+        a.step("container_public_endpoint", "allow_declaration", endpoint=url)
+    a.explicit = "FAIL"
+    a.gap("backend", "Application authentication and live backend reachability were not observed")
+    return a
+
+
+def _aws_gamelift_fleet_public_ports(snapshot, inventory, resource):
+    """GameLift managed EC2 fleet with public compute IP and internet inbound grant."""
+    data = resource["data"]
+    a = Assessment(resource, "public_game_fleet_port")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    arn = data.get("FleetArn")
+    if not isinstance(arn, str) or not arn.startswith(f"arn:aws:gamelift:{region}:"):
+        a.gap("inventory", "GameLift fleet identity is unavailable")
+        return a
+    if data.get("Status") != "ACTIVE":
+        return None
+    computes, inbound = data.get("Computes") or {}, data.get("InboundPermissions") or {}
+    if computes.get("collection_status") not in ("collected", "empty") or inbound.get("collection_status") not in ("collected", "empty"):
+        a.gap("inventory", "GameLift compute or inbound permission inventory is incomplete")
+        return a
+    a.addresses = sorted({x.get("IpAddress") for x in as_list(computes.get("items"))
+                          if isinstance(x, dict) and _public_ip(x.get("IpAddress"))})
+    if not a.addresses:
+        return None
+    allowed = []
+    for grant in as_list(inbound.get("items")):
+        if not isinstance(grant, dict) or not _public_source(grant.get("IpRange")):
+            continue
+        start, end = grant.get("FromPort"), grant.get("ToPort")
+        proto = str(grant.get("Protocol") or "").lower()
+        if isinstance(start, int) and isinstance(end, int) and 0 <= start <= end <= 65535 and proto in ("tcp", "udp"):
+            allowed.append((proto, start, end))
+            a.ports = union(a.ports or {}, pset(proto, start, end))
+    if not allowed:
+        return None
+    a.explicit = "FAIL"
+    a.step("fleet_inbound_permissions", "allow_declaration", public_addresses=a.addresses, open_ports=allowed)
+    a.gap("backend", "Game process listener, session access and live reachability were not observed")
+    return a
+
+
 # --------------------------------------------------------------- dispatcher
 
 AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service", "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster", "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block", "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app", "rds_cluster", "rds_cluster_endpoint", "redshiftserverless_workgroup"]
@@ -32259,6 +32447,7 @@ AWS_TYPES.extend(['agentcore_gateway', 'apigatewayv2_portal', 'appconfig_configu
 AWS_TYPES.extend(['aoss_collection', 'aoss_network_policy', 'influxdb_cluster', 'influxdb_instance', 'lattice_vpc_association', 'machinelearning_model', 'mailmanager_ingress_point', 'mailmanager_rule_route', 'marketplace_entity', 'mediapackage_origin_endpoint', 'mediapackagev2_channel_listener', 'mediapackagev2_harvest_job', 'mediatailor_playback_configuration', 'mq_broker', 'msk_cluster', 'mwaa_environment', 'neptune_graph', 'neptune_instance', 'oam_link', 'opensearch_connection', 'opensearch_ui_application', 'opensearch_vpc_endpoint_access', 'osis_endpoint_connection', 'osis_pipeline', 'osis_pipeline_endpoint', 'pcs_cluster', 'redshift_datashare', 'redshift_endpoint_authorization', 'refactor_application', 'refactor_route', 'refactor_service', 's3tables_lf_grant', 'security_ir_recipient_route', 'securitylake_exception_notification', 'securitylake_subscriber', 'sns_platform_endpoint', 'transfer_server', 'transfer_web_app', 'wellarchitected_share'])
 GCP_TYPES.extend(['api_gateway_resource', 'apigee_route', 'application_integration_template', 'application_integration_version', 'billing_account', 'cloudbuild_connection', 'cloudbuild_trigger', 'clouddeploy_custom_target_iam', 'clouddeploy_delivery_pipeline', 'clouddeploy_network_target', 'cloudrun_job', 'cloudrun_worker_pool', 'cloudtasks_delivery', 'cloudtasks_queue', 'containeranalysis_note', 'containeranalysis_occurrence', 'dataform_repository', 'dataproc_metastore_service', 'datastream_connection_profile', 'datastream_stream', 'developerconnect_account_connector', 'developerconnect_connection', 'dialogflow_es_fulfillment', 'disk', 'eventarc_enrollment', 'eventarc_message_bus', 'eventarc_pipeline', 'eventarc_trigger', 'identityplatform_config', 'identityplatform_tenant', 'image', 'infra_manager_deployment', 'integration_connection', 'knowledge_catalog_aspect_type', 'knowledge_catalog_asset', 'knowledge_catalog_entry_group', 'knowledge_catalog_entry_type', 'knowledge_catalog_lake', 'knowledge_catalog_zone', 'lakehouse_resource', 'livestream_channel', 'livestream_input', 'machine_image', 'managed_ad_domain', 'managed_ad_peering', 'managed_kafka_cluster', 'node_group', 'node_template', 'pubsub_schema_iam', 'pubsub_topic_attachment', 'resource_policy', 'scheduler_job', 'secure_source_manager_instance', 'secure_source_manager_repository', 'snapshot', 'subnetwork', 'vertex_runtime_template', 'video_stitcher_live_config', 'video_stitcher_vod_config', 'visionai_application', 'visionai_cluster', 'visionai_stream'])
 GCP_TYPES.extend(['access_level', 'access_policy', 'alloydb_user', 'backupdr_backup_plan', 'backupdr_backup_plan_association', 'backupdr_backup_vault', 'backupdr_management_server', 'bigtable_authorized_view', 'bigtable_backup', 'bigtable_instance', 'bigtable_logical_view', 'bigtable_materialized_view', 'bigtable_table', 'binary_authorization_attestor', 'binary_authorization_platform_policy', 'binary_authorization_policy', 'ca_certificate_template', 'ca_pool', 'dlp_exposure', 'dns_managed_zone', 'dns_policy', 'dns_response_policy', 'firestore_database', 'firestore_user_cred', 'fraud_defense_exposure', 'kms_key', 'kms_key_ring', 'media_cdn_keyset', 'media_cdn_origin', 'memorystore_instance', 'mesh_gateway', 'migration_connection_profile', 'migration_job', 'migration_private_connection', 'model_armor_exposure', 'multicloud_exposure', 'netapp_volume', 'network_connectivity_hub', 'network_connectivity_spoke', 'ngfw_intercept_association', 'ngfw_intercept_deployment_group', 'ngfw_intercept_endpoint_group', 'ngfw_mirroring_association', 'ngfw_mirroring_endpoint_group', 'redis_cluster', 'sac_exposure', 'secret', 'service_attachment', 'service_extension_exposure', 'service_perimeter', 'shared_vpc', 'sovereign_partner_exposure', 'spanner_backup', 'spanner_database', 'spanner_instance'])
+AWS_TYPES.extend(['lightsail_instance', 'lightsail_database', 'lightsail_load_balancer', 'lightsail_container_service', 'lightsail_bucket', 'lightsail_distribution', 'gamelift_ec2_compute'])
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "rds_cluster", "rds_cluster_endpoint", "redshift_cluster", "redshiftserverless_workgroup",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
@@ -32288,6 +32477,8 @@ EVALUATED["gcp"].update(['api_gateway_resource', 'apigee_route', 'application_in
 
 EVALUATED["gcp"].update(['access_level', 'access_policy', 'backupdr_backup_plan', 'backupdr_backup_plan_association', 'backupdr_backup_vault', 'backupdr_management_server', 'binary_authorization_attestor', 'binary_authorization_platform_policy', 'binary_authorization_policy', 'ca_certificate_template', 'ca_pool', 'firestore_database', 'memorystore_instance', 'migration_connection_profile', 'migration_job', 'migration_private_connection', 'netapp_volume', 'network_connectivity_hub', 'network_connectivity_spoke', 'redis_cluster', 'service_perimeter', 'shared_vpc'])
 
+EVALUATED["aws"].update(['lightsail_instance', 'lightsail_database', 'lightsail_load_balancer', 'lightsail_container_service', 'lightsail_bucket', 'lightsail_distribution', 'gamelift_ec2_compute'])
+
 def assess(snapshot, resources):
     """Return [Assessment] for every asset with a public address/endpoint (cached per snapshot)."""
     context = _CONTEXT.get()
@@ -32309,6 +32500,7 @@ def assess(snapshot, resources):
         extra["rules"] = rules
     handlers = {
         "aws": {'aoss_collection': _aws_aoss_collection, 'aoss_network_policy': _aws_aoss_network_policy, 'influxdb_cluster': _aws_influxdb, 'influxdb_instance': _aws_influxdb, 'lattice_vpc_association': _aws_lattice_foreign_vpc_association, 'machinelearning_model': _aws_machinelearning_endpoint, 'mailmanager_ingress_point': _aws_mailmanager_ingress, 'mailmanager_rule_route': _aws_mailmanager_rule_route, 'marketplace_entity': _aws_marketplace_entity, 'mediapackage_origin_endpoint': _aws_mediapackage_v1_origin, 'mediapackagev2_channel_listener': _aws_mediapackagev2_listener, 'mediapackagev2_harvest_job': _aws_mediapackagev2_harvest_job, 'mediatailor_playback_configuration': _aws_mediatailor_playback, 'mq_broker': _aws_mq_public_broker, 'msk_cluster': _aws_msk_public_brokers, 'mwaa_environment': _aws_mwaa_webserver, 'neptune_graph': _aws_neptune_graph, 'neptune_instance': _aws_neptune_instance, 'opensearch_connection': _aws_opensearch_connection, 'opensearch_ui_application': _aws_opensearch_ui_application, 'opensearch_vpc_endpoint_access': _aws_opensearch_vpc_endpoint_access, 'osis_endpoint_connection': _aws_osis_endpoint_connection, 'osis_pipeline': _aws_osis_pipeline, 'osis_pipeline_endpoint': _aws_osis_pipeline_endpoint, 'pcs_cluster': _aws_pcs_public_endpoint, 'redshift_endpoint_authorization': _aws_redshift_endpoint_authorization, 'refactor_application': _aws_refactor_application, 'refactor_service': _aws_refactor_service, 's3tables_lf_grant': _aws_s3tables_lf_grant, 'security_ir_recipient_route': _aws_security_ir_recipient_route, 'securitylake_exception_notification': _aws_securitylake_exception_notification, 'securitylake_subscriber': _aws_securitylake_subscriber, 'transfer_server': _aws_transfer_server, 'transfer_web_app': _aws_transfer_web_app, 'wellarchitected_share': _aws_wellarchitected_share,  'auditmanager_report_destination': _aws_auditmanager_report_destination, 'cleanrooms_collaboration_exposure': _aws_cleanrooms_collaboration, 'glue_dev_endpoint': _aws_glue_dev_endpoint,'appstream_image': _aws_appstream_image_share, 'backup_copy_job': _aws_backup_copy_job, 'backup_plan': _aws_backup_plan_foreign_copy, 'backup_vault': _aws_backup_vault_foreign_copy, 'cloud9_environment_share': _aws_cloud9_environment_share, 'eks_access_entry': _aws_eks_foreign_access_entry, 'imagebuilder_distribution': _aws_imagebuilder_distribution, 'omics_resource_share': _aws_omics_resource_share, 'redshift_datashare': _aws_redshift_datashare, 'servicecatalog_portfolio': _aws_servicecatalog_portfolio_share, 'transit_gateway_peering_attachment': _aws_tgw_foreign_attachment, 'wellarchitected_lens_share': _aws_wellarchitected_lens_share, 'wellarchitected_profile_share': _aws_wellarchitected_profile_share, 'wellarchitected_template_share': _aws_wellarchitected_template_share, 'wellarchitected_workload_share': _aws_wellarchitected_workload_share, 'workspaces_image': _aws_workspaces_image_share, "iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
+                "lightsail_instance": _aws_lightsail_public_endpoint, "lightsail_database": _aws_lightsail_public_endpoint, "lightsail_load_balancer": _aws_lightsail_public_endpoint, "lightsail_container_service": _aws_lightsail_public_endpoint, "lightsail_bucket": _aws_lightsail_public_endpoint, "lightsail_distribution": _aws_lightsail_public_endpoint, "gamelift_ec2_compute": _aws_gamelift_fleet_public_ports,
                 "rds_instance": _aws_rds, "rds_cluster": _aws_rds_cluster_writer, "rds_cluster_endpoint": _aws_rds_cluster_endpoint,
                 "redshiftserverless_workgroup": _aws_redshift_serverless, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
                 "lambda_function": _aws_lambda_url, "lambda_alias": _aws_lambda_url,

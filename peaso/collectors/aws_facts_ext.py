@@ -69,6 +69,11 @@ SPECS = {
     "rolesanywhere_profile": ("rolesanywhere", "list_profiles", "profiles"),
     "imagebuilder_pipeline": ("imagebuilder", "list_image_pipelines", "imagePipelineList"),
     "imagebuilder_distribution": ("imagebuilder", "list_distribution_configurations", "distributionConfigurationSummaryList"),
+    "agentcore_gateway": ("bedrock-agentcore-control", "list_gateways", "items"),
+    "eventbridge_pipe_exposure": ("pipes", "list_pipes", "Pipes"),
+    "cleanrooms_collaboration_exposure": ("cleanrooms", "list_memberships", "membershipSummaries"),
+    "auditmanager_report_destination": ("auditmanager", "list_assessments", "assessmentMetadata"),
+    "lightsail_distribution": ("lightsail", "get_distributions", "distributions"),
     "sagemaker_user_profile": ("sagemaker", "list_user_profiles", "UserProfiles"),
     "sagemaker_space": ("sagemaker", "list_spaces", "Spaces"),
     "sagemaker_cluster": ("sagemaker", "list_clusters", "ClusterSummaries"),
@@ -155,7 +160,7 @@ READ_ACTIONS = {
     ("amplify", "list_backend_environments"), ("amplify", "list_branches"), ("amplify", "list_domain_associations"),
     ("grafana", "list_workspace_service_accounts"),
     ("quicksight", "describe_account_subscription"),
-    ("gamelift", "describe_fleet_attributes"), ("gamelift", "list_compute"),
+    ("gamelift", "describe_fleet_attributes"), ("gamelift", "list_compute"), ("gamelift", "describe_fleet_port_settings"),
     ("devicefarm", "list_projects"), ("devicefarm", "get_device_pool_compatibility"),
     ("iot", "describe_role_alias"),
     ("iot", "describe_endpoint"),
@@ -1623,6 +1628,158 @@ def _image_distributions(requests, session, region, account):
     return _finish(items, failure)
 
 
+def _agentcore_gateways(requests, session, region, account):
+    """Project gateway URL and inbound auth state without JWT settings or interceptor content."""
+    read = requests.pages(session, "bedrock-agentcore-control", region, "list_gateways", "items")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    for summary in read.items:
+        gateway_id = summary.get("gatewayId") if isinstance(summary, dict) else None
+        if not isinstance(gateway_id, str) or not gateway_id:
+            failure = failure or ("malformed", {"code": "agentcore_gateway_id_invalid"})
+            continue
+        detail = requests.detail(session, "bedrock-agentcore-control", region, "get_gateway",
+                                 gatewayIdentifier=gateway_id)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status") or "not_collected",
+                                  {"code": "agentcore_gateway_detail_unavailable"})
+            continue
+        arn = f"arn:{_partition(region)}:bedrock-agentcore:{region}:{account}:gateway/{gateway_id}"
+        if detail.get("gatewayId") != gateway_id or detail.get("gatewayArn") != arn:
+            failure = failure or ("malformed", {"code": "agentcore_gateway_identity_invalid"})
+            continue
+        rows.append({"id": arn, "GatewayArn": arn, "GatewayUrl": detail.get("gatewayUrl"),
+                     "Status": detail.get("status"), "AuthorizerType": detail.get("authorizerType"),
+                     "HasInterceptor": bool(detail.get("interceptorConfigurations")),
+                     "PolicyEngineMode": (detail.get("policyEngineConfiguration") or {}).get("mode")
+                                         if isinstance(detail.get("policyEngineConfiguration"), dict) else None,
+                     "WebAclArn": detail.get("webAclArn"),
+                     "_provenance": {"source_operation": "bedrock-agentcore-control:GetGateway", "read_only": True}})
+    return _finish(rows, failure)
+
+
+def _eventbridge_pipes(requests, session, region, account):
+    """Keep Pipe destination identities, not filter patterns, input templates or credentials."""
+    read = requests.pages(session, "pipes", region, "list_pipes", "Pipes")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    for summary in read.items:
+        name = summary.get("Name") if isinstance(summary, dict) else None
+        arn = f"arn:{_partition(region)}:pipes:{region}:{account}:pipe/{name}"
+        if not isinstance(name, str) or not name or summary.get("Arn") != arn:
+            failure = failure or ("malformed", {"code": "eventbridge_pipe_identity_invalid"})
+            continue
+        detail = requests.detail(session, "pipes", region, "describe_pipe", Name=name)
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status") or "not_collected",
+                                  {"code": "eventbridge_pipe_detail_unavailable"})
+            continue
+        if detail.get("Arn") != arn or detail.get("Name") != name:
+            failure = failure or ("malformed", {"code": "eventbridge_pipe_detail_identity_invalid"})
+            continue
+        log = detail.get("LogConfiguration") or {}
+        source = detail.get("SourceParameters") or {}
+        dead_letters = []
+        for key in ("DynamoDBStreamParameters", "KinesisStreamParameters"):
+            part = source.get(key) if isinstance(source, dict) else None
+            dlq = part.get("DeadLetterConfig") if isinstance(part, dict) else None
+            if isinstance(dlq, dict) and isinstance(dlq.get("Arn"), str):
+                dead_letters.append(dlq["Arn"])
+        rows.append({"id": arn, "Arn": arn, "Name": name,
+                     "CurrentState": detail.get("CurrentState"), "DesiredState": detail.get("DesiredState"),
+                     "TargetArn": detail.get("Target"), "EnrichmentArn": detail.get("Enrichment"),
+                     "DeadLetterArns": dead_letters,
+                     "LogFirehoseArn": (log.get("FirehoseLogDestination") or {}).get("DeliveryStreamArn")
+                                       if isinstance(log.get("FirehoseLogDestination"), dict) else None,
+                     "LogBucketOwner": (log.get("S3LogDestination") or {}).get("BucketOwner")
+                                       if isinstance(log.get("S3LogDestination"), dict) else None,
+                     "LogBucketName": (log.get("S3LogDestination") or {}).get("BucketName")
+                                      if isinstance(log.get("S3LogDestination"), dict) else None,
+                     "_provenance": {"source_operation": "pipes:DescribePipe", "read_only": True}})
+    return _finish(rows, failure)
+
+
+def _cleanrooms_collaborations(requests, session, region, account):
+    """Active memberships, associated table count, and collaborator account IDs only."""
+    read = requests.pages(session, "cleanrooms", region, "list_memberships", "membershipSummaries")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    for member in read.items:
+        if not isinstance(member, dict) or member.get("status") != "ACTIVE":
+            continue
+        mid, cid = member.get("id"), member.get("collaborationId")
+        arn = member.get("arn")
+        if not all(isinstance(x, str) and x for x in (mid, cid, arn)) or f":{account}:membership/" not in arn:
+            failure = failure or ("malformed", {"code": "cleanrooms_membership_identity_invalid"})
+            continue
+        collaborators = requests.pages(session, "cleanrooms", region, "list_members", "memberSummaries",
+                                       collaborationIdentifier=cid)
+        associations = requests.pages(session, "cleanrooms", region, "list_configured_table_associations",
+                                      "configuredTableAssociationSummaries", membershipIdentifier=mid)
+        if collaborators.status not in OK or associations.status not in OK:
+            failure = failure or _cause(collaborators if collaborators.status not in OK else associations)
+        rows.append({"id": arn, "MembershipArn": arn, "CollaborationId": cid,
+                     "CreatorAccountId": member.get("collaborationCreatorAccountId"),
+                     "MemberAccounts": [_pick(x, ("accountId", "status", "abilities")) for x in collaborators.items
+                                        if isinstance(x, dict)],
+                     "MemberReadStatus": collaborators.status, "AssociationReadStatus": associations.status,
+                     "AssociatedTableCount": len(associations.items),
+                     "_provenance": {"source_operation": "cleanrooms:ListMemberships,ListMembers,ListConfiguredTableAssociations",
+                                     "read_only": True}})
+    return _finish(rows, failure)
+
+
+def _auditmanager_destinations(requests, session, region, account):
+    """Assessment and default report/export bucket locations, without assessment evidence."""
+    read = requests.pages(session, "auditmanager", region, "list_assessments", "assessmentMetadata")
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows, failure = [], None
+    settings, error = _raw(requests, session, "auditmanager", region, "get_settings", attribute="ALL")
+    if error:
+        failure = (error[0], {"code": error[1]})
+    else:
+        info = settings.get("settings") if isinstance(settings, dict) else None
+        if isinstance(info, dict):
+            for name, key in (("default_report", "defaultAssessmentReportsDestination"),
+                              ("default_export", "defaultExportDestination")):
+                dest = info.get(key)
+                if isinstance(dest, dict) and isinstance(dest.get("destination"), str):
+                    rows.append({"id": f"arn:{_partition(region)}:auditmanager:{region}:{account}:settings/{name}",
+                                 "DestinationKind": name, "Destination": dest["destination"]})
+    for summary in read.items:
+        aid = summary.get("id") if isinstance(summary, dict) else None
+        if not isinstance(aid, str) or not aid:
+            failure = failure or ("malformed", {"code": "auditmanager_assessment_id_invalid"})
+            continue
+        detail, error = _raw(requests, session, "auditmanager", region, "get_assessment", assessmentId=aid)
+        if error:
+            failure = failure or (error[0], {"code": error[1]})
+            continue
+        assessment = detail.get("assessment") if isinstance(detail, dict) else None
+        metadata = assessment.get("metadata") if isinstance(assessment, dict) else None
+        dest = metadata.get("assessmentReportsDestination") if isinstance(metadata, dict) else None
+        if isinstance(dest, dict) and isinstance(dest.get("destination"), str):
+            rows.append({"id": f"arn:{_partition(region)}:auditmanager:{region}:{account}:assessment/{aid}",
+                         "DestinationKind": "assessment_report", "Destination": dest["destination"]})
+    return _finish(rows, failure)
+
+
+def _lightsail_distributions(requests, session, region, account):
+    if region != "us-east-1":
+        return _finish([], None)
+    read = requests.pages(session, "lightsail", region, "get_distributions", "distributions",
+                          _tokens=("pageToken", "nextPageToken"))
+    if read.status not in OK:
+        return _finish([], _cause(read))
+    rows = [{**_pick(x, ("arn", "isEnabled", "domainName", "status")), "id": x.get("arn")}
+            for x in read.items if isinstance(x, dict) and isinstance(x.get("arn"), str)]
+    return _finish(rows, None)
+
+
 def _domain_roles(requests, session, region, domain):
     response, failure = _raw(requests, session, "sagemaker", region, "describe_domain", DomainId=domain)
     if failure or not isinstance(response, dict):
@@ -1813,8 +1970,11 @@ def _gamelift_ec2_computes(requests, session, region, account):
             failure = failure or ("malformed", {"code": "fleet_identity_mismatch"})
             continue
         computes = requests.pages(session, "gamelift", region, "list_compute", "ComputeList", FleetId=fleet_id)
+        ports = requests.pages(session, "gamelift", region, "describe_fleet_port_settings", "InboundPermissions", FleetId=fleet_id)
         if computes.status not in OK:
             failure = failure or _cause(computes)
+        if ports.status not in OK:
+            failure = failure or _cause(ports)
         compute_rows = []
         for compute in computes.items:
             if (not isinstance(compute, dict) or compute.get("FleetId") != fleet_id
@@ -1822,10 +1982,12 @@ def _gamelift_ec2_computes(requests, session, region, account):
                     or not isinstance(compute.get("ComputeName"), str)):
                 failure = failure or ("malformed", {"code": "compute_identity_mismatch"})
                 continue
-            compute_rows.append(_pick(compute, ("FleetId", "FleetArn", "ComputeName", "ComputeStatus")))
+            compute_rows.append(_pick(compute, ("FleetId", "FleetArn", "ComputeName", "ComputeStatus", "IpAddress")))
         row = _pick(fleet, ("FleetId", "FleetArn", "ComputeType", "Status", "InstanceRoleArn",
                             "InstanceRoleCredentialsProvider"))
-        row.update({"id": arn, "Computes": _child(computes, compute_rows)})
+        row.update({"id": arn, "Computes": _child(computes, compute_rows),
+                    "InboundPermissions": _child(ports, [_pick(x, ("FromPort", "ToPort", "IpRange", "Protocol"))
+                                                       for x in ports.items if isinstance(x, dict)])})
         rows.append(row)
     return _finish(rows, failure)
 
