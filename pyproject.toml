@@ -16,7 +16,7 @@ secrets = ["kingfisher-secret-scanner==1.4.0"]
 hosted = ["boto3==1.43.38", "botocore==1.43.38", "mangum>=0.19", "requests>=2"]
 cloud = ["boto3==1.43.38", "botocore==1.43.38", "google-auth>=2", "azure-identity>=1.17", "azure-mgmt-resource", "azure-mgmt-subscription", "azure-mgmt-authorization", "azure-mgmt-monitor", "requests>=2", "termcolor", "tqdm", "kubernetes>=34,<36"]
 analytics = ["duckdb>=1.3"]
-test = ["pytest>=8", "httpx>=0.27", "jsonschema>=4", "setuptools>=68", "wheel", "moto[s3]>=5"]
+test = ["pytest>=8", "pyflakes==3.4.0", "httpx>=0.27", "jsonschema>=4", "setuptools>=68", "wheel", "moto[s3]>=5"]
 release-build = ["zopfli==0.4.3"]
 
 [project.urls]

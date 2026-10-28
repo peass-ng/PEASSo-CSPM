@@ -66,7 +66,9 @@ jobs:
           'azure-identity==1.25.1' 'azure-mgmt-resource==24.0.0' 'azure-mgmt-authorization==4.0.0'
           'azure-mgmt-monitor==7.0.0' 'kubernetes==35.0.0' 'termcolor==3.2.0' 'tqdm==4.67.1'
           'duckdb==1.5.6' 'jsonschema==4.26.0' 'moto[dynamodb,s3,stepfunctions]==5.2.3' 'httpx==0.28.1'
-          'pytest==9.0.2' 'pytest-xdist==3.8.0' 'setuptools==84.0.0' 'wheel==0.48.0' 'mangum==0.22.0'
+          'pytest==9.0.2' 'pytest-xdist==3.8.0' 'pyflakes==3.4.0' 'setuptools==84.0.0' 'wheel==0.48.0' 'mangum==0.22.0'
+      - name: Reject undefined names in shipped Python
+        run: python -m pytest --noconftest -q tests/test_peaso_undefined_names.py
       - name: Install the pinned AI runtime dependencies
         run: python -m pip install --constraint infra/aws/sdk-constraints.txt '.[ai,secrets]'
       - name: Install the shipped offline secret detector

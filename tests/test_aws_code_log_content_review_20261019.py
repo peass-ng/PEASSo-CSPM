@@ -235,6 +235,14 @@ def test_default_requests_guard(sdk):
     assert routes == []
 
 
+def test_log_group_rejects_repository_identity_without_reader_call(sdk):
+    requests, session, _, routes = sdk
+    sample = c.scan_logs(requests, session, REGION, {**GROUP, 'repositoryId': 'foreign'})
+    assert sample['collection_status'] == 'malformed'
+    assert sample['errors'] == [{'status': 'malformed', 'code': 'content_read_incomplete'}]
+    assert routes == []
+
+
 @pytest.mark.parametrize('mode', ['repository', 'logs'])
 @pytest.mark.parametrize('state', ['denied', 'not_collected', 'empty', 'malformed', 'partial'])
 def test_collection_membership_is_required(mode, state):

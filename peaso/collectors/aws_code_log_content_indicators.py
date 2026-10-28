@@ -316,7 +316,7 @@ def scan_logs(requests, session, region, item):
         if not isinstance(arn, str) or re.fullmatch(r'arn:[a-z0-9-]+:logs:' + re.escape(region) + r':\d{12}:log-group:' + re.escape(name) + r'(?::\*)?', arn) is None:
             raise ValueError()
         end = int(requests.observed_at.timestamp() * 1000)
-        if 'repositoryId' in item and item['repositoryId'] != repo.get('repositoryId'):
+        if 'repositoryId' in item:
             raise ValueError()
         scan.update(identity=arn, group=name, account_id=arn.split(':')[4], start=end-86400000, end=end)
         token, seen = None, set()

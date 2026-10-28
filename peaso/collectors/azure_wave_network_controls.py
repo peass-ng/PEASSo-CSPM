@@ -55,6 +55,7 @@ def project_nic_effective_routes(nic_id: str, pages: list[dict]) -> list[dict]:
     if not isinstance(pages, list) or not pages or len(pages) > 32:
         raise RouteEvidenceUnavailable('effective route response absent')
     expected = nic_id.rstrip('/') + '/effectiveRouteTable'
+    expected_next: str | None = None
     normalized: list[dict] = []
     seen: set[tuple] = set()
     for position, page in enumerate(pages):

@@ -87,10 +87,16 @@ def developerconnect_case():
     return {'selected_developerconnect_files': [row]}, [scope]
 
 
+def declaration_case():
+    rid = (AZ_SCOPE + '/resourceGroups/group/providers/Microsoft.DataFactory/'
+           'factories/factory/pipelines/pipeline')
+    return {'selected_azure_data_factory_declarations': [{'resource_id': rid}]}, [AZ_SCOPE]
+
+
 @pytest.mark.parametrize('name,fixture', [
     ('registry', registry_case), ('flux', flux_case), ('ml_asset', ml_case),
     ('databricks', db_case), ('synapse', synapse_case), ('aws_config', aws_config_case),
-    ('ecs_env', ecs_case),
+    ('ecs_env', ecs_case), ('declaration', declaration_case),
 ])
 def test_native_selection_valid_and_invalid(pure, name, fixture):
     options, scopes = fixture()

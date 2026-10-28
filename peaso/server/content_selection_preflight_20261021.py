@@ -305,6 +305,9 @@ def _make_flux():
 
 
 def _make_declaration():
+    class Incomplete(ValueError):
+        """A selected declaration is malformed or outside its declared scopes."""
+
     GUID = r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 
     SCOPE = re.compile('/subscriptions/' + GUID + r'\Z', re.I)
