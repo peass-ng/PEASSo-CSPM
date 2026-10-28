@@ -2045,6 +2045,110 @@ def test_aws_public_rds_instance():
     assert missing_host["status"] == "UNKNOWN" and missing_host["evidence"]["public_addresses"] == []
 
 
+def test_aws_multi_az_rds_cluster_writer_endpoint_uses_exact_writer_subnet():
+    cluster = {"DBClusterArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:cluster:maz",
+               "DBClusterIdentifier": "maz", "Engine": "postgres", "Status": "available",
+               "PubliclyAccessible": True, "Endpoint": "maz.cluster.rds.amazonaws.com", "Port": 5432,
+               "DBClusterMembers": [{"DBInstanceIdentifier": "maz-writer", "IsClusterWriter": True}],
+               "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}]}
+    writer = {"DBInstanceArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:db:maz-writer",
+              "DBInstanceIdentifier": "maz-writer", "DBClusterIdentifier": "maz", "PubliclyAccessible": True,
+              "AvailabilityZone": "us-east-1a", "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [
+                  {"SubnetIdentifier": "subnet-1", "SubnetAvailabilityZone": {"Name": "us-east-1a"}}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def finding(rules=sg, *, igw=True):
+        return one(aws(*aws_network(sg_rules=rules, igw=igw), coll("rds_cluster", [cluster], service="rds"),
+                       coll("rds_instance", [writer], service="rds")), "rds_cluster")
+    open_path = finding()
+    assert open_path["status"] == "FAIL" and open_path["evidence"]["public_addresses"] == [cluster["Endpoint"]]
+    assert open_path["evidence"]["exposed_ports"] == ["tcp/5432"]
+    assert finding([])["status"] == "PASS"
+    assert finding(igw=False)["status"] == "PASS"
+    writer["DBSubnetGroup"]["Subnets"].append({"SubnetIdentifier": "subnet-2", "SubnetAvailabilityZone": {"Name": "us-east-1a"}})
+    ambiguous = finding()
+    assert ambiguous["status"] == "UNKNOWN"
+    assert "rds:DescribeDBInstances.AvailabilityZone/DBSubnetGroup.Subnets" in ambiguous["evidence"]["collector_facts_needed"]
+    writer["DBSubnetGroup"]["Subnets"].pop()
+    cluster["DBClusterMembers"][0]["IsClusterWriter"] = False
+    assert finding()["status"] == "UNKNOWN"
+
+
+def test_aws_aurora_cluster_writer_endpoint_follows_public_writer_instance():
+    cluster = {"DBClusterArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:cluster:aurora",
+               "DBClusterIdentifier": "aurora", "Engine": "aurora-postgresql", "Status": "available",
+               "Endpoint": "aurora.cluster.rds.amazonaws.com", "Port": 5432,
+               "DBClusterMembers": [{"DBInstanceIdentifier": "aurora-writer", "IsClusterWriter": True}]}
+    writer = {"DBInstanceArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:db:aurora-writer",
+              "DBInstanceIdentifier": "aurora-writer", "DBClusterIdentifier": "aurora", "PubliclyAccessible": True,
+              "AvailabilityZone": "us-east-1a", "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}],
+              "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [
+                  {"SubnetIdentifier": "subnet-1", "SubnetAvailabilityZone": {"Name": "us-east-1a"}}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def snapshot():
+        return aws(*aws_network(sg_rules=sg), coll("rds_cluster", [cluster], service="rds"),
+                   coll("rds_instance", [writer], service="rds"))
+    exposed = one(snapshot(), "rds_cluster")
+    assert exposed["status"] == "FAIL" and exposed["evidence"]["public_addresses"] == [cluster["Endpoint"]]
+    writer["PubliclyAccessible"] = False
+    assert not [finding for finding in exposure(snapshot()) if finding["evidence"]["public_addresses"] == [cluster["Endpoint"]]]
+
+
+def test_aws_aurora_reader_and_single_member_custom_endpoints_join_exact_target():
+    cluster = {"DBClusterArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:cluster:aurora",
+               "DBClusterIdentifier": "aurora", "Engine": "aurora-postgresql", "Status": "available",
+               "Port": 5432, "DBClusterMembers": [
+                   {"DBInstanceIdentifier": "writer", "IsClusterWriter": True},
+                   {"DBInstanceIdentifier": "reader", "IsClusterWriter": False}]}
+    reader = {"DBInstanceArn": f"arn:aws:rds:us-east-1:{ACCOUNT}:db:reader",
+              "DBInstanceIdentifier": "reader", "DBClusterIdentifier": "aurora", "PubliclyAccessible": True,
+              "AvailabilityZone": "us-east-1a", "VpcSecurityGroups": [{"VpcSecurityGroupId": "sg-1", "Status": "active"}],
+              "DBSubnetGroup": {"VpcId": "vpc-1", "Subnets": [
+                  {"SubnetIdentifier": "subnet-1", "SubnetAvailabilityZone": {"Name": "us-east-1a"}}]}}
+    endpoint = {"DBClusterEndpointIdentifier": "aurora-ro", "DBClusterIdentifier": "aurora",
+                "Endpoint": "aurora-ro.cluster.rds.amazonaws.com", "EndpointType": "READER", "Status": "available"}
+    rules = [{"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
+              "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    instances = [reader]
+    def row(*, igw=True, sg=rules):
+        return one(aws(*aws_network(sg_rules=sg, igw=igw), coll("rds_cluster", [cluster], service="rds"),
+                       coll("rds_instance", instances, service="rds"),
+                       coll("rds_cluster_endpoint", [endpoint], service="rds")), "rds_cluster_endpoint")
+    open_path = row()
+    assert open_path["status"] == "FAIL" and open_path["evidence"]["public_addresses"] == [endpoint["Endpoint"]]
+    assert row(igw=False)["status"] == "PASS"
+    assert row(sg=[])["status"] == "PASS"
+    cluster["DBClusterMembers"].append({"DBInstanceIdentifier": "private-reader", "IsClusterWriter": False})
+    instances.append({**reader, "DBInstanceIdentifier": "private-reader", "PubliclyAccessible": False})
+    assert row()["status"] == "FAIL"
+    instances[1]["PubliclyAccessible"] = None
+    assert row()["status"] == "UNKNOWN"
+    instances[1]["PubliclyAccessible"] = True
+    assert row()["status"] == "FAIL"
+    instances[1]["VpcSecurityGroups"] = [{"VpcSecurityGroupId": "sg-other", "Status": "active"}]
+    assert row()["status"] == "UNKNOWN"
+    instances[1]["PubliclyAccessible"] = False
+    endpoint.update(DBClusterEndpointIdentifier="aurora-custom", EndpointType="CUSTOM",
+                    CustomEndpointType="ANY", StaticMembers=["reader"], ExcludedMembers=[])
+    assert row()["status"] == "FAIL"
+    endpoint["StaticMembers"] = ["reader", "private-reader"]
+    assert row()["status"] == "FAIL"
+    endpoint["StaticMembers"] = []
+    endpoint["ExcludedMembers"] = ["writer"]
+    assert row()["status"] == "FAIL"
+    endpoint["ExcludedMembers"] = []
+    endpoint["StaticMembers"] = ["reader", "writer"]
+    assert row()["status"] == "UNKNOWN"
+    endpoint["StaticMembers"] = ["reader"]
+    reader["PubliclyAccessible"] = False
+    assert not [finding for finding in exposure(aws(*aws_network(sg_rules=rules),
+                            coll("rds_cluster", [cluster], service="rds"),
+                            coll("rds_instance", [reader], service="rds"),
+                            coll("rds_cluster_endpoint", [endpoint], service="rds")))
+                if finding["evidence"]["public_addresses"] == [endpoint["Endpoint"]]]
+
+
 @pytest.mark.parametrize("port", [None, 0, 65536, True, "5432"])
 def test_aws_rds_endpoint_needs_observed_valid_listener_port(port):
     db = {"DBInstanceIdentifier": "db-1", "PubliclyAccessible": True, "DbInstancePort": 5432,
@@ -2171,6 +2275,67 @@ def test_aws_redshift_public_cluster_uses_collected_subnet_route_and_acl():
     del cluster["Endpoint"]["Address"]
     missing_host = row(aws_network(sg_rules=rules))
     assert missing_host["status"] == "UNKNOWN" and missing_host["evidence"]["public_addresses"] == []
+
+
+def test_aws_redshift_serverless_workgroup_endpoint_joins_observed_subnet_and_security_group():
+    workgroup = {"workgroupArn": f"arn:aws:redshift-serverless:us-east-1:{ACCOUNT}:workgroup/wg-1",
+                 "workgroupName": "warehouse", "status": "AVAILABLE", "publiclyAccessible": True,
+                 "endpoint": {"address": "warehouse.example.amazonaws.com", "port": 5439,
+                              "vpcEndpoints": [{"networkInterfaces": [{"subnetId": "subnet-1"}]}]},
+                 "subnetIds": ["subnet-1", "subnet-2"], "securityGroupIds": ["sg-1"]}
+    rules = [{"IpProtocol": "tcp", "FromPort": 5439, "ToPort": 5439,
+              "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    def row(network):
+        return one(aws(*network, coll("redshiftserverless_workgroup", [workgroup],
+                                      service="redshift-serverless")), "redshiftserverless_workgroup")
+    open_path = row(aws_network(sg_rules=rules))
+    assert open_path["status"] == "FAIL"
+    assert open_path["evidence"]["public_addresses"] == ["warehouse.example.amazonaws.com"]
+    assert open_path["evidence"]["exposed_ports"] == ["tcp/5439"]
+    assert row(aws_network(sg_rules=rules, igw=False))["status"] == "PASS"
+    assert row(aws_network(sg_rules=[]))["status"] == "PASS"
+    workgroup["endpoint"].pop("vpcEndpoints")
+    unresolved = row(aws_network(sg_rules=rules))
+    assert unresolved["status"] == "UNKNOWN"
+    assert unresolved["evidence"]["exposed_ports"] == []
+    assert any("endpoint.vpcEndpoints" in gap.get("collector_fact", "")
+               for gap in unresolved["evidence"]["unresolved"])
+    workgroup["subnetIds"] = ["subnet-1"]
+    assert row(aws_network(sg_rules=rules))["status"] == "FAIL"
+    workgroup["endpoint"]["port"] = None
+    assert row(aws_network(sg_rules=rules))["status"] == "UNKNOWN"
+    workgroup["publiclyAccessible"] = False
+    assert not exposure(aws(*aws_network(sg_rules=rules),
+                            coll("redshiftserverless_workgroup", [workgroup], service="redshift-serverless")))
+
+
+def test_aws_redshift_serverless_dualstack_endpoint_uses_ipv6_vpc_path():
+    workgroup = {"workgroupArn": f"arn:aws:redshift-serverless:us-east-1:{ACCOUNT}:workgroup/wg-v6",
+                 "workgroupName": "warehouse-v6", "status": "AVAILABLE", "publiclyAccessible": True,
+                 "ipAddressType": "dualstack", "endpoint": {"address": "warehouse-v6.example.amazonaws.com",
+                 "port": 5439, "vpcEndpoints": [{"networkInterfaces": [{"subnetId": "subnet-1",
+                                                                  "ipv6Address": "2600:1f18:abcd::10"}]}]},
+                 "subnetIds": ["subnet-1"], "securityGroupIds": ["sg-1"]}
+    rules = [{"IpProtocol": "tcp", "FromPort": 5439, "ToPort": 5439,
+              "Ipv6Ranges": [{"CidrIpv6": "::/0"}]}]
+    acl = [{"RuleNumber": 100, "Egress": False, "Protocol": "6", "RuleAction": "allow",
+            "Ipv6CidrBlock": "::/0", "PortRange": {"From": 5439, "To": 5439}},
+           {"RuleNumber": 100, "Egress": True, "Protocol": "6", "RuleAction": "allow",
+            "Ipv6CidrBlock": "::/0", "PortRange": {"From": 1024, "To": 65535}}]
+    network = aws_network(sg_rules=rules, nacl_entries=acl)
+    with_ipv6_subnet(network)
+    routes = next(c for c in network if c["type"] == "route_table")["items"][0]["Routes"]
+    routes.append({"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"})
+    def row():
+        return one(aws(*network, coll("redshiftserverless_workgroup", [workgroup],
+                                      service="redshift-serverless")), "redshiftserverless_workgroup")
+    assert row()["status"] == "FAIL"
+    routes.pop()
+    assert row()["status"] == "PASS"
+    workgroup["endpoint"]["vpcEndpoints"][0]["networkInterfaces"][0].pop("ipv6Address")
+    unresolved = row()
+    assert unresolved["status"] == "UNKNOWN"
+    assert any("ipv6Address" in gap.get("collector_fact", "") for gap in unresolved["evidence"]["unresolved"])
 
 
 @pytest.mark.parametrize("kind,port", [("rds_instance", 5432), ("redshift_cluster", 5439)])

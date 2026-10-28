@@ -715,6 +715,7 @@ VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(ADDITIONAL_PRIVESC_METADATA_REFE
 # the FinSpace grants were already present in the signed customer template.
 EXACT_COLLECTOR_READ_REFERENCES = {
     'amplify:ListDomainAssociations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_amplify.html',
+    'rds:DescribeDBClusterEndpoints': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_rds.html',
     'elasticloadbalancing:DescribeInstanceHealth': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_elb.html',
     'elasticloadbalancing:DescribeTargetGroupAttributes': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_elasticloadbalancing.html',
     'finspace:GetKxCluster': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_finspace.html',

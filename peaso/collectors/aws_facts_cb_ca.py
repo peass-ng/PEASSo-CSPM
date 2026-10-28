@@ -29,6 +29,7 @@ SPECS = {
     "workspaces_workspace": ("workspaces", "describe_workspaces", "Workspaces"),
     # Databases / analytics
     "rds_db_subnet_group": ("rds", "describe_db_subnet_groups", "DBSubnetGroups"),
+    "rds_cluster_endpoint": ("rds", "describe_db_cluster_endpoints", "DBClusterEndpoints[].{DBClusterEndpointArn: DBClusterEndpointArn, DBClusterEndpointIdentifier: DBClusterEndpointIdentifier, DBClusterIdentifier: DBClusterIdentifier, Endpoint: Endpoint, EndpointType: EndpointType, CustomEndpointType: CustomEndpointType, StaticMembers: StaticMembers, ExcludedMembers: ExcludedMembers, Status: Status}"),
     "rds_engine_version": ("rds", "describe_db_engine_versions", "DBEngineVersions"),
     "rds_iam_auth_capability": ("rds", "describe_orderable_db_instance_options", "OrderableDBInstanceOptions"),
     "redshift_subnet_group": ("redshift", "describe_cluster_subnet_groups", "ClusterSubnetGroups"),
@@ -111,7 +112,7 @@ NATIVE_IDS = {
     "vpc_block_public_access_options": "id", "vpc_endpoint_service": "ServiceId",
     "network_firewall": "FirewallArn", "network_firewall_policy": "id", "network_firewall_rule_group": "id",
     "batch_compute_environment": "computeEnvironmentArn", "batch_job_queue": "jobQueueArn", "workspaces_workspace": "WorkspaceId",
-    "rds_db_subnet_group": "DBSubnetGroupArn", "rds_engine_version": "id", "rds_iam_auth_capability": "id", "redshift_subnet_group": "ClusterSubnetGroupName",
+    "rds_db_subnet_group": "DBSubnetGroupArn", "rds_cluster_endpoint": "DBClusterEndpointIdentifier", "rds_engine_version": "id", "rds_iam_auth_capability": "id", "redshift_subnet_group": "ClusterSubnetGroupName",
     "redshiftserverless_namespace": "namespaceArn", "redshiftserverless_workgroup": "workgroupArn",
     "kafka_version": "Version", "msk_cluster": "ClusterArn", "msk_compatible_version": "ClusterArn",
     "mskconnect_connector": "connectorArn", "kinesis_stream": "StreamARN",

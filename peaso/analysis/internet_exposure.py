@@ -355,6 +355,7 @@ def _aws_sg_ports(inventory, group_ids, assessment, where, family=4, narrow_publ
     if not group_ids:
         fact = {"instance": "ec2:DescribeInstances", "network_interface": "ec2:DescribeNetworkInterfaces",
                 "rds_instance": "rds:DescribeDBInstances", "redshift_cluster": "redshift:DescribeClusters",
+                "redshiftserverless_workgroup": "redshift-serverless:ListWorkgroups.workgroups[].securityGroupIds",
                 "load_balancer": "elasticloadbalancing:DescribeLoadBalancers",
                 "classic_load_balancer": "elasticloadbalancing:DescribeLoadBalancers"}.get(assessment.resource["type"])
         assessment.gap("security_group", "attached security group IDs not collected for VPC asset",
@@ -801,6 +802,7 @@ def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, ro
     if not subnet_ids:
         fact = {"instance": "ec2:DescribeInstances", "network_interface": "ec2:DescribeNetworkInterfaces",
                 "rds_instance": "rds:DescribeDBInstances", "redshift_cluster": "redshift:DescribeClusterSubnetGroups",
+                "redshiftserverless_workgroup": "redshift-serverless:ListWorkgroups.workgroups[].subnetIds",
                 "load_balancer": "elasticloadbalancing:DescribeLoadBalancers",
                 "classic_load_balancer": "elasticloadbalancing:DescribeLoadBalancers"}.get(assessment.resource["type"])
         assessment.gap("inventory", "asset subnet IDs not collected; route and NACL association unresolved", fact)
@@ -1252,6 +1254,189 @@ def _aws_rds(snapshot, inventory, resource):
     return a
 
 
+def _aws_rds_cluster_writer(snapshot, inventory, resource):
+    """RDS cluster writer endpoint, with an exact observed writer and subnet."""
+    data = resource["data"]
+    engine = data.get("Engine")
+    aurora = isinstance(engine, str) and engine.startswith("aurora")
+    if not aurora and data.get("PubliclyAccessible") is False:
+        return None
+    a = Assessment(resource, "database")
+    if not aurora and data.get("PubliclyAccessible") is not True:
+        a.gap("inventory", "Multi-AZ cluster public-access flag not collected",
+              "rds:DescribeDBClusters.PubliclyAccessible")
+        return a
+    if data.get("Status") != "available":
+        a.gap("inventory", "Multi-AZ cluster current serving state not established",
+              "rds:DescribeDBClusters.Status")
+        return a
+    host, port = data.get("Endpoint"), data.get("Port")
+    if not _dns_hostname(host) or type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "Multi-AZ cluster writer endpoint or port malformed",
+              "rds:DescribeDBClusters.Endpoint/Port")
+        return a
+    a.addresses = [host]
+    a.step("listener", "allow", port=port, endpoint_role="writer")
+    members = data.get("DBClusterMembers")
+    writers = [member.get("DBInstanceIdentifier") for member in members
+               if isinstance(member, dict) and member.get("IsClusterWriter") is True] if isinstance(members, list) else []
+    if len(writers) != 1 or not isinstance(writers[0], str) or not writers[0]:
+        a.gap("inventory", "Multi-AZ cluster writer membership missing or ambiguous",
+              "rds:DescribeDBClusters.DBClusterMembers[].IsClusterWriter")
+        return a
+    instances = [row["data"] for row in inventory.items("rds_instance") if row["scope"] == resource["scope"]
+                 and row["data"].get("DBInstanceIdentifier") == writers[0]]
+    if len(instances) != 1 or instances[0].get("DBClusterIdentifier") != data.get("DBClusterIdentifier"):
+        a.gap("inventory", "Multi-AZ cluster writer instance identity missing or mismatched",
+              "rds:DescribeDBInstances.DBClusterIdentifier/DBInstanceIdentifier")
+        return a
+    writer = instances[0]
+    if aurora and writer.get("PubliclyAccessible") is False:
+        return None
+    if writer.get("DBInstanceStatus") != "available" or writer.get("PubliclyAccessible") is not True:
+        a.gap("inventory", "Multi-AZ writer availability/public-access state unresolved",
+              "rds:DescribeDBInstances.DBInstanceStatus/PubliclyAccessible")
+        return a
+    subnet_group = writer.get("DBSubnetGroup")
+    az = writer.get("AvailabilityZone")
+    subnets = subnet_group.get("Subnets") if isinstance(subnet_group, dict) else None
+    selected = [subnet.get("SubnetIdentifier") for subnet in subnets
+                if isinstance(subnet, dict) and isinstance(subnet.get("SubnetAvailabilityZone"), dict)
+                and subnet["SubnetAvailabilityZone"].get("Name") == az] if isinstance(subnets, list) else []
+    if len(selected) != 1 or not isinstance(selected[0], str) or not selected[0]:
+        a.gap("inventory", "Multi-AZ writer subnet not uniquely observed in its availability zone",
+              "rds:DescribeDBInstances.AvailabilityZone/DBSubnetGroup.Subnets")
+        return a
+    source_groups = writer.get("VpcSecurityGroups") if aurora else data.get("VpcSecurityGroups")
+    groups = [group.get("VpcSecurityGroupId") for group in as_list(source_groups)
+              if isinstance(group, dict) and group.get("Status") == "active"]
+    a.ports = _aws_vpc_path(inventory, a, selected, groups, pset("tcp", port, port), native_id(resource),
+                            vpc_id=subnet_group.get("VpcId"), narrow_public=True, public_host_witness=True)
+    return a
+
+
+def _aws_rds_cluster_endpoint(snapshot, inventory, resource):
+    """Aurora reader or one-member custom endpoint with an exact DB instance."""
+    data = resource["data"]
+    kind = data.get("EndpointType")
+    if kind not in ("READER", "CUSTOM"):
+        return None
+    if data.get("Status") == "inactive":
+        return None
+    a = Assessment(resource, "database")
+    if data.get("Status") != "available":
+        a.gap("inventory", "Aurora cluster endpoint serving state not established",
+              "rds:DescribeDBClusterEndpoints.Status")
+        return a
+    host = data.get("Endpoint")
+    if not _dns_hostname(host):
+        a.gap("inventory", "Aurora cluster endpoint DNS host absent or malformed",
+              "rds:DescribeDBClusterEndpoints.Endpoint")
+        return a
+    a.addresses = [host]
+    cluster_id = data.get("DBClusterIdentifier")
+    clusters = [row["data"] for row in inventory.items("rds_cluster") if row["scope"] == resource["scope"]
+                and row["data"].get("DBClusterIdentifier") == cluster_id]
+    if len(clusters) != 1 or not isinstance(clusters[0].get("Engine"), str) or not clusters[0]["Engine"].startswith("aurora"):
+        a.gap("inventory", "matching Aurora DB cluster not uniquely observed",
+              "rds:DescribeDBClusters.DBClusterIdentifier/Engine")
+        return a
+    cluster = clusters[0]
+    if cluster.get("Status") != "available":
+        a.gap("inventory", "Aurora DB cluster serving state not established",
+              "rds:DescribeDBClusters.Status")
+        return a
+    port = cluster.get("Port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "Aurora cluster endpoint port absent or malformed", "rds:DescribeDBClusters.Port")
+        return a
+    a.step("listener", "allow", port=port, endpoint_role=kind.lower())
+    members = cluster.get("DBClusterMembers")
+    if not isinstance(members, list) or any(not isinstance(member, dict) or
+            not isinstance(member.get("DBInstanceIdentifier"), str) or
+            type(member.get("IsClusterWriter")) is not bool for member in members):
+        a.gap("inventory", "Aurora cluster endpoint member roles incomplete",
+              "rds:DescribeDBClusters.DBClusterMembers")
+        return a
+    if kind == "READER":
+        readers = [member["DBInstanceIdentifier"] for member in members if member["IsClusterWriter"] is False]
+        eligible = readers or [member["DBInstanceIdentifier"] for member in members if member["IsClusterWriter"] is True]
+    else:
+        static, excluded = data.get("StaticMembers"), data.get("ExcludedMembers")
+        if (not isinstance(static, list) or not isinstance(excluded, list) or
+                any(not isinstance(value, str) or not value for value in (*static, *excluded)) or
+                (static and excluded)):
+            a.gap("inventory", "Aurora custom endpoint static/exclusion member lists incomplete or conflicting",
+                  "rds:DescribeDBClusterEndpoints.StaticMembers/ExcludedMembers")
+            return a
+        endpoint_role = data.get("CustomEndpointType")
+        if endpoint_role not in ("ANY", "READER", "WRITER") or any(
+                value not in {member["DBInstanceIdentifier"] for member in members} for value in static):
+            a.gap("inventory", "Aurora custom endpoint type or member role unresolved",
+                  "rds:DescribeDBClusterEndpoints.CustomEndpointType/StaticMembers")
+            return a
+        chosen = set(static) if static else {member["DBInstanceIdentifier"] for member in members} - set(excluded)
+        eligible = [member["DBInstanceIdentifier"] for member in members
+                    if member["DBInstanceIdentifier"] in chosen and (
+                        endpoint_role == "ANY" or
+                        (endpoint_role == "READER" and member["IsClusterWriter"] is False) or
+                        (endpoint_role == "WRITER" and member["IsClusterWriter"] is True))]
+    if len(eligible) > 1:
+        candidates = [row["data"] for row in inventory.items("rds_instance") if row["scope"] == resource["scope"]
+                      and row["data"].get("DBClusterIdentifier") == cluster_id
+                      and row["data"].get("DBInstanceIdentifier") in eligible]
+        if (len(candidates) != len(eligible) or len(set(eligible)) != len(eligible) or
+                any(type(row.get("PubliclyAccessible")) is not bool for row in candidates)):
+            a.gap("inventory", "Aurora reader target public-access facts incomplete",
+                  "rds:DescribeDBInstances.DBInstanceIdentifier/PubliclyAccessible")
+            return a
+        public = [row["DBInstanceIdentifier"] for row in candidates if row["PubliclyAccessible"]]
+        if not public:
+            return None
+        if len(public) == 1:
+            eligible = public
+            a.notes.append("Endpoint selects among members; one observed eligible target is public")
+        elif len(public) > 1:
+            public_rows = [row for row in candidates if row["PubliclyAccessible"]]
+            signature = lambda row: (row.get("DBInstanceStatus"), row.get("AvailabilityZone"),
+                                     row.get("DBSubnetGroup"), row.get("VpcSecurityGroups"))
+            if all(signature(row) == signature(public_rows[0]) for row in public_rows[1:]):
+                eligible = [public_rows[0]["DBInstanceIdentifier"]]
+                a.notes.append("All observed public endpoint targets share the same serving, AZ, subnet and security-group path")
+    if len(eligible) != 1 or not eligible[0]:
+        a.gap("inventory", "Aurora reader endpoint target membership ambiguous",
+              "rds:DescribeDBClusters.DBClusterMembers")
+        return a
+    instances = [row["data"] for row in inventory.items("rds_instance") if row["scope"] == resource["scope"]
+                 and row["data"].get("DBInstanceIdentifier") == eligible[0]]
+    if len(instances) != 1 or instances[0].get("DBClusterIdentifier") != cluster_id:
+        a.gap("inventory", "Aurora endpoint target instance identity missing or mismatched",
+              "rds:DescribeDBInstances.DBInstanceIdentifier/DBClusterIdentifier")
+        return a
+    instance = instances[0]
+    if instance.get("PubliclyAccessible") is False:
+        return None
+    if instance.get("PubliclyAccessible") is not True or instance.get("DBInstanceStatus") != "available":
+        a.gap("inventory", "Aurora endpoint target public/serving state unresolved",
+              "rds:DescribeDBInstances.PubliclyAccessible/DBInstanceStatus")
+        return a
+    subnet_group = instance.get("DBSubnetGroup")
+    az = instance.get("AvailabilityZone")
+    subnets = subnet_group.get("Subnets") if isinstance(subnet_group, dict) else None
+    selected = [subnet.get("SubnetIdentifier") for subnet in subnets
+                if isinstance(subnet, dict) and isinstance(subnet.get("SubnetAvailabilityZone"), dict)
+                and subnet["SubnetAvailabilityZone"].get("Name") == az] if isinstance(subnets, list) else []
+    if len(selected) != 1 or not isinstance(selected[0], str) or not selected[0]:
+        a.gap("inventory", "Aurora endpoint target subnet not uniquely observed in its AZ",
+              "rds:DescribeDBInstances.AvailabilityZone/DBSubnetGroup.Subnets")
+        return a
+    groups = [group.get("VpcSecurityGroupId") for group in as_list(instance.get("VpcSecurityGroups"))
+              if isinstance(group, dict) and group.get("Status") == "active"]
+    a.ports = _aws_vpc_path(inventory, a, selected, groups, pset("tcp", port, port), native_id(resource),
+                            vpc_id=subnet_group.get("VpcId"), narrow_public=True, public_host_witness=True)
+    return a
+
+
 def _aws_redshift(snapshot, inventory, resource):
     data = resource["data"]
     if data.get("PubliclyAccessible") is False:
@@ -1294,6 +1479,86 @@ def _aws_redshift(snapshot, inventory, resource):
     if data.get("ClusterStatus") == "paused":
         a.dormant = True
         a.notes.append("Redshift cluster is paused; retained endpoint configuration applies after resume")
+    return a
+
+
+def _aws_redshift_serverless(snapshot, inventory, resource):
+    """Join the listed workgroup endpoint to its observed VPC path."""
+    data = resource["data"]
+    if data.get("publiclyAccessible") is False:
+        return None
+    a = Assessment(resource, "database")
+    if data.get("publiclyAccessible") is not True:
+        a.gap("inventory", "Redshift Serverless public-access flag not collected",
+              "redshift-serverless:ListWorkgroups.workgroups[].publiclyAccessible")
+        return a
+    if data.get("status") != "AVAILABLE":
+        a.gap("inventory", "Redshift Serverless serving state not established",
+              "redshift-serverless:ListWorkgroups.workgroups[].status")
+        return a
+    endpoint = data.get("endpoint")
+    host = endpoint.get("address") if isinstance(endpoint, dict) else None
+    port = endpoint.get("port") if isinstance(endpoint, dict) else None
+    if not _dns_hostname(host):
+        a.gap("inventory", "Redshift Serverless endpoint DNS host absent or malformed",
+              "redshift-serverless:ListWorkgroups.workgroups[].endpoint.address")
+        return a
+    a.addresses = [host]
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "Redshift Serverless endpoint port absent or malformed",
+              "redshift-serverless:ListWorkgroups.workgroups[].endpoint.port")
+        return a
+    a.step("listener", "allow", port=port)
+    subnets, groups = data.get("subnetIds"), data.get("securityGroupIds")
+    if not isinstance(subnets, list) or not subnets or any(not isinstance(s, str) or not s for s in subnets):
+        a.gap("inventory", "Redshift Serverless workgroup subnet IDs absent or malformed",
+              "redshift-serverless:ListWorkgroups.workgroups[].subnetIds")
+        return a
+    if not isinstance(groups, list) or not groups or any(not isinstance(g, str) or not g for g in groups):
+        a.gap("security_group", "Redshift Serverless attached security group IDs absent or malformed",
+              "redshift-serverless:ListWorkgroups.workgroups[].securityGroupIds")
+        return a
+    selected = []
+    endpoints = endpoint.get("vpcEndpoints")
+    if isinstance(endpoints, list) and endpoints:
+        for vpc_endpoint in endpoints:
+            interfaces = vpc_endpoint.get("networkInterfaces") if isinstance(vpc_endpoint, dict) else None
+            if not isinstance(interfaces, list) or not interfaces:
+                selected = []
+                break
+            for interface in interfaces:
+                subnet_id = interface.get("subnetId") if isinstance(interface, dict) else None
+                if not isinstance(subnet_id, str) or subnet_id not in subnets:
+                    selected = []
+                    break
+                selected.append(subnet_id)
+            if not selected:
+                break
+    elif len(subnets) == 1:
+        selected = subnets
+    if not selected:
+        a.gap("inventory", "Redshift Serverless endpoint subnet placement not observed",
+              "redshift-serverless:ListWorkgroups.workgroups[].endpoint.vpcEndpoints[].networkInterfaces[].subnetId")
+        return a
+    selected = sorted(set(selected))
+    a.ports = _aws_vpc_path(inventory, a, selected, groups, pset("tcp", port, port), native_id(resource),
+                            narrow_public=True, public_host_witness=True)
+    if data.get("ipAddressType") == "dualstack":
+        v6_interfaces = [interface for vpc_endpoint in endpoints for interface in vpc_endpoint.get("networkInterfaces", [])
+                         if isinstance(interface, dict) and interface.get("subnetId") in selected] if isinstance(endpoints, list) else []
+        if not v6_interfaces or any(not _public_ip(interface.get("ipv6Address")) for interface in v6_interfaces):
+            if empty(a.ports):
+                # An IPv4 block does not decide a dual-stack path whose IPv6
+                # endpoint address was omitted from the collected response.
+                a.blocked_by = None
+                a.gap("inventory", "dual-stack endpoint IPv6 network-interface address not observed",
+                      "redshift-serverless:ListWorkgroups.workgroups[].endpoint.vpcEndpoints[].networkInterfaces[].ipv6Address")
+            else:
+                a.notes.append("Dual-stack endpoint IPv6 interface address was not fully observed")
+        else:
+            a.ports = union(a.ports, _aws_vpc_path(inventory, a, selected, groups, pset("tcp", port, port),
+                                                 native_id(resource), family=6, narrow_public=True,
+                                                 public_host_witness=True))
     return a
 
 
@@ -12413,10 +12678,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service",
-             "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
-             "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
+AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service", "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster", "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block", "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app", "rds_cluster", "rds_cluster_endpoint", "redshiftserverless_workgroup"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "cloudrun_instance", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_gatewayclass", "gke_exposure_httproute", "gke_exposure_endpointslice", "gke_exposure_multiclusteringress", "network_endpoint_group", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway", "vpn_tunnel",
              "project", "iam_policy", "iam_role", "service_account", "service_usage", "group", "group_membership", "default_object_acl", "workload_identity_provider",
@@ -12433,7 +12695,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
              "component_configuration", *sorted(K8S_ROUTE_TYPES)]
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
-EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
+EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "rds_cluster", "rds_cluster_endpoint", "redshift_cluster", "redshiftserverless_workgroup",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
                      "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "vpc_peering", "transit_gateway_attachment", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
              "gcp": {"network", "instance", "forwarding_rule", "cloudrun_service", "cloudrun_instance", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_httproute", "gke_exposure_endpointslice", "gke_exposure_multiclusteringress", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway", "vpn_tunnel",
@@ -12470,7 +12732,8 @@ def assess(snapshot, resources):
         extra["rules"] = rules
     handlers = {
         "aws": {"iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
-                "rds_instance": _aws_rds, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
+                "rds_instance": _aws_rds, "rds_cluster": _aws_rds_cluster_writer, "rds_cluster_endpoint": _aws_rds_cluster_endpoint,
+                "redshiftserverless_workgroup": _aws_redshift_serverless, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
                 "lambda_function": _aws_lambda_url, "lambda_alias": _aws_lambda_url,
                 "lambda_version": _aws_lambda_direct_invoke,
                 "lambda_layer_version": _aws_lambda_layer_share,
