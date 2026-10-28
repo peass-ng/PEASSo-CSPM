@@ -697,6 +697,30 @@ def test_storage_account_deny_default_retains_public_ip_rule_exposure():
         "networkAcls": {"defaultAction": "Deny"}}).verdict() == "UNKNOWN"
 
 
+def test_storage_unrecognized_public_gate_stays_unknown_for_account_and_anonymous_blob():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+
+    def check(access):
+        props = {"allowBlobPublicAccess": True,
+                 "networkAcls": {"defaultAction": "Allow"},
+                 "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
+        if access is not None:
+            props["publicNetworkAccess"] = access
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "properties": props}]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id + "/blobServices/default/containers/public",
+                 "parent_id": account_id, "properties": {"publicAccess": "Blob"}}]},
+        ])
+        rows = assess(snap, resources(snap))
+        return (next(a for a in rows if a.resource["type"] == "storage_account"),
+                next(a for a in rows if a.resource["type"] == "storage_container"))
+
+    assert [a.verdict() for a in check("Unexpected")] == ["UNKNOWN", "UNKNOWN"]
+    assert [a.verdict() for a in check(None)] == ["FAIL", "FAIL"]  # Documented public default.
+
+
 def test_storage_trusted_service_bypass_is_not_an_anonymous_public_source():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
     base = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,

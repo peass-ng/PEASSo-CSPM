@@ -4938,6 +4938,9 @@ def _azure_storage_endpoint_urls(props, service=None):
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
+    if props.get("publicNetworkAccess") not in (None, "Enabled", "Disabled", "SecuredByPerimeter"):
+        a.gap("inventory", "storage publicNetworkAccess value is unrecognized")
+        return a
     if str(props.get("publicNetworkAccess", "")).lower() == "disabled":
         return None
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
@@ -5010,6 +5013,9 @@ def _azure_storage_container(snapshot, inventory, resource):
         return a
     props = _props(account)
     a.step("container_acl", "allow", public_access=level)
+    if props.get("publicNetworkAccess") not in (None, "Enabled", "Disabled", "SecuredByPerimeter"):
+        a.gap("inventory", "storage publicNetworkAccess value is unrecognized")
+        return a
     if props.get("allowBlobPublicAccess") is False or str(props.get("publicNetworkAccess", "")).lower() == "disabled":
         a.step("account_gate", "block", allow_blob_public_access=props.get("allowBlobPublicAccess"),
                public_network_access=props.get("publicNetworkAccess"))
@@ -5021,7 +5027,7 @@ def _azure_storage_container(snapshot, inventory, resource):
         a.gap("firewall", "storage network security perimeter rules are not collected")
         a.explicit = "UNKNOWN"
     if props.get("publicNetworkAccess") is None:
-        a.gap("inventory", "account publicNetworkAccess setting is unavailable")
+        a.step("account_gate", "allow", public_network_access="Enabled (service default)")
     acls = props.get("networkAcls")
     if not isinstance(acls, dict) or acls.get("defaultAction") not in ("Allow", "Deny"):
         a.gap("firewall", "account network ACL default action is unavailable")
