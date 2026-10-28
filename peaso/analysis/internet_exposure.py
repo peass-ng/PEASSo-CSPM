@@ -3440,6 +3440,51 @@ def gcp_pubsub_public_grant_findings(snapshot, resources):
     return output
 
 
+def gcp_secret_external_accessor_findings(snapshot, resources):
+    """Report direct cross-project Secret Accessor grants, not secret reads."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "secret" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        coverage = data.get("_coverage", {}).get("iamPolicy") if isinstance(data.get("_coverage"), dict) else None
+        policy = data.get("iamPolicy")
+        if (not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected")
+                or isinstance(coverage, dict) and coverage.get("status") not in (None, "collected")):
+            continue
+        project = resource["scope"].removeprefix("projects/")
+        if not project or project == resource["scope"]:
+            continue
+        grants = _gcp_cross_project_sa_grants(policy, project, "roles/secretmanager.secretAccessor")
+        if not grants:
+            continue
+        unconditional = [grant for grant in grants if not grant["condition"]]
+        grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
+        first = (f"The Secret Manager secret {name} has roles/secretmanager.secretAccessor for {grant['member']} in its direct IAM policy."
+                 if unconditional else
+                 f"The Secret Manager secret {name} has a conditional roles/secretmanager.secretAccessor binding for {grant['member']}.")
+        evidence = {
+            "observed": "\n".join((first,
+                "That role includes secretmanager.versions.access on the secret." if unconditional else
+                "The condition has no recorded request evaluation.",
+                "A service account from another GCP project may access secret-version payloads if other controls allow it." if unconditional else
+                "If the condition is satisfied, that service account may access secret-version payloads.",
+                "Project ownership, IAM denies, version state, and actual payload reads remain unresolved.")),
+            "direct_accessor_grants": grants,
+            "permission": "secretmanager.versions.access",
+            "source": source(snapshot, resource, "iamPolicy.bindings"),
+            "risk_state": "observed" if unconditional else "unknown",
+            "semantics": "Direct secret payload permission declaration only; account ownership, IAM denies, version state and successful reads are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_secret_external_accessor",
+                              "Cross-project Secret Manager Accessor grant", "high" if unconditional else "info",
+                              evidence, status="FAIL" if unconditional else "UNKNOWN"))
+    return output
+
+
 # -------------------------------------------------------------------- Azure
 
 def _props(resource):
@@ -5848,6 +5893,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_scheduler_oidc_target_findings(snapshot, resources))
     output.extend(gcp_artifact_public_reader_findings(snapshot, resources))
     output.extend(gcp_pubsub_public_grant_findings(snapshot, resources))
+    output.extend(gcp_secret_external_accessor_findings(snapshot, resources))
     return output
 
 

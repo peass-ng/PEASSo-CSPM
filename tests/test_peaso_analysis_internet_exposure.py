@@ -924,6 +924,35 @@ def test_gcp_pubsub_direct_public_publish_or_consume_grant(kind, role, permissio
     assert not any(row["check_id"] == "analysis.gcp_pubsub_public_grant" for row in report())
 
 
+def test_gcp_secret_direct_cross_project_accessor_grant():
+    secret = {"name": "projects/p1/secrets/api-key",
+              "iamPolicy": {"bindings": [{"role": "roles/secretmanager.secretAccessor",
+                             "members": ["serviceAccount:reader@foreign-project.iam.gserviceaccount.com"]}]},
+              "_coverage": {"iamPolicy": {"status": "collected"}}}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("secret", [secret], service="secretmanager")))["findings"]
+                if row["check_id"] == "analysis.gcp_secret_external_accessor"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert_gcp_observed_style(rows[0], secret["name"])
+    assert rows[0]["evidence"]["permission"] == "secretmanager.versions.access"
+    assert rows[0]["evidence"]["direct_accessor_grants"][0]["service_account_project"] == "foreign-project"
+    secret["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert findings()[0]["status"] == "UNKNOWN"
+    assert_gcp_observed_style(findings()[0], secret["name"])
+    secret["iamPolicy"]["bindings"][0].pop("condition")
+    secret["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:reader@p1.iam.gserviceaccount.com"]
+    assert findings() == []
+    secret["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:reader@foreign-project.iam.gserviceaccount.com"]
+    secret["iamPolicy"]["bindings"][0]["role"] = "roles/secretmanager.viewer"
+    assert findings() == []
+    secret["iamPolicy"]["bindings"][0]["role"] = "roles/secretmanager.secretAccessor"
+    secret["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert findings() == []
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

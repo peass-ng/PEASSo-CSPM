@@ -172,7 +172,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **145 have no native pa
 | Security | [Model Armor](https://docs.cloud.google.com/model-armor) | — | REVIEW REQUIRED |
 | Security | [Policy Intelligence](https://docs.cloud.google.com/policy-intelligence/docs) | — | REVIEW REQUIRED |
 | Security | [Resource Manager](https://docs.cloud.google.com/resource-manager/docs) | — | REVIEW REQUIRED |
-| Security | [Secret Manager](https://docs.cloud.google.com/secret-manager/docs) | IAM policy | REVIEW REQUIRED |
+| Security | [Secret Manager](https://docs.cloud.google.com/secret-manager/docs) | Direct cross-project service-account Secret Accessor grant; account ownership, inherited/custom roles, IAM denies, version state and successful payload access unresolved | REVIEW REQUIRED |
 | Security | [Security Command Center](https://docs.cloud.google.com/security-command-center/docs) | — | REVIEW REQUIRED |
 | Security | [Sensitive Data Protection](https://docs.cloud.google.com/sensitive-data-protection/docs) | — | REVIEW REQUIRED |
 | Security | [Service Health](https://docs.cloud.google.com/service-health/docs) | — | REVIEW REQUIRED |
