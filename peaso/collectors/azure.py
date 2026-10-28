@@ -135,6 +135,7 @@ ENDPOINTS = {
     "databox_job": ("Microsoft.DataBox/jobs", "2025-07-01"),
     "mongo_cluster": ("Microsoft.DocumentDB/mongoClusters", "2026-06-01"),
     "nginx_deployment": (azure_nginx_native.TYPE, azure_nginx_native.VERSION),
+    "openshift_hcp_cluster": ("Microsoft.RedHatOpenShift/hcpOpenShiftClusters", "2026-09-01-preview"),
     "databricks_workspace": ("Microsoft.Databricks/workspaces", "2024-05-01"),
     "kusto_cluster": ("Microsoft.Kusto/clusters", "2024-04-13"),
     'vm_scale_set': ('Microsoft.Compute/virtualMachineScaleSets', '2024-07-01'),
@@ -1140,7 +1141,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "openshift_cluster"})
+                            "integration_service_environment", "openshift_cluster", "openshift_hcp_cluster"})
 
 
 def _canonicalize_embedded(collections):
