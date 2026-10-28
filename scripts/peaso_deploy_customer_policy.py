@@ -383,6 +383,16 @@ READ_OPERATION_EXCEPTIONS = frozenset({("cloudtrail", "lookup_events"), ("iam", 
 
 @lru_cache(maxsize=256)
 def _sdk_operation_names(service):
+    # The pinned botocore build does not publish a FinSpace client, but the
+    # published customer template already carries these three read grants.
+    # Keep their exact AWS-authorized names while preserving the template on
+    # regeneration; this is not a fallback for arbitrary unavailable clients.
+    if service == 'finspace':
+        return {
+            'get_kx_cluster': 'GetKxCluster',
+            'list_kx_clusters': 'ListKxClusters',
+            'list_kx_environments': 'ListKxEnvironments',
+        }
     import botocore.session
     from botocore import xform_name
     model = botocore.session.get_session().get_service_model(service)
@@ -675,6 +685,18 @@ ADDITIONAL_PRIVESC_METADATA_REFERENCES = {
         "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ssm.html"),
 }
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(ADDITIONAL_PRIVESC_METADATA_REFERENCES)
+
+# Exact existing collector metadata reads. AWS classifies each as Read or List;
+# the FinSpace grants were already present in the signed customer template.
+EXACT_COLLECTOR_READ_REFERENCES = {
+    'amplify:ListDomainAssociations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_amplify.html',
+    'elasticloadbalancing:DescribeInstanceHealth': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_elb.html',
+    'elasticloadbalancing:DescribeTargetGroupAttributes': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_elasticloadbalancing.html',
+    'finspace:GetKxCluster': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_finspace.html',
+    'finspace:ListKxClusters': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_finspace.html',
+    'finspace:ListKxEnvironments': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_finspace.html',
+}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(EXACT_COLLECTOR_READ_REFERENCES)
 
 
 def build_policy(read_actions=None, *, include_credential_report_generation=None,
