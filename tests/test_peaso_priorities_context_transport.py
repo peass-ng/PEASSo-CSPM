@@ -50,7 +50,7 @@ def test_small_context_remains_unchanged(tmp_path):
     assert path.read_bytes()==original and not (tmp_path/'context.sqlite.gz').exists()
 
 
-@pytest.mark.parametrize('payload', [b'not gzip', gzip.compress(b'not sqlite'), gzip.compress(b''), gzip.compress(b'SQLite format 3\x00'+b'x'*64)[:-4]])
+@pytest.mark.parametrize('payload', [b'not gzip', gzip.compress(b'not sqlite'), gzip.compress(b''), gzip.compress(b'SQLite format 3\x00'+b'x'*64)[:-4]], ids=['plain', 'not-sqlite', 'empty', 'truncated'])
 def test_invalid_payload_never_leaves_partial_database(tmp_path,payload):
     packed=tmp_path/'context.sqlite.gz';packed.write_bytes(payload)
     with pytest.raises((ValueError,OSError,EOFError)):

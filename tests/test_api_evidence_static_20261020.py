@@ -49,7 +49,7 @@ REVIEWED_SUCCESSORS = {
 # reviewed privilege evidence wording, catalog retirements, and historical
 # source anchors; the native formatter must reproduce every successor below.
 PRIVESC_SUCCESSOR_RAW = (ROOT/'tests/fixtures/evidence_static_privesc_successor_20261022.json.gz').read_bytes()
-assert hashlib.sha256(PRIVESC_SUCCESSOR_RAW).hexdigest() == '80e61517a0360500038199439d68aaaa314ded573802e23b474b1761126d70f7'
+assert hashlib.sha256(PRIVESC_SUCCESSOR_RAW).hexdigest() == 'aa73fc86a3a7294f0b4a5edbc249799f4bc6050150a8954ffe1828a3e5359b71'
 import gzip
 PRIVESC_SUCCESSOR = json.loads(gzip.decompress(PRIVESC_SUCCESSOR_RAW))
 assert PRIVESC_SUCCESSOR['original_archive_sha256'] == ARCHIVE_SHA256

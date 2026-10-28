@@ -1283,7 +1283,7 @@ def _aws_elbv2(snapshot, inventory, resource):
     a.endpoint = data.get("DNSName")
     a.addresses = [data["DNSName"]] if _dns_hostname(data.get("DNSName")) else []
     state = data.get("State") if isinstance(data.get("State"), dict) else {}
-    code = state.get("Code")
+    code = state.get("Code") or data.get("LoadBalancerStateCode")
     if code == "failed":
         a.step("load_balancer_state", "block", code=code)
         a.ports = {}
@@ -1709,14 +1709,19 @@ def _aws_rds_cluster_endpoint(snapshot, inventory, resource):
                     probe = Assessment(resource, "database")
                     _aws_rds_endpoint_target_path(inventory, probe, resource, target, port)
                     probes.append((target["DBInstanceIdentifier"], probe))
-                    if probe.verdict() == "FAIL":
-                        a.step("target", "allow", db_instance_identifier=target["DBInstanceIdentifier"],
-                               semantics="One eligible public endpoint target has a configured network path")
-                        a.path.extend(probe.path)
-                        a.unresolved.extend(probe.unresolved)
-                        a.ports = probe.ports
-                        a.notes.append("Endpoint selects among members; this observed public target has a configured network path")
-                        return a
+                if any(probe.verdict() == "UNKNOWN" for _, probe in probes):
+                    a.gap("inventory", "At least one eligible Aurora endpoint target has an unresolved network path")
+                    return a
+                opened = next(((name, probe) for name, probe in probes if probe.verdict() == "FAIL"), None)
+                if opened:
+                    name, probe = opened
+                    a.step("target", "allow", db_instance_identifier=name,
+                           semantics="One eligible public endpoint target has a configured network path")
+                    a.path.extend(probe.path)
+                    a.unresolved.extend(probe.unresolved)
+                    a.ports = probe.ports
+                    a.notes.append("Endpoint selects among members; this observed public target has a configured network path")
+                    return a
                 if all(probe.verdict() == "PASS" for _, probe in probes):
                     a.step("target", "block", db_instance_identifiers=[name for name, _ in probes],
                            semantics="Every observed public endpoint target has a blocked configured network path")
@@ -2032,7 +2037,7 @@ def _aws_redshift_serverless(snapshot, inventory, resource):
     selected = sorted(set(selected))
     a.ports = _aws_vpc_path(inventory, a, selected, groups, pset("tcp", port, port), native_id(resource),
                             narrow_public=True, public_host_witness=True)
-    ip_address_type = data.get("ipAddressType")
+    ip_address_type = data.get("ipAddressType", "ipv4")
     if ip_address_type not in ("ipv4", "dualstack"):
         if empty(a.ports):
             a.blocked_by = None
@@ -3198,9 +3203,13 @@ def _aws_eventbridge_pipe(snapshot, inventory, resource):
 
 def _aws_classic(snapshot, inventory, resource):
     data = resource["data"]
-    if data.get("Scheme") != "internet-facing":
+    if data.get("Scheme") == "internal":
         return None
     a = Assessment(resource, "load_balancer")
+    if data.get("Scheme") != "internet-facing":
+        a.gap("inventory", "Classic ELB scheme not collected or unsupported",
+              "elasticloadbalancing:DescribeLoadBalancers.Scheme")
+        return a
     a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
     if not a.addresses:
         a.gap("inventory", "Classic ELB public DNS name not collected",
@@ -3227,7 +3236,7 @@ def _aws_classic(snapshot, inventory, resource):
         a.notes.append("Other Classic ELB listener details were malformed")
     a.step("listener", "allow" if not empty(ports) else "block", listeners=describe(ports))
     a.ports = _aws_vpc_path(inventory, a, as_list(data.get("Subnets")), as_list(data.get("SecurityGroups")) if data.get("VPCId") else None,
-                            ports, native_id(resource), route=False, vpc_id=data.get("VPCId"), narrow_public=True,
+                            ports, native_id(resource), route=bool(data.get("VPCId")), vpc_id=data.get("VPCId"), narrow_public=True,
                             public_host_witness=bool(data.get("VPCId")))
     return a
 
@@ -3349,8 +3358,12 @@ def _aws_snapshot_share(snapshot, inventory, resource, attribute_path, name):
 
 def _aws_eks(snapshot, inventory, resource):
     cluster = resource["data"].get("Cluster")
-    config = cluster.get("cluster", {}).get("resourcesVpcConfig") if isinstance(cluster, dict) else None
+    detail = cluster.get("cluster", {}) if isinstance(cluster, dict) else {}
+    config = detail.get("resourcesVpcConfig")
     a = Assessment(resource, "control_plane")
+    if detail.get("status") != "ACTIVE":
+        a.gap("inventory", "EKS cluster is not observed active", "eks:DescribeCluster.cluster.status")
+        return a
     if not isinstance(config, dict):
         a.gap("inventory", "EKS cluster VPC endpoint configuration not collected",
               "eks:DescribeCluster.resourcesVpcConfig")
@@ -3362,11 +3375,28 @@ def _aws_eks(snapshot, inventory, resource):
         a.gap("inventory", "EKS public endpoint flag not collected",
               "eks:DescribeCluster.resourcesVpcConfig.endpointPublicAccess")
         return a
-    a.addresses = [cluster["cluster"].get("endpoint")] if cluster["cluster"].get("endpoint") else []
-    if not a.addresses:
-        a.gap("inventory", "EKS public API server endpoint host not collected", "eks:DescribeCluster")
+    endpoint = detail.get("endpoint")
+    try:
+        parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+        valid_endpoint = (parsed is not None and parsed.scheme == "https" and
+                          _dns_hostname(parsed.hostname) and parsed.port in (None, 443) and
+                          not parsed.username and not parsed.password and
+                          parsed.path in ("", "/") and not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid_endpoint = False
+    if not valid_endpoint:
+        a.gap("inventory", "EKS public API server endpoint host is missing or malformed",
+              "eks:DescribeCluster.cluster.endpoint")
         return a
-    cidrs = as_list(config.get("publicAccessCidrs"))
+    a.addresses = [endpoint]
+    raw_cidrs = config.get("publicAccessCidrs", [])
+    if (not isinstance(raw_cidrs, list) or
+            any(not isinstance(c, str) or _cidr(c) is None for c in raw_cidrs)):
+        a.addresses = []
+        a.gap("inventory", "EKS public client CIDRs are missing or malformed",
+              "eks:DescribeCluster.resourcesVpcConfig.publicAccessCidrs")
+        return a
+    cidrs = raw_cidrs
     defaulted = not cidrs
     if defaulted:
         cidrs = ["0.0.0.0/0"]
@@ -5745,7 +5775,8 @@ def _aws_vpc_peering(snapshot, inventory, resource):
         selected = _vpc_route_table_selected(inventory, table, table["scope"])
         if selected is None:
             selection_unknown = True
-        if selected is not True:
+        declaration_only = selected is None and inventory.state("subnet", table["scope"]).startswith("missing")
+        if selected is not True and not declaration_only:
             continue
         for route in entries:
             if not isinstance(route, dict) or route.get("VpcPeeringConnectionId") != peer_id or route.get("State") != "active":
@@ -5756,11 +5787,11 @@ def _aws_vpc_peering(snapshot, inventory, resource):
             if _cidr(witness["destination"]) is None:
                 malformed = True
                 continue
-            selected = [_vpc_route_has_destination(entries, route, network, "VpcPeeringConnectionId", peer_id)
-                        for network in peer_networks]
-            if True in selected:
+            chosen = [_vpc_route_has_destination(entries, route, network, "VpcPeeringConnectionId", peer_id)
+                      for network in peer_networks]
+            if (not peer_networks and declaration_only) or True in chosen:
                 routes.append(witness)
-            elif None in selected:
+            elif None in chosen:
                 selection_unknown = True
     if routes:
         a.step("peering_route", "allow", local_vpc=local[0]["VpcId"], peer_vpc=local[1]["VpcId"],
@@ -5772,7 +5803,8 @@ def _aws_vpc_peering(snapshot, inventory, resource):
             a.gap("inventory", "Additional peer CIDR or route records are malformed")
     elif active_routes and (not peer_networks or peer_malformed or malformed):
         a.gap("peering_route", "Peer CIDRs or active route destinations are incomplete")
-    elif inventory.state("route_table", resource["scope"]) in ("collected", "empty") and not malformed and not selection_unknown:
+    elif inventory.state("route_table", resource["scope"]) in ("collected", "empty") and not malformed and (
+            not selection_unknown or inventory.state("subnet", resource["scope"]).startswith("missing")):
         a.step("peering_route", "block", local_vpc=local[0]["VpcId"], peer_account=peer,
                reason="no active local route to this peer")
         a.ports = {}
@@ -5829,6 +5861,8 @@ def _aws_tgw_foreign_attachment(snapshot, inventory, resource):
             continue
         route_inventory = table["data"].get("RouteInventory")
         system_inventory = table["data"].get("SystemRouteInventory")
+        if system_inventory is None:
+            system_inventory = {"collection_status": "empty", "queries": ["type=system"], "items": []}
         associations = table["data"].get("AssociationInventory")
         if (not isinstance(route_inventory, dict) or route_inventory.get("collection_status") not in ("collected", "empty") or
                 route_inventory.get("queries") != ["type=static", "type=propagated"] or not isinstance(route_inventory.get("items"), list) or
@@ -5857,7 +5891,9 @@ def _aws_tgw_foreign_attachment(snapshot, inventory, resource):
         for vpc_table in inventory.items("route_table"):
             if vpc_table["scope"] != resource["scope"] or vpc_table["data"].get("VpcId") != info.get("ResourceId"):
                 continue
-            if _vpc_route_table_selected(inventory, vpc_table, resource["scope"]) is not True:
+            selected = _vpc_route_table_selected(inventory, vpc_table, resource["scope"])
+            if selected is not True and not (selected is None and
+                    inventory.state("subnet", resource["scope"]).startswith("missing")):
                 continue
             vpc_routes = vpc_table["data"].get("Routes")
             if not isinstance(vpc_routes, list):
@@ -5992,7 +6028,7 @@ def _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource):
             if rule_state not in {"authorizing", "revoking", "failed"}:
                 uncertain = True
             continue
-        all_groups = rule.get("AccessAll")
+        all_groups = rule.get("AuthorizeAllGroups", rule.get("AccessAll"))
         if type(all_groups) is not bool:
             uncertain = True
             continue
@@ -6006,11 +6042,11 @@ def _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource):
             destinations.append(str(network))
         elif isinstance(rule.get("GroupId"), str) and rule["GroupId"].strip():
             scoped.append({"destination_cidr": str(network), "access_group_id": rule["GroupId"]})
-        else:
+        elif all_groups is not False:
             uncertain = True
     if destinations or scoped:
         a.authenticated = True
-        if destinations:
+        if destinations and status == "collected":
             a.explicit = "FAIL"
         a.step("client_authorization", "allow" if destinations else "conditional", endpoint_id=endpoint,
                destination_cidrs=sorted(set(destinations)), group_rules=scoped)
@@ -6020,10 +6056,10 @@ def _aws_client_vpn_all_clients_authorization(snapshot, inventory, resource):
             a.gap("authorization", "Additional Client VPN authorization rules were not completely resolved")
         routes, targets = detail.get("Routes"), detail.get("TargetNetworks")
         if (isinstance(routes, dict) and routes.get("ClientVpnEndpointId") == endpoint and
-                routes.get("collection_status") in {"collected", "empty", "partial"} and
+                routes.get("collection_status") in {"collected", "empty"} and
                 isinstance(routes.get("items"), list) and
                 isinstance(targets, dict) and targets.get("ClientVpnEndpointId") == endpoint and
-                targets.get("collection_status") in {"collected", "empty", "partial"} and
+                targets.get("collection_status") in {"collected", "empty"} and
                 isinstance(targets.get("items"), list)):
             associated, malformed = {}, False
             for target in targets["items"]:
@@ -6489,7 +6525,8 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
                     arn in deny_resources and all(as_list(s.get("Resource")) == [arn] for s in exact_allows) or
                     "iam-role-trust" in provenance["families"] and "Resource" not in deny and
                     all("Resource" not in s for s in exact_allows)):
-                return None
+                a.gap("policy", "An explicit Deny overlaps the foreign Allow; effective grant is unresolved")
+                return a
     for statement in statements:
         if statement.get("Effect") == "Deny":
             denied_actions = as_list(statement.get("Action"))
@@ -6691,6 +6728,8 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
         if remaining_actions:
             surviving.append({**grant, "actions": remaining_actions})
     grants = surviving
+    if candidate and not grants and account_denies:
+        uncertain = True
     if grants and parts[2] == "ses" and "ses-identities" in provenance["families"]:
         identity_name = parts[5].removeprefix("identity/")
         identities = [item["data"] for item in inventory.items("ses_email_identity")
@@ -7847,6 +7886,8 @@ def _aws_cloudfront(snapshot, inventory, resource):
         a = Assessment(resource, "cdn_endpoint")
         tenants = data.get("DistributionTenants")
         if not isinstance(tenants, dict) or tenants.get("collection_status") != "collected" or not isinstance(tenants.get("items"), list):
+            a.step("viewer_routing", "allow_declaration", connection_mode="tenant-only",
+                   semantics="Distribution serves tenants through connection groups; tenant hosts are not collected")
             a.gap("inventory", "CloudFront distribution tenants not completely collected",
                   "cloudfront:ListDistributionTenants,cloudfront:GetConnectionGroup")
             return a
@@ -8879,7 +8920,6 @@ def _gcp_firewall(inventory, instance, interface, assessment):
                             basis=f"terminal {policy_kind} ingress rule")
             if action == "allow" and terminal.get("_source_witness"):
                 assessment.gap("firewall", f"{policy_kind} earlier public deny covers other source addresses or ports")
-                assessment.unresolved[-1]["decisive"] = False
             source_ranges = terminal["match"]["srcIpRanges"]
             required_sources = set()
             if any(isinstance(row, dict) and row.get("natIP") for row in as_list(interface.get("accessConfigs"))):
@@ -8888,7 +8928,6 @@ def _gcp_firewall(inventory, instance, interface, assessment):
                 required_sources.add("::/0")
             if action == "allow" and not required_sources.issubset(set(source_ranges)):
                 assessment.gap("firewall", f"{policy_kind} allow covers only recorded public source ranges; other sources need ordered evaluation")
-                assessment.unresolved[-1]["decisive"] = False
             if action == "allow" and terminal_ports != FULL:
                 assessment.gap("firewall", f"{policy_kind} allow covers only recorded Layer 4 ports; other traffic needs ordered policy evaluation")
                 assessment.unresolved[-1]["decisive"] = False
@@ -8911,7 +8950,9 @@ def _gcp_firewall(inventory, instance, interface, assessment):
         assessment.gap("firewall", "hierarchical/network firewall policies not collected", "compute firewallPolicies")
         return None
     hierarchy = (((inventory.snapshot.get("metadata") or {}).get("network_context") or {}).get("gcp") or {}).get("firewall_hierarchy") or {}
-    unaffected = (hierarchy.get("complete") is True and instance.get("scope") in as_list(hierarchy.get("unaffected_projects")))
+    unaffected = (inventory.state("firewall_policy") == "empty" or
+                  hierarchy.get("complete") is True and
+                  instance.get("scope") in as_list(hierarchy.get("unaffected_projects")))
     network_resource = inventory.get("network", network)
     if (effective_rules is None and ((policies and not unaffected) or
         (network_resource is not None and network_resource["data"].get("firewallPolicy")) or
@@ -8949,9 +8990,13 @@ def _gcp_firewall(inventory, instance, interface, assessment):
         fresh = subtract(ports, decided)
         if r.get("allowed") and not empty(fresh):
             allowed = union(allowed, fresh)
-            matched.append({"rule": r.get("name"), "priority": r.get("priority", 1000), "action": "allow", "ports": describe(fresh)})
+            matched.append({"rule": r.get("name"), "priority": r.get("priority", 1000),
+                            "action": "allow", "ports": describe(fresh),
+                            "source_ranges": r.get("sourceRanges", ["0.0.0.0/0"])})
         elif r.get("denied") and not empty(fresh):
-            matched.append({"rule": r.get("name"), "priority": r.get("priority", 1000), "action": "deny", "ports": describe(fresh)})
+            matched.append({"rule": r.get("name"), "priority": r.get("priority", 1000),
+                            "action": "deny", "ports": describe(fresh),
+                            "source_ranges": r.get("sourceRanges", ["0.0.0.0/0"])})
         decided = union(decided, ports)
     assessment.step("firewall", "allow" if not empty(allowed) else "block", network=network, matched_rules=matched,
                     implied="deny ingress", allowed=describe(allowed))
@@ -9002,7 +9047,7 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
     if str(protocol).upper() == "ESP":
         ports = {"esp": ((0, 0),)}
     elif data.get("allPorts"):
-        ports = pset(protocol)
+        ports = pset("all" if str(protocol).upper() == "L3_DEFAULT" else protocol)
     elif data.get("ports"):
         ports = {}
         for spec in as_list(data["ports"]):
@@ -9057,7 +9102,8 @@ def _gcp_forwarding_rule(snapshot, inventory, resource):
                 continue
             interfaces = [row for row in as_list(vm["data"].get("networkInterfaces")) if isinstance(row, dict)]
             if target_kind == "target_pool":
-                interfaces = [row for row in interfaces if row.get("name") == "nic0"]
+                interfaces = [row for row in interfaces if row.get("name") == "nic0"] or (
+                    interfaces if len(interfaces) == 1 and interfaces[0].get("name") is None else [])
             else:
                 selected = _gcp_target_instance_interface(interfaces, detail.get("network"))
                 interfaces = [selected] if selected is not None else []
@@ -10257,6 +10303,9 @@ def _gcp_gke_nodeport_direct_node(inventory, resource, assessment):
               and row["data"].get("addressType") in ("IPv4", "IPv6")]
     spec = data.get("spec") or {}
     families = spec.get("ipFamilies")
+    if families is None:
+        families = sorted({row.get("addressType") for row in slices
+                           if row.get("addressType") in ("IPv4", "IPv6")})
     if not isinstance(families, list) or not families:
         return None
     if spec.get("externalTrafficPolicy", "Cluster") not in ("Cluster", "Local"):
@@ -10294,7 +10343,7 @@ def _gcp_gke_nodeport_direct_node(inventory, resource, assessment):
                     continue
                 ready_nodes.extend(as_list(endpoint_slice.get("readyNodeNames")))
             observed_ready_nodes = {node["kubernetesName"] for node in nodes} & set(ready_nodes)
-            if not observed_ready_nodes:
+            if not ready_nodes or local and not observed_ready_nodes:
                 continue
             candidate_nodes = [node for node in nodes if not local or node["kubernetesName"] in observed_ready_nodes]
             for node in candidate_nodes:
@@ -10875,9 +10924,9 @@ def _gcp_bucket(snapshot, inventory, resource):
             permissions = role_row["data"].get("includedPermissions") if role_row else None
             if isinstance(permissions, list):
                 if any(permission in object_permissions for permission in permissions):
-                    (conditional if binding.get("condition") else public).extend(grants)
+                    (public if _gcp_grant_is_unconditional(binding) else conditional).extend(grants)
             elif role in known_storage_roles:
-                (conditional if binding.get("condition") else public).extend(grants)
+                (public if _gcp_grant_is_unconditional(binding) else conditional).extend(grants)
             else:
                 unresolved_roles.extend(grants)
     # The collector attaches these only after complete native ACL reads and
@@ -10892,6 +10941,21 @@ def _gcp_bucket(snapshot, inventory, resource):
                 continue
             if field == "objectAccessControls" and (envelope.get("all_objects") is not True or envelope.get("all_versions") is not True):
                 acl_unresolved.append(field)
+                continue
+            if field == "objectAccessControls" and envelope.get("source_inventory") == "object_acl":
+                requests = set(as_list(envelope.get("source_requests")))
+                for native in inventory.items("object_acl"):
+                    item = native["data"]
+                    provenance = item.get("_provenance")
+                    if (native.get("scope") != resource.get("scope") or item.get("bucket") != data.get("name")
+                            or not isinstance(provenance, dict) or
+                            not requests.intersection(as_list(provenance.get("source_requests"))) or
+                            item.get("entity") not in ("allUsers", "allAuthenticatedUsers") or
+                            item.get("role") not in ("READER", "OWNER") or
+                            not isinstance(item.get("objectRef"), str)):
+                        continue
+                    acl.append({"source": field, "entity": item["entity"], "role": item["role"],
+                                "object_ref": item["objectRef"], "generation": item.get("generation")})
                 continue
             for row in as_list(envelope.get("items")):
                 roles = ("READER", "OWNER", "WRITER") if field == "bucketAccessControls" else ("READER", "OWNER")
@@ -10927,7 +10991,7 @@ def _gcp_bucket(snapshot, inventory, resource):
                 role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
                 permissions = role_row["data"].get("includedPermissions") if role_row else None
                 grant = {"folder": name, "role": role, "members": members}
-                if binding.get("condition"):
+                if not _gcp_grant_is_unconditional(binding):
                     folder_unresolved.append({**grant, "reason": "conditional managed folder IAM"})
                 elif isinstance(permissions, list) and any(p in object_permissions for p in permissions):
                     folder_public.append(grant)
@@ -10937,11 +11001,11 @@ def _gcp_bucket(snapshot, inventory, resource):
                 elif permissions is None:
                     folder_unresolved.append({**grant, "reason": "managed folder role permissions unavailable"})
         if inventory.state("managed_folder", resource.get("scope")) not in ("collected", "empty"):
-            folder_unresolved.append({"reason": "managed folder inventory unavailable"})
+            folder_unresolved.append({"reason": "managed folder inventory incomplete"})
     if not public and not acl and not conditional and not effective_public and not unresolved_roles and not folder_public and not folder_unresolved and not acl_unresolved and not inherited_unresolved and policy_ok:
         return None
     a = Assessment(resource, "data_share")
-    prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention") or "inherited"
+    prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention") or "not_enforced"
     if prevention == "inherited":
         scope = resource["scope"]
         matches = [row["data"] for row in inventory.items("org_policy_effective")
@@ -10980,6 +11044,7 @@ def _gcp_bucket(snapshot, inventory, resource):
            conditional=conditional, unresolved_roles=unresolved_roles,
            effective_public=effective_public, managed_folder_grants=folder_public,
            managed_folder_unresolved=folder_unresolved, acl_unresolved=acl_unresolved,
+           effective_iam_unresolved=inherited_unresolved,
            inherited_iam_unresolved=inherited_unresolved, bucket_iam_unresolved=not policy_ok,
            public_access_prevention=prevention)
     if (not public and not acl and not effective_public and not folder_public) or prevention == "inherited":
@@ -10987,7 +11052,7 @@ def _gcp_bucket(snapshot, inventory, resource):
         a.gap("policy", "conditional or unresolved public IAM role, or inherited public access prevention, requires effective-policy evaluation")
     if acl_unresolved and not (public or acl or effective_public or folder_public):
         a.explicit = "UNKNOWN"
-        a.gap("inventory", "fine-grained bucket ACL or full object ACL traversal is incomplete")
+        a.gap("inventory", ", ".join(field + " inventory incomplete" for field in acl_unresolved))
     if (inherited_unresolved or not policy_ok or folder_unresolved) and not (public or acl or effective_public or folder_public):
         a.explicit = "UNKNOWN"
         a.gap("inventory", "bucket IAM, inherited IAM, or managed-folder IAM evidence is incomplete")
@@ -11005,6 +11070,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     public = []
     uncertain_public = []
     delegated = []
+    conditional_delegated = []
     for entry in access:
         if not isinstance(entry, dict):
             continue
@@ -11012,12 +11078,19 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         if member in ("allUsers", "allAuthenticatedUsers"):
             grant = {"member": member, "role": entry.get("role")}
             (public if entry.get("role") in ("READER", "WRITER", "OWNER") and
-             not entry.get("condition") else uncertain_public).append(grant)
+             _gcp_grant_is_unconditional(entry) else uncertain_public).append(grant)
         for kind in ("view", "routine", "dataset"):
             ref = entry.get(kind)
             if isinstance(ref, dict):
-                delegated.append({"kind": kind, "reference": ref})
+                row = {"kind": kind, "reference": ref, "role": entry.get("role")}
+                (delegated if _gcp_grant_is_unconditional(entry) else conditional_delegated).append(row)
     source_project = resource["scope"].removeprefix("projects/")
+    local_aliases = {source_project}
+    for project_row in inventory.items("project"):
+        if project_row.get("scope") == resource["scope"]:
+            number = project_row["data"].get("projectNumber")
+            if number is not None:
+                local_aliases.add(str(number))
     def destination_project(row):
         ref = row["reference"]
         if row["kind"] == "dataset" and isinstance(ref.get("dataset"), dict):
@@ -11025,20 +11098,51 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         return ref.get("projectId") or ref.get("project_id")
     external_projects = sorted({project for row in delegated
                                 if isinstance(project := destination_project(row), str)
-                                and project and project != source_project})
+                                and project and project not in local_aliases})
     roots = {row["data"].get("name"): row for row in inventory.items("iam_policy")
              if isinstance(row.get("data"), dict) and row["data"].get("name") == row.get("scope")
              and row["data"].get("_representation") != "partial"}
     projects = {row["scope"]: row for row in inventory.items("project")
                 if isinstance(row.get("data"), dict)}
+    project_aliases = {}
+    for scope_name, project_row in projects.items():
+        if not scope_name.startswith("projects/"):
+            continue
+        project_id = project_row["data"].get("projectId") or scope_name.removeprefix("projects/")
+        project_aliases[str(project_id)] = str(project_id)
+        number = project_row["data"].get("projectNumber")
+        if number is not None:
+            project_aliases[str(number)] = str(project_id)
+    def normalized_project(row):
+        value = destination_project(row)
+        return project_aliases.get(value, value)
     inherited_sources, inherited_missing = _gcp_public_permission_sources(resource, roots, projects)
+    for project_row in inventory.items("project"):
+        detail = project_row["data"]
+        if project_row.get("scope") != resource["scope"] or not isinstance(detail, dict):
+            continue
+        project_name = detail.get("name")
+        if project_name != resource["scope"] and not (
+                isinstance(project_name, str) and project_name.startswith("projects/") and
+                project_name.removeprefix("projects/").isdigit() and
+                detail.get("projectId") == source_project):
+            continue
+        coverage = (detail.get("_coverage") or {}).get("_inherited_iam_policies")
+        ancestors = detail.get("_inherited_iam_policies")
+        if not isinstance(coverage, dict) or coverage.get("status") != "collected" or not isinstance(ancestors, list):
+            inherited_missing.append("ancestor IAM")
+            continue
+        inherited_missing = [item for item in inherited_missing if item != "ancestor IAM"]
+        for policy in ancestors:
+            if isinstance(policy, dict) and isinstance(policy.get("name"), str) and policy.get("ancestor") == policy["name"]:
+                inherited_sources.append(({"scope": policy["name"]}, policy, "ancestor", "bindings"))
     uncertain_inherited = []
     def inherited_public(permission):
         grants = []
         known = ({"roles/bigquery.dataViewer", "roles/bigquery.dataEditor", "roles/bigquery.dataOwner",
                   "roles/bigquery.admin"} if permission == "bigquery.tables.getData" else
                  {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.routineDataViewer",
-                  "roles/bigquery.routineDataEditor", "roles/bigquery.admin"})
+                  "roles/bigquery.routineDataEditor", "roles/bigquery.metadataViewer", "roles/bigquery.admin"})
         for owner, policy, level, _ in inherited_sources:
             if level == "resource" or not isinstance(policy, dict) or not isinstance(policy.get("bindings"), list):
                 continue
@@ -11052,7 +11156,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                 role = binding.get("role")
                 role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
                 permissions = role_row["data"].get("includedPermissions") if role_row else None
-                if binding.get("condition") or (permissions is None and role not in known):
+                if not _gcp_grant_is_unconditional(binding) or (permissions is None and role not in known):
                     if permission == "bigquery.tables.getData":
                         uncertain_inherited.append({"role": role, "members": members, "scope": owner["scope"],
                                                     "condition": bool(binding.get("condition"))})
@@ -11063,14 +11167,48 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         return grants
     inherited_view_readers = inherited_public("bigquery.tables.getData")
     inherited_routine_readers = inherited_public("bigquery.routines.get")
-    if not public and not delegated and not inherited_view_readers and not uncertain_public and not uncertain_inherited and not access_unresolved:
+    group_grants, group_uncertain = [], False
+    group_roles = {("projectReaders", "READER"): "roles/viewer",
+                   ("projectWriters", "WRITER"): "roles/editor",
+                   ("projectOwners", "OWNER"): "roles/owner"}
+    for entry in access:
+        if not isinstance(entry, dict):
+            continue
+        required_role = group_roles.get((entry.get("specialGroup"), entry.get("role")))
+        if required_role is None:
+            continue
+        for owner, policy, level, _ in inherited_sources:
+            if level == "resource" or not isinstance(policy, dict):
+                continue
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or binding.get("role") != required_role:
+                    continue
+                for member in as_list(binding.get("members")):
+                    if not isinstance(member, str) or (member not in ("allUsers", "allAuthenticatedUsers")
+                            and not re.fullmatch(r"serviceAccount:[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com", member)):
+                        continue
+                    if not _gcp_grant_is_unconditional(binding) or inherited_missing and level == "ancestor":
+                        group_uncertain = True
+                        continue
+                    group_grants.append({"special_group": entry["specialGroup"], "member": member,
+                                         "iam_role": required_role, "scope": owner["scope"]})
+    if inherited_missing and any(isinstance(project_row["data"].get("_inherited_iam_policies"), list)
+            and project_row["data"]["_inherited_iam_policies"] for project_row in inventory.items("project")
+            if project_row.get("scope") == resource["scope"]):
+        group_uncertain = group_uncertain or any(isinstance(entry, dict) and
+            (entry.get("specialGroup"), entry.get("role")) in group_roles for entry in access)
+    if (access and all(isinstance(entry, dict) and entry.get("specialGroup") in
+            {"projectReaders", "projectWriters", "projectOwners"} for entry in access)
+            and not group_grants and not group_uncertain):
+        return None
+    if not public and not delegated and not inherited_view_readers and not group_grants and not group_uncertain and not uncertain_public and not conditional_delegated and not uncertain_inherited and not access_unresolved:
         return None
     a = Assessment(resource, "data_share")
     def direct_public(policy, permission, known_roles):
         if not isinstance(policy, dict) or policy.get("collection_status") not in (None, "collected"):
             return False
         for binding in as_list(policy.get("bindings")):
-            if not isinstance(binding, dict) or binding.get("condition") or not any(
+            if not isinstance(binding, dict) or not _gcp_grant_is_unconditional(binding) or not any(
                     member in ("allUsers", "allAuthenticatedUsers") for member in as_list(binding.get("members"))):
                 continue
             role = binding.get("role")
@@ -11083,17 +11221,87 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                 return True
         return False
     public_views = []
+    def destination_group_grants(target):
+        if target is None or not isinstance(target["data"].get("access"), list):
+            return []
+        scope_name = target["scope"]
+        policies = []
+        root_policy = roots.get(scope_name)
+        if root_policy is not None:
+            policies.append((scope_name, root_policy["data"]))
+        project_row = projects.get(scope_name)
+        if project_row is not None:
+            detail = project_row["data"]
+            coverage = (detail.get("_coverage") or {}).get("_inherited_iam_policies")
+            if isinstance(coverage, dict) and coverage.get("status") == "collected":
+                policies.extend((item.get("name"), item) for item in as_list(detail.get("_inherited_iam_policies"))
+                                if isinstance(item, dict) and item.get("ancestor") == item.get("name"))
+        grants = []
+        for entry in target["data"]["access"]:
+            if not isinstance(entry, dict) or not _gcp_grant_is_unconditional(entry):
+                continue
+            expected_role = group_roles.get((entry.get("specialGroup"), entry.get("role")))
+            if expected_role is None:
+                continue
+            for policy_scope, policy in policies:
+                for binding in as_list(policy.get("bindings")):
+                    if not isinstance(binding, dict) or binding.get("role") != expected_role or not _gcp_grant_is_unconditional(binding):
+                        continue
+                    for member in as_list(binding.get("members")):
+                        if isinstance(member, str) and (member in ("allUsers", "allAuthenticatedUsers") or
+                                re.fullmatch(r"serviceAccount:[^@]+@[a-z][a-z0-9-]*\.iam\.gserviceaccount\.com", member)):
+                            grants.append({"special_group": entry["specialGroup"], "member": member,
+                                           "iam_role": expected_role, "scope": policy_scope})
+        return grants
+    def destination_inherited_public(target, permission):
+        if target is None:
+            return []
+        scope_name = target["scope"]
+        project_row = projects.get(scope_name)
+        if project_row is None:
+            return []
+        detail = project_row["data"]
+        project_id = scope_name.removeprefix("projects/")
+        name = detail.get("name")
+        if name != scope_name and not (isinstance(name, str) and name.startswith("projects/")
+                and name.removeprefix("projects/").isdigit() and detail.get("projectId") == project_id):
+            return []
+        coverage = (detail.get("_coverage") or {}).get("_inherited_iam_policies")
+        if not isinstance(coverage, dict) or coverage.get("status") != "collected":
+            return []
+        grants = []
+        for policy in as_list(detail.get("_inherited_iam_policies")):
+            if not isinstance(policy, dict) or policy.get("ancestor") != policy.get("name"):
+                continue
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or not _gcp_grant_is_unconditional(binding):
+                    continue
+                members = [member for member in as_list(binding.get("members"))
+                           if member in ("allUsers", "allAuthenticatedUsers")]
+                role = binding.get("role")
+                role_row = inventory.get("iam_role", role) if isinstance(role, str) else None
+                permissions = role_row["data"].get("includedPermissions") if role_row else None
+                known = ({"roles/bigquery.dataViewer", "roles/bigquery.dataEditor", "roles/bigquery.dataOwner"}
+                         if permission == "bigquery.tables.getData" else
+                         {"roles/bigquery.dataViewer", "roles/bigquery.routineDataViewer",
+                          "roles/bigquery.routineDataEditor", "roles/bigquery.metadataViewer"})
+                if members and (isinstance(permissions, list) and permission in permissions or
+                                permissions is None and role in known):
+                    grants.append({"role": role, "members": members, "scope": policy["name"],
+                                   "level": "ancestor", "permission": permission})
+        return grants
     view_refs = []
     for row in delegated:
         ref = row["reference"]
-        if row["kind"] == "view" and destination_project(row) == source_project and all(
+        target_project = normalized_project(row)
+        if row["kind"] == "view" and f"projects/{target_project}" in snapshot.get("scopes", []) and all(
                 isinstance(ref.get(key), str) and ref[key] for key in ("datasetId", "tableId")):
-            view_refs.append((f"{resource['scope']}/datasets/{ref['datasetId']}/tables/{ref['tableId']}", "view"))
-        elif row["kind"] == "dataset" and destination_project(row) == source_project:
+            view_refs.append((f"projects/{target_project}/datasets/{ref['datasetId']}/tables/{ref['tableId']}", "view"))
+        elif row["kind"] == "dataset" and f"projects/{target_project}" in snapshot.get("scopes", []):
             target_types = ref.get("targetTypes", ref.get("target_types"))
             dataset_ref = ref.get("dataset")
             dataset_id = (dataset_ref.get("datasetId") or dataset_ref.get("dataset_id")) if isinstance(dataset_ref, dict) else None
-            if target_types not in ("VIEWS", ["VIEWS"]) or not isinstance(dataset_id, str) or not dataset_id:
+            if not (target_types == "VIEWS" or isinstance(target_types, list) and "VIEWS" in target_types) or not isinstance(dataset_id, str) or not dataset_id:
                 continue
             if "gcp_bigquery_views_by_dataset" not in inventory.network_cache:
                 grouped = {}
@@ -11102,7 +11310,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                     if isinstance(name, str) and "/tables/" in name:
                         grouped.setdefault(name.rsplit("/tables/", 1)[0], []).append(table)
                 inventory.network_cache["gcp_bigquery_views_by_dataset"] = grouped
-            dataset_name = f"{resource['scope']}/datasets/{dataset_id}"
+            dataset_name = f"projects/{target_project}/datasets/{dataset_id}"
             view_refs.extend((table["data"]["name"], "authorized_dataset")
                              for table in inventory.network_cache["gcp_bigquery_views_by_dataset"].get(dataset_name, ())
                              if table["data"].get("type") in ("VIEW", "MATERIALIZED_VIEW"))
@@ -11115,49 +11323,80 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
             any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
+                and _gcp_grant_is_unconditional(entry)
                 for entry in target["data"]["access"]))
+        dataset_project_grants = destination_group_grants(target)
+        target_inherited = destination_inherited_public(target, "bigquery.tables.getData")
         policy = view["data"].get("iamPolicy")
         table_public = direct_public(policy, "bigquery.tables.getData",
                                      {"roles/bigquery.dataViewer", "roles/bigquery.dataEditor",
                                       "roles/bigquery.dataOwner", "roles/bigquery.admin"})
-        if dataset_public or table_public or inherited_view_readers:
+        if dataset_public or dataset_project_grants or table_public or inherited_view_readers or target_inherited:
             public_views.append({"view": view_name, "authorization": authorization,
                                  "dataset_public": bool(dataset_public),
+                                 "dataset_project_grants": dataset_project_grants,
                                  "table_public": bool(table_public),
-                                 "inherited_public": inherited_view_readers})
+                                 "inherited_public": inherited_view_readers + target_inherited})
     public_routines = []
     for row in delegated:
-        if row["kind"] != "routine" or destination_project(row) != source_project:
+        if row["kind"] != "routine" or f"projects/{normalized_project(row)}" not in snapshot.get("scopes", []):
+            continue
+        if row.get("role") not in (None, "roles/bigquery.routineDataViewer",
+                                   "roles/bigquery.routineDataEditor"):
             continue
         ref = row["reference"]
         if not all(isinstance(ref.get(key), str) and ref[key] for key in ("datasetId", "routineId")):
             continue
-        routine_name = f"{resource['scope']}/datasets/{ref['datasetId']}/routines/{ref['routineId']}"
+        routine_name = f"projects/{normalized_project(row)}/datasets/{ref['datasetId']}/routines/{ref['routineId']}"
         routine = inventory.get("bigquery_routine_metadata", routine_name)
         if routine is None:
             continue
-        if routine["data"].get("routineType") not in ("SCALAR_FUNCTION", "TABLE_VALUED_FUNCTION"):
+        if routine["data"].get("routineType") not in ("SCALAR_FUNCTION", "TABLE_VALUED_FUNCTION", "PROCEDURE"):
             continue
-        target = inventory.get("bigquery_dataset", f"{resource['scope']}/datasets/{ref['datasetId']}")
+        target = inventory.get("bigquery_dataset", f"projects/{normalized_project(row)}/datasets/{ref['datasetId']}")
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
             any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
+                and _gcp_grant_is_unconditional(entry)
                 for entry in target["data"]["access"]))
+        dataset_project_grants = destination_group_grants(target)
+        target_inherited = destination_inherited_public(target, "bigquery.routines.get")
         policy = routine["data"].get("iamPolicy")
         routine_public = direct_public(policy, "bigquery.routines.get",
                                        {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner",
-                                        "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor"})
-        if dataset_public or routine_public or inherited_routine_readers:
+                                        "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor",
+                                        "roles/bigquery.metadataViewer"})
+        if dataset_public or dataset_project_grants or routine_public or inherited_routine_readers or target_inherited:
             public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
                                     "dataset_public": bool(dataset_public), "routine_public": bool(routine_public),
-                                    "inherited_public": inherited_routine_readers})
+                                    "dataset_project_grants": dataset_project_grants,
+                                    "inherited_public": inherited_routine_readers + target_inherited,
+                                    "mutation_possible": row.get("role") not in
+                                        ("roles/bigquery.routineDataViewer", "roles/bigquery.routineMetadataViewer")})
     a.external_ids = external_projects
     if public:
         a.data_exposure = True
         a.authenticated = not any(row["member"] == "allUsers" for row in public)
-        a.step("dataset_acl", "allow", public=public, delegated=delegated)
+        a.step("dataset_acl", "allow", public=public, delegated=delegated,
+               conditional_public=uncertain_public, conditional_delegated=conditional_delegated)
+    elif group_grants:
+        a.data_exposure = True
+        a.external_ids = sorted({match.group(1) for grant in group_grants
+                                 if (match := re.fullmatch(
+                                     r"serviceAccount:[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com",
+                                     grant["member"]))})
+        a.step("project_special_group", "allow", grants=group_grants)
+        if group_uncertain:
+            a.gap("policy", "Additional project special-group bindings are conditional")
     elif public_views or public_routines:
         a.data_exposure = True
+        a.external_ids = [project for project in a.external_ids
+                          if f"projects/{project_aliases.get(project, project)}" not in snapshot.get("scopes", [])]
+        a.external_ids.extend(sorted({match.group(1) for item in public_views + public_routines
+                                      for grant in item.get("dataset_project_grants", [])
+                                      if (match := re.fullmatch(
+                                          r"serviceAccount:[^@]+@([a-z][a-z0-9-]*)\.iam\.gserviceaccount\.com",
+                                          grant["member"]))}))
         layer = "authorized_view" if public_views and not public_routines else "authorized_routine" if public_routines and not public_views else "authorized_resource"
         a.step(layer, "allow", public_views=public_views, public_routines=public_routines,
                semantics="Public invocation of an authorized view or routine; returned data and writes depend on SQL")
@@ -11169,14 +11408,24 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     elif external_projects:
         # A cross-project authorized resource does not establish a public
         # reader, execution job permission or destination ownership.
-        a.explicit = "UNKNOWN"
-        a.step("dataset_acl", "unknown", delegated=delegated, external_projects=external_projects)
-        a.gap("authorization", "destination reader, job permission and project ownership are not established")
+        unscanned = [project for project in external_projects
+                     if f"projects/{project_aliases.get(project, project)}" not in snapshot.get("scopes", [])]
+        declared = [row for row in delegated if destination_project(row) in unscanned and
+                    (row["kind"] != "routine" or row.get("role") in
+                     {"roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor"})]
+        if declared:
+            a.explicit = "FAIL"
+            a.step("dataset_acl", "allow", delegated=declared, external_projects=unscanned)
+        else:
+            a.explicit = "UNKNOWN"
+            a.step("dataset_acl", "unknown", delegated=delegated, external_projects=external_projects)
+            a.gap("authorization", "destination reader, job permission and project ownership are not established")
     else:
         # An authorized view/routine/dataset receives source-data privileges,
         # but the destination's readers and project ownership need a join.
         a.explicit = "UNKNOWN"
         a.step("dataset_acl", "unknown", delegated=delegated, uncertain_public=uncertain_public,
+               conditional_public=uncertain_public, conditional_delegated=conditional_delegated,
                uncertain_inherited=uncertain_inherited, access_unresolved=access_unresolved,
                unresolved_ancestors=inherited_missing)
         a.gap("policy", "dataset ACL or authorized-resource reader evidence is incomplete; destination access and ownership are unresolved")
@@ -12884,7 +13133,7 @@ def gcp_artifact_public_reader_findings(snapshot, resources):
                 and isinstance(row.get("data"), dict)}
     download_roles = {"roles/artifactregistry.reader", "roles/artifactregistry.writer",
                       "roles/artifactregistry.repoAdmin", "roles/artifactregistry.admin",
-                      "roles/artifactregistry.viewer", "roles/artifactregistry.editor",
+                      "roles/artifactregistry.editor",
                       "roles/artifactregistry.createOnPushWriter",
                       "roles/artifactregistry.createOnPushRepoAdmin",
                       "roles/artifactregistry.containerRegistryMigrationAdmin",
@@ -12958,7 +13207,7 @@ def gcp_artifact_public_reader_findings(snapshot, resources):
                     role_unknown = False
                 else:
                     allowed = role in download_roles
-                    role_unknown = not allowed
+                    role_unknown = not allowed and role not in {"roles/artifactregistry.viewer"}
                 if role_row and role_row["data"].get("stage") == "DISABLED":
                     allowed, role_unknown = False, True
                 upload = (data.get("mode") == "STANDARD_REPOSITORY" and
@@ -12979,8 +13228,8 @@ def gcp_artifact_public_reader_findings(snapshot, resources):
         possible = [grant for grant in grants if grant["download_permission"] or grant["upload_permission"]
                     or grant["role_permissions_unknown"]]
         positive = [grant for grant in possible if (grant["download_permission"] or grant["upload_permission"])
-                    and not grant["condition"]]
-        if not positive and not possible and not missing:
+                    and _gcp_grant_is_unconditional(grant)]
+        if not possible:
             continue
         named_grant = (positive or possible or [None])[0]
         name = data.get("name", native_id(resource))
@@ -13011,7 +13260,7 @@ def gcp_artifact_public_reader_findings(snapshot, resources):
             "repository_mode": data.get("mode"),
             "source": named_grant["source"] if named_grant else source(snapshot, resource, "name"),
             "risk_state": "observed" if positive else "unknown",
-            "semantics": "Public artifact download or upload permission declaration only; IAM denies, repository contents, endpoint requests and successful downloads or uploads are not established.",
+            "semantics": "Public artifact download or upload permission declaration only; IAM denies, repository contents and endpoint requests are not established; successful downloads are not established, and neither are uploads.",
         }
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_artifact_public_reader",
                               "Public Artifact Registry download permission", "high" if positive else "info",
@@ -13078,8 +13327,8 @@ def gcp_pubsub_public_grant_findings(snapshot, resources):
                                    "role_permissions_unknown": unknown,
                                    "source": source(snapshot, owner, field)})
         possible = [grant for grant in grants if grant["allows_permission"] or grant["role_permissions_unknown"]]
-        positive = [grant for grant in possible if grant["allows_permission"] and not grant["condition"]]
-        if not possible and not missing:
+        positive = [grant for grant in possible if grant["allows_permission"] and _gcp_grant_is_unconditional(grant)]
+        if not possible:
             continue
         grant = (positive or possible or [None])[0]
         name = data.get("name", native_id(resource))
@@ -13264,7 +13513,7 @@ def gcp_clouddeploy_external_releaser_findings(snapshot, resources):
         grants = _gcp_cross_project_sa_grants(policy, project, role)
         if not grants:
             continue
-        unconditional = [grant for grant in grants if not grant["condition"]]
+        unconditional = [grant for grant in grants if _gcp_grant_is_unconditional(grant)]
         grant = (unconditional or grants)[0]
         name = data.get("name", native_id(resource))
         observed = "\n".join((
@@ -14403,7 +14652,7 @@ def gcp_domains_external_dns_configurator_findings(snapshot, resources):
         grants = [grant for role in roles for grant in _gcp_cross_project_sa_grants(policy, project, role)]
         if not grants:
             continue
-        unconditional = [grant for grant in grants if not grant["condition"]]
+        unconditional = [grant for grant in grants if _gcp_grant_is_unconditional(grant)]
         grant = (unconditional or grants)[0]
         name = data.get("name", native_id(resource))
         domain = data.get("domainName", "unavailable")
@@ -14546,7 +14795,7 @@ def gcp_kms_external_decrypter_findings(snapshot, resources):
         grants = [grant for role in roles for grant in _gcp_cross_project_sa_grants(policy, project, role)]
         if not grants:
             continue
-        unconditional = [grant for grant in grants if not grant["condition"]]
+        unconditional = [grant for grant in grants if _gcp_grant_is_unconditional(grant)]
         grant = (unconditional or grants)[0]
         name = data.get("name", native_id(resource))
         first = (f"The Cloud KMS key {name} has {grant['role']} for {grant['member']} in its direct IAM policy."
@@ -14625,6 +14874,9 @@ def gcp_logging_cross_project_sink_findings(snapshot, resources):
                     status = "FAIL"
                 owner_detail = f"destination names project {destination_project}"
             elif destination_project.isdecimal():
+                if source_number is None:
+                    # A project number can be an alias for the scanned project ID.
+                    continue
                 if source_number == destination_project:
                     continue
                 if source_number is not None:
@@ -14656,7 +14908,7 @@ def gcp_logging_cross_project_sink_findings(snapshot, resources):
                                 + (f" with project number {bucket_number}" if bucket_number is not None else
                                    " without a project-number value"))
             else:
-                owner_detail = f"bucket {bucket_name} has no unique collected owner"
+                continue  # A bucket name alone does not establish a foreign owner.
         name = data.get("name", native_id(resource))
         evidence = {
             "observed": "\n".join((
@@ -23083,7 +23335,8 @@ def _gcp_forwarding_instance_source_witness(inventory, vm, interface, forwarded_
 def _gcp_target_instance_interface(interfaces, target_network):
     """Select the target instance's delivery interface from its recorded network."""
     if target_network is None:
-        matches = [row for row in interfaces if row.get("name") == "nic0"]
+        matches = [row for row in interfaces if row.get("name") == "nic0"] or (
+            interfaces if len(interfaces) == 1 and interfaces[0].get("name") is None else [])
     elif isinstance(target_network, str):
         pattern = r"(?:^|/)projects/([^/]+)/global/networks/([^/]+)$"
         target_match = re.search(pattern, target_network)
@@ -25696,10 +25949,13 @@ def _aws_http_api(snapshot, inventory, resource):
             name = domain_data.get("DomainName")
             if active_stage_names is not None and mapping.get("Stage") in active_stage_names and isinstance(name, str) and name:
                 domains.append(name)
-            elif active_stage_names is None or not isinstance(mapping.get("Stage"), str) or not isinstance(name, str):
+            else:
                 unresolved_domains.append(name or native_id(domain))
     if data.get("DisableExecuteApiEndpoint") is True and not domains:
         a.step("route", "block", disable_execute_api_endpoint=True)
+        a.gap("inventory", "Stage-applied HTTP API default endpoint state is not exposed",
+              "apigatewayv2:GetStage stage-applied DisableExecuteApiEndpoint (not exposed)")
+        a.explicit = "UNKNOWN"
         if unresolved_domains or inventory.state("apigatewayv2_domain_name", resource["scope"]) not in {"collected", "empty"}:
             a.gap("inventory", "HTTP API custom-domain mappings or routing rules are not fully collected",
                   "apigatewayv2 get_domain_names + get_api_mappings")
@@ -37653,6 +37909,15 @@ def _observed(assessment, status):
                 "Dynamic addresses and the external fabric route remain unclear.\n"
                 "A separate reachable VM service could expose its data if authentication allows it.")
     if assessment.resource.get("provider") == "aws" and assessment.kind in _AWS_GENERIC_OBSERVED_KINDS:
+        kind = assessment.resource["type"]
+        if kind == "http_api" and status == "UNKNOWN":
+            return "Internet access could not be determined because required configuration is missing."
+        if kind == "bucket" and status == "FAIL" and assessment.data_exposure:
+            return "Public access to the stored data is allowed."
+        if status == "FAIL" and assessment.dormant and kind in ("rds_instance", "redshift_cluster"):
+            inactive = ("DB instance is stopped" if kind == "rds_instance" else
+                        "Redshift cluster is paused")
+            return _aws_generic_observed(assessment, status) + "\n" + inactive + "."
         return _aws_generic_observed(assessment, status)
     if assessment.resource.get("provider") == "gcp":
         noun = assessment.resource["type"].replace("_", " ")
