@@ -4348,6 +4348,11 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.gap("inventory", "App Service publicNetworkAccess value is unrecognized")
     ports = pset("tcp", 443, 443) if props.get("httpsOnly") else union(pset("tcp", 80, 80), pset("tcp", 443, 443))
     a.step("public_network_access", "allow", public_network_access=props.get("publicNetworkAccess", "default(Enabled)"))
+    if props.get("enabled") is False and props.get("scmSiteAlsoStopped") is True:
+        a.step("site_state", "block", enabled=False, scm_site_also_stopped=True)
+        a.addresses = []
+        a.ports = {}
+        return a
     ase_mode, ase_id = _azure_app_ase_mode(inventory, props)
     if ase_mode == "Web, Publishing":
         a.step("hosting_environment", "block", ase_id=ase_id, internal_load_balancing_mode=ase_mode)
@@ -4376,6 +4381,13 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         main, main_detail = "block", {**main_detail, "internal_ase": ase_id}
     elif ase_mode == "Publishing":
         scm, scm_detail = "block", {**scm_detail, "internal_ase": ase_id}
+    if props.get("enabled") is False:
+        main, main_detail = "block", {**main_detail, "site_stopped": True}
+    if props.get("hostNamesDisabled") is True:
+        main, main_detail = "block", {**main_detail, "public_hostnames_disabled": True}
+        if scm == "allow":
+            scm, scm_detail = "unknown", {**scm_detail,
+                "reason": "SCM listener under disabled public hostnames is not documented by the site flag"}
     if ase_id:
         a.step("hosting_environment", "unknown" if ase_mode == "unknown" else "allow",
                ase_id=ase_id, internal_load_balancing_mode=ase_mode)

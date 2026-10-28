@@ -378,6 +378,38 @@ def test_app_service_parent_authentication_is_informational_for_public_listener(
     assert next(step for step in result.path if step["layer"] == "app_authentication")["decision"] == "require"
 
 
+def test_app_service_stopped_and_disabled_hostname_surfaces():
+    site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+
+    def decision(*, enabled=True, scm_stopped=False, hostnames_disabled=False,
+                 scm_default="Allow", include_config=True):
+        site = {"id": site_id, "properties": {
+            "defaultHostName": "app.azurewebsites.net", "publicNetworkAccess": "Enabled",
+            "enabledHostNames": ["app.azurewebsites.net", "app.scm.azurewebsites.net"],
+            "enabled": enabled, "scmSiteAlsoStopped": scm_stopped,
+            "hostNamesDisabled": hostnames_disabled}}
+        collections = [{"type": "app_service", "scope": SCOPE, "service": "web",
+                        "status": "collected", "items": [site]}]
+        if include_config:
+            config = {"id": site_id + "/config/web", "parent_id": site_id, "properties": {
+                "ipSecurityRestrictions": [], "ipSecurityRestrictionsDefaultAction": "Allow",
+                "scmIpSecurityRestrictionsUseMain": False,
+                "scmIpSecurityRestrictions": [],
+                "scmIpSecurityRestrictionsDefaultAction": scm_default}}
+            collections.append({"type": "app_service_config", "scope": SCOPE, "service": "web",
+                                "status": "collected", "items": [config]})
+        snap = make_snapshot("azure", [SCOPE], collections)
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "app_service")
+
+    stopped = decision(enabled=False, scm_stopped=True, include_config=False)
+    assert stopped.verdict() == "PASS" and stopped.blocked_by == "site_state"
+    scm_only = decision(enabled=False)
+    assert scm_only.verdict() == "FAIL" and scm_only.addresses == ["app.scm.azurewebsites.net"]
+    hostname_gate = decision(hostnames_disabled=True)
+    assert hostname_gate.verdict() == "UNKNOWN" and hostname_gate.addresses == []
+    assert decision(hostnames_disabled=True, scm_default="Deny").verdict() == "PASS"
+
+
 def test_app_service_slot_uses_its_own_cached_configuration():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     slot_id = site_id + "/slots/staging"
