@@ -7340,8 +7340,14 @@ def _observed(assessment, status):
         if assessment.resource["type"] == "transit_gateway_attachment":
             if status == "FAIL":
                 return ("A local VPC route and associated Transit Gateway route select a foreign VPC attachment owned by "
-                        + assessment.external_ids[0] + ". Return routing and endpoint access remain unverified.")
-            return "The route from a local VPC to the foreign Transit Gateway attachment is unresolved."
+                        + assessment.external_ids[0] + ".\n"
+                        "Those routes may carry traffic to that VPC if its return route and filters allow it.\n"
+                        "The return route and endpoint rules are not recorded for this attachment.\n"
+                        "Traffic across the connection could expose data in connected resources.")
+            return ("The local VPC or Transit Gateway route to the foreign attachment is incomplete.\n"
+                    "A usable path to the attached VPC cannot be resolved from those records.\n"
+                    "Traffic may cross the connection if the missing routes and endpoint rules allow it.\n"
+                    "That could expose data in connected resources.")
         if status == "FAIL":
             return ("An active VPC peering connection has a local route to account "
                     + assessment.external_ids[0] + ".\n"
@@ -7494,8 +7500,12 @@ def _observed(assessment, status):
     if assessment.kind == "external_share":
         principals = ", ".join(assessment.external_ids)
         if assessment.resource["type"] == "ec2_image":
-            return f"AMI launch access is granted to external principals: {principals}."
-        return f"Snapshot restore access is granted to external accounts: {principals}."
+            return (f"The AMI launch permission names external principals: {principals}.\n"
+                    "Those principals may launch an instance from this image if their other permissions allow it.\n"
+                    "A launched image could expose files or data stored in the AMI.")
+        return (f"The snapshot restore permission names external accounts: {principals}.\n"
+                "Those accounts may restore the snapshot if their other permissions allow it.\n"
+                "A restored snapshot could expose files or data stored in the image.")
     if assessment.data_exposure:
         if assessment.resource["type"] == "ec2_image":
             return "AMI launch access is granted to everyone."

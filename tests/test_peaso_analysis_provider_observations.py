@@ -46,6 +46,7 @@ def test_every_supported_analysis_variant_uses_actual_producer_evidence(provider
     findings=analyze_findings(snapshot)
     expected={'analysis.grant_review','analysis.principal_exposure','analysis.network_review','analysis.inactive_identity','analysis.coverage','analysis.internet_exposure'}
     if provider!='k8s':expected.add('analysis.federated_trust')
+    if provider=='gcp':expected.add('analysis.gcp_public_iam')
     assert {f['check_id'] for f in findings}==expected
     for finding in findings:
         original=deepcopy(finding)
@@ -73,7 +74,7 @@ def test_no_condition_is_not_claimed_as_a_validated_cel_restriction():
     collection=next(c for c in snap['collections'] if c['type']=='workload_identity_provider')
     collection['items'][0]['attributeCondition']="assertion.repository_owner == 'acme'"
     found=next(f for f in analyze_findings(snap) if f['check_id']=='analysis.federated_trust')
-    assert found['status']=='PASS'
+    assert found['status']=='MANUAL'
     assert evidence_summary(found)=='The workload identity provider declares an attribute condition to limit token exchange; its CEL logic and effective IAM access still need review.'
 
 
@@ -142,7 +143,9 @@ def test_raw_observed_code_cannot_create_an_internet_path_claim():
     assert explain({'check_id':'analysis.internet_exposure','provider':'aws','status':'FAIL','evidence':{'observed':'000000'}}) is None
     finding=next(f for f in analyze_findings(provider_snapshot('aws')) if f['check_id']=='analysis.internet_exposure')
     finding['evidence']['path']=[{'layer':'authorization','decision':'block'}]
-    assert explain(finding) is None
+    explanation = explain(finding)
+    assert explanation is not None and 'cannot be resolved' in explanation
+    assert 'configured to accept internet traffic' not in explanation
 
 
 def test_gcp_aws_federation_names_the_native_account_and_keeps_exchange_limits():

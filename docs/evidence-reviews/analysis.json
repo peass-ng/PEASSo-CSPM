@@ -158,8 +158,8 @@
       "native_snapshot_test": "tests/test_peaso_analysis_provider_observations.py",
       "examples": [
         {
-          "status": "FAIL",
-          "example": "The API endpoint at https://a.execute-api.us-east-1.amazonaws.com is configured to accept internet traffic on tcp/443. This can admit internet callers; no connection was attempted.",
+          "status": "UNKNOWN",
+          "example": "The API endpoint cannot be resolved; inventory evidence is incomplete. Missing path layers prevent a public-reachability conclusion.",
           "evidence_keys": [
             "authenticated_endpoint",
             "blocked_by",
@@ -302,7 +302,7 @@
       "examples": [
         {
           "status": "UNKNOWN",
-          "example": "The scan lacks complete inventory for backend service health and firewall policy and 8 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed.",
+          "example": "The scan lacks complete inventory for backend service health and firewall policy and 11 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed.",
           "evidence_keys": [
             "gaps",
             "risk_state"
@@ -321,7 +321,7 @@
       "native_snapshot_test": "tests/test_peaso_analysis_provider_observations.py",
       "examples": [
         {
-          "status": "FAIL",
+          "status": "MANUAL",
           "example": "Issuer https://token.actions.githubusercontent.com has no attribute condition, so its token holders may exchange tokens. IAM grants and provider-side claims still affect access.",
           "evidence_keys": [
             "attribute_condition",
@@ -477,7 +477,7 @@
       "examples": [
         {
           "status": "UNKNOWN",
-          "example": "The scan lacks complete inventory for container group and directory applications and 12 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed.",
+          "example": "The scan lacks complete inventory for container group and directory applications and 13 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed.",
           "evidence_keys": [
             "gaps",
             "risk_state"

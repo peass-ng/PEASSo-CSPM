@@ -3397,5 +3397,8 @@ def test_data_shares_keep_risk_and_have_share_specific_actions():
                     "DBSnapshotAttributes": [{"AttributeName": "restore", "AttributeValues": ["999988887777"]}]}}}
     result = one(aws(coll("rds_snapshot", [snapshot], service="rds")), "rds_snapshot")
     assert result["severity"] == "high"
-    assert result["evidence"]["observed"] == "Snapshot restore access is granted to external accounts: 999988887777."
+    observed = result["evidence"]["observed"].splitlines()
+    assert len(observed) == 3
+    assert observed[0] == "The snapshot restore permission names external accounts: 999988887777."
+    assert "may restore" in observed[1] and "could expose" in observed[2]
     assert result["remediation"] == "Restrict snapshot restore access to the accounts that need it."
