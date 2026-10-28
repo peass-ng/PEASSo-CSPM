@@ -6431,6 +6431,18 @@ def _azure_api_management(snapshot, inventory, resource):
 def _azure_redis(snapshot, inventory, resource):
     props = resource["data"].get("properties") or {}
     a = Assessment(resource, "database")
+    subnet_id = props.get("subnetId")
+    if isinstance(subnet_id, str) and re.search(r"/subnets/[^/]+$", subnet_id, re.IGNORECASE):
+        # Premium VNet injection assigns a private address to the cache. The
+        # publicNetworkAccess flag describes the separate Private Link mode;
+        # it cannot make an injected cache directly internet addressable.
+        a.step("network", "block", reason="VNet-injected Redis has no public listener",
+               subnet_id=subnet_id)
+        a.ports = {}
+        return a
+    if subnet_id is not None:
+        a.gap("inventory", "Redis subnetId is malformed; VNet injection cannot be established")
+        return a
     access = props.get("publicNetworkAccess")
     if access == "Disabled":
         a.step("public_network_access", "block", value=access)
@@ -6439,8 +6451,6 @@ def _azure_redis(snapshot, inventory, resource):
     if access != "Enabled":
         a.gap("inventory", "Redis public network access state is not explicit")
         return a
-    if props.get("subnetId"):
-        a.gap("nsg", "VNet-injected Redis subnet path is not resolved")
     hostname = props.get("hostName")
     if isinstance(hostname, str) and hostname:
         a.addresses.append(hostname)
