@@ -8598,16 +8598,19 @@ def gcp_default_object_acl_findings(snapshot, resources):
                         and len({rule["enforce"] for rule in rules}) <= 1):
                     prevention = "enforced" if rules and rules[0]["enforce"] else "not_enforced"
         blocked = prevention == "enforced"
+        unresolved_prevention = prevention not in ("enforced", "not_enforced")
+        definite = not blocked and not unresolved_prevention
         evidence = {"observed": "The bucket's default object ACL contains a public grant for future uploads.",
                     "bucket": data.get("bucket"), "principal": data["entity"], "role": data["role"],
                     "source": source(snapshot, resource, "entity"),
-                    "risk_state": "unknown" if blocked else "observed_configuration",
+                    "risk_state": "observed_configuration" if definite else "unknown",
                     "public_access_prevention": prevention,
                     "semantics": "Future object ACL template only; bucket-level public access prevention currently overrides this grant. Existing object access is assessed separately."
-                    if blocked else "Future object ACL template only; existing object access and effective public access prevention are assessed separately."}
+                    if blocked else "Future object ACL template only; effective public access prevention is unresolved. Existing object access is assessed separately."
+                    if unresolved_prevention else "Future object ACL template only; effective public access prevention is not enforced. Existing object access is assessed separately."}
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_public_default_object_acl",
-                              "Public default object ACL", "info" if blocked else "high", evidence,
-                              status="UNKNOWN" if blocked else "FAIL"))
+                              "Public default object ACL", "high" if definite else "info", evidence,
+                              status="FAIL" if definite else "UNKNOWN"))
     return output
 
 

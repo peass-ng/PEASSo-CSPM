@@ -214,7 +214,7 @@ def test_default_object_acl_future_upload_public_grant(mode,public,monkeypatch):
     findings=[f for f in report['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
     assert (len(findings)==1)==public
     if public:
-        assert findings[0]['status']=='FAIL'
+        assert findings[0]['status']=='UNKNOWN'
         assert findings[0]['evidence']['semantics'].startswith('Future object ACL template')
         collection(snap,'bucket',SCOPE)['items'][0]['iamConfiguration']['publicAccessPrevention']='enforced'
         snap.pop('snapshot_id',None)
@@ -228,6 +228,9 @@ def test_default_object_acl_future_upload_public_grant(mode,public,monkeypatch):
                                               'spec':{'rules':[{'enforce':True}]}}]})
         inherited=[f for f in analyze(snap)['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
         assert len(inherited)==1 and inherited[0]['status']=='UNKNOWN'
+        snap['collections'][-1]['items'][0]['spec']['rules'][0]['enforce']=False
+        allowed=[f for f in analyze(snap)['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
+        assert len(allowed)==1 and allowed[0]['status']=='FAIL'
     else:
         third_party=[f for f in report['findings'] if f['check_id']=='analysis.principal_exposure'
                      and f['status']=='FAIL']
