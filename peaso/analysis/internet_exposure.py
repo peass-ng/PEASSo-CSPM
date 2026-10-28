@@ -2428,12 +2428,15 @@ def _gcp_bucket(snapshot, inventory, resource):
     # The collector attaches these only after complete native ACL reads and
     # verifies that uniform bucket-level access is disabled.
     acl = []
+    acl_unresolved = []
     if (data.get("iamConfiguration") or {}).get("uniformBucketLevelAccess", {}).get("enabled") is False:
         for field in ("bucketAccessControls", "objectAccessControls"):
             envelope = data.get(field)
             if not isinstance(envelope, dict) or envelope.get("status") != "collected" or envelope.get("all_pages") is not True:
+                acl_unresolved.append(field + " inventory incomplete")
                 continue
             if field == "objectAccessControls" and (envelope.get("all_objects") is not True or envelope.get("all_versions") is not True):
+                acl_unresolved.append("objectAccessControls object or version inventory incomplete")
                 continue
             for row in as_list(envelope.get("items")):
                 roles = ("READER", "OWNER", "WRITER") if field == "bucketAccessControls" else ("READER", "OWNER")
@@ -2477,7 +2480,7 @@ def _gcp_bucket(snapshot, inventory, resource):
                     folder_public.append(grant)
                 elif permissions is None:
                     folder_unresolved.append({**grant, "reason": "managed folder role permissions unavailable"})
-    if not public and not acl and not conditional and not effective_public and not unresolved_roles and not folder_public and not folder_unresolved:
+    if not public and not acl and not conditional and not effective_public and not unresolved_roles and not folder_public and not folder_unresolved and not acl_unresolved:
         return None
     a = Assessment(resource, "data_share")
     prevention = (data.get("iamConfiguration") or {}).get("publicAccessPrevention")
@@ -2516,12 +2519,12 @@ def _gcp_bucket(snapshot, inventory, resource):
         a.gap("policy", "bucket IP filter mode is not recognized")
         a.explicit = "UNKNOWN"
     a.step("policy", "allow" if public or acl or effective_public or folder_public else "unknown", bindings=public, acl=acl,
-           conditional=conditional, unresolved_roles=unresolved_roles,
+           acl_unresolved=acl_unresolved, conditional=conditional, unresolved_roles=unresolved_roles,
            effective_public=effective_public, managed_folder_grants=folder_public,
            managed_folder_unresolved=folder_unresolved, public_access_prevention=prevention)
     if (not public and not acl and not effective_public and not folder_public) or prevention == "inherited":
         a.explicit = "UNKNOWN"
-        a.gap("policy", "conditional or unresolved public IAM role, or inherited public access prevention, requires effective-policy evaluation")
+        a.gap("policy", "conditional or unresolved public IAM/ACL evidence, or inherited public access prevention, requires effective-policy evaluation")
     a.data_exposure = True
     a.addresses = [f"https://storage.googleapis.com/{data.get('name', native_id(resource))}"]
     return a
@@ -6096,7 +6099,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",

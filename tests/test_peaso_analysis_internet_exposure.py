@@ -1714,6 +1714,11 @@ def test_gcp_bigquery_legacy_acl_enters_principal_exposure_review():
 
 
 def test_gcp_collected_bucket_acl_public_read_and_pap():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    assert {"bucket_acl", "object_acl"} <= set(GCP_TYPES)
+    assert {"bucket_acl", "object_acl"} <= set(plan_collection({
+        "connector": {"provider": "gcp"}, "categories": ["exposure"]}))
     bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False}},
               "iamPolicy": {"bindings": []},
               "objectAccessControls": {"status": "collected", "all_pages": True, "all_objects": True, "all_versions": True,
@@ -1727,12 +1732,25 @@ def test_gcp_collected_bucket_acl_public_read_and_pap():
     assert one(gcp(gcoll("bucket", [inherited], service="storage")), "bucket")["status"] == "UNKNOWN"
     incomplete = copy.deepcopy(bucket)
     incomplete["objectAccessControls"]["all_objects"] = False
-    assert not exposure(gcp(gcoll("bucket", [incomplete], service="storage")))
+    assert one(gcp(gcoll("bucket", [incomplete], service="storage")), "bucket")["status"] == "UNKNOWN"
     rows = analyze(gcp(gcoll("bucket", [bucket], service="storage")))["findings"]
     assert any(row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL"
                for row in rows)
     rows = analyze(gcp(gcoll("bucket", [incomplete], service="storage")))["findings"]
-    assert not any(row["check_id"] == "analysis.principal_exposure" for row in rows)
+    assert not any(row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL" for row in rows)
+
+
+def test_gcp_nonuniform_bucket_missing_acl_inventory_is_unknown():
+    bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False},
+              "publicAccessPrevention": "not_enforced"}, "iamPolicy": {"bindings": []}}
+    result = one(gcp(gcoll("bucket", [bucket], service="storage")), "bucket")
+    assert result["status"] == "UNKNOWN"
+    assert "bucketAccessControls inventory incomplete" in str(result["evidence"])
+    assert "objectAccessControls inventory incomplete" in str(result["evidence"])
+    bucket["bucketAccessControls"] = {"status": "collected", "all_pages": True, "items": []}
+    bucket["objectAccessControls"] = {"status": "collected", "all_pages": True,
+                                       "all_objects": True, "all_versions": True, "items": []}
+    assert not exposure(gcp(gcoll("bucket", [bucket], service="storage")))
 
 
 def test_gcp_bucket_inherited_public_grant_and_effective_pap():
