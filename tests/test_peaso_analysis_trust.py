@@ -236,6 +236,22 @@ def test_gcp_public_binding_fails_and_project_sa_is_trusted():
     assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["other"]
 
 
+def test_gcp_conditional_public_and_external_grants_need_review():
+    condition = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [
+        "allUsers", "serviceAccount:sa@other.iam.gserviceaccount.com"], "condition": condition}]}
+    snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")],
+                             created_at="2026-10-10T00:00:00+00:00")
+    result = principal(snapshot)
+    assert result["status"] == "MANUAL"
+    assert {row["reason"] for row in result["evidence"]["principals"]} == {
+        "public_conditional", "external_conditional"}
+    policy["bindings"][0].pop("condition")
+    snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")],
+                             created_at="2026-10-10T00:00:00+00:00")
+    assert principal(snapshot)["status"] == "FAIL"
+
+
 def test_gcp_member_forms_attribute_to_scanned_projects_and_org_domain():
     project = {"projectId": "p1", "projectNumber": "123", "name": "projects/123"}
     org = {"name": "organizations/9", "displayName": "example.com"}
