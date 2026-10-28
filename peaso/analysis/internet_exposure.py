@@ -5389,9 +5389,33 @@ def _azure_compute_gallery(snapshot, inventory, resource):
         a.notes.append("Gallery policy permits community sharing; published image versions are not inventoried here.")
     elif permission == "Groups":
         groups = profile.get("groups")
-        a.gap("authorization", "gallery direct-sharing recipient ownership and published image versions are unresolved")
-        if isinstance(groups, list):
-            a.external_ids = [str(group.get("ids")) for group in groups if isinstance(group, dict) and group.get("ids")]
+        owner = str(resource.get("scope", "")).lower().removeprefix("/subscriptions/")
+        if not owner or not isinstance(groups, list):
+            a.gap("authorization", "gallery direct-sharing recipient list or owner subscription is unavailable")
+            return a
+        other_subscriptions, tenant_recipients, malformed = [], [], False
+        for group in groups:
+            ids = group.get("ids") if isinstance(group, dict) else None
+            group_type = group.get("type") if isinstance(group, dict) else None
+            if group_type not in ("Subscriptions", "AADTenants") or not isinstance(ids, list) or any(
+                    not isinstance(value, str) or not value.strip() for value in ids):
+                malformed = True
+                continue
+            if group_type == "Subscriptions":
+                other_subscriptions.extend(value for value in ids if value.lower() != owner)
+            else:
+                tenant_recipients.extend(ids)
+        a.external_ids = sorted(set(other_subscriptions + tenant_recipients))
+        if other_subscriptions:
+            a.step("sharing_policy", "allow", permission=permission,
+                   recipient_subscriptions=sorted(set(other_subscriptions)))
+            a.explicit = "FAIL"
+            a.notes.append("Direct sharing targets other subscriptions; published image versions are not inventoried here.")
+        elif tenant_recipients or malformed:
+            a.gap("authorization", "gallery tenant recipient ownership or malformed sharing group is unresolved")
+        else:
+            a.step("sharing_policy", "block", reason="no other subscription or tenant recipient")
+            a.ports = {}
     else:
         a.gap("policy", "Compute Gallery sharing permission is absent or unrecognized")
     return a
