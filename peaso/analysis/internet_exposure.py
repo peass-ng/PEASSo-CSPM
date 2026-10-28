@@ -6098,6 +6098,9 @@ def _azure_public_edge(snapshot, inventory, resource):
     if data.get("sku", {}).get("name") in ("Standard_AzureFrontDoor", "Premium_AzureFrontDoor"):
         policies = data.get("securityPolicies")
         if policies:
+            policy_coverage = (data.get("_coverage") or {}).get("securityPolicies") or {}
+            if policy_coverage.get("status") not in ("collected", "empty"):
+                a.gap("policy", "edge security policy LIST is incomplete")
             passive = []
             for policy in policies:
                 params = (policy.get("properties") or {}).get("parameters") if isinstance(policy, dict) else None
@@ -6110,7 +6113,7 @@ def _azure_public_edge(snapshot, inventory, resource):
                                     "enabled_state": settings.get("enabledState"), "mode": settings.get("mode")})
                 else:
                     a.gap("policy", "edge security policy may filter the listener")
-            if len(passive) == len(policies):
+            if len(passive) == len(policies) and policy_coverage.get("status") in ("collected", "empty"):
                 a.step("waf", "allow", passive_policies=passive,
                        reason="all referenced WAF policies are disabled or in Detection mode")
     if (data.get("properties") or {}).get("webApplicationFirewallPolicyLink"):

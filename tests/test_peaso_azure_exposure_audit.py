@@ -1541,7 +1541,8 @@ def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
             "securityPolicies": [{"id": profile + "/securityPolicies/waf",
                 "properties": {"parameters": {"type": "WebApplicationFirewall",
                     "wafPolicy": {"id": waf_id}}}}],
-            "_coverage": {"effectiveRoutes": {"status": "collected"}}}
+            "_coverage": {"effectiveRoutes": {"status": "collected"},
+                          "securityPolicies": {"status": "collected"}}}
 
     def decision(mode=None, enabled=None, include=True):
         collections = [{"type": "frontdoor_and_cdn_endpoint", "scope": SCOPE,
@@ -1562,6 +1563,8 @@ def test_frontdoor_detection_or_disabled_waf_does_not_block_redirect_listener():
     assert decision(mode="Prevention", enabled="Disabled").verdict() == "FAIL"
     assert decision(mode="Prevention", enabled="Enabled").verdict() == "UNKNOWN"
     assert decision(include=False).verdict() == "UNKNOWN"
+    edge["_coverage"]["securityPolicies"] = {"status": "partial"}
+    assert decision(mode="Detection", enabled="Enabled").verdict() == "UNKNOWN"
 
 
 def test_api_management_public_gateway_and_network_gates():
