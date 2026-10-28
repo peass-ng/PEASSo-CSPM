@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 
 from .aws_b_services import _metadata
@@ -20,6 +21,9 @@ SPECS = {
     "athena_workgroup": ("athena", "list_work_groups", "WorkGroups"),
     "athena_session": ("athena", "list_sessions", "Sessions"),
     "backup_recovery_point": ("backup", "list_recovery_points_by_backup_vault", "RecoveryPoints"),
+    "backup_copy_job": ("backup", "list_copy_jobs", "CopyJobs"),
+    "redshift_datashare": ("redshift", "describe_data_shares_for_producer", "DataShares"),
+    "workspaces_image": ("workspaces", "describe_workspace_images", "Images"),
     "datasync_task": ("datasync", "list_tasks", "Tasks"),
     "dax_cluster": ("dax", "describe_clusters", "Clusters"),
     "dlm_lifecycle_policy": ("dlm", "get_lifecycle_policies", "Policies"),
@@ -59,7 +63,7 @@ SPECS = {
     "codeartifact_repository": ("codeartifact", "list_repositories", "repositories"),
 }
 NATIVE_IDS = {
-    "athena_workgroup": "Name", "athena_session": "SessionId", "backup_recovery_point": "RecoveryPointArn", "datasync_task": "TaskArn", "dax_cluster": "ClusterArn",
+    "athena_workgroup": "Name", "athena_session": "SessionId", "backup_recovery_point": "RecoveryPointArn", "backup_copy_job": "CopyJobId", "redshift_datashare": "DataShareArn", "workspaces_image": "ImageId", "datasync_task": "TaskArn", "dax_cluster": "ClusterArn",
     "dlm_lifecycle_policy": "PolicyId", "dms_endpoint": "EndpointArn", "dms_replication_task": "ReplicationTaskArn", "dms_certificate": "CertificateArn",
     "drs_job": "jobID", "drs_source_server": "sourceServerID", "appautoscaling_target": "ScalableTargetARN", "elasticache_subnet_group": "ARN", "efs_access_point": "AccessPointArn",
     "efs_mount_target": "MountTargetId", "emr_security_configuration": "Name", "emr_block_public_access_configuration": "id",
@@ -75,6 +79,7 @@ READ_ACTIONS = {(service, operation) for service, operation, expression in SPECS
 READ_ACTIONS.update({
     ("athena", "get_work_group"), ("athena", "list_work_groups"), ("athena", "get_session"),
     ("backup", "list_backup_vaults"), ("backup", "get_backup_vault_access_policy"),
+    ("workspaces", "describe_workspace_image_permissions"),
     ("dynamodb", "get_resource_policy"), ("dynamodb", "list_tags_of_resource"),
     ("efs", "describe_file_systems"), ("efs", "describe_backup_policy"), ("efs", "describe_file_system_policy"),
     ("efs", "describe_mount_target_security_groups"),
@@ -219,6 +224,47 @@ def _recovery_points(requests, session, region, account):
             items.append(_pick(row, ["RecoveryPointArn", "BackupVaultName", "BackupVaultArn", "ResourceArn", "ResourceType", "IsEncrypted",
                 "EncryptionKeyArn", "Lifecycle", "CalculatedLifecycle", "Status", "CreationDate", "VaultType"]))
     return _result(items, failures)
+
+
+def _copy_jobs(requests, session, region, account):
+    read = requests.pages(session, "backup", region, "list_copy_jobs", "CopyJobs",
+                          _tokens=("NextToken", "NextToken"))
+    read.items = [_pick(row, ["CopyJobId", "AccountId", "State", "SourceBackupVaultArn",
+                              "SourceRecoveryPointArn", "DestinationBackupVaultArn",
+                              "DestinationRecoveryPointArn", "CompletionDate", "IsParent"])
+                  for row in read.items]
+    return read
+
+
+def _redshift_datashares(requests, session, region, account):
+    read = requests.pages(session, "redshift", region, "describe_data_shares_for_producer", "DataShares",
+                          _tokens=("Marker", "Marker"))
+    read.items = [_pick(row, ["DataShareArn", "ProducerArn", "ManagedBy", "AllowPubliclyAccessibleConsumers",
+                              ("DataShareAssociations", ["ConsumerIdentifier", "ConsumerRegion", "Status",
+                                                         "ProducerAllowedWrites", "ConsumerAcceptedWrites"])])
+                  for row in read.items]
+    return read
+
+
+def _workspaces_images(requests, session, region, account):
+    read = requests.pages(session, "workspaces", region, "describe_workspace_images", "Images",
+                          ImageType="OWNED", _tokens=("NextToken", "NextToken"))
+    if read.status not in ("collected", "empty") and not read.items:
+        return _aws().ReadResult([], read.status, read.error)
+    rows, failures = [], [] if read.status in ("collected", "empty") else [(read.status, read.error)]
+    for item in read.items:
+        image = _pick(item, ["ImageId", "OwnerAccountId", "State", "RequiredTenancy"])
+        image_id = image.get("ImageId") if isinstance(image, dict) else None
+        if (not isinstance(image_id, str) or not re.fullmatch(r"wsi-[0-9a-z]{9,63}", image_id) or
+                image.get("OwnerAccountId") != account):
+            failures.append(("malformed", {"code": "unattributed_workspace_image"}))
+            continue
+        permissions = requests.pages(session, "workspaces", region, "describe_workspace_image_permissions",
+                                     "ImagePermissions", ImageId=image_id, _tokens=("NextToken", "NextToken"))
+        image["SharedPermissions"] = _list(permissions, ["SharedAccountId"])
+        image["SharedPermissions"]["ImageId"] = image_id
+        rows.append(image)
+    return _result(rows, failures)
 
 
 def _drs_jobs(requests, session, region, account):
@@ -372,6 +418,9 @@ FETCHERS = {
     "athena_workgroup": _paged("athena", "list_work_groups", "WorkGroups", ("NextToken", "NextToken")),
     "athena_session": _athena_sessions,
     "backup_recovery_point": _recovery_points,
+    "backup_copy_job": _copy_jobs,
+    "redshift_datashare": _redshift_datashares,
+    "workspaces_image": _workspaces_images,
     "drs_job": _drs_jobs,
     "drs_source_server": _drs_source_servers,
     "appautoscaling_target": _scalable_targets,

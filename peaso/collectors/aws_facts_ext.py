@@ -35,11 +35,15 @@ mean absence.
 from __future__ import annotations
 
 import copy
+from datetime import datetime
+import hashlib
+import json
 import re
 
 OK = ("collected", "empty")
 
 SPECS = {
+    "transit_gateway_peering_attachment": ("ec2", "describe_transit_gateway_peering_attachments", "TransitGatewayPeeringAttachments"),
     "lambda_layer_version": ("lambda", "list_layers", "Layers"),
     "lambda_version": ("lambda", "list_versions_by_function", "Versions"),
     "redshiftserverless_snapshot": ("redshift-serverless", "list_snapshots", "snapshots"),
@@ -59,6 +63,7 @@ SPECS = {
     "ec2_instance_connect_endpoint": ("ec2", "describe_instance_connect_endpoints", "InstanceConnectEndpoints"),
     "rolesanywhere_profile": ("rolesanywhere", "list_profiles", "profiles"),
     "imagebuilder_pipeline": ("imagebuilder", "list_image_pipelines", "imagePipelineList"),
+    "imagebuilder_distribution": ("imagebuilder", "list_distribution_configurations", "distributionConfigurationSummaryList"),
     "sagemaker_user_profile": ("sagemaker", "list_user_profiles", "UserProfiles"),
     "sagemaker_space": ("sagemaker", "list_spaces", "Spaces"),
     "sagemaker_cluster": ("sagemaker", "list_clusters", "ClusterSummaries"),
@@ -72,10 +77,31 @@ SPECS = {
     "supplychain_instance": ("supplychain", "list_instances", "instances"),
     "amplify_app": ("amplify", "list_apps", "apps"),
     "aws_identity_center_account_assignment": ("sso-admin", "list_account_assignments", "AccountAssignments"),
+    "cloud9_environment_share": ("cloud9", "list_environments", "environmentIds"),
+    "omics_resource_share": ("omics", "list_shares", "shares"),
+    "wellarchitected_workload_share": ("wellarchitected", "list_workloads", "WorkloadSummaries"),
+    "wellarchitected_lens_share": ("wellarchitected", "list_lenses", "LensSummaries"),
+    "wellarchitected_profile_share": ("wellarchitected", "list_profiles", "ProfileSummaries"),
+    "wellarchitected_template_share": ("wellarchitected", "list_review_templates", "ReviewTemplates"),
+    "ec2_fpga_image": ("ec2", "describe_fpga_images", "FpgaImages"),
+    "ds_directory_share": ("ds", "describe_directories", "DirectoryDescriptions"),
+    "auditmanager_framework_share": ("auditmanager", "list_assessment_framework_share_requests", "assessmentFrameworkShareRequests"),
+    "workdocs_document_share": ("workdocs", "describe_users", "Users"),
+    "cleanrooms_table_share": ("cleanrooms", "list_memberships", "membershipSummaries"),
+    "dataexchange_data_grant": ("dataexchange", "list_data_grants", "DataGrantSummaries"),
+    "quicksight_public_dashboard": ("quicksight", "list_dashboards", "DashboardSummaryList"),
+    "license_manager_distributed_grant": ("license-manager", "list_distributed_grants", "Grants"),
+    "lakeformation_table_grant": ("lakeformation", "list_permissions", "PrincipalResourcePermissions"),
+    "lakeformation_tag_policy_grant": ("lakeformation", "list_permissions", "PrincipalResourcePermissions"),
+    "securitylake_subscriber_share": ("securitylake", "list_subscribers", "subscribers"),
+    "s3_access_grant_share": ("s3control", "list_access_grants", "AccessGrantsList"),
+    "workspaces_connection_alias_share": ("workspaces", "describe_connection_aliases", "ConnectionAliases"),
 }
 NATIVE_IDS = {kind: "id" for kind in SPECS}
 GLOBAL_TYPES = {"route53_record_set"}
 READ_ACTIONS = {
+    ("ec2", "describe_client_vpn_authorization_rules"),
+    ("ec2", "describe_transit_gateway_peering_attachments"),
     ("lambda", "list_functions"), ("lambda", "list_layer_versions"), ("lambda", "list_versions_by_function"), ("lambda", "get_layer_version_policy"),
     ("lambda", "get_function_url_config"), ("lambda", "get_policy"),
     ("lambda", "get_function_configuration"), ("lambda", "get_runtime_management_config"),
@@ -93,6 +119,7 @@ READ_ACTIONS = {
     ("cloudformation", "list_stack_sets"),
     ("cloudformation", "describe_organizations_access"),
     ("imagebuilder", "list_infrastructure_configurations"), ("imagebuilder", "get_image_recipe"),
+    ("imagebuilder", "get_distribution_configuration"),
     ("sagemaker", "describe_user_profile"), ("sagemaker", "describe_cluster"), ("sagemaker", "describe_domain"),
     ("sagemaker", "describe_space"),
     ("amplify", "list_backend_environments"), ("amplify", "list_branches"), ("amplify", "list_domain_associations"),
@@ -103,6 +130,28 @@ READ_ACTIONS = {
     ("iot", "describe_role_alias"),
     ("sso-admin", "list_instances"), ("sso-admin", "list_permission_sets"),
     ("sso-admin", "list_accounts_for_provisioned_permission_set"), ("identitystore", "list_groups"),
+    ("cloud9", "list_environments"), ("cloud9", "describe_environments"),
+    ("cloud9", "describe_environment_memberships"),
+    ("omics", "list_shares"),
+    ("wellarchitected", "list_workloads"), ("wellarchitected", "list_workload_shares"),
+    ("wellarchitected", "list_lenses"), ("wellarchitected", "list_lens_shares"),
+    ("wellarchitected", "list_profiles"), ("wellarchitected", "list_profile_shares"),
+    ("wellarchitected", "list_review_templates"), ("wellarchitected", "list_template_shares"),
+    ("ec2", "describe_fpga_images"), ("ec2", "describe_fpga_image_attribute"),
+    ("ds", "describe_directories"), ("ds", "describe_shared_directories"),
+    ("auditmanager", "list_assessment_framework_share_requests"),
+    ("workdocs", "describe_users"), ("workdocs", "describe_folder_contents"),
+    ("workdocs", "describe_resource_permissions"),
+    ("cleanrooms", "list_memberships"), ("cleanrooms", "list_members"),
+    ("cleanrooms", "list_configured_table_associations"),
+    ("dataexchange", "list_data_grants"),
+    ("quicksight", "list_dashboards"), ("quicksight", "describe_dashboard_permissions"),
+    ("quicksight", "describe_account_settings"),
+    ("license-manager", "list_distributed_grants"),
+    ("lakeformation", "list_permissions"),
+    ("securitylake", "list_subscribers"),
+    ("s3control", "list_access_grants"),
+    ("workspaces", "describe_connection_aliases"), ("workspaces", "describe_connection_alias_permissions"),
 }
 
 # Route 53 record types whose values are kept (addresses / delegation / aliasing targets).
@@ -115,6 +164,21 @@ _ESM_FIELDS = ("UUID", "EventSourceMappingArn", "EventSourceArn", "FunctionArn",
 def _aws():
     from . import aws
     return aws
+
+
+def _transit_gateway_system_routes(requests, session, region, items):
+    """Read the system route class omitted by the pinned static/propagated searches."""
+    for item in items:
+        table_id = item.get("TransitGatewayRouteTableId") if isinstance(item, dict) else None
+        if not isinstance(table_id, str) or not table_id:
+            continue
+        read = requests.pages(session, "ec2", region, "search_transit_gateway_routes", "Routes",
+                              TransitGatewayRouteTableId=table_id,
+                              Filters=[{"Name": "type", "Values": ["system"]}])
+        item["SystemRouteInventory"] = {"collection_status": read.status, "items": read.items,
+                                        "queries": ["type=system"],
+                                        **({"error": read.error} if read.error else {})}
+    return items
 
 
 def _iot_role_aliases(requests, session, region, account):
@@ -336,17 +400,40 @@ def _client_vpn_routing(requests, session, region, account):
             continue
         routes = requests.pages(session, "ec2", region, "describe_client_vpn_routes", "Routes", ClientVpnEndpointId=eid)
         targets = requests.pages(session, "ec2", region, "describe_client_vpn_target_networks", "ClientVpnTargetNetworks", ClientVpnEndpointId=eid)
+        rules = requests.pages(session, "ec2", region, "describe_client_vpn_authorization_rules", "AuthorizationRules", ClientVpnEndpointId=eid)
         if routes.status not in OK:
             failure = failure or _cause(routes)
         if targets.status not in OK:
             failure = failure or _cause(targets)
+        if rules.status not in OK:
+            failure = failure or _cause(rules)
         rows.append({"id": eid, "ClientVpnEndpointId": eid,
             "Routes": {"ClientVpnEndpointId": eid, **_child(routes, [_pick(item, (
                 "ClientVpnEndpointId", "DestinationCidr", "TargetSubnet", "Type", "Origin", "Status", "TransitGatewayAttachmentId"))
                 for item in routes.items])},
             "TargetNetworks": {"ClientVpnEndpointId": eid, **_child(targets, [_pick(item, (
                 "AssociationId", "VpcId", "TargetNetworkId", "ClientVpnEndpointId", "Status", "SecurityGroups"))
-                for item in targets.items])}})
+                for item in targets.items])},
+            "AuthorizationRules": {"ClientVpnEndpointId": eid, **_child(rules, [_pick(item, (
+                "ClientVpnEndpointId", "Status", "AccessAll", "GroupId", "DestinationCidr"))
+                for item in rules.items])}})
+    return _finish(rows, failure)
+
+
+def _transit_gateway_peering(requests, session, region, account):
+    read = requests.pages(session, "ec2", region, "describe_transit_gateway_peering_attachments",
+                          "TransitGatewayPeeringAttachments")
+    if read.status not in OK and not read.items:
+        return _finish([], _cause(read))
+    rows, failure = [], _cause(read) if read.status not in OK else None
+    for item in read.items:
+        attachment = item.get("TransitGatewayAttachmentId") if isinstance(item, dict) else None
+        if not isinstance(attachment, str) or not re.fullmatch(r"tgw-attach-[0-9a-f]+", attachment):
+            failure = failure or ("malformed", {"code": "malformed_transit_gateway_peering_attachment"})
+            continue
+        row = _pick(item, ("TransitGatewayAttachmentId", "State", "RequesterTgwInfo", "AccepterTgwInfo"))
+        row["id"] = attachment
+        rows.append(row)
     return _finish(rows, failure)
 
 
@@ -837,6 +924,43 @@ def _image_pipelines(requests, session, region, account):
     return _finish(items, failure)
 
 
+def _image_distributions(requests, session, region, account):
+    """Keep only account selectors from Image Builder AMI distribution settings."""
+    read = requests.pages(session, "imagebuilder", region, "list_distribution_configurations",
+                          "distributionConfigurationSummaryList")
+    if read.status not in OK and not read.items:
+        return _finish([], _cause(read))
+    items, failure = [], _cause(read) if read.status not in OK else None
+    prefix = f"arn:{_partition(region)}:imagebuilder:{region}:{account}:distribution-configuration/"
+    for summary in read.items:
+        arn = summary.get("arn") if isinstance(summary, dict) else None
+        if not isinstance(arn, str) or not arn.startswith(prefix) or not arn[len(prefix):]:
+            failure = failure or ("malformed", {"code": "unattributed_image_distribution"})
+            continue
+        row = {"id": arn, "arn": arn}
+        detail = requests.detail(session, "imagebuilder", region, "get_distribution_configuration",
+                                 distributionConfigurationArn=arn)
+        status = detail.get("collection_status")
+        config = detail.get("distributionConfiguration")
+        if status != "collected":
+            row["Distribution"] = {"collection_status": status,
+                                   "error": {"code": (detail.get("error") or {}).get("code")}}
+        elif not isinstance(config, dict) or config.get("arn") != arn or not isinstance(config.get("distributions"), list):
+            row["Distribution"] = {"collection_status": "malformed"}
+        else:
+            regions = []
+            for distribution in config["distributions"]:
+                if not isinstance(distribution, dict):
+                    regions.append(None)
+                    continue
+                ami = distribution.get("amiDistributionConfiguration")
+                regions.append({"region": distribution.get("region"),
+                                "ami": _pick(ami, ("targetAccountIds", "launchPermission")) if isinstance(ami, dict) else None})
+            row["Distribution"] = {"collection_status": "collected", "arn": arn, "items": regions}
+        items.append(row)
+    return _finish(items, failure)
+
+
 def _domain_roles(requests, session, region, domain):
     response, failure = _raw(requests, session, "sagemaker", region, "describe_domain", DomainId=domain)
     if failure or not isinstance(response, dict):
@@ -1195,7 +1319,528 @@ def _account_assignments(requests, session, region, account):
     return _finish(items, failure)
 
 
+def _cloud9_environment_shares(requests, session, region, account):
+    listed = requests.pages(session, "cloud9", region, "list_environments", "environmentIds")
+    failure = _cause(listed) if listed.status not in OK else None
+    items = []
+    for environment_id in listed.items:
+        if not isinstance(environment_id, str) or not re.fullmatch(r"[A-Za-z0-9]{8,32}", environment_id):
+            failure = failure or ("malformed", {"code": "malformed_cloud9_environment_id"})
+            continue
+        detail = requests.detail(session, "cloud9", region, "describe_environments", environmentIds=[environment_id])
+        if detail.get("collection_status") != "collected":
+            failure = failure or (detail.get("collection_status", "malformed"),
+                                  {"code": (detail.get("error") or {}).get("code", "cloud9_environment_detail_incomplete")})
+            continue
+        environments = detail.get("environments")
+        if not isinstance(environments, list) or len(environments) != 1 or not isinstance(environments[0], dict):
+            failure = failure or ("malformed", {"code": "malformed_cloud9_environment_detail"})
+            continue
+        environment = environments[0]
+        arn = f"arn:{_partition(region)}:cloud9:{region}:{account}:environment:{environment_id}"
+        if environment.get("id") != environment_id:
+            failure = failure or ("malformed", {"code": "mismatched_cloud9_environment_detail"})
+            continue
+        # ListEnvironments also returns environments shared with the caller.
+        observed_arn, owner_arn = environment.get("arn"), environment.get("ownerArn")
+        observed = re.fullmatch(rf"arn:{_partition(region)}:cloud9:{region}:([0-9]{{12}}):environment:{environment_id}",
+                                observed_arn) if isinstance(observed_arn, str) else None
+        owner = re.fullmatch(rf"arn:{_partition(region)}:(?:iam|sts)::([0-9]{{12}}):"
+                             r"(?:root|(?:user|role|federated-user|assumed-role)/\S+)",
+                             owner_arn) if isinstance(owner_arn, str) else None
+        if not observed or not owner or observed.group(1) != owner.group(1):
+            failure = failure or ("malformed", {"code": "unattributed_cloud9_environment"})
+            continue
+        if observed.group(1) != account:
+            continue
+        members = requests.pages(session, "cloud9", region, "describe_environment_memberships", "memberships",
+                                 environmentId=environment_id)
+        rows = [_pick(member, ("environmentId", "permissions", "userArn")) if isinstance(member, dict) else None
+                for member in members.items]
+        row = {"id": arn, "arn": arn, "environmentId": environment_id,
+               "ownerArn": owner_arn, "Members": _child(members, rows)}
+        items.append(row)
+    return _finish(items, failure)
+
+
+def _omics_resource_shares(requests, session, region, account):
+    read = requests.pages(session, "omics", region, "list_shares", "shares", resourceOwner="SELF")
+    failure = _cause(read) if read.status not in OK else None
+    items = []
+    prefix = f"arn:{_partition(region)}:omics:{region}:{account}:"
+    for share in read.items:
+        if not isinstance(share, dict) or not isinstance(share.get("shareId"), str) or not share["shareId"]:
+            failure = failure or ("malformed", {"code": "malformed_omics_share"})
+            continue
+        arn = share.get("resourceArn")
+        if (not isinstance(arn, str) or not arn.startswith(prefix) or
+                not re.fullmatch(r"(?:variantStore|annotationStore|workflow)/[^\s/:]+", arn[len(prefix):]) or
+                share.get("ownerId") != account):
+            failure = failure or ("malformed", {"code": "unattributed_omics_share"})
+            continue
+        row = _pick(share, ("shareId", "resourceArn", "ownerId", "principalSubscriber", "status"))
+        row["id"] = f"{arn}/share/{share['shareId']}"
+        items.append(row)
+    return _finish(items, failure)
+
+
+def _wellarchitected_workload_shares(requests, session, region, account):
+    listed = requests.pages(session, "wellarchitected", region, "list_workloads", "WorkloadSummaries",
+                            _tokens=("NextToken", "NextToken"))
+    failure = _cause(listed) if listed.status not in OK else None
+    items = []
+    for workload in listed.items:
+        if not isinstance(workload, dict):
+            failure = failure or ("malformed", {"code": "malformed_wellarchitected_workload"})
+            continue
+        workload_id, owner, arn = workload.get("WorkloadId"), workload.get("Owner"), workload.get("WorkloadArn")
+        if not isinstance(workload_id, str) or not re.fullmatch(r"[0-9a-f]{32}", workload_id):
+            failure = failure or ("malformed", {"code": "malformed_wellarchitected_workload_id"})
+            continue
+        if (not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner) or
+                arn != f"arn:{_partition(region)}:wellarchitected:{region}:{owner}:workload/{workload_id}"):
+            failure = failure or ("malformed", {"code": "unattributed_wellarchitected_workload"})
+            continue
+        if owner != account:
+            continue
+        shares = requests.pages(session, "wellarchitected", region, "list_workload_shares", "WorkloadShareSummaries",
+                                _tokens=("NextToken", "NextToken"), WorkloadId=workload_id)
+        rows = [_pick(share, ("ShareId", "SharedWith", "PermissionType", "Status"))
+                if isinstance(share, dict) else None for share in shares.items]
+        items.append({"id": arn, "WorkloadArn": arn, "WorkloadId": workload_id, "Owner": owner,
+                      "Shares": {"WorkloadId": workload_id, **_child(shares, rows)}})
+    return _finish(items, failure)
+
+
+def _wellarchitected_lens_shares(requests, session, region, account):
+    listed = requests.pages(session, "wellarchitected", region, "list_lenses", "LensSummaries",
+                            _tokens=("NextToken", "NextToken"), LensType="CUSTOM_SELF", LensStatus="ALL")
+    failure = _cause(listed) if listed.status not in OK else None
+    items = []
+    prefix = f"arn:{_partition(region)}:wellarchitected:{region}:{account}:lens/"
+    for lens in listed.items:
+        if not isinstance(lens, dict) or lens.get("LensType") != "CUSTOM_SELF":
+            failure = failure or ("malformed", {"code": "malformed_wellarchitected_lens"})
+            continue
+        arn = lens.get("LensArn")
+        if (not isinstance(arn, str) or not arn.startswith(prefix) or
+                not re.fullmatch(r"[0-9a-f]{32}", arn[len(prefix):]) or
+                lens.get("LensAlias") != arn or lens.get("Owner") != account):
+            failure = failure or ("malformed", {"code": "unattributed_wellarchitected_lens"})
+            continue
+        shares = requests.pages(session, "wellarchitected", region, "list_lens_shares", "LensShareSummaries",
+                                _tokens=("NextToken", "NextToken"), LensAlias=arn)
+        rows = [_pick(share, ("ShareId", "SharedWith", "Status"))
+                if isinstance(share, dict) else None for share in shares.items]
+        items.append({"id": arn, "LensArn": arn, "LensAlias": arn, "Owner": account, "LensType": "CUSTOM_SELF",
+                      "Shares": _child(shares, rows)})
+    return _finish(items, failure)
+
+
+def _wellarchitected_profile_shares(requests, session, region, account):
+    listed = requests.pages(session, "wellarchitected", region, "list_profiles", "ProfileSummaries",
+                            _tokens=("NextToken", "NextToken"), ProfileOwnerType="SELF")
+    failure = _cause(listed) if listed.status not in OK else None
+    items = []
+    prefix = f"arn:{_partition(region)}:wellarchitected:{region}:{account}:profile/"
+    for profile in listed.items:
+        arn = profile.get("ProfileArn") if isinstance(profile, dict) else None
+        if (not isinstance(arn, str) or not arn.startswith(prefix) or
+                not re.fullmatch(r"[a-z0-9]+", arn[len(prefix):]) or profile.get("Owner") != account):
+            failure = failure or ("malformed", {"code": "unattributed_wellarchitected_profile"})
+            continue
+        shares = requests.pages(session, "wellarchitected", region, "list_profile_shares", "ProfileShareSummaries",
+                                _tokens=("NextToken", "NextToken"), ProfileArn=arn)
+        rows = [_pick(share, ("ShareId", "SharedWith", "Status"))
+                if isinstance(share, dict) else None for share in shares.items]
+        items.append({"id": arn, "ProfileArn": arn, "Owner": account, "Shares": _child(shares, rows)})
+    return _finish(items, failure)
+
+
+def _wellarchitected_template_shares(requests, session, region, account):
+    listed = requests.pages(session, "wellarchitected", region, "list_review_templates", "ReviewTemplates",
+                            _tokens=("NextToken", "NextToken"))
+    failure = _cause(listed) if listed.status not in OK else None
+    items = []
+    prefix = f"arn:{_partition(region)}:wellarchitected:{region}:{account}:review-template/"
+    for template in listed.items:
+        arn = template.get("TemplateArn") if isinstance(template, dict) else None
+        if (not isinstance(arn, str) or not arn.startswith(prefix) or
+                not re.fullmatch(r"[0-9a-f]{32}", arn[len(prefix):]) or template.get("Owner") != account):
+            failure = failure or ("malformed", {"code": "unattributed_wellarchitected_template"})
+            continue
+        shares = requests.pages(session, "wellarchitected", region, "list_template_shares", "TemplateShareSummaries",
+                                _tokens=("NextToken", "NextToken"), TemplateArn=arn)
+        rows = [_pick(share, ("ShareId", "SharedWith", "Status"))
+                if isinstance(share, dict) else None for share in shares.items]
+        items.append({"id": arn, "TemplateArn": arn, "Owner": account,
+                      "Shares": {"TemplateArn": arn, **_child(shares, rows)}})
+    return _finish(items, failure)
+
+
+def _ec2_fpga_images(requests, session, region, account):
+    listed = requests.pages(session, "ec2", region, "describe_fpga_images", "FpgaImages", Owners=["self"])
+    failure = _cause(listed) if listed.status not in OK else None
+    items = []
+    for image in listed.items:
+        if not isinstance(image, dict):
+            failure = failure or ("malformed", {"code": "malformed_fpga_image"})
+            continue
+        image_id = image.get("FpgaImageId")
+        if (not isinstance(image_id, str) or not re.fullmatch(r"afi-[0-9a-f]+", image_id) or
+                image.get("OwnerId") != account):
+            failure = failure or ("malformed", {"code": "unattributed_fpga_image"})
+            continue
+        row = _pick(image, ("FpgaImageId", "OwnerId", "Public"))
+        row["State"] = _pick(image.get("State"), ("Code",))
+        row["id"] = image_id
+        detail = requests.detail(session, "ec2", region, "describe_fpga_image_attribute",
+                                 FpgaImageId=image_id, Attribute="loadPermission")
+        if detail.get("collection_status") != "collected":
+            row["LoadPermissions"] = {"collection_status": detail.get("collection_status", "unknown"),
+                                      "error": {"code": (detail.get("error") or {}).get("code")}}
+        else:
+            attribute = detail.get("FpgaImageAttribute")
+            permissions = attribute.get("LoadPermissions") if isinstance(attribute, dict) else None
+            if (not isinstance(attribute, dict) or attribute.get("FpgaImageId") != image_id or
+                    not isinstance(permissions, list)):
+                row["LoadPermissions"] = {"collection_status": "malformed"}
+            else:
+                row["LoadPermissions"] = {"collection_status": "collected", "FpgaImageId": image_id,
+                                          "items": [_pick(permission, ("UserId", "Group"))
+                                                    if isinstance(permission, dict) else None for permission in permissions]}
+        items.append(row)
+    return _finish(items, failure)
+
+
+def _ds_directory_shares(requests, session, region, account):
+    listed = requests.pages(session, "ds", region, "describe_directories", "DirectoryDescriptions",
+                            _tokens=("NextToken", "NextToken"))
+    failure = _cause(listed) if listed.status not in OK else None
+    items = []
+    for directory in listed.items:
+        if not isinstance(directory, dict) or not isinstance(directory.get("DirectoryId"), str) or not re.fullmatch(
+                r"d-[0-9a-f]{10}", directory["DirectoryId"]):
+            failure = failure or ("malformed", {"code": "malformed_directory_id"})
+            continue
+        owner = directory.get("OwnerDirectoryDescription")
+        if isinstance(owner, dict) and owner.get("AccountId") != account:
+            continue  # Directory shared into the scanned account.
+        if directory.get("Type") != "MicrosoftAD":
+            continue  # Only AWS Managed Microsoft AD supports this share API.
+        directory_id = directory["DirectoryId"]
+        shares = requests.pages(session, "ds", region, "describe_shared_directories", "SharedDirectories",
+                                _tokens=("NextToken", "NextToken"), OwnerDirectoryId=directory_id)
+        rows = [_pick(share, ("OwnerAccountId", "OwnerDirectoryId", "SharedAccountId", "SharedDirectoryId",
+                               "ShareMethod", "ShareStatus")) if isinstance(share, dict) else None
+                for share in shares.items]
+        items.append({"id": directory_id, "DirectoryId": directory_id, "Type": "MicrosoftAD",
+                      "Stage": directory.get("Stage"),
+                      "Shares": {"OwnerDirectoryId": directory_id, **_child(shares, rows)}})
+    return _finish(items, failure)
+
+
+def _auditmanager_framework_shares(requests, session, region, account):
+    read = requests.pages(session, "auditmanager", region, "list_assessment_framework_share_requests",
+                          "assessmentFrameworkShareRequests", requestType="SENT")
+    failure = _cause(read) if read.status not in OK else None
+    items = []
+    for share in read.items:
+        if not isinstance(share, dict) or not isinstance(share.get("id"), str):
+            failure = failure or ("malformed", {"code": "malformed_auditmanager_share"})
+            continue
+        items.append({"id": share["id"], **_pick(share, ("frameworkId", "sourceAccount",
+                      "destinationAccount", "destinationRegion", "status"))})
+    return _finish(items, failure)
+
+
+def _workdocs_document_shares(requests, session, region, account):
+    """Walk active user roots once and retain only folder/document IDs and grant types."""
+    users = requests.pages(session, "workdocs", region, "describe_users", "Users", Include="ALL")
+    failure = _cause(users) if users.status not in OK else None
+    folders, visited, documents = [], set(), set()
+    for user in users.items:
+        root = user.get("RootFolderId") if isinstance(user, dict) else None
+        if not isinstance(root, str) or not re.fullmatch(r"[\w+\-.@]{1,128}", root):
+            failure = failure or ("malformed", {"code": "malformed_workdocs_root"})
+            continue
+        folders.append(root)
+    items = []
+    limit = requests.max_items
+
+    def permission_row(resource_id, kind):
+        permissions = requests.pages(session, "workdocs", region, "describe_resource_permissions",
+                                     "Principals", ResourceId=resource_id)
+        rows = []
+        for principal in permissions.items:
+            if not isinstance(principal, dict) or not isinstance(principal.get("Roles"), list):
+                rows.append(None)
+            else:
+                rows.append({"Id": principal.get("Id"), "Type": principal.get("Type"),
+                             "Roles": [_pick(role, ("Role", "Type")) if isinstance(role, dict) else None
+                                       for role in principal["Roles"]]})
+        return {"id": resource_id, ("FolderId" if kind == "folder" else "DocumentId"): resource_id,
+                "Permissions": {"ResourceId": resource_id, **_child(permissions, rows)}}
+
+    expression = ("[Folders[].{kind: 'folder', id: Id, parent: ParentFolderId, state: ResourceState}, "
+                  "Documents[].{kind: 'document', id: Id, parent: ParentFolderId, state: ResourceState}][]")
+    while folders:
+        folder_id = folders.pop()
+        if folder_id in visited:
+            continue
+        if limit is not None and len(visited) + len(documents) >= limit:
+            failure = failure or ("not_collected", {"code": "resource_limit"})
+            break
+        visited.add(folder_id)
+        items.append(permission_row(folder_id, "folder"))
+        children = requests.pages(session, "workdocs", region, "describe_folder_contents", expression,
+                                  FolderId=folder_id)
+        if children.status not in OK:
+            failure = failure or _cause(children)
+        for child in children.items:
+            if (not isinstance(child, dict) or child.get("parent") != folder_id or
+                    child.get("kind") not in ("folder", "document") or
+                    not isinstance(child.get("id"), str) or not re.fullmatch(r"[\w+\-.@]{1,128}", child["id"])):
+                failure = failure or ("malformed", {"code": "malformed_workdocs_child"})
+                continue
+            if child.get("state") != "ACTIVE":
+                continue
+            child_id = child["id"]
+            if child["kind"] == "folder":
+                if child_id not in visited:
+                    folders.append(child_id)
+                continue
+            if child_id in documents:
+                continue
+            if limit is not None and len(visited) + len(documents) >= limit:
+                failure = failure or ("not_collected", {"code": "resource_limit"})
+                break
+            documents.add(child_id)
+            items.append(permission_row(child_id, "document"))
+    return _finish(items, failure)
+
+
+def _cleanrooms_table_shares(requests, session, region, account):
+    memberships = requests.pages(session, "cleanrooms", region, "list_memberships", "membershipSummaries")
+    failure = _cause(memberships) if memberships.status not in OK else None
+    items = []
+    for membership in memberships.items:
+        if not isinstance(membership, dict) or not isinstance(membership.get("id"), str):
+            failure = failure or ("malformed", {"code": "malformed_cleanrooms_membership"})
+            continue
+        membership_id = membership["id"]
+        row = {"id": membership_id, **_pick(membership, ("arn", "collaborationId",
+               "collaborationArn", "status"))}
+        if membership.get("status") != "ACTIVE":
+            items.append(row)
+            continue
+        if not isinstance(membership.get("collaborationId"), str) or not re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                membership["collaborationId"]):
+            failure = failure or ("malformed", {"code": "malformed_cleanrooms_collaboration"})
+            items.append(row)
+            continue
+        association_read = requests.pages(session, "cleanrooms", region,
+            "list_configured_table_associations", "configuredTableAssociationSummaries",
+            membershipIdentifier=membership_id)
+        associations = [_pick(value, ("id", "configuredTableId", "membershipId", "membershipArn",
+                        "analysisRuleTypes")) if isinstance(value, dict) else None
+                        for value in association_read.items]
+        members_read = requests.pages(session, "cleanrooms", region, "list_members", "memberSummaries",
+                                     collaborationIdentifier=membership["collaborationId"])
+        members = [_pick(value, ("accountId", "status", "abilities")) if isinstance(value, dict) else None
+                   for value in members_read.items]
+        row["Associations"] = {"membershipId": membership_id, **_child(association_read, associations)}
+        row["Members"] = {"collaborationId": membership.get("collaborationId"), **_child(members_read, members)}
+        items.append(row)
+    return _finish(items, failure)
+
+
+def _dataexchange_data_grants(requests, session, region, account):
+    read = requests.pages(session, "dataexchange", region, "list_data_grants", "DataGrantSummaries")
+    failure = _cause(read) if read.status not in OK else None
+    items = []
+    for grant in read.items:
+        if not isinstance(grant, dict) or not isinstance(grant.get("Id"), str):
+            failure = failure or ("malformed", {"code": "malformed_data_grant"})
+            continue
+        row = {"id": grant["Id"], **_pick(grant, ("Arn", "DataSetId", "SourceDataSetId",
+               "SenderPrincipal", "ReceiverPrincipal", "AcceptanceState"))}
+        if "EndsAt" in grant:
+            end = grant["EndsAt"]
+            row["EndsAt"] = end.isoformat() if isinstance(end, datetime) else end
+        items.append(row)
+    return _finish(items, failure)
+
+
+def _quicksight_public_dashboards(requests, session, region, account):
+    listed = requests.pages(session, "quicksight", region, "list_dashboards", "DashboardSummaryList",
+                            AwsAccountId=account)
+    failure = _cause(listed) if listed.status not in OK else None
+    if not listed.items:
+        return _finish([], failure)
+    settings = requests.detail(session, "quicksight", region, "describe_account_settings", AwsAccountId=account)
+    account_settings = settings.get("AccountSettings") if settings.get("collection_status") == "collected" else None
+    public_enabled = account_settings.get("PublicSharingEnabled") if isinstance(account_settings, dict) else None
+    items = []
+    for dashboard in listed.items:
+        if not isinstance(dashboard, dict) or not isinstance(dashboard.get("DashboardId"), str):
+            failure = failure or ("malformed", {"code": "malformed_quicksight_dashboard"})
+            continue
+        dashboard_id = dashboard["DashboardId"]
+        detail = requests.detail(session, "quicksight", region, "describe_dashboard_permissions",
+                                 AwsAccountId=account, DashboardId=dashboard_id)
+        link = detail.get("LinkSharingConfiguration") if detail.get("collection_status") == "collected" else None
+        permissions = link.get("Permissions", []) if isinstance(link, dict) else [] if link is None else None
+        projected = ([_pick(value, ("Principal", "Actions")) if isinstance(value, dict) else None
+                      for value in permissions] if isinstance(permissions, list) else None)
+        items.append({"id": dashboard_id, **_pick(dashboard, ("Arn", "DashboardId", "PublishedVersionNumber")),
+                      "AccountSettings": {"collection_status": settings.get("collection_status"),
+                                          "PublicSharingEnabled": public_enabled},
+                      "LinkPermissions": {"collection_status": detail.get("collection_status"),
+                                          "DashboardId": detail.get("DashboardId"),
+                                          "DashboardArn": detail.get("DashboardArn"), "items": projected}})
+    return _finish(items, failure)
+
+
+def _license_manager_distributed_grants(requests, session, region, account):
+    read = requests.pages(session, "license-manager", region, "list_distributed_grants", "Grants")
+    failure = _cause(read) if read.status not in OK else None
+    items = []
+    for grant in read.items:
+        if not isinstance(grant, dict) or not isinstance(grant.get("GrantArn"), str):
+            failure = failure or ("malformed", {"code": "malformed_license_manager_grant"})
+            continue
+        items.append({"id": grant["GrantArn"], **_pick(grant, ("GrantArn", "LicenseArn",
+            "GranteePrincipalArn", "GrantStatus", "GrantedOperations", "HomeRegion"))})
+    return _finish(items, failure)
+
+
+def _lakeformation_table_grants(requests, session, region, account):
+    read = requests.pages(session, "lakeformation", region, "list_permissions",
+                          "PrincipalResourcePermissions", CatalogId=account)
+    failure = _cause(read) if read.status not in OK else None
+    items = []
+    for grant in read.items:
+        if not isinstance(grant, dict):
+            failure = failure or ("malformed", {"code": "malformed_lakeformation_permission"})
+            continue
+        resource = grant.get("Resource")
+        table = (resource.get("Table") or resource.get("TableWithColumns")) if isinstance(resource, dict) else None
+        if not isinstance(table, dict):
+            continue
+        column_scoped = isinstance(resource.get("TableWithColumns"), dict)
+        principal = grant.get("Principal")
+        principal_id = principal.get("DataLakePrincipalIdentifier") if isinstance(principal, dict) else None
+        key = "|".join(str(value or "") for value in
+                       (table.get("CatalogId"), table.get("DatabaseName"), table.get("Name"),
+                        bool(table.get("TableWildcard") is not None), column_scoped,
+                        tuple(table.get("ColumnNames", ())) if isinstance(table.get("ColumnNames", ()), list) else (),
+                        principal_id))
+        identity = f"{account}/{region}/table-grant/{hashlib.sha256(key.encode()).hexdigest()[:24]}"
+        items.append({"id": identity, "Principal": principal_id,
+            "Table": _pick(table, ("CatalogId", "DatabaseName", "Name", "TableWildcard")),
+            "ColumnScope": {"scoped": column_scoped,
+                "column_count": (len(table.get("ColumnNames", [])) if isinstance(table.get("ColumnNames", []), list)
+                                 else None),
+                "wildcard": isinstance(table.get("ColumnWildcard"), dict)},
+            "Permissions": grant.get("Permissions")})
+    return _finish(items, failure)
+
+
+def _lakeformation_tag_policy_grants(requests, session, region, account):
+    # Shares the exact cached ListPermissions request with named-table grants.
+    read = requests.pages(session, "lakeformation", region, "list_permissions",
+                          "PrincipalResourcePermissions", CatalogId=account)
+    failure = _cause(read) if read.status not in OK else None
+    items = []
+    for grant in read.items:
+        if not isinstance(grant, dict):
+            failure = failure or ("malformed", {"code": "malformed_lakeformation_permission"})
+            continue
+        resource = grant.get("Resource")
+        policy = resource.get("LFTagPolicy") if isinstance(resource, dict) else None
+        if not isinstance(policy, dict):
+            continue
+        principal = grant.get("Principal")
+        principal_id = principal.get("DataLakePrincipalIdentifier") if isinstance(principal, dict) else None
+        expression = policy.get("Expression")
+        selector = ("inline" if isinstance(expression, list) and expression else
+                    "named" if isinstance(policy.get("ExpressionName"), str) and policy["ExpressionName"] else None)
+        key = json.dumps((policy.get("CatalogId"), policy.get("ResourceType"), expression,
+                          policy.get("ExpressionName"), principal_id), sort_keys=True, default=str)
+        identity = f"{account}/{region}/tag-policy-grant/{hashlib.sha256(key.encode()).hexdigest()[:24]}"
+        items.append({"id": identity, "Principal": principal_id,
+            "TagPolicy": {**_pick(policy, ("CatalogId", "ResourceType")), "Selector": selector},
+            "Permissions": grant.get("Permissions")})
+    return _finish(items, failure)
+
+
+def _securitylake_subscribers(requests, session, region, account):
+    read = requests.pages(session, "securitylake", region, "list_subscribers", "subscribers")
+    failure = _cause(read) if read.status not in OK else None
+    items = []
+    for subscriber in read.items:
+        if not isinstance(subscriber, dict) or not isinstance(subscriber.get("subscriberId"), str):
+            failure = failure or ("malformed", {"code": "malformed_securitylake_subscriber"})
+            continue
+        identity = subscriber.get("subscriberIdentity")
+        items.append({"id": subscriber["subscriberId"],
+            **_pick(subscriber, ("subscriberArn", "subscriberId", "subscriberStatus", "accessTypes")),
+            "principal": identity.get("principal") if isinstance(identity, dict) else None,
+            "source_count": len(subscriber["sources"]) if isinstance(subscriber.get("sources"), list) else None})
+    return _finish(items, failure)
+
+
+def _s3_access_grants(requests, session, region, account):
+    read = requests.pages(session, "s3control", region, "list_access_grants",
+                          "AccessGrantsList", AccountId=account)
+    failure = _cause(read) if read.status not in OK else None
+    items = []
+    for grant in read.items:
+        if not isinstance(grant, dict) or not isinstance(grant.get("AccessGrantArn"), str):
+            failure = failure or ("malformed", {"code": "malformed_s3_access_grant"})
+            continue
+        grantee = grant.get("Grantee")
+        scope = grant.get("GrantScope")
+        match = re.fullmatch(r"s3://([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])/(.+)", scope) if isinstance(scope, str) else None
+        items.append({"id": grant["AccessGrantArn"],
+            **_pick(grant, ("AccessGrantArn", "AccessGrantId", "Permission")),
+            "GranteeType": grantee.get("GranteeType") if isinstance(grantee, dict) else None,
+            "GranteeIdentifier": grantee.get("GranteeIdentifier") if isinstance(grantee, dict) else None,
+            "Bucket": match.group(1) if match else None,
+            "ApplicationBound": bool(grant.get("ApplicationArn"))})
+    return _finish(items, failure)
+
+
+def _workspaces_connection_aliases(requests, session, region, account):
+    listed = requests.pages(session, "workspaces", region, "describe_connection_aliases", "ConnectionAliases")
+    failure = _cause(listed) if listed.status not in OK else None
+    items = []
+    for alias in listed.items:
+        if not isinstance(alias, dict) or not isinstance(alias.get("AliasId"), str):
+            failure = failure or ("malformed", {"code": "malformed_workspaces_alias"})
+            continue
+        alias_id = alias["AliasId"]
+        associations = alias.get("Associations")
+        projected = ([_pick(value, ("AssociatedAccountId", "AssociationStatus"))
+                      if isinstance(value, dict) else None for value in associations]
+                     if isinstance(associations, list) else None)
+        row = {"id": alias_id, **_pick(alias, ("AliasId", "OwnerAccountId", "State")),
+               "Associations": projected}
+        if alias.get("OwnerAccountId") == account and re.fullmatch(r"wsca-[0-9a-z]{8,63}", alias_id):
+            permissions = requests.pages(session, "workspaces", region,
+                                         "describe_connection_alias_permissions", "ConnectionAliasPermissions",
+                                         AliasId=alias_id)
+            values = [_pick(value, ("SharedAccountId", "AllowAssociation"))
+                      if isinstance(value, dict) else None for value in permissions.items]
+            row["Permissions"] = {"AliasId": alias_id, **_child(permissions, values)}
+        items.append(row)
+    return _finish(items, failure)
+
+
 FETCHERS = {
+    "transit_gateway_peering_attachment": _transit_gateway_peering,
     "lambda_layer_version": _layer_versions,
     "lambda_version": _versions,
     "redshiftserverless_snapshot": _redshiftserverless_snapshots,
@@ -1215,6 +1860,7 @@ FETCHERS = {
     "ec2_instance_connect_endpoint": _instance_connect_endpoints,
     "rolesanywhere_profile": _rolesanywhere_profiles,
     "imagebuilder_pipeline": _image_pipelines,
+    "imagebuilder_distribution": _image_distributions,
     "sagemaker_user_profile": _user_profiles,
     "sagemaker_space": _spaces,
     "sagemaker_cluster": _hyperpod_clusters,
@@ -1228,8 +1874,28 @@ FETCHERS = {
     "supplychain_instance": _supplychain_instances,
     "amplify_app": _amplify_apps,
     "aws_identity_center_account_assignment": _account_assignments,
+    "cloud9_environment_share": _cloud9_environment_shares,
+    "omics_resource_share": _omics_resource_shares,
+    "wellarchitected_workload_share": _wellarchitected_workload_shares,
+    "wellarchitected_lens_share": _wellarchitected_lens_shares,
+    "wellarchitected_profile_share": _wellarchitected_profile_shares,
+    "wellarchitected_template_share": _wellarchitected_template_shares,
+    "ec2_fpga_image": _ec2_fpga_images,
+    "ds_directory_share": _ds_directory_shares,
+    "auditmanager_framework_share": _auditmanager_framework_shares,
+    "workdocs_document_share": _workdocs_document_shares,
+    "cleanrooms_table_share": _cleanrooms_table_shares,
+    "dataexchange_data_grant": _dataexchange_data_grants,
+    "quicksight_public_dashboard": _quicksight_public_dashboards,
+    "license_manager_distributed_grant": _license_manager_distributed_grants,
+    "lakeformation_table_grant": _lakeformation_table_grants,
+    "lakeformation_tag_policy_grant": _lakeformation_tag_policy_grants,
+    "securitylake_subscriber_share": _securitylake_subscribers,
+    "s3_access_grant_share": _s3_access_grants,
+    "workspaces_connection_alias_share": _workspaces_connection_aliases,
 }
 ENRICHERS = {
+    "transit_gateway_route_table": _transit_gateway_system_routes,
     "lambda_function": _lambda_function,
     "cognito_identity_pool": _identity_pool,
     "cognito_user_pool": _user_pool,

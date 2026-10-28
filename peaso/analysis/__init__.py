@@ -43,7 +43,8 @@ MANUAL_ONLY_ANALYSIS_CHECK_IDS = frozenset({
 
 
 @with_analysis_context
-def analyze_findings(snapshot, resources=None, index=None, *, include_manual_only=True, categories=None):
+def analyze_findings(snapshot, resources=None, index=None, *, include_manual_only=True, categories=None,
+                     related_snapshots=()):
     """Run only the requested projection categories; None retains the full library default.
 
     Principal exposure and permission coverage share the native grant review.
@@ -76,7 +77,8 @@ def analyze_findings(snapshot, resources=None, index=None, *, include_manual_onl
                 {"reason": "malformed_native_fact", "risk_state": "unknown"}, status="UNKNOWN"))
     for derived_findings in (internet_findings, federated_findings, exposed_privileged_findings) if "exposure" in selected else ():
         try:
-            results.extend(derived_findings(snapshot, resources))
+            results.extend(derived_findings(snapshot, resources, related_snapshots=related_snapshots)
+                           if derived_findings is internet_findings else derived_findings(snapshot, resources))
         except (TypeError, AttributeError, KeyError, ValueError, IndexError):
             placeholder = {"id": "inventory:" + derived_findings.__name__, "type": "inventory", "scope": (snapshot["scopes"] or ["global"])[0],
                            "provider": snapshot["provider"], "service": "exposure", "data": {}}
@@ -149,12 +151,12 @@ def build_graphs(snapshot, resources, index=None, *, max_nodes=500, collapse_unr
     return graphs
 
 
-def analyze(snapshot, categories=None):
+def analyze(snapshot, categories=None, *, related_snapshots=()):
     from peaso.snapshot import resources, validate
     snapshot = validate(snapshot, read_only=True)
     inventory = resources(snapshot)
     with analysis_context(snapshot):
-        findings = analyze_findings(snapshot, inventory)
+        findings = analyze_findings(snapshot, inventory, related_snapshots=related_snapshots)
         graphs = build_graphs(snapshot, inventory)
     selected = set(categories) if categories is not None else {"least_privilege", "exposure", "iam_graph", "network"}
     return {"findings": [f for f in findings if f["category"] in selected],

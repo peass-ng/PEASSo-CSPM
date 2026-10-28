@@ -49,6 +49,7 @@ READ_ACTIONS = {(service, operation) for service, operation, expression in SPECS
 READ_ACTIONS.update({
     ("ecs", "list_clusters"), ("ecs", "list_services"), ("ecs", "describe_task_definition"),
     ("appstream", "list_associated_stacks"),
+    ("appstream", "describe_image_permissions"),
     ("elasticbeanstalk", "describe_configuration_settings"),
     ("apigateway", "get_resources"), ("apigateway", "get_authorizers"),
     ("apigateway", "get_base_path_mappings"),
@@ -388,8 +389,22 @@ def _appstream_fleets(requests, session, region, items):
 
 
 def _appstream_images(requests, session, region, items):
-    return [_pick(item, ("Arn", "Name", "State", "Visibility", "ImageType", "ImageBuilderSupported",
-                         "ImagePermissions", "SupportedInstanceFamilies", "Platform")) for item in items]
+    output = []
+    for item in items:
+        image = _pick(item, ("Arn", "Name", "State", "Visibility", "ImageType", "ImageBuilderSupported",
+                             "ImagePermissions", "SupportedInstanceFamilies", "Platform"))
+        name = image.get("Name") if isinstance(image, dict) else None
+        if (isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", name) and
+                image.get("Visibility") == "PRIVATE"):
+            read = requests.pages(session, "appstream", region, "describe_image_permissions",
+                                  "SharedImagePermissionsList", Name=name, _tokens=("NextToken", "NextToken"))
+            image["SharedPermissions"] = _child(read, lambda row: {
+                **_pick(row, ("sharedAccountId",)),
+                "imagePermissions": _pick(row.get("imagePermissions"), ("allowFleet", "allowImageBuilder")),
+            } if isinstance(row, dict) else row)
+            image["SharedPermissions"]["Name"] = name
+        output.append(image)
+    return output
 
 
 def _appstream_app_blocks(requests, session, region, items):

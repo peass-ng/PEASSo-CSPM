@@ -25,8 +25,8 @@ from peaso.principal_exposure_requirements import REQUIRED_TYPES
 RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
-def _nlb_target_source_group(inventory, target_groups, lb_groups, port, vpc_id, account):
-    """An exact target SG ingress reference to an attached NLB SG."""
+def _lb_target_source_group(inventory, target_groups, lb_groups, port, vpc_id, account):
+    """An exact target SG ingress reference to an attached load balancer SG."""
     if not lb_groups or not vpc_id:
         return None
     lb_groups = {group_id for group_id in lb_groups if (group := inventory.get("security_group", group_id))
@@ -67,6 +67,65 @@ def canonical(provider, value, scope=""):
     if provider == "k8s" and value.startswith("system:serviceaccount:"):
         return f"{scope}|{value}"
     return value
+
+
+def _alb_lambda_invoke_allowed(function, target_arn, target_group_arn, account):
+    """Prove the cached target policy permits this ALB target group to invoke."""
+    read = function["data"].get("Policy")
+    if not isinstance(read, dict) or read.get("collection_status") != "collected":
+        return False
+    document = read.get("Policy")
+    if not isinstance(document, dict):
+        return False
+    statements = document.get("Statement")
+    statements = [statements] if isinstance(statements, dict) else statements
+    if not isinstance(statements, list) or any(not isinstance(s, dict) for s in statements):
+        return False
+
+    def matches(value, pattern, *, casefold=False):
+        if not isinstance(pattern, str):
+            return False
+        return fnmatchcase(value.lower(), pattern.lower()) if casefold else fnmatchcase(value, pattern)
+
+    def applies(statement):
+        if any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
+            return None
+        principal = statement.get("Principal")
+        if principal == "*":
+            pass
+        elif isinstance(principal, dict) and any(matches("elasticloadbalancing.amazonaws.com", p)
+                for p in as_list(principal.get("Service"))):
+            pass
+        else:
+            return False
+        if not any(matches("lambda:InvokeFunction", action, casefold=True)
+                for action in as_list(statement.get("Action"))):
+            return False
+        if not any(matches(target_arn, resource) for resource in as_list(statement.get("Resource"))):
+            return False
+        conditions = statement.get("Condition", {})
+        if not isinstance(conditions, dict):
+            return None
+        for operator, terms in conditions.items():
+            if operator not in {"StringEquals", "ArnEquals", "StringLike", "ArnLike"} or not isinstance(terms, dict):
+                return None
+            for key, patterns in terms.items():
+                value = {"aws:sourcearn": target_group_arn, "aws:sourceaccount": account}.get(str(key).lower())
+                if value is None:
+                    return None
+                if not any((value == pattern if operator.endswith("Equals") else matches(value, pattern))
+                        for pattern in as_list(patterns)):
+                    return False
+        return True
+
+    allowed, uncertain_deny = False, False
+    for statement in statements:
+        applicability = applies(statement)
+        if statement.get("Effect") == "Deny" and applicability is not False:
+            uncertain_deny = True
+        elif statement.get("Effect") == "Allow" and applicability is True:
+            allowed = True
+    return allowed and not uncertain_deny
 
 
 def _cluster(row):
@@ -412,6 +471,29 @@ def _workloads(snapshot, resources, by_type, signal):
             return result
         return []
 
+    def api_lambda_targets(integration_arns, scope):
+        """Resolve the invoked Lambda revision before reading its execution role."""
+        targets = {}
+        for arn in integration_arns:
+            if not isinstance(arn, str) or ":function:" not in arn:
+                continue
+            prefix, function_name = arn.split(":function:", 1)
+            parts = function_name.split(":")
+            if not prefix.startswith("arn:") or len(parts) not in (1, 2) or not parts[0]:
+                continue
+            if len(parts) == 1:
+                matches = [item for item in by_type["lambda_function"]
+                    if item["scope"] == scope and item["data"].get("FunctionArn") == arn]
+            elif parts[1].isdigit():
+                matches = [item for item in by_type["lambda_version"]
+                    if item["scope"] == scope and item["data"].get("FunctionArn") == arn]
+            else:
+                matches = [item for item in by_type["lambda_alias"]
+                    if item["scope"] == scope and item["data"].get("AliasArn") == arn]
+            if len(matches) == 1:
+                targets[matches[0]["id"]] = matches[0]
+        return list(targets.values())
+
     assessments = assess(snapshot, resources)
     if provider == "azure":
         assessments = [*assessments, *_azure_containers(by_type)]
@@ -603,7 +685,7 @@ def _workloads(snapshot, resources, by_type, signal):
                                 if empty(intersect(allowed, pset("tcp", port, port))):
                                     lb_groups = {x for x in as_list(row["data"].get("SecurityGroups")) if isinstance(x, str)}
                                     if tg_data.get("VpcId") == row["data"].get("VpcId") == eni_data.get("VpcId"):
-                                        source_group = _nlb_target_source_group(
+                                        source_group = _lb_target_source_group(
                                             aws_backend_inventory, groups, lb_groups, port, eni_data.get("VpcId"),
                                             row["scope"].split("/", 1)[0])
                                     if source_group:
@@ -628,6 +710,105 @@ def _workloads(snapshot, resources, by_type, signal):
                             backend_evidence.setdefault(task["id"], {"target_group": tg_arn,
                                 "healthy_target": {"ip": eni["data"].get("PrivateIpAddress"), "port": port},
                                 "ecs_service": svc.get("serviceName"), **forwards[tg_arn], **backend_network})
+            instance_targets = {}
+            lb_type = row["data"].get("Type")
+            if lb_type in ("network", "application"):
+                for tg in cloud_workloads.candidates("target_group", "TargetGroupArn", forwards):
+                    tg_data = tg["data"]
+                    tg_arn = tg_data.get("TargetGroupArn")
+                    if (tg["scope"] != row["scope"] or tg_arn not in tgs or tg_arn not in forwards or
+                            tg_data.get("TargetType") != "instance" or
+                            tg_data.get("Protocol") not in ({"TCP", "TLS"} if lb_type == "network" else {"HTTP", "HTTPS"}) or
+                            not isinstance(tg_data.get("VpcId"), str) or
+                            tg_data.get("VpcId") != row["data"].get("VpcId")):
+                        continue
+                    health = tg_data.get("TargetHealth")
+                    if not isinstance(health, dict) or health.get("collection_status") != "collected":
+                        continue
+                    for entry in health.get("TargetHealthDescriptions") or []:
+                        if not isinstance(entry, dict) or not isinstance(entry.get("Target"), dict):
+                            continue
+                        target_id = entry["Target"].get("Id")
+                        port = entry["Target"].get("Port", tg_data.get("Port"))
+                        if (not isinstance(target_id, str) or not isinstance(port, int) or
+                                isinstance(port, bool) or not 1 <= port <= 65535):
+                            continue
+                        matches = [instance for instance in cloud_workloads.candidates("instance", "InstanceId", [target_id])
+                            if instance["scope"] == row["scope"] and instance["data"].get("InstanceId") == target_id]
+                        if len(matches) != 1:
+                            continue
+                        instance = matches[0]
+                        instance_targets[instance["id"]] = instance
+                        if ((entry.get("TargetHealth") or {}).get("State") != "healthy" or
+                                (instance["data"].get("State") or {}).get("Name") != "running" or
+                                instance["data"].get("VpcId") != tg_data.get("VpcId")):
+                            continue
+                        interfaces = [x for x in as_list(instance["data"].get("NetworkInterfaces")) if isinstance(x, dict)]
+                        primary = [x for x in interfaces if (x.get("Attachment") or {}).get("DeviceIndex") == 0]
+                        interface = primary[0] if len(primary) == 1 else interfaces[0] if len(interfaces) == 1 else None
+                        if interface is None or interface.get("VpcId") != tg_data.get("VpcId"):
+                            continue
+                        groups = [g.get("GroupId") for g in as_list(interface.get("Groups"))
+                            if isinstance(g, dict) and isinstance(g.get("GroupId"), str)]
+                        if aws_backend_inventory is None:
+                            aws_backend_inventory = Inventory(snapshot, [*by_type["subnet"], *by_type["security_group"],
+                                                               *by_type["network_acl"]])
+                        proof = Assessment(instance, "backend")
+                        allowed = _aws_vpc_path(aws_backend_inventory, proof, [interface.get("SubnetId")], groups,
+                                                pset("tcp", port, port), interface.get("NetworkInterfaceId"), route=False,
+                                                vpc_id=interface.get("VpcId"))
+                        source_group = None
+                        if empty(intersect(allowed, pset("tcp", port, port))):
+                            lb_groups = {x for x in as_list(row["data"].get("SecurityGroups")) if isinstance(x, str)}
+                            source_group = _lb_target_source_group(aws_backend_inventory, groups, lb_groups,
+                                port, interface.get("VpcId"), row["scope"].split("/", 1)[0])
+                            if source_group:
+                                proof = Assessment(instance, "backend")
+                                allowed = _aws_nacl(aws_backend_inventory, interface.get("SubnetId"),
+                                    pset("tcp", port, port), proof, interface.get("NetworkInterfaceId"))
+                        if proof.unresolved or proof.notes or empty(intersect(allowed, pset("tcp", port, port))):
+                            continue
+                        confirmed_targets.add(instance["id"])
+                        backend_evidence[instance["id"]] = {"target_group": tg_arn,
+                            "healthy_target": {"instance_id": target_id, "port": port},
+                            "backend_subnet": interface.get("SubnetId"), "backend_security_groups": groups,
+                            **({"backend_source_group": source_group} if source_group else {}), **forwards[tg_arn]}
+                targets.extend(instance_targets.values())
+            lambda_targets = {}
+            for tg in cloud_workloads.candidates("target_group", "TargetGroupArn", forwards):
+                tg_data = tg["data"]
+                tg_arn = tg_data.get("TargetGroupArn")
+                account, _, region = row["scope"].partition("/")
+                partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+                if (row["data"].get("Type") != "application" or tg_arn not in tgs or
+                        tg_arn not in forwards or tg_data.get("TargetType") != "lambda" or
+                        not isinstance(tg_arn, str) or not tg_arn.startswith(
+                            f"arn:{partition}:elasticloadbalancing:{region}:{account}:targetgroup/")):
+                    continue
+                health = tg_data.get("TargetHealth")
+                if not isinstance(health, dict) or health.get("collection_status") != "collected":
+                    continue
+                for entry in health.get("TargetHealthDescriptions") or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    target = entry.get("Target")
+                    target_arn = target.get("Id") if isinstance(target, dict) else None
+                    target_health = entry.get("TargetHealth") or {}
+                    if not isinstance(target_arn, str) or not isinstance(target_health, dict):
+                        continue
+                    for function in api_lambda_targets([target_arn], row["scope"]):
+                        lambda_targets[function["id"]] = function
+                        state = target_health.get("State")
+                        disabled = state == "unavailable" and target_health.get("Reason") == "Target.HealthCheckDisabled"
+                        if (state != "healthy" and not disabled) or not _alb_lambda_invoke_allowed(
+                                function, target_arn, tg_arn, account):
+                            continue
+                        confirmed_targets.add(function["id"])
+                        backend_evidence[function["id"]] = {"target_group": tg_arn,
+                            "lambda_target": target_arn, "target_health": state,
+                            "health_checks_disabled": disabled,
+                            "invoke_permission_collected": True, **forwards[tg_arn]}
+            targets.extend(lambda_targets.values())
         if provider == "aws" and row["type"] == "classic_load_balancer":
             lb = row["data"]
             registered = {x.get("InstanceId") for x in as_list(lb.get("Instances")) if isinstance(x, dict)}
@@ -671,12 +852,6 @@ def _workloads(snapshot, resources, by_type, signal):
                         "backend_subnet": interface.get("SubnetId")}
                     break
         if provider == "aws" and row["type"] == "rest_api":
-            def base_lambda_arn(value):
-                if not isinstance(value, str) or ":function:" not in value:
-                    return None
-                prefix, name = value.split(":function:", 1)
-                return prefix + ":function:" + name.split(":", 1)[0]
-
             api_id = row["data"].get("id")
             domain_stages = {mapping.get("stage") for domain in by_type["apigateway_domain_name"]
                 if domain["scope"] == row["scope"]
@@ -688,14 +863,14 @@ def _workloads(snapshot, resources, by_type, signal):
             deployed = {(method["data"].get("resourcePath"), method["data"].get("httpMethod"))
                 for method in by_type["rest_api_method"] if method["scope"] == row["scope"]
                 and method["data"].get("restApiId") == api_id
+                and method["data"].get("authorizationType") == "NONE"
+                and method["data"].get("apiKeyRequired") is False
                 and (row["data"].get("disableExecuteApiEndpoint") is not True or
                     str(method["data"].get("stageArn", "")).rsplit("/stages/", 1)[-1] in domain_stages)}
-            integrations = {base_lambda_arn(method.get("integrationLambdaArn"))
+            integrations = {method.get("integrationLambdaArn")
                 for method in row["data"].get("Methods") or [] if isinstance(method, dict)
                 and (method.get("path"), method.get("httpMethod")) in deployed}
-            integrations.discard(None)
-            targets = [function for function in by_type["lambda_function"]
-                if base_lambda_arn(function["data"].get("FunctionArn")) in integrations]
+            targets = api_lambda_targets(integrations, row["scope"])
         if provider == "aws" and row["type"] == "http_api":
             def collected_items(value):
                 if isinstance(value, dict):
@@ -703,12 +878,6 @@ def _workloads(snapshot, resources, by_type, signal):
                         return []
                     value = value.get("items")
                 return value if isinstance(value, list) else []
-
-            def base_lambda_arn(value):
-                if not isinstance(value, str) or ":function:" not in value:
-                    return None
-                prefix, name = value.split(":function:", 1)
-                return prefix + ":function:" + name.split(":", 1)[0]
 
             api_id = row["data"].get("ApiId")
             domain_stages = {mapping.get("Stage") for domain in by_type["apigatewayv2_domain_name"]
@@ -723,15 +892,14 @@ def _workloads(snapshot, resources, by_type, signal):
                 and stage["data"].get("AutoDeploy") is True
                 and (row["data"].get("DisableExecuteApiEndpoint") is not True
                     or stage["data"].get("StageName") in domain_stages)}
-            integration_arns = {integration.get("IntegrationId"): base_lambda_arn(integration.get("integrationLambdaArn"))
+            integration_arns = {integration.get("IntegrationId"): integration.get("integrationLambdaArn")
                 for integration in collected_items(row["data"].get("Integrations"))
                 if isinstance(integration, dict)}
             integrations = {integration_arns.get(str(route.get("Target", "")).removeprefix("integrations/"))
                 for route in collected_items(row["data"].get("Routes"))
-                if isinstance(route, dict) and route.get("Target") and stages}
-            integrations.discard(None)
-            targets = [function for function in by_type["lambda_function"]
-                if base_lambda_arn(function["data"].get("FunctionArn")) in integrations]
+                if isinstance(route, dict) and route.get("Target") and stages
+                and route.get("AuthorizationType", "NONE") == "NONE" and not route.get("ApiKeyRequired")}
+            targets = api_lambda_targets(integrations, row["scope"])
         state = "declared" if (assessment.verdict() == "FAIL" or auth_public_api) and not assessment.unresolved and not assessment.dormant and assessment.addresses else "unknown"
         if provider == "aws" and row["type"] in ("load_balancer", "classic_load_balancer"):
             state = "unknown" if not confirmed_targets else state
