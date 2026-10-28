@@ -773,6 +773,36 @@ def test_gcp_source_repository_direct_cross_project_reader_grant():
     assert findings() == []
 
 
+def test_gcp_scheduler_oidc_http_target_declaration_keeps_uri_path_private():
+    job = {"name": "projects/p1/locations/us-central1/jobs/send",
+           "state": "ENABLED", "httpTarget": {
+               "uri": "https://api.example.com/private-capability?token=hidden",
+               "httpMethod": "POST", "oidcToken": {
+                   "serviceAccountEmail": "scheduler@p1.iam.gserviceaccount.com",
+                   "audience": "https://api.example.com/private-capability"}}}
+
+    def findings():
+        return [row for row in analyze(gcp(gcoll("scheduler_job", [job], service="cloudscheduler")))["findings"]
+                if row["check_id"] == "analysis.gcp_scheduler_oidc_target"]
+
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    evidence = rows[0]["evidence"]
+    assert evidence["target_origin"] == "https://api.example.com"
+    assert evidence["service_account"] == "scheduler@p1.iam.gserviceaccount.com"
+    assert "private-capability" not in str(evidence) and "hidden" not in str(evidence)
+    job["state"] = "PAUSED"
+    assert findings() == []
+    job["state"] = "ENABLED"
+    job["httpTarget"]["uri"] = "http://10.0.0.1/internal"
+    assert findings() == []
+    job["httpTarget"]["uri"] = "https://api.example.com:invalid/path"
+    assert findings() == []
+    job["httpTarget"]["uri"] = "https://api.example.com/path"
+    job["httpTarget"].pop("oidcToken")
+    assert findings() == []
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

@@ -3196,6 +3196,57 @@ def gcp_source_repository_external_reader_findings(snapshot, resources):
     return output
 
 
+def gcp_scheduler_oidc_target_findings(snapshot, resources):
+    """Surface configured token delivery to an HTTP target, not execution."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "scheduler_job" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        target = data.get("httpTarget")
+        if data.get("state") != "ENABLED" or not isinstance(target, dict):
+            continue
+        uri = target.get("uri")
+        token = target.get("oidcToken")
+        if not isinstance(uri, str) or not isinstance(token, dict) or not isinstance(token.get("serviceAccountEmail"), str):
+            continue
+        try:
+            parsed = urlsplit(uri)
+            host, port = parsed.hostname, parsed.port
+        except ValueError:
+            continue
+        if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password:
+            continue
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if "." not in host or host.lower() == "localhost":
+                continue
+        else:
+            if not address.is_global:
+                continue
+        if port is not None and not 1 <= port <= 65535:
+            continue
+        # The collector strips query strings. Keep only the origin here because
+        # even a path may be a bearer capability or customer data.
+        origin_host = f"[{host.lower()}]" if ":" in host else host.lower()
+        origin = f"{parsed.scheme}://{origin_host}" + (f":{port}" if port else "")
+        evidence = {
+            "observed": "The enabled Cloud Scheduler job is configured to send a service-account OIDC token to an HTTP target.",
+            "target_origin": origin,
+            "service_account": token["serviceAccountEmail"],
+            "http_method": target.get("httpMethod"),
+            "source": source(snapshot, resource, "httpTarget"),
+            "risk_state": "observed",
+            "semantics": "Configured token-bearing outbound call only; target ownership, audience, job execution, delivery and token use are not established.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_scheduler_oidc_target",
+                              "Cloud Scheduler token-bearing HTTP target", "high", evidence, status="FAIL"))
+    return output
+
+
 # -------------------------------------------------------------------- Azure
 
 def _props(resource):
@@ -5553,6 +5604,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_public_policy_findings(snapshot, resources))
     output.extend(gcp_bigtable_external_reader_findings(snapshot, resources))
     output.extend(gcp_source_repository_external_reader_findings(snapshot, resources))
+    output.extend(gcp_scheduler_oidc_target_findings(snapshot, resources))
     return output
 
 
