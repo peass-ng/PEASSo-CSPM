@@ -758,6 +758,60 @@ def _collect_gallery_versions(reader, request, parents):
                 image["versions"] = read["items"]
 
 
+def _collect_hsm_local_assignments(reader, request, transport, parents):
+    """Read Managed HSM local RBAC at its two HSM-wide scopes."""
+    for kind, hsm in parents:
+        if kind != "managed_hsm":
+            continue
+        rid = hsm["id"]
+        uri = (hsm.get("properties") or {}).get("hsmUri")
+        coverage = hsm.setdefault("_coverage", {})
+        try:
+            name = rid.rsplit("/", 1)[-1]
+            parsed = urlsplit(uri) if isinstance(uri, str) else None
+            host = parsed.netloc.lower() if parsed else ""
+            if (parsed is None or parsed.scheme != "https" or parsed.username or parsed.password
+                    or parsed.port or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                    or re.fullmatch(r"(?:[a-z0-9-]+\.)?" + re.escape(name.lower())
+                                    + r"\.managedhsm\.azure\.net", host) is None):
+                raise ValueError("HSM data-plane URI does not match selected ARM parent")
+            if hasattr(transport, "allow_hsm"):
+                transport.allow_hsm(uri, name)
+        except (ValueError, AzureReadError):
+            coverage["localRoleAssignments"] = {"status": "malformed"}
+            continue
+        origin = "https://" + host
+        found, states = {}, []
+        for scope in ("/", "/keys"):
+            path = "//" + ("keys/" if scope == "/keys" else "") + "providers/Microsoft.Authorization/roleAssignments"
+            url = origin + path + "?api-version=2025-07-01"
+            def fetch(url=url, scope=scope):
+                for page in reader.pages(request, url, audience=VAULT):
+                    projected = []
+                    for row in page:
+                        props = row.get("properties") if isinstance(row, dict) else None
+                        assignment_id = row.get("id") if isinstance(row, dict) else None
+                        if (not isinstance(props, dict) or not isinstance(assignment_id, str)
+                                or not re.fullmatch(r"/(?:keys/)?providers/Microsoft\.Authorization/roleAssignments/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", assignment_id, re.I)
+                                or props.get("scope") not in ("/", "/keys")
+                                or not isinstance(props.get("principalId"), str)
+                                or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", props["principalId"], re.I)
+                                or not isinstance(props.get("roleDefinitionId"), str)
+                                or not re.fullmatch(r"/(?:keys/)?providers/Microsoft\.Authorization/roleDefinitions/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", props["roleDefinitionId"], re.I)
+                                or str(row.get("type", "")).casefold() != "microsoft.authorization/roleassignments"):
+                            raise ValueError("malformed HSM local role assignment")
+                        projected.append({"id": assignment_id, "name": row.get("name"), "type": row["type"],
+                                          "properties": {key: props[key] for key in ("principalId", "roleDefinitionId", "scope")}})
+                    yield projected
+            read = reader._read(("embedded_hsmLocalRoleAssignments", rid + scope, "Microsoft.KeyVault", fetch))
+            states.append({"scope": scope, **{key: read[key] for key in ("status", "error") if key in read}})
+            for row in read["items"]:
+                found.setdefault(row["id"].casefold(), row)
+        coverage["localRoleAssignments"] = {"status": "collected" if all(state["status"] in ("collected", "empty") for state in states)
+                                            else "partial", "scopes": states}
+        hsm["localRoleAssignments"] = list(found.values())
+
+
 AUTHORIZATION = {
     "role_assignment": "roleAssignments", "role_definition": "roleDefinitions",
     "deny_assignment": "denyAssignments",
@@ -1297,6 +1351,19 @@ class AzureTransport:
             raise AzureReadError("untrusted_vault_endpoint")
         with self.lock:
             self.vault_hosts.add(parsed.netloc.lower())
+
+    def allow_hsm(self, uri, name):
+        """Bind a Managed HSM data-plane origin to its selected ARM parent."""
+        parsed = urlsplit(uri)
+        host = parsed.netloc.lower()
+        if (parsed.scheme != "https" or parsed.username or parsed.password or parsed.port
+                or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                or not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9-]{3,24}", name)
+                or re.fullmatch(r"(?:[a-z0-9-]+\.)?" + re.escape(name.lower())
+                                + r"\.managedhsm\.azure\.net", host) is None):
+            raise AzureReadError("untrusted_hsm_endpoint")
+        with self.lock:
+            self.vault_hosts.add(host)
 
     def allow_storage(self, uri, account, service):
         parsed = urlsplit(uri)
@@ -3114,6 +3181,8 @@ def collect(connector, requirements=None, *, transport=None):
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
         _collect_gallery_versions(reader, request, embedded_parents)
+        if "managed_hsm" in wanted:
+            _collect_hsm_local_assignments(reader, request, transport, embedded_parents)
         azure_swc.collect_nested_metadata(reader, request, embedded_parents)
         azure_network_catalog.collect_children(reader, request, scopes, wanted)
         azure_swc.collect_diagnostic_categories(reader, request, embedded_parents, scopes, wanted)

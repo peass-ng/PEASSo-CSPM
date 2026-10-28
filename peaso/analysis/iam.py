@@ -397,6 +397,14 @@ def principals(resource):
 
 def _principals(resource):
     data = resource["data"]
+    if resource["provider"] == "azure" and resource["type"] == "managed_hsm":
+        for index, assignment in enumerate(as_list(data.get("localRoleAssignments"))):
+            props = assignment.get("properties") if isinstance(assignment, dict) else None
+            principal = props.get("principalId") if isinstance(props, dict) else None
+            if isinstance(principal, str) and principal:
+                yield principal, f"localRoleAssignments[{index}].properties.principalId", {
+                    **props, "hsmLocalRbac": True, "roleAssignmentId": assignment.get("id"),
+                    "coverage": (data.get("_coverage") or {}).get("localRoleAssignments")}, "HsmLocalRoleAssignment"
     if resource["provider"] == "k8s":
         if resource["type"] in {"kcc_iampolicy", "kcc_iampartialpolicy"}:
             spec, status = data.get("spec") or {}, data.get("status") or {}

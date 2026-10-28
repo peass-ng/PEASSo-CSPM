@@ -1,0 +1,7 @@
+# Managed HSM local RBAC source proof (2026-10-28)
+
+Managed HSM key/data access is controlled by [HSM local RBAC](https://learn.microsoft.com/en-us/azure/key-vault/managed-hsm/access-control), separately from ARM RBAC. The ARM HSM response supplies `properties.hsmUri`; the collector validates that its Microsoft Managed HSM hostname matches the selected ARM HSM name before allowing a data-plane request with the existing Key Vault token audience.
+
+The collector makes paged, read-only [Role Assignments - List For Scope](https://learn.microsoft.com/en-us/rest/api/keyvault/managedhsm-administration/role-assignments/list-for-scope?view=rest-keyvault-managedhsm-administration-2025-07-01) GETs at the HSM `/` and `/keys` scopes with API version 2025-07-01. It validates local assignment IDs, principal IDs, role-definition references and scopes; only those metadata fields are retained. Denied or partial reads retain coverage status. Observed outside principals become native principal-exposure findings for declared local HSM grants.
+
+Microsoft states that these top-level LISTs do not enumerate individual `/keys/{key-name}` assignments. Per-key role reads and role-definition permission evaluation remain separate work; this proof does not claim complete HSM local RBAC coverage.

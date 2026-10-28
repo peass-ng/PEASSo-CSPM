@@ -9,7 +9,7 @@ Gallery detail. It does not remove or alter fields used by the selected
 Hardening evaluators.
 
 The v2 proof and pending manifest pin the integrated collector digest
-`604d58f2f3dbd4c570955c3c4b9b2a0f2ecd087ad2a03b473ab39503bcc3c1f2`.
+`8727e003b43da456c709908dae7e9fbd84824ade6fdf4ea8fabaed6f5a781d13`.
 The updated proof digest is
-`2108ad536f3566433004f1db5890adcf607e00e395d07deb0053122865d54336`.
+`5a2d5116a35c8b567d4e4004994618326d0a0a03a3f5a45354024a051d5415cb`.
 Hosted qualification and runtime admission remain off pending the paired gate.
