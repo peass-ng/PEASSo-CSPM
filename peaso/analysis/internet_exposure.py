@@ -2703,6 +2703,43 @@ def _gcp_api_gateway(snapshot, inventory, resource):
     return a
 
 
+def _gcp_composer_environment(snapshot, inventory, resource):
+    data = resource["data"]
+    config = data.get("config")
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    if not isinstance(config, dict):
+        a.gap("inventory", "Composer environment config is unavailable")
+        return a
+    uri = config.get("airflowUri")
+    if not isinstance(uri, str) or not uri.startswith("https://"):
+        a.gap("public_endpoint", "Composer Airflow web UI URI is unavailable", "environments.list")
+        return a
+    a.addresses = [uri]
+    if data.get("state") != "RUNNING":
+        a.gap("environment_state", "Composer environment is not confirmed RUNNING")
+        return a
+    control = config.get("webServerNetworkAccessControl")
+    if control is None:
+        a.step("web_server_ip_allowlist", "allow", mode="unrestricted", uri=uri)
+        a.ports = pset("tcp", 443, 443)
+    elif not isinstance(control, dict) or not isinstance(control.get("allowedIpRanges"), list):
+        a.gap("web_server_ip_allowlist", "Composer web server allowed IP ranges are unavailable or malformed")
+    else:
+        ranges = control["allowedIpRanges"]
+        values = [entry.get("value") for entry in ranges if isinstance(entry, dict)]
+        if len(values) != len(ranges) or any(not isinstance(value, str) or _cidr(value) is None for value in values):
+            a.gap("web_server_ip_allowlist", "Composer web server allowed IP ranges are unavailable or malformed")
+        elif any(_public_source(value) for value in values):
+            a.step("web_server_ip_allowlist", "allow", allowed_ip_ranges=values, uri=uri)
+            a.ports = pset("tcp", 443, 443)
+        else:
+            a.step("web_server_ip_allowlist", "block", allowed_ip_ranges=values, uri=uri)
+            a.ports = {}
+    a.notes.append("Airflow UI and API still require IAM authentication; no user grant or application response was evaluated")
+    return a
+
+
 def _gcp_firebase_apphosting(snapshot, inventory, resource):
     data = resource["data"]
     uri = data.get("uri")
@@ -5210,7 +5247,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
-             "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
+             "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
              "media_cdn_service", "target_pool", "target_instance",
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
@@ -5227,7 +5264,7 @@ EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_
                      "ec2_image", "ebs_snapshot", "cloudfront_distribution", "app_runner_service", "amplify_app"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
-                     "vertex_feature_online_store", "app_engine_application", "api_gateway", "firebase_apphosting_endpoint",
+                     "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
@@ -5274,7 +5311,8 @@ def assess(snapshot, resources):
                 "cloud_ftp_server": _gcp_ftp, "looker_instance": _gcp_looker, "blockchain_node": _gcp_blockchain_node,
                 "data_fusion_instance": _gcp_data_fusion, "vertex_index_endpoint": _gcp_vertex_index,
                 "vertex_feature_online_store": _gcp_vertex_feature_store, "app_engine_application": _gcp_app_engine,
-                "api_gateway": _gcp_api_gateway, "firebase_apphosting_endpoint": _gcp_firebase_apphosting,
+                "api_gateway": _gcp_api_gateway, "composer_environment": _gcp_composer_environment,
+                "firebase_apphosting_endpoint": _gcp_firebase_apphosting,
                 "media_cdn_service": _gcp_media_cdn,
                 "workstation": _gcp_workstation, "beyondcorp_connection": _gcp_beyondcorp_connection,
                 "contact_center": _gcp_contact_center, "oracle_goldengate_deployment": _gcp_oracle_goldengate,

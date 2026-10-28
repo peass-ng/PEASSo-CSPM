@@ -720,6 +720,33 @@ def test_gcp_bigtable_direct_cross_project_reader_grant():
     assert findings() == []
 
 
+def test_gcp_composer_airflow_web_server_network_allowlist():
+    environment = {"name": "projects/p1/locations/us-central1/environments/airflow",
+                   "state": "RUNNING", "config": {"airflowUri": "https://example-dot-us-central1.composer.googleusercontent.com",
+                                                   "privateEnvironmentConfig": {"enablePrivateEnvironment": True}}}
+
+    def assessment():
+        return one(gcp(gcoll("composer_environment", [environment], service="composer")), "composer_environment")
+
+    result = assessment()
+    assert result["status"] == "FAIL" and result["evidence"]["exposed_ports"] == ["tcp/443"]
+    assert result["evidence"]["authenticated_endpoint"] is True
+    control = environment["config"]["webServerNetworkAccessControl"] = {"allowedIpRanges": []}
+    assert assessment()["status"] == "PASS"
+    control["allowedIpRanges"] = [{"value": "10.0.0.0/8"}]
+    assert assessment()["status"] == "PASS"
+    control["allowedIpRanges"] = [{"value": "8.8.8.0/24"}]
+    assert assessment()["status"] == "FAIL"
+    control["allowedIpRanges"] = [{"value": "bad-cidr"}]
+    assert assessment()["status"] == "UNKNOWN"
+    control["allowedIpRanges"] = []
+    environment["state"] = "UPDATING"
+    assert assessment()["status"] == "UNKNOWN"
+    environment["state"] = "RUNNING"
+    del environment["config"]["airflowUri"]
+    assert assessment()["status"] == "UNKNOWN"
+
+
 def test_gcp_bigquery_legacy_acl_and_authorized_resource():
     public = {"name": "projects/p1/datasets/shared", "datasetReference": {"projectId": "p1", "datasetId": "shared"},
               "access": [{"role": "READER", "specialGroup": "allAuthenticatedUsers"}]}

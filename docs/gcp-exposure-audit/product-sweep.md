@@ -2,7 +2,7 @@
 
 Inventory source: [Google Cloud product list](https://docs.cloud.google.com/docs/product-list), retrieved 2026-10-27, supplemented with Firebase Realtime Database because its rules are an independent exposure surface. The table is a tracking inventory, not a closure claim. `REVIEW REQUIRED` means an independent exposure primitive has not yet been ruled out or implemented.
 
-Open review ledger: **178 rows** remain REVIEW REQUIRED; **149 have no native path identified** in this sweep and **29 have a partial native path**. The rows below name every open product. By category, the counts are Cross-product tools 14, AI and ML 18, App development 23, App hosting 5, Compute 12, Data analytics and pipelines 17, Databases 11, Distributed/hybrid/multicloud 6, Industry solutions 7, Migration 6, Networking 23, Observability 5, Security 27, and Storage 4. A dash in the native-path column is the concrete blocker: no product-specific exposure inventory and verdict has yet been audited. A populated native path is still REVIEW REQUIRED until that product's public endpoints, IAM/policy/ACL, sharing, and federation primitives have been exhaustively checked.
+Open review ledger: **178 rows** remain REVIEW REQUIRED; **148 have no native path identified** in this sweep and **30 have a partial native path**. The rows below name every open product. By category, the counts are Cross-product tools 14, AI and ML 18, App development 23, App hosting 5, Compute 12, Data analytics and pipelines 17, Databases 11, Distributed/hybrid/multicloud 6, Industry solutions 7, Migration 6, Networking 23, Observability 5, Security 27, and Storage 4. A dash in the native-path column is the concrete blocker: no product-specific exposure inventory and verdict has yet been audited. A populated native path is still REVIEW REQUIRED until that product's public endpoints, IAM/policy/ACL, sharing, and federation primitives have been exhaustively checked.
 
 | Category | Product | Native path found so far | Audit state |
 | --- | --- | --- | --- |
@@ -90,7 +90,7 @@ Open review ledger: **178 rows** remain REVIEW REQUIRED; **149 have no native pa
 | Data analytics and pipelines | [Knowledge Catalog](https://docs.cloud.google.com/dataplex/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Lakehouse](https://docs.cloud.google.com/lakehouse/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Looker](https://docs.cloud.google.com/looker/docs) | looker_instance | REVIEW REQUIRED |
-| Data analytics and pipelines | [Managed Service for Apache Airflow](https://docs.cloud.google.com/composer/docs) | — | REVIEW REQUIRED |
+| Data analytics and pipelines | [Managed Service for Apache Airflow](https://docs.cloud.google.com/composer/docs) | composer_environment Airflow URI and web-server IP allowlist; IAM and other interfaces unresolved | REVIEW REQUIRED |
 | Data analytics and pipelines | [Managed Service for Apache Kafka](https://docs.cloud.google.com/managed-service-for-apache-kafka/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Managed Service for Apache Spark](https://docs.cloud.google.com/managed-spark/docs) | — | REVIEW REQUIRED |
 | Data analytics and pipelines | [Manufacturing Data Engine](https://docs.cloud.google.com/manufacturing-data-engine/docs) | — | REVIEW REQUIRED |
