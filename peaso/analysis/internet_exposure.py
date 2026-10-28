@@ -11554,6 +11554,59 @@ def _azure_ml_compute(snapshot, inventory, resource):
     return a
 
 
+def _azure_oracle_cloud_vm_cluster(snapshot, inventory, resource):
+    """Oracle database SCAN listener access CIDRs from the ARM cluster record."""
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    props = _props(resource)
+    rules = props.get("nsgCidrs")
+    if not isinstance(rules, list):
+        a.gap("ingress", "Oracle NSG CIDR inventory unavailable")
+        return a
+    exposed = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        source = rule.get("source")
+        if not _public_source(source):
+            continue
+        span = rule.get("destinationPortRange")
+        if isinstance(span, dict) and type(span.get("min")) is int and type(span.get("max")) is int:
+            low, high = span["min"], span["max"]
+            if 1 <= low <= high <= 65535:
+                a.ports = union(a.ports or {}, pset("tcp", low, high))
+        exposed.append(source)
+    if exposed:
+        a.step("oracle_nsg", "conditional", public_sources=sorted(set(exposed)))
+        a.gap("route", "Oracle SCAN address and Azure VNet ingress path are not joined")
+    else:
+        a.step("oracle_nsg", "block", reason="no collected globally routable source CIDR")
+        a.gap("route", "implicit VNet CIDRs and other Oracle network rules are unresolved")
+    return a
+
+
+def _azure_palo_alto_firewall(snapshot, inventory, resource):
+    """Palo Alto Cloud NGFW public IP assignments, with rule-stack reachability unresolved."""
+    a = Assessment(resource, "managed_endpoint")
+    a.explicit = "UNKNOWN"
+    network = _props(resource).get("networkProfile")
+    ips = network.get("publicIps") if isinstance(network, dict) else None
+    if not isinstance(ips, list):
+        a.gap("listener", "Cloud NGFW public IP inventory unavailable")
+        return a
+    addresses = sorted({ip.get("address") for ip in ips if isinstance(ip, dict)
+                        and isinstance(ip.get("address"), str) and _public_ip(ip["address"])})
+    if addresses:
+        a.addresses = addresses
+        a.step("firewall_public_ips", "conditional", addresses=addresses)
+        a.gap("policy", "Cloud NGFW frontend and rule-stack DNAT policy are not joined")
+    else:
+        a.step("firewall_public_ips", "block", reason="no globally routable public IP assignment")
+        a.gap("policy", "other Cloud NGFW frontend paths are unresolved")
+    return a
+
+
 def _azure_recovery_vault(snapshot, inventory, resource):
     """Recovery Services public network gate and approved foreign private links."""
     a = Assessment(resource, "managed_endpoint")
@@ -13882,7 +13935,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "powerbi_capacity", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "newrelic_monitor", "newrelic_monitored_resource", "service_fabric_cluster", "service_fabric_managed_cluster", "ml_compute", "recovery_vault", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "powerbi_capacity", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "newrelic_monitor", "newrelic_monitored_resource", "service_fabric_cluster", "service_fabric_managed_cluster", "ml_compute", "oracle_cloud_vm_cluster", "palo_alto_firewall", "recovery_vault", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -13898,7 +13951,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "management_group", "subscription", "powerbi_capacity", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export",
-                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "newrelic_monitor", "newrelic_monitored_resource", "service_fabric_cluster", "service_fabric_managed_cluster", "ml_compute", "recovery_vault", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "newrelic_monitor", "newrelic_monitored_resource", "service_fabric_cluster", "service_fabric_managed_cluster", "ml_compute", "oracle_cloud_vm_cluster", "palo_alto_firewall", "recovery_vault", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -14020,6 +14073,8 @@ def assess(snapshot, resources):
                   "service_fabric_cluster": _azure_service_fabric_cluster,
                   "service_fabric_managed_cluster": _azure_service_fabric_cluster,
                   "ml_compute": _azure_ml_compute,
+                  "oracle_cloud_vm_cluster": _azure_oracle_cloud_vm_cluster,
+                  "palo_alto_firewall": _azure_palo_alto_firewall,
                   "recovery_vault": _azure_recovery_vault,
                   "fabric_workspace": _azure_fabric_workspace,
                   "fabric_item": _azure_fabric_workspace,
