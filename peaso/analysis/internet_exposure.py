@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections import Counter
+from datetime import datetime, timezone
 from functools import lru_cache
 import json
 import re
@@ -10724,6 +10725,70 @@ def _azure_managed_application(snapshot, inventory, resource):
     return a
 
 
+def _azure_managed_grafana(snapshot, inventory, resource):
+    """Assess Grafana's workspace URL and external snapshot capability."""
+    a = Assessment(resource, "managed_endpoint")
+    props = _props(resource)
+    config = props.get("grafanaConfigurations")
+    snapshots = config.get("snapshots") if isinstance(config, dict) else None
+    external = snapshots.get("externalEnabled") if isinstance(snapshots, dict) else None
+    wid = str(native_id(resource))
+    snapshot_state = inventory.state("managed_grafana_snapshot", wid)
+    shared, uncertain = [], False
+    if snapshot_state in ("collected", "empty"):
+        for row in inventory.items("managed_grafana_snapshot"):
+            if str(row.get("scope", "")).casefold() != wid.casefold():
+                continue
+            fields = _props(row)
+            if fields.get("external") is not True:
+                continue
+            try:
+                expiry = datetime.fromisoformat(fields["expires"].replace("Z", "+00:00"))
+                if expiry.tzinfo is None:
+                    raise ValueError("naive expiry")
+            except (KeyError, TypeError, ValueError):
+                uncertain = True
+                continue
+            if expiry > datetime.now(timezone.utc):
+                shared.append(native_id(row))
+    else:
+        uncertain = True
+    if shared:
+        a.data_exposure = True
+        a.step("external_snapshot", "allow", snapshot_ids=shared)
+        a.notes.append("External snapshot URLs are capability links and are not retained in the inventory.")
+        return a
+    if props.get("provisioningState") != "Succeeded":
+        a.gap("inventory", "Grafana workspace is not in a proven succeeded state")
+        return a
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network_access", "block", value=access)
+        if not uncertain:
+            a.step("external_snapshot_inventory", "block", reason="no unexpired external snapshot in complete list")
+            a.ports = {}
+        else:
+            a.gap("inventory", "external snapshot inventory is incomplete or expiry is uncertain")
+            a.explicit = "UNKNOWN"
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "Grafana public network access is absent or unrecognized")
+        return a
+    endpoint = props.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint.startswith("https://"):
+        a.gap("inventory", "Grafana public workspace URL is missing or malformed")
+        return a
+    a.addresses.append(endpoint)
+    a.step("public_network_access", "allow", value=access, endpoint=endpoint)
+    a.ports = pset("tcp", 443, 443)
+    if external is True:
+        a.step("external_snapshot_publish", "conditional", external_enabled=True)
+        a.notes.append("External snapshot publishing is enabled; published links are checked separately through the Grafana snapshot list.")
+    elif external is None:
+        a.notes.append("External snapshot publish setting is not collected.")
+    return a
+
+
 # ---------------------------------------------------------------------- K8s
 
 INTERNAL = {"service.beta.kubernetes.io/aws-load-balancer-internal": {"true", "0.0.0.0/0"},
@@ -11252,7 +11317,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11267,7 +11332,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana",
                        "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -11377,6 +11442,7 @@ def assess(snapshot, resources):
                   "data_share_provider_subscription": _azure_data_share_recipient,
                   "lighthouse_assignment": _azure_lighthouse_assignment,
                   "managed_application": _azure_managed_application,
+                  "managed_grafana": _azure_managed_grafana,
                   **{kind: _azure_managed_endpoint for kind in _AZURE_MANAGED_ENDPOINTS}},
         "k8s": {"service": _k8s_service, "ingress": _k8s_ingress, "pod": _k8s_pod, "node": _k8s_node,
                 "gateway": _k8s_gateway,
@@ -11416,6 +11482,12 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "managed_grafana":
+        if status == "FAIL" and any(step.get("layer") == "external_snapshot" for step in assessment.path):
+            return "Azure Managed Grafana snapshot is shared externally"
+        return ("Azure Managed Grafana workspace is publicly reachable" if status == "FAIL" else
+                "Azure Managed Grafana exposure unresolved" if status == "UNKNOWN" else
+                "Azure Managed Grafana public access blocked")
     if assessment.resource["type"] == "managed_application":
         return ("Azure Managed Application delegates access to its publisher" if status == "FAIL" else
                 "Azure Managed Application publisher access unresolved" if status == "UNKNOWN" else
@@ -11507,6 +11579,17 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    if assessment.resource["type"] == "managed_grafana":
+        if status == "FAIL":
+            if any(step.get("layer") == "external_snapshot" for step in assessment.path):
+                return ("The read-only Grafana snapshot list contains an unexpired externally published snapshot. "
+                        "The share is a public capability link; its key and URL are omitted from evidence storage.")
+            return ("A succeeded Grafana workspace has public network access enabled and an HTTPS workspace URL. "
+                    "Authentication remains required; snapshots are checked through a separate Grafana list.")
+        if status == "PASS":
+            return "The workspace blocks public network access and the complete Grafana list has no unexpired external snapshot."
+        return ("Workspace state, URL, public network setting, or external snapshot publishing is unresolved. "
+                "An enabled snapshot publisher alone does not prove that a snapshot was published.")
     if assessment.resource["type"] == "managed_application":
         if status == "FAIL":
             return ("The succeeded customer-managed resource has publisher-managed mode, a foreign publisher tenant, "

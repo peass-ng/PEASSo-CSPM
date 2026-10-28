@@ -190,8 +190,8 @@
         }
       },
       "receipt": "peaso/checks/azure_function_settings_runtime_admission_20261020.json",
-      "receipt_sha256": "5b788d845d7c74bed76cfc6bcd3c90ad86319a269a029d9cc59bc228a3c30711",
-      "source_sha256": "4ef788449edb8f5ebba1b11c771c65eb48017e69af325d898ab21313d1e679c9"
+      "receipt_sha256": "0dd368dcd2f4f80566749f35a9c0c18c83cbb3347738b6c660265ef3e3a34b43",
+      "source_sha256": "9816acc892d3d31fd0593b80d71a204edac9fbdeddd04276a07b63627cf57bdd"
     },
     "peaso/checks/azure_log_samples_admission_20261020.py": {
       "function_bindings": {

@@ -311,7 +311,7 @@
       "path": "peaso/collectors/azure.py",
       "qualname": "AzureTransport.__init__",
       "line": 877,
-      "source_sha256": "dfc016bae2d0d2063538a53e34c63a26c7689acae67c34e273e984ecb230a11d",
+      "source_sha256": "6d36cfee11cacacef6bf3934d873936f764a1d8d36c64d47ab92b2882ca641a1",
       "defaults": [
         null
       ],
@@ -321,7 +321,7 @@
       "path": "peaso/collectors/azure.py",
       "qualname": "AzureTransport.token",
       "line": 945,
-      "source_sha256": "7578d9eb31840e4c0da859c7c09bfdeba4c535f4844315da38d64d6a840fd069",
+      "source_sha256": "a41011c20c9ffcdbac8ee5f98bcdb1a953854b23bbc40340c046323c92a9dad3",
       "defaults": null,
       "kwdefaults": null
     },
@@ -353,7 +353,7 @@
       "path": "peaso/collectors/azure.py",
       "qualname": "_Reader._read",
       "line": 1428,
-      "source_sha256": "300fbc760ead732d42d416ee2dc72bca243ee4fb53d08f7b5545be4467ae11ef",
+      "source_sha256": "67c2789201e7c37b069628e674bcb7fdf8395c58f03c757013f6a30cddacef92",
       "defaults": null,
       "kwdefaults": null
     },

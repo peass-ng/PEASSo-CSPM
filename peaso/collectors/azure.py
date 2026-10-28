@@ -76,6 +76,7 @@ from peaso.check_services import service_for
 from . import azure_network_catalog
 
 ARM = "https://management.azure.com"
+GRAFANA = "https://dashboard.azure.com"
 GRAPH = "https://graph.microsoft.com"
 VAULT = "https://vault.azure.net"
 STORAGE = "https://storage.azure.com"
@@ -121,6 +122,7 @@ ENDPOINTS = {
     "data_factory": ("Microsoft.DataFactory/factories", "2018-06-01"),
     "data_share_account": ("Microsoft.DataShare/accounts", "2021-08-01"),
     "managed_application": ("Microsoft.Solutions/applications", "2019-07-01"),
+    "managed_grafana": ("Microsoft.Dashboard/grafana", "2025-08-01"),
     "devtest_lab": ("Microsoft.DevTestLab/labs", "2018-09-15"),
     "api_management": ("Microsoft.ApiManagement/service", "2024-05-01"),
     "analysis_server": ("Microsoft.AnalysisServices/servers", "2017-08-01"),
@@ -345,6 +347,31 @@ def _managed_application_metadata(row):
     kept["properties"] = safe
     kept["_provenance"] = {"source_operation": "Applications_ListBySubscription", "api_version": "2019-07-01", "read_only": True,
                             "representation": "delegation_metadata"}
+    return kept
+
+
+def _managed_grafana_metadata(row):
+    """Keep public-listener and snapshot flags, never Grafana SMTP credentials."""
+    props = row.get("properties")
+    if not isinstance(props, dict):
+        raise ValueError("managed Grafana properties are missing")
+    fields = ("provisioningState", "publicNetworkAccess", "endpoint")
+    if any(key in props and not isinstance(props[key], str) for key in fields):
+        raise ValueError("malformed managed Grafana listener field")
+    kept = {key: row[key] for key in ("id", "name", "type", "location") if key in row}
+    safe = {key: props[key] for key in fields if key in props}
+    config = props.get("grafanaConfigurations")
+    if config is not None:
+        if not isinstance(config, dict):
+            raise ValueError("malformed managed Grafana configuration")
+        snapshots = config.get("snapshots")
+        if snapshots is not None:
+            if not isinstance(snapshots, dict) or ("externalEnabled" in snapshots and type(snapshots["externalEnabled"]) is not bool):
+                raise ValueError("malformed managed Grafana snapshot setting")
+            safe["grafanaConfigurations"] = {"snapshots": {"externalEnabled": snapshots["externalEnabled"]} if "externalEnabled" in snapshots else {}}
+    kept["properties"] = safe
+    kept["_provenance"] = {"source_operation": "Grafana_List", "api_version": "2025-08-01", "read_only": True,
+                            "representation": "listener_and_snapshot_metadata"}
     return kept
 
 
@@ -1156,7 +1183,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "subscription", "tenant", "management_group", "resource_graph", "activity_log", "activity_log_coverage",
     "subnet", "vnet_peering", "effective_route", "security_admin_rule", "service_tag", "diagnostic_setting", "storage_service", "sql_database",
     "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record",
-    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment",
+    "data_share_share", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_grafana_snapshot",
     "private_dns_link", "directory_membership", "azure_unused_iam_evidence", "azure_unused_role_evidence", "azure_unused_arm_role_evidence", "azure_unused_iam_user_success_evidence",
     "directory_group_pim_policy", "directory_group_pim_owner_policy",
     "directory_group_eligibility_schedule", "directory_group_eligibility_instance", "directory_role_pim_policy",
@@ -1634,6 +1661,7 @@ class AzureTransport:
         self.tenant = auth.get("tenant_id")
         self.vault_hosts = set()
         self.storage_hosts = set()
+        self.grafana_hosts = set()
         self.verified_tenant = None
         from .scan_cache import RawResponseCache
         # Per-scan, per-credential single-flight cache of complete read bodies.
@@ -1666,6 +1694,16 @@ class AzureTransport:
             raise AzureReadError("untrusted_storage_endpoint")
         with self.lock:
             self.storage_hosts.add(parsed.netloc.lower())
+
+    def allow_grafana(self, uri):
+        parsed = urlsplit(uri)
+        host = parsed.netloc.lower()
+        if (parsed.scheme != "https" or parsed.username or parsed.password or parsed.port
+                or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                or re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.grafana\.azure\.com", host) is None):
+            raise AzureReadError("untrusted_grafana_endpoint")
+        with self.lock:
+            self.grafana_hosts.add(host)
 
     def request_xml(self, url):
         parsed = urlsplit(url)
@@ -1734,7 +1772,8 @@ class AzureTransport:
                 raise AzureReadError("token_audience_mismatch", 401)
             from peaso.ai.access import bearer
             endpoints = (["https://" + host for host in self.vault_hosts] if audience == VAULT else
-                         ["https://" + host for host in self.storage_hosts] if audience == STORAGE else [audience])
+                         ["https://" + host for host in self.storage_hosts] if audience == STORAGE else
+                         ["https://" + host for host in self.grafana_hosts] if audience == GRAFANA else [audience])
             bearer("azure", audience, token, context_id=self.ai_context_id, tenant_id=self.tenant,
                    expires_at=None if direct else cached.expires_on, endpoints=endpoints)
             return token
@@ -1769,6 +1808,10 @@ class AzureTransport:
             origin_allowed = (parsed.hostname or "").lower() in self.vault_hosts and parsed.port in (None, 443)
         if audience == LOGS:
             origin_allowed = (parsed.hostname or "").lower() == "api.loganalytics.azure.com" and parsed.port in (None, 443)
+        if audience == GRAFANA:
+            origin_allowed = (body is None and (parsed.hostname or "").lower() in self.grafana_hosts
+                              and parsed.port in (None, 443) and parsed.path == "/api/dashboard/snapshots"
+                              and parse_qs(parsed.query) == {"limit": ["10000"]})
         from .azure_network_data import is_network_audience, allowed_route
         if is_network_audience(audience):
             origin_allowed = body is None and allowed_route(url, audience)
@@ -2271,7 +2314,8 @@ class _Reader:
                     if normalized not in items and self.budget.max_items is not None and len(items) >= self.budget.max_items:
                         raise AzureReadError("resource_limit")
                     projected = item if service == "kubernetes" else _metadata_only(
-                        _managed_application_metadata(item) if kind == "managed_application" else item,
+                        _managed_application_metadata(item) if kind == "managed_application" else
+                        _managed_grafana_metadata(item) if kind == "managed_grafana" else item,
                         kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
                     if kind == "app_service":
                         projected = azure_functions_runtime_native.safe_site_inventory(projected)
@@ -2429,6 +2473,10 @@ def _selected(options, requirements):
         selected.update(("resource_group", "subscription"))
     if "managed_application" in selected:
         selected.add("subscription")
+    if "managed_grafana" in selected:
+        selected.add("managed_grafana_snapshot")
+    if "managed_grafana_snapshot" in selected:
+        selected.add("managed_grafana")
     if selected.intersection(("sql_database_ltr_policy",)):
         selected.update(("sql_database", "sql_database_inventory"))
     if "key_rotation_policy" in selected:
@@ -3125,6 +3173,12 @@ def collect(connector, requirements=None, *, transport=None):
                                         or str(item.get("type", "")).casefold() != "microsoft.solutions/applications"
                                         or not isinstance(item.get("properties"), dict)):
                                     raise ValueError("malformed managed application identity or properties")
+                            if kind == "managed_grafana":
+                                expected = re.escape(scope) + r"/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Dashboard/grafana/[^/?#%\\\s]+"
+                                if (re.fullmatch(expected, rid, re.I) is None
+                                        or str(item.get("type", "")).casefold() != "microsoft.dashboard/grafana"
+                                        or not isinstance(item.get("properties"), dict)):
+                                    raise ValueError("malformed managed Grafana identity or properties")
                             _network_platform_native_identity(item, scope, kind)
                             _database_crypto_parent_identity(item, scope, kind)
                             if not _remaining_service_parent_identity(item, scope, kind, remaining_service_seen):
@@ -3228,6 +3282,39 @@ def collect(connector, requirements=None, *, transport=None):
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
+        if "managed_grafana_snapshot" in wanted:
+            snapshot_jobs = []
+            for collection in reader.collections:
+                if collection["type"] != "managed_grafana" or collection["status"] not in ("collected", "empty"):
+                    continue
+                for workspace in collection["items"]:
+                    wid = workspace["id"]
+                    endpoint = (workspace.get("properties") or {}).get("endpoint")
+                    def grafana_snapshots(wid=wid, endpoint=endpoint):
+                        if not isinstance(endpoint, str):
+                            raise ValueError("Grafana workspace endpoint missing")
+                        if hasattr(transport, "allow_grafana"):
+                            transport.allow_grafana(endpoint)
+                        url = endpoint.rstrip("/") + "/api/dashboard/snapshots?limit=10000"
+                        rows = reader.call(request, url, audience=GRAFANA)
+                        if not isinstance(rows, list) or len(rows) >= 10000:
+                            raise ValueError("Grafana snapshot list malformed or truncated")
+                        seen = set()
+                        projected = []
+                        for row in rows:
+                            if not isinstance(row, dict) or type(row.get("id")) is not int or row["id"] < 0 or row["id"] in seen:
+                                raise ValueError("malformed Grafana snapshot identity")
+                            seen.add(row["id"])
+                            if type(row.get("external")) is not bool or not isinstance(row.get("expires"), str):
+                                raise ValueError("malformed Grafana snapshot exposure state")
+                            sid = wid + "/snapshots/" + str(row["id"])
+                            projected.append({"id": sid, "type": "Microsoft.Dashboard/grafana/snapshots",
+                                              "properties": {"external": row["external"], "expires": row["expires"]},
+                                              "_provenance": {"source_operation": "GrafanaSnapshot_List", "read_only": True,
+                                                              "representation": "exposure_metadata"}})
+                        yield projected
+                    snapshot_jobs.append(("managed_grafana_snapshot", wid, "Microsoft.Dashboard", grafana_snapshots))
+            reader.run(snapshot_jobs)
         for collection in reader.collections:
             if collection["type"] == "activity_log":
                 collection["queryWindow"] = {"start": start, "end": end, "endExclusive": True}
