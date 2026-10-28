@@ -11412,7 +11412,9 @@ def _azure_app_restriction_decision(cp, prefix, service_tags=None):
     raw_restrictions = as_list(cp.get(stem))
     restrictions = [r for r in raw_restrictions if isinstance(r, dict)]
     unresolved = len(restrictions) != len(raw_restrictions)
-    default = cp.get(stem + "DefaultAction") or ("Deny" if raw_restrictions else "Allow")
+    default = cp.get(stem + "DefaultAction")
+    if default is None:
+        default = "Deny" if raw_restrictions else "Allow"
     unresolved |= default not in ("Allow", "Deny")
     prior, open_rules, unsupported = [], [], []
     try:

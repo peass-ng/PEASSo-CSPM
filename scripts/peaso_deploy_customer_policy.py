@@ -934,16 +934,18 @@ def split_policy(policy):
             continue
         chunk = []
         for action in actions:
-            candidate = {**statement, "Sid": statement["Sid"] + str(len(documents) + 1), "Action": chunk + [action]}
+            # New allocations use a short statement ID so the exact read actions
+            # fit within the existing customer role's managed-policy quota.
+            candidate = {**statement, "Sid": "ConfigRead" + str(len(documents) + 1), "Action": chunk + [action]}
             if not fits(current + [candidate]):
                 if chunk:
-                    current.append({**statement, "Sid": statement["Sid"] + str(len(documents) + 1), "Action": chunk})
+                    current.append({**statement, "Sid": "ConfigRead" + str(len(documents) + 1), "Action": chunk})
                 flush()
                 chunk = [action]
             else:
                 chunk.append(action)
         if chunk:
-            current.append({**statement, "Sid": statement["Sid"] + str(len(documents) + 1), "Action": chunk})
+            current.append({**statement, "Sid": "ConfigRead" + str(len(documents) + 1), "Action": chunk})
     flush()
     if len(documents) > IAM_MANAGED_POLICIES_PER_ROLE:
         raise ValueError("Customer policy exceeds the attached managed-policy quota")

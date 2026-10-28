@@ -206,6 +206,8 @@ def test_current_role_adds_only_reviewed_cloudtrail_delivery_policy_reads():
 # These SDK reads were introduced after all four archived templates below.
 # Keep their captured input universe fixed; current-role grants are tested separately.
 _POST_HISTORICAL_METADATA_READS = {
+    ('cloudfront', 'get_continuous_deployment_policy'),
+    ('rds', 'describe_db_cluster_endpoints'),
     ('accessanalyzer', 'get_analyzer'),
     ('apigateway', 'get_base_path_mappings'),
     ('apigatewayv2', 'get_api_mappings'), ('apigatewayv2', 'get_domain_names'),

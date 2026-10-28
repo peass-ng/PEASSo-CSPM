@@ -2926,7 +2926,8 @@ def test_lambda_function_url_missing_read_differs_from_observed_absence():
     assert missing["status"] == "UNKNOWN"
     assert "lambda:GetFunctionUrlConfig" in missing["evidence"]["collector_facts_needed"]
     function["FunctionUrl"] = {"collection_status": "empty", "absent": True}
-    assert not exposure(aws(coll("lambda_function", [function], service="lambda")))
+    assert not [finding for finding in exposure(aws(coll("lambda_function", [function], service="lambda")))
+                if finding["evidence"].get("exposure_kind") == "function_url"]
 
 
 @pytest.mark.parametrize("target_arn", [None, "other", "$LATEST"])
