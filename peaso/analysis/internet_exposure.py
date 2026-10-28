@@ -4891,6 +4891,28 @@ def _azure_storage_bypass(acls):
     return entries if entries and entries <= {"AzureServices", "Logging", "Metrics"} else None
 
 
+def _azure_storage_endpoint_urls(props, service=None):
+    """Use only ARM-returned primary/secondary and published routing endpoints."""
+    urls = []
+    routing = props.get("routingPreference")
+    routing = routing if isinstance(routing, dict) else {}
+    for location in ("primaryEndpoints", "secondaryEndpoints"):
+        endpoints = props.get(location)
+        if not isinstance(endpoints, dict):
+            continue
+        for name, value in endpoints.items():
+            if isinstance(value, str) and (service is None or name == service) and value.startswith("https://"):
+                urls.append(value)
+        for kind, publish in (("internetEndpoints", "publishInternetEndpoints"),
+                              ("microsoftEndpoints", "publishMicrosoftEndpoints")):
+            variant = endpoints.get(kind)
+            if routing.get(publish) is True and isinstance(variant, dict):
+                urls.extend(value for name, value in variant.items()
+                            if (service is None or name == service) and isinstance(value, str)
+                            and value.startswith("https://"))
+    return sorted(set(urls))
+
+
 def _azure_storage(snapshot, inventory, resource):
     props = _props(resource)
     a = Assessment(resource, "data_share")
@@ -4930,7 +4952,12 @@ def _azure_storage(snapshot, inventory, resource):
             a.ports = {}
             return a
     endpoint_set = props.get("primaryEndpoints") or {}
-    a.addresses = sorted(v for v in endpoint_set.values() if isinstance(v, str))[:4]
+    a.addresses = _azure_storage_endpoint_urls(props)
+    secondary = props.get("secondaryEndpoints")
+    secondary_blob = secondary.get("blob") if isinstance(secondary, dict) else None
+    if secondary_blob in a.addresses:
+        a.step("secondary_endpoint", "allow", blob_url=secondary_blob,
+               secondary_status=props.get("statusOfSecondary"))
     if any(_cidr(value).version == 6 for value in public):
         a.addresses.extend(sorted(v for v in endpoint_set["ipv6Endpoints"].values()
                                   if isinstance(v, str) and v.startswith("https://"))[:4])
@@ -4998,7 +5025,12 @@ def _azure_storage_container(snapshot, inventory, resource):
     else:
         a.step("firewall", "allow", default_action="Allow")
     endpoint_set = props.get("primaryEndpoints") or {}
-    a.addresses = [v for v in endpoint_set.values() if isinstance(v, str) and "blob" in v][:1]
+    a.addresses = _azure_storage_endpoint_urls(props, service="blob")
+    secondary = props.get("secondaryEndpoints")
+    secondary_blob = secondary.get("blob") if isinstance(secondary, dict) else None
+    if secondary_blob in a.addresses:
+        a.step("secondary_endpoint", "allow", blob_url=secondary_blob,
+               secondary_status=props.get("statusOfSecondary"))
     if acls.get("defaultAction") == "Deny" and any(_cidr(value).version == 6 for value in public):
         ipv6_blob = endpoint_set["ipv6Endpoints"].get("blob")
         if isinstance(ipv6_blob, str) and ipv6_blob.startswith("https://"):
@@ -6946,6 +6978,23 @@ def _observed(assessment, status):
                     f"permits subnet {subnet_id} through its public endpoint.\n"
                     "Requests from that subnet may reach storage if its service endpoint and the service respond.\n"
                     "Subnet ownership, data authorization, and successful access were not tested.")
+    if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
+        account = assessment.resource["data"]
+        secondary = next((step.get("blob_url") for step in assessment.path
+                          if step["layer"] == "secondary_endpoint"), None)
+        if assessment.resource["type"] == "storage_container":
+            if secondary:
+                name = account.get("name", native_id(assessment.resource))
+                return (f"The blob container {name} allows anonymous reads and its account records "
+                        f"read-access secondary blob endpoint {secondary}.\n"
+                        "The account network rules permit a public source to that endpoint if it responds.\n"
+                        "No blob request or contents were tested.")
+        else:
+            if secondary:
+                name = account.get("name", native_id(assessment.resource))
+                return (f"The storage account {name} records read-access secondary blob endpoint {secondary}.\n"
+                        "Its network rules permit a public source to that endpoint if it responds.\n"
+                        "Data authorization and a successful request were not tested.")
     if assessment.resource["type"] == "storage_account" and status == "UNKNOWN":
         exception = next((step for step in assessment.path
                           if step["layer"] == "trusted_service_exception"), None)

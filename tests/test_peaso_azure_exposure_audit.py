@@ -708,6 +708,43 @@ def test_storage_trusted_service_bypass_is_not_an_anonymous_public_source():
     assert account_and_container("unknown-service")[1].verdict() == "UNKNOWN"
 
 
+def test_storage_recorded_secondary_and_published_routing_endpoints():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    primary = "https://a.blob.core.windows.net/"
+    secondary = "https://a-secondary.blob.core.windows.net/"
+    internet = "https://a-internetrouting.blob.core.windows.net/"
+    microsoft = "https://a-microsoftrouting.blob.core.windows.net/"
+
+    def check(*, primary_present=True, internet_published=True):
+        props = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,
+            "networkAcls": {"defaultAction": "Allow"}, "statusOfSecondary": "available",
+            "routingPreference": {"publishInternetEndpoints": internet_published,
+                                  "publishMicrosoftEndpoints": True},
+            "primaryEndpoints": {"blob": primary} if primary_present else {},
+            "secondaryEndpoints": {"blob": secondary, "internetEndpoints": {"blob": internet},
+                                   "microsoftEndpoints": {"blob": microsoft}}}
+        snapshot = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "sku": {"name": "Standard_RAGRS"}, "properties": props}]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id + "/blobServices/default/containers/public",
+                        "parent_id": account_id, "properties": {"publicAccess": "Blob"}}]}])
+        rows = assess(snapshot, resources(snapshot))
+        return (next(row for row in rows if row.resource["type"] == "storage_account"),
+                next(row for row in rows if row.resource["type"] == "storage_container"))
+
+    account, anonymous = check()
+    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
+    assert set((primary, secondary, internet, microsoft)) <= set(account.addresses)
+    assert set((primary, secondary, internet, microsoft)) <= set(anonymous.addresses)
+    assert f"read-access secondary blob endpoint {secondary}" in _observed(anonymous, "FAIL")
+    assert f"read-access secondary blob endpoint {secondary}" in _observed(account, "FAIL")
+    account, anonymous = check(primary_present=False, internet_published=False)
+    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
+    assert primary not in account.addresses and internet not in account.addresses
+    assert secondary in anonymous.addresses
+
+
 def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
     blob_url = "https://a.blob.core.windows.net/"
