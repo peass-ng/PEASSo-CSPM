@@ -896,6 +896,14 @@ def test_storage_effective_perimeter_public_rule_overrides_account_firewall():
     assert "account-firewall fallback" in _observed(fallback["storage_container"], "FAIL")
     assert "account-firewall fallback" in _observed(fallback["storage_account"], "FAIL")
     assert all(row.verdict() == "UNKNOWN" for row in check(learning_private).values())
+    public_acl = {"defaultAction": "Deny", "bypass": "None",
+                  "ipRules": [{"value": "8.8.8.8/32", "action": "Allow"}]}
+    fallback_ip = check(learning_private, acls=public_acl)
+    assert all(row.verdict() == "FAIL" for row in fallback_ip.values())
+    assert fallback_ip["storage_container"].data_exposure
+    assert "8.8.8.8/32" in _observed(fallback_ip["storage_account"], "FAIL")
+    assert "8.8.8.8/32" in _observed(fallback_ip["storage_container"], "FAIL")
+    assert all(row.verdict() == "UNKNOWN" for row in check(private, acls=public_acl).values())
     audit = {**config, "properties": {**config["properties"],
         "resourceAssociation": {"accessMode": "Audit"}}}
     assert all(row.verdict() == "UNKNOWN" for row in check(audit).values())

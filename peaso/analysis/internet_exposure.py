@@ -5096,10 +5096,15 @@ def _azure_storage(snapshot, inventory, resource):
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
         public_rules, subscription_rules = _azure_storage_perimeter_public_rules(resource)
         acls = props.get("networkAcls")
-        fallback_allow = (_azure_storage_perimeter_learning_fallback(resource) and
+        learning = _azure_storage_perimeter_learning_fallback(resource)
+        fallback_allow = (learning and
                           (acls is None or isinstance(acls, dict) and
                            acls.get("defaultAction", "Allow") == "Allow"))
-        if public_rules or (subscription_rules and not fallback_allow):
+        fallback_ip_rules = []
+        if learning and isinstance(acls, dict) and acls.get("defaultAction") == "Deny":
+            firewall_rules, _ = _azure_storage_public_ip_rules(acls)
+            fallback_ip_rules = [value for value in firewall_rules if _cidr(value).version == 4]
+        if public_rules or (subscription_rules and not (fallback_allow or fallback_ip_rules)):
             a.step("network_security_perimeter", "allow", public_ip_rules=public_rules,
                    subscription_rules=subscription_rules,
                    access_modes=sorted({rule["access_mode"] for rule in public_rules + subscription_rules}),
@@ -5113,8 +5118,9 @@ def _azure_storage(snapshot, inventory, resource):
             if subscription_rules and not public_rules:
                 a.notes.append("Subscription perimeter admission requires authentication; ownership is not established")
             return a
-        if fallback_allow:
-            a.step("perimeter_learning_fallback", "allow", firewall_default_action="Allow",
+        if fallback_allow or fallback_ip_rules:
+            a.step("perimeter_learning_fallback", "allow", firewall_default_action="Allow" if fallback_allow else "Deny",
+                   public_ip_rules=fallback_ip_rules,
                    reason="unmatched Learning perimeter source falls back to the account firewall")
             a.addresses = _azure_storage_endpoint_urls(props)
             if not a.addresses:
@@ -5242,9 +5248,16 @@ def _azure_storage_container(snapshot, inventory, resource):
                    subscription_rules=subscription_rules,
                    reason="subscription-based perimeter rules reject anonymous and SAS requests")
         acls = props.get("networkAcls")
-        if (_azure_storage_perimeter_learning_fallback(account) and
-                (acls is None or isinstance(acls, dict) and acls.get("defaultAction", "Allow") == "Allow")):
-            a.step("perimeter_learning_fallback", "allow", firewall_default_action="Allow",
+        learning = _azure_storage_perimeter_learning_fallback(account)
+        fallback_allow = learning and (acls is None or isinstance(acls, dict) and
+                                       acls.get("defaultAction", "Allow") == "Allow")
+        fallback_ip_rules = []
+        if learning and isinstance(acls, dict) and acls.get("defaultAction") == "Deny":
+            firewall_rules, _ = _azure_storage_public_ip_rules(acls)
+            fallback_ip_rules = [value for value in firewall_rules if _cidr(value).version == 4]
+        if fallback_allow or fallback_ip_rules:
+            a.step("perimeter_learning_fallback", "allow", firewall_default_action="Allow" if fallback_allow else "Deny",
+                   public_ip_rules=fallback_ip_rules,
                    reason="unmatched Learning perimeter source falls back to the account firewall")
             a.addresses = _azure_storage_endpoint_urls(props, service="blob")
             if not a.addresses:
@@ -7707,13 +7720,15 @@ def _observed(assessment, status):
                          step["decision"] == "allow"), None)
         if fallback is not None:
             name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            firewall = ("firewall default Allow" if fallback["firewall_default_action"] == "Allow" else
+                        f"firewall rule allowing IPv4 source {fallback['public_ip_rules'][0]} under default Deny")
             if assessment.resource["type"] == "storage_container":
                 return (f"The blob container {name} allows anonymous access, and its account's effective "
-                        "perimeter is in Learning mode with firewall default Allow.\n"
+                        f"perimeter is in Learning mode with {firewall}.\n"
                         "An unmatched public source can use the account-firewall fallback to the blob endpoint.\n"
                         "DNS delivery, a successful anonymous read, and contents were not tested.")
             return (f"The storage account {name} has an effective Learning-mode perimeter and firewall "
-                    "default Allow.\n"
+                    f"{firewall.removeprefix('firewall ')}.\n"
                     "An unmatched public source can use the account-firewall fallback to its endpoint.\n"
                     "Data authorization, DNS delivery, and a successful request were not tested.")
         ipv6_step = next((step for step in assessment.path if any(
