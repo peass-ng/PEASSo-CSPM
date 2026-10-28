@@ -10256,6 +10256,51 @@ def gcp_migration_cross_project_vpc_peering_findings(snapshot, resources):
     return output
 
 
+def gcp_secure_source_manager_psc_allowance_findings(snapshot, resources):
+    """Record an active instance's explicit additional PSC consumer project."""
+    if snapshot["provider"] != "gcp":
+        return []
+    output = []
+    for resource in resources:
+        if resource["type"] != "secure_source_instance" or not isinstance(resource.get("data"), dict):
+            continue
+        data = resource["data"]
+        name = data.get("name")
+        identity = re.fullmatch(r"projects/([0-9]+)/locations/([^/]+)/instances/[^/]+", name or "")
+        config = data.get("privateConfig")
+        if not identity or data.get("state") != "ACTIVE" or not isinstance(config, dict):
+            continue
+        attachment = config.get("httpServiceAttachment")
+        producer = re.fullmatch(r"projects/([^/]+)/regions/([^/]+)/serviceAttachments/[^/]+", attachment or "")
+        if not producer or producer[2] != identity[2]:
+            continue
+        projects = config.get("pscAllowedProjects")
+        if not isinstance(projects, list):
+            continue
+        consumers = sorted({value for value in projects if isinstance(value, str)
+                            and re.fullmatch(r"[0-9]+", value) and value != identity[1]})
+        if not consumers:
+            continue
+        observed = "\n".join((
+            f"The Secure Source Manager instance {name} is ACTIVE with HTTP service attachment {attachment} and pscAllowedProjects entries {', '.join(consumers)}.",
+            f"The instance names project number {identity[1]}, while its additional PSC consumer entries name other project numbers.",
+            "That setting allows the listed projects to create private connections, while endpoints, routes and repository permissions remain unresolved.",
+            "Users in the allowed projects may reach repository interfaces and could access source code if connectivity and repository IAM permit it."))
+        evidence = {
+            "observed": observed,
+            "http_service_attachment": attachment,
+            "instance_project_number": identity[1],
+            "allowed_project_numbers": consumers,
+            "source": source(snapshot, resource, "privateConfig.pscAllowedProjects"),
+            "risk_state": "unknown",
+            "semantics": "Additional PSC consumer allowance only; actual endpoints, routes, instance and repository IAM, code contents and external ownership are unresolved.",
+        }
+        output.append(finding(snapshot, resource, "exposure", "analysis.gcp_secure_source_manager_psc_allowance",
+                              "Secure Source Manager PSC consumer allowance unresolved", "info", evidence,
+                              status="UNKNOWN"))
+    return output
+
+
 def gcp_dns_public_address_record_findings(snapshot, resources):
     """Record public-zone address publication without claiming endpoint reachability."""
     if snapshot["provider"] != "gcp":
@@ -15152,6 +15197,7 @@ def internet_findings(snapshot, resources):
     output.extend(gcp_dataflow_public_worker_findings(snapshot, resources))
     output.extend(gcp_migration_cross_project_psc_findings(snapshot, resources))
     output.extend(gcp_migration_cross_project_vpc_peering_findings(snapshot, resources))
+    output.extend(gcp_secure_source_manager_psc_allowance_findings(snapshot, resources))
     output.extend(gcp_dns_public_address_record_findings(snapshot, resources))
     output.extend(gcp_domains_external_dns_configurator_findings(snapshot, resources))
     output.extend(gcp_workflows_cross_project_service_account_findings(snapshot, resources))

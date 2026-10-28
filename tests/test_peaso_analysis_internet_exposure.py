@@ -6159,6 +6159,34 @@ def test_gcp_database_migration_cross_project_vpc_peering_needs_route_and_job():
     assert rows() == []
 
 
+def test_gcp_secure_source_manager_additional_psc_project_needs_endpoint_and_iam():
+    name = "projects/123456/locations/us-central1/instances/source-a"
+    attachment = "projects/123456/regions/us-central1/serviceAttachments/http"
+    instance = {"name": name, "state": "ACTIVE", "privateConfig": {
+        "httpServiceAttachment": attachment,
+        "pscAllowedProjects": ["123456", "789012", "789012", "789013"]}}
+
+    def rows():
+        return [row for row in analyze(gcp(gcoll("secure_source_instance", [instance],
+                                           service="securesourcemanager")))["findings"]
+                if row["check_id"] == "analysis.gcp_secure_source_manager_psc_allowance"]
+
+    findings = rows()
+    assert len(findings) == 1 and findings[0]["status"] == "UNKNOWN"
+    assert findings[0]["evidence"]["allowed_project_numbers"] == ["789012", "789013"]
+    assert findings[0]["evidence"]["source"]["path"] == "privateConfig.pscAllowedProjects"
+    assert_gcp_observed_style(findings[0], name)
+    assert "source code" in findings[0]["evidence"]["observed"].splitlines()[-1]
+    instance["privateConfig"]["pscAllowedProjects"] = ["123456", "other-project"]
+    assert rows() == []
+    instance["privateConfig"]["pscAllowedProjects"] = ["789012"]
+    instance["privateConfig"]["httpServiceAttachment"] = "projects/123456/regions/europe-west1/serviceAttachments/http"
+    assert rows() == []
+    instance["privateConfig"]["httpServiceAttachment"] = attachment
+    instance["state"] = "PAUSED"
+    assert rows() == []
+
+
 def test_gcp_public_nat_is_outbound_configuration_only():
     router = {"name": "router-a", "nats": [{
         "name": "nat-a", "type": "PUBLIC", "sourceSubnetworkIpRangesToNat": "ALL_SUBNETWORKS_ALL_IP_RANGES",
