@@ -341,6 +341,20 @@ def full_detail(value, kind, version):
 
 def list_detail(value, kind):
     """Attest alert LISTs; retain action-group configuration as metadata only."""
+    if kind == "powerbi_capacity":
+        props = value.get("properties")
+        administration = props.get("administration") if isinstance(props, dict) else None
+        members = administration.get("members") if isinstance(administration, dict) else None
+        if not isinstance(props, dict):
+            raise ValueError("Power BI capacity properties missing")
+        if members is not None and (not isinstance(members, list) or any(
+                not isinstance(member, str) for member in members)):
+            raise ValueError("Power BI capacity administrators malformed")
+        return {**{key: value[key] for key in ("id", "name", "type", "location") if key in value},
+                "properties": {**{key: props[key] for key in ("state", "provisioningState") if key in props},
+                               **({"administration": {"members": members}} if members is not None else {})},
+                "_provenance": {"source_operation": "capacities/list-or-get", "read_only": True,
+                                "api_version": "2021-01-01", "representation": "metadata"}}
     if kind == "managed_application":
         props = value.get("properties")
         if not isinstance(props, dict):

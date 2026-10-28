@@ -131,6 +131,7 @@ ENDPOINTS = {
     "search_service": ("Microsoft.Search/searchServices", "2023-11-01"),
     "managed_identity": ("Microsoft.ManagedIdentity/userAssignedIdentities", "2023-01-31"),
     "managed_application": ("Microsoft.Solutions/applications", "2019-07-01"),
+    "powerbi_capacity": ("Microsoft.PowerBIDedicated/capacities", "2021-01-01"),
     "container_registry": ("Microsoft.ContainerRegistry/registries", "2023-07-01"),
     "cosmos_account": ("Microsoft.DocumentDB/databaseAccounts", "2024-05-15"),
     "purview_account": ("Microsoft.Purview/accounts", "2021-12-01"),
@@ -2463,6 +2464,8 @@ def _selected(options, requirements):
     if "management_group" in selected:
         selected.update(("role_assignment", "role_definition", "directory_user",
                          "directory_group", "directory_service_principal", "directory_membership"))
+    if "powerbi_capacity" in selected:
+        selected.add("directory_domain")
     if selected.intersection(("directory_group_pim_policy", "directory_group_pim_owner_policy",
                               "directory_group_eligibility_schedule", "directory_group_eligibility_instance")):
         selected.add("directory_group")
@@ -3194,7 +3197,10 @@ def collect(connector, requirements=None, *, transport=None):
                             managed_app_fields = ("managedResourceGroupId", "publisherTenantId", "managementMode", "authorizations", "provisioningState")
                             managed_app_complete = (kind != "managed_application" or all(
                                 key in item["properties"] for key in managed_app_fields)) if isinstance(item.get("properties"), dict) else False
-                            if isinstance(item.get("properties"), dict) and managed_app_complete and kind != "container_group" and kind not in FULL_GET_KINDS and kind != "stream_analytics_job":
+                            powerbi_complete = (kind != "powerbi_capacity" or isinstance(
+                                item["properties"].get("administration"), dict) and isinstance(
+                                item["properties"]["administration"].get("members"), list)) if isinstance(item.get("properties"), dict) else False
+                            if isinstance(item.get("properties"), dict) and managed_app_complete and powerbi_complete and kind != "container_group" and kind not in FULL_GET_KINDS and kind != "stream_analytics_job":
                                 planned.append((True, bound_policy_row(azure_swc.list_detail(item, kind))))
                                 continue
                             planned.append((False, item))
