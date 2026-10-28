@@ -4993,6 +4993,22 @@ def _azure_storage(snapshot, inventory, resource):
         a.gap("inventory", "storage publicNetworkAccess value is unrecognized")
         return a
     if str(props.get("publicNetworkAccess", "")).lower() == "disabled":
+        acls = props.get("networkAcls")
+        if acls is None:
+            acls = {}
+        if not isinstance(acls, dict):
+            a.gap("firewall", "disabled storage account network ACL object is malformed")
+            return a
+        instances, malformed_instances = _azure_storage_resource_instance_rules(acls)
+        bypass = _azure_storage_bypass(acls)
+        if instances or malformed_instances or bypass is None or bypass:
+            a.addresses = _azure_storage_endpoint_urls(props)
+            a.step("disabled_public_exception", "unknown", public_network_access="Disabled",
+                   resource_instance_rules=instances, trusted_service_bypass=sorted(bypass) if bypass else [],
+                   malformed_exception=malformed_instances or bypass is None)
+            a.gap("authorization", "disabled Storage public access can retain resource-instance or trusted-service exceptions; effective identity and data grants are not collected")
+            a.ports = pset("tcp", 443, 443) if a.addresses else None
+            return a
         return None
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
         a.gap("firewall", "storage network security perimeter rules are not collected")
@@ -7410,6 +7426,22 @@ def _observed(assessment, status):
                     f"permits subnet {subnet_id} through its public endpoint.\n"
                     "The collected subnet has a provisioned Storage service endpoint and no attached endpoint policy.\n"
                     "Subnet ownership, data authorization, and successful access were not tested.")
+    if assessment.resource["type"] == "storage_account" and status == "UNKNOWN":
+        exception = next((step for step in assessment.path if
+                          step["layer"] == "disabled_public_exception"), None)
+        if exception is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            kinds = []
+            if exception["resource_instance_rules"]:
+                kinds.append("resource-instance rules")
+            if exception["trusted_service_bypass"]:
+                kinds.append("trusted-service bypass " + ", ".join(exception["trusted_service_bypass"]))
+            if exception["malformed_exception"]:
+                kinds.append("an unresolved exception value")
+            return (f"The storage account {name} has publicNetworkAccess Disabled but records "
+                    f"{' and '.join(kinds)}.\n"
+                    "Azure Storage can retain these exceptions after public access is disabled.\n"
+                    "Effective exception traffic, source identity, data roles, and successful requests were not observed.")
     if assessment.resource["type"] in ("storage_account", "storage_container") and status == "FAIL":
         account = assessment.resource["data"]
         secondary = next((step.get("blob_url") for step in assessment.path

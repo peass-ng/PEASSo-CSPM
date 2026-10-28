@@ -795,6 +795,39 @@ def test_storage_account_open_network_requires_observed_public_endpoint_url():
     assert blocked.verdict() == "PASS"
 
 
+def test_disabled_storage_public_access_retains_authenticated_exception_uncertainty():
+    account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
+    instance = {"resourceId": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.DataFactory/factories/f",
+                "tenantId": "tenant-a"}
+
+    def check(acls):
+        props = {"publicNetworkAccess": "Disabled", "allowBlobPublicAccess": True,
+                 "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
+        if acls is not None:
+            props["networkAcls"] = acls
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "storage_account", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id, "properties": props}]},
+            {"type": "storage_container", "scope": SCOPE, "service": "storage", "status": "collected",
+             "items": [{"id": account_id + "/blobServices/default/containers/public",
+                        "parent_id": account_id, "properties": {"publicAccess": "Blob"}}]},
+        ])
+        return assess(snap, resources(snap))
+
+    for acls in ({"bypass": "AzureServices", "resourceAccessRules": []},
+                 {"bypass": "None", "resourceAccessRules": [instance]},
+                 {"bypass": "Bad"}, None):
+        rows = check(acls)
+        account = next(row for row in rows if row.resource["type"] == "storage_account")
+        anonymous = next(row for row in rows if row.resource["type"] == "storage_container")
+        assert account.verdict() == "UNKNOWN" and anonymous.verdict() == "PASS"
+        assert len(_observed(account, "UNKNOWN").splitlines()) == 3
+        assert "can retain these exceptions" in _observed(account, "UNKNOWN")
+    assert [row.resource["type"] for row in check({"bypass": "None", "resourceAccessRules": [],
+        "ipRules": [{"value": "8.8.8.8"}], "virtualNetworkRules": [{"id": "ignored"}]})] == [
+            "storage_container"]
+
+
 def test_storage_trusted_service_bypass_is_not_an_anonymous_public_source():
     account_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a"
     base = {"publicNetworkAccess": "Enabled", "allowBlobPublicAccess": True,
