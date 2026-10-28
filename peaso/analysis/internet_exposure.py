@@ -4158,7 +4158,7 @@ def _azure_nic_config_index(inventory):
 
 
 def _azure_nic_config_entries(inventory):
-    by_pool, by_config = {}, {}
+    by_pool, by_config, by_address = {}, {}, {}
     position = 0
     for nic in inventory.items("nic"):
         for config in as_list(_props(nic).get("ipConfigurations")):
@@ -4167,8 +4167,13 @@ def _azure_nic_config_entries(inventory):
             for ref in refs:
                 by_pool.setdefault(ref, []).append((position, nic, config))
             by_config.setdefault(str((config or {}).get("id", "")).lower(), []).append((nic, config))
+            address = cp.get("privateIPAddress")
+            subnet_ref = cp.get("subnet")
+            subnet_id = subnet_ref.get("id") if isinstance(subnet_ref, dict) else None
+            if isinstance(address, str) and isinstance(subnet_id, str):
+                by_address.setdefault((subnet_id.casefold(), address.casefold()), []).append((nic, config))
             position += 1
-    return by_pool, by_config
+    return by_pool, by_config, by_address
 
 
 def _azure_backend_nics(inventory, pool_ids):
@@ -4214,6 +4219,8 @@ def _azure_lb_probed_backends_admin_down(backend_pools, pool_ids):
 
 def _azure_lb(snapshot, inventory, resource):
     props = _props(resource)
+    probe_ids = {str(probe.get("id")).casefold() for probe in as_list(props.get("probes"))
+                 if isinstance(probe, dict) and probe.get("id")}
     backend_pools = {str(p.get("id", "")).lower(): p for p in as_list(props.get("backendAddressPools"))
                      if isinstance(p, dict) and p.get("id")}
     fronts = {str(f.get("id", "")).lower(): f for f in as_list(props.get("frontendIPConfigurations")) if isinstance(f, dict)
@@ -4243,7 +4250,11 @@ def _azure_lb(snapshot, inventory, resource):
         else:
             frontend_ports, backend_ports = pset(protocol, frontend, frontend), pset(protocol, backend, backend)
         pools = [x.get("id") for x in as_list(rp.get("backendAddressPools")) + as_list(rp.get("backendAddressPool")) if isinstance(x, dict)]
+        probe_ref = rp.get("probe")
+        probed = (kind == "loadBalancingRules" and isinstance(probe_ref, dict)
+                  and str(probe_ref.get("id", "")).casefold() in probe_ids)
         nics = list(_azure_backend_nics(inventory, pools)) if pools else []
+        raw_backends = []
         if pools and kind == "loadBalancingRules":
             config_index = _azure_nic_config_index(inventory)
             known_configs = {str(config.get("id", "")).lower() for _, config in nics}
@@ -4261,7 +4272,7 @@ def _azure_lb(snapshot, inventory, resource):
                     config_id = ref.get("id") if isinstance(ref, dict) else None
                     if not config_id:
                         if address_entry is not None:
-                            unresolved_backends.append(f"{kind} {rule.get('name')}: pool backend IP has no collected NIC configuration reference")
+                            raw_backends.append(address_entry)
                         continue
                     matches = config_index[1].get(str(config_id).lower(), ()) if config_index is not None else ()
                     if not matches:
@@ -4278,13 +4289,13 @@ def _azure_lb(snapshot, inventory, resource):
                     [(n, c) for n in inventory.items("nic") for c in as_list(_props(n).get("ipConfigurations"))
                      if target and str((c or {}).get("id", "")).lower() == str(target).lower()])
         if not nics:
-            if (kind == "loadBalancingRules" and isinstance(rp.get("probe"), dict) and rp["probe"].get("id")
-                    and _azure_lb_probed_backends_admin_down(backend_pools, pools)):
+            if probed and _azure_lb_probed_backends_admin_down(backend_pools, pools):
                 a.step("backend", "block", reason="all probed IP-based backend addresses have adminState Down",
                        rule_name=rule.get("name"))
                 continue
-            unresolved_backends.append(f"{kind} {rule.get('name')}: backend NICs not resolved")
-            continue
+            if not raw_backends:
+                unresolved_backends.append(f"{kind} {rule.get('name')}: backend NICs not resolved")
+                continue
         for nic, config in nics:
             cp = config.get("properties") or {}
             allowed = _azure_nsg_path(inventory, a, (_props(nic).get("networkSecurityGroup") or {}).get("id"), (cp.get("subnet") or {}).get("id"),
@@ -4295,15 +4306,78 @@ def _azure_lb(snapshot, inventory, resource):
                     a.gap("inventory", f"{kind} {rule.get('name')}: public frontend address not collected",
                           "Microsoft.Network/publicIPAddresses")
                     continue
+                address = public_fronts[front_id]
+                route = _azure_nic_public_return_route(inventory, nic, address)
+                if route is None:
+                    route = _azure_nic_declared_route_uncertainty(inventory, (cp.get("subnet") or {}).get("id"), address)
+                if route == "unknown":
+                    a.gap("return_route", f"{kind} {rule.get('name')}: backend NIC return route unresolved")
+                    continue
+                if route == "block":
+                    a.step("return_route", "block", reason="complete NIC effective routes drop public return traffic",
+                           nic=native_id(nic), at=rule.get("name"))
+                    continue
                 total = union(total, frontend_ports)
                 allowed_backend_nics.add(nic["id"])
-                address = public_fronts[front_id]
                 backend_routes.append({"nic_id": nic["id"], "public_ip": address,
                     "frontend_ports": describe(frontend_ports), "backend_ports": describe(backend_ports),
                     "rule_name": rule.get("name")})
                 if address not in a.addresses:
                     a.addresses.append(address)
-    if allowed_backend_nics:
+        for entry in raw_backends:
+            ep = entry.get("properties")
+            if not isinstance(ep, dict):
+                unresolved_backends.append(f"{kind} {rule.get('name')}: raw backend properties not collected")
+                continue
+            if probed and ep.get("adminState") == "Down":
+                continue
+            backend_ip = ep.get("ipAddress")
+            subnet_ref = ep.get("subnet")
+            subnet_id = subnet_ref.get("id") if isinstance(subnet_ref, dict) else None
+            try:
+                ipaddress.ip_address(backend_ip)
+            except (TypeError, ValueError):
+                backend_ip = None
+            if not backend_ip or not subnet_id:
+                unresolved_backends.append(f"{kind} {rule.get('name')}: raw backend IP or subnet reference not collected")
+                continue
+            index = _azure_nic_config_index(inventory)
+            matches = index[2].get((str(subnet_id).casefold(), backend_ip.casefold()), ()) if index else ()
+            if not matches:
+                unresolved_backends.append(f"{kind} {rule.get('name')}: raw backend {backend_ip} has no collected NIC configuration")
+                continue
+            for nic, config in matches:
+                cp = config.get("properties") or {}
+                allowed = _azure_nsg_path(inventory, a, (_props(nic).get("networkSecurityGroup") or {}).get("id"),
+                                          subnet_id, backend_ports, backend_ip,
+                                          [g.get("id") for g in as_list(cp.get("applicationSecurityGroups")) if isinstance(g, dict)],
+                                          "standard" if (resource["data"].get("sku") or {}).get("name", "").lower() == "standard" else "basic",
+                                          f"{rule.get('name')} backend {backend_ip}")
+                if empty(allowed):
+                    continue
+                if front_id not in public_fronts:
+                    a.gap("inventory", f"{kind} {rule.get('name')}: public frontend address not collected",
+                          "Microsoft.Network/publicIPAddresses")
+                    continue
+                address = public_fronts[front_id]
+                route = _azure_nic_public_return_route(inventory, nic, address)
+                if route is None:
+                    route = _azure_nic_declared_route_uncertainty(inventory, subnet_id, address)
+                if route == "unknown":
+                    a.gap("return_route", f"{kind} {rule.get('name')}: raw backend return route unresolved")
+                    continue
+                if route == "block":
+                    a.step("return_route", "block", reason="complete NIC effective routes drop public return traffic",
+                           nic=native_id(nic), at=rule.get("name"))
+                    continue
+                total = union(total, frontend_ports)
+                allowed_backend_nics.add(nic["id"])
+                backend_routes.append({"nic_id": nic["id"], "backend_ip": backend_ip, "public_ip": address,
+                    "frontend_ports": describe(frontend_ports), "backend_ports": describe(backend_ports),
+                    "rule_name": rule.get("name")})
+                if address not in a.addresses:
+                    a.addresses.append(address)
+    if backend_routes:
         a.step("backend", "allow", nic_ids=sorted(allowed_backend_nics), routes=backend_routes)
     if unresolved_backends:
         if not empty(total):
