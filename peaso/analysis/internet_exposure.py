@@ -6322,11 +6322,20 @@ def _observed(assessment, status):
         profile = _props(assessment.resource).get("sharingProfile")
         permission = profile.get("permissions") if isinstance(profile, dict) else None
         if status == "FAIL":
+            if permission == "Groups":
+                return ("The gallery has sharingProfile.permissions Groups with recipients outside its owning subscription or tenant.\n"
+                        "This setting permits direct sharing of gallery images with those recipients.\n"
+                        "Published image versions may become available to those recipients.\n"
+                        "That could expose files or data stored in those images.")
             return ("The gallery has sharingProfile.permissions Community.\n"
                     "This setting permits community sharing of its images.\n"
                     "Published image versions may become available outside the tenant.\n"
                     "That could expose files or data stored in those images.")
         if status == "PASS":
+            if permission == "Groups":
+                return ("The gallery has sharingProfile.permissions Groups with only its owning subscription or tenant recorded.\n"
+                        "No external recipient is present in the recorded direct-sharing policy.\n"
+                        "This gallery policy does not grant outside access to image contents.")
             return ("The gallery has sharingProfile.permissions Private.\n"
                     "This setting blocks community sharing of its images.\n"
                     "Image contents are protected from this public sharing path.")
