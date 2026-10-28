@@ -19,6 +19,10 @@ ASSIGNMENT = {"id": "/keys/providers/Microsoft.Authorization/roleAssignments/444
               "name": "44444444-4444-4444-4444-444444444444",
               "properties": {"scope": "/keys", "principalId": GUEST,
                              "roleDefinitionId": "/keys/providers/Microsoft.Authorization/roleDefinitions/55555555-5555-5555-5555-555555555555"}}
+DEFINITION = {"id": ASSIGNMENT["properties"]["roleDefinitionId"],
+              "type": "Microsoft.Authorization/roleDefinitions", "name": "55555555-5555-5555-5555-555555555555",
+              "properties": {"roleName": "Key Reader", "permissions": [{"dataActions": ["Microsoft.KeyVault/managedHsm/keys/read/action"],
+                                                                       "notDataActions": []}]}}
 
 
 class Transport:
@@ -40,6 +44,9 @@ class Transport:
         if path.endswith("//keys/providers/Microsoft.Authorization/roleAssignments"):
             assert audience == azure.VAULT
             return {"value": [ASSIGNMENT]}
+        if path.endswith("//keys/providers/Microsoft.Authorization/roleDefinitions"):
+            assert audience == azure.VAULT
+            return {"value": [DEFINITION]}
         if path.endswith("//providers/Microsoft.Authorization/roleAssignments"):
             assert audience == azure.VAULT
             return {"value": []}
@@ -53,6 +60,8 @@ def test_hsm_local_assignments_read_once_per_top_level_scope():
     assert transport.allowed == [(URI, "hsm")]
     assert hsm["_coverage"]["localRoleAssignments"]["status"] == "collected"
     assert hsm["localRoleAssignments"][0]["properties"]["principalId"] == GUEST
+    assert hsm["_coverage"]["localRoleDefinitions"]["status"] == "collected"
+    assert hsm["localRoleDefinitions"][0]["properties"]["permissions"][0]["dataActions"] == ["Microsoft.KeyVault/managedHsm/keys/read/action"]
     assert sum("/roleAssignments" in urlsplit(url).path for url, _ in transport.calls) == 2
 
 
@@ -91,6 +100,18 @@ def test_hsm_key_inventory_denial_keeps_local_rbac_partial():
     assert hsm["localRoleAssignments"][0]["properties"]["scope"] == "/keys"
 
 
+def test_hsm_role_definition_denial_is_visible():
+    class DeniedDefinitionTransport(Transport):
+        def request(self, url, *, body=None, audience=azure.ARM):
+            if urlsplit(url).path.endswith("//keys/providers/Microsoft.Authorization/roleDefinitions"):
+                raise azure.AzureReadError("role definition list denied", status_code=403)
+            return super().request(url, body=body, audience=audience)
+    snapshot = azure.collect({"scopes": [SUB], "options": {"retries": 0}}, ["managed_hsm"], transport=DeniedDefinitionTransport())
+    hsm = next(c for c in snapshot["collections"] if c["type"] == "managed_hsm")["items"][0]
+    assert hsm["_coverage"]["localRoleDefinitions"]["status"] != "collected"
+    assert hsm["localRoleDefinitions"] == []
+
+
 def test_hsm_data_plane_origin_is_bound_to_arm_name():
     transport = azure.AzureTransport({"method": "token", "vault_token": "fixture"})
     transport.allow_hsm(URI, "hsm")
@@ -101,8 +122,9 @@ def test_hsm_data_plane_origin_is_bound_to_arm_name():
 
 def test_hsm_local_assignment_to_observed_guest_is_external_principal():
     hsm = {"id": RID, "properties": {"hsmUri": URI},
-           "_coverage": {"localRoleAssignments": {"status": "collected"}},
-           "localRoleAssignments": [ASSIGNMENT]}
+           "_coverage": {"localRoleAssignments": {"status": "collected"},
+                         "localRoleDefinitions": {"status": "collected"}},
+           "localRoleAssignments": [ASSIGNMENT], "localRoleDefinitions": [DEFINITION]}
     snapshot = make_snapshot("azure", [SCOPE], [
         {"type": "managed_hsm", "scope": SCOPE, "service": "Microsoft.KeyVault", "status": "collected", "items": [hsm]},
         {"type": "directory_user", "scope": "/tenants/" + TENANT, "service": "Microsoft.Graph", "status": "collected",
@@ -113,3 +135,4 @@ def test_hsm_local_assignment_to_observed_guest_is_external_principal():
     assert len(found) == 1 and found[0]["status"] == "FAIL"
     grant = found[0]["evidence"]["principals"][0]["native_grant"]
     assert grant["hsmLocalRbac"] is True and grant["scope"] == "/keys"
+    assert grant["roleDefinition"]["permissions"][0]["dataActions"] == ["Microsoft.KeyVault/managedHsm/keys/read/action"]

@@ -824,6 +824,35 @@ def _collect_hsm_local_assignments(reader, request, transport, parents):
         coverage["localRoleAssignments"] = {"status": "collected" if key_read["status"] in ("collected", "empty") and all(state["status"] in ("collected", "empty") for state in states)
                                             else "partial", "scopes": states}
         hsm["localRoleAssignments"] = list(found.values())
+        def role_definitions():
+            url = origin + "//keys/providers/Microsoft.Authorization/roleDefinitions?api-version=2025-07-01"
+            for page in reader.pages(request, url, audience=VAULT):
+                projected = []
+                for row in page:
+                    definition_id = row.get("id") if isinstance(row, dict) else None
+                    props = row.get("properties") if isinstance(row, dict) else None
+                    if (not isinstance(definition_id, str)
+                            or re.fullmatch(r"/(?:keys/)?providers/Microsoft\.Authorization/roleDefinitions/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", definition_id, re.I) is None
+                            or str(row.get("type", "")).casefold() != "microsoft.authorization/roledefinitions"
+                            or not isinstance(props, dict) or not isinstance(props.get("permissions"), list)):
+                        raise ValueError("malformed HSM local role definition")
+                    permissions = []
+                    for permission in props["permissions"]:
+                        if not isinstance(permission, dict):
+                            raise ValueError("malformed HSM role permissions")
+                        selected = {}
+                        for field in ("actions", "notActions", "dataActions", "notDataActions"):
+                            values = permission.get(field, [])
+                            if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+                                raise ValueError("malformed HSM role permission actions")
+                            selected[field] = values
+                        permissions.append(selected)
+                    projected.append({"id": definition_id, "name": row.get("name"), "type": row["type"],
+                                      "properties": {"roleName": props.get("roleName"), "permissions": permissions}})
+                yield projected
+        definitions_read = reader._read(("embedded_hsmLocalRoleDefinitions", rid, "Microsoft.KeyVault", role_definitions))
+        coverage["localRoleDefinitions"] = {key: definitions_read[key] for key in ("status", "error") if key in definitions_read}
+        hsm["localRoleDefinitions"] = definitions_read["items"]
 
 
 AUTHORIZATION = {
