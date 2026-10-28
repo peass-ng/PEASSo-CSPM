@@ -822,6 +822,7 @@ def _aws_tgw_route(model, endpoint, peer, direction, gateway_id, vpc_route_refs)
         return unknown("tgw_route_table_unavailable", "The source VPC attachment needs an associated available Transit Gateway route table", [model.ref(source_generic, "Association")])
     associations = table["data"].get("AssociationInventory")
     routes = table["data"].get("RouteInventory")
+    system_routes = table["data"].get("SystemRouteInventory")
     selected_associations = ([a for a in associations.get("items", []) if isinstance(a, dict) and
         a.get("TransitGatewayAttachmentId") == source_attachment["native_id"]]
         if isinstance(associations, dict) and isinstance(associations.get("items"), list) else [])
@@ -833,37 +834,42 @@ def _aws_tgw_route(model, endpoint, peer, direction, gateway_id, vpc_route_refs)
         selected_associations[0].get("ResourceId", endpoint["vpc"]["data"].get("VpcId")) != endpoint["vpc"]["data"].get("VpcId") or
         selected_associations[0].get("ResourceType", "vpc") != "vpc" or
         not isinstance(routes, dict) or routes.get("collection_status") not in {"collected", "empty"} or
-        routes.get("queries") != ["type=static", "type=propagated"] or not isinstance(routes.get("items"), list)):
-        return unknown("tgw_route_inventory_incomplete", "Transit Gateway route and attachment-association reads must be complete and mutually consistent", [model.ref(table, "RouteInventory/AssociationInventory")])
+        routes.get("queries") != ["type=static", "type=propagated"] or not isinstance(routes.get("items"), list) or
+        not isinstance(system_routes, dict) or system_routes.get("collection_status") not in {"collected", "empty"} or
+        system_routes.get("queries") != ["type=system"] or not isinstance(system_routes.get("items"), list)):
+        return unknown("tgw_route_inventory_incomplete", "Transit Gateway route and attachment-association reads must be complete and mutually consistent", [model.ref(table, "RouteInventory/SystemRouteInventory/AssociationInventory")])
     choices = []
-    for i, route in enumerate(routes["items"]):
-        if not isinstance(route, dict) or route.get("State") not in {"active", "blackhole"} or route.get("Type") not in {"static", "propagated"}:
-            return unknown("tgw_route_malformed", "Transit Gateway route state or type is unresolved", [model.ref(table, f"RouteInventory.items[{i}]")])
-        if (route.get("PrefixListId") is None) == (route.get("DestinationCidrBlock") is None):
-            return unknown("tgw_route_malformed", "Transit Gateway route needs exactly one CIDR or prefix-list destination", [model.ref(table, f"RouteInventory.items[{i}]")])
-        if route.get("PrefixListId"):
-            networks = _aws_prefix_list_networks(model, route["PrefixListId"], table["scope"])
-            if networks is None:
-                return unknown("tgw_prefix_list_unresolved", "A Transit Gateway prefix-list route needs complete versioned entries", [model.ref(table, f"RouteInventory.items[{i}]")])
-            prefix = max((network.prefixlen for network in networks if network.version == peer["address"].version and peer["address"] in network), default=None)
-            rank = 1
-        else:
-            cidr = route.get("DestinationCidrBlock")
-            matches = _cidr(cidr, peer["address"])
-            if matches is None:
-                return unknown("tgw_route_malformed", "Transit Gateway route destination is missing or malformed", [model.ref(table, f"RouteInventory.items[{i}]")])
-            prefix = ipaddress.ip_network(cidr, strict=False).prefixlen if matches else None
-            rank = 2 if route["Type"] == "static" else 0
-        if prefix is not None:
-            choices.append((prefix, rank, i, route))
+    for origin, route_items, expected_types in (("RouteInventory", routes["items"], {"static", "propagated"}),
+                                                ("SystemRouteInventory", system_routes["items"], {"system"})):
+        for i, route in enumerate(route_items):
+          route_ref = model.ref(table, f"{origin}.items[{i}]")
+          if not isinstance(route, dict) or route.get("State") not in {"active", "blackhole"} or route.get("Type") not in expected_types:
+              return unknown("tgw_route_malformed", "Transit Gateway route state or type is unresolved", [route_ref])
+          if (route.get("PrefixListId") is None) == (route.get("DestinationCidrBlock") is None):
+              return unknown("tgw_route_malformed", "Transit Gateway route needs exactly one CIDR or prefix-list destination", [route_ref])
+          if route.get("PrefixListId"):
+              networks = _aws_prefix_list_networks(model, route["PrefixListId"], table["scope"])
+              if networks is None:
+                  return unknown("tgw_prefix_list_unresolved", "A Transit Gateway prefix-list route needs complete versioned entries", [route_ref])
+              prefix = max((network.prefixlen for network in networks if network.version == peer["address"].version and peer["address"] in network), default=None)
+              rank = 1
+          else:
+              cidr = route.get("DestinationCidrBlock")
+              matches = _cidr(cidr, peer["address"])
+              if matches is None:
+                  return unknown("tgw_route_malformed", "Transit Gateway route destination is missing or malformed", [route_ref])
+              prefix = ipaddress.ip_network(cidr, strict=False).prefixlen if matches else None
+              rank = {"static": 3, "system": 2, "propagated": 0}[route["Type"]]
+          if prefix is not None:
+              choices.append((prefix, rank, route_ref, route))
     if not choices:
         return unknown("tgw_route_missing", "No collected Transit Gateway route covers the selected destination", [model.ref(table, "RouteInventory")])
     winner = max((prefix, rank) for prefix, rank, _, _ in choices)
     choices = [choice for choice in choices if choice[:2] == winner]
     if len(choices) != 1:
         return unknown("tgw_route_ambiguous", "Equal-priority Transit Gateway routes do not select one attachment", [model.ref(table, "RouteInventory")])
-    _, _, i, route = choices[0]
-    route_refs = vpc_route_refs + [model.ref(source_attachment, "SubnetIds/State"), model.ref(table, f"RouteInventory.items[{i}]")]
+    _, _, route_ref, route = choices[0]
+    route_refs = vpc_route_refs + [model.ref(source_attachment, "SubnetIds/State"), route_ref]
     if route["State"] == "blackhole":
         return model.step("route", "blocked", "Selected Transit Gateway route is a blackhole", route_refs, direction=direction)
     targets = route.get("TransitGatewayAttachments")

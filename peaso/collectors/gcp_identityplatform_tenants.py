@@ -8,7 +8,8 @@ from .gcp import ReadError
 def collection_pages(collector, scope):
     base = f"https://identitytoolkit.googleapis.com/v2/{scope}/tenants"
     seen = set()
-    for page, request_id in collector.pages(base, scope, key="tenants"):
+    for page, request_id in collector.pages(base, scope, key="tenants", params={"fields":
+            "tenants(name,allowPasswordSignup,enableEmailLinkSignin,disableAuth,enableAnonymousUser,client(permissions(disabledUserSignup))),nextPageToken"}):
         rows = []
         for item in page:
             name = item.get("name") if isinstance(item, dict) else None

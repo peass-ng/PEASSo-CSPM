@@ -1423,8 +1423,8 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     """timings: optional dict that receives wall-clock timings; they never enter the deterministic report.
 
     related_snapshots: other-provider snapshots of the same scan group (e.g. the GCP project of a GKE
-    cluster scan). They are read only and only joined by the privesc evaluator (K8s cloud identities,
-    GKE/EKS cluster techniques); findings, coverage and every other category stay about `snapshot`.
+    cluster scan). They are read only and joined by privesc and native exposure
+    analysis; findings and coverage remain attributed to `snapshot`.
 
     completed_graph_sections: optional partial-evaluation schedule, containing network and/or iam_graph.
     None preserves final graph selection; an empty set defers both graphs. With this partial schedule,
@@ -1713,7 +1713,8 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
             expected_ids = {c["id"] for c in analysis_selected}
             with _runtime_span('engine.analysis'):
                 analyzed = [f for f in analyze_findings(snapshot, inventory, index, include_manual_only=False,
-                    categories={c["category"] for c in analysis_selected}) if f["check_id"] in expected_ids and f["category"] in selected_categories]
+                    categories={c["category"] for c in analysis_selected}, related_snapshots=related)
+                    if f["check_id"] in expected_ids and f["category"] in selected_categories]
             # Group once (order kept) instead of rescanning every analyzed finding per analysis check.
             analyzed_by_check = defaultdict(list)
             for f in analyzed:

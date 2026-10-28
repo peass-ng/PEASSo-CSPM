@@ -13,6 +13,8 @@ NATIVE_IDS = dict.fromkeys(PLANS, 'NetworkResourceId')
 READS = {}
 READ_IDENTITIES = {}
 DETAIL_ENRICHERS = {
+    'dsql_cluster': {'service': 'dsql', 'operation': 'get_cluster', 'key': None,
+        'arguments': {'identifier': 'identifier'}},
     'mskconnect_connector': {'service': 'kafkaconnect', 'operation': 'describe_connector', 'key': None,
         'arguments': {'connectorArn': 'connectorArn'}},
     'quicksight_vpc_connection': {'service': 'quicksight', 'operation': 'describe_vpc_connection', 'key': 'VPCConnection',
@@ -33,6 +35,28 @@ for plan in PLANS.values():
             *step.get('exports', {}).values(), *plan.get('detail', {}).get('arguments', {}).values()])
 READS.update({(plan['service'], plan['operation']): plan['key'] for plan in DETAIL_ENRICHERS.values()})
 READS['ec2', 'describe_vpc_attribute'] = None
+READS['sns', 'list_platform_applications'] = 'PlatformApplications'
+READS['sns', 'list_endpoints_by_platform_application'] = 'Endpoints'
+READS['mailmanager', 'get_rule_set'] = None
+READS['mailmanager', 'get_relay'] = None
+READS['mediapackagev2', 'get_channel'] = None
+READS['mediapackagev2', 'list_harvest_jobs'] = 'Items'
+READ_IDENTITIES['mailmanager', 'get_rule_set'] = {'RuleSetId', 'RuleSetArn'}
+READ_IDENTITIES['mailmanager', 'get_relay'] = {'RelayId', 'RelayArn'}
+READ_IDENTITIES['mediapackagev2', 'get_channel'] = {'Arn', 'ChannelGroupName', 'ChannelName'}
+READS['opensearchserverless', 'batch_get_collection'] = None
+READ_IDENTITIES['opensearchserverless', 'batch_get_collection'] = {'id', 'name', 'arn', 'status'}
+READS['mq', 'describe_shared_resources'] = 'SharedResources'
+READ_IDENTITIES['mq', 'describe_shared_resources'] = {'ResourceArn', 'Status', 'Type'}
+READS['mq', 'describe_configuration_revision'] = None
+READS['opensearch', 'list_applications'] = 'ApplicationSummaries'
+READS['opensearch', 'get_application'] = None
+READS['opensearch', 'list_vpc_endpoint_access'] = 'AuthorizedPrincipalList'
+READS['securitylake', 'list_subscribers'] = 'subscribers'
+READS['securitylake', 'get_data_lake_exception_subscription'] = None
+for _operation, _root in (("list_memberships", "items"), ("list_cases", "items"),
+                          ("get_membership", None), ("get_case", None)):
+    READS['security-ir', _operation] = _root
 READ_ACTIONS = set(READS)
 GLOBAL_TYPES = {'cloudwan_vpc_attachment', 'cloudwan_connect_peer', 'cloudwan_device'}
 
@@ -49,10 +73,341 @@ class MetadataClient:
         def read(**arguments):
             from .aws_content_sdk_logging import private_sdk_logs
             from peaso.analysis.network_observations import projected_metadata
+            if (self.service, operation) == ('mailmanager', 'get_ingress_point'):
+                arguments = {**arguments, 'IncludeTrustStoreContents': 'EXCLUDE'}
             with private_sdk_logs():
                 response = native(**arguments)
             if not isinstance(response, dict):
                 return {}  # Normal response validation records malformed coverage.
+            if (self.service, operation) == ('machinelearning', 'describe_ml_models'):
+                from urllib.parse import urlsplit
+                models = response.get('Results')
+                if not isinstance(models, list) or any(not isinstance(row, dict) for row in models):
+                    return {}
+                selected = []
+                for row in models:
+                    endpoint = row.get('EndpointInfo')
+                    if not isinstance(endpoint, dict):
+                        endpoint = {}
+                    url = endpoint.get('EndpointUrl')
+                    host = None
+                    if isinstance(url, str):
+                        try:
+                            parsed = urlsplit(url)
+                            if (parsed.scheme == 'https' and parsed.hostname and
+                                    parsed.port in (None, 443) and not parsed.username and not parsed.password):
+                                host = parsed.hostname.lower()
+                        except ValueError:
+                            pass
+                    selected.append({'MLModelId': row.get('MLModelId'),
+                                     'EndpointStatus': endpoint.get('EndpointStatus'),
+                                     'EndpointHost': host})
+                token = response.get('NextToken')
+                return {'Results': selected, **({'NextToken': token} if isinstance(token, str) else {})}
+            if (self.service, operation) == ('securitylake', 'get_data_lake_exception_subscription'):
+                from urllib.parse import urlsplit
+                protocol, endpoint = response.get('subscriptionProtocol'), response.get('notificationEndpoint')
+                row = {'Protocol': protocol if isinstance(protocol, str) else None}
+                if not isinstance(endpoint, str) or not endpoint:
+                    row['DestinationType'] = 'UNKNOWN'
+                elif endpoint.startswith('arn:'):
+                    row['DestinationType'], row['Destination'] = 'AWS_RESOURCE', endpoint
+                elif '@' in endpoint and endpoint.count('@') == 1:
+                    local, domain = endpoint.rsplit('@', 1)
+                    row['DestinationType'] = 'EMAIL' if local and domain and '.' in domain else 'UNKNOWN'
+                    if row['DestinationType'] == 'EMAIL':
+                        row['Destination'] = domain.lower()
+                elif endpoint.startswith('https://'):
+                    try:
+                        parsed = urlsplit(endpoint)
+                        valid = parsed.hostname and parsed.port in (None, 443) and not parsed.username and not parsed.password
+                    except ValueError:
+                        valid = False
+                    row['DestinationType'] = 'HTTPS' if valid else 'UNKNOWN'
+                    if valid:
+                        row['Destination'] = parsed.hostname.lower()
+                elif endpoint.replace('+', '').isdigit():
+                    row['DestinationType'] = 'PHONE'
+                else:
+                    row['DestinationType'] = 'UNKNOWN'
+                return row
+            if (self.service, operation) == ('securitylake', 'list_subscribers'):
+                from urllib.parse import urlsplit
+                subscribers = response.get('subscribers')
+                if not isinstance(subscribers, list) or any(not isinstance(x, dict) for x in subscribers):
+                    return {}
+                selected = []
+                for entry in subscribers:
+                    identity = entry.get('subscriberIdentity')
+                    access = entry.get('accessTypes')
+                    sources = entry.get('sources')
+                    endpoint = entry.get('subscriberEndpoint')
+                    row = {key: entry[key] for key in
+                           ('subscriberArn', 'subscriberId', 'subscriberStatus', 'roleArn',
+                            'resourceShareArn', 's3BucketArn') if isinstance(entry.get(key), str)}
+                    row['Principal'] = identity.get('principal') if isinstance(identity, dict) and isinstance(identity.get('principal'), str) else None
+                    row['AccessTypes'] = sorted(set(access)) if isinstance(access, list) and all(isinstance(x, str) for x in access) else None
+                    row['SourceCount'] = len(sources) if isinstance(sources, list) else None
+                    if not endpoint:
+                        row['NotificationType'] = 'NONE'
+                    elif isinstance(endpoint, str) and endpoint.startswith('arn:'):
+                        row['NotificationType'] = 'AWS_RESOURCE'
+                        row['NotificationTarget'] = endpoint
+                    elif isinstance(endpoint, str):
+                        try:
+                            parsed = urlsplit(endpoint)
+                            valid = (parsed.scheme == 'https' and parsed.hostname and
+                                     parsed.port in (None, 443) and not parsed.username and not parsed.password)
+                        except ValueError:
+                            valid = False
+                        row['NotificationType'] = 'HTTPS' if valid else 'UNKNOWN'
+                        if valid:
+                            row['NotificationTarget'] = parsed.hostname.lower()
+                    else:
+                        row['NotificationType'] = 'UNKNOWN'
+                    selected.append(row)
+                token = response.get('nextToken')
+                return {'subscribers': selected, **({'nextToken': token} if isinstance(token, str) else {})}
+            if self.service == 'opensearch' and operation in (
+                    'list_applications', 'get_application', 'list_vpc_endpoint_access'):
+                from urllib.parse import urlsplit
+                def host(value):
+                    if not isinstance(value, str):
+                        return None
+                    try:
+                        parsed = urlsplit(value)
+                        return (parsed.hostname.lower() if parsed.scheme == 'https' and parsed.hostname and
+                                parsed.port in (None, 443) and not parsed.username and not parsed.password else None)
+                    except ValueError:
+                        return None
+                if operation == 'list_vpc_endpoint_access':
+                    principals = response.get('AuthorizedPrincipalList')
+                    if not isinstance(principals, list) or any(not isinstance(x, dict) for x in principals):
+                        return {}
+                    selected = [{key: entry[key] for key in ('PrincipalType', 'Principal')
+                                 if isinstance(entry.get(key), str)} for entry in principals]
+                    token = response.get('NextToken')
+                    return {'AuthorizedPrincipalList': selected,
+                            **({'NextToken': token} if isinstance(token, str) else {})}
+                if operation == 'list_applications':
+                    applications = response.get('ApplicationSummaries')
+                    if not isinstance(applications, list) or any(not isinstance(x, dict) for x in applications):
+                        return {}
+                    selected = []
+                    for row in applications:
+                        item = {key: row[key] for key in ('id', 'arn', 'status')
+                                if isinstance(row.get(key), str)}
+                        item['EndpointHost'] = host(row.get('endpoint'))
+                        selected.append(item)
+                    token = response.get('nextToken')
+                    return {'ApplicationSummaries': selected,
+                            **({'nextToken': token} if isinstance(token, str) else {})}
+                row = {key: response[key] for key in ('id', 'arn', 'status')
+                       if isinstance(response.get(key), str)}
+                row['EndpointHost'] = host(response.get('endpoint'))
+                sources = response.get('dataSources')
+                row['DataSources'] = ([{key: item[key] for key in ('dataSourceArn', 'iamRoleForDataSourceArn')
+                                        if isinstance(item.get(key), str)} for item in sources]
+                                      if isinstance(sources, list) and all(isinstance(item, dict) for item in sources)
+                                      else None)
+                configs = response.get('appConfigs')
+                admins, complete = [], isinstance(configs, list)
+                if complete:
+                    for config in configs:
+                        if not isinstance(config, dict):
+                            complete = False
+                            break
+                        if config.get('key') != 'opensearchDashboards.dashboardAdmin.groups':
+                            continue
+                        try:
+                            values = json.loads(config.get('value'))
+                        except (TypeError, ValueError):
+                            complete = False
+                            break
+                        if not isinstance(values, list) or any(not isinstance(x, str) for x in values):
+                            complete = False
+                            break
+                        admins.extend(values)
+                row['AdminPrincipals'] = sorted(set(admins)) if complete else None
+                return row
+            if self.service == 'security-ir':
+                from .aws_security_ir_recipients import project_recipients
+                if operation in ('list_memberships', 'list_cases'):
+                    selected_root = 'items'
+                    items = response.get(selected_root)
+                    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                        return {}
+                    fields = (('membershipId', 'membershipArn', 'accountId', 'membershipStatus')
+                              if operation == 'list_memberships' else ('caseId', 'caseArn', 'caseStatus'))
+                    projected = [{key: item[key] for key in fields if isinstance(item.get(key), str)}
+                                 for item in items]
+                    token = response.get('nextToken')
+                    return {selected_root: projected, **({'nextToken': token} if isinstance(token, str) else {})}
+                recipients = project_recipients(response.get('incidentResponseTeam') if operation == 'get_membership'
+                                                else response.get('watchers'))
+                fields = (('membershipArn', 'membershipStatus') if operation == 'get_membership'
+                          else ('caseArn', 'caseStatus'))
+                projected = {key: response[key] for key in fields if isinstance(response.get(key), str)}
+                projected['RecipientCoverage'] = 'collected' if recipients is not None else 'unresolved'
+                if recipients is not None:
+                    projected.update(recipients)
+                return projected
+            if (self.service, operation) == ('mq', 'describe_configuration_revision'):
+                from .aws_mq_network_connectors import project_revision
+                return project_revision(response)
+            if (self.service, operation) == ('neptune-graph', 'list_graphs'):
+                graphs = response.get('graphs')
+                if not isinstance(graphs, list) or any(not isinstance(row, dict) for row in graphs):
+                    return {}
+                selected = [{key: row[key] for key in
+                             ('id', 'arn', 'status', 'publicConnectivity', 'endpoint')
+                             if key in row and isinstance(row[key], (str, bool))} for row in graphs]
+                token = response.get('nextToken')
+                return {'graphs': selected, **({'nextToken': token} if isinstance(token, str) else {})}
+            if (self.service, operation) == ('oam', 'list_links'):
+                links = response.get('Items')
+                if not isinstance(links, list) or any(not isinstance(row, dict) for row in links):
+                    return {}
+                selected = []
+                for row in links:
+                    types = row.get('ResourceTypes')
+                    if not isinstance(types, list) or any(not isinstance(item, str) for item in types):
+                        return {}
+                    selected.append({key: row[key] for key in ('Arn', 'SinkArn')
+                                     if isinstance(row.get(key), str)} | {'ResourceTypes': types})
+                token = response.get('NextToken')
+                return {'Items': selected, **({'NextToken': token} if isinstance(token, str) else {})}
+            if self.service == 'osis' and operation in ('list_pipeline_endpoints', 'list_pipeline_endpoint_connections'):
+                selected_root = 'PipelineEndpoints' if operation == 'list_pipeline_endpoints' else 'PipelineEndpointConnections'
+                items = response.get(selected_root)
+                if not isinstance(items, list) or any(not isinstance(row, dict) for row in items):
+                    return {}
+                keys = ('EndpointId', 'PipelineArn', 'Status', 'VpcId') if operation == 'list_pipeline_endpoints' else (
+                    'EndpointId', 'PipelineArn', 'Status', 'VpcEndpointOwner')
+                selected = [{key: row[key] for key in keys if isinstance(row.get(key), str)} for row in items]
+                token = response.get('NextToken')
+                return {selected_root: selected, **({'NextToken': token} if isinstance(token, str) else {})}
+            if self.service == 'opensearchserverless' and operation == 'batch_get_collection':
+                from peaso.analysis.network_observations import safe_url
+                details, errors = response.get('collectionDetails'), response.get('collectionErrorDetails', [])
+                if not isinstance(details, list) or not isinstance(errors, list):
+                    return {}
+                projected = []
+                for row in details:
+                    if not isinstance(row, dict):
+                        return {}
+                    item = projected_metadata(row, identity_fields={'id', 'name', 'arn'})
+                    for field in ('collectionEndpoint', 'dashboardEndpoint'):
+                        if isinstance(row.get(field), str):
+                            item[field] = safe_url(row[field])
+                    projected.append(item)
+                return {'collectionDetails': projected,
+                        'collectionErrorDetails': [projected_metadata(row, identity_fields={'id', 'name'})
+                                                   for row in errors if isinstance(row, dict)]}
+            if (self.service, operation) == ('sns', 'list_platform_applications'):
+                apps = response.get('PlatformApplications')
+                if not isinstance(apps, list) or any(not isinstance(app, dict) or
+                        not isinstance(app.get('PlatformApplicationArn'), str) for app in apps):
+                    return {}
+                token = response.get('NextToken')
+                return {'PlatformApplications': [
+                    {'PlatformApplicationArn': app['PlatformApplicationArn']} for app in apps],
+                    **({'NextToken': token} if isinstance(token, str) else {})}
+            if (self.service, operation) == ('sns', 'list_endpoints_by_platform_application'):
+                endpoints = response.get('Endpoints')
+                if not isinstance(endpoints, list):
+                    return {}
+                selected = []
+                for endpoint in endpoints:
+                    if not isinstance(endpoint, dict) or not isinstance(endpoint.get('EndpointArn'), str):
+                        return {}
+                    attributes = endpoint.get('Attributes')
+                    if not isinstance(attributes, dict) or attributes.get('Enabled') not in ('true', 'false'):
+                        return {}
+                    selected.append({'EndpointArn': endpoint['EndpointArn'],
+                                     'Enabled': attributes['Enabled'] == 'true'})
+                token = response.get('NextToken')
+                return {'Endpoints': selected, **({'NextToken': token} if isinstance(token, str) else {})}
+            if (self.service, operation) == ('mailmanager', 'get_rule_set'):
+                rules = response.get('Rules')
+                if not isinstance(rules, list):
+                    return {}
+                def target(body, field):
+                    value = body.get(field)
+                    return value if isinstance(value, str) else None
+                selected = []
+                for rule in rules:
+                    if not isinstance(rule, dict) or not isinstance(rule.get('Actions'), list):
+                        return {}
+                    actions = []
+                    for action in rule['Actions']:
+                        if not isinstance(action, dict):
+                            return {}
+                        relay = action.get('Relay')
+                        if isinstance(relay, dict) and isinstance(relay.get('Relay'), str):
+                            actions.append({'Type': 'Relay', 'RelayId': relay['Relay']})
+                        elif isinstance(action.get('Send'), dict):
+                            actions.append({'Type': 'Send'})
+                        elif isinstance(action.get('Bounce'), dict):
+                            actions.append({'Type': 'Bounce'})
+                        elif isinstance(action.get('ReplaceRecipient'), dict):
+                            actions.append({'Type': 'ReplaceRecipient'})
+                        elif isinstance(action.get('Archive'), dict):
+                            actions.append({'Type': 'Archive', 'ArchiveId': target(action['Archive'], 'TargetArchive')})
+                        elif isinstance(action.get('WriteToS3'), dict):
+                            actions.append({'Type': 'WriteToS3', 'S3Bucket': target(action['WriteToS3'], 'S3Bucket')})
+                        elif isinstance(action.get('DeliverToMailbox'), dict):
+                            actions.append({'Type': 'DeliverToMailbox', 'MailboxArn': target(action['DeliverToMailbox'], 'MailboxArn')})
+                        elif isinstance(action.get('DeliverToQBusiness'), dict):
+                            actions.append({'Type': 'DeliverToQBusiness',
+                                            'ApplicationId': target(action['DeliverToQBusiness'], 'ApplicationId')})
+                        elif isinstance(action.get('PublishToSns'), dict):
+                            actions.append({'Type': 'PublishToSns', 'TopicArn': target(action['PublishToSns'], 'TopicArn')})
+                        elif isinstance(action.get('InvokeLambda'), dict):
+                            actions.append({'Type': 'InvokeLambda', 'FunctionArn': target(action['InvokeLambda'], 'FunctionArn')})
+                        elif isinstance(action.get('Drop'), dict):
+                            actions.append({'Type': 'Drop'})
+                        elif isinstance(action.get('AddHeader'), dict):
+                            actions.append({'Type': 'AddHeader'})
+                        else:
+                            actions.append({'Type': 'Unreviewed'})
+                    selected.append({'Actions': actions})
+                return {'RuleSetId': response.get('RuleSetId'), 'RuleSetArn': response.get('RuleSetArn'),
+                        'Rules': selected}
+            if (self.service, operation) == ('mailmanager', 'get_relay'):
+                return {key: response[key] for key in ('RelayId', 'RelayArn', 'ServerName', 'ServerPort')
+                        if key in response and isinstance(response[key], (str, int))}
+            if (self.service, operation) == ('mediapackagev2', 'get_channel'):
+                from .aws_mediapackagev2_exposure import endpoint_host
+                endpoints = response.get('IngestEndpoints')
+                if not isinstance(endpoints, list):
+                    return {}
+                hosts = [endpoint_host(item.get('Url')) for item in endpoints if isinstance(item, dict)]
+                if len(hosts) != len(endpoints) or any(host is None for host in hosts):
+                    return {}
+                return {'Arn': response.get('Arn'), 'ChannelGroupName': response.get('ChannelGroupName'),
+                        'ChannelName': response.get('ChannelName'), 'Hosts': hosts}
+            if (self.service, operation) == ('mediapackagev2', 'list_harvest_jobs'):
+                items = response.get('Items')
+                if not isinstance(items, list):
+                    return {}
+                selected = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        return {}
+                    destination = item.get('Destination')
+                    s3 = destination.get('S3Destination') if isinstance(destination, dict) else None
+                    if not isinstance(s3, dict):
+                        return {}
+                    facts = {key: item.get(key) for key in
+                             ('Arn', 'ChannelGroupName', 'ChannelName', 'OriginEndpointName',
+                              'HarvestJobName', 'Status')}
+                    facts['BucketName'] = s3.get('BucketName')
+                    if any(not isinstance(value, str) for value in facts.values()):
+                        return {}
+                    selected.append(facts)
+                token = response.get('NextToken')
+                return {'Items': selected, **({'NextToken': token} if isinstance(token, str) else {})}
             body = response.get(root) if root else response
             meta = getattr(self.native, 'meta', None)
             model = getattr(meta, 'service_model', None)
@@ -96,6 +451,121 @@ class MetadataClient:
                 body = {key: value for key, value in body.items() if key not in
                     {'IpRestrictionRuleMap', 'VpcIdRestrictionRuleMap', 'VpcEndpointIdRestrictionRuleMap'}} | {'NetworkAttributes': facts}
             projected = projected_metadata(body, identity_fields=READ_IDENTITIES.get((self.service, operation), ()))
+            if self.service == 'dsql' and operation == 'get_cluster' and isinstance(body, dict):
+                projected = {key: body[key] for key in ('identifier', 'arn', 'status', 'endpoint') if key in body}
+            if (self.service, operation) == ('mediaconnect', 'describe_flow') and isinstance(body, dict):
+                projected['Status'] = body.get('Status')
+                projected['Sources'] = [
+                    {key: source.get(key) for key in ('IngestIp', 'IngestPort', 'WhitelistCidr', 'VpcInterfaceName')}
+                    for source in body.get('Sources', [body.get('Source')])
+                    if isinstance(source, dict)]
+                projected['Entitlements'] = [
+                    {'EntitlementStatus': grant.get('EntitlementStatus'),
+                     'Subscribers': grant.get('Subscribers')}
+                    for grant in body.get('Entitlements', []) if isinstance(grant, dict)]
+            if (self.service, operation) == ('medialive', 'describe_input') and isinstance(body, dict):
+                projected['State'] = body.get('State')
+                projected['Type'] = body.get('Type')
+                projected['SecurityGroups'] = body.get('SecurityGroups')
+                projected['Destinations'] = [
+                    {'Ip': dest.get('Ip'), 'Port': dest.get('Port')}
+                    for dest in body.get('Destinations', []) if isinstance(dest, dict)]
+            if (self.service, operation) == ('medialive', 'list_input_security_groups') and isinstance(body, list):
+                for raw, row in zip(body, projected):
+                    if isinstance(raw, dict) and isinstance(row, dict):
+                        row['WhitelistRules'] = [rule.get('Cidr') for rule in raw.get('WhitelistRules', [])
+                                                 if isinstance(rule, dict) and isinstance(rule.get('Cidr'), str)]
+            if (self.service, operation) == ('workspaces-web', 'list_portals') and isinstance(body, list):
+                for raw, row in zip(body, projected):
+                    if not isinstance(raw, dict) or not isinstance(row, dict):
+                        continue
+                    endpoint = raw.get('portalEndpoint')
+                    if isinstance(endpoint, str) and endpoint.endswith('.workspaces-web.com'):
+                        row['PortalHost'] = endpoint.lower()
+                    for field in ('portalStatus', 'authenticationType', 'ipAccessSettingsArn'):
+                        if isinstance(raw.get(field), str):
+                            row[field] = raw[field]
+                    row['NetworkAttributes'] = [item for item in row.get('NetworkAttributes', [])
+                                                if item.get('path') != 'portalEndpoint']
+            if (self.service, operation) == ('mwaa', 'get_environment') and isinstance(body, dict):
+                from urllib.parse import urlsplit
+                mode = body.get('WebserverAccessMode')
+                if isinstance(mode, str):
+                    projected['WebserverAccessMode'] = mode
+                url = body.get('WebserverUrl')
+                if isinstance(url, str):
+                    try:
+                        parsed = urlsplit(url)
+                        if (parsed.scheme == 'https' and parsed.hostname and
+                                parsed.port in (None, 443) and not parsed.username and
+                                not parsed.password):
+                            projected['WebserverHost'] = parsed.hostname.lower()
+                    except ValueError:
+                        pass
+            if (self.service, operation) == ('mq', 'describe_shared_resources') and isinstance(projected, list):
+                # The broker share candidate needs only identity and state.
+                # Private DNS aliases and provider error text stay out of cache.
+                projected = [{key: row[key] for key in ('ResourceArn', 'Status', 'Type')
+                              if isinstance(row.get(key), str)} for row in projected if isinstance(row, dict)]
+            if (self.service == 'migration-hub-refactor-spaces' and
+                    operation in ('list_services', 'get_service')):
+                from urllib.parse import urlsplit
+                def strip_url_paths(row):
+                    if not isinstance(row, dict):
+                        return row
+                    attributes = row.get('NetworkAttributes')
+                    if not isinstance(attributes, list):
+                        return row
+                    safe = []
+                    for entry in attributes:
+                        if not isinstance(entry, dict):
+                            continue
+                        if entry.get('path') not in ('UrlEndpoint.Url', 'UrlEndpoint.HealthUrl'):
+                            safe.append(entry)
+                            continue
+                        try:
+                            url = urlsplit(entry.get('value'))
+                            if (url.scheme not in ('http', 'https') or not url.hostname or
+                                    url.username or url.password):
+                                continue
+                            host = url.hostname.lower()
+                            host = '[' + host + ']' if ':' in host else host
+                            safe.append({**entry, 'value': f'{url.scheme}://{host}' +
+                                         (f':{url.port}' if url.port else '')})
+                        except (TypeError, ValueError):
+                            continue
+                    row['NetworkAttributes'] = safe
+                    return row
+                projected = ([strip_url_paths(row) for row in projected]
+                             if isinstance(projected, list) else strip_url_paths(projected))
+            if (self.service, operation) == ('migration-hub-refactor-spaces', 'get_application') and isinstance(body, dict):
+                from urllib.parse import urlsplit
+                proxy = body.get('ApiGatewayProxy')
+                url = proxy.get('ProxyUrl') if isinstance(proxy, dict) else None
+                if isinstance(url, str):
+                    try:
+                        parsed = urlsplit(url)
+                        if (parsed.scheme == 'https' and parsed.hostname and parsed.port in (None, 443)
+                                and not parsed.username and not parsed.password):
+                            projected['ProxyHost'] = parsed.hostname.lower()
+                    except ValueError:
+                        pass
+            if (self.service, operation) == ('mailmanager', 'get_ingress_point') and isinstance(body, dict):
+                # Keep only the public DNS name and endpoint network mode; no
+                # SMTP secret, certificate or trust-store contents enter cache.
+                if isinstance(body.get('ARecord'), str):
+                    projected['ARecord'] = body['ARecord']
+                network = body.get('NetworkConfiguration')
+                if isinstance(network, dict):
+                    projected['NetworkConfiguration'] = {
+                        key: {field: value for field, value in native_part.items()
+                              if field in ('IpType', 'VpcEndpointId') and isinstance(value, str)}
+                        for key, native_part in network.items()
+                        if key in ('PublicNetworkConfiguration', 'PrivateNetworkConfiguration') and isinstance(native_part, dict)}
+            if (self.service, operation) == ('opensearchserverless', 'get_security_policy') and isinstance(body, dict):
+                # The generic network projection keeps observations, but the
+                # native policy join needs the validated rule structure too.
+                projected['NetworkPolicy'] = body['NetworkPolicy']
             if self.service == 'devicefarm' and operation == 'get_run' and isinstance(body, dict):
                 # GetRun calls this ARN appUpload, so the generic network
                 # projection omits it. Keep only a same-project upload ARN;
@@ -303,7 +773,15 @@ def collect(kind):
                     failures.append('malformed')
                     continue
                 # A child name alone cannot identify resources under two parents.
-                identity = native if native.startswith('arn:') else '/'.join([*lineage, native])
+                if kind == 'machinelearning_model':
+                    import re
+                    if not re.fullmatch(r'[A-Za-z0-9_-]+', native):
+                        failures.append('malformed')
+                        continue
+                    partition = session.native.get_partition_for_region(region)
+                    identity = f'arn:{partition}:machinelearning:{region}:{account}:mlmodel/{native}'
+                else:
+                    identity = native if native.startswith('arn:') else '/'.join([*lineage, native])
                 rows.append(dict(item, NetworkResourceId=identity, NetworkParentIds=lineage))
         status = 'partial' if rows and failures else failures[0] if failures else 'collected' if rows else 'empty'
         return ReadResult(rows, status, {'code': 'native_network_inventory_incomplete', 'cause_status': failures[0]} if failures else None)
@@ -311,6 +789,179 @@ def collect(kind):
 
 
 FETCHERS = {kind: collect(kind) for kind in PLANS}
+
+
+def aoss_collections(requests, session, region, account):
+    """One paginated list plus one endpoint-detail read per 100 owned IDs."""
+    from .aws import ReadResult
+    service = 'opensearchserverless'
+    partition = 'aws-cn' if region.startswith('cn-') else 'aws-us-gov' if region.startswith('us-gov-') else 'aws'
+    session = MetadataSession(session)
+    listed = requests.pages(session, service, region, 'list_collections', 'collectionSummaries',
+                            _tokens=('nextToken', 'nextToken'))
+    if listed.status not in {'collected', 'empty'}:
+        return ReadResult([], listed.status, listed.error)
+    owned, failures = {}, []
+    for row in listed.items:
+        if not isinstance(row, dict):
+            failures.append('malformed')
+            continue
+        ident, name, arn = row.get('id'), row.get('name'), row.get('arn')
+        if (not isinstance(ident, str) or not ident or not isinstance(name, str) or not name or
+                arn != f'arn:{partition}:aoss:{region}:{account}:collection/{ident}'):
+            failures.append('malformed')
+            continue
+        if ident in owned:
+            failures.append('malformed')
+        else:
+            owned[ident] = row
+    rows = []
+    for start in range(0, len(owned), 100):
+        ids = sorted(owned)[start:start + 100]
+        detail = requests.detail(session, service, region, 'batch_get_collection', ids=ids)
+        if detail.get('collection_status') != 'collected':
+            failures.append(detail.get('collection_status', 'malformed'))
+            rows.extend(dict(owned[ident], NetworkResourceId=owned[ident]['arn'],
+                             _coverage={'network_detail': {'status': detail.get('collection_status', 'malformed')}})
+                        for ident in ids)
+            continue
+        bodies, errors = detail.get('collectionDetails'), detail.get('collectionErrorDetails')
+        if not isinstance(bodies, list) or not isinstance(errors, list):
+            failures.append('malformed')
+            bodies, errors = [], []
+        if errors:
+            failures.append('partial')
+        by_id = {}
+        for body in bodies:
+            if isinstance(body, dict) and isinstance(body.get('id'), str) and body['id'] in ids and body['id'] not in by_id:
+                by_id[body['id']] = body
+            else:
+                failures.append('malformed')
+        for ident in ids:
+            summary, body = owned[ident], by_id.get(ident)
+            if (body is None or body.get('arn') != summary['arn'] or body.get('name') != summary['name']):
+                failures.append('partial')
+                rows.append(dict(summary, NetworkResourceId=summary['arn'],
+                                 _coverage={'network_detail': {'status': 'partial'}}))
+            else:
+                rows.append(dict(summary, **body, NetworkResourceId=summary['arn']))
+    status = 'partial' if rows and failures else failures[0] if failures else 'collected' if rows else 'empty'
+    return ReadResult(rows, status, {'code': 'aoss_collection_inventory_incomplete'} if failures else None)
+
+
+FETCHERS['aoss_collection'] = aoss_collections
+
+
+def mailmanager_rule_routes(requests, session, region, account):
+    """Read only rule actions attached to owned ingress points and referenced relays."""
+    from .aws import ReadResult
+    selected = MetadataSession(session)
+    listed = requests.pages(selected, 'mailmanager', region, 'list_ingress_points', 'IngressPoints')
+    if listed.status not in {'collected', 'empty'}:
+        return listed
+    rows, failures = [], []
+    for summary in listed.items:
+        ingress_id = summary.get('IngressPointId') if isinstance(summary, dict) else None
+        if not isinstance(ingress_id, str) or not ingress_id:
+            failures.append('malformed')
+            continue
+        detail = requests.detail(selected, 'mailmanager', region, 'get_ingress_point', IngressPointId=ingress_id)
+        row = {'IngressPointId': ingress_id}
+        if detail.get('collection_status') != 'collected' or detail.get('IngressPointId') != ingress_id:
+            row['RuleSet'] = {'collection_status': detail.get('collection_status', 'malformed')
+                              if isinstance(detail, dict) else 'malformed'}
+            failures.append(row['RuleSet']['collection_status'])
+            rows.append(row)
+            continue
+        row['IngressPointArn'] = detail.get('IngressPointArn')
+        row['Status'] = detail.get('Status')
+        rule_id = detail.get('RuleSetId')
+        if not isinstance(rule_id, str) or not rule_id:
+            row['RuleSet'] = {'collection_status': 'malformed'}
+            failures.append('malformed')
+            rows.append(row)
+            continue
+        rule_set = requests.detail(selected, 'mailmanager', region, 'get_rule_set', RuleSetId=rule_id)
+        if (rule_set.get('collection_status') != 'collected' or rule_set.get('RuleSetId') != rule_id or
+                not isinstance(rule_set.get('Rules'), list)):
+            row['RuleSet'] = {'collection_status': rule_set.get('collection_status', 'malformed')}
+            failures.append(row['RuleSet']['collection_status'])
+            rows.append(row)
+            continue
+        row['RuleSet'] = {'collection_status': 'collected', 'RuleSetId': rule_id,
+                          'RuleSetArn': rule_set.get('RuleSetArn'), 'Rules': rule_set['Rules']}
+        relay_ids = sorted({action['RelayId'] for rule in rule_set['Rules'] if isinstance(rule, dict)
+                            for action in rule.get('Actions', []) if isinstance(rule.get('Actions'), list)
+                            if isinstance(action, dict) and action.get('Type') == 'Relay'
+                            and isinstance(action.get('RelayId'), str)})
+        relays = []
+        for relay_id in relay_ids:
+            relay = requests.detail(selected, 'mailmanager', region, 'get_relay', RelayId=relay_id)
+            if relay.get('collection_status') == 'collected' and relay.get('RelayId') == relay_id:
+                relays.append({**{key: relay.get(key) for key in ('RelayId', 'RelayArn', 'ServerName', 'ServerPort')},
+                               'collection_status': 'collected'})
+            else:
+                relays.append({'RelayId': relay_id, 'collection_status': relay.get('collection_status', 'malformed')})
+                failures.append(relays[-1]['collection_status'])
+        row['Relays'] = relays
+        rows.append(row)
+    return ReadResult(rows, 'partial' if rows and failures else failures[0] if failures else
+                      'collected' if rows else 'empty', {'code': 'mailmanager_rule_inventory_incomplete'} if failures else None)
+
+
+SPECS['mailmanager_rule_route'] = ('mailmanager', 'list_ingress_points', 'IngressPoints')
+NATIVE_IDS['mailmanager_rule_route'] = 'IngressPointId'
+FETCHERS['mailmanager_rule_route'] = mailmanager_rule_routes
+
+# Keep the S3 Tables Lake Formation grant read in the existing reviewed AWS
+# metadata extension; the primary collector dispatch remains source-pinned.
+from . import aws_s3tables_lakeformation as _s3tables_lf
+SPECS.update(_s3tables_lf.SPECS)
+NATIVE_IDS.update(_s3tables_lf.NATIVE_IDS)
+READ_ACTIONS.update(_s3tables_lf.READ_ACTIONS)
+FETCHERS.update(_s3tables_lf.FETCHERS)
+
+from . import aws_sns_platform_exposure as _sns_platform_exposure
+SPECS.update(_sns_platform_exposure.SPECS)
+NATIVE_IDS.update(_sns_platform_exposure.NATIVE_IDS)
+READ_ACTIONS.update(_sns_platform_exposure.READ_ACTIONS)
+FETCHERS.update(_sns_platform_exposure.FETCHERS)
+from . import aws_redshift_datashares as _redshift_datashares
+SPECS.update(_redshift_datashares.SPECS)
+NATIVE_IDS.update(_redshift_datashares.NATIVE_IDS)
+READ_ACTIONS.update(_redshift_datashares.READ_ACTIONS)
+FETCHERS.update(_redshift_datashares.FETCHERS)
+
+from . import aws_marketplace_exposure as _marketplace_exposure
+SPECS.update(_marketplace_exposure.SPECS)
+NATIVE_IDS.update(_marketplace_exposure.NATIVE_IDS)
+GLOBAL_TYPES.update(_marketplace_exposure.GLOBAL_TYPES)
+READ_ACTIONS.update(_marketplace_exposure.READ_ACTIONS)
+FETCHERS.update(_marketplace_exposure.FETCHERS)
+
+from . import aws_mediapackagev2_exposure as _mediapackagev2_exposure
+SPECS.update(_mediapackagev2_exposure.SPECS)
+NATIVE_IDS.update(_mediapackagev2_exposure.NATIVE_IDS)
+READ_ACTIONS.update(_mediapackagev2_exposure.READ_ACTIONS)
+FETCHERS.update(_mediapackagev2_exposure.FETCHERS)
+
+from . import aws_security_ir_recipients as _security_ir_recipients
+SPECS.update(_security_ir_recipients.SPECS)
+NATIVE_IDS.update(_security_ir_recipients.NATIVE_IDS)
+READ_ACTIONS.update(_security_ir_recipients.READ_ACTIONS)
+FETCHERS.update(_security_ir_recipients.FETCHERS)
+
+from . import aws_opensearch_exposure as _opensearch_exposure
+SPECS.update(_opensearch_exposure.SPECS)
+NATIVE_IDS.update(_opensearch_exposure.NATIVE_IDS)
+READ_ACTIONS.update(_opensearch_exposure.READ_ACTIONS)
+FETCHERS.update(_opensearch_exposure.FETCHERS)
+
+from . import aws_securitylake_subscribers as _securitylake_subscribers
+SPECS.update(_securitylake_subscribers.SPECS)
+NATIVE_IDS.update(_securitylake_subscribers.NATIVE_IDS)
+READ_ACTIONS.update(_securitylake_subscribers.READ_ACTIONS)
+FETCHERS.update(_securitylake_subscribers.FETCHERS)
 
 
 def enrich_network_detail(plan):

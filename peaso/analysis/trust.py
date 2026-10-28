@@ -560,6 +560,34 @@ def _aws_saml_provider_state(snapshot, provider):
     return _aws_identity_provider_state(snapshot, provider, "iam_saml_provider", "saml-provider")[0]
 
 
+def _federated_deny_may_apply(statement, provider, action):
+    if not isinstance(statement, dict) or statement.get("Effect") != "Deny":
+        return False
+    if "Action" in statement and "NotAction" in statement:
+        action_matches = True
+    elif "NotAction" in statement:
+        excluded = as_list(statement.get("NotAction"))
+        action_matches = not excluded or any(not isinstance(value, str) for value in excluded) or not any(
+            fnmatchcase(action, value.lower()) for value in excluded if isinstance(value, str))
+    else:
+        actions = as_list(statement.get("Action"))
+        action_matches = not actions or any(not isinstance(value, str) for value in actions) or any(
+            fnmatchcase(action, value.lower()) for value in actions if isinstance(value, str))
+    if not action_matches:
+        return False
+    if "NotPrincipal" in statement:
+        return True
+    principal = statement.get("Principal")
+    if principal == "*":
+        return True
+    if isinstance(principal, dict):
+        if "Federated" in principal:
+            federated = as_list(principal["Federated"])
+            return not federated or any(not isinstance(value, str) for value in federated) or provider in federated or "*" in federated
+        return not any(key in principal for key in ("AWS", "Service"))
+    return True
+
+
 def aws_federated_trust(snapshot, resource):
     """Return (status, severity, evidence) for AWS OIDC/SAML trust, or None."""
     document = resource["data"].get("AssumeRolePolicyDocument")
@@ -569,21 +597,34 @@ def aws_federated_trust(snapshot, resource):
     if not isinstance(document, dict):
         return None
     reviews = []
-    for index, statement in enumerate(as_list(document.get("Statement"))):
+    statements = as_list(document.get("Statement"))
+    for index, statement in enumerate(statements):
         if not isinstance(statement, dict) or statement.get("Effect") != "Allow":
             continue
         principal = statement.get("Principal")
         federated = as_list(principal.get("Federated")) if isinstance(principal, dict) else []
-        actions = [str(a).lower() for a in as_list(statement.get("Action"))]
-        if not federated or not any(a in ("sts:assumerolewithwebidentity", "sts:assumerolewithsaml", "sts:*", "*") for a in actions):
+        if "NotAction" in statement and "Action" not in statement:
+            excluded = as_list(statement.get("NotAction"))
+            if not excluded or any(not isinstance(action, str) or not action for action in excluded):
+                continue
+            actions = [action.lower() for action in excluded]
+            web_action = not any(fnmatchcase("sts:assumerolewithwebidentity", action) for action in actions)
+            saml_action = not any(fnmatchcase("sts:assumerolewithsaml", action) for action in actions)
+        elif "NotAction" in statement:
+            continue  # Action and NotAction together are invalid IAM syntax.
+        else:
+            actions = [str(a).lower() for a in as_list(statement.get("Action"))]
+            web_action = any(fnmatchcase("sts:assumerolewithwebidentity", action) for action in actions)
+            saml_action = any(fnmatchcase("sts:assumerolewithsaml", action) for action in actions)
+        if not federated or not (web_action or saml_action):
             continue
         conditions = list(_conditions(statement.get("Condition")))
         for provider in federated:
             issuer = _issuer(provider)
             saml = "saml-provider/" in str(provider).lower()
-            if saml and not any(a in ("sts:assumerolewithsaml", "sts:*", "*") for a in actions):
+            if saml and not saml_action:
                 continue
-            if not saml and not any(a in ("sts:assumerolewithwebidentity", "sts:*", "*") for a in actions):
+            if not saml and not web_action:
                 continue
             prefix = issuer.lower()
             def claim(name, prefix=prefix):
@@ -694,10 +735,22 @@ def aws_federated_trust(snapshot, resource):
                             "conditions": copy.deepcopy(statement.get("Condition")), "problems": problems})
     if not reviews:
         return None
-    serious = [p for r in reviews for p in r["problems"] if p.get("severity") not in ("low", "review")]
+    for review_item in reviews:
+        if any(problem.get("code") in {"saml_provider_absent", "oidc_provider_absent", "oidc_audience_disjoint"}
+               for problem in review_item["problems"]):
+            continue  # The matching provider or audience cannot satisfy the Allow.
+        provider = review_item["federated_principal"]
+        action = "sts:assumerolewithsaml" if "saml-provider/" in str(provider).lower() else "sts:assumerolewithwebidentity"
+        if any(_federated_deny_may_apply(statement, provider, action) for statement in statements):
+            review_item["deny_uncertain"] = True
+            review_item["problems"].append({"code": "federated_explicit_deny", "severity": "review",
+                                            "message": "A role trust Deny may apply to this federation action and provider"})
+    serious = [p for r in reviews if not r.get("deny_uncertain") for p in r["problems"]
+               if p.get("severity") not in ("low", "review")]
     review = [p for r in reviews for p in r["problems"] if p.get("severity") == "review"]
     status = "FAIL" if serious else "MANUAL" if review else "PASS"
-    multi = any(r["multi_tenant_issuer"] and any(p.get("severity") not in ("low", "review") for p in r["problems"]) for r in reviews)
+    multi = any(r["multi_tenant_issuer"] and not r.get("deny_uncertain") and
+                any(p.get("severity") not in ("low", "review") for p in r["problems"]) for r in reviews)
     severity = "critical" if multi else "high" if serious else "medium" if review else "info"
     return status, severity, {"federated_trusts": reviews, "risk_state": "observed" if serious else "conditional" if review else "reviewed",
         "semantics": "Declared web-identity trust conditions; provider-side claim customisation and session policies are not modelled."}
@@ -705,6 +758,8 @@ def aws_federated_trust(snapshot, resource):
 
 def gcp_wif_provider(snapshot, resource):
     data = resource["data"]
+    if data.get("state") == "DELETED" or data.get("disabled") is True:
+        return None
     issuer = str(data.get("oidc", {}).get("issuerUri", "")) if isinstance(data.get("oidc"), dict) else ""
     condition = data.get("attributeCondition")
     def grant_unconditional(binding):
@@ -837,6 +892,13 @@ def gcp_wif_provider(snapshot, resource):
     if isinstance(aws_account, str) and re.fullmatch(r"[0-9]{12}", aws_account):
         allowlisted = explicit_allowlist(snapshot) if snapshot.get("provider") == "gcp" else set()
         mapping = data.get("attributeMapping")
+        aws_name = r"[A-Za-z0-9+=,.@_-]+"
+        def non_role_caller_arn(value):
+            return any(re.fullmatch(pattern, value) for pattern in (
+                rf"arn:aws:iam::{aws_account}:root",
+                rf"arn:aws:iam::{aws_account}:user/(?:{aws_name}/)*{aws_name}",
+                rf"arn:aws:sts::{aws_account}:federated-user/{aws_name}",
+            ))
         def aws_selector_reachable(member):
             if member == pool_wide:
                 return True
@@ -849,18 +911,26 @@ def gcp_wif_provider(snapshot, resource):
                 return True
             if not mapping and member.startswith(f"{principal_set}attribute.aws_role/"):
                 role = member[len(f"{principal_set}attribute.aws_role/"):]
-                # The AWS default mapping strips the session from an STS assumed-role ARN.
-                return bool(re.fullmatch(
-                    rf"arn:aws:sts::{aws_account}:assumed-role/[A-Za-z0-9+=,.@_-]+", role))
+                # The default mapping strips assumed-role sessions and preserves other caller ARNs.
+                return non_role_caller_arn(role) or bool(re.fullmatch(
+                    rf"arn:aws:sts::{aws_account}:assumed-role/{aws_name}", role))
+            if (isinstance(mapping, dict) and mapping.get("attribute.aws_role") == "assertion.arn"
+                    and isinstance(mapping.get("google.subject"), str)
+                    and member.startswith(f"{principal_set}attribute.aws_role/")):
+                role = member[len(f"{principal_set}attribute.aws_role/"):]
+                return non_role_caller_arn(role) or bool(re.fullmatch(
+                    rf"arn:aws:sts::{aws_account}:assumed-role/{aws_name}/{aws_name}", role))
             if (isinstance(mapping, dict)
                     and mapping.get("google.subject") == "assertion.arn"
                     and mapping.get("attribute.aws_role") == "assertion.arn.extract('assumed-role/{role_name}/')"
                     and member.startswith(f"{principal_set}attribute.aws_role/")):
                 role = member[len(f"{principal_set}attribute.aws_role/"):]
                 return bool(re.fullmatch(r"[A-Za-z0-9+=,.@_-]+", role))
-            if member.startswith(individual) and not mapping:
+            if (member.startswith(individual) and
+                    (not mapping or isinstance(mapping, dict) and mapping.get("google.subject") == "assertion.arn")):
                 subject = member[len(individual):]
-                return bool(re.fullmatch(rf"arn:aws:(?:iam|sts)::{aws_account}:.+", subject))
+                return non_role_caller_arn(subject) or bool(re.fullmatch(
+                    rf"arn:aws:sts::{aws_account}:assumed-role/{aws_name}/{aws_name}", subject))
             return False
         reachable_grants = [binding for binding in grants if grant_unconditional(binding)
                             and any(aws_selector_reachable(member) for member in binding["members"])]
@@ -880,10 +950,109 @@ def gcp_wif_provider(snapshot, resource):
                              re.fullmatch(r"/2\.0/workspaces/[A-Za-z0-9_-]+/pipelines-config/identity/oidc/?",
                                           issuer_path) is not None))
     if host in MULTI_TENANT_ISSUERS and not org_scoped_issuer:
+        mapping = data.get("attributeMapping")
+        subject_mapping = mapping.get("google.subject") if isinstance(mapping, dict) else None
+        if not isinstance(subject_mapping, str) or subject_mapping.strip() != "assertion.sub":
+            return "MANUAL", "medium", {**evidence, "problem": "Multi-tenant OIDC subject mapping is absent or needs CEL reachability review"}
         if any(binding["pool_wide"] and grant_unconditional(binding) for binding in grants):
             return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
+    if workforce and any(binding["pool_wide"] and binding["condition"] is None for binding in grants):
+        return "MANUAL", "medium", {**evidence, "problem": "External workforce identities have an unconditional pool-wide IAM grant; IdP membership and effective access require review"}
     return "MANUAL", "medium", {**evidence, "problem": "No attributeCondition; every identity of the issuer can exchange tokens"}
+
+
+def _gcp_federated_direct_bindings(snapshot, pool):
+    """Find collected resource IAM bindings for this exact federation pool."""
+    if not isinstance(pool, str) or not pool:
+        return []
+    return _cache(snapshot, ("gcp_federated_direct_bindings", pool),
+                  lambda: _scan_gcp_federated_direct_bindings(snapshot, pool))
+
+
+def _gcp_federated_service_account_bindings(snapshot, pool):
+    if not isinstance(pool, str) or not pool:
+        return []
+    prefixes = (f"principal://iam.googleapis.com/{pool}/", f"principalSet://iam.googleapis.com/{pool}/")
+    found = []
+    for account in _items(snapshot, "service_account"):
+        policy = account.get("iamPolicy")
+        if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
+            continue
+        for binding in as_list(policy.get("bindings")):
+            if not isinstance(binding, dict) or binding.get("role") not in (
+                    "roles/iam.workloadIdentityUser", "roles/iam.serviceAccountTokenCreator"):
+                continue
+            members = [member for member in as_list(binding.get("members"))
+                       if isinstance(member, str) and member.startswith(prefixes)]
+            if members:
+                found.append({"service_account": account.get("name") or account.get("email"),
+                              "role": binding["role"], "members": members,
+                              "condition": copy.deepcopy(binding.get("condition")),
+                              "source_requests": (account.get("_provenance") or {}).get("source_requests", [])})
+    return found
+
+
+def _gcp_federation_pool_disabled(snapshot, pool, kind):
+    return any(item.get("name") == pool and
+               (item.get("disabled") is True or item.get("state") == "DELETED")
+               for item in _items(snapshot, kind))
+
+
+def _scan_gcp_federated_direct_bindings(snapshot, pool):
+    prefixes = (f"principal://iam.googleapis.com/{pool}/", f"principalSet://iam.googleapis.com/{pool}/")
+    found = []
+    for collection in snapshot.get("collections", []):
+        if collection.get("status") not in ("collected", "partial") or collection.get("type") == "service_account":
+            continue
+        for item in collection.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            policy = item if collection.get("type") == "iam_policy" else item.get("iamPolicy")
+            if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
+                continue
+            resource_name = item.get("name") or item.get("resource") or item.get("_resource_id") or collection.get("scope")
+            for binding in as_list(policy.get("bindings")):
+                if not isinstance(binding, dict) or not isinstance(binding.get("role"), str):
+                    continue
+                for member in as_list(binding.get("members")):
+                    if isinstance(member, str) and member.startswith(prefixes):
+                        found.append({"resource": resource_name, "resource_type": collection.get("type"),
+                                      "role": binding["role"], "member": member,
+                                      "condition": copy.deepcopy(binding.get("condition")),
+                                      "source_requests": (item.get("_provenance") or {}).get(
+                                          "source_requests", collection.get("source_requests", []))})
+    return found
+
+
+def gcp_workforce_provider(snapshot, resource):
+    """Keep workforce federation as a bounded configured-trust UNKNOWN."""
+    data = resource["data"]
+    if data.get("state") == "DELETED" or data.get("disabled") is True:
+        return None
+    name = data.get("name")
+    pool = name.rsplit("/providers/", 1)[0] if isinstance(name, str) and "/providers/" in name else None
+    if _gcp_federation_pool_disabled(snapshot, pool, "workforce_pool"):
+        return None
+    direct = _gcp_federated_direct_bindings(snapshot, pool)
+    impersonation = _gcp_federated_service_account_bindings(snapshot, pool)
+    provider_type = next((kind for kind in ("oidc", "saml") if isinstance(data.get(kind), dict)), "unrecorded")
+    condition = data.get("attributeCondition")
+    binding = direct[0] if direct else None
+    account_binding = impersonation[0] if impersonation else None
+    observed = "\n".join((
+        f"The workforce identity provider {name or 'unrecorded'} has type {provider_type}, disabled false and attributeCondition {condition or 'unset'}.",
+        f"Its pool has {len(direct)} collected direct-resource and {len(impersonation)} service-account bindings" +
+        (f", including {binding['role']} on {binding['resource']}" if binding else
+         f", including {account_binding['role']} on {account_binding['service_account']}" if account_binding else "") + ".",
+        ("An external workforce identity may use that binding if its token, mapping and any conditions match."
+         if binding or account_binding else "Other uncollected or inherited policies may still bind identities from this pool."),
+        "That could let an outside user reach people-facing services or stored data if other access controls allow it."))
+    return "UNKNOWN", "medium" if direct or impersonation else "info", {
+        "observed": observed, "provider_type": provider_type, "attribute_condition": condition,
+        "attribute_mapping": copy.deepcopy(data.get("attributeMapping")), "direct_access_bindings": direct,
+        "service_account_bindings": impersonation,
+        "semantics": "Configured workforce federation only; token claims, CEL, effective IAM and resource responses are unresolved."}
 
 
 def azure_federated_credential(snapshot, resource):

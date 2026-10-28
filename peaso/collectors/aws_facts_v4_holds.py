@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import copy
 import re
+from urllib.parse import urlsplit
 
 
 SPECS = {
     "ec2_instance_profile_association": (
         "ec2", "describe_iam_instance_profile_associations", "IamInstanceProfileAssociations"),
+    "codepipeline_webhook": ("codepipeline", "list_webhooks", "webhooks"),
 }
-NATIVE_IDS = {"ec2_instance_profile_association": "AssociationId"}
+NATIVE_IDS = {"ec2_instance_profile_association": "AssociationId", "codepipeline_webhook": "arn"}
 READ_ACTIONS = {("codepipeline", "get_pipeline")}
 
 _PIPELINE_NAME = re.compile(r"[A-Za-z0-9.@_-]{1,100}")
@@ -41,7 +43,7 @@ def project_pipeline_response(response):
     pipeline = response.get("pipeline") if isinstance(response, dict) else None
     if not isinstance(pipeline, dict) or not isinstance(pipeline.get("stages"), list):
         raise ReadFailure("malformed", "malformed_pipeline")
-    stages = []
+    stages, exposure_actions = [], []
     for stage in pipeline["stages"]:
         if not isinstance(stage, dict) or not isinstance(stage.get("actions"), list):
             raise ReadFailure("malformed", "malformed_pipeline_stage")
@@ -54,12 +56,17 @@ def project_pipeline_response(response):
                 raise ReadFailure("malformed", "malformed_pipeline_action")
             provider = kind.get("provider")
             category = kind.get("category")
-            if category != "Source" and (kind.get("owner"), category, provider) not in {
-                    ("AWS", "Build", "CodeBuild"), ("AWS", "Test", "CodeBuild")}:
-                continue
             config = action.get("configuration") or {}
             if not isinstance(config, dict):
                 raise ReadFailure("malformed", "malformed_pipeline_action")
+            exposure_actions.append({"name": action.get("name"), "owner": kind.get("owner"),
+                "category": category, "provider": provider, "roleArn": action.get("roleArn"),
+                "region": action.get("region"),
+                "inputArtifactCount": len(action.get("inputArtifacts") or []) if isinstance(action.get("inputArtifacts") or [], list) else None,
+                "configuration": {key: config[key] for key in ("BucketName", "NotificationArn", "RoleArn") if key in config}})
+            if category != "Source" and (kind.get("owner"), category, provider) not in {
+                    ("AWS", "Build", "CodeBuild"), ("AWS", "Test", "CodeBuild")}:
+                continue
             keys = (("RepositoryName", "BranchName", "OutputArtifactFormat")
                     if category == "Source" and kind.get("owner") == "AWS" and provider == "CodeCommit" else
                     ("ProjectName", "PrimarySource", "ServiceRoleArnOverride", "BatchEnabled")
@@ -78,7 +85,17 @@ def project_pipeline_response(response):
                             "BuildspecOverridePresent": bool(config.get("BuildspecOverride"))
                             if category in ("Build", "Test") else None, **artifacts})
         stages.append({"name": stage.get("name"), "actions": actions})
-    return {"pipeline": {"name": pipeline.get("name"), "roleArn": pipeline.get("roleArn"), "stages": stages}}
+    stores = []
+    if isinstance(pipeline.get("artifactStore"), dict):
+        stores.append({"region": None, "type": pipeline["artifactStore"].get("type"),
+                       "location": pipeline["artifactStore"].get("location")})
+    elif isinstance(pipeline.get("artifactStores"), dict):
+        stores = [{"region": region, "type": store.get("type") if isinstance(store, dict) else None,
+                   "location": store.get("location") if isinstance(store, dict) else None}
+                  for region, store in sorted(pipeline["artifactStores"].items())]
+    return {"pipeline": {"name": pipeline.get("name"), "roleArn": pipeline.get("roleArn"),
+                          "stages": stages, "ArtifactStores": stores if stores else None,
+                          "ExposureActions": exposure_actions}}
 
 
 def enrich_pipelines(requests, session, region, items):
@@ -93,6 +110,40 @@ def enrich_pipelines(requests, session, region, items):
             item["ActionMetadata"] = {"collection_status": "malformed", "error": {"code": "malformed_pipeline_name"}}
         output.append(item)
     return output
+
+
+def codepipeline_webhooks(requests, session, region, account):
+    """Keep webhook URL and authentication mode; never persist the HMAC token."""
+    from .aws import ReadResult
+    listing = requests.pages(session, "codepipeline", region, "list_webhooks", "webhooks")
+    if listing.status not in ("collected", "empty"):
+        return ReadResult([], listing.status, listing.error)
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    rows, failures = [], []
+    for raw in listing.items:
+        definition = raw.get("definition") if isinstance(raw, dict) else None
+        arn = raw.get("arn") if isinstance(raw, dict) else None
+        name = definition.get("name") if isinstance(definition, dict) else None
+        if (not isinstance(name, str) or not _PIPELINE_NAME.fullmatch(name) or
+                arn != f"arn:{partition}:codepipeline:{region}:{account}:webhook:{name}" or
+                not isinstance(raw.get("url"), str)):
+            failures.append("codepipeline_webhook_identity_unresolved")
+            continue
+        config = definition.get("authenticationConfiguration")
+        if not isinstance(config, dict):
+            config = {}
+        try:
+            parsed = urlsplit(raw["url"])
+            host = parsed.hostname if (parsed.scheme == "https" and parsed.port in (None, 443) and
+                                       not parsed.username and not parsed.password) else None
+        except ValueError:
+            host = None
+        rows.append({"arn": arn, "WebhookHost": host, "name": name,
+                     "targetPipeline": definition.get("targetPipeline"),
+                     "authentication": definition.get("authentication"),
+                     "AllowedIPRange": config.get("AllowedIPRange")})
+    status = "partial" if rows and failures else "malformed" if failures else "collected" if rows else "empty"
+    return ReadResult(rows, status, {"code": failures[0]} if failures else None)
 
 
 ENRICHERS = {"codepipeline_pipeline": enrich_pipelines}
@@ -281,5 +332,6 @@ def unique_instances(requests, session, region, rows):
     return _unique_profile_metadata(rows, 'InstanceId')
 
 
-FETCHERS = {'ec2_instance_profile_association': profile_associations}
+FETCHERS = {'ec2_instance_profile_association': profile_associations,
+            'codepipeline_webhook': codepipeline_webhooks}
 ENRICHERS['instance'] = unique_instances

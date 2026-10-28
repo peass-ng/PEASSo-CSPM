@@ -52,7 +52,7 @@ def scope_jobs(collector, scope):
                                 configs = collector.parallel(lambda item: collector.hydrate(
                                     item, "iamPolicy",
                                     f"https://workstations.googleapis.com/v1/{item['name']}:getIamPolicy",
-                                    scope), configs)
+                                    scope, params={"options.requestedPolicyVersion": 3}), configs)
                             yield (configs if kind == "workstations_config" else []), config_request
                             if kind == "workstations_config":
                                 continue
@@ -64,7 +64,7 @@ def scope_jobs(collector, scope):
                                     yield collector.parallel(lambda item: collector.hydrate(
                                         item, "iamPolicy",
                                         f"https://workstations.googleapis.com/v1/{item['name']}:getIamPolicy",
-                                        scope), workstations), workstation_request
+                                        scope, params={"options.requestedPolicyVersion": 3}), workstations), workstation_request
 
             yield from fanout_pages(collector, locations, location_pages)
 

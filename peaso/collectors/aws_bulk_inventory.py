@@ -7,6 +7,7 @@ import json
 import hashlib
 import re
 import ipaddress
+from urllib.parse import urlsplit
 from .aws_facts_data_identity import _pick
 
 SPECS = {
@@ -287,8 +288,28 @@ def _sns_topic_subscriptions(requests, session, region, account):
                 failures.append(ReadResult([], 'malformed', {'code': 'duplicate_sns_subscription'}))
                 continue
             seen_subscriptions.add(identity)
+            endpoint = item.get('Endpoint')
+            endpoint_scope = None
+            if protocol in ('http', 'https') and isinstance(endpoint, str):
+                try:
+                    parsed = urlsplit(endpoint)
+                    host = parsed.hostname
+                except ValueError:
+                    parsed = None
+                    host = None
+                if parsed and parsed.scheme == protocol and host and not parsed.username and not parsed.password:
+                    try:
+                        endpoint_scope = 'public_ip' if ipaddress.ip_address(host).is_global else 'private_ip'
+                    except ValueError:
+                        endpoint_scope = 'dns' if '.' in host and not host.endswith(('.local', '.internal')) else 'local_name'
+            elif protocol in ('email', 'email-json', 'sms', 'application'):
+                endpoint_scope = 'external_delivery_candidate'
+            elif protocol in ('sqs', 'lambda', 'firehose') and isinstance(endpoint, str):
+                match_endpoint = re.fullmatch(r'arn:' + partition + r':(?:sqs|lambda|firehose):' +
+                    re.escape(region) + r':([0-9]{12}):.+', endpoint)
+                endpoint_scope = ('foreign_aws_account' if match_endpoint.group(1) != account else 'own_aws_account') if match_endpoint else 'unknown_aws_account'
             rows.append({'id': identity, 'TopicArn': arn, 'SubscriptionArn': sub_arn,
-                         'Owner': owner, 'Protocol': protocol,
+                         'Owner': owner, 'Protocol': protocol, 'EndpointScope': endpoint_scope,
                          '_provenance': {'source_operation': 'ListSubscriptionsByTopic', 'read_only': True}})
     return _finish(rows, failures)
 

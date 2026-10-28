@@ -24,9 +24,21 @@
       "service": "mwaa",
       "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_mwaa.html"
     },
+    "aoss:BatchGetCollection": {
+      "access": "Read",
+      "operation": "batch_get_collection",
+      "service": "opensearchserverless",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_opensearchserverless.html"
+    },
     "aoss:GetSecurityPolicy": {
       "access": "Read",
       "operation": "get_security_policy",
+      "service": "opensearchserverless",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_opensearchserverless.html"
+    },
+    "aoss:ListCollections": {
+      "access": "List",
+      "operation": "list_collections",
       "service": "opensearchserverless",
       "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_opensearchserverless.html"
     },
@@ -828,6 +840,24 @@
       "service": "opensearch",
       "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_es.html"
     },
+    "es:GetApplication": {
+      "access": "Read",
+      "operation": "get_application",
+      "service": "opensearch",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_es.html"
+    },
+    "es:ListApplications": {
+      "access": "List",
+      "operation": "list_applications",
+      "service": "opensearch",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_es.html"
+    },
+    "es:ListVpcEndpointAccess": {
+      "access": "List",
+      "operation": "list_vpc_endpoint_access",
+      "service": "opensearch",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_es.html"
+    },
     "es:ListVpcEndpoints": {
       "access": "List",
       "operation": "list_vpc_endpoints",
@@ -1068,6 +1098,12 @@
       "service": "m2",
       "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_m2.html"
     },
+    "machinelearning:DescribeMLModels": {
+      "access": "List",
+      "operation": "describe_ml_models",
+      "service": "machinelearning",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_machinelearning.html"
+    },
     "managedblockchain:GetNetwork": {
       "access": "Read",
       "operation": "get_network",
@@ -1212,6 +1248,18 @@
       "service": "mgn",
       "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_mgn.html"
     },
+    "mq:DescribeConfigurationRevision": {
+      "access": "Read",
+      "operation": "describe_configuration_revision",
+      "service": "mq",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_mq.html"
+    },
+    "mq:DescribeSharedResources": {
+      "access": "Read",
+      "operation": "describe_shared_resources",
+      "service": "mq",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_mq.html"
+    },
     "neptune-graph:GetPrivateGraphEndpoint": {
       "access": "Read",
       "operation": "get_private_graph_endpoint",
@@ -1313,6 +1361,12 @@
       "operation": "list_monitors",
       "service": "networkmonitor",
       "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_networkmonitor.html"
+    },
+    "oam:ListLinks": {
+      "access": "Read",
+      "operation": "list_links",
+      "service": "oam",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_oam.html"
     },
     "observabilityadmin:GetTelemetryRule": {
       "access": "Read",
@@ -1527,6 +1581,12 @@
     "refactor-spaces:ListEnvironments": {
       "access": "Read",
       "operation": "list_environments",
+      "service": "migration-hub-refactor-spaces",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_migration-hub-refactor-spaces.html"
+    },
+    "refactor-spaces:ListRoutes": {
+      "access": "Read",
+      "operation": "list_routes",
       "service": "migration-hub-refactor-spaces",
       "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_migration-hub-refactor-spaces.html"
     },
@@ -1758,6 +1818,42 @@
       "service": "scheduler",
       "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_scheduler.html"
     },
+    "security-ir:GetCase": {
+      "access": "Read",
+      "operation": "get_case",
+      "service": "security-ir",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_security-ir.html"
+    },
+    "security-ir:GetMembership": {
+      "access": "Read",
+      "operation": "get_membership",
+      "service": "security-ir",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_security-ir.html"
+    },
+    "security-ir:ListCases": {
+      "access": "List",
+      "operation": "list_cases",
+      "service": "security-ir",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_security-ir.html"
+    },
+    "security-ir:ListMemberships": {
+      "access": "List",
+      "operation": "list_memberships",
+      "service": "security-ir",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_security-ir.html"
+    },
+    "securitylake:GetDataLakeExceptionSubscription": {
+      "access": "Read",
+      "operation": "get_data_lake_exception_subscription",
+      "service": "securitylake",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_securitylake.html"
+    },
+    "securitylake:ListSubscribers": {
+      "access": "List",
+      "operation": "list_subscribers",
+      "service": "securitylake",
+      "source": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_securitylake.html"
+    },
     "ses:GetIngressPoint": {
       "access": "Read",
       "operation": "get_ingress_point",
@@ -1940,6 +2036,7 @@
     "networkflowmonitor": "networkflowmonitor",
     "networkmanager": "networkmanager",
     "networkmonitor": "networkmonitor",
+    "oam": "oam",
     "observabilityadmin": "observabilityadmin",
     "odb": "odb",
     "opensearch": "es",
@@ -1958,6 +2055,7 @@
     "s3outposts": "s3-outposts",
     "sagemaker": "sagemaker",
     "scheduler": "scheduler",
+    "security-ir": "security-ir",
     "storagegateway": "storagegateway",
     "synthetics": "synthetics",
     "timestream-influxdb": "timestream-influxdb",

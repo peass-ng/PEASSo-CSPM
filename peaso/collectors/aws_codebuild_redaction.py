@@ -174,7 +174,7 @@ def project_batch_get_projects(response):
     for project in rows:
         from .aws_additional_secret_indicators import codebuild_indicator
         indicator = codebuild_indicator(project)
-        row = _pick(project, ("name", "arn", "serviceRole", "projectVisibility", "encryptionKey",
+        row = _pick(project, ("name", "arn", "serviceRole", "projectVisibility", "publicProjectAlias", "encryptionKey",
                               "created", "lastModified", "concurrentBuildLimit"))
         for field in ("source",):
             if field in project:

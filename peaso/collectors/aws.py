@@ -504,7 +504,7 @@ class Requests:
         metadata_report = (service == 'iam' and self.iam_report_generation_requested and (
             operation == 'generate_credential_report' and self.iam_credential_report_generation_requested or
             operation == 'generate_service_last_accessed_details' and self.iam_service_access_reports_requested))
-        readonly_name = operation.startswith(("get_", "list_", "describe_", "batch_get_", "batch_describe_")) or (service, operation) in {("ec2", "search_transit_gateway_routes"), ("braket", "search_devices")}
+        readonly_name = operation.startswith(("get_", "list_", "describe_", "batch_get_", "batch_describe_")) or (service, operation) in {("ec2", "search_transit_gateway_routes"), ("braket", "search_devices"), ("apigatewayv2", "export_api")}
         content_profiles = {'aws-code-log-content-indicators-v1', 'aws-package-content-indicators-v1', 'aws-lambda-environment-content-v1', 'aws-selected-configuration-content-v1'}
         content_profile = isinstance(_metadata_profile, str) and _metadata_profile in content_profiles
         content_log = (service, operation) == ('logs', 'filter_log_events') and _metadata_profile == 'aws-code-log-content-indicators-v1'
@@ -516,6 +516,8 @@ class Requests:
             raise ReadFailure('not_collected', 'repository_content_requires_safe_projection')
         if (service, operation) in {('apigateway', 'get_stage'), ('ssm', 'describe_document')} and _metadata_profile != 'aws-selected-configuration-content-v1':
             raise ReadFailure('not_collected', 'selected_configuration_requires_safe_projection')
+        if (service, operation) == ('apigatewayv2', 'export_api') and _metadata_profile != 'aws-apigateway-stage-route-metadata-v1':
+            raise ReadFailure('not_collected', 'apigateway_export_requires_safe_projection')
         if (operation in _PROHIBITED_VALUE_OPERATIONS and not content_log) or (service, operation) not in READ_ACTIONS or not (readonly_name or credential_exchange or metadata_lookup or metadata_simulation or content_log or metadata_report):
             raise ReadFailure("not_collected", "non_read_operation")
         if _projection_context is not None and _metadata_profile != 'aws-code-log-content-indicators-v1':
@@ -544,11 +546,15 @@ class Requests:
                 from . import aws_lambda_environment_secret_indicators as projection_contract
             elif _metadata_profile == 'aws-selected-configuration-content-v1':
                 from . import aws_selected_configuration_secret_indicators as projection_contract
+            elif _metadata_profile == 'aws-apigateway-stage-route-metadata-v1':
+                from . import aws_apigateway_native as projection_contract
             else:
                 raise ReadFailure('not_collected', 'undeclared_metadata_profile')
             if (service, operation) not in projection_contract.PROJECTION_OPERATIONS:
                 raise ReadFailure('not_collected', 'metadata_profile_operation_not_allowed')
             profile_projector = projection_contract.project_response
+            if _metadata_profile == 'aws-apigateway-stage-route-metadata-v1':
+                projection_contract.validate_request(service, operation, dict(arguments))
             if content_profile:
                 projection_context = (self, session) if _metadata_profile in ('aws-package-content-indicators-v1', 'aws-lambda-environment-content-v1', 'aws-selected-configuration-content-v1') else _projection_context
                 validator = getattr(projection_contract, 'validate_request', None)
@@ -664,7 +670,7 @@ class Requests:
                         projection_contract._remaining(self)
                     if _metadata_profile == 'aws-selected-configuration-content-v1':
                         projection_contract.before_request(self)
-                    if content_profile or service == 'sts' or _uncached_credential_exchange:
+                    if content_profile or _metadata_profile == 'aws-apigateway-stage-route-metadata-v1' or service == 'sts' or _uncached_credential_exchange:
                         from .aws_content_sdk_logging import private_sdk_logs
                         from contextlib import nullcontext
                         admission = (self.raw_reads.admit(client, session, lambda: projection_contract.remaining(self))
@@ -3435,7 +3441,7 @@ def collect(connector, requirements=None):
 EXTENSION_MODULES = ("peaso.collectors.aws_b_services", "peaso.collectors.aws_privesc_facts",
     "peaso.collectors.aws_facts_compute_edge", "peaso.collectors.aws_facts_data_identity", "peaso.collectors.aws_facts_cb_ca",
     "peaso.collectors.aws_facts_gap", "peaso.collectors.aws_facts_swc", "peaso.collectors.aws_facts_ext",
-    "peaso.collectors.aws_facts_v4_holds", "peaso.collectors.aws_bulk_inventory", "peaso.collectors.aws_operational_groups_native", "peaso.collectors.aws_macie_coverage_native", "peaso.collectors.aws_budget_stop_native", "peaso.collectors.aws_ecr_artifacts_native", "peaso.collectors.aws_resolver_firewall_native", "peaso.collectors.aws_sagemaker_clarify_native", "peaso.collectors.aws_codecommit_review_native", "peaso.collectors.aws_cloudtrail_delivery_native", "peaso.collectors.aws_controltower_native", "peaso.collectors.aws_region_data_native", "peaso.collectors.aws_lightsail_iam_native", "peaso.collectors.aws_eks_admission_native", "peaso.collectors.aws_resource_tag_compliance_native", "peaso.collectors.aws_effective_tag_policy_native", "peaso.collectors.aws_bedrock_reasoning_native", "peaso.collectors.aws_fms_rule_metadata_native", "peaso.collectors.aws_wave_semantics_native")
+    "peaso.collectors.aws_facts_v4_holds", "peaso.collectors.aws_bulk_inventory", "peaso.collectors.aws_operational_groups_native", "peaso.collectors.aws_macie_coverage_native", "peaso.collectors.aws_budget_stop_native", "peaso.collectors.aws_budget_notification_exposure", "peaso.collectors.aws_codestar_notification_exposure", "peaso.collectors.aws_ecr_artifacts_native", "peaso.collectors.aws_resolver_firewall_native", "peaso.collectors.aws_sagemaker_clarify_native", "peaso.collectors.aws_codecommit_review_native", "peaso.collectors.aws_cloudtrail_delivery_native", "peaso.collectors.aws_controltower_native", "peaso.collectors.aws_region_data_native", "peaso.collectors.aws_lightsail_iam_native", "peaso.collectors.aws_eks_admission_native", "peaso.collectors.aws_resource_tag_compliance_native", "peaso.collectors.aws_effective_tag_policy_native", "peaso.collectors.aws_bedrock_reasoning_native", "peaso.collectors.aws_fms_rule_metadata_native", "peaso.collectors.aws_wave_semantics_native")
 
 
 def _chain(first, second):
@@ -3471,7 +3477,7 @@ def _load_metadata_extension(name="peaso.collectors.aws_b_services"):
     actions = set(getattr(extension, "READ_ACTIONS", set()))
     for service, operation in actions | {(s, o) for s, o, expression in specs.values()}:
         content_log = name == 'peaso.collectors.aws_code_log_content_indicators' and (service, operation) == ('logs', 'filter_log_events')
-        if (operation in _PROHIBITED_VALUE_OPERATIONS and not content_log) or (not operation.startswith(("get_", "list_", "describe_", "batch_get_", "batch_describe_")) and (service, operation) not in {("cloudtrail", "lookup_events"), ("iam", "simulate_principal_policy"), ("braket", "search_devices")} and not content_log):
+        if (operation in _PROHIBITED_VALUE_OPERATIONS and not content_log) or (not operation.startswith(("get_", "list_", "describe_", "batch_get_", "batch_describe_")) and (service, operation) not in {("cloudtrail", "lookup_events"), ("iam", "simulate_principal_policy"), ("braket", "search_devices"), ("apigatewayv2", "export_api")} and not content_log):
             raise ValueError("AWS extension includes a prohibited operation")
     fetchers = getattr(extension, "FETCHERS", {})
     for kind in fetchers:
@@ -3510,6 +3516,9 @@ EXTENSION_MODULES += ("peaso.collectors.aws_bedrock_security_metadata",
 EXTENSION_MODULES += ("peaso.collectors.aws_ai_recheck_facts_20261020",)
 
 EXTENSION_MODULES += ("peaso.collectors.aws_network_inventory",)
+EXTENSION_MODULES += ("peaso.collectors.aws_wellarchitected_shares",)
+EXTENSION_MODULES += ("peaso.collectors.aws_media_legacy_exposure",)
+EXTENSION_MODULES += ("peaso.collectors.aws_quicksight_dashboard_shares",)
 for _extension in EXTENSION_MODULES:
     _load_metadata_extension(_extension)
 

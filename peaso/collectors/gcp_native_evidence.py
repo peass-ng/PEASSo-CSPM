@@ -133,6 +133,8 @@ def scope_jobs(collector, scope):
     from .gcp import ReadError
     jobs = _approval_jobs(collector, scope)
     jobs.extend(_asset_history_jobs(collector, scope))
+    if 'scc_export' in collector.needed:
+        jobs.append(('scc_export', scope, 'securitycenter', lambda: _scc_exports(collector, scope)))
     if not re.fullmatch(r'organizations/[0-9]+', scope):
         return jobs
     for kind, suffix, key in (
@@ -185,6 +187,51 @@ def scope_jobs(collector, scope):
 
         jobs.append((kind, scope, 'securitycenter', fetch))
     return jobs
+
+
+def _scc_exports(collector, scope):
+    """Metadata-only v1/v2 finding export declarations at each selected scope."""
+    from .gcp import ReadError
+    locations = collector.options.get('scc_locations', ['global', 'us', 'eu', 'sa'])
+    if (not isinstance(locations, list) or not locations or len(locations) > 4 or
+            any(location not in {'global', 'us', 'eu', 'sa'} for location in locations)):
+        raise ValueError('scc_locations must select global, us, eu or sa')
+    seen = {}
+    def projected(row, version, location, kind):
+        name = row.get('name')
+        match = re.fullmatch(r'(projects|folders|organizations)/([^/]+)/(?:locations/(global|us|eu|sa)/)?(notificationConfigs|bigQueryExports)/([^/]+)', name) if isinstance(name, str) else None
+        if (not match or match[1] != scope.split('/')[0] or
+                (match[2] != scope.split('/')[1] and (not scope.startswith('projects/') or
+                 not collector._data_project_matches(scope, match[2]))) or
+                match[3] != location or match[4] != kind):
+            raise ReadError('malformed', 'scc_export_identity_mismatch')
+        if kind == 'notificationConfigs':
+            value = row.get('pubsubTopic')
+            filter_value = (row.get('streamingConfig') or {}).get('filter')
+            destination_kind = 'pubsub'
+            if not isinstance(value, str) or not re.fullmatch(r'projects/[^/]+/topics/[^/]+', value):
+                raise ReadError('malformed', 'scc_export_destination_invalid')
+        else:
+            value, filter_value, destination_kind = row.get('dataset'), row.get('filter'), 'bigquery'
+            if not isinstance(value, str) or not re.fullmatch(r'projects/[^/]+/datasets/[^/]+', value):
+                raise ReadError('malformed', 'scc_export_destination_invalid')
+        if filter_value is not None and not isinstance(filter_value, str):
+            raise ReadError('malformed', 'scc_export_filter_invalid')
+        item = {'name': name, 'destination': value, 'destinationKind': destination_kind,
+                'filter': filter_value or '', 'apiVersion': version, 'location': location or 'legacy'}
+        if name in seen and seen[name] != item:
+            raise ReadError('malformed', 'scc_export_identity_conflict')
+        seen[name] = item
+        return item
+    endpoints = [('v1', None, 'notificationConfigs')]
+    endpoints += [('v2', location, kind) for location in dict.fromkeys(locations)
+                  for kind in ('notificationConfigs', 'bigQueryExports')]
+    for version, location, kind in endpoints:
+        parent = scope + ('/locations/' + location if location else '')
+        yield from collector.pages(f'https://securitycenter.googleapis.com/{version}/{parent}/{kind}', scope,
+            key=kind, page_size_key='pageSize',
+            transform=lambda row, version=version, location=location, kind=kind:
+                projected(row, version, location, kind))
 
 
 def _approval_jobs(collector, scope):

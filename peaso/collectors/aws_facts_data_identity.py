@@ -12,14 +12,24 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 from .aws_b_services import _metadata
 
 SPECS = {
     "athena_workgroup": ("athena", "list_work_groups", "WorkGroups"),
+    "athena_query_export": ("athena", "list_work_groups", "WorkGroups"),
     "athena_session": ("athena", "list_sessions", "Sessions"),
+    "appconfig_extension_association": ("appconfig", "list_extension_associations", "Items"),
+    "appconfig_configuration_profile": ("appconfig", "list_configuration_profiles", "Items"),
+    "lakeformation_permission": ("lakeformation", "list_permissions", "PrincipalResourcePermissions"),
+    "lakeformation_settings": ("lakeformation", "get_data_lake_settings", None),
+    "cloudtrail_query_export": ("cloudtrail", "list_queries", "Queries"),
     "backup_recovery_point": ("backup", "list_recovery_points_by_backup_vault", "RecoveryPoints"),
+    "backup_copy_job": ("backup", "list_copy_jobs", "CopyJobs"),
+    "workspaces_image": ("workspaces", "describe_workspace_images", "Images"),
     "datasync_task": ("datasync", "list_tasks", "Tasks"),
     "dax_cluster": ("dax", "describe_clusters", "Clusters"),
     "dlm_lifecycle_policy": ("dlm", "get_lifecycle_policies", "Policies"),
@@ -32,6 +42,7 @@ SPECS = {
     "elasticache_subnet_group": ("elasticache", "describe_cache_subnet_groups", "CacheSubnetGroups"),
     "efs_access_point": ("efs", "describe_access_points", "AccessPoints"),
     "efs_mount_target": ("efs", "describe_mount_targets", "MountTargets"),
+    "efs_replication": ("efs", "describe_replication_configurations", "Replications"),
     "emr_security_configuration": ("emr", "list_security_configurations", "SecurityConfigurations"),
     "emr_block_public_access_configuration": ("emr", "get_block_public_access_configuration", None),
     "firehose_delivery_stream": ("firehose", "list_delivery_streams", "DeliveryStreamNames"),
@@ -54,42 +65,63 @@ SPECS = {
     "eventbridge_custom_bus": ("eventbridgev2", "list_event_buses", "EventBuses"),
     "lambda_microvm_image": ("lambda-microvms", "list_microvm_images", "items"),
     "eventbridge_endpoint": ("events", "list_endpoints", "Endpoints"),
+    "eventbridge_api_destination": ("events", "list_api_destinations", "ApiDestinations"),
     "eventbridge_schema_registry": ("schemas", "list_registries", "Registries"),
+    "glacier_vault_notification": ("glacier", "list_vaults", "VaultList"),
+    "glacier_job_notification": ("glacier", "list_vaults", "VaultList"),
     "codeartifact_domain": ("codeartifact", "list_domains", "domains"),
     "codeartifact_repository": ("codeartifact", "list_repositories", "repositories"),
 }
 NATIVE_IDS = {
-    "athena_workgroup": "Name", "athena_session": "SessionId", "backup_recovery_point": "RecoveryPointArn", "datasync_task": "TaskArn", "dax_cluster": "ClusterArn",
+    'appconfig_configuration_profile': "id",
+    'appconfig_extension_association': "Id",
+    'athena_query_export': "QueryExecutionId",
+    'cloudtrail_query_export': "id",
+    'lakeformation_permission': "id",
+    'lakeformation_settings': "id",
+    "athena_workgroup": "Name", "athena_session": "SessionId", "backup_recovery_point": "RecoveryPointArn", "backup_copy_job": "CopyJobId", "redshift_datashare": "DataShareArn", "workspaces_image": "ImageId", "datasync_task": "TaskArn", "dax_cluster": "ClusterArn",
     "dlm_lifecycle_policy": "PolicyId", "dms_endpoint": "EndpointArn", "dms_replication_task": "ReplicationTaskArn", "dms_certificate": "CertificateArn",
     "drs_job": "jobID", "drs_source_server": "sourceServerID", "appautoscaling_target": "ScalableTargetARN", "elasticache_subnet_group": "ARN", "efs_access_point": "AccessPointArn",
-    "efs_mount_target": "MountTargetId", "emr_security_configuration": "Name", "emr_block_public_access_configuration": "id",
+    "efs_mount_target": "MountTargetId", "efs_replication": "SourceFileSystemArn", "emr_security_configuration": "Name", "emr_block_public_access_configuration": "id",
     "firehose_delivery_stream": "DeliveryStreamARN", "acmpca_certificate_authority": "Arn", "connect_instance": "Arn",
     "directory_service_directory": "DirectoryId", "fms_policy": "PolicyArn", "bedrock_guardrail": "arn", "bedrock_agent": "agentId",
     "bedrock_custom_model": "modelArn", "bedrock_prompt": "arn", "bedrock_knowledge_base": "knowledgeBaseId", "bedrock_model_invocation_logging": "id",
     "iam_service_specific_credential": "ServiceSpecificCredentialId", "codebuild_source_credential": "arn", "codebuild_report_group": "arn",
-    "cloudformation_stack": "StackId", "codedeploy_deployment_group": "deploymentGroupId", "eventbridge_bus": "Arn", "eventbridge_custom_bus": "EventBusArn", "eventbridge_endpoint": "Arn", "lambda_microvm_image": "imageArn",
+    "cloudformation_stack": "StackId", "codedeploy_deployment_group": "deploymentGroupId", "eventbridge_bus": "Arn", "eventbridge_custom_bus": "EventBusArn", "eventbridge_endpoint": "Arn", "eventbridge_api_destination": "ApiDestinationArn", "lambda_microvm_image": "imageArn",
     "eventbridge_schema_registry": "RegistryArn", "codeartifact_domain": "arn", "codeartifact_repository": "arn",
+    "glacier_vault_notification": "VaultARN",
+    "glacier_job_notification": "VaultARN",
 }
 GLOBAL_TYPES = {"iam_service_specific_credential"}
 READ_ACTIONS = {(service, operation) for service, operation, expression in SPECS.values()}
 READ_ACTIONS.update({
     ("athena", "get_work_group"), ("athena", "list_work_groups"), ("athena", "get_session"),
+    ("athena", "list_query_executions"), ("athena", "batch_get_query_execution"),
+    ("appconfig", "list_applications"), ("appconfig", "get_extension_association"),
+    ("appconfig", "get_extension"), ("appconfig", "get_configuration_profile"),
+    ("cloudtrail", "list_event_data_stores"), ("cloudtrail", "describe_query"),
     ("backup", "list_backup_vaults"), ("backup", "get_backup_vault_access_policy"),
+    ("workspaces", "describe_workspace_image_permissions"),
     ("dynamodb", "get_resource_policy"), ("dynamodb", "list_tags_of_resource"),
     ("efs", "describe_file_systems"), ("efs", "describe_backup_policy"), ("efs", "describe_file_system_policy"),
     ("efs", "describe_mount_target_security_groups"),
-    ("datasync", "describe_task"), ("docdb", "describe_db_cluster_parameters"),
+    ("datasync", "describe_task"), ("datasync", "list_locations"), ("docdb", "describe_db_cluster_parameters"),
     ("emr", "describe_security_configuration"), ("firehose", "describe_delivery_stream"),
     ("wafv2", "get_web_acl_for_resource"), ("connect", "describe_instance_attribute"),
     ("ds", "describe_event_topics"), ("ds", "list_log_subscriptions"), ("ds", "get_snapshot_limits"), ("ds", "list_certificates"),
-    ("ds", "describe_shared_directories"), ("fms", "list_compliance_status"),
+    ("ds", "describe_shared_directories"), ("ds", "describe_trusts"), ("fms", "list_compliance_status"),
     ("bedrock", "get_guardrail"), ("bedrock", "get_custom_model"), ("bedrock-agent", "get_prompt"),
     ("bedrock-agent", "list_data_sources"), ("bedrock-agent", "get_data_source"),
     ("codebuild", "batch_get_projects"), ("codebuild", "list_builds_for_project"), ("codebuild", "batch_get_builds"),
     ("codebuild", "batch_get_report_groups"), ("codedeploy", "list_deployment_groups"), ("codedeploy", "batch_get_deployment_groups"),
     ("ecr", "describe_images"), ("ecr", "describe_image_scan_findings"), ("events", "describe_event_bus"), ("schemas", "get_resource_policy"),
+    ("eventbridgev2", "list_subscribers"), ("eventbridgev2", "list_resource_policies"), ("eventbridgev2", "get_resource_policy"),
+    ("events", "describe_connection"),
+    ("autoscaling", "describe_notification_configurations"), ("autoscaling", "describe_lifecycle_hooks"),
     ("codeartifact", "get_domain_permissions_policy"), ("codeartifact", "get_repository_permissions_policy"),
     ("codeartifact", "list_packages"), ("codeartifact", "list_package_versions"),
+    ("glacier", "get_vault_notifications"),
+    ("glacier", "list_jobs"),
 })
 
 _BATCH = 100
@@ -200,6 +232,181 @@ def _athena_sessions(requests, session, region, account):
     return _result(rows, failures)
 
 
+def _athena_literal_export_buckets(query):
+    """Return only literal UNLOAD/CTAS destination bucket names, never SQL text."""
+    if not isinstance(query, str):
+        return []
+    if re.match(r"\s*UNLOAD\s*\(", query, re.IGNORECASE):
+        matches = re.findall(r"\)\s+TO\s*'s3://([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])(?:/|')", query, re.IGNORECASE)
+    elif re.match(r"\s*CREATE\s+TABLE\b", query, re.IGNORECASE) and re.search(r"\bAS\s+SELECT\b", query, re.IGNORECASE):
+        matches = re.findall(r"\b(?:external_location|location)\s*=\s*'s3://([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])(?:/|')", query, re.IGNORECASE)
+    else:
+        matches = []
+    return sorted(set(matches))
+
+
+def _athena_query_exports(requests, session, region, account):
+    """Collect result-bucket metadata for visible executions, never query text or S3 paths."""
+    groups = requests.pages(session, "athena", region, "list_work_groups", "WorkGroups",
+                            _tokens=("NextToken", "NextToken"))
+    if groups.status not in ("collected", "empty", "partial"):
+        return _aws().ReadResult([], groups.status, groups.error)
+    rows, failures = [], [(groups.status, groups.error)] if groups.status == "partial" else []
+    for group in groups.items:
+        name = group.get("Name") if isinstance(group, dict) else None
+        if not isinstance(name, str) or not name:
+            failures.append(("malformed", {"code": "athena_workgroup_name_missing"}))
+            continue
+        listed = requests.pages(session, "athena", region, "list_query_executions", "QueryExecutionIds",
+                                _tokens=("NextToken", "NextToken"), WorkGroup=name)
+        if listed.status not in ("collected", "empty"):
+            failures.append((listed.status, listed.error))
+        ids = [i for i in listed.items if isinstance(i, str) and i]
+        if len(ids) != len(listed.items) or len(ids) != len(set(ids)):
+            failures.append(("malformed", {"code": "athena_query_execution_ids_invalid"}))
+        for offset in range(0, len(ids), 50):
+            batch = ids[offset:offset + 50]
+            try:
+                detail = requests.call(session, "athena", region, "batch_get_query_execution", QueryExecutionIds=batch)
+            except Exception as exc:
+                failures.append(_failure(exc))
+                continue
+            executions = detail.get("QueryExecutions")
+            if not isinstance(executions, list):
+                failures.append(("malformed", {"code": "athena_query_execution_batch_invalid"}))
+                continue
+            by_id = {row.get("QueryExecutionId"): row for row in executions if isinstance(row, dict)}
+            if detail.get("UnprocessedQueryExecutionIds") or any(i not in by_id for i in batch):
+                failures.append(("partial", {"code": "athena_query_execution_batch_incomplete"}))
+            for query_id in batch:
+                execution = by_id.get(query_id)
+                if not isinstance(execution, dict):
+                    continue
+                if execution.get("WorkGroup") != name:
+                    failures.append(("malformed", {"code": "athena_query_execution_workgroup_mismatch"}))
+                    continue
+                result = execution.get("ResultConfiguration")
+                output = result.get("OutputLocation") if isinstance(result, dict) else None
+                uri = urlsplit(output) if isinstance(output, str) else None
+                bucket = uri.netloc if uri and uri.scheme == "s3" and uri.netloc else None
+                rows.append({"QueryExecutionId": query_id, "WorkGroup": name,
+                             "State": (execution.get("Status") or {}).get("State") if isinstance(execution.get("Status"), dict) else None,
+                             "ResultBucket": bucket,
+                             "LiteralExportBuckets": _athena_literal_export_buckets(execution.get("Query")),
+                             "ExpectedBucketOwner": result.get("ExpectedBucketOwner") if isinstance(result, dict) else None,
+                             "S3AclOption": (result.get("AclConfiguration") or {}).get("S3AclOption")
+                             if isinstance(result, dict) and isinstance(result.get("AclConfiguration"), dict) else None})
+    return _result(rows, failures)
+
+
+def _appconfig_profiles(requests, session, region, account):
+    applications = requests.pages(session, "appconfig", region, "list_applications", "Items",
+                                  _tokens=("NextToken", "NextToken"))
+    if applications.status not in ("collected", "empty", "partial"):
+        return _aws().ReadResult([], applications.status, applications.error)
+    rows, failures = [], []
+    if applications.status == "partial":
+        failures.append(("partial", applications.error))
+    for application in applications.items:
+        app_id = application.get("Id") if isinstance(application, dict) else None
+        if not isinstance(app_id, str) or not app_id:
+            failures.append(("malformed", {"code": "appconfig_application_id_missing"}))
+            continue
+        profiles = requests.pages(session, "appconfig", region, "list_configuration_profiles", "Items",
+                                  _tokens=("NextToken", "NextToken"), ApplicationId=app_id)
+        if profiles.status not in ("collected", "empty"):
+            failures.append((profiles.status, profiles.error))
+        for profile in profiles.items:
+            profile_id = profile.get("Id") if isinstance(profile, dict) else None
+            if not isinstance(profile_id, str) or not profile_id:
+                failures.append(("malformed", {"code": "appconfig_profile_id_missing"}))
+                continue
+            rows.append({"id": app_id + "/" + profile_id, "ApplicationId": app_id, "Id": profile_id})
+    return _result(rows, failures)
+
+
+def _lakeformation_permissions(requests, session, region, account):
+    read = requests.pages(session, "lakeformation", region, "list_permissions", "PrincipalResourcePermissions",
+                          _tokens=("NextToken", "NextToken"), CatalogId=account, MaxResults=1000)
+    if read.status in ("collected", "empty"):
+        # AWS filters results by the caller's own LF permissions. An empty list
+        # cannot prove that the account has no external grants.
+        return _aws().ReadResult(read.items, "partial", {"code": "lakeformation_caller_filtered_permissions"})
+    return read
+
+
+def _lakeformation_settings(requests, session, region, account):
+    result = requests.detail(session, "lakeformation", region, "get_data_lake_settings", CatalogId=account)
+    if not isinstance(result, dict) or result.get("collection_status") != "collected":
+        status = result.get("collection_status", "malformed") if isinstance(result, dict) else "malformed"
+        return _aws().ReadResult([], status, result.get("error") if isinstance(result, dict) else {"code": "lakeformation_settings_malformed"})
+    settings = result.get("DataLakeSettings")
+    if not isinstance(settings, dict):
+        return _aws().ReadResult([], "malformed", {"code": "lakeformation_settings_missing"})
+    principal_keys = ("DataLakeAdmins", "ReadOnlyAdmins", "ExternalDataFilteringAllowList")
+    projected = {"id": account, "CatalogId": account,
+                 "AllowExternalDataFiltering": settings.get("AllowExternalDataFiltering"),
+                 "TrustedResourceOwners": settings.get("TrustedResourceOwners", [])}
+    if not isinstance(projected["TrustedResourceOwners"], list) or any(not isinstance(x, str) for x in projected["TrustedResourceOwners"]):
+        return _aws().ReadResult([], "malformed", {"code": "lakeformation_trusted_resource_owners_malformed"})
+    for key in principal_keys:
+        values = settings.get(key, [])
+        if not isinstance(values, list):
+            return _aws().ReadResult([], "malformed", {"code": "lakeformation_" + key + "_malformed"})
+        projected[key] = [value.get("DataLakePrincipalIdentifier") for value in values if isinstance(value, dict)]
+    return _aws().ReadResult([projected], "collected")
+
+
+def _cloudtrail_query_exports(requests, session, region, account):
+    """Read the API-visible seven-day query window, retaining only S3 bucket names."""
+    stores = requests.pages(session, "cloudtrail", region, "list_event_data_stores", "EventDataStores",
+                            _tokens=("NextToken", "NextToken"))
+    if stores.status not in ("collected", "empty", "partial"):
+        return _aws().ReadResult([], stores.status, stores.error)
+    failures = []
+    if stores.status == "partial":
+        failures.append(("partial", stores.error))
+    keys = []
+    for store in stores.items:
+        arn = store.get("EventDataStoreArn") if isinstance(store, dict) else None
+        parts = arn.split(":", 5) if isinstance(arn, str) else []
+        if len(parts) != 6 or parts[2] != "cloudtrail" or parts[3:5] != [region, account] or not parts[5].startswith("eventdatastore/"):
+            failures.append(("malformed", {"code": "cloudtrail_event_store_identity_invalid"}))
+            continue
+        read = requests.pages(session, "cloudtrail", region, "list_queries", "Queries",
+                              _tokens=("NextToken", "NextToken"), EventDataStore=arn, MaxResults=1000)
+        if read.status not in ("collected", "empty"):
+            failures.append((read.status, read.error))
+        for query in read.items:
+            query_id = query.get("QueryId") if isinstance(query, dict) else None
+            if not isinstance(query_id, str) or not query_id:
+                failures.append(("malformed", {"code": "cloudtrail_query_id_missing"}))
+                continue
+            keys.append((arn, query_id))
+    from .aws_request_pool import ordered_map
+    def describe(key):
+        arn, query_id = key
+        detail = requests.detail(session, "cloudtrail", region, "describe_query", EventDataStore=arn, QueryId=query_id)
+        row = {"id": arn + "/" + query_id, "EventDataStoreArn": arn, "QueryId": query_id}
+        if not isinstance(detail, dict) or detail.get("collection_status") != "collected":
+            row["collection_status"] = detail.get("collection_status", "malformed") if isinstance(detail, dict) else "malformed"
+            return row
+        row.update({key: detail.get(key) for key in ("QueryStatus", "DeliveryStatus")})
+        uri = detail.get("DeliveryS3Uri")
+        if isinstance(uri, str):
+            parsed = urlsplit(uri)
+            if parsed.scheme == "s3" and parsed.hostname and not parsed.username and not parsed.password:
+                row["DestinationBucket"] = parsed.hostname
+            else:
+                row["collection_status"] = "malformed"
+        if detail.get("QueryId") != query_id:
+            row["collection_status"] = "malformed"
+        return row
+    rows = ordered_map(requests, keys, describe)
+    failures.append(("partial", {"code": "cloudtrail_query_history_seven_days"}))
+    return _result(rows, failures)
+
+
 # ----------------------------------------------------------------------------- data
 
 def _recovery_points(requests, session, region, account):
@@ -219,6 +426,47 @@ def _recovery_points(requests, session, region, account):
             items.append(_pick(row, ["RecoveryPointArn", "BackupVaultName", "BackupVaultArn", "ResourceArn", "ResourceType", "IsEncrypted",
                 "EncryptionKeyArn", "Lifecycle", "CalculatedLifecycle", "Status", "CreationDate", "VaultType"]))
     return _result(items, failures)
+
+
+def _copy_jobs(requests, session, region, account):
+    read = requests.pages(session, "backup", region, "list_copy_jobs", "CopyJobs",
+                          _tokens=("NextToken", "NextToken"))
+    read.items = [_pick(row, ["CopyJobId", "AccountId", "State", "SourceBackupVaultArn",
+                              "SourceRecoveryPointArn", "DestinationBackupVaultArn",
+                              "DestinationRecoveryPointArn", "CompletionDate", "IsParent"])
+                  for row in read.items]
+    return read
+
+
+def _redshift_datashares(requests, session, region, account):
+    read = requests.pages(session, "redshift", region, "describe_data_shares_for_producer", "DataShares",
+                          _tokens=("Marker", "Marker"))
+    read.items = [_pick(row, ["DataShareArn", "ProducerArn", "ManagedBy", "AllowPubliclyAccessibleConsumers",
+                              ("DataShareAssociations", ["ConsumerIdentifier", "ConsumerRegion", "Status",
+                                                         "ProducerAllowedWrites", "ConsumerAcceptedWrites"])])
+                  for row in read.items]
+    return read
+
+
+def _workspaces_images(requests, session, region, account):
+    read = requests.pages(session, "workspaces", region, "describe_workspace_images", "Images",
+                          ImageType="OWNED", _tokens=("NextToken", "NextToken"))
+    if read.status not in ("collected", "empty") and not read.items:
+        return _aws().ReadResult([], read.status, read.error)
+    rows, failures = [], [] if read.status in ("collected", "empty") else [(read.status, read.error)]
+    for item in read.items:
+        image = _pick(item, ["ImageId", "OwnerAccountId", "State", "RequiredTenancy"])
+        image_id = image.get("ImageId") if isinstance(image, dict) else None
+        if (not isinstance(image_id, str) or not re.fullmatch(r"wsi-[0-9a-z]{9,63}", image_id) or
+                image.get("OwnerAccountId") != account):
+            failures.append(("malformed", {"code": "unattributed_workspace_image"}))
+            continue
+        permissions = requests.pages(session, "workspaces", region, "describe_workspace_image_permissions",
+                                     "ImagePermissions", ImageId=image_id, _tokens=("NextToken", "NextToken"))
+        image["SharedPermissions"] = _list(permissions, ["SharedAccountId"])
+        image["SharedPermissions"]["ImageId"] = image_id
+        rows.append(image)
+    return _result(rows, failures)
 
 
 def _drs_jobs(requests, session, region, account):
@@ -310,10 +558,97 @@ def _firehose_streams(requests, session, region, account):
             failures.append((response.get("collection_status", "malformed"), response.get("error", {"code": "malformed_response"})))
             items.append({"DeliveryStreamName": name, **_status(response)})
             continue
-        # Destinations (endpoint credentials, HEC tokens, usernames) are never retained.
-        items.append(_pick(description, ["DeliveryStreamName", "DeliveryStreamARN", "DeliveryStreamStatus", "DeliveryStreamType",
-            "DeliveryStreamEncryptionConfiguration", "VersionId", "CreateTimestamp", "LastUpdateTimestamp"]))
+        # Keep only routing facts. HTTP paths, access keys, HEC tokens and users
+        # are deliberately excluded from the persisted snapshot.
+        row = _pick(description, ["DeliveryStreamName", "DeliveryStreamARN", "DeliveryStreamStatus", "DeliveryStreamType",
+            "DeliveryStreamEncryptionConfiguration", "VersionId", "CreateTimestamp", "LastUpdateTimestamp"])
+        destinations = description.get("Destinations")
+        row["Destinations"] = [_firehose_destination(dest) for dest in destinations] if isinstance(destinations, list) else []
+        row["DestinationsComplete"] = isinstance(destinations, list) and description.get("HasMoreDestinations") is False
+        seen_destinations, dest_page = set(), 1
+        while row["DestinationsComplete"] is False and description.get("HasMoreDestinations") is True:
+            if (not isinstance(destinations, list) or not destinations or
+                    requests.max_pages is not None and dest_page >= requests.max_pages):
+                failures.append(("malformed", {"code": "firehose_destinations_incomplete"}))
+                break
+            last = destinations[-1].get("DestinationId") if isinstance(destinations[-1], dict) else None
+            if not isinstance(last, str) or not last or last in seen_destinations:
+                failures.append(("malformed", {"code": "firehose_destination_cursor_invalid"}))
+                break
+            seen_destinations.add(last)
+            dest_page += 1
+            next_read = requests.detail(session, "firehose", region, "describe_delivery_stream",
+                                        DeliveryStreamName=name, ExclusiveStartDestinationId=last)
+            next_description = next_read.get("DeliveryStreamDescription")
+            if next_read.get("collection_status") != "collected" or not isinstance(next_description, dict):
+                failures.append((next_read.get("collection_status", "malformed"), next_read.get("error", {"code": "firehose_destinations_incomplete"})))
+                break
+            description = next_description
+            destinations = description.get("Destinations")
+            if not isinstance(destinations, list):
+                failures.append(("malformed", {"code": "firehose_destinations_malformed"}))
+                break
+            row["Destinations"].extend(_firehose_destination(dest) for dest in destinations)
+            row["DestinationsComplete"] = description.get("HasMoreDestinations") is False
+        if not row["DestinationsComplete"]:
+            failures.append(("partial", {"code": "firehose_destinations_incomplete"}))
+        items.append(row)
     return _result(items, failures)
+
+
+def _firehose_destination(destination):
+    if not isinstance(destination, dict):
+        return {"Malformed": True}
+    types = [key for key in destination if key.endswith("DestinationDescription")]
+    if len(types) != 1 or not isinstance(destination[types[0]], dict):
+        return {"Malformed": True}
+    kind, detail = types[0], destination[types[0]]
+    row = {"DestinationId": destination.get("DestinationId"), "Type": kind,
+           "BucketARNs": [], "EndpointHosts": [], "TargetARNs": []}
+    for key in ("S3DestinationDescription", "S3BackupDescription"):
+        bucket = detail.get(key)
+        if isinstance(bucket, dict) and isinstance(bucket.get("BucketARN"), str):
+            row["BucketARNs"].append(bucket["BucketARN"])
+    if kind in ("S3DestinationDescription", "ExtendedS3DestinationDescription") and isinstance(detail.get("BucketARN"), str):
+        row["BucketARNs"].append(detail["BucketARN"])
+    for key in ("DomainARN",):
+        if isinstance(detail.get(key), str):
+            row["TargetARNs"].append(detail[key])
+    catalog = detail.get("CatalogConfiguration")
+    if isinstance(catalog, dict) and isinstance(catalog.get("CatalogARN"), str):
+        row["TargetARNs"].append(catalog["CatalogARN"])
+    endpoints = [detail.get("HECEndpoint"), detail.get("AccountUrl"), detail.get("ClusterEndpoint"),
+                 detail.get("CollectionEndpoint")]
+    config = detail.get("EndpointConfiguration")
+    if isinstance(config, dict):
+        endpoints.append(config.get("Url"))
+    for endpoint in endpoints:
+        if isinstance(endpoint, str):
+            try:
+                parsed = urlsplit(endpoint)
+                host, port = parsed.hostname, parsed.port
+            except ValueError:
+                row["MalformedEndpoint"] = True
+                continue
+            if host and parsed.scheme in ("http", "https"):
+                row["EndpointHosts"].append({"Scheme": parsed.scheme, "Host": host, "Port": port})
+            else:
+                row["MalformedEndpoint"] = True
+    jdbc = detail.get("ClusterJDBCURL")
+    if isinstance(jdbc, str):
+        try:
+            parsed = urlsplit("https://" + jdbc[len("jdbc:redshift://"):]) if jdbc.startswith("jdbc:redshift://") else None
+            host = parsed.hostname if parsed is not None else None
+        except ValueError:
+            host = None
+        if host:
+            row["RedshiftHost"] = host
+        else:
+            row["MalformedEndpoint"] = True
+    processing = detail.get("ProcessingConfiguration")
+    row["LambdaProcessing"] = any(isinstance(x, dict) and x.get("Type") == "Lambda" for x in
+                                  (processing.get("Processors", []) if isinstance(processing, dict) else []))
+    return row
 
 
 # ----------------------------------------------------------------------------- devtools
@@ -368,14 +703,27 @@ def _model_invocation_logging(requests, session, region, account):
     return read
 
 
+def _glacier_vaults(requests, session, region, account):
+    return requests.pages(session, "glacier", region, "list_vaults", "VaultList",
+                          _tokens=("Marker", "marker"), accountId=account)
+
+
 FETCHERS = {
     "athena_workgroup": _paged("athena", "list_work_groups", "WorkGroups", ("NextToken", "NextToken")),
+    "athena_query_export": _athena_query_exports,
     "athena_session": _athena_sessions,
+    "appconfig_extension_association": _paged("appconfig", "list_extension_associations", "Items", ("NextToken", "NextToken")),
+    "appconfig_configuration_profile": _appconfig_profiles,
+    "lakeformation_permission": _lakeformation_permissions,
+    "lakeformation_settings": _lakeformation_settings,
+    "cloudtrail_query_export": _cloudtrail_query_exports,
     "backup_recovery_point": _recovery_points,
+    "workspaces_image": _workspaces_images,
     "drs_job": _drs_jobs,
     "drs_source_server": _drs_source_servers,
     "appautoscaling_target": _scalable_targets,
     "efs_mount_target": _mount_targets,
+    "efs_replication": _paged("efs", "describe_replication_configurations", "Replications", ("NextToken", "NextToken")),
     "emr_block_public_access_configuration": _emr_block_public_access,
     "firehose_delivery_stream": _firehose_streams,
     "iam_service_specific_credential": _service_specific_credentials,
@@ -383,9 +731,12 @@ FETCHERS = {
     "bedrock_custom_model": _custom_models,
     "bedrock_model_invocation_logging": _model_invocation_logging,
     "eventbridge_bus": _paged("events", "list_event_buses", "EventBuses", ("NextToken", "NextToken")),
-    "eventbridge_custom_bus": _paged("eventbridgev2", "list_event_buses", "EventBuses", ("NextToken", "NextToken")),
+    "eventbridge_custom_bus": lambda requests, session, region, account: _eventbridge_custom_buses(requests, session, region, account),
     "lambda_microvm_image": _paged("lambda-microvms", "list_microvm_images", "items", ("nextToken", "nextToken")),
     "eventbridge_endpoint": _paged("events", "list_endpoints", "Endpoints", ("NextToken", "NextToken")),
+    "eventbridge_api_destination": _paged("events", "list_api_destinations", "ApiDestinations", ("NextToken", "NextToken")),
+    "glacier_vault_notification": _glacier_vaults,
+    "glacier_job_notification": _glacier_vaults,
 }
 
 
@@ -452,7 +803,30 @@ def _efs_file_system(requests, session, region, item):
 def _datasync_task(requests, session, region, item):
     item = _pick(item, ["TaskArn", "Name", "Status", "TaskMode"])
     item["Task"] = _detail(requests, session, region, "datasync", "describe_task", keys=["TaskArn", "Name", "Status", "CloudWatchLogGroupArn",
-        "Options", "SourceLocationArn", "DestinationLocationArn", "TaskMode", "CreationTime"], TaskArn=item["TaskArn"])
+        "Options", "SourceLocationArn", "DestinationLocationArn", "TaskMode", "CreationTime",
+        ("TaskReportConfig", ["OutputType", ("Destination", [("S3", ["S3BucketArn"])])])], TaskArn=item["TaskArn"])
+    task = item["Task"]
+    if task.get("collection_status") != "collected":
+        return item
+    destination_arn = task.get("DestinationLocationArn")
+    if not isinstance(destination_arn, str) or not destination_arn:
+        item["DestinationLocation"] = _unavailable("destination_location_arn_unavailable")
+        return item
+    # The regional list is shared through the scan's single-flight cache across tasks.
+    locations = requests.pages(session, "datasync", region, "list_locations", "Locations")
+    matches = [row for row in locations.items if isinstance(row, dict) and row.get("LocationArn") == destination_arn]
+    if len(matches) != 1 or not isinstance(matches[0].get("LocationUri"), str):
+        item["DestinationLocation"] = {"collection_status": "partial" if locations.status == "partial" else
+            locations.status if locations.status not in ("collected", "empty") else "not_collected",
+            "error": locations.error or {"code": "destination_location_missing"}}
+        return item
+    uri = urlsplit(matches[0]["LocationUri"])
+    # LocationUri may include a source path; only the destination kind and host are needed.
+    if not uri.scheme or not uri.hostname:
+        item["DestinationLocation"] = _unavailable("destination_location_uri_invalid")
+        return item
+    item["DestinationLocation"] = {"collection_status": "collected", "LocationArn": destination_arn,
+                                   "Type": uri.scheme.lower(), "Target": uri.hostname.lower()}
     return item
 
 
@@ -476,12 +850,45 @@ def _docdb_cluster(requests, session, region, item):
 
 
 _DMS_ENDPOINT = ["EndpointArn", "EndpointIdentifier", "EndpointType", "EngineName", "EngineDisplayName", "Status", "SslMode", "CertificateArn",
-    "KmsKeyId", ("MongoDbSettings", ["AuthType", "AuthMechanism", "AuthSource"]), ("NeptuneSettings", ["IamAuthEnabled"]),
-    ("RedisSettings", ["ServerName", "Port", "SslSecurityProtocol", "AuthType", "SslCaCertificateArn"])]
+    "KmsKeyId", ("MongoDbSettings", ["AuthType", "AuthMechanism", "AuthSource"]), ("NeptuneSettings", ["IamAuthEnabled", "S3BucketName"]),
+    ("RedisSettings", ["ServerName", "Port", "SslSecurityProtocol", "AuthType", "SslCaCertificateArn"]),
+    ("S3Settings", ["BucketName", "ExpectedBucketOwner", "CannedAclForObjects"]),
+    ("RedshiftSettings", ["BucketName"]), ("LakehouseSettings", ["Arn"])]
 _DMS_TASK = ["ReplicationTaskArn", "ReplicationTaskIdentifier", "SourceEndpointArn", "TargetEndpointArn", "ReplicationInstanceArn",
     "MigrationType", "Status", "ReplicationTaskSettings"]
 _DMS_CERTIFICATE = ["CertificateArn", "CertificateIdentifier", "CertificateOwner", "CertificateCreationDate", "ValidFromDate", "ValidToDate",
     "SigningAlgorithm", "KeyLength"]
+
+
+@_each
+def _dms_endpoint(requests, session, region, item):
+    projected = _pick(item, _DMS_ENDPOINT)
+    if str(item.get("EndpointType", "")).lower() != "target":
+        return projected
+    hosts = set()
+    def keep_host(value):
+        if not isinstance(value, str) or not value or len(value) > 1024:
+            return
+        try:
+            parsed = urlsplit(value if "://" in value else "//" + value)
+            host = parsed.hostname
+        except ValueError:
+            return
+        if host and not parsed.username and not parsed.password:
+            hosts.add(host)
+    keep_host(item.get("ServerName"))
+    if isinstance(item.get("RedisSettings"), dict):
+        keep_host(item["RedisSettings"].get("ServerName"))
+    if isinstance(item.get("ElasticsearchSettings"), dict):
+        keep_host(item["ElasticsearchSettings"].get("EndpointUri"))
+    if isinstance(item.get("KafkaSettings"), dict):
+        brokers = item["KafkaSettings"].get("Broker")
+        if isinstance(brokers, str):
+            for broker in brokers.split(","):
+                keep_host(broker.strip())
+    if hosts:
+        projected["TargetHosts"] = sorted(hosts)
+    return projected
 
 
 @_each
@@ -542,7 +949,7 @@ def _connect_instance(requests, session, region, item):
 
 @_each
 def _directory(requests, session, region, item):
-    item = _pick(item, ["DirectoryId", "Name", "Type", "Edition", "Size", "Stage", "ShareStatus", "ShareMethod", "LaunchTime", "RadiusStatus",
+    item = _pick(item, ["DirectoryId", "Name", "Type", "Edition", "Size", "Stage", "ShareStatus", "ShareMethod", "LaunchTime", "RadiusStatus", "AccessUrl", "SsoEnabled",
         ("RadiusSettings", _RADIUS), ("VpcSettings", ["VpcId", "SubnetIds", "SecurityGroupId", "AvailabilityZones"]),
         ("OwnerDirectoryDescription", ["DirectoryId", "AccountId", "RadiusStatus", ("RadiusSettings", _RADIUS)])])
     directory, kind = item["DirectoryId"], item.get("Type")
@@ -555,6 +962,9 @@ def _directory(requests, session, region, item):
             item["EventTopics"] = topics if topics.get("collection_status") != "collected" else {"collection_status": "malformed", "error": {"code": "malformed_response"}}
         shared = requests.pages(session, "ds", region, "describe_shared_directories", "SharedDirectories", OwnerDirectoryId=directory)
         item["SharedDirectories"] = _list(shared, ["OwnerAccountId", "OwnerDirectoryId", "SharedAccountId", "SharedDirectoryId", "ShareStatus", "ShareMethod"])
+        if kind == "MicrosoftAD":
+            trusts = requests.pages(session, "ds", region, "describe_trusts", "Trusts", DirectoryId=directory)
+            item["Trusts"] = _list(trusts, ["DirectoryId", "TrustId", "RemoteDomainName", "TrustType", "TrustDirection", "TrustState", "SelectiveAuth"])
     item["LogSubscriptions"] = _list(requests.pages(session, "ds", region, "list_log_subscriptions", "LogSubscriptions", DirectoryId=directory),
         ["DirectoryId", "LogGroupName", "SubscriptionCreatedDateTime"])
     # Unsupported for the directory type is the documented "no snapshot quota" case.
@@ -833,16 +1243,253 @@ def _event_bus(requests, session, region, item):
             item["Policy"] = detail["Policy"]
         if isinstance(detail.get("KmsKeyIdentifier"), str):
             item["KmsKeyIdentifier"] = detail["KmsKeyIdentifier"]
+        if isinstance(detail.get("DeadLetterConfig"), dict):
+            item["DeadLetterConfig"] = _pick(detail["DeadLetterConfig"], ["Arn"])
     else:
         item["_coverage"] = {"Policy": {"status": detail.get("collection_status", "unknown"), "error": detail.get("error", {})}}
     return item
 
 
-_event_custom_bus = _project(["Name", "EventBusArn", "EventBusAccountId", "State", "KmsKeyIdentifier"])
+def _eventbridge_custom_buses(requests, session, region, account):
+    read = requests.pages(session, "eventbridgev2", region, "list_event_buses", "EventBuses",
+                          _tokens=("NextToken", "NextToken"))
+    owned = [row for row in read.items if isinstance(row, dict) and
+             row.get("EventBusAccountId") == account and
+             isinstance(row.get("EventBusArn"), str) and row["EventBusArn"].split(":")[4:5] == [account]]
+    return _aws().ReadResult(owned, read.status if owned or read.status != "collected" else "empty", read.error)
+
+
+@_each
+def _event_custom_bus(requests, session, region, item):
+    item = _pick(item, ["Name", "EventBusArn", "EventBusAccountId", "State"])
+    arn = item.get("EventBusArn")
+    if not isinstance(arn, str) or not arn:
+        item["Subscribers"] = _unavailable("event_bus_arn_missing")
+        item["Policies"] = _unavailable("event_bus_arn_missing")
+        return item
+    item["Subscribers"] = _list(requests.pages(session, "eventbridgev2", region,
+        "list_subscribers", "Subscribers", _tokens=("NextToken", "NextToken"), EventBusArn=arn),
+        ["SubscriberArn", "EventBusArn", "TargetArn", "SubscriberAccountId", "State", "Revoked", "Type"])
+    policies = _list(requests.pages(session, "eventbridgev2", region,
+        "list_resource_policies", "PolicySummaries", _tokens=("NextToken", "NextToken"), ResourceArn=arn),
+        ["PolicyName"])
+    for summary in policies["items"]:
+        name = summary.get("PolicyName")
+        if isinstance(name, str) and name:
+            detail = requests.detail(session, "eventbridgev2", region, "get_resource_policy",
+                                     ResourceArn=arn, PolicyName=name)
+            summary["Document"] = _pick(detail, ["collection_status", "PolicyDocument", "error"])
+    item["Policies"] = policies
+    return item
 _microvm_image = _project(["imageArn", "name", "state", "latestActiveImageVersion"])
 
 
+def _autoscaling_group(requests, session, region, items):
+    """Retain delivery destinations, never lifecycle notification metadata."""
+    if not items:
+        return []
+    notifications = _list(requests.pages(session, "autoscaling", region,
+        "describe_notification_configurations", "NotificationConfigurations",
+        _tokens=("NextToken", "NextToken")),
+        ["AutoScalingGroupName", "TopicARN", "NotificationType"])
+    by_group = {}
+    for row in notifications["items"]:
+        if isinstance(row, dict):
+            by_group.setdefault(row.get("AutoScalingGroupName"), []).append(row)
+    output = []
+    for original in items:
+        item = copy.deepcopy(original)
+        name = item.get("AutoScalingGroupName")
+        if not isinstance(name, str) or not name:
+            item["NotificationConfigurations"] = _unavailable("autoscaling_group_name_missing")
+            item["LifecycleHooks"] = _unavailable("autoscaling_group_name_missing")
+        else:
+            item["NotificationConfigurations"] = {**_status(notifications),
+                "items": by_group.get(name, [])}
+            item["LifecycleHooks"] = _list(requests.pages(session, "autoscaling", region,
+                "describe_lifecycle_hooks", "LifecycleHooks", _tokens=("NextToken", "NextToken"),
+                AutoScalingGroupName=name),
+                ["AutoScalingGroupName", "LifecycleHookName", "LifecycleTransition", "NotificationTargetARN"])
+        output.append(item)
+    return output
+
+
+def _appconfig_delivery_reference(value):
+    """Keep destination identity without URL path, query, credentials or payload."""
+    if not isinstance(value, str):
+        return None
+    if value.startswith("arn:") and len(value.split(":", 5)) == 6 and len(value) <= 1600:
+        return {"Arn": value}
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password:
+        return {"Host": parsed.hostname}
+    return None
+
+
+@_each
+def _appconfig_association(requests, session, region, item):
+    item = _pick(item, ["Id", "ExtensionArn", "ResourceArn"])
+    association_id = item.get("Id")
+    if not isinstance(association_id, str) or not association_id:
+        item["Details"] = _unavailable("appconfig_association_id_missing")
+        return item
+    detail = _detail(requests, session, region, "appconfig", "get_extension_association",
+                     keys=["Id", "Arn", "ExtensionArn", "ResourceArn", "ExtensionVersionNumber", "Parameters"],
+                     ExtensionAssociationId=association_id)
+    if detail.get("collection_status") != "collected":
+        item["Details"] = detail
+        return item
+    targets = []
+    params = detail.get("Parameters")
+    if isinstance(params, dict):
+        for key, value in params.items():
+            if isinstance(key, str) and any(word in key.lower() for word in
+                    ("topic", "queue", "target", "destination", "webhook", "url", "uri", "jira")):
+                ref = _appconfig_delivery_reference(value)
+                if ref:
+                    targets.append({"Source": "association_parameter", "Name": key, **ref})
+    item["Details"] = {**_pick(detail, ["Id", "Arn", "ExtensionArn", "ResourceArn", "ExtensionVersionNumber"]),
+                       "Targets": targets, "collection_status": "collected"}
+    extension = detail.get("ExtensionArn")
+    if not isinstance(extension, str) or not extension:
+        item["Extension"] = _unavailable("appconfig_extension_arn_missing")
+        return item
+    args = {"ExtensionIdentifier": extension}
+    if isinstance(detail.get("ExtensionVersionNumber"), int):
+        args["VersionNumber"] = detail["ExtensionVersionNumber"]
+    extension_detail = _detail(requests, session, region, "appconfig", "get_extension",
+                               keys=["Arn", "Name", "VersionNumber", "Actions"], **args)
+    if extension_detail.get("collection_status") != "collected":
+        item["Extension"] = extension_detail
+        return item
+    actions = []
+    for point, rows in (extension_detail.get("Actions") or {}).items():
+        if not isinstance(rows, list):
+            continue
+        for action in rows:
+            if not isinstance(action, dict):
+                continue
+            ref = _appconfig_delivery_reference(action.get("Uri"))
+            if ref:
+                row = {"ActionPoint": point, "Name": action.get("Name"), **ref}
+                role = action.get("RoleArn")
+                if isinstance(role, str) and role.startswith("arn:"):
+                    row["RoleArn"] = role
+                actions.append(row)
+    item["Extension"] = {**_pick(extension_detail, ["Arn", "Name", "VersionNumber"]),
+                         "Targets": actions, "collection_status": "collected"}
+    return item
+
+
+@_each
+def _appconfig_profile(requests, session, region, item):
+    item = _pick(item, ["id", "ApplicationId", "Id"])
+    app_id, profile_id = item.get("ApplicationId"), item.get("Id")
+    if not isinstance(app_id, str) or not isinstance(profile_id, str):
+        item["Details"] = _unavailable("appconfig_profile_identity_missing")
+        return item
+    detail = _detail(requests, session, region, "appconfig", "get_configuration_profile",
+                     keys=["ApplicationId", "Id", "Validators"],
+                     ApplicationId=app_id, ConfigurationProfileId=profile_id)
+    if detail.get("collection_status") != "collected":
+        item["Details"] = detail
+        return item
+    validators = []
+    for validator in detail.get("Validators") or []:
+        if isinstance(validator, dict) and validator.get("Type") == "LAMBDA":
+            ref = _appconfig_delivery_reference(validator.get("Content"))
+            validators.append({"Type": "LAMBDA", **(ref or {})})
+    item["Details"] = {"ApplicationId": detail.get("ApplicationId"), "Id": detail.get("Id"),
+                       "Validators": validators, "collection_status": "collected"}
+    return item
+
+
+@_each
+def _lakeformation_permission(requests, session, region, item):
+    """Keep grant identity and permission names, without tag values or filters."""
+    principal = (item.get("Principal") or {}).get("DataLakePrincipalIdentifier") if isinstance(item.get("Principal"), dict) else None
+    resource = item.get("Resource")
+    kind, body = next(iter(resource.items())) if isinstance(resource, dict) and len(resource) == 1 else (None, None)
+    if not isinstance(body, dict):
+        body = {}
+    fields = {
+        "Catalog": ("Id",), "Database": ("CatalogId", "Name"),
+        "Table": ("CatalogId", "DatabaseName", "Name"),
+        "TableWithColumns": ("CatalogId", "DatabaseName", "Name"),
+        "DataCellsFilter": ("TableCatalogId", "DatabaseName", "TableName", "Name"),
+        "DataLocation": ("CatalogId", "ResourceArn"),
+        "LFTag": ("CatalogId", "TagKey"),
+        "LFTagPolicy": ("CatalogId", "ResourceType", "ExpressionName"),
+        "LFTagExpression": ("CatalogId", "Name"),
+        "RLSPolicy": ("CatalogId", "Name"),
+    }
+    locator = _pick(body, fields.get(kind, ()))
+    permissions = item.get("Permissions")
+    grants = item.get("PermissionsWithGrantOption")
+    summary = {"Principal": principal, "ResourceType": kind, "Resource": locator,
+               "Permissions": sorted(permissions) if isinstance(permissions, list) and all(isinstance(x, str) for x in permissions) else [],
+               "PermissionsWithGrantOption": sorted(grants) if isinstance(grants, list) and all(isinstance(x, str) for x in grants) else [],
+               "Conditional": bool(item.get("Condition"))}
+    encoded = json.dumps(item, sort_keys=True, separators=(",", ":"), default=str)
+    summary["id"] = hashlib.sha256(encoded.encode()).hexdigest()[:32]
+    if not isinstance(principal, str) or not principal or kind not in fields or not summary["Permissions"]:
+        summary["collection_status"] = "malformed"
+    return summary
+
+
 _project_endpoint = _project(["Name", "Arn", "EndpointId", "State", "ReplicationConfig", "RoutingConfig", "EventBuses", "RoleArn", "CreationTime"])
+
+
+@_each
+def _api_destination(requests, session, region, item):
+    item = _pick(item, ["ApiDestinationArn", "Name", "ApiDestinationState", "ConnectionArn", "InvocationEndpoint", "HttpMethod"])
+    connection_arn = item.get("ConnectionArn")
+    parts = connection_arn.split(":", 5) if isinstance(connection_arn, str) else []
+    path = parts[5].split("/") if len(parts) == 6 else []
+    if len(path) != 3 or path[0] != "connection" or not path[1]:
+        item["Connection"] = _unavailable("eventbridge_connection_arn_missing")
+        return item
+    item["Connection"] = _detail(requests, session, region, "events", "describe_connection",
+                                 keys=["ConnectionArn", "ConnectionState", ("InvocationConnectivityParameters",
+                                       [("ResourceParameters", ["ResourceConfigurationArn", "ResourceAssociationArn"])])],
+                                 Name=path[1])
+    return item
+
+
+@_each
+def _glacier_vault_notification(requests, session, region, item):
+    item = _pick(item, ["VaultName", "VaultARN"])
+    arn = item.get("VaultARN")
+    name = item.get("VaultName")
+    if not isinstance(arn, str) or not isinstance(name, str) or not name:
+        item["Notifications"] = _unavailable("glacier_vault_identity_missing")
+        return item
+    account = arn.split(":")[4] if len(arn.split(":")) == 6 else ""
+    if not account.isdigit() or len(account) != 12:
+        item["Notifications"] = _unavailable("glacier_vault_owner_missing")
+        return item
+    item["Notifications"] = _detail(requests, session, region, "glacier", "get_vault_notifications",
+                                    absent=("ResourceNotFoundException",), keys=[("vaultNotificationConfig", ["SNSTopic", "Events"])],
+                                    accountId=account, vaultName=name)
+    return item
+
+
+@_each
+def _glacier_job_notification(requests, session, region, item):
+    item = _pick(item, ["VaultName", "VaultARN"])
+    arn = item.get("VaultARN")
+    name = item.get("VaultName")
+    account = arn.split(":")[4] if isinstance(arn, str) and len(arn.split(":")) == 6 else ""
+    if not isinstance(name, str) or not name or len(account) != 12 or not account.isdigit():
+        item["Jobs"] = _unavailable("glacier_vault_identity_missing")
+        return item
+    read = requests.pages(session, "glacier", region, "list_jobs", "JobList",
+                          _tokens=("Marker", "marker"), accountId=account, vaultName=name)
+    item["Jobs"] = _list(read, ["VaultARN", "SNSTopic", "Action", "Completed", "StatusCode"])
+    return item
 
 
 @_each
@@ -883,12 +1530,15 @@ def _codeartifact_repository(requests, session, region, item):
 
 ENRICHERS = {
     "athena_workgroup": _athena,
+    "appconfig_extension_association": _appconfig_association,
+    "appconfig_configuration_profile": _appconfig_profile,
+    "lakeformation_permission": _lakeformation_permission,
     "backup_vault": _backup_vault,
     "dynamodb_table": _dynamodb_table,
     "efs_file_system": _efs_file_system,
     "datasync_task": _datasync_task,
     "docdb_cluster": _docdb_cluster,
-    "dms_endpoint": _project(_DMS_ENDPOINT),
+    "dms_endpoint": _dms_endpoint,
     "dms_replication_task": _project(_DMS_TASK),
     "dms_certificate": _project(_DMS_CERTIFICATE),
     "efs_access_point": _each(lambda requests, session, region, item: {**_pick(item, ["AccessPointId", "AccessPointArn", "FileSystemId", "Name", "OwnerId", "LifeCycleState", "RootDirectory", "PosixUser"]), "_provenance": {"operation": "efs:DescribeAccessPoints", "root_directory_representation_complete": True}}),
@@ -910,9 +1560,13 @@ ENRICHERS = {
     "cloudformation_stack": _cloudformation_stack,
     "ecr_repository": _ecr_repository,
     "eventbridge_bus": _event_bus,
+    "autoscaling_group": _autoscaling_group,
     "eventbridge_custom_bus": _event_custom_bus,
     "lambda_microvm_image": _microvm_image,
     "eventbridge_endpoint": _project_endpoint,
+    "eventbridge_api_destination": _api_destination,
+    "glacier_vault_notification": _glacier_vault_notification,
+    "glacier_job_notification": _glacier_job_notification,
     "eventbridge_schema_registry": _schema_registry,
     "codeartifact_domain": _codeartifact_domain,
     "codeartifact_repository": _codeartifact_repository,

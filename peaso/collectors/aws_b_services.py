@@ -36,6 +36,7 @@ SPECS = {
     "docdb_cluster": ("docdb", "describe_db_clusters", "DBClusters"),
     "docdb_instance": ("docdb", "describe_db_instances", "DBInstances"),
     "backup_plan": ("backup", "list_backup_plans", "BackupPlansList"),
+    "backup_copy_job": ("backup", "list_copy_jobs", "CopyJobs"),
     "backup_report_plan": ("backup", "list_report_plans", "ReportPlans"),
     "inspector_organization_configuration": ("inspector2", "describe_organization_configuration", None),
     "backup_vault": ("backup", "list_backup_vaults", "BackupVaultList"),
@@ -67,7 +68,7 @@ NATIVE_IDS = {
     "acm_certificate": "CertificateArn", "cloudfront_distribution": "ARN", "deadline_queue": "id", "deadline_fleet_role": "id", "deadline_worker": "id", "ecs_cluster": "clusterArn", "ecs_task_definition": "taskDefinitionArn",
     "elasticache_cluster": "ARN", "elasticache_replication_group": "ARN", "memorydb_cluster": "ARN", "dms_replication_instance": "ReplicationInstanceArn",
     "redshift_cluster": "ClusterIdentifier", "redshift_snapshot": "SnapshotIdentifier", "neptune_cluster": "DBClusterArn", "docdb_cluster": "DBClusterArn", "docdb_instance": "DBInstanceArn",
-    "backup_plan": "BackupPlanArn", "backup_report_plan": "ReportPlanArn", "inspector_organization_configuration": "id", "backup_vault": "BackupVaultArn", "backup_protected_resource": "ResourceArn", "backup_region_settings": "id",
+    "backup_plan": "BackupPlanArn", "backup_copy_job": "CopyJobId", "backup_report_plan": "ReportPlanArn", "inspector_organization_configuration": "id", "backup_vault": "BackupVaultArn", "backup_protected_resource": "ResourceArn", "backup_region_settings": "id",
     "efs_file_system": "FileSystemArn", "fsx_file_system": "ResourceARN", "cognito_user_pool": "Id", "cognito_identity_pool": "IdentityPoolId",
     "route53_zone": "Id", "route53_health_check": "Id", "codebuild_project": "name", "codebuild_sandbox": "id", "codepipeline_pipeline": "name", "glue_job": "Name",
     "glue_security_configuration": "Name", "mq_broker": "BrokerArn", "ssm_document_metadata": "Name", "ssm_managed_instance": "InstanceId", "ssm_maintenance_window": "WindowId", "ssm_parameter_metadata": "Name", "ssm_service_settings": "id",
@@ -80,6 +81,7 @@ READ_ACTIONS.update({
     ("ecr", "describe_repositories"), ("acm", "describe_certificate"), ("cloudfront", "get_distribution_config"),
     ("ecs", "describe_clusters"), ("ecs", "describe_task_definition"), ("ecs", "list_services"), ("ecs", "describe_services"),
     ("backup", "get_backup_plan"), ("backup", "list_backup_selections"), ("backup", "get_backup_selection"), ("backup", "describe_backup_vault"), ("backup", "get_backup_vault_access_policy"),
+    ("backup", "list_restore_access_backup_vaults"),
     ("lambda", "get_function_concurrency"), ("lambda", "get_function_configuration"),
     ("dynamodb", "describe_continuous_backups"), ("dynamodb", "describe_table_replica_auto_scaling"),
     ("elasticache", "describe_cache_parameters"), ("elasticache", "describe_users"),
@@ -89,6 +91,7 @@ READ_ACTIONS.update({
     ("cognito-idp", "describe_risk_configuration"),
     ("cognito-identity", "describe_identity_pool"), ("route53", "get_query_logging_config"), ("route53", "list_query_logging_configs"),
     ("codebuild", "batch_get_projects"), ("codebuild", "batch_get_sandboxes"), ("mq", "describe_broker"),
+    ("mq", "describe_shared_resources"), ("mq", "describe_configuration_revision"),
     ("efs", "describe_backup_policy"), ("efs", "describe_file_system_policy"),
     ("ssm", "describe_document_permission"), ("ssm", "describe_maintenance_window_tasks"), ("ssm", "get_service_setting"),
     ("apigateway", "get_stages"), ("apigatewayv2", "get_stages"),
@@ -464,7 +467,17 @@ def _deadline_fleet_roles(requests, session, region, account):
                       {"code": "deadline_fleet_role_inventory_incomplete"} if incomplete else None)
 
 
+def _backup_copy_jobs(requests, session, region, account):
+    """Read recent own-account copy jobs once; keep only exposure metadata."""
+    read = requests.pages(session, "backup", region, "list_copy_jobs", "CopyJobs", ByAccountId=account)
+    read.items = [{key: row[key] for key in ("CopyJobId", "SourceBackupVaultArn", "DestinationBackupVaultArn",
+                                           "State", "ResourceArn", "SourceRecoveryPointArn") if key in row}
+                  for row in read.items if isinstance(row, dict)]
+    return read
+
+
 FETCHERS = {
+    "backup_copy_job": _backup_copy_jobs,
     "deadline_queue": _deadline_queues,
     "deadline_fleet_role": _deadline_fleet_roles,
     "deadline_worker": _deadline_workers,
@@ -522,6 +535,10 @@ def _enricher(kind):
                 name = item["BackupVaultName"]
                 item["Configuration"] = _detail(requests, session, region, "backup", "describe_backup_vault", BackupVaultName=name)
                 item["Policy"] = _detail(requests, session, region, "backup", "get_backup_vault_access_policy", BackupVaultName=name)
+                vault_type = item.get("VaultType") or item["Configuration"].get("VaultType")
+                if vault_type == "LOGICALLY_AIR_GAPPED_BACKUP_VAULT":
+                    item["RestoreAccessVaults"] = _read_list(requests, session, region, "backup",
+                        "list_restore_access_backup_vaults", "RestoreAccessBackupVaults", BackupVaultName=name)
             elif kind == "cognito_user_pool":
                 item["Configuration"] = _detail(requests, session, region, "cognito-idp", "describe_user_pool", UserPoolId=item["Id"])
                 item["Risk"] = _detail(requests, session, region, "cognito-idp", "describe_risk_configuration", UserPoolId=item["Id"])
@@ -546,6 +563,23 @@ def _enricher(kind):
                         config["error"] = {"code": "codebuild_project_detail_incomplete"}
             elif kind == "mq_broker":
                 item["Configuration"] = _detail(requests, session, region, "mq", "describe_broker", BrokerId=item["BrokerId"])
+                if item.get("EngineType") == "RABBITMQ":
+                    from .aws_network_inventory import MetadataSession
+                    item["SharedResources"] = _read_list(
+                        requests, MetadataSession(session), region, "mq", "describe_shared_resources",
+                        "SharedResources", _tokens=("NextToken", "NextToken"), BrokerId=item["BrokerId"])
+                elif item.get("EngineType") == "ACTIVEMQ":
+                    config = item["Configuration"]
+                    assigned = config.get("Configurations") if isinstance(config, dict) else None
+                    current = assigned.get("Current") if isinstance(assigned, dict) else None
+                    if (isinstance(current, dict) and isinstance(current.get("Id"), str)
+                            and type(current.get("Revision")) is int and current["Revision"] > 0):
+                        from .aws_network_inventory import MetadataSession
+                        item["AppliedNetworkConnectors"] = _detail(
+                            requests, MetadataSession(session), region, "mq", "describe_configuration_revision",
+                            ConfigurationId=current["Id"], ConfigurationRevision=str(current["Revision"]))
+                    else:
+                        item["AppliedNetworkConnectors"] = {"collection_status": "not_collected"}
             elif kind == "efs_file_system":
                 item["BackupPolicy"] = _detail(requests, session, region, "efs", "describe_backup_policy", FileSystemId=item["FileSystemId"])
                 item["Policy"] = _detail(requests, session, region, "efs", "describe_file_system_policy", FileSystemId=item["FileSystemId"])

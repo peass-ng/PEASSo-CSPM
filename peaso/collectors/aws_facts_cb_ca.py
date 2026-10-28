@@ -63,6 +63,7 @@ SPECS = {
     "lightsail_static_ip": ("lightsail", "get_static_ips", "staticIps"),
     "sfn_state_machine": ("stepfunctions", "list_state_machines", "stateMachines"),
     "transfer_server": ("transfer", "list_servers", "Servers"),
+    "transfer_web_app": ("transfer", "list_web_apps", "WebApps"),
     "transfer_connector": ("transfer", "list_connectors", "Connectors"),
     "ses_email_identity": ("sesv2", "list_email_identities", "EmailIdentities"),
     "sns_subscription": ("sns", "list_subscriptions", "Subscriptions"),
@@ -89,6 +90,7 @@ SPECS = {
     "macie_session": ("macie2", "get_macie_session", None),
     "macie2_classification_job": ("macie2", "list_classification_jobs", "items"),
     "ram_resource_share": ("ram", "get_resource_shares", "resourceShares"),
+    "oam_link": ("oam", "list_links", "Items"),
     "rolesanywhere_trust_anchor": ("rolesanywhere", "list_trust_anchors", "trustAnchors"),
     "resourceexplorer2_index": ("resource-explorer-2", "list_indexes", "Indexes"),
     "ssm_resource_compliance_summary": ("ssm", "list_resource_compliance_summaries", "ResourceComplianceSummaryItems"),
@@ -104,6 +106,9 @@ SPECS = {
     "trustedadvisor_check": ("support", "describe_trusted_advisor_checks", "checks"),
     "s3_multi_region_access_point": ("s3control", "list_multi_region_access_points", "AccessPoints"),
     "globalaccelerator_accelerator": ("globalaccelerator", "list_accelerators", "Accelerators"),
+    "globalaccelerator_custom_routing_accelerator": ("globalaccelerator", "list_custom_routing_accelerators", "Accelerators"),
+    "globalaccelerator_custom_routing_listener": ("globalaccelerator", "list_custom_routing_listeners", "Listeners"),
+    "globalaccelerator_cross_account_attachment": ("globalaccelerator", "list_cross_account_attachments", "CrossAccountAttachments"),
     "ssmincidents_account": ("ssm-incidents", "list_replication_sets", "replicationSetArns"),
 }
 NATIVE_IDS = {
@@ -122,7 +127,7 @@ NATIVE_IDS = {
     "glacier_vault": "VaultARN", "media_store_container": "ARN", "s3_access_point": "AccessPointArn", "s3_directory_bucket": "Name",
     "storagegateway_gateway": "GatewayARN", "storagegateway_file_share": "FileShareARN", "backup_selection": "id",
     "lightsail_instance": "arn", "lightsail_database": "arn", "lightsail_static_ip": "arn",
-    "sfn_state_machine": "stateMachineArn", "transfer_server": "Arn", "transfer_connector": "Arn",
+    "sfn_state_machine": "stateMachineArn", "transfer_server": "Arn", "transfer_web_app": "Arn", "transfer_connector": "Arn",
     "ses_email_identity": "IdentityName", "sns_subscription": "id",
     "sagemaker_notebook_instance": "NotebookInstanceArn", "sagemaker_notebook_lifecycle_config": "NotebookInstanceLifecycleConfigArn",
     "sagemaker_studio_lifecycle_config": "StudioLifecycleConfigArn",
@@ -134,16 +139,22 @@ NATIVE_IDS = {
     "securityhub_organization_admin_account": "AccountId", "inspector2_account_status": "id", "inspector2_finding": "findingArn",
     "inspector2_coverage": "id", "macie_session": "id", "macie2_classification_job": "jobId", "ram_resource_share": "resourceShareArn",
     "rolesanywhere_trust_anchor": "trustAnchorArn", "resourceexplorer2_index": "Arn", "ssm_resource_compliance_summary": "id",
+    "oam_link": "Arn",
     "wellarchitected_workload": "WorkloadArn",
     "organization": "id", "organization_policy": "Id", "iam_organization_features": "id", "route53_domain": "DomainName",
     "shield_subscription": "id", "shield_protection": "Id", "trustedadvisor_support": "id", "trustedadvisor_check": "id",
-    "s3_multi_region_access_point": "Alias", "globalaccelerator_accelerator": "AcceleratorArn", "ssmincidents_account": "id",
+    "s3_multi_region_access_point": "Alias", "globalaccelerator_accelerator": "AcceleratorArn",
+    "globalaccelerator_custom_routing_accelerator": "AcceleratorArn", "globalaccelerator_custom_routing_listener": "ListenerArn",
+    "globalaccelerator_cross_account_attachment": "AttachmentArn", "ssmincidents_account": "id",
 }
 GLOBAL_TYPES = {"organization", "organization_policy", "iam_organization_features", "route53_domain", "shield_subscription",
                 "shield_protection", "trustedadvisor_support", "trustedadvisor_check", "s3_multi_region_access_point",
-                "globalaccelerator_accelerator", "ssmincidents_account"}
+                "globalaccelerator_accelerator", "globalaccelerator_custom_routing_accelerator",
+                "globalaccelerator_custom_routing_listener", "globalaccelerator_cross_account_attachment", "ssmincidents_account"}
 READ_ACTIONS = {(service, operation) for service, operation, expression in SPECS.values()}
 READ_ACTIONS.update({
+    ("globalaccelerator", "list_custom_routing_accelerators"),
+    ("globalaccelerator", "list_custom_routing_endpoint_groups"),
     ("kafka", "get_compatible_kafka_versions"),
     ("ec2", "describe_launch_template_versions"), ("ec2", "describe_instances"), ("ec2", "describe_vpc_endpoint_service_permissions"),
     ("ec2", "describe_vpc_endpoint_connections"),
@@ -297,6 +308,32 @@ def _msk_compatible_versions(requests, session, region, account):
                 compatible = {"collection_status": "collected", "items": [_pick(row, ("SourceVersion", "TargetVersions")) for row in versions]}
         rows.append({"ClusterArn": arn, "CompatibleVersions": compatible})
     return _result(rows, clusters.status, clusters.error)
+
+
+def _msk_public_bootstrap(requests, session, region, items):
+    """Read public bootstrap hosts only for provisioned clusters with public access enabled."""
+    keys = ("BootstrapBrokerStringPublicTls", "BootstrapBrokerStringPublicSaslScram",
+            "BootstrapBrokerStringPublicSaslIam", "BootstrapBrokerStringIpv6",
+            "BootstrapBrokerStringTlsIpv6", "BootstrapBrokerStringSaslScramIpv6",
+            "BootstrapBrokerStringSaslIamIpv6")
+    output = []
+    for original in items:
+        item = copy.deepcopy(original)
+        broker = (item.get("Provisioned") or {}).get("BrokerNodeGroupInfo")
+        connectivity = broker.get("ConnectivityInfo") if isinstance(broker, dict) else None
+        public = connectivity.get("PublicAccess") if isinstance(connectivity, dict) else None
+        if isinstance(public, dict) and public.get("Type") == "SERVICE_PROVIDED_EIPS":
+            arn = item.get("ClusterArn")
+            if not isinstance(arn, str) or not arn:
+                item["PublicBootstrapBrokers"] = {"collection_status": "malformed", "error": {"code": "missing_cluster_arn"}}
+            else:
+                response = requests.detail(session, "kafka", region, "get_bootstrap_brokers", ClusterArn=arn)
+                if _failed(response):
+                    item["PublicBootstrapBrokers"] = _pick(response, ("collection_status", "error"))
+                else:
+                    item["PublicBootstrapBrokers"] = {**_pick(response, keys), "collection_status": "collected"}
+        output.append(item)
+    return output
 
 
 def _chunks(values, size):
@@ -920,6 +957,52 @@ def _incident_manager(requests, session, region, account):
     return _result([{"id": f"ssm-incidents/{account}", "AccountId": account, "ReplicationSets": replication, "ResponsePlans": _listing(plans)}])
 
 
+def _custom_routing_listeners(requests, session, region, account):
+    """Join custom listeners to the protocols of their endpoint groups."""
+    home = _home(region, "us-west-2")
+    roots = requests.pages(session, "globalaccelerator", home, "list_custom_routing_accelerators",
+                          "Accelerators", _tokens=("NextToken", "NextToken"))
+    if roots.status not in _OK:
+        return roots
+    rows, failure = [], None
+    for root in roots.items:
+        arn = root.get("AcceleratorArn") if isinstance(root, dict) else None
+        if not isinstance(arn, str):
+            failure = failure or ("malformed", {"code": "custom_routing_accelerator_identity_missing"})
+            continue
+        listeners = requests.pages(session, "globalaccelerator", home, "list_custom_routing_listeners",
+                                   "Listeners", _tokens=("NextToken", "NextToken"), AcceleratorArn=arn)
+        if listeners.status not in _OK:
+            failure = failure or _cause(listeners)
+        for listener in listeners.items:
+            listener_arn = listener.get("ListenerArn") if isinstance(listener, dict) else None
+            if not isinstance(listener_arn, str):
+                failure = failure or ("malformed", {"code": "custom_routing_listener_identity_missing"})
+                continue
+            groups = requests.pages(session, "globalaccelerator", home, "list_custom_routing_endpoint_groups",
+                                    "EndpointGroups", _tokens=("NextToken", "NextToken"), ListenerArn=listener_arn)
+            if groups.status not in _OK:
+                failure = failure or _cause(groups)
+            malformed = any(not isinstance(group, dict) or
+                            not isinstance(group.get("EndpointGroupArn"), str) or
+                            not group["EndpointGroupArn"].startswith(listener_arn + "/endpoint-group/") or
+                            not isinstance(group.get("DestinationDescriptions"), list) or
+                            any(not isinstance(description, dict) or
+                                not isinstance(description.get("Protocols"), list) or
+                                any(protocol not in ("TCP", "UDP") for protocol in description["Protocols"])
+                                for description in group["DestinationDescriptions"])
+                            for group in groups.items)
+            if malformed:
+                failure = failure or ("malformed", {"code": "custom_routing_endpoint_group_malformed"})
+            protocols = sorted({protocol for group in groups.items if isinstance(group, dict) and isinstance(group.get("DestinationDescriptions"), list)
+                                for description in group["DestinationDescriptions"] if isinstance(description, dict) and isinstance(description.get("Protocols"), list)
+                                for protocol in description["Protocols"] if isinstance(protocol, str)})
+            rows.append({"ListenerArn": listener_arn, "AcceleratorArn": arn,
+                         "PortRanges": listener.get("PortRanges"), "Protocols": protocols,
+                         "EndpointGroupsStatus": "malformed" if malformed else groups.status})
+    return _finish(rows, failure)
+
+
 FETCHERS = {
     "sagemaker_app": _sagemaker_apps,
     "braket_device": _braket_devices,
@@ -942,6 +1025,7 @@ FETCHERS = {
     "kinesis_stream": _kinesis_streams,
     "macie_session": _macie_session,
     "ram_resource_share": _ram_shares,
+    "oam_link": _paged("oam_link", _tokens=("NextToken", "NextToken")),
     "rolesanywhere_trust_anchor": _trust_anchors,
     "s3_access_point": _s3_access_points,
     "sns_subscription": _sns_subscriptions,
@@ -962,6 +1046,9 @@ FETCHERS = {
     "trustedadvisor_check": _trusted_advisor_checks,
     "s3_multi_region_access_point": _home_paged("s3_multi_region_access_point", "us-west-2", _tokens=("NextToken", "NextToken"), with_account=True),
     "globalaccelerator_accelerator": _home_paged("globalaccelerator_accelerator", "us-west-2"),
+    "globalaccelerator_custom_routing_accelerator": _home_paged("globalaccelerator_custom_routing_accelerator", "us-west-2", _tokens=("NextToken", "NextToken")),
+    "globalaccelerator_custom_routing_listener": _custom_routing_listeners,
+    "globalaccelerator_cross_account_attachment": _home_paged("globalaccelerator_cross_account_attachment", "us-west-2", _tokens=("NextToken", "NextToken")),
     "ssmincidents_account": _incident_manager,
 }
 
@@ -1010,11 +1097,13 @@ _CONTAINERS = {
     "s3_directory_bucket": ("Lifecycle", "s3", "get_bucket_lifecycle_configuration", "Bucket", "Name", ("NoSuchLifecycleConfiguration",), ("Rules", "TransitionDefaultMinimumObjectSize")),
     "transfer_server": ("Server", "transfer", "describe_server", "ServerId", "ServerId", (), ("Arn", "ServerId", "Domain", "EndpointType", "EndpointDetails", "IdentityProviderType",
         "LoggingRole", "StructuredLogDestinations", "Protocols", "ProtocolDetails", "SecurityPolicyName", "State", "Certificate")),
+    "transfer_web_app": ("WebApp", "transfer", "describe_web_app", "WebAppId", "WebAppId", (),
+        ("Arn", "WebAppId", "EndpointType", "AccessEndpoint", "WebAppEndpoint", "DescribedEndpointDetails")),
     "transfer_connector": ("Connector", "transfer", "describe_connector", "ConnectorId", "ConnectorId", (), ("Arn", "ConnectorId", "Url", "AccessRole", "LoggingRole", "SecurityPolicyName")),
     "ses_email_identity": ("Identity", "sesv2", "get_email_identity", "EmailIdentity", "IdentityName", (), ("IdentityType", "FeedbackForwardingStatus", "VerifiedForSendingStatus",
         "VerificationStatus", "DkimAttributes", "MailFromAttributes", "Policies", "ConfigurationSetName")),
 }
-_CONTAINER_ROOTS = {"transfer_server": "Server", "transfer_connector": "Connector"}
+_CONTAINER_ROOTS = {"transfer_server": "Server", "transfer_web_app": "WebApp", "transfer_connector": "Connector"}
 _EXTRA_ARGUMENTS = {"glacier_vault": {"accountId": "-"}}
 
 
@@ -1410,6 +1499,7 @@ def _analyzer_findings(requests, session, region, items):
 ENRICHERS = {kind: _merge_enricher(kind) for kind in _MERGES if kind != "network_firewall"}
 ENRICHERS.update({kind: _container_enricher(kind) for kind in _CONTAINERS})
 ENRICHERS.update({
+    "msk_cluster": _msk_public_bootstrap,
     "network_firewall": _network_firewall,
     "network_firewall_policy": _firewall_document("describe_firewall_policy", "FirewallPolicyArn", "FirewallPolicyResponse", "FirewallPolicy"),
     "network_firewall_rule_group": _firewall_document("describe_rule_group", "RuleGroupArn", "RuleGroupResponse", "RuleGroup"),

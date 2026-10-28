@@ -8,6 +8,7 @@ import json
 from urllib.parse import unquote
 
 import jmespath
+from .aws_marketplace_exposure import ENTITY_TYPES as MARKETPLACE_ENTITY_TYPES
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ RECIPES += [
     Recipe("mediapackage-endpoints", "mediapackagev2", (step("list_channel_groups", "Items"), step("list_channels", "Items", ChannelGroupName="$ChannelGroupName"), step("list_origin_endpoints", "Items", ChannelGroupName="$ChannelGroupName", ChannelName="$ChannelName")), "get_origin_endpoint_policy", {"ChannelGroupName": "$ChannelGroupName", "ChannelName": "$ChannelName", "OriginEndpointName": "$OriginEndpointName"}, "Policy", "$Arn", absent=("ResourceNotFoundException",)),
     Recipe("mediastore-containers", "mediastore", (step("list_containers", "Containers"),), "get_container_policy", {"ContainerName": "$Name"}, "Policy", "$ARN", absent=("PolicyNotFoundException",)),
     Recipe("glacier-vaults", "glacier", (step("list_vaults", "VaultList", accountId="{account}"),), "get_vault_access_policy", {"accountId": "{account}", "vaultName": "$VaultName"}, "policy.Policy", "$VaultARN", absent=("ResourceNotFoundException",)),
+    Recipe("glacier-vault-locks", "glacier", (step("list_vaults", "VaultList", accountId="{account}"),), "get_vault_lock", {"accountId": "{account}", "vaultName": "$VaultName"}, "Policy", "$VaultARN", absent=("ResourceNotFoundException",)),
     Recipe("api-gateway-apis", "apigateway", (step("get_rest_apis", "items"),), None, {}, "$policy", "arn:{partition}:apigateway:{region}::/restapis/{id}"),
     Recipe("api-gateway-domains", "apigateway", (step("get_domain_names", "items"),), None, {}, "$policy", "$domainNameArn"),
     Recipe("api-gateway-domain-management", "apigateway", (step("get_domain_names", "items"),), None, {}, "$managementPolicy", "$domainNameArn"),
@@ -148,8 +150,14 @@ for scope, endpoint in (("REGIONAL", None), ("CLOUDFRONT", "us-east-1")):
     RECIPES.append(Recipe("wafv2-" + scope.lower(), "wafv2", (step("list_rule_groups", "RuleGroups", Scope=scope),), "get_permission_policy", {"ResourceArn": "$ARN"}, "Policy", "$ARN", region=endpoint, absent=("WAFNonexistentItemException",)))
 for service, endpoint in (("waf", "us-east-1"), ("waf-regional", None)):
     RECIPES.append(Recipe(service + "-rule-groups", service, (step("list_rule_groups", "RuleGroups"),), "get_permission_policy", {"ResourceArn": "arn:{partition}:" + ("waf" if service == "waf" else "waf-regional") + ":" + ("" if service == "waf" else "{region}") + ":{account}:rulegroup/{RuleGroupId}"}, "Policy", "arn:{partition}:" + ("waf" if service == "waf" else "waf-regional") + ":" + ("" if service == "waf" else "{region}") + ":{account}:rulegroup/{RuleGroupId}", region=endpoint, absent=("WAFNonexistentItemException",)))
-for entity_type in ("AmiProduct", "ContainerProduct", "DataProduct", "SaaSProduct", "Offer", "ResaleAuthorization", "MachineLearningProduct", "OfferSet"):
-    RECIPES.append(Recipe("marketplace-" + entity_type, "marketplace-catalog", (step("list_entities", "EntitySummaryList", Catalog="AWSMarketplace", EntityType=entity_type),), "get_resource_policy", {"ResourceArn": "$EntityArn"}, "Policy", "$EntityArn", region="us-east-1", absent=("ResourceNotFoundException",)))
+# ListEntities' documented entity types are finite. Keep the legacy ML type
+# for older seller catalogs; unsupported types surface a collection gap.
+for entity_type in MARKETPLACE_ENTITY_TYPES:
+    RECIPES.append(Recipe("marketplace-" + entity_type, "marketplace-catalog",
+                          (step("list_entities", "EntitySummaryList", Catalog="AWSMarketplace",
+                                EntityType=entity_type, OwnershipType="SELF"),),
+                          "get_resource_policy", {"ResourceArn": "$EntityArn"}, "Policy", "$EntityArn",
+                          region="us-east-1", absent=("ResourceNotFoundException",)))
 for operation, path, arn in (("describe_phone_numbers", "PhoneNumbers", "PhoneNumberArn"), ("describe_pools", "Pools", "PoolArn"), ("describe_opt_out_lists", "OptOutLists", "OptOutListArn"), ("describe_sender_ids", "SenderIds", "SenderIdArn")):
     RECIPES.append(Recipe("sms-" + operation, "pinpoint-sms-voice-v2", (step(operation, path),), "get_resource_policy", {"ResourceArn": "$" + arn}, "Policy", "$" + arn, absent=("ResourceNotFoundException",)))
 RECIPES = [Recipe(r.id, r.service, r.steps, r.operation, r.parameters,
@@ -362,6 +370,8 @@ def collect(requests, session, region, account, recipes=None):
                     elif r.normalizer == "serverlessrepo":
                         raw = {"Statement": [{"Sid": value.get("StatementId", ""), "Effect": "Allow", "Principal": {"AWS": value["Principals"]}, "Action": value["Actions"], "Resource": arn,
                             **({"Condition": {"StringEquals": {"aws:PrincipalOrgID": value["PrincipalOrgIDs"]}}} if value.get("PrincipalOrgIDs") else {})} for value in raw]}
+                        if not raw["Statement"]:
+                            continue
                     elif r.normalizer == "signer":
                         raw = {"Statement": [{"Sid": current.get("statementId", ""), "Effect": "Allow", "Principal": {"AWS": current["principal"]}, "Action": current["action"], "Resource": arn}]}
                     elif r.normalizer == "vpc_service":
@@ -369,7 +379,7 @@ def collect(requests, session, region, account, recipes=None):
                     if raw in (None, "", []):
                         # These successful APIs expressly allow no attached policy.
                         # A missing mandatory document is incomplete evidence.
-                        if not r.operation or r.id in {"secrets", "eventbridge-buses", "s3-multi-region-access-points", "sign-in-policy"} or "[]" in r.document or r.document.endswith(".*") or r.normalizer == "ssm_document":
+                        if not r.operation or r.id in {"secrets", "eventbridge-buses", "s3-multi-region-access-points", "sign-in-policy"} or "[]" in r.document or r.document.endswith(".*") or r.normalizer in {"ssm_document", "serverlessrepo"}:
                             continue
                         failure(r, "malformed", "policy_document_missing")
                         continue
