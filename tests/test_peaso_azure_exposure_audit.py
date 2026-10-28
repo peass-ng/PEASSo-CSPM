@@ -406,9 +406,11 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     site_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Web/sites/app"
     scm_host = "app.scm.azurewebsites.net"
 
-    def app_decision(config, *, scm_hostname=True, public_access="Enabled"):
+    def app_decision(config, *, scm_hostname=True, public_access="Enabled", https_only=None):
         site = {"defaultHostName": "app.azurewebsites.net", "publicNetworkAccess": public_access,
                 "enabledHostNames": ["app.azurewebsites.net"] + ([scm_host] if scm_hostname else [])}
+        if https_only is not None:
+            site["httpsOnly"] = https_only
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "app_service", "scope": SCOPE, "service": "web", "status": "collected", "items": [
                 {"id": site_id, "properties": site}]},
@@ -440,6 +442,17 @@ def test_app_service_scm_public_surface_uses_its_recorded_rules_and_hostname():
     assert invalid_main.path[-1]["main"]["decision"] == "unknown"
     assert app_decision(separate, public_access="Disabled").verdict() == "PASS"
     assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow"}, scm_hostname=False).verdict() == "FAIL"
+    scm_https = app_decision(separate, https_only=True)
+    assert scm_https.ports == {"tcp": ((443, 443),)}
+    main_https = app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow",
+                               "scmIpSecurityRestrictionsDefaultAction": "Deny"}, https_only=True)
+    assert main_https.verdict() == "FAIL"
+    assert main_https.ports == {"tcp": ((80, 80), (443, 443))}
+    assert any(step["layer"] == "http_port_80" and step["decision"] == "redirect"
+               for step in main_https.path)
+    assert app_decision({**separate, "ipSecurityRestrictionsDefaultAction": "Allow",
+                         "scmIpSecurityRestrictionsDefaultAction": "Deny"},
+                        https_only="invalid").verdict() == "UNKNOWN"
 
 
 def test_app_service_main_hostname_uses_recorded_enabled_names():
