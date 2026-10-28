@@ -1708,6 +1708,20 @@ def test_aws_elbv2_observed_state_gates_current_listener_path():
         assert "elbv2:DescribeLoadBalancers.State.Code" in unknown["evidence"]["collector_facts_needed"]
 
 
+def test_aws_elbv2_projected_state_survives_privacy_filter():
+    lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
+          "Scheme": "internet-facing", "Type": "application", "DNSName": "web.example.com", "VpcId": "vpc-1",
+          "SecurityGroups": ["sg-1"], "AvailabilityZones": [{"SubnetId": "subnet-1"}],
+          "State": {}, "LoadBalancerStateCode": "active", "IpAddressType": "ipv4",
+          "Listeners": {"collection_status": "collected", "items": [{"Port": 443, "Protocol": "HTTPS"}]}}
+    sg = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+           "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]
+    finding = one(aws(*aws_network(sg_rules=sg), coll("load_balancer", [lb], service="elbv2")), "load_balancer")
+    assert finding["status"] == "FAIL"
+    assert not any(step["layer"] == "load_balancer_state" and step["decision"] != "allow"
+                   for step in finding["evidence"]["path"])
+
+
 def test_aws_load_balancer_public_host_is_observed():
     lb = {"LoadBalancerArn": f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT}:loadbalancer/app/web/1",
           "Scheme": "internet-facing", "Type": "application", "VpcId": "vpc-1", "SecurityGroups": ["sg-1"],

@@ -1077,7 +1077,7 @@ def _aws_elbv2(snapshot, inventory, resource):
     a.endpoint = data.get("DNSName")
     a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
     state = data.get("State") if isinstance(data.get("State"), dict) else {}
-    code = state.get("Code")
+    code = state.get("Code") or data.get("LoadBalancerStateCode")
     if code == "failed":
         a.step("load_balancer_state", "block", code=code)
         a.ports = {}

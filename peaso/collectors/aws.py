@@ -1433,6 +1433,14 @@ def _enrich(requests, session, region, kind, items, *, account=None, partition=N
             if "Policy" in attrs:
                 attrs["Policy"] = _policy(attrs["Policy"])
         elif kind == "load_balancer":
+            # The generic privacy filter drops every nested `Code` field.
+            # Preserve only the documented ELBv2 state enum from this
+            # DescribeLoadBalancers row so exposure can distinguish a serving
+            # endpoint from a provisioning or failed one.
+            state = item.get("State")
+            state_code = state.get("Code") if isinstance(state, dict) else None
+            if state_code in {"active", "active_impaired", "provisioning", "failed"}:
+                item["LoadBalancerStateCode"] = state_code
             arn = item["LoadBalancerArn"]
             item["Attributes"] = detail("elbv2", "describe_load_balancer_attributes", LoadBalancerArn=arn)
             listeners = requests.pages(session, "elbv2", region, "describe_listeners", "Listeners", LoadBalancerArn=arn)

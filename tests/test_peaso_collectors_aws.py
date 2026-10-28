@@ -432,6 +432,31 @@ def test_secret_metadata_only_and_lambda_environment_redaction(sdk):
     assert requests.calls == 3
 
 
+def test_elbv2_state_code_is_narrowly_projected_through_privacy_filter(monkeypatch):
+    from peaso.collectors import aws_request_pool
+
+    monkeypatch.setattr(aws_request_pool, 'ordered_map',
+                        lambda requests, items, enrich: [enrich(item) for item in items])
+
+    class ReadOnlyRequests:
+        def detail(self, *args, **kwargs):
+            return {'collection_status': 'empty'}
+
+        def pages(self, *args, **kwargs):
+            return aws.ReadResult([], 'empty')
+
+    arn = f'arn:aws:elasticloadbalancing:{REGION}:{ACCOUNT}:loadbalancer/app/web/1'
+    raw = {'LoadBalancerArn': arn, 'State': {'Code': 'active', 'Reason': 'Serving'},
+           'Code': {'Location': 'private-download-url'}}
+    item = aws._enrich(ReadOnlyRequests(), object(), REGION, 'load_balancer', [raw],
+                       account=ACCOUNT, partition='aws')[0]
+    safe = aws._safe(item)
+    assert safe['LoadBalancerStateCode'] == 'active'
+    assert safe['State'] == {'Reason': 'Serving'}
+    assert 'Code' not in safe
+    assert 'Code' not in safe['State']
+
+
 def test_existing_credential_report_no_generation(sdk):
     session, add, _ = sdk
     add("iam").add_response("get_credential_report", {"Content": b"user,arn,password_enabled,mfa_active\nreview,arn:aws:iam::123456789012:user/review,true,false\n", "ReportFormat": "text/csv", "GeneratedTime": NOW}, {})
