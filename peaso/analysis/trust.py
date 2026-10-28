@@ -509,29 +509,47 @@ def gcp_wif_provider(snapshot, resource):
     name = data.get("name")
     pool = name.rsplit("/providers/", 1)[0] if isinstance(name, str) and "/providers/" in name else None
     bindings = []
+    direct_bindings = []
     if pool:
         prefixes = (f"principal://iam.googleapis.com/{pool}/", f"principalSet://iam.googleapis.com/{pool}/")
-        for account in _items(snapshot, "service_account"):
-            policy = account.get("iamPolicy")
+        pool_wide = f"principalSet://iam.googleapis.com/{pool}/*"
+        def matching(policy, target, output):
             if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
-                continue
+                return
             for binding in as_list(policy.get("bindings")):
-                if not isinstance(binding, dict) or binding.get("role") not in (
-                        "roles/iam.workloadIdentityUser", "roles/iam.serviceAccountTokenCreator"):
+                if not isinstance(binding, dict) or not isinstance(binding.get("role"), str) or not binding["role"]:
                     continue
                 members = [member for member in as_list(binding.get("members"))
                            if isinstance(member, str) and member.startswith(prefixes)]
                 if members:
-                    bindings.append({"service_account": account.get("name") or account.get("email"),
-                                     "role": binding["role"], "members": members,
-                                     "condition": copy.deepcopy(binding.get("condition"))})
+                    output.append({"resource": target, "role": binding.get("role"), "members": members,
+                                   "pool_wide": pool_wide in members,
+                                   "condition": copy.deepcopy(binding.get("condition"))})
+        for account in _items(snapshot, "service_account"):
+            found = []
+            matching(account.get("iamPolicy"), account.get("name") or account.get("email"), found)
+            for binding in found:
+                if binding["role"] in ("roles/iam.workloadIdentityUser", "roles/iam.serviceAccountTokenCreator"):
+                    bindings.append({**binding, "service_account": binding["resource"]})
+                else:
+                    direct_bindings.append(binding)
+        for collection in snapshot.get("collections", []):
+            if collection.get("status") not in ("collected", "partial") or collection.get("type") == "service_account":
+                continue
+            for item in collection.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                policy = item.get("iamPolicy", item.get("policy", item if collection.get("type") == "iam_policy" else None))
+                matching(policy, item.get("name") or item.get("id"), direct_bindings)
     evidence["service_account_bindings"] = bindings
+    evidence["direct_resource_bindings"] = direct_bindings
+    grants = bindings + direct_bindings
     if condition:
-        return ("MANUAL" if bindings else "PASS"), ("medium" if bindings else "info"), {
+        return ("MANUAL" if grants else "PASS"), ("medium" if grants else "info"), {
             **evidence, "semantics": "Provider attribute condition and any service-account binding conditions need CEL evaluation."}
     if host.startswith(MULTI_TENANT_ISSUERS):
-        if any(not binding["condition"] for binding in bindings):
-            return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has a declared service-account impersonation binding"}
+        if any(binding["pool_wide"] and not binding["condition"] for binding in grants):
+            return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
     return "MANUAL", "medium", {**evidence, "problem": "No attributeCondition; every identity of the issuer can exchange tokens"}
 

@@ -160,6 +160,27 @@ def test_gcp_wif_joins_exact_pool_service_account_impersonation_binding():
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
 
+def test_gcp_wif_direct_resource_grant_and_scoped_identity():
+    from peaso.analysis.trust import gcp_wif_provider
+    pool = "projects/1/locations/global/workloadIdentityPools/p"
+    provider = {"data": {"name": pool + "/providers/gh",
+                         "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
+    member = "principalSet://iam.googleapis.com/" + pool + "/*"
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/storage.objectViewer", "members": [member]}]}
+    snapshot = {"collections": [{"type": "iam_policy", "status": "collected", "items": [policy]}]}
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "FAIL"
+    assert evidence["direct_resource_bindings"][0]["resource"] == "projects/p1"
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.repository/acme")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0]["members"] = [member]
+    policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0].pop("condition")
+    policy["bindings"][0]["members"] = [member.replace("/p/*", "/other/*")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+
+
 def test_gcp_public_binding_fails_and_project_sa_is_trusted():
     policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": ["allUsers", "serviceAccount:sa@p1.iam.gserviceaccount.com"]}]}
     snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")
