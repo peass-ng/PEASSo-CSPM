@@ -11285,6 +11285,151 @@ def _azure_playwright_workspace(snapshot, inventory, resource):
     return a
 
 
+def _azure_foundry_project(snapshot, inventory, resource):
+    """Project endpoint exposure inherited from its Foundry account policy."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    parent_id = resource["data"].get("parent_id")
+    accounts = [row for row in inventory.items("cognitive_account")
+                if isinstance(parent_id, str) and row["data"].get("id", "").casefold() == parent_id.casefold()]
+    if len(accounts) != 1:
+        a.gap("inventory", "Foundry parent account unavailable or ambiguous")
+        return a
+    parent = accounts[0]
+    parent_props = _props(parent)
+    if (str(parent["data"].get("kind", "")).casefold() != "aiservices"
+            or parent_props.get("provisioningState") != "Succeeded"
+            or _props(resource).get("provisioningState") != "Succeeded"):
+        a.gap("inventory", "ready Foundry account or project state unavailable")
+        return a
+    hosts = _props(resource).get("endpointHosts")
+    if not isinstance(hosts, list):
+        a.gap("listener", "Foundry project endpoint inventory unavailable")
+        return a
+    connections = parent_props.get("privateEndpointConnections")
+    if isinstance(connections, list):
+        foreign, unresolved_links = _azure_foreign_private_endpoints(parent["data"], parent_props)
+        if foreign:
+            a.external_ids = foreign
+            a.ports = pset("tcp", 443, 443)
+            a.step("private_project_share", "allow", external_private_endpoints=foreign)
+            a.explicit = "FAIL"
+        if unresolved_links:
+            a.gap("private_project_share", "Foundry private endpoint approval or owner unresolved")
+    else:
+        a.gap("private_project_share", "Foundry parent private endpoint inventory unavailable")
+    access = parent_props.get("publicNetworkAccess")
+    if access == "Disabled":
+        if not a.external_ids:
+            a.ports = {}
+        a.step("account_public_network", "block", setting=access)
+        if a.explicit != "FAIL":
+            a.explicit = "UNKNOWN" if a.unresolved else "PASS"
+        return a
+    if access != "Enabled":
+        a.gap("listener", "Foundry parent public network setting unresolved")
+        return a
+    rules = parent_props.get("networkAcls")
+    if not isinstance(rules, dict):
+        a.gap("firewall", "Foundry parent network ACL unavailable")
+        return a
+    if rules.get("defaultAction") == "Allow":
+        a.step("account_firewall", "allow", default_action="Allow")
+    elif rules.get("defaultAction") == "Deny":
+        public_ips, malformed = [], False
+        rows = rules.get("ipRules")
+        if not isinstance(rows, list):
+            a.gap("firewall", "Foundry parent IP rules unavailable")
+            return a
+        for row in rows:
+            value = row.get("value") if isinstance(row, dict) else None
+            network = _cidr(value) if isinstance(value, str) else None
+            if network is None:
+                malformed = True
+            elif _azure_public_remainder([network], []):
+                public_ips.append(value)
+        if public_ips:
+            a.step("account_firewall", "allow", public_ip_rules=public_ips)
+        elif malformed or rules.get("trustedServiceAccessEnabled") is True or rules.get("bypass") not in (None, "None"):
+            a.gap("firewall", "Foundry parent IP rules or trusted-service bypass unresolved")
+            return a
+        else:
+            if not a.external_ids:
+                a.ports = {}
+            a.step("account_firewall", "block", default_action="Deny")
+            if a.explicit != "FAIL":
+                a.explicit = "UNKNOWN" if a.unresolved else "PASS"
+            return a
+    else:
+        a.gap("firewall", "Foundry parent default action unresolved")
+        return a
+    if not hosts:
+        a.gap("listener", "Foundry project LIST returned no HTTPS endpoint")
+        return a
+    a.addresses = hosts
+    a.ports = pset("tcp", 443, 443)
+    a.step("project_https", "allow", endpoint_hosts=hosts, authentication="Microsoft Entra or account key")
+    a.explicit = "FAIL"
+    return a
+
+
+def _azure_foundry_agent(snapshot, inventory, resource):
+    """Agent-specific public Activity route and non-RBAC runtime access."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    if data.get("status") == "Disabled":
+        a.step("agent_status", "block", status="Disabled")
+        a.ports = {}
+        a.explicit = "PASS"
+        return a
+    if data.get("status") != "Enabled":
+        a.gap("inventory", "Foundry agent serving status unavailable")
+    schemes = data.get("authorization_schemes")
+    if not isinstance(schemes, list):
+        a.gap("authorization", "Foundry agent authorization schemes unavailable")
+        return a
+    kinds = sorted({row.get("type") for row in schemes if isinstance(row, dict) and isinstance(row.get("type"), str)})
+    if any(kind in kinds for kind in ("AgentBlueprint", "BotService", "BotServiceTenant")):
+        a.step("agent_authorization", "conditional", schemes=kinds,
+               reason="agent or channel access can bypass project RBAC")
+        a.gap("authorization", "agent blueprint consent or channel user audience not established by agent GET")
+    else:
+        a.step("agent_authorization", "conditional", schemes=kinds, reason="Azure RBAC required")
+    if data.get("m365_public") is True and "activity" in data.get("protocols", []):
+        host = data.get("endpoint_host")
+        if not isinstance(host, str) or not host:
+            a.gap("listener", "Foundry public Activity endpoint host unavailable")
+            return a
+        a.addresses = [host]
+        a.ports = pset("tcp", 443, 443)
+        a.step("m365_activity", "allow", endpoint_host=host,
+               source="Microsoft 365 and Azure Bot Service IP ranges")
+        a.explicit = "FAIL"
+    elif data.get("m365_public") not in (True, False, None):
+        a.gap("listener", "Foundry Activity public route setting malformed")
+    return a
+
+
+def _azure_foundry_connection(snapshot, inventory, resource):
+    """Configured outbound project target; runtime use is not in connection LIST."""
+    a = Assessment(resource, "external_destination")
+    a.authenticated = True
+    a.explicit = "UNKNOWN"
+    data = resource["data"]
+    target = data.get("target_host") or data.get("target_resource_id")
+    if not isinstance(target, str) or not target:
+        a.gap("destination", "Foundry connection target unavailable or not a supported HTTPS/ARM target")
+        return a
+    a.addresses = [target]
+    a.step("configured_connection", "conditional", target=target,
+           connection_type=data.get("connection_type"), credential_type=data.get("credential_type"))
+    a.gap("runtime_use", "connection LIST does not establish whether an agent used this destination")
+    return a
+
+
 def _azure_fabric_workspace(snapshot, inventory, resource):
     """Fabric workspace grants to observed foreign users or applications."""
     a = Assessment(resource, "identity_trust")
@@ -13579,7 +13724,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "powerbi_capacity", "playwright_workspace", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "management_group", "subscription", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "powerbi_capacity", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "netapp_volume", "stream_analytics_job", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -13595,7 +13740,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "vm_scale_set", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "stream_analytics_job", "managed_application", "managed_application_definition", "attestation_provider", "entra_domain_service", "security_contact", "defender_automation", "external_id_auth_extension", "external_id_cross_tenant_default", "external_id_cross_tenant_partner", "directory_oauth2_permission_grant", "directory_app_role_assignment", "easm_workspace", "easm_data_connection", "action_group", "diagnostic_setting", "subscription_diagnostic_setting", "monitor_log_profile", "monitor_workspace", "purview_account", "purview_metadata_policy", "purview_unified_policy", "purview_ediscovery_case_member", "sentinel_automation_rule", "sentinel_source_control", "management_group", "subscription", "powerbi_capacity", "fabric_workspace", "fabric_item", "fabric_external_data_share", "powerbi_published_item", "powerbi_org_link", "cost_export",
-                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "playwright_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "openshift_hcp_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "netapp_volume", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "playwright_workspace", "foundry_project", "foundry_agent", "foundry_connection", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -13709,6 +13854,9 @@ def assess(snapshot, resources):
                   "subscription": _azure_subscription,
                   "powerbi_capacity": _azure_powerbi_capacity,
                   "playwright_workspace": _azure_playwright_workspace,
+                  "foundry_project": _azure_foundry_project,
+                  "foundry_agent": _azure_foundry_agent,
+                  "foundry_connection": _azure_foundry_connection,
                   "fabric_workspace": _azure_fabric_workspace,
                   "fabric_item": _azure_fabric_workspace,
                   "fabric_external_data_share": _azure_fabric_external_data_share,

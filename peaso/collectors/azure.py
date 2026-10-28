@@ -43,6 +43,9 @@ from . import azure_functions_runtime_native
 from . import azure_iot_policy_native, azure_function_limits_native, azure_sentinel_metadata_native, azure_assessment_criteria_native, azure_secret_versions_native, azure_storage_recovery_metadata_native
 from . import azure_incident_inventory_native
 from . import azure_fabric_workspace_native
+from . import azure_foundry_project_native
+from . import azure_foundry_agent_native
+from . import azure_foundry_connection_native
 from . import azure_powerbi_public_share_native
 from . import azure_security_correlation_native
 from . import azure_storage_blob_keys_native
@@ -1252,7 +1255,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "managed_instance_database", "managed_instance_tde", "sql_database_inventory", "sql_tde_inventory",
     azure_identity_enforcement_review_20261020.KIND, "guest_configuration_report", "azure_sw18_evidence", "mysql_postgresql_sql_server", *azure_conditional_access_native.NATIVE_TYPES,
     "devops_project", *azure_devops_pipeline_native.NATIVE_TYPES, *azure_access_reviews_native.NATIVE_TYPES, *azure_arm_metadata_native.NATIVE_TYPES, *azure_monitor_inventory_native.NATIVE_TYPES, *azure_aks_workloads_native.NATIVE_TYPES, azure_fabric_workspace_native.KIND, azure_fabric_workspace_native.ITEM_KIND, azure_fabric_workspace_native.SHARE_KIND, *azure_powerbi_public_share_native.KINDS, "azure_detection_telemetry", "entra_diagnostic_setting", *azure_storage_backup_native.NATIVE_TYPES,
-    *azure_defender_network_native.NATIVE_TYPES, *azure_adaptive_network_native.NATIVE_TYPES, *azure_entra_user_native.NATIVE_TYPES, "directory_user_group_membership", "sql_managed_instance_administrator", "intune_diagnostic_setting",
+    *azure_defender_network_native.NATIVE_TYPES, *azure_adaptive_network_native.NATIVE_TYPES, *azure_entra_user_native.NATIVE_TYPES, "directory_user_group_membership", "sql_managed_instance_administrator", "intune_diagnostic_setting", azure_foundry_project_native.KIND, azure_foundry_agent_native.KIND, azure_foundry_connection_native.KIND,
     "storage_local_user", "sql_backup_short_term_policy", "eventgrid_subscription",
     *azure_vault_key_versions_native.NATIVE_TYPES, *azure_iot_policy_native.NATIVE_TYPES, *azure_function_limits_native.NATIVE_TYPES, *azure_functions_runtime_native.NATIVE_TYPES, *azure_secret_versions_native.NATIVE_TYPES, *azure_storage_recovery_metadata_native.NATIVE_TYPES, "sentinel_workspace", azure_sentinel_automation_exposure.KIND, azure_sentinel_source_control_exposure.KIND, *azure_incident_inventory_native.NATIVE_TYPES, *azure_security_correlation_native.NATIVE_TYPES, *azure_apim_diagnostic_evidence_native.NATIVE_TYPES, *azure_storage_blob_keys_native.NATIVE_TYPES, *azure_audit_storage_native.NATIVE_TYPES, "assessment_metadata",
     azure_app_settings_secret_indicators.KIND, azure_acr_image_secret_indicators.KIND, azure_acr_image_vulnerabilities_20261021.KIND, azure_selected_aks_image_20261021.KIND, azure_selected_aks_image_20261021.VULN_KIND, azure_selected_configuration_secret_indicators.KIND,
@@ -1715,6 +1718,7 @@ class AzureTransport:
         self.vault_hosts = set()
         self.storage_hosts = set()
         self.purview_hosts = set()
+        self.foundry_hosts = set()
         self.verified_tenant = None
         from .scan_cache import RawResponseCache
         # Per-scan, per-credential single-flight cache of complete read bodies.
@@ -1822,6 +1826,7 @@ class AzureTransport:
                 raise AzureReadError("token_audience_mismatch", 401)
             from peaso.ai.access import bearer
             endpoints = (["https://api.purview-service.microsoft.com"] + ["https://" + host for host in self.purview_hosts] if audience == "https://purview.azure.net" else
+                         ["https://" + host for host in self.foundry_hosts] if audience == azure_foundry_agent_native.AUDIENCE else
                          ["https://api.powerbi.com"] if audience == azure_powerbi_public_share_native.AUDIENCE else
                          ["https://" + host for host in self.vault_hosts] if audience == VAULT else
                          ["https://" + host for host in self.storage_hosts] if audience == STORAGE else [audience])
@@ -1866,6 +1871,8 @@ class AzureTransport:
                 (purview_host == "api.purview-service.microsoft.com" and parsed.path == "/datagovernance/catalog/policies")))
         if audience == azure_powerbi_public_share_native.AUDIENCE:
             origin_allowed = body is None and azure_powerbi_public_share_native.allowed_route(url)
+        if audience == azure_foundry_agent_native.AUDIENCE:
+            origin_allowed = (body is None and azure_foundry_agent_native.allowed_route(url, self.foundry_hosts))
         from .azure_network_data import is_network_audience, allowed_route
         if is_network_audience(audience):
             origin_allowed = body is None and allowed_route(url, audience)
@@ -2508,6 +2515,12 @@ def _selected(options, requirements):
         selected.update(("vnet", "subnet", "nsg", "directory_domain"))
     if "powerbi_capacity" in selected:
         selected.add("directory_domain")
+    if azure_foundry_project_native.KIND in selected:
+        selected.add("cognitive_account")
+    if azure_foundry_agent_native.KIND in selected:
+        selected.update((azure_foundry_project_native.KIND, "cognitive_account"))
+    if azure_foundry_connection_native.KIND in selected:
+        selected.update((azure_foundry_project_native.KIND, "cognitive_account"))
     if selected.intersection((azure_fabric_workspace_native.KIND, azure_fabric_workspace_native.ITEM_KIND)):
         selected.update(("directory_user", "directory_group", "directory_service_principal", "directory_membership"))
     if "security_contact" in selected:
@@ -3351,6 +3364,9 @@ def collect(connector, requirements=None, *, transport=None):
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
         reader.run(jobs)
+        azure_foundry_project_native.collect(reader, request, wanted, ARM)
+        azure_foundry_agent_native.collect(reader, request, transport, wanted)
+        azure_foundry_connection_native.collect(reader, request, transport, wanted)
         azure_easm_connections_native.collect(reader, request, wanted)
         azure_purview_metadata_policy_native.collect(reader, request, transport, wanted)
         azure_purview_unified_policy_native.collect(reader, request, wanted, tenant_scope)
