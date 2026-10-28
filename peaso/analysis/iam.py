@@ -547,7 +547,43 @@ def azure_assignment_reviews(snapshot, resources):
     return output
 
 
+def _azure_external_group_members(snapshot, resources):
+    """Resolve observed guest/foreign members of assigned Azure RBAC groups."""
+    groups = {str(row["data"].get("id", "")).lower() for row in resources
+              if row["type"] == "directory_group"}
+    links = defaultdict(list)
+    for row in resources:
+        if row["type"] != "directory_membership" or "/groups/" not in row["scope"].lower():
+            continue
+        parent = row["scope"].lower().rsplit("/groups/", 1)[-1]
+        member = row["data"].get("id")
+        if isinstance(member, str) and member:
+            links[parent].append((member.lower(), row))
+    cache = {}
+
+    def resolve(group_id):
+        group_id = str(group_id).lower()
+        if group_id not in cache:
+            found, seen, pending = {}, set(), [(group_id, (group_id,))]
+            while pending:
+                current, path = pending.pop()
+                if current in seen:
+                    continue
+                seen.add(current)
+                for member, membership in links.get(current, ()):
+                    if member in groups or member in links:
+                        pending.append((member, (*path, member)))
+                    elif externality(snapshot, member) == "external":
+                        found.setdefault(member, (path, membership))
+            cache[group_id] = found
+        return cache[group_id]
+
+    return resolve
+
+
 def review_findings(snapshot, resources, *, include_manual_only=True):
+    resources = list(resources)
+    external_group_members = _azure_external_group_members(snapshot, resources) if snapshot["provider"] == "azure" else None
     output = []
     for resource in resources:
         declared = [] if _azure_definition_only(resource) else grants(resource)
@@ -575,8 +611,18 @@ def review_findings(snapshot, resources, *, include_manual_only=True):
         # Public/external principal triage (peaso.analysis.trust): unconditional public
         # or out-of-boundary principals FAIL, restrictive conditions MANUAL, unattributable UNKNOWN.
         from .trust import principal_exposure
-        verdict = principal_exposure(snapshot, resource, ((identity, path, fact, kind, fact.get("tenantId"))
-                                                          for identity, path, fact, kind in principals(resource)))
+        declarations = [(identity, path, fact, kind, fact.get("tenantId"))
+                        for identity, path, fact, kind in principals(resource)]
+        if external_group_members and resource["type"] == "role_assignment":
+            props = resource["data"].get("properties") or {}
+            group_id = props.get("principalId")
+            if isinstance(group_id, str) and props.get("principalType") == "Group":
+                for member, (group_path, membership) in external_group_members(group_id).items():
+                    declarations.append((member, "properties.principalId",
+                        {**props, "viaGroup": group_id, "groupPath": group_path,
+                         "membershipSource": source(snapshot, membership, "id")},
+                        "GroupMember", None))
+        verdict = principal_exposure(snapshot, resource, declarations)
         if verdict:
             status, severity, evidence = verdict
             output.append(finding(snapshot, resource, "exposure", "analysis.principal_exposure",
