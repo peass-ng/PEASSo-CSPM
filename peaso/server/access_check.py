@@ -236,10 +236,8 @@ def _aws(auth, scopes, options, issues, principals):
             active.client("s3", config=config).list_buckets()
         except Exception:
             _issue(issues, "advisory", scope, "S3 bucket inventory is unavailable (s3:ListAllMyBuckets).")
-        try:
-            active.client("accessanalyzer", region_name=region, config=config).list_analyzers(maxResults=1)
-        except Exception:
-            _issue(issues, "advisory", scope, "IAM Access Analyzer inventory is unavailable (access-analyzer:ListAnalyzers). Grant read access if you use analyzer findings.")
+        # Live Access Analyzer access is disabled. Saved results remain available
+        # to later analysis, while a new scan records this input as unknown.
     for missing in sorted(selected_accounts - verified_accounts):
         _issue(issues, "critical", missing, "No configured identity or target role could access this selected AWS account.")
     return sorted(attempted_accounts)

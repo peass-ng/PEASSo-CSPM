@@ -37643,6 +37643,36 @@ def _observed(assessment, status):
                 "A separate reachable VM service could expose its data if authentication allows it.")
     if assessment.resource.get("provider") == "aws" and assessment.kind in _AWS_GENERIC_OBSERVED_KINDS:
         return _aws_generic_observed(assessment, status)
+    if assessment.resource.get("provider") == "gcp":
+        noun = assessment.resource["type"].replace("_", " ")
+        if status == "UNKNOWN":
+            missing = assessment.unresolved[0] if assessment.unresolved else {}
+            setting = str(missing.get("layer", assessment.kind)).replace("_", " ")
+            reason = str(missing.get("reason", "its recorded value is missing")).rstrip(". ")
+            return (f"The {noun} has an incomplete {setting} setting: {reason}.\n"
+                    "Whether this setting permits an external path is unclear.\n"
+                    "That path could affect data handled by the resource if it is open.")
+        if status == "PASS":
+            blocked = assessment.blocked_by or next(
+                (step.get("layer") for step in assessment.path if step.get("decision") == "block"), assessment.kind)
+            setting = str(blocked).replace("_", " ")
+            return (f"The {noun} has a recorded {setting} setting that blocks this path.\n"
+                    "That setting may stop an external client from using this route.\n"
+                    "Data handled by the resource has no observed path through this setting.")
+        if assessment.external_ids:
+            fact = f"names external principal {assessment.external_ids[0]}"
+        elif assessment.endpoint:
+            fact = f"records endpoint {assessment.endpoint}"
+        elif assessment.addresses:
+            fact = f"records address {assessment.addresses[0]}"
+        else:
+            step = assessment.path[0] if assessment.path else {}
+            setting = str(step.get("layer", assessment.kind)).replace("_", " ")
+            value = str(step.get("decision", "configured")).replace("_", " ")
+            fact = f"records {setting} as {value}"
+        return (f"The {noun} {fact}.\n"
+                "An external client may use this path if its other permissions and routes allow it.\n"
+                "That client could affect data handled by the resource.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":
