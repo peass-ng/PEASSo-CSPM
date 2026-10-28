@@ -1351,8 +1351,10 @@ def test_firewall_dnat_unique_translated_vm_powered_off_blocks_current_backend()
 
     for power in ("stopped", "deallocated"):
         blocked = check(power)
-        assert blocked.verdict() == "PASS" and blocked.ports == {}
-        assert "recorded PowerState/" + power in _observed(blocked, "PASS")
+        assert blocked.verdict() == "UNKNOWN" and blocked.ports == {"tcp": ((443, 443),)}
+        assert blocked.path[-1]["stopped_vm_candidates"][0]["power_state"] == "PowerState/" + power
+        assert any(gap["layer"] == "backend" for gap in blocked.unresolved)
+        assert "effective route to that private address is not observed" in _observed(blocked, "UNKNOWN")
     assert check("running").verdict() == "UNKNOWN"
     assert check("deallocated", duplicate=True).verdict() == "UNKNOWN"
     assert check("deallocated", second_rule=True).verdict() == "UNKNOWN"

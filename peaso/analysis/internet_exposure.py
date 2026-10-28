@@ -5427,9 +5427,8 @@ def _azure_firewall(snapshot, inventory, resource):
         stopped = ([_azure_firewall_stopped_vm_backend(inventory, rule["translated_address"])
                     for rule in matched] if not a.unresolved else [])
         if stopped and all(stopped):
-            a.step("backend", "block", stopped_vm_backends=stopped)
-            a.ports = {}
-            return a
+            a.step("backend", "unknown", stopped_vm_candidates=stopped,
+                   reason="translated private IP does not establish the firewall's route to this NIC")
         a.gap("backend", "translated backend route, runtime and effective NSG are not resolved")
     elif frontends and not a.unresolved:
         a.step("dnat", "block", reason="no collected public-source classic DNAT rule")
@@ -6960,17 +6959,17 @@ def _observed(assessment, status):
             return (f"The Azure network interface or VM {name} has a public-IP association.\n"
                     f"The {missing}.\n"
                     "The snapshot does not establish an assigned public listener address for this path.")
-    if assessment.resource["type"] == "azure_firewall" and status == "PASS":
+    if assessment.resource["type"] == "azure_firewall" and status == "UNKNOWN":
         backend = next((step for step in assessment.path
-                        if step["layer"] == "backend" and step["decision"] == "block"), None)
+                        if step["layer"] == "backend" and step.get("stopped_vm_candidates")), None)
         if backend is not None:
-            item = backend["stopped_vm_backends"][0]
+            item = backend["stopped_vm_candidates"][0]
             name = assessment.resource["data"].get("name", native_id(assessment.resource))
             return (f"The Azure Firewall {name} has a public-source DNAT rule to private address "
                     f"{item['translated_address']}.\n"
                     f"That address uniquely matches NIC {item['nic']} on VM {item['vm']} with "
                     f"recorded {item['power_state']}.\n"
-                    "The stopped VM cannot serve the current translated path; starting it could reopen the rule.")
+                    "The firewall's effective route to that private address is not observed, so the backend path remains unresolved.")
     if assessment.resource["type"] == "application_gateway":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
         if status == "UNKNOWN" and any("public frontend address" in gap["reason"]
