@@ -119,3 +119,30 @@ def test_partial_group_parent_keeps_child_and_unavailable_tenant_envelope(group_
     assert member_child["items"][0]["_provenance"]["tenant_id"] == TENANT
     assert member_child["items"][0]["_provenance"]["tenant_verified"] is True
     assert api.calls == [GROUP_PATH, GROUP_PATH, MEMBERS_PATH]
+
+
+def test_role_assignment_scan_uses_beta_membership_for_service_principals():
+    class ExposureGraph:
+        tenant = verified_tenant = TENANT
+
+        def __init__(self):
+            self.calls = []
+
+        def request(self, url, *, body=None, audience=azure.ARM):
+            path = urlsplit(url).path
+            self.calls.append(path)
+            if path == GROUP_PATH:
+                return {"value": [{"id": GROUP}]}
+            if path == "/beta/groups/" + GROUP + "/members":
+                assert audience == azure.GRAPH
+                return {"value": [{"id": MEMBER, "@odata.type": "#microsoft.graph.servicePrincipal"}]}
+            return {"value": []}
+
+    api = ExposureGraph()
+    snapshot = azure.collect({"scopes": [SUBSCRIPTION], "options": {"retries": 0}},
+                             ["directory_membership", "role_assignment"], transport=api)
+    child = next(row for row in snapshot["collections"] if row["type"] == "directory_membership")
+    assert child["items"][0]["id"] == MEMBER
+    assert child["status"] == "collected"
+    assert "/beta/groups/" + GROUP + "/members" in api.calls
+    assert MEMBERS_PATH not in api.calls

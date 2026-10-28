@@ -6402,7 +6402,53 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
-    endpoint = next((props.get(field) for field in ("vaultUri", "hsmUri", "loginServer", "endpoint", "documentEndpoint", "fullyQualifiedDomainName")
+    if kind == "servicebus_namespace":
+        local_auth = props.get("disableLocalAuth")
+        coverage = (resource["data"].get("_coverage") or {}).get("authorizationRules") or {}
+        rules = resource["data"].get("authorizationRules")
+        if local_auth is True:
+            a.step("sas_authorization", "disabled", disable_local_auth=True)
+        elif local_auth is False and coverage.get("status") in ("collected", "empty") and isinstance(rules, list):
+            a.step("sas_authorization", "conditional", disable_local_auth=False,
+                   namespace_rules=[{"name": row["name"], "rights": row["properties"]["rights"]}
+                                    for row in rules])
+            if rules:
+                a.notes.append("Namespace SAS rules grant capabilities to key holders; issued tokens and recipients are not inventoried.")
+        else:
+            a.notes.append("Namespace SAS authentication or authorization-rule inventory is incomplete.")
+        if local_auth is False:
+            entity_rules = []
+            complete = True
+            for field in ("queues", "topics"):
+                entities = resource["data"].get(field)
+                list_status = (resource["data"].get("_coverage") or {}).get(field, {}).get("status")
+                if list_status not in ("collected", "empty") or not isinstance(entities, list):
+                    complete = False
+                    continue
+                for entity in entities:
+                    rule_status = (entity.get("_coverage") or {}).get("authorizationRules", {}).get("status")
+                    if rule_status not in ("collected", "empty") or not isinstance(entity.get("authorizationRules"), list):
+                        complete = False
+                        continue
+                    for rule in entity["authorizationRules"]:
+                        entity_rules.append({"entity": entity["id"], "name": rule["name"],
+                                             "rights": rule["properties"]["rights"]})
+            if entity_rules:
+                a.step("sas_entity_authorization", "conditional", rules=entity_rules,
+                       inventory_complete=complete)
+            if not complete:
+                a.notes.append("Queue or topic SAS rule inventory is incomplete.")
+    if kind == "container_registry":
+        anonymous = props.get("anonymousPullEnabled")
+        if anonymous is True:
+            a.authenticated = False
+            a.step("anonymous_pull", "allow", anonymous_pull_enabled=True)
+            a.notes.append("Anonymous pull permits unauthenticated read of every repository; registry content was not inventoried.")
+        elif anonymous is False:
+            a.step("anonymous_pull", "authenticated_only", anonymous_pull_enabled=False)
+        else:
+            a.notes.append("ACR anonymous-pull setting is unavailable; authentication cannot be established from this snapshot.")
+    endpoint = next((props.get(field) for field in ("vaultUri", "hsmUri", "loginServer", "endpoint", "documentEndpoint", "serviceBusEndpoint", "fullyQualifiedDomainName")
                      if isinstance(props.get(field), str) and props.get(field)), None)
     if endpoint:
         a.addresses.append(endpoint)
@@ -8373,6 +8419,19 @@ def _observed(assessment, status):
                     f"trusted-service bypass {', '.join(exception['bypass'])}.\n"
                     "Those Azure services may use its public endpoint from outside the account network boundary.\n"
                     "Service identity, data authorization, and a successful request were not observed.")
+    if assessment.resource["type"] == "container_registry" and _props(assessment.resource).get("anonymousPullEnabled") is True:
+        if status == "FAIL":
+            return ("The registry has anonymousPullEnabled true and a recorded public network path.\n"
+                    "Public clients may pull images without a registry identity if the service responds.\n"
+                    "Images in this registry could expose data used by people or services.")
+        if status == "PASS":
+            return ("The registry has anonymousPullEnabled true, but its recorded network gate blocks direct public access.\n"
+                    "Clients on another permitted network path may still pull images anonymously.\n"
+                    "Those images could contain data used by people or services.")
+        return ("The registry has anonymousPullEnabled true.\n"
+                "Its public network path is unresolved because the network gate is incomplete.\n"
+                "If public access is allowed, people may pull any images present.\n"
+                "Those images could expose data used by people or services.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":

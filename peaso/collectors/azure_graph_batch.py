@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 GRAPH = "https://graph.microsoft.com"
 PREFIX = GRAPH + "/v1.0"
+BETA_PREFIX = GRAPH + "/beta"
 BATCH_URL = PREFIX + "/$batch"
 MAX_REQUESTS = 20
 _OBJECT = r"[A-Za-z0-9-]{1,64}"
@@ -33,13 +34,18 @@ _MISSING = object()
 
 def relative(url):
     """The reviewed relative batch URL for an absolute read, or None."""
-    if not isinstance(url, str) or not url.startswith(PREFIX + "/"):
+    if not isinstance(url, str):
         return None
-    path = url[len(PREFIX):]
+    prefix = next((prefix for prefix in (PREFIX, BETA_PREFIX) if url.startswith(prefix + "/")), None)
+    if prefix is None:
+        return None
+    path = url[len(prefix):]
+    if prefix == BETA_PREFIX and not re.fullmatch(r"/groups/" + _OBJECT + r"/members\?\$select=id", path):
+        return None
     return path if any(route.fullmatch(path) for route in ROUTES) else None
 
 
-def valid_body(body):
+def valid_body(body, *, beta_members_only=False):
     """A $batch body that contains only reviewed directory GETs."""
     if not isinstance(body, dict) or set(body) != {"requests"}:
         return False
@@ -50,7 +56,9 @@ def valid_body(body):
     for row in requests:
         if (not isinstance(row, dict) or set(row) != {"id", "method", "url"} or row["method"] != "GET"
                 or not isinstance(row["id"], str) or not re.fullmatch(r"[0-9]{1,2}", row["id"]) or row["id"] in seen
-                or not isinstance(row["url"], str) or not any(route.fullmatch(row["url"]) for route in ROUTES)):
+                or not isinstance(row["url"], str) or not (
+                    re.fullmatch(r"/groups/" + _OBJECT + r"/members\?\$select=id", row["url"])
+                    if beta_members_only else any(route.fullmatch(row["url"]) for route in ROUTES))):
             return False
         seen.add(row["id"])
     return True
@@ -69,7 +77,10 @@ class FirstPages:
     def __init__(self, reader, transport, fallback, urls, *, rounds=3):
         self.reader, self.transport, self.fallback, self.rounds = reader, transport, fallback, rounds
         unique = list(dict.fromkeys(url for url in urls if relative(url)))
-        self.chunks = [unique[offset:offset + MAX_REQUESTS] for offset in range(0, len(unique), MAX_REQUESTS)]
+        by_version = ([url for url in unique if url.startswith(PREFIX + "/")],
+                      [url for url in unique if url.startswith(BETA_PREFIX + "/")])
+        self.chunks = [group[offset:offset + MAX_REQUESTS] for group in by_version
+                       for offset in range(0, len(group), MAX_REQUESTS)]
         self.chunk_of = {url: number for number, chunk in enumerate(self.chunks) for url in chunk}
         self.workers = max(1, reader.workers)
         # One shared bound for batch POSTs and fall-through reads keeps wire
@@ -97,7 +108,8 @@ class FirstPages:
             self.reader.check_cancelled()
             with self.lock:
                 self.posts += 1
-            return self.transport.request(BATCH_URL, body=body, audience=GRAPH)
+            batch_url = BETA_PREFIX + "/$batch" if urls[0].startswith(BETA_PREFIX + "/") else BATCH_URL
+            return self.transport.request(batch_url, body=body, audience=GRAPH)
 
     def _fetch(self, chunk):
         values, pending = {}, list(chunk)

@@ -402,6 +402,8 @@ def principal_verdict(snapshot, entry, statement, path):
         entry["external_id_condition"] = has_external_id(condition)
         if snapshot["provider"] == "gcp" and condition is not None:
             return "MANUAL", "external_conditional"
+        if kind in ("VaultAccessPolicy", "GroupMember") and isinstance(statement, dict) and statement.get("keyVaultAccessPolicy") and statement.get("applicationId"):
+            return "MANUAL", "application_and_principal_required"
         return "FAIL", "external"
     if classification == "everyone_authenticated":
         return "MANUAL", "everyone_authenticated"
