@@ -1690,6 +1690,10 @@ class AzureTransport:
     def request_databricks(self, url):
         return azure_databricks_native.request_metadata(url, self.auth)
 
+    def request_databricks_workspace_ip(self, host, workspace_id, path, token):
+        from . import azure_databricks_workspace_ip_native
+        return azure_databricks_workspace_ip_native.request_policy(host, workspace_id, path, token)
+
     def close(self):
         cache = getattr(self, "response_cache", None)
         if cache is not None:
@@ -2526,6 +2530,8 @@ def collect(connector, requirements=None, *, transport=None):
     azure_selected_aks_image_20261021.selected_targets(options, connector.get('scopes', []), options.get('_azure_aks_image_named_checks', []))
     azure_acr_image_vulnerabilities_20261021.selected_targets(options, connector.get('scopes', []))
     azure_databricks_native.validate_auth(auth)
+    from . import azure_databricks_workspace_ip_native
+    azure_databricks_workspace_ip_native.validate_auth(auth)
     azure_databricks_native.normalize(options)
     wanted = _selected(options, requirements)
     if auto_app_settings and azure_app_settings_secret_indicators.KIND in wanted:
@@ -3857,6 +3863,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_aks_legacy_projection_review_20261020.collect_diagnostics(reader, request, scopes, wanted)
         azure_aks_legacy_projection_review_20261020.collect_hsm_categories(reader, request, scopes, wanted)
         azure_databricks_native.collect(reader, request, transport, scopes, wanted, options, auth)
+        azure_databricks_workspace_ip_native.collect(reader, transport, scopes, wanted, auth)
         azure_devops_git_native.collect(reader, request, transport, scopes, wanted, options, auth)
         azure_devops_pipeline_native.collect(reader, request, transport, scopes, wanted, options, auth)
         from .azure_docker_assessment_native import collect as collect_docker_assessment_metadata

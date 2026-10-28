@@ -5483,7 +5483,35 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
     elif access == "Enabled":
         a.step("public_network_access", "allow", public_network_access=access)
         a.ports = pset("tcp", 443, 443)
-        a.gap("policy", "Databricks workspace IP access lists and account context-based ingress policy are not in the ARM workspace response")
+        policies = [row for row in inventory.items('databricks_workspace_ip_policy')
+                    if str(native_id(row)).casefold() == str(native_id(resource)).casefold()]
+        if len(policies) != 1 or policies[0]['data'].get('policyStatus') != 'collected':
+            a.gap('policy', 'Databricks workspace IP access lists unavailable or uncollected')
+        else:
+            policy = policies[0]['data']
+            enabled = policy.get('ipAccessListsEnabled')
+            lists = policy.get('ipAccessLists')
+            if type(enabled) is not bool or not isinstance(lists, list):
+                a.gap('policy', 'Databricks workspace IP access lists malformed')
+            else:
+                active = [item for item in lists if isinstance(item, dict) and item.get('enabled') is True]
+                allow = [item for item in active if item.get('list_type') == 'ALLOW']
+                block = [item for item in active if item.get('list_type') == 'BLOCK']
+                if enabled and any('0.0.0.0/0' in item.get('ip_addresses', []) for item in block):
+                    a.step('workspace_ip_access_lists', 'block', active_allow_lists=len(allow), active_block_lists=len(block))
+                    a.ports = {}
+                elif enabled and allow and all(
+                        isinstance(item.get('ip_addresses'), list) and all(
+                            (network := _cidr(cidr)) is not None and network.version == 4 and any(
+                                network.subnet_of(ipaddress.ip_network(private)) for private in
+                                ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
+                            for cidr in item['ip_addresses']) for item in allow):
+                    a.step('workspace_ip_access_lists', 'block', active_allow_lists=len(allow), active_block_lists=len(block))
+                    a.ports = {}
+                else:
+                    a.step('workspace_ip_access_lists', 'allow', enabled=enabled,
+                           active_allow_lists=len(allow), active_block_lists=len(block))
+                    a.gap('policy', 'Databricks account context-based ingress policy unavailable')
         if not a.addresses:
             a.gap("inventory", "Databricks workspaceUrl is unavailable")
     else:
