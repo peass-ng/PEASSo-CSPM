@@ -160,3 +160,24 @@ review changes still renders and uploads its own Markdown. Focused
 publication tests passed 11/11. A broader suite passed 44/57; the 13 worker
 handoff failures never reached publication and one was reproduced on the
 unchanged publisher.
+
+## ECS scheduled-task privesc inventory lookups
+
+A direct cProfile run of the saved AWS privesc evaluator showed repeated
+`items()` scans in the ECS new-task-definition/EventBridge precondition:
+over 27 million `items()` generator resumptions through nested candidate loops and 53.85 s
+profiled cumulative wall in that precondition under contention. The model
+now builds exact scope-bound sets of event rule ARNs, task-definition family
+prefixes and connected container instances once per immutable model instance.
+The same collected/unknown branches and target comparisons remain.
+
+Two paired privesc evaluations matched the complete 729,945-byte result,
+including 95 findings, 66 nodes and 113 edges (SHA-256
+`60dab8ee26185043a80159f707d775c9d4521f041f9fc4f6b498eb6e495fd448`
+after excluding nondeterministic timing metadata). Before→after wall / CPU
+was 38.62 / 11.78 s → 12.33 / 4.86 s in the first pair and
+22.35 / 9.87 s → 14.88 / 6.40 s in reversed order. Pair-process high-water
+RSS was 1.447 GB and 1.810 GB respectively; each pair shares one high-water
+mark, so variant memory cannot be separated. No cloud/API calls were made.
+The focused ECS scheduled-task and AWS follow-up privesc suites passed 129/129;
+the 1,717-file API source gate retained its 30 direct SDK sites.
