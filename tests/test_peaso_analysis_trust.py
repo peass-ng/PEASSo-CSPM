@@ -121,6 +121,42 @@ def test_azure_group_role_assignment_without_observed_external_member_is_not_cla
                 if row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL"]
 
 
+@pytest.mark.parametrize("principal,principal_type,item,condition,expected", [
+    ("guest", "User", {"type": "directory_user", "data": {"id": "guest", "userType": "Guest"}}, None, "FAIL"),
+    ("foreign-sp", "ServicePrincipal", {"type": "directory_service_principal", "data": {
+        "id": "foreign-sp", "appOwnerOrganizationId": "foreign"}}, None, "FAIL"),
+    ("guest", "User", {"type": "directory_user", "data": {"id": "guest", "userType": "Guest"}},
+     "@Resource[Microsoft.Storage/storageAccounts] StringEquals 'x'", "MANUAL"),
+])
+def test_direct_azure_external_role_assignment_preserves_condition(principal, principal_type, item,
+                                                                    condition, expected):
+    subscription, tenant = "/subscriptions/sub", "/tenants/home"
+    props = {"principalId": principal, "principalType": principal_type,
+             "roleDefinitionId": subscription + "/providers/Microsoft.Authorization/roleDefinitions/reader",
+             "scope": subscription}
+    if condition:
+        props["condition"] = condition
+    snapshot = make_snapshot("azure", [subscription], [
+        coll("role_assignment", [{"id": "assignment", "properties": props}], scope=subscription),
+        coll(item["type"], [item["data"]], scope=tenant),
+    ], metadata={"tenant_id": "home"})
+    rows = [row for row in review_findings(snapshot, resources(snapshot))
+            if row["check_id"] == "analysis.principal_exposure"]
+    assert len(rows) == 1 and rows[0]["status"] == expected
+    assert rows[0]["evidence"]["principals"][0]["principal"] == principal
+
+
+def test_unattributed_azure_role_assignee_is_unknown():
+    subscription = "/subscriptions/sub"
+    snapshot = make_snapshot("azure", [subscription], [coll("role_assignment", [{"id": "assignment",
+        "properties": {"principalId": "unattributed", "principalType": "ServicePrincipal",
+            "roleDefinitionId": subscription + "/providers/Microsoft.Authorization/roleDefinitions/reader",
+            "scope": subscription}}], scope=subscription)], metadata={"tenant_id": "home"})
+    rows = [row for row in review_findings(snapshot, resources(snapshot))
+            if row["check_id"] == "analysis.principal_exposure"]
+    assert len(rows) == 1 and rows[0]["status"] == "UNKNOWN"
+
+
 def test_azure_gallery_image_read_role_grant_to_external_guest():
     sub, tenant = "/subscriptions/sub", "/tenants/home"
     gallery = sub + "/resourceGroups/rg/providers/Microsoft.Compute/galleries/g"

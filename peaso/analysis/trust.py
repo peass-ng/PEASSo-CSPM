@@ -340,6 +340,8 @@ def principal_verdict(snapshot, entry, statement, path):
         entry["external_id_condition"] = has_external_id(condition)
         if kind in ("VaultAccessPolicy", "GroupMember") and isinstance(statement, dict) and statement.get("keyVaultAccessPolicy") and statement.get("applicationId"):
             return "MANUAL", "application_and_principal_required"
+        if snapshot["provider"] == "azure" and condition:
+            return "MANUAL", "external_conditional"
         return "FAIL", "external"
     if classification == "everyone_authenticated":
         return "MANUAL", "everyone_authenticated"
