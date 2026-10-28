@@ -9642,6 +9642,7 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
     props = _props(resource)
     a = Assessment(resource, "public_ip")
     total, found, unresolved_route, unresolved_public = {}, False, False, False
+    open_addresses = []
     public_gaps = []
     for config in as_list(props.get("ipConfigurations")):
         if not isinstance(config, dict):
@@ -9685,11 +9686,14 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
                        nic=native_id(resource), at=config.get("name"))
                 unresolved_route = True
                 allowed = {}
+        if not empty(allowed):
+            open_addresses.append(address)
         total = union(total, allowed)
     if not found:
         return None
     a.ports = total
     if not empty(total):
+        a.addresses = sorted(set(open_addresses))
         a.blocked_by = None
         for gap in public_gaps:
             gap["decisive"] = False
