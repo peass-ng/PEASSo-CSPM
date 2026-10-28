@@ -454,6 +454,59 @@ def test_nsg_unresolved_public_source_tag_cannot_prove_closed_path():
     assert any(gap["layer"] == "nsg" and "service tag" in gap["reason"] for gap in row.unresolved)
 
 
+def test_nsg_joins_cached_subscription_service_tag_prefixes():
+    nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
+    subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
+    nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/nsg"
+    pip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/pip"
+
+    def verdict(prefixes, status="collected", preceding_deny=False):
+        rules = [{"name": "tag", "properties": {"priority": 200, "direction": "Inbound",
+            "access": "Allow", "protocol": "Tcp", "sourceAddressPrefix": "AzureCloud",
+            "destinationAddressPrefix": "*", "destinationPortRange": "443"}}]
+        if preceding_deny:
+            rules.insert(0, {"name": "unknown-deny", "properties": {"priority": 100,
+                "direction": "Inbound", "access": "Deny", "protocol": "Tcp",
+                "sourceAddressPrefix": "MissingTag", "destinationAddressPrefix": "*",
+                "destinationPortRange": "443"}})
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "service_tag", "scope": SCOPE, "service": "network", "status": status,
+             "items": [{"id": SCOPE + "/providers/Microsoft.Network/serviceTags/AzureCloud",
+                        "name": "AzureCloud", "properties": {"addressPrefixes": prefixes}}]},
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": pip_id, "sku": {"name": "Standard"},
+                        "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": nsg_id, "properties": {"securityRules": rules}}]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": subnet_id, "properties": {}}]},
+            {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": nic_id, "properties": {"networkSecurityGroup": {"id": nsg_id},
+                 "ipConfigurations": [{"name": "primary", "properties": {"subnet": {"id": subnet_id},
+                     "publicIPAddress": {"id": pip_id}, "privateIPAddress": "10.0.0.4"}}]}}]}])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "nic")
+
+    assert verdict(["20.1.2.0/24"]).verdict() == "FAIL"
+    assert verdict(["10.0.0.0/8"]).verdict() == "PASS"
+    assert verdict(["20.1.2.0/24"], status="partial").verdict() == "UNKNOWN"
+    assert verdict(["invalid"]).verdict() == "UNKNOWN"
+    assert verdict(["20.1.2.0/24"], preceding_deny=True).verdict() == "UNKNOWN"
+
+
+def test_nsg_unresolved_lower_priority_tag_does_not_hide_known_public_allow():
+    rules = [
+        {"name": "public", "properties": {"priority": 100, "direction": "Inbound",
+            "access": "Allow", "protocol": "Tcp", "sourceAddressPrefix": "8.8.8.8/32",
+            "destinationAddressPrefix": "*", "destinationPortRange": "443"}},
+        {"name": "unknown", "properties": {"priority": 200, "direction": "Inbound",
+            "access": "Deny", "protocol": "Tcp", "sourceAddressPrefix": "MissingTag",
+            "destinationAddressPrefix": "*", "destinationPortRange": "443"}},
+    ]
+    allowed, matched = _nsg_allowed({"data": {"properties": {"securityRules": rules}}})
+    assert allowed == {"tcp": ((443, 443),)}
+    assert not any(row.get("unresolved_public_source") for row in matched)
+
+
 def test_container_app_requires_public_environment_and_effective_ingress():
     env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"

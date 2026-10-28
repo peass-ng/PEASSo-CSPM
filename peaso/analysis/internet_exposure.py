@@ -3691,7 +3691,26 @@ def _props(resource):
     return data.get("properties") if isinstance(data.get("properties"), dict) else {}
 
 
-def _nsg_allowed(nsg, address=None, groups=()):
+def _azure_service_tag_ranges(inventory, scope):
+    """Resolve the subscription's already collected service-tag page once per scan."""
+    key = ("azure_service_tags", scope)
+    if key not in inventory.network_cache:
+        tags = {}
+        if inventory.state("service_tag", scope) in ("collected", "empty"):
+            for item in inventory.items("service_tag"):
+                if item["scope"] != scope:
+                    continue
+                name = item["data"].get("name")
+                prefixes = _props(item).get("addressPrefixes")
+                if not isinstance(name, str) or not isinstance(prefixes, list):
+                    continue
+                networks = [_cidr(prefix) for prefix in prefixes]
+                tags[name.casefold()] = networks if all(networks) else None
+        inventory.network_cache[key] = tags
+    return inventory.network_cache[key]
+
+
+def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
     props = _props(nsg)
     rules = [r for r in as_list(props.get("securityRules")) + as_list(props.get("defaultSecurityRules")) if isinstance(r, dict)]
     if not any((r.get("properties") or {}).get("priority", 0) >= 65000 for r in rules):
@@ -3703,12 +3722,19 @@ def _nsg_allowed(nsg, address=None, groups=()):
     for rule in ordered:
         p = rule.get("properties") or {}
         sources = as_list(p.get("sourceAddressPrefixes")) + as_list(p.get("sourceAddressPrefix"))
-        networks = [net for value in sources for net in _azure_restriction_sources(value)]
+        networks = []
+        unresolved = not sources
+        for value in sources:
+            direct = _azure_restriction_sources(value)
+            if direct:
+                networks.extend(direct)
+            elif isinstance(value, str) and service_tags is not None and service_tags.get(value.casefold()):
+                networks.extend(service_tags[value.casefold()])
+            else:
+                unresolved = True
         source_nets[id(rule)] = networks
-        if (p.get("direction", "Inbound") == "Inbound" and p.get("access") == "Allow"
-                and not p.get("sourceApplicationSecurityGroups")
-                and (not sources or any(not _azure_restriction_sources(value) and value != "VirtualNetwork"
-                                        for value in sources))):
+        if (p.get("direction", "Inbound") == "Inbound" and not p.get("sourceApplicationSecurityGroups")
+                and unresolved):
             unresolved_sources.add(id(rule))
         for net in networks:
             maximum = (1 << net.max_prefixlen) - 1
@@ -3719,10 +3745,6 @@ def _nsg_allowed(nsg, address=None, groups=()):
                     if candidate.is_global:
                         candidates.add(candidate)
     allowed, matched, seen = {}, [], set()
-    for rule in ordered:
-        if id(rule) in unresolved_sources:
-            matched.append({"rule": rule.get("name"), "priority": (rule.get("properties") or {}).get("priority"),
-                            "unresolved_public_source": True})
     for candidate in sorted(candidates, key=lambda ip: (ip.version, int(ip))):
         decided = {}
         for rule in ordered:
@@ -3755,6 +3777,13 @@ def _nsg_allowed(nsg, address=None, groups=()):
                 seen.add(key)
                 matched.append({"rule": rule.get("name"), "priority": p.get("priority"), "access": p.get("access"), "ports": describe(fresh)})
             decided = union(decided, ports)
+    first_allow = min((int(row["priority"]) for row in matched if row.get("access") == "Allow"), default=None)
+    for rule in ordered:
+        if id(rule) in unresolved_sources:
+            priority = int((rule.get("properties") or {}).get("priority", 4096))
+            if first_allow is None or priority <= first_allow:
+                matched.append({"rule": rule.get("name"), "priority": priority,
+                                "unresolved_public_source": True})
     return allowed, matched
 
 
@@ -3795,10 +3824,11 @@ def _azure_nsg_path(inventory, a, nic_nsg_id, subnet_id, ports, address=None, gr
             a.gap("nsg", f"{level} NSG {nsg_id} not collected", "Microsoft.Network/networkSecurityGroups")
             continue
         present += 1
-        allowed, matched = _nsg_allowed(nsg, address, groups)
+        allowed, matched = _nsg_allowed(nsg, address, groups,
+                                        _azure_service_tag_ranges(inventory, nsg["scope"]))
         unknown_here = any(row.get("unresolved_public_source") for row in matched)
         if unknown_here:
-            a.gap("nsg", f"{level} NSG has an allow rule with an unresolved source service tag or prefix")
+            a.gap("nsg", f"{level} NSG has a rule with an unresolved source service tag or prefix")
             unresolved_source = True
         result = intersect(result, allowed)
         if empty(result) and not unknown_here:
@@ -5783,7 +5813,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "media_cdn_service", "target_pool", "target_instance",
              "workstation", "workstation_cluster", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
-AZURE_TYPES = ["vnet", "subnet", "nsg", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
+AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
                "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
