@@ -49,7 +49,7 @@ def test_manifest_widening_and_missing_receipt_rejected(tmp_path, monkeypatch):
     for mutation in (
         lambda m: m['checks'].append(dict(m['checks'][0], check_id='azure.other.setting')),
         lambda m: m['checks'][0].update(saved_ai_disagreements=1),
-        lambda m: m['checks'][0].update(source_fields=['properties.unrelated']),
+        lambda m: m['checks'][0].update(dependencies=['unrelated_collection']),
         lambda m: m['replay_qualification'].update(hosted_receipt_sha256=None),
         lambda m: m.update(source_proof_sha256='c' * 64),
     ):
@@ -85,3 +85,17 @@ def test_partition_keeps_incomplete_and_other_provider_with_ai():
     coverage[0]['status'] = 'evaluated'
     assert native_final_azure.partition(rows, {cid}, coverage + [coverage[0]])[0] == []
     assert native_final_azure.partition(rows, {cid})[0] == []
+
+
+def test_scope_membership_needs_all_complete_dependencies():
+    cid = 'azure.claude.vm_backup_protected'
+    row = {'id': 'backup', 'provider': 'azure', 'category': 'hardening',
+           'status': 'FAIL', 'check_id': cid, 'scope': 's'}
+    coverage = [{'level': 'check', 'check_id': cid, 'scope': 's', 'status': 'evaluated'},
+                {'level': 'collection', 'type': 'vm', 'scope': 's', 'status': 'collected'},
+                {'level': 'collection', 'type': 'backup_protected_item', 'scope': 's', 'status': 'empty'}]
+    assert native_final_azure.partition([row], {cid}, coverage)[0] == [row]
+    coverage[2]['status'] = 'partial'
+    assert native_final_azure.partition([row], {cid}, coverage)[0] == []
+    coverage[2]['status'] = 'empty'
+    assert native_final_azure.partition([row], {cid}, coverage + [coverage[2]])[0] == []

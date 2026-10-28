@@ -1,4 +1,4 @@
-"""Verify the pending four-check Azure candidate against one saved scan.
+"""Verify the pending v2 Azure candidate against one saved scan.
 
 This is an offline saved-review parity check, not a hosted model or cost gate.
 Only counts and hashes are emitted.
@@ -56,14 +56,12 @@ def replay(candidate, before, after):
     if (type(checks) is not list or {row['check_id'] for row in checks} != set(EXPECTED)
             or len(checks) != len(EXPECTED)):
         raise ValueError('wrong_candidate_checks')
+    if candidate.get('version') != 2:
+        raise ValueError('wrong_candidate_version')
     for row in checks:
-        count, kind, fields = EXPECTED[row['check_id']]
-        if (set(row) != {'check_id', 'saved_fail_count', 'saved_ai_disagreements',
-                         'source_kind', 'source_fields'}
-                or row.get('saved_fail_count') != count
-                or row.get('saved_ai_disagreements') != 0
-                or row.get('source_kind') != kind
-                or row.get('source_fields') != list(fields)):
+        expected = {key: value for key, value in EXPECTED[row['check_id']].items()
+                    if key != 'decision'}
+        if row != expected:
             raise ValueError('wrong_candidate_count')
     native = _observations(before)
     final = _observations(after)
@@ -77,7 +75,7 @@ def replay(candidate, before, after):
     selected, remaining = partition(hardening, set(EXPECTED), before.get('coverage'))
     selected_ids = {row['id'] for row in selected}
     remaining_ids = {row['id'] for row in remaining}
-    if len(selected_ids) != len(selected) or len(selected) != sum(v[0] for v in EXPECTED.values()):
+    if len(selected_ids) != len(selected) or len(selected) != sum(v['saved_fail_count'] for v in EXPECTED.values()):
         raise ValueError('selected_count_mismatch')
     original_reviews = after['ai']['reviews']['hardening']
     review_by_id = {row['finding_id']: row for row in original_reviews}
@@ -100,10 +98,10 @@ def replay(candidate, before, after):
         if any(projected[ident].get(key) != final[ident].get(key) for key in fields):
             raise ValueError('projected_final_finding_changed')
     by_check = Counter(native[ident]['check_id'] for ident in selected_ids)
-    if any(by_check[ident] != EXPECTED[ident][0] for ident in EXPECTED):
+    if any(by_check[ident] != EXPECTED[ident]['saved_fail_count'] for ident in EXPECTED):
         raise ValueError('per_check_count_mismatch')
     return {
-        'version': 1,
+        'version': 2,
         'scan_id': SOURCE_SCAN,
         'snapshot_id': SNAPSHOT_ID,
         'pre_ai_sha256': PRE_SHA,

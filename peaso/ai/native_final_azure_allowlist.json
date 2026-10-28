@@ -2,42 +2,1639 @@
   "base_commit": "f204f3a5b25991390cb6baf2572710c4da8342bd",
   "checks": [
     {
+      "check_id": "azure.cis.agentless_scanning_machines_component_status",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "7d686e7b442781c179504533c5245a386158dae7c045e341b39b7098ab11542a",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/compliance_new_azure_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 21
+    },
+    {
+      "check_id": "azure.cis.defender_external_attack_surface_monitoring_easm",
+      "dependencies": [
+        "easm_workspace"
+      ],
+      "function_sha256": "bdf68f7ec17183f4e6b854dd51f0ab598ec1ba3089a08dfe245617a4539c9874",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_easm_native.py",
+      "source_kind": "easm_workspace",
+      "source_line": 55
+    },
+    {
+      "check_id": "azure.cis.file_integrity_monitoring_component_status",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "ed5db7a21fe2aa9cf526340262030bc4db6617fb098b8a5d14d4dbc55ddb24c6",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/compliance_new_azure_pricing.py",
+      "source_kind": "security_pricing",
+      "source_line": 96
+    },
+    {
+      "check_id": "azure.claude.acr_cmk",
+      "dependencies": [
+        "container_registry"
+      ],
+      "function_sha256": "dcb9715633fbb56e85681bb490b3b6ac268b3bb0842714c1b30e46657936a345",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_common.py",
+      "source_kind": "container_registry",
+      "source_line": 70
+    },
+    {
+      "check_id": "azure.claude.acr_public_network_access_disabled",
+      "dependencies": [
+        "container_registry"
+      ],
+      "function_sha256": "dcb9715633fbb56e85681bb490b3b6ac268b3bb0842714c1b30e46657936a345",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_common.py",
+      "source_kind": "container_registry",
+      "source_line": 70
+    },
+    {
+      "check_id": "azure.claude.acr_quarantine_policy",
+      "dependencies": [
+        "container_registry"
+      ],
+      "function_sha256": "dcb9715633fbb56e85681bb490b3b6ac268b3bb0842714c1b30e46657936a345",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_common.py",
+      "source_kind": "container_registry",
+      "source_line": 70
+    },
+    {
+      "check_id": "azure.claude.acr_retention_policy",
+      "dependencies": [
+        "container_registry"
+      ],
+      "function_sha256": "dcb9715633fbb56e85681bb490b3b6ac268b3bb0842714c1b30e46657936a345",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_common.py",
+      "source_kind": "container_registry",
+      "source_line": 70
+    },
+    {
+      "check_id": "azure.claude.acr_trust_policy",
+      "dependencies": [
+        "container_registry"
+      ],
+      "function_sha256": "dcb9715633fbb56e85681bb490b3b6ac268b3bb0842714c1b30e46657936a345",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_common.py",
+      "source_kind": "container_registry",
+      "source_line": 70
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_nsg_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_nsg_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_policy_assignment_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_policy_assignment_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_public_ip_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_public_ip_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_security_solution_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_security_solution_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_service_health",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "d6c7703d79e139dfb0ff8fbb59bc96fc3d0989cacac4eb9fdd6db0cb94372dc9",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 419
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_sql_firewall_rule_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_sql_firewall_rule_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "802f7540910a6be59ef652bedad2022f4bd3156a6137726e3cd0241ad462c625",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 351
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_administrative_operations",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_nsg_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_nsg_rule_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_nsg_rule_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_nsg_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_policy_assignment_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_policy_assignment_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_public_ip_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_public_ip_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_security_solution_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_security_solution_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_sql_firewall_rule_delete",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_sql_firewall_rule_write",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_sql_server",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "a000a11673bea5e16c35b4e540e9f2b5f322e9c12a01115acf6a2d78a6a82683",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 333
+    },
+    {
+      "check_id": "azure.claude.bastion_host_exists",
+      "dependencies": [
+        "bastion_host"
+      ],
+      "function_sha256": "3837838a0ad8a8e06d8fd21fb440403d4ae2482a12d63ca2316c96314cf837fe",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "bastion_host",
+      "source_line": 920
+    },
+    {
+      "check_id": "azure.claude.defender_alert_notifications_high",
+      "dependencies": [
+        "security_contact"
+      ],
+      "function_sha256": "d365df2af3c87371088db1b21a00068423c3c71b3b48687f48bab3ef1bf49b7f",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_data.py",
+      "source_kind": "security_contact",
+      "source_line": 39
+    },
+    {
+      "check_id": "azure.claude.defender_alerts_to_owner",
+      "dependencies": [
+        "security_contact"
+      ],
+      "function_sha256": "d365df2af3c87371088db1b21a00068423c3c71b3b48687f48bab3ef1bf49b7f",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_data.py",
+      "source_kind": "security_contact",
+      "source_line": 39
+    },
+    {
+      "check_id": "azure.claude.defender_assessment_system_updates",
+      "dependencies": [
+        "security_assessment"
+      ],
+      "function_sha256": "d365df2af3c87371088db1b21a00068423c3c71b3b48687f48bab3ef1bf49b7f",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_data.py",
+      "source_kind": "security_assessment",
+      "source_line": 39
+    },
+    {
+      "check_id": "azure.claude.defender_container_registry_vulnerability_scanning",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "d365df2af3c87371088db1b21a00068423c3c71b3b48687f48bab3ef1bf49b7f",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_data.py",
+      "source_kind": "security_pricing",
+      "source_line": 39
+    },
+    {
+      "check_id": "azure.claude.defender_database_plans_standard",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "d365df2af3c87371088db1b21a00068423c3c71b3b48687f48bab3ef1bf49b7f",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_data.py",
+      "source_kind": "security_pricing",
+      "source_line": 39
+    },
+    {
+      "check_id": "azure.claude.defender_plan_standard_any",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "ea6c2f64bf97bd3725b54907f5e28e0e48010a11d6c92bd6207b6aa8c6902c30",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 13,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_data.py",
+      "source_kind": "security_pricing",
+      "source_line": 232
+    },
+    {
+      "check_id": "azure.claude.disk_attached_cmk",
+      "dependencies": [
+        "disk"
+      ],
+      "function_sha256": "3313b28a8e81570febdb4b47ad29b0e1b55c00357c19955c02879d6a9163fbf2",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "disk",
+      "source_line": 75
+    },
+    {
+      "check_id": "azure.claude.disk_attached_customer_key",
+      "dependencies": [
+        "disk"
+      ],
+      "function_sha256": "3313b28a8e81570febdb4b47ad29b0e1b55c00357c19955c02879d6a9163fbf2",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "disk",
+      "source_line": 75
+    },
+    {
+      "check_id": "azure.claude.disk_attached_double_encryption",
+      "dependencies": [
+        "disk"
+      ],
+      "function_sha256": "3313b28a8e81570febdb4b47ad29b0e1b55c00357c19955c02879d6a9163fbf2",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "disk",
+      "source_line": 75
+    },
+    {
+      "check_id": "azure.claude.disk_unattached_cmk",
+      "dependencies": [
+        "disk"
+      ],
+      "function_sha256": "3313b28a8e81570febdb4b47ad29b0e1b55c00357c19955c02879d6a9163fbf2",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 3,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "disk",
+      "source_line": 75
+    },
+    {
+      "check_id": "azure.claude.disk_unattached_customer_key",
+      "dependencies": [
+        "disk"
+      ],
+      "function_sha256": "3313b28a8e81570febdb4b47ad29b0e1b55c00357c19955c02879d6a9163fbf2",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 3,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "disk",
+      "source_line": 75
+    },
+    {
+      "check_id": "azure.claude.entra_app_credential_not_expiring",
+      "dependencies": [
+        "directory_application"
+      ],
+      "function_sha256": "abb54c6c604694bdf317986fe832d4d9d9d9dda03980932a671ec9e97fa27ff6",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 3,
+      "source_basis": "recorded_timestamp_at_scan_time",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "directory_application",
+      "source_line": 662
+    },
+    {
+      "check_id": "azure.claude.entra_auth_methods_strong_registration",
+      "dependencies": [
+        "authentication_methods_policy"
+      ],
+      "function_sha256": "cf4fbb4fdfc54947b83592f9870049a7ef9a5ee1060f01713c3124c8bcb9eedf",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "authentication_methods_policy",
+      "source_line": 429
+    },
+    {
+      "check_id": "azure.claude.entra_global_admin_fewer_than_five",
+      "dependencies": [
+        "tenant",
+        "directory_role_assignment"
+      ],
+      "function_sha256": "a4769952eac7afdc184b3ed2fcd1fe3949f9580fb6d99420b56b52fdab509b55",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "tenant",
+      "source_line": 523
+    },
+    {
+      "check_id": "azure.claude.entra_guest_access_restricted",
+      "dependencies": [
+        "directory_authorization_policy"
+      ],
+      "function_sha256": "27227aa52ab45e1aee0cb80cbda7aab7cd61445f6ca4b138efdde7cf81993e07",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "directory_authorization_policy",
+      "source_line": 363
+    },
+    {
+      "check_id": "azure.claude.entra_guest_invites_admins_only",
+      "dependencies": [
+        "directory_authorization_policy"
+      ],
+      "function_sha256": "3da2efcefee921a781f1a4fe69c3fc2e7de9bf9f6ab25cbd283704ab8f9a1af6",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "directory_authorization_policy",
+      "source_line": 354
+    },
+    {
+      "check_id": "azure.claude.entra_m365_group_creation_restricted",
+      "dependencies": [
+        "tenant",
+        "directory_setting"
+      ],
+      "function_sha256": "62e2262daed3f1d168a776892767b1e999230de581ef3fa282bf4ed502b59486",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "tenant",
+      "source_line": 555
+    },
+    {
+      "check_id": "azure.claude.entra_non_privileged_user_mfa",
+      "dependencies": [
+        "directory_user",
+        "directory_role_assignment",
+        "user_registration_detail"
+      ],
+      "function_sha256": "22ed35668e46b01d0a178f7efc84f4708541a118d82fbf552c7fe0ffe2fbdddb",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 4,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "directory_user",
+      "source_line": 713
+    },
+    {
+      "check_id": "azure.claude.entra_privileged_user_mfa",
+      "dependencies": [
+        "directory_user",
+        "directory_role_assignment",
+        "user_registration_detail"
+      ],
+      "function_sha256": "22ed35668e46b01d0a178f7efc84f4708541a118d82fbf552c7fe0ffe2fbdddb",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 9,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "directory_user",
+      "source_line": 713
+    },
+    {
+      "check_id": "azure.claude.entra_user_consent_disabled",
+      "dependencies": [
+        "directory_authorization_policy"
+      ],
+      "function_sha256": "0e805166f55347204575cb01b71326620bec5b4491792aa3aad0ae06074d2944",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "directory_authorization_policy",
+      "source_line": 397
+    },
+    {
+      "check_id": "azure.claude.keyvault_audit_and_alllogs_groups",
+      "dependencies": [
+        "vault"
+      ],
+      "function_sha256": "ece8064af717c559b2fea615eb4bf5a758d4afd3f30359898ce92d27ca1c3a45",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "vault",
+      "source_line": 1169
+    },
+    {
+      "check_id": "azure.claude.keyvault_audit_logging",
+      "dependencies": [
+        "vault"
+      ],
+      "function_sha256": "76a9b07ee7a513bf52dcb921123080d6c2fe4b1941ed48f351c5b9539fa8dd67",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_identity.py",
+      "source_kind": "vault",
+      "source_line": 1154
+    },
+    {
+      "check_id": "azure.claude.network_watcher_flow_logs_retention_90",
+      "dependencies": [
+        "network_watcher"
+      ],
+      "function_sha256": "36f3a4399edd8f6c74ecf7f1e67ff56ab710e28e1eb1d2fc9002cb94628b7173",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 10,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "network_watcher",
+      "source_line": 1104
+    },
+    {
+      "check_id": "azure.claude.network_watcher_flow_logs_traffic_analytics",
+      "dependencies": [
+        "network_watcher"
+      ],
+      "function_sha256": "93485e01253bfea96cb41fbc903500d9be3d50b5a682a54d9c47cd172e47ecb5",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 10,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "network_watcher",
+      "source_line": 1090
+    },
+    {
+      "check_id": "azure.claude.nsg_associated_with_subnet",
+      "dependencies": [
+        "nsg"
+      ],
+      "function_sha256": "5c5adaafc5e4bac2d76475a4338a5f3283f87b4bf2ffca1c2cca66a665622720",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 3,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "nsg",
+      "source_line": 964
+    },
+    {
+      "check_id": "azure.claude.nsg_diagnostic_logging",
+      "dependencies": [
+        "nsg"
+      ],
+      "function_sha256": "19a109b330ae1f0560a8d0d6946cc902c534c2da75df9c47b8f6674453844fc4",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 3,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "nsg",
+      "source_line": 676
+    },
+    {
+      "check_id": "azure.claude.subnet_nsg_associated",
+      "dependencies": [
+        "subnet"
+      ],
+      "function_sha256": "32b9f3f5d5ec3d1c07c4286f5e4ec716fc8e7e6afa792bba7e995227887167b7",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 4,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "subnet",
+      "source_line": 981
+    },
+    {
+      "check_id": "azure.claude.subscription_diagnostic_setting_any_categories",
+      "dependencies": [
+        "subscription_diagnostic_setting"
+      ],
+      "function_sha256": "da183f7d1ddab6df0ca5eaa77b1bd72ae4b729f01117f9b98f275bb8ca4cadb5",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "subscription_diagnostic_setting",
+      "source_line": 491
+    },
+    {
+      "check_id": "azure.claude.subscription_diagnostic_setting_exists",
+      "dependencies": [
+        "subscription_diagnostic_setting"
+      ],
+      "function_sha256": "a62445cb8a7e88e23e4441471e2b79a70ea213b76cd033951cb24fae6fd19dae",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_network.py",
+      "source_kind": "subscription_diagnostic_setting",
+      "source_line": 465
+    },
+    {
+      "check_id": "azure.claude.vm_antimalware_auto_upgrade",
+      "dependencies": [
+        "vm"
+      ],
+      "function_sha256": "594fe4dff40f598ee768494fa5e2a412f9779be57bfd048b49a147e16255fc48",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "vm",
+      "source_line": 118
+    },
+    {
+      "check_id": "azure.claude.vm_antimalware_extension",
+      "dependencies": [
+        "vm"
+      ],
+      "function_sha256": "594fe4dff40f598ee768494fa5e2a412f9779be57bfd048b49a147e16255fc48",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "vm",
+      "source_line": 118
+    },
+    {
+      "check_id": "azure.claude.vm_backup_protected",
+      "dependencies": [
+        "vm",
+        "backup_protected_item"
+      ],
+      "function_sha256": "0950ad7bdad017a787df6757cb24a5a3a2bb67290133ad08d0930ba53207be1e",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "vm",
+      "source_line": 537
+    },
+    {
+      "check_id": "azure.claude.vm_dependency_agent_windows",
+      "dependencies": [
+        "vm"
+      ],
+      "function_sha256": "594fe4dff40f598ee768494fa5e2a412f9779be57bfd048b49a147e16255fc48",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "vm",
+      "source_line": 118
+    },
+    {
+      "check_id": "azure.claude.vm_guest_configuration_extension",
+      "dependencies": [
+        "vm"
+      ],
+      "function_sha256": "594fe4dff40f598ee768494fa5e2a412f9779be57bfd048b49a147e16255fc48",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "vm",
+      "source_line": 118
+    },
+    {
+      "check_id": "azure.claude.vm_guest_configuration_extension_windows",
+      "dependencies": [
+        "vm"
+      ],
+      "function_sha256": "594fe4dff40f598ee768494fa5e2a412f9779be57bfd048b49a147e16255fc48",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "vm",
+      "source_line": 118
+    },
+    {
+      "check_id": "azure.claude.vm_jit_access",
+      "dependencies": [
+        "vm",
+        "jit_network_access_policy"
+      ],
+      "function_sha256": "4f46887138397a082e96615308e7722986f40a1e85912c73de73d81a0b59ba90",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "vm",
+      "source_line": 497
+    },
+    {
+      "check_id": "azure.claude.vm_site_recovery_enabled",
+      "dependencies": [
+        "vm",
+        "resource_link"
+      ],
+      "function_sha256": "a5f715bfa6c385caf99bef22a5d5155ba2c7b42098cb7164117089c7d8616523",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude_azure_compute.py",
+      "source_kind": "vm",
+      "source_line": 514
+    },
+    {
+      "check_id": "azure.claude2.activity_log_alert_service_health",
+      "dependencies": [
+        "activity_log_alert",
+        "resource_group"
+      ],
+      "function_sha256": "752c4ed41e6bd1b1428edbf71408c127a7bcd0773f2f3c2c449725f39cf128b0",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude2_azure_common.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 48
+    },
+    {
+      "check_id": "azure.claude2.entra_custom_banned_password_enforced",
+      "dependencies": [
+        "tenant",
+        "directory_setting"
+      ],
+      "function_sha256": "90a0ddc697edbe336ef47374b51221920ecd5d6316d8b454e9816b4b7ecb0962",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude2_azure_identity.py",
+      "source_kind": "tenant",
+      "source_line": 21
+    },
+    {
+      "check_id": "azure.claude2.entra_device_join_requires_mfa",
+      "dependencies": [
+        "tenant",
+        "directory_device_registration_policy"
+      ],
+      "function_sha256": "90a0ddc697edbe336ef47374b51221920ecd5d6316d8b454e9816b4b7ecb0962",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude2_azure_identity.py",
+      "source_kind": "tenant",
+      "source_line": 21
+    },
+    {
+      "check_id": "azure.claude2.entra_global_admin_between_2_and_4",
+      "dependencies": [
+        "tenant",
+        "directory_role_assignment"
+      ],
+      "function_sha256": "90a0ddc697edbe336ef47374b51221920ecd5d6316d8b454e9816b4b7ecb0962",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude2_azure_identity.py",
+      "source_kind": "tenant",
+      "source_line": 21
+    },
+    {
+      "check_id": "azure.claude2.entra_lockout_duration_min_60",
+      "dependencies": [
+        "tenant",
+        "directory_setting"
+      ],
+      "function_sha256": "90a0ddc697edbe336ef47374b51221920ecd5d6316d8b454e9816b4b7ecb0962",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude2_azure_identity.py",
+      "source_kind": "tenant",
+      "source_line": 21
+    },
+    {
+      "check_id": "azure.claude2.entra_lockout_threshold_max_10",
+      "dependencies": [
+        "tenant",
+        "directory_setting"
+      ],
+      "function_sha256": "90a0ddc697edbe336ef47374b51221920ecd5d6316d8b454e9816b4b7ecb0962",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude2_azure_identity.py",
+      "source_kind": "tenant",
+      "source_line": 21
+    },
+    {
+      "check_id": "azure.claude2.entra_user_mfa_registered",
+      "dependencies": [
+        "user_registration_detail"
+      ],
+      "function_sha256": "f3b4db4654642b7edcf156b03d2481b46a3800840af5eaba1ddf728d5f82b60d",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 13,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude2_azure_identity.py",
+      "source_kind": "user_registration_detail",
+      "source_line": 158
+    },
+    {
+      "check_id": "azure.claude2.nsg_flow_log_configured",
+      "dependencies": [
+        "nsg",
+        "flow_log",
+        "nic"
+      ],
+      "function_sha256": "9ae4d89aa07006d8df0807d66459dd01118d8e254bfbb903b9d844a105eaa0fc",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude2_azure_network.py",
+      "source_kind": "nsg",
+      "source_line": 97
+    },
+    {
+      "check_id": "azure.claude2.nsg_flow_logs_to_log_analytics",
+      "dependencies": [
+        "flow_log",
+        "nsg",
+        "vnet"
+      ],
+      "function_sha256": "752c4ed41e6bd1b1428edbf71408c127a7bcd0773f2f3c2c449725f39cf128b0",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude2_azure_common.py",
+      "source_kind": "flow_log",
+      "source_line": 48
+    },
+    {
+      "check_id": "azure.claude2.vm_encryption_at_host",
+      "dependencies": [
+        "vm"
+      ],
+      "function_sha256": "b5d548a3b718a564e6cb282e08e4f66bdb023d2822606ee1f02fac46a3f941bb",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/claude2_azure_defender.py",
+      "source_kind": "vm",
+      "source_line": 58
+    },
+    {
+      "check_id": "azure.claude2.vnet_flow_logs_to_log_analytics",
+      "dependencies": [
+        "flow_log",
+        "vnet"
+      ],
+      "function_sha256": "752c4ed41e6bd1b1428edbf71408c127a7bcd0773f2f3c2c449725f39cf128b0",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/claude2_azure_common.py",
+      "source_kind": "flow_log",
+      "source_line": 48
+    },
+    {
       "check_id": "azure.defender.standard_tier",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "930cff713154427c3cc5c4e877b1d39aba39dc684627e4195f07220bf9062c09",
       "saved_ai_disagreements": 0,
       "saved_fail_count": 12,
-      "source_fields": [
-        "name",
-        "properties.pricingTier"
-      ],
-      "source_kind": "security_pricing"
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/azure_extended.py",
+      "source_kind": "security_pricing",
+      "source_line": 245
     },
     {
       "check_id": "azure.disk.private_export",
+      "dependencies": [
+        "disk"
+      ],
+      "function_sha256": "8549eaffd3dda00f270d03e154e7d5b0cb029d4ca0a21a77ed9a02f480f6f473",
       "saved_ai_disagreements": 0,
       "saved_fail_count": 5,
-      "source_fields": [
-        "properties.publicNetworkAccess",
-        "properties.networkAccessPolicy"
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/azure_extended.py",
+      "source_kind": "disk",
+      "source_line": 33
+    },
+    {
+      "check_id": "azure.encryption.automation_cmk_declared",
+      "dependencies": [
+        "automation_account",
+        "automation_cmk_declaration"
       ],
-      "source_kind": "disk"
+      "function_sha256": "f5eaf03ede8259fbfc8145116e5ccd66aad31abec0769ac87e82bf1f7c994c6d",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/azure_automation_aci_metadata_review_20261020.py",
+      "source_kind": "automation_account",
+      "source_line": 61
+    },
+    {
+      "check_id": "azure.htbp.entra.temporary_access_pass_one_time",
+      "dependencies": [
+        "authentication_methods_policy"
+      ],
+      "function_sha256": "66de431b10d4f724f8ff7391116df58fc088fc66226ca0c7ee5cf4a3ba44fad5",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/hacktricks_bp_common.py",
+      "source_kind": "authentication_methods_policy",
+      "source_line": 53
+    },
+    {
+      "check_id": "azure.network.ddos_configured",
+      "dependencies": [
+        "vnet"
+      ],
+      "function_sha256": "41601f6110d325d3038ad5c33f860e2b339851037de4c1760e4b64a9c0132324",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 3,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/facts.py",
+      "source_kind": "vnet",
+      "source_line": 61
+    },
+    {
+      "check_id": "azure.network.subnet_has_consumer_or_reservation_reference",
+      "dependencies": [
+        "subnet"
+      ],
+      "function_sha256": "5d208878eaeb4091093ed7766c3f2590d9daba29d1336273b54f47616d1f4a5e",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 4,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/unused_network_azure_20261021.py",
+      "source_kind": "subnet",
+      "source_line": 192
+    },
+    {
+      "check_id": "azure.other.entra_app_secret_age_90",
+      "dependencies": [
+        "application_scope",
+        "directory_application"
+      ],
+      "function_sha256": "25c1b5914e3f40a24de9e110c924013d3f00f5bd490f9c2923e0cb193122e6ea",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_timestamp_at_scan_time",
+      "source_file": "peaso/checks/azure_graph_credential_age.py",
+      "source_kind": "application_scope",
+      "source_line": 123
+    },
+    {
+      "check_id": "azure.port.ad_authorization_policy_guest_invite_restricted",
+      "dependencies": [
+        "directory_authorization_policy"
+      ],
+      "function_sha256": "f613649ae4105d07f899807c1cc65a4809946713bff0119fe8ebdb70c160f5b2",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/azure_ports_directory.py",
+      "source_kind": "directory_authorization_policy",
+      "source_line": 54
+    },
+    {
+      "check_id": "azure.port.ad_authorization_policy_guest_user_access_restricted",
+      "dependencies": [
+        "directory_authorization_policy"
+      ],
+      "function_sha256": "a1949e555b513d5aab07dfab7361c1802e7ec55ae08b9628dea148503a2beeaf",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/azure_ports_directory.py",
+      "source_kind": "directory_authorization_policy",
+      "source_line": 64
+    },
+    {
+      "check_id": "azure.port.ad_authorization_policy_user_consent_disallowed",
+      "dependencies": [
+        "directory_authorization_policy"
+      ],
+      "function_sha256": "3e6fbcb71e2e22f34a2ac332ce39d2751da57cbd34af5c1fca94f87a61857966",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/azure_ports_directory.py",
+      "source_kind": "directory_authorization_policy",
+      "source_line": 82
+    },
+    {
+      "check_id": "azure.port.ad_authorization_policy_user_consent_verified_publishers_selected_permissions",
+      "dependencies": [
+        "directory_authorization_policy"
+      ],
+      "function_sha256": "fca663569f6b134b0fa3de04ef085cb5cb02da5e6fd3686fd72bb570eaef4227",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/azure_ports_directory.py",
+      "source_kind": "directory_authorization_policy",
+      "source_line": 91
+    },
+    {
+      "check_id": "azure.port.ad_security_defaults_policy_enabled",
+      "dependencies": [
+        "directory_security_defaults"
+      ],
+      "function_sha256": "f3694cab851763fde4b0b9c696be91dfbc3636a7bf119e182b7229b0ce5989f3",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/azure_ports_directory.py",
+      "source_kind": "directory_security_defaults",
+      "source_line": 41
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_policy_assignment",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_update_nsg",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_update_public_ip_address",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_update_security_solution",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_update_sql_servers_firewall_rule",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_nsg",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_policy_assignment",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_public_ip_address",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_security_solution",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_sql_servers_firewall_rule",
+      "dependencies": [
+        "activity_log_alert"
+      ],
+      "function_sha256": "399e103657ce9f18f910941f3cf217d173df852199006700ad2a8d32bbb37ddd",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_monitor.py",
+      "source_kind": "activity_log_alert",
+      "source_line": 59
+    },
+    {
+      "check_id": "azure.port.security_center_defender_for_api_enabled",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.security_center_defender_for_cloudposture_enabled",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_appservice",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_containerregistry",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "149b5cf324b0eb18e6646d092b4787adbe47a2112f40a310048c1fe70bd4d49d",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_legacy_plans.py",
+      "source_kind": "security_pricing",
+      "source_line": 19
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_containers",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_cosmosdb",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_database",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "8d8b4a50f2f99693136ebbada98b623497a6de46666f0e03973a3e18515e365f",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 92
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_dns",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "149b5cf324b0eb18e6646d092b4787adbe47a2112f40a310048c1fe70bd4d49d",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_legacy_plans.py",
+      "source_kind": "security_pricing",
+      "source_line": 19
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_k8s",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "149b5cf324b0eb18e6646d092b4787adbe47a2112f40a310048c1fe70bd4d49d",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_legacy_plans.py",
+      "source_kind": "security_pricing",
+      "source_line": 19
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_keyvault",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_opensource_relational_db",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_resource_manager",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_server",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_sqldb",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_sqlservervm",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_storage",
+      "dependencies": [
+        "security_pricing"
+      ],
+      "function_sha256": "0c9d250b1240c832bd506838c067e54c15ce20bf383fa3f14a0911df6dba6e36",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "complete_collection_membership_or_count",
+      "source_file": "peaso/checks/azure_ports_defender.py",
+      "source_kind": "security_pricing",
+      "source_line": 71
     },
     {
       "check_id": "azure.vault.no_public_network",
+      "dependencies": [
+        "vault"
+      ],
+      "function_sha256": "41601f6110d325d3038ad5c33f860e2b339851037de4c1760e4b64a9c0132324",
       "saved_ai_disagreements": 0,
       "saved_fail_count": 2,
-      "source_fields": [
-        "properties.publicNetworkAccess"
-      ],
-      "source_kind": "vault"
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/facts.py",
+      "source_kind": "vault",
+      "source_line": 61
     },
     {
       "check_id": "azure.vault.rbac",
+      "dependencies": [
+        "vault"
+      ],
+      "function_sha256": "41601f6110d325d3038ad5c33f860e2b339851037de4c1760e4b64a9c0132324",
       "saved_ai_disagreements": 0,
       "saved_fail_count": 2,
-      "source_fields": [
-        "properties.enableRbacAuthorization"
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/facts.py",
+      "source_kind": "vault",
+      "source_line": 61
+    },
+    {
+      "check_id": "azure_directory_user_keyvault_rbac_secret_expiration_set_e2e0e28",
+      "dependencies": [
+        "service_principal_scope",
+        "directory_service_principal"
       ],
-      "source_kind": "vault"
+      "function_sha256": "75c2cd591a575870b60a48e9c6109203c92d95bfc9e675a70b7f89468ca4e3a5",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 1,
+      "source_basis": "recorded_timestamp_at_scan_time",
+      "source_file": "peaso/checks/azure_graph_credential_age.py",
+      "source_kind": "service_principal_scope",
+      "source_line": 142
+    },
+    {
+      "check_id": "azure_vm_monitor_diagnostic_setting_with_appropriate_categories_4e20679",
+      "dependencies": [
+        "vm"
+      ],
+      "function_sha256": "beb46fffa1b83a29ccdeb36c5cbcc458f9e5ea9bbe3980ad60e16f330ee60186",
+      "saved_ai_disagreements": 0,
+      "saved_fail_count": 2,
+      "source_basis": "recorded_api_boolean_enum_or_count",
+      "source_file": "peaso/checks/compliance_new_azure_network_monitoring.py",
+      "source_kind": "vm",
+      "source_line": 187
     }
   ],
   "replay_qualification": {
@@ -47,12 +1644,49 @@
   },
   "snapshot_id": "sha256:08597df6a1b6f6199eab1c8018409c969bcd9eff2e81b6c2f0bb2bdf76aea301",
   "source_hashes": {
-    "peaso/checks/azure.py": "616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e",
+    "peaso/checks/azure_acr_image_secret_review_20261020.py": "35cedadfac4e25d2ae11c43ce9ec82647270bc5fd85ea9571ddad5d31626e1ac",
+    "peaso/checks/azure_acr_image_vulnerabilities_20261021.py": "65765fa530d831b39dd37414fc79502eec10e77971cfd58daa447c54d76606f7",
+    "peaso/checks/azure_automation_aci_metadata_review_20261020.py": "a70eaf5b81e76f044e2a65b0deee5f9a3dd30d2b86c6f3146670fd59bbe59e9a",
+    "peaso/checks/azure_devops_selected_content_secret_review_20261020.py": "3cf90c69336a559bc48fdf755a468f3d1c03cc9862753549ee310a5b459b033d",
+    "peaso/checks/azure_easm_native.py": "d75e42848fae6c53b0f9e29fdb5c568325bbf8f2e136a7dcc435c58b1036f94b",
     "peaso/checks/azure_extended.py": "9c05c602d4279a46c6926b04041a9c8a4d67b3532d8677eb3ca07ee08927517a",
+    "peaso/checks/azure_function_package_integrated_consumer_20261020.py": "277b1e6115a683b72c7fbcebbde6eb163dff34196359a61af0c1b78e05de1129",
+    "peaso/checks/azure_function_settings_runtime_consumer_20261020.py": "411689c7e89c3f70baa29eb3a235b1ee0ecffbdb6d8fbc6b2543be269c23451c",
+    "peaso/checks/azure_graph_credential_age.py": "ba0b2f87162cbace267cb0d630f05655d59239b287d9e7ae6b4f8744cc30a7b4",
+    "peaso/checks/azure_ports_common.py": "fecc85e228e2e81538fc879cd32107618b2b85a248934528c8b0dd7f34beb7e5",
+    "peaso/checks/azure_ports_defender.py": "d0a6f7f7a1d1d638f6894549544857afa0ddfbb4c28116c5ccace2581b3a04e2",
+    "peaso/checks/azure_ports_directory.py": "52a2516b959abf913ad1ff6a4c74e2a505d57272804cce405ef90a7846ebd2e3",
+    "peaso/checks/azure_ports_legacy_plans.py": "35d471efffc5e0462affbde293a7a90d94e074634acf80754b3937c3e7270129",
+    "peaso/checks/azure_ports_monitor.py": "939d33c0476f284435e2295d8eaafb2824e9369f1d98d4bc187879cf5e29efca",
+    "peaso/checks/azure_ports_vault.py": "0ae6ac5b5d57eb5d7dfc3292dc72c83502987a3ca20f7312afa9493d88765948",
+    "peaso/checks/azure_selected_declaration_secret_review_20261020.py": "450fd027e844998211f439e82f62c2882f78b720cc491ea661ec3c97688ee956",
+    "peaso/checks/batch_remaining_azure_vm_storage.py": "0187ed059727be920fdeb3500d1dda17c0e6528f99aff6aee4be8898a7bd206c",
+    "peaso/checks/claude2_azure_common.py": "3e0a702be14e9ee590ca20e182cfe967e8857c3fca5ea19e5b5def3cb131cf7b",
+    "peaso/checks/claude2_azure_defender.py": "4fc86174953b378c0dc32b99b4aa81677df79cad21ba08be9245e27bb478eab7",
+    "peaso/checks/claude2_azure_identity.py": "e55b65f932737ff3a169a797ec461da6e830024f48017220e17e1fa2bdc76323",
+    "peaso/checks/claude2_azure_network.py": "49e5d6a1907d4fd9405b82eb413256f73fbb23134652d19615319b460643f1cb",
+    "peaso/checks/claude_azure_common.py": "eb312becf02c6548e803f5662abd5bc08400653295f24de7e9047ba27e8b4ea1",
+    "peaso/checks/claude_azure_compute.py": "9b21de8a6af39dd5a08dc46fa9e6f2d891375b575fba50f1e96697fe07f042e1",
+    "peaso/checks/claude_azure_data.py": "e8fd6583fe2d61fd07a2001a3d91c1a7983998e0e76b33add898f8a097af377b",
+    "peaso/checks/claude_azure_identity.py": "1888c282670451c0aebce38b9597019ffccac20bfbeaad181b3ffe33ac2c3ab8",
+    "peaso/checks/claude_azure_network.py": "e7a0cddf4c9adc96efe9ae665575c0f1187fb065bf9393ca4e5bff514faf760c",
+    "peaso/checks/compliance_new_azure.py": "fccbf54138b302d1df0dc6524e5e1864d277115c5e6b434308ba8ae4c7d66677",
+    "peaso/checks/compliance_new_azure_defender.py": "dcfecd22da166ba1fa08589361d7a97698cfbf203a22c633f0a17ca3822b34db",
+    "peaso/checks/compliance_new_azure_network_monitoring.py": "6e5069ecbeaf93c6ad729ec48601431d497f638441bdd2bb39f2f7d9c00d1bdb",
+    "peaso/checks/compliance_new_azure_pricing.py": "b97b0652321a213777fa874fd8b48b0091b1d1893dc841b8e5f918b3acabf531",
+    "peaso/checks/compliance_new_sw19.py": "70a39b075479dcb80a1d9857c111c9cd43b33814c74c3631ff1a820fc57d3a71",
+    "peaso/checks/compliance_new_sw25.py": "96bb333182fb09245c261da2309e50f0f4727c044a97d4fc6d120c0b72fa3a85",
+    "peaso/checks/compliance_new_sw33.py": "aee51ad51345776f5861f0f90e82d4bab862e00d41c0a017363df80404c48a15",
     "peaso/checks/facts.py": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
-    "peaso/collectors/azure.py": "ba4b8bc54cdcbb1e35ef50a7dea9d04928a6fe5ed6ca885e4722ec1c8e750d67"
+    "peaso/checks/hacktricks_bp_common.py": "a7f127c0ecd1a2876c4ea1124304709cf68feff80c5a9d8564b62193d0226b5e",
+    "peaso/collectors/azure.py": "ba4b8bc54cdcbb1e35ef50a7dea9d04928a6fe5ed6ca885e4722ec1c8e750d67",
+    "peaso/unused_iam_azure.py": "23a89805c07a6ef8bc28f5b60f95b1f71779304599e183526b885c5213683be6",
+    "peaso/unused_iam_azure_arm_roles.py": "3a67ae42f5b29a12ea65350e477e2b04597625361f87db643948f1fd4c5d2674",
+    "peaso/unused_iam_azure_roles.py": "282d9d380c5cd7c9b20cd964351ef65a57a202ec0e24b802548e74bbf3bfffd8",
+    "peaso/unused_iam_azure_user_completion.py": "3bf477c6e5f9455ffbee05996afd6e5af405afd8dc19e3c5c0d77f3dc4f5227c",
+    "peaso/unused_network_azure_20261021.py": "8bc5856d984908fe88f1b7f38d3d22b6283479bb2d3a5fb45908a6a14ca2e5c4"
   },
-  "source_proof_sha256": "a1367e6ce1cecb5a87c768a52704a5be87d7cbae50f2fca45df376650c3a829c",
+  "source_proof_sha256": "3048285a3e2c832171538ead574fe6df915e54f9b0875a7458210f3365178c0a",
   "source_scan_id": "a79ff6f9331246bd9e4f4bf6ba6fa207",
-  "version": 1
+  "version": 2
 }

@@ -14,19 +14,33 @@ MANIFEST = Path(__file__).with_name('native_final_azure_allowlist.json')
 SOURCE_SCAN = 'a79ff6f9331246bd9e4f4bf6ba6fa207'
 SNAPSHOT_ID = 'sha256:08597df6a1b6f6199eab1c8018409c969bcd9eff2e81b6c2f0bb2bdf76aea301'
 BASE_COMMIT = 'f204f3a5b25991390cb6baf2572710c4da8342bd'
-SOURCE_PROOF_SHA256 = 'a1367e6ce1cecb5a87c768a52704a5be87d7cbae50f2fca45df376650c3a829c'
-SOURCE_HASHES = {
-    'peaso/checks/azure.py': '616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e',
-    'peaso/checks/azure_extended.py': '9c05c602d4279a46c6926b04041a9c8a4d67b3532d8677eb3ca07ee08927517a',
-    'peaso/checks/facts.py': '15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926',
-    'peaso/collectors/azure.py': 'ba4b8bc54cdcbb1e35ef50a7dea9d04928a6fe5ed6ca885e4722ec1c8e750d67',
-}
-EXPECTED = {
-    'azure.defender.standard_tier': (12, 'security_pricing', ('name', 'properties.pricingTier')),
-    'azure.disk.private_export': (5, 'disk', ('properties.publicNetworkAccess', 'properties.networkAccessPolicy')),
-    'azure.vault.no_public_network': (2, 'vault', ('properties.publicNetworkAccess',)),
-    'azure.vault.rbac': (2, 'vault', ('properties.enableRbacAuthorization',)),
-}
+SOURCE_PROOF_SHA256 = '3048285a3e2c832171538ead574fe6df915e54f9b0875a7458210f3365178c0a'
+SOURCE_PROOF = Path(__file__).resolve().parents[2] / 'docs/ai-review/native-final-azure-source-audit-v2.json'
+
+
+def _source_proof():
+    raw = SOURCE_PROOF.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != SOURCE_PROOF_SHA256:
+        raise ValueError('azure_source_proof_drift')
+    value = json.loads(raw)
+    if (value.get('version') != 2 or value.get('scan_id') != SOURCE_SCAN
+            or value.get('snapshot_id') != SNAPSHOT_ID
+            or value.get('exercised_check_count') != 224
+            or value.get('selected_check_count') != 124
+            or value.get('selected_native_fail_count') != 274
+            or value.get('exact_snapshot_status_evidence_parity') is not True):
+        raise ValueError('azure_source_proof_invalid')
+    return value
+
+
+try:
+    _PROOF = _source_proof()
+    SOURCE_HASHES = _PROOF['source_hashes']
+    EXPECTED = {row['check_id']: row for row in _PROOF['source_decisions']
+                if row['decision'] == 'admit_source_proven'}
+except (OSError, ValueError, TypeError, KeyError):
+    SOURCE_HASHES = {}
+    EXPECTED = {}
 
 
 def _digest(value):
@@ -47,7 +61,7 @@ def admitted_check_ids(path=MANIFEST):
         if (type(manifest) is not dict or set(manifest) != {
                 'version', 'source_scan_id', 'snapshot_id', 'base_commit',
                 'source_proof_sha256', 'source_hashes', 'replay_qualification', 'checks'}
-                or manifest['version'] != 1 or type(manifest['version']) is not int
+                or manifest['version'] != 2 or type(manifest['version']) is not int
                 or manifest['source_scan_id'] != SOURCE_SCAN
                 or manifest['snapshot_id'] != SNAPSHOT_ID
                 or manifest['base_commit'] != BASE_COMMIT
@@ -64,25 +78,24 @@ def admitted_check_ids(path=MANIFEST):
         checks = manifest['checks']
         if type(checks) is not list or len(checks) != len(EXPECTED):
             return frozenset()
+        if not EXPECTED or not SOURCE_HASHES:
+            return frozenset()
         actual = {}
         for check in checks:
             if type(check) is not dict or set(check) != {
                     'check_id', 'saved_fail_count', 'saved_ai_disagreements',
-                    'source_kind', 'source_fields'}:
+                    'source_kind', 'dependencies', 'source_file', 'source_line',
+                    'function_sha256', 'source_basis'}:
                 return frozenset()
             ident = check['check_id']
             if ident not in EXPECTED or ident in actual:
                 return frozenset()
-            count, kind, fields = EXPECTED[ident]
-            if (type(check['saved_fail_count']) is not int or check['saved_fail_count'] != count
-                    or type(check['saved_ai_disagreements']) is not int
-                    or check['saved_ai_disagreements'] != 0
-                    or check['source_kind'] != kind
-                    or check['source_fields'] != list(fields)):
+            expected = {key: value for key, value in EXPECTED[ident].items() if key != 'decision'}
+            if check != expected:
                 return frozenset()
             actual[ident] = check
         root = Path(__file__).resolve().parents[2]
-        if hashlib.sha256((root / 'docs/ai-review/native-final-azure-core-proof-v1.json').read_bytes()).hexdigest() != SOURCE_PROOF_SHA256:
+        if hashlib.sha256(SOURCE_PROOF.read_bytes()).hexdigest() != SOURCE_PROOF_SHA256:
             return frozenset()
         for source, digest in SOURCE_HASHES.items():
             if hashlib.sha256((root / source).read_bytes()).hexdigest() != digest:
@@ -110,10 +123,11 @@ def partition(rows, admitted, coverage=None):
             else:
                 continue
             seen.setdefault(key, []).append(item.get('status'))
-        for ident, (_, kind, _) in EXPECTED.items():
+        for ident, entry in EXPECTED.items():
             for key, statuses in seen.items():
                 if (key[0] == 'check' and key[1] == ident and statuses == ['evaluated']
-                        and seen.get(('collection', kind, key[2])) == ['collected']):
+                        and all(seen.get(('collection', kind, key[2])) in (['collected'], ['empty'])
+                                for kind in entry['dependencies'])):
                     complete.add((ident, key[2]))
     native, ai = [], []
     for row in rows:

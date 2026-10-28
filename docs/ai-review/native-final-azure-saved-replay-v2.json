@@ -1,0 +1,520 @@
+{
+  "candidate_actions_sha256": "1ddb4a546b2e1b5d6bbe794a9bc7bf110a910038a2b1231cbe6fbe154a0cf4a9",
+  "candidate_review_input_sha256": "c90ff91d0595b7bf82bec49ee536e19b05d0b028b6d718bd493064ad78308ac0",
+  "candidate_sha256": "92ca5095c037764e9220d25e5dfccb0d2a21fbb2c7e6eaeb0cec438bde3207c6",
+  "final_sha256": "452f7d615cbfa23bed95b6943aefa1242e7016c62dd879dd0a62b2919f2dd1b9",
+  "hosted_model_replay": false,
+  "manifest_activated": false,
+  "original_ai_input_count": 434,
+  "per_check": [
+    {
+      "check_id": "azure.cis.agentless_scanning_machines_component_status",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.cis.defender_external_attack_surface_monitoring_easm",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.cis.file_integrity_monitoring_component_status",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.acr_cmk",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.acr_public_network_access_disabled",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.acr_quarantine_policy",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.acr_retention_policy",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.acr_trust_policy",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_nsg_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_nsg_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_policy_assignment_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_policy_assignment_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_public_ip_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_public_ip_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_security_solution_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_security_solution_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_service_health",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_sql_firewall_rule_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_sql_firewall_rule_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_administrative_operations",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_nsg_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_nsg_rule_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_nsg_rule_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_nsg_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_policy_assignment_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_policy_assignment_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_public_ip_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_public_ip_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_security_solution_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_security_solution_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_sql_firewall_rule_delete",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_sql_firewall_rule_write",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.activity_log_alert_subscription_sql_server",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.bastion_host_exists",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.defender_alert_notifications_high",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.defender_alerts_to_owner",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.defender_assessment_system_updates",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.defender_container_registry_vulnerability_scanning",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.defender_database_plans_standard",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.defender_plan_standard_any",
+      "selected_fail_count": 13
+    },
+    {
+      "check_id": "azure.claude.disk_attached_cmk",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.disk_attached_customer_key",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.disk_attached_double_encryption",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.disk_unattached_cmk",
+      "selected_fail_count": 3
+    },
+    {
+      "check_id": "azure.claude.disk_unattached_customer_key",
+      "selected_fail_count": 3
+    },
+    {
+      "check_id": "azure.claude.entra_app_credential_not_expiring",
+      "selected_fail_count": 3
+    },
+    {
+      "check_id": "azure.claude.entra_auth_methods_strong_registration",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.entra_global_admin_fewer_than_five",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.entra_guest_access_restricted",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.entra_guest_invites_admins_only",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.entra_m365_group_creation_restricted",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.entra_non_privileged_user_mfa",
+      "selected_fail_count": 4
+    },
+    {
+      "check_id": "azure.claude.entra_privileged_user_mfa",
+      "selected_fail_count": 9
+    },
+    {
+      "check_id": "azure.claude.entra_user_consent_disabled",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude.keyvault_audit_and_alllogs_groups",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.keyvault_audit_logging",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.network_watcher_flow_logs_retention_90",
+      "selected_fail_count": 10
+    },
+    {
+      "check_id": "azure.claude.network_watcher_flow_logs_traffic_analytics",
+      "selected_fail_count": 10
+    },
+    {
+      "check_id": "azure.claude.nsg_associated_with_subnet",
+      "selected_fail_count": 3
+    },
+    {
+      "check_id": "azure.claude.nsg_diagnostic_logging",
+      "selected_fail_count": 3
+    },
+    {
+      "check_id": "azure.claude.subnet_nsg_associated",
+      "selected_fail_count": 4
+    },
+    {
+      "check_id": "azure.claude.subscription_diagnostic_setting_any_categories",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.subscription_diagnostic_setting_exists",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.vm_antimalware_auto_upgrade",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.vm_antimalware_extension",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.vm_backup_protected",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.vm_dependency_agent_windows",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.vm_guest_configuration_extension",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.vm_guest_configuration_extension_windows",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.vm_jit_access",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude.vm_site_recovery_enabled",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude2.activity_log_alert_service_health",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude2.entra_custom_banned_password_enforced",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude2.entra_device_join_requires_mfa",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude2.entra_global_admin_between_2_and_4",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude2.entra_lockout_duration_min_60",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude2.entra_lockout_threshold_max_10",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude2.entra_user_mfa_registered",
+      "selected_fail_count": 13
+    },
+    {
+      "check_id": "azure.claude2.nsg_flow_log_configured",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude2.nsg_flow_logs_to_log_analytics",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.claude2.vm_encryption_at_host",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.claude2.vnet_flow_logs_to_log_analytics",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.defender.standard_tier",
+      "selected_fail_count": 12
+    },
+    {
+      "check_id": "azure.disk.private_export",
+      "selected_fail_count": 5
+    },
+    {
+      "check_id": "azure.encryption.automation_cmk_declared",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.htbp.entra.temporary_access_pass_one_time",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.network.ddos_configured",
+      "selected_fail_count": 3
+    },
+    {
+      "check_id": "azure.network.subnet_has_consumer_or_reservation_reference",
+      "selected_fail_count": 4
+    },
+    {
+      "check_id": "azure.other.entra_app_secret_age_90",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.ad_authorization_policy_guest_invite_restricted",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.ad_authorization_policy_guest_user_access_restricted",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.ad_authorization_policy_user_consent_disallowed",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.ad_authorization_policy_user_consent_verified_publishers_selected_permissions",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.ad_security_defaults_policy_enabled",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_policy_assignment",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_update_nsg",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_update_public_ip_address",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_update_security_solution",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_create_update_sql_servers_firewall_rule",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_nsg",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_policy_assignment",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_public_ip_address",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_security_solution",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.monitor_log_alert_delete_sql_servers_firewall_rule",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.security_center_defender_for_api_enabled",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.security_center_defender_for_cloudposture_enabled",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_appservice",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_containerregistry",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_containers",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_cosmosdb",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_database",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_dns",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_k8s",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_keyvault",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_opensource_relational_db",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_resource_manager",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_server",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_sqldb",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_sqlservervm",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.port.securitycenter_azure_defender_on_for_storage",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure.vault.no_public_network",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure.vault.rbac",
+      "selected_fail_count": 2
+    },
+    {
+      "check_id": "azure_directory_user_keyvault_rbac_secret_expiration_set_e2e0e28",
+      "selected_fail_count": 1
+    },
+    {
+      "check_id": "azure_vm_monitor_diagnostic_setting_with_appropriate_categories_4e20679",
+      "selected_fail_count": 2
+    }
+  ],
+  "pre_ai_sha256": "9ed2de0adc5adde4255108177745f76fe87796ad4ec3ca4d8d7febe6a44e84af",
+  "projected_hardening_public_fields_sha256": "e79ff06a546dbd457997cef7929cc6e3c429318d3dd5b862bedbb671ffbe3e26",
+  "remaining_ai_input_count": 160,
+  "remaining_ai_input_ids_sha256": "12900a7a962d1dcbc38546862c14f5468060db8b1bcefe15eed1702a427b2920",
+  "saved_actions_sha256": "1ddb4a546b2e1b5d6bbe794a9bc7bf110a910038a2b1231cbe6fbe154a0cf4a9",
+  "saved_hardening_public_fields_sha256": "e79ff06a546dbd457997cef7929cc6e3c429318d3dd5b862bedbb671ffbe3e26",
+  "saved_review_and_public_finding_action_parity": true,
+  "saved_review_input_sha256": "c90ff91d0595b7bf82bec49ee536e19b05d0b028b6d718bd493064ad78308ac0",
+  "scan_id": "a79ff6f9331246bd9e4f4bf6ba6fa207",
+  "selected_check_count": 124,
+  "selected_native_fail_count": 274,
+  "snapshot_id": "sha256:08597df6a1b6f6199eab1c8018409c969bcd9eff2e81b6c2f0bb2bdf76aea301",
+  "version": 2
+}
