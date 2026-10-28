@@ -8742,3 +8742,29 @@ def test_data_shares_keep_risk_and_have_share_specific_actions():
     assert observed[0] == "The snapshot restore permission names external accounts: 999988887777."
     assert "may restore" in observed[1] and "could expose" in observed[2]
     assert result["remediation"] == "Restrict snapshot restore access to the accounts that need it."
+
+
+def test_aws_transfer_public_sftp_listener_uses_collected_state_and_ports():
+    server_id = "s-01234567890abcdef"
+    arn = f"arn:aws:transfer:us-east-1:{ACCOUNT}:server/{server_id}"
+    detail = {"collection_status": "collected", "ServerId": server_id, "Arn": arn,
+              "State": "ONLINE", "EndpointType": "PUBLIC", "Protocols": ["SFTP"]}
+
+    def result(**fields):
+        return one(aws(coll("transfer_server", [{"ServerId": server_id, "Arn": arn,
+            "Server": {**detail, **fields}}], service="transfer")), "transfer_server")
+
+    public = result()
+    assert public["status"] == "FAIL"
+    assert public["evidence"]["exposed_ports"] == ["tcp/22"]
+    assert public["evidence"]["authenticated_endpoint"] is True
+    custom = result(ProtocolDetails={"SftpPorts": [{"SftpPort": 2222}, {"SftpPort": 22000}]})
+    assert custom["status"] == "FAIL"
+    assert custom["evidence"]["exposed_ports"] == ["tcp/2222", "tcp/22000"]
+    assert result(State="OFFLINE")["status"] == "PASS"
+    assert result(State="STARTING")["status"] == "UNKNOWN"
+    assert result(EndpointType="VPC")["status"] == "UNKNOWN"
+    assert result(Protocols=["SFTP", "FTPS"])["status"] == "UNKNOWN"
+    assert result(ProtocolDetails={"SftpPorts": [{"SftpPort": 21}]})["status"] == "UNKNOWN"
+    assert result(Arn=f"arn:aws:transfer:us-east-1:999988887777:server/{server_id}")["status"] == "UNKNOWN"
+    assert result(collection_status="denied")["status"] == "UNKNOWN"

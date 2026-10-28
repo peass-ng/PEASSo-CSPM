@@ -1022,6 +1022,93 @@ def _aws_eni(snapshot, inventory, resource):
     return a
 
 
+def _aws_cloudformation_stack_instance(snapshot, inventory, resource):
+    """StackSet template deployment into a foreign account."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_deployment")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    target, target_region, stack_id = data.get("Account"), data.get("Region"), data.get("StackId")
+    name, stack_set = data.get("StackSetName"), data.get("StackSetId")
+    if (not isinstance(name, str) or not name or not isinstance(stack_set, str) or not stack_set.startswith(name + ":") or
+            not isinstance(target, str) or not re.fullmatch(r"[0-9]{12}", target) or
+            not isinstance(target_region, str) or not target_region or
+            not isinstance(stack_id, str) or not re.fullmatch(r"arn:" + partition + r":cloudformation:" +
+                                                       re.escape(target_region) + r":" + re.escape(target) +
+                                                       r":stack/[^/]+/[^/]+", stack_id)):
+        a.gap("inventory", "CloudFormation StackSet instance target identity is unresolved")
+        return a
+    if data.get("Status") == "INOPERABLE":
+        a.gap("delivery", "CloudFormation StackSet instance is inoperable; deployed resource state is unresolved")
+        return a
+    if data.get("Status") not in ("CURRENT", "OUTDATED"):
+        a.gap("delivery", "CloudFormation StackSet instance status is unresolved")
+        return a
+    if target in trusted_scopes(snapshot)["ids"]:
+        return None
+    a.external_ids = [target]
+    a.explicit = "FAIL"
+    a.step("stackset_target", "allow_declaration", target_account=target, target_region=target_region,
+           stack_set_id=stack_set, stack_id=stack_id,
+           semantics="StackSet instance exists in target account; template contents and resulting resources are assessed separately")
+    return a
+
+
+def _aws_transfer_server(snapshot, inventory, resource):
+    """Assess an online Transfer Family PUBLIC SFTP frontend and its ports."""
+    data = resource["data"]
+    a = Assessment(resource, "managed_endpoint")
+    details = data.get("Server")
+    if not isinstance(details, dict) or details.get("collection_status") != "collected":
+        a.gap("inventory", "Transfer server detail not collected", "transfer:DescribeServer")
+        return a
+    account, _, region = resource["scope"].partition("/")
+    server_id = data.get("ServerId")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    if (not region or not isinstance(server_id, str) or not re.fullmatch(r"s-[0-9a-f]{17}", server_id) or
+            details.get("ServerId") != server_id or
+            details.get("Arn") != f"arn:{partition}:transfer:{region}:{account}:server/{server_id}"):
+        a.gap("inventory", "Transfer server detail identity does not match list entry", "transfer:DescribeServer")
+        return a
+    state = details.get("State")
+    if state == "OFFLINE":
+        a.step("deployment", "block", state=state)
+        a.ports = {}
+        return a
+    if state != "ONLINE":
+        a.gap("inventory", "Transfer server online state unresolved", "transfer:DescribeServer")
+        return a
+    endpoint_type = details.get("EndpointType")
+    if endpoint_type != "PUBLIC":
+        a.gap("network", "Transfer VPC endpoint public path not joined", "transfer:DescribeServer")
+        return a
+    if details.get("Protocols") != ["SFTP"]:
+        a.gap("inventory", "Transfer PUBLIC endpoint SFTP protocol unresolved", "transfer:DescribeServer")
+        return a
+    protocol_details = details.get("ProtocolDetails")
+    configurations = protocol_details.get("SftpPorts") if isinstance(protocol_details, dict) else None
+    if configurations is None:
+        ports = [22]  # AWS's default when no SftpPorts configuration is supplied.
+    elif (isinstance(configurations, list) and 1 <= len(configurations) <= 3 and
+          all(isinstance(item, dict) and type(item.get("SftpPort")) is int and
+              (item["SftpPort"] == 22 or 2000 <= item["SftpPort"] <= 65535)
+              for item in configurations)):
+        ports = [item["SftpPort"] for item in configurations]
+    else:
+        a.gap("inventory", "Transfer PUBLIC SFTP ports malformed", "transfer:DescribeServer")
+        return a
+    a.ports = {}
+    for port in ports:
+        a.ports = union(a.ports, pset("tcp", port, port))
+    a.authenticated = True
+    a.step("listener", "allow", endpoint_type=endpoint_type, state=state,
+           protocol="SFTP", ports=sorted(set(ports)), server_id=server_id)
+    a.notes.append("AWS Transfer PUBLIC endpoint address family and current DNS, login and file access remain unverified")
+    return a
+
+
 def _listener_ports(protocol, port):
     proto = str(protocol or "TCP").upper()
     kind = "udp" if proto in ("UDP", "QUIC") else "all" if proto in ("TCP_UDP", "TCP_QUIC") else "tcp"
@@ -14192,6 +14279,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
              "component_configuration", *sorted(K8S_ROUTE_TYPES)]
+AWS_TYPES.extend(("cloudformation_stack_instance", "transfer_server"))
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "rds_cluster", "rds_cluster_endpoint", "redshift_cluster", "redshiftserverless_workgroup",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
@@ -14208,6 +14296,8 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
 
+
+EVALUATED["aws"].update(("cloudformation_stack_instance", "transfer_server"))
 
 def assess(snapshot, resources):
     """Return [Assessment] for every asset with a public address/endpoint (cached per snapshot)."""
@@ -14261,7 +14351,7 @@ def assess(snapshot, resources):
                 "log_subscription_filter": _aws_log_subscription_export,
                 "log_account_subscription_policy": _aws_log_subscription_export,
                 "log_destination": _aws_log_destination_policy_grant,
-                "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
+                "cloudformation_stack_instance": _aws_cloudformation_stack_instance, "transfer_server": _aws_transfer_server, "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"network": _gcp_network_peering, "instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "cloudrun_instance": _gcp_cloudrun_instance, "function": _gcp_serverless,
                 "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke,
@@ -14348,6 +14438,11 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.resource["type"] == "transfer_server":
+        return ("Transfer SFTP public listener" if status == "FAIL" else
+                "Transfer SFTP listener offline" if status == "PASS" else "Transfer SFTP listener unresolved")
+    if assessment.kind == "external_deployment":
+        return "StackSet instance targets foreign account" if status == "FAIL" else "StackSet target unresolved"
     if assessment.kind == "vpn_client_authorization":
         return "Client VPN authorizes all clients to destination network" if status == "FAIL" else "Client VPN authorization unresolved"
     if assessment.kind == "external_generic_policy_grant":
@@ -14428,6 +14523,42 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.resource["type"] == "transfer_server":
+        data = assessment.resource["data"]
+        detail = data.get("Server") if isinstance(data.get("Server"), dict) else {}
+        server_id = data.get("ServerId") or "with an unrecorded ID"
+        if status == "FAIL":
+            listener = next((step for step in assessment.path if step.get("layer") == "listener"), {})
+            ports = ", ".join(str(port) for port in listener.get("ports", []))
+            return (f"Transfer server {server_id} is ONLINE with a PUBLIC SFTP endpoint.\n"
+                    f"Its recorded TCP listener ports are {ports}.\n"
+                    "An authenticated user may connect if the service accepts the request.\n"
+                    "That could expose files available through this server.")
+        state = detail.get("State") or "unrecorded"
+        endpoint = detail.get("EndpointType") or "unrecorded"
+        if status == "PASS" and state == "OFFLINE":
+            return (f"Transfer server {server_id} is OFFLINE in its recorded detail.\n"
+                    "That state blocks this server's public SFTP listener.\n"
+                    "A user could connect only after the server becomes online.\n"
+                    "Files are unavailable through this offline listener.")
+        return (f"Transfer server {server_id} has state {state} and endpoint type {endpoint}.\n"
+                "A matching online public SFTP detail or valid listener ports are not recorded.\n"
+                "Its public SFTP listener remains unclear from those settings.\n"
+                "Files could be reachable if the missing settings permit a public listener.")
+    if assessment.kind == "external_deployment":
+        data = assessment.resource["data"]
+        name = data.get("StackSetName") or "with an unrecorded name"
+        target = data.get("Account") or "an unrecorded account"
+        state = data.get("Status") or "unrecorded"
+        if status == "FAIL":
+            return (f"StackSet {name} has a {state} instance in account {target}.\n"
+                    "Its recorded stack ARN names that outside account.\n"
+                    "The template may create resources in that account.\n"
+                    "That could place workload data under the outside account's control.")
+        return (f"StackSet {name} has an instance record for {target} with status {state}.\n"
+                "Its target account, stack ARN, or deployment status is not resolved.\n"
+                "The missing fact leaves a foreign deployment unclear.\n"
+                "Such a deployment could place workload data under another account's control.")
     invalid_ranges = next((step.get("invalid_source_ranges") for step in assessment.path
                            if step.get("layer") == "source_ranges" and step.get("decision") == "unknown"), None)
     if assessment.resource["provider"] == "k8s" and assessment.kind in {"service", "ingress"} and invalid_ranges:
