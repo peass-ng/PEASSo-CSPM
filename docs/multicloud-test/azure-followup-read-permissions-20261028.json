@@ -1,0 +1,49 @@
+{
+  "provider": "azure",
+  "stage": "selected_native_permission_probe",
+  "scope_note": "Exact affected inventories and automatic parents; not a full collection timing or coverage receipt",
+  "wall_s": 35.472,
+  "cpu_s": 0.307,
+  "peak_rss_bytes": 230998016,
+  "calls": 32,
+  "read_only": true,
+  "model_calls": 0,
+  "inventories": {
+    "entitlement_catalog": {
+      "collected": 1
+    },
+    "entitlement_catalog_resource": {
+      "empty": 1
+    },
+    "entitlement_role_assignment": {
+      "empty": 1
+    },
+    "access_review_definition": {
+      "empty": 1
+    },
+    "directory_group_pim_policy": {
+      "unknown": 8,
+      "collected": 3
+    },
+    "directory_group_pim_owner_policy": {
+      "unknown": 8,
+      "collected": 3
+    },
+    "external_id_auth_extension": {
+      "empty": 1
+    },
+    "external_id_auth_listener": {
+      "empty": 1
+    }
+  },
+  "grants": {
+    "EntitlementManagement.Read.All": "https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-list-catalogs?view=graph-rest-1.0",
+    "AccessReview.Read.All": "https://learn.microsoft.com/en-us/graph/api/accessreviewset-list-definitions?view=graph-rest-1.0",
+    "RoleManagementPolicy.Read.AzureADGroup": "https://learn.microsoft.com/en-us/graph/api/unifiedrolemanagementpolicy-get?view=graph-rest-1.0",
+    "CustomAuthenticationExtension.Read.All": "https://learn.microsoft.com/en-us/graph/api/identitycontainer-list-customauthenticationextensions?view=graph-rest-1.0",
+    "EventListener.Read.All": "https://learn.microsoft.com/en-us/graph/api/identitycontainer-list-authenticationeventlisteners?view=graph-rest-1.0"
+  },
+  "grant_scope": "Existing peaso-test service principal in the supplied lab tenant only; exact assignment IDs are in the external cleanup ledger.",
+  "remaining_unknown": "Eight group member policy inventories and eight owner policy inventories return400; retained UNKNOWN. No write permission granted.",
+  "operator_payload_sha256": "65111339b7f06dee07d2c98efd9b58bbbd54e90accccc1653eb43105665bf59a"
+}
