@@ -204,6 +204,27 @@ def test_gcp_wif_provider_and_pool_disabled_existing_token_semantics():
     assert status == "PASS" and evidence["pool_disabled"] is True
 
 
+def test_gcp_wif_external_aws_provider_with_pool_wide_grant():
+    from peaso.analysis.trust import gcp_wif_provider
+    pool = "projects/1/locations/global/workloadIdentityPools/p"
+    provider = {"data": {"name": pool + "/providers/aws", "aws": {"accountId": "999988887777"}}}
+    member = "principalSet://iam.googleapis.com/" + pool + "/*"
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [member]}]}
+    snapshot = {"provider": "gcp", "metadata": {}, "collections": [
+        {"type": "iam_policy", "status": "collected", "items": [policy]}]}
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "FAIL" and evidence["provider_type"] == "aws"
+    assert evidence["aws_account"] == "999988887777"
+    snapshot["metadata"]["trusted_scope_ids"] = ["999988887777"]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    snapshot["metadata"].clear()
+    policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0].pop("condition")
+    policy["bindings"][0]["members"] = [member.replace("/*", "/subject/pinned")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+
+
 def test_gcp_public_binding_fails_and_project_sa_is_trusted():
     policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": ["allUsers", "serviceAccount:sa@p1.iam.gserviceaccount.com"]}]}
     snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")], created_at="2026-10-10T00:00:00+00:00")

@@ -569,7 +569,9 @@ def gcp_wif_provider(snapshot, resource):
     condition = data.get("attributeCondition")
     host = urlsplit(issuer).hostname or ""
     evidence = {"issuer": issuer or None, "aws_account": data.get("aws", {}).get("accountId") if isinstance(data.get("aws"), dict) else None,
-                "attribute_condition": condition, "attribute_mapping": copy.deepcopy(data.get("attributeMapping"))}
+                "provider_type": next((kind for kind in ("oidc", "aws", "saml", "x509") if isinstance(data.get(kind), dict)), None),
+                "attribute_condition": condition, "attribute_mapping": copy.deepcopy(data.get("attributeMapping")),
+                "actor_providers": copy.deepcopy(data.get("actorProviders"))}
     name = data.get("name")
     pool = name.rsplit("/providers/", 1)[0] if isinstance(name, str) and "/providers/" in name else None
     bindings = []
@@ -619,6 +621,12 @@ def gcp_wif_provider(snapshot, resource):
     if condition:
         return "MANUAL", "medium", {
             **evidence, "semantics": "Provider attribute condition needs CEL evaluation with a concrete token; uncollected resource grants may exist."}
+    aws_account = evidence["aws_account"]
+    if isinstance(aws_account, str) and re.fullmatch(r"[0-9]{12}", aws_account):
+        allowlisted = explicit_allowlist(snapshot) if snapshot.get("provider") == "gcp" else set()
+        if aws_account not in allowlisted and any(binding["pool_wide"] and not binding["condition"] for binding in grants):
+            return "FAIL", "critical", {**evidence, "problem": "External AWS account can exchange tokens for an unconditional pool-wide IAM grant"}
+        return "MANUAL", "medium", {**evidence, "problem": "AWS provider account and scoped or uncollected IAM grants require trust review"}
     if host in MULTI_TENANT_ISSUERS:
         if any(binding["pool_wide"] and not binding["condition"] for binding in grants):
             return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
