@@ -26,25 +26,16 @@ def test_smoke_rejects_collection_or_scan_selection(monkeypatch, arguments):
 
 
 def test_live_acceptance_requires_the_complete_pipeline(monkeypatch):
-    import json
-    from peaso.ai import auth, fargate, pipeline
-    monkeypatch.setattr(auth, 'default_token', lambda: 'private-test-token')
-    def invoke(stage, root, token, timeout):
-        fixture = json.loads((root / 'smoke.json').read_text())
-        assert token == 'private-test-token'
-        if stage == 'exposure':
-            findings = json.loads((root/'findings.json').read_text())['items']
-            assert findings[0]['evidence']['internet_ingress'][0]['from_port'] == 443
-            return {'items': [{'finding_id': 'public-port-smoke', 'verdict': 'FAIL', 'reason': ''}]}
-        assert stage == 'hardening'
-        return {'items': [{'finding_id': 'isolation-smoke', 'verdict': 'PASS', 'reason': fixture['marker']}]}
-    monkeypatch.setattr(fargate, 'invoke', invoke)
+    from peaso.ai import pipeline
     completed = {'status': 'completed', 'network': {'status': 'completed'},
-                 'reviews': {'hardening': [{}], 'exposure': [{}]}, 'coverage': {'total': 2}}
+                 'actions': [], 'native_final': {'hardening': ['hard'], 'exposure': ['exposed']},
+                 'reviews': {'hardening': [{}], 'exposure': [{}]},
+                 'stage_inputs': {'hardening': [], 'exposure': []}, 'coverage': {'total': 2}}
     def review(report, snapshot, selectors, **kwargs):
         assert {r['category'] for r in report['findings']} == {'hardening', 'exposure'}
         assert all(r['status'] == 'FAIL' for r in report['findings'])
         assert snapshot['metadata']['not_live_cloud_evidence'] is True
+        assert selectors == {'ai_enabled': True}
         assert kwargs['artifacts'] is None
         return completed
     monkeypatch.setattr(pipeline, 'review_scan', review)

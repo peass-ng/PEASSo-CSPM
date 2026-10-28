@@ -25,7 +25,7 @@ For a separate production AWS scan, `~/peaso-work/receipts/prod-aws-ai-f204-fina
 
 ## Verification
 
-The targeted Network, Priorities, native finding, stage guard, Fargate, provider, briefing and output validation suite passes with 311 passed and 4 skipped using the repository release Python environment and `--noconftest`. The selected progressive Network watcher tests and removed-stage ECS guards pass; 16 obsolete progressive reviewer cases were deselected. Frontend TypeScript and Vite production build pass. The reviewed API Python source pin verifies 1,717 files, 30 direct SDK client sites and 12 used services; its focused gate has 9 passing tests. The combined API source and locked attestation gate passes 18 tests in `PEASO_SOURCE_ATTESTATION=always` mode.
+The targeted Network, Priorities, native finding, stage guard, Fargate, provider, briefing, output validation and release smoke suite passes with 316 passed and 4 skipped using the repository release Python environment and `--noconftest`. The selected progressive Network watcher tests and removed-stage ECS guards pass; 16 obsolete progressive reviewer cases were deselected. The release-only live smoke now uses the shipped Network/Priorities pipeline with offline native Hardening/Exposure findings; it no longer invokes the removed reviewer agents. Frontend TypeScript and Vite production build pass. The reviewed API Python source pin verifies 1,717 files, 30 direct SDK client sites and 12 used services; its focused gate has 9 passing tests. The combined API source and locked attestation gate passes 18 tests in `PEASO_SOURCE_ATTESTATION=always` mode.
 
 ## Decommissioned test coverage and current limitations
 
