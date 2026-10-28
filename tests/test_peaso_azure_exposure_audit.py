@@ -651,8 +651,9 @@ def test_nic_public_return_route_uses_complete_effective_table():
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
     nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/nsg"
     pip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/pip"
+    table_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/routeTables/rt"
 
-    def verdict(hop=None, *, status="collected", extra=()):
+    def verdict(hop=None, *, status="collected", extra=(), udr=None, route_status="collected"):
         collections = [
             {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
              "items": [{"id": pip_id, "sku": {"name": "Standard"},
@@ -663,7 +664,8 @@ def test_nic_public_return_route_uses_complete_effective_table():
                                 "protocol": "Tcp", "sourceAddressPrefix": "*",
                                 "destinationAddressPrefix": "*", "destinationPortRange": "22"}}]}}]},
             {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
-             "items": [{"id": subnet_id, "properties": {}}]},
+             "items": [{"id": subnet_id, "properties": {
+                 "routeTable": {"id": table_id}} if udr is not None else {}}]},
             {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected",
              "items": [{"id": nic_id, "properties": {"networkSecurityGroup": {"id": nsg_id},
                  "ipConfigurations": [{"name": "primary", "properties": {"subnet": {"id": subnet_id},
@@ -679,6 +681,11 @@ def test_nic_public_return_route_uses_complete_effective_table():
                       "read_only": True, "nic_id": nic_id}} for i, route in enumerate(routes)]
             collections.append({"type": "effective_route", "scope": SCOPE, "service": "network",
                                 "status": status, "items": items})
+        if udr is not None:
+            collections.append({"type": "route_table", "scope": SCOPE, "service": "network",
+                                "status": route_status, "items": [{"id": table_id, "properties": {
+                                    "routes": [{"name": f"route-{i}", "properties": route}
+                                               for i, route in enumerate(udr)]}}]})
         snap = make_snapshot("azure", [SCOPE], collections)
         return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "nic")
 
@@ -690,6 +697,12 @@ def test_nic_public_return_route_uses_complete_effective_table():
     exception = {"state": "Active", "source": "User", "addressPrefix": ["8.8.8.0/24"],
                  "nextHopType": "Internet"}
     assert verdict("None", extra=(exception,)).verdict() == "UNKNOWN"
+    assert verdict(udr=[{"addressPrefix": "0.0.0.0/0", "nextHopType": "VirtualAppliance"}]).verdict() == "UNKNOWN"
+    assert verdict(udr=[{"addressPrefix": "0.0.0.0/0", "nextHopType": "None"}]).verdict() == "UNKNOWN"
+    assert verdict(udr=[{"addressPrefix": "0.0.0.0/0", "nextHopType": "Internet"}]).verdict() == "FAIL"
+    assert verdict(udr=[{"addressPrefix": "8.8.8.0/24", "nextHopType": "None"}]).verdict() == "FAIL"
+    assert verdict(udr=[{"addressPrefix": "10.0.0.0/8", "nextHopType": "None"}]).verdict() == "FAIL"
+    assert verdict(udr=[], route_status="partial").verdict() == "UNKNOWN"
 
 
 def test_nsg_joins_cached_subscription_service_tag_prefixes():

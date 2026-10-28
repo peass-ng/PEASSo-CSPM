@@ -4050,6 +4050,40 @@ def _azure_nic_public_return_route(inventory, nic, public_address):
     return None
 
 
+def _azure_nic_declared_route_uncertainty(inventory, subnet_id, public_address):
+    """A subnet UDR can change public return routing when effective routes are absent."""
+    subnet, _ = _azure_subnet(inventory, subnet_id)
+    if subnet is None:
+        return None
+    association = (subnet["data"].get("properties") or {}).get("routeTable")
+    if association is None:
+        return None
+    table_id = association.get("id") if isinstance(association, dict) else None
+    if not isinstance(table_id, str) or not table_id:
+        return "unknown"
+    table = inventory.get("route_table", table_id)
+    if table is None or inventory.state("route_table", table["scope"]) != "collected":
+        return "unknown"
+    routes = _props(table).get("routes")
+    if not isinstance(routes, list):
+        return "unknown"
+    try:
+        family = ipaddress.ip_address(public_address).version
+    except (TypeError, ValueError):
+        return "unknown"
+    for row in routes:
+        props = row.get("properties") if isinstance(row, dict) else None
+        if not isinstance(props, dict):
+            return "unknown"
+        try:
+            network = ipaddress.ip_network(props.get("addressPrefix"), strict=False)
+        except (TypeError, ValueError):
+            return "unknown"
+        if network.version == family and network.prefixlen == 0 and props.get("nextHopType") != "Internet":
+            return "unknown"
+    return None
+
+
 def _azure_nic(snapshot, inventory, resource, public_ips):
     props = _props(resource)
     a = Assessment(resource, "public_ip")
@@ -4077,12 +4111,16 @@ def _azure_nic(snapshot, inventory, resource, public_ips):
         if not empty(allowed):
             route = _azure_nic_public_return_route(inventory, resource,
                                                     _props(public).get("ipAddress") if public else None)
+            if route is None:
+                route = _azure_nic_declared_route_uncertainty(
+                    inventory, (cp.get("subnet") or {}).get("id"),
+                    _props(public).get("ipAddress") if public else None)
             if route == "block":
                 a.step("return_route", "block", reason="complete NIC effective routes drop public return traffic",
                        nic=native_id(resource), at=config.get("name"))
                 allowed = {}
             elif route == "unknown":
-                a.step("return_route", "unknown", reason="public return traffic uses an unresolved effective route",
+                a.step("return_route", "unknown", reason="public return traffic uses an unresolved effective or declared route",
                        nic=native_id(resource), at=config.get("name"))
                 unresolved_route = True
                 allowed = {}
