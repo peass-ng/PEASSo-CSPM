@@ -3270,7 +3270,7 @@ def collect(connector, requirements=None, *, transport=None):
                 if kind == "private_dns_zone" and "private_dns_link" in wanted:
                     child_paths.append(("private_dns_link", "virtualNetworkLinks", "2020-06-01"))
                 if kind == "managed_identity" and "managed_identity_federated_credential" in wanted:
-                    child_paths.append(("managed_identity_federated_credential", "federatedIdentityCredentials", "2023-01-31"))
+                    child_paths.append(("managed_identity_federated_credential", "federatedIdentityCredentials", "2025-05-31-preview"))
                 if kind == "app_service" and "app_service_identity_detail" in wanted:
                     jobs.append(azure_appservice_identity_followup.site_identity_job(reader, request, ARM, item))
                 if kind == "app_service" and "app_service_config" in wanted:

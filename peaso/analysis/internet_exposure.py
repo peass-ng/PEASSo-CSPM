@@ -12522,8 +12522,11 @@ def federated_findings(snapshot, resources):
             continue
         status, severity, evidence = verdict
         evidence["source"] = source(snapshot, resource, "data")
-        output.append(finding(snapshot, resource, "exposure", "analysis.federated_trust",
-            "Federated (OIDC) trust is not pinned to a subject" if status == "FAIL" else "Federated (OIDC) trust review",
+        title = ("External workload can exchange tokens for a managed identity"
+                 if resource["type"] == "managed_identity_federated_credential" and status == "FAIL"
+                 else "Federated (OIDC) trust is not pinned to a subject" if status == "FAIL"
+                 else "Federated (OIDC) trust review")
+        output.append(finding(snapshot, resource, "exposure", "analysis.federated_trust", title,
             severity if status != "PASS" else "info", evidence, status=status))
     return output
 

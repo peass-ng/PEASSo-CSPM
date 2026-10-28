@@ -788,6 +788,27 @@ def azure_federated_credential(snapshot, resource):
     expression = props.get("claimsMatchingExpression")
     evidence = {"issuer": issuer, "subject": subject or None, "audiences": copy.deepcopy(props.get("audiences")),
                 "claims_matching_expression": copy.deepcopy(expression)}
+    if resource["type"] == "managed_identity_federated_credential":
+        parsed = urlsplit(issuer)
+        value = expression.get("value") if isinstance(expression, dict) else None
+        audiences = props.get("audiences")
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+                or parsed.fragment or not isinstance(audiences, (list, tuple)) or not audiences
+                or not all(isinstance(audience, str) and audience for audience in audiences)
+                or not subject and not isinstance(value, str)):
+            return "UNKNOWN", "info", {**evidence, "reason": "federated issuer, audience or subject is incomplete"}
+        owned_aks = {str(((item.get("properties") or {}).get("oidcIssuerProfile") or {}).get("issuerURL") or "")
+                     for item in _items(snapshot, "aks_cluster")}
+        if issuer in owned_aks:
+            if isinstance(value, str) and ("*" in value or "?" in value):
+                return "UNKNOWN", "medium", {**evidence, "reason": "owned AKS issuer has a flexible subject expression"}
+            return "PASS", "info", {**evidence, "issuer_ownership": "collected_aks_cluster"}
+        if parsed.hostname == "aks.azure.com" or parsed.hostname.endswith((".aks.azure.com", "-aks.azure.com")):
+            aks_states = [row.get("status") for row in snapshot.get("collections", []) if row.get("type") == "aks_cluster"]
+            if not aks_states or any(state not in ("collected", "empty") for state in aks_states):
+                return "UNKNOWN", "info", {**evidence, "reason": "AKS issuer ownership inventory incomplete"}
+        return "FAIL", "high", {**evidence, "external_issuer_trust": True,
+                                   "reason": "issuer can exchange matching workload tokens for this managed identity"}
     host = re.sub(r"^https?://", "", issuer).lower()
     value = expression.get("value") if isinstance(expression, dict) else expression
     if isinstance(value, str) and "*" in value:
