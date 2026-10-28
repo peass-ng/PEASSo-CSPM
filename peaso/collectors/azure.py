@@ -178,7 +178,7 @@ ENDPOINTS = {
     'iot_security_solution': ('Microsoft.Security/iotSecuritySolutions', '2019-08-01'),
     'servicebus_namespace': ('Microsoft.ServiceBus/namespaces', '2022-10-01-preview'),
     'service_fabric_cluster': ('Microsoft.ServiceFabric/clusters', '2021-06-01'),
-    'signalr_service': ('Microsoft.SignalRService/signalR', '2023-02-01'),
+    'signalr_service': ('Microsoft.SignalRService/signalR', '2024-03-01'),
     'web_pubsub': ('Microsoft.SignalRService/webPubSub', '2023-02-01'),
     'spring_cloud_service': ('Microsoft.AppPlatform/Spring', '2023-12-01'),
     'storage_sync_service': ('Microsoft.StorageSync/storageSyncServices', '2022-06-01'),
@@ -1141,7 +1141,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "openshift_cluster", "openshift_hcp_cluster"})
+                            "integration_service_environment", "openshift_cluster", "openshift_hcp_cluster", "signalr_service"})
 
 
 def _canonicalize_embedded(collections):

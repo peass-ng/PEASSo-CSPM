@@ -9923,7 +9923,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     return a
 
 
-def _azure_realtime_endpoint(snapshot, inventory, resource):
+def _azure_realtime_public_endpoint(snapshot, inventory, resource):
     """SignalR/Web PubSub public listener from recorded request and IP ACLs."""
     props = _props(resource)
     a = Assessment(resource, "managed_endpoint")
@@ -10001,6 +10001,93 @@ def _azure_realtime_endpoint(snapshot, inventory, resource):
     else:
         a.gap("policy", "realtime listener public request path is unresolved")
     a.notes.append("Public listener does not establish a valid client or server authorization token")
+    return a
+
+
+def _azure_realtime_endpoint(snapshot, inventory, resource):
+    a = _azure_realtime_public_endpoint(snapshot, inventory, resource)
+    if resource["type"] != "signalr_service":
+        return a
+    public_verdict = a.verdict()
+    def unresolved_private():
+        if public_verdict in ("FAIL", "PASS"):
+            a.explicit = "FAIL" if public_verdict == "FAIL" else "UNKNOWN"
+        return a
+    data = resource["data"]
+    props = _props(resource)
+    rows = props.get("privateEndpointConnections")
+    acl = props.get("networkACLs")
+    if not isinstance(rows, list) or (props.get("_coverage") or {}).get("privateEndpointConnections", {}).get("status") == "malformed":
+        a.gap("inventory", "SignalR private endpoint connections unavailable")
+        return unresolved_private()
+    if not rows:
+        return a
+    if not isinstance(acl, dict) or acl.get("defaultAction") not in ("Allow", "Deny"):
+        a.gap("policy", "SignalR private endpoint request ACL unavailable")
+        return unresolved_private()
+    acl_rows = acl.get("privateEndpoints", [])
+    if not isinstance(acl_rows, list):
+        a.gap("policy", "SignalR private endpoint request ACL malformed")
+        return unresolved_private()
+    by_name = {}
+    valid_types = {"ClientConnection", "ServerConnection", "RESTAPI", "Trace"}
+    for entry in acl_rows:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        allow = entry.get("allow", []) if isinstance(entry, dict) else None
+        deny = entry.get("deny", []) if isinstance(entry, dict) else None
+        if (not isinstance(name, str) or not name or name.casefold() in by_name
+                or not isinstance(allow, list) or not isinstance(deny, list)
+                or any(value not in valid_types for value in allow + deny)
+                or set(allow) & set(deny)):
+            a.gap("policy", "SignalR private endpoint request ACL malformed")
+            return unresolved_private()
+        by_name[name.casefold()] = (set(allow), set(deny))
+    parent = re.match(r"/subscriptions/([^/]+)/", str(data.get("id", "")), re.I)
+    external, unknown = [], False
+    for row in rows:
+        details = row.get("properties") if isinstance(row, dict) else None
+        endpoint = details.get("privateEndpoint") if isinstance(details, dict) else None
+        state = details.get("privateLinkServiceConnectionState") if isinstance(details, dict) else None
+        remote_id = endpoint.get("id") if isinstance(endpoint, dict) else None
+        remote = (re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+",
+                               remote_id, re.I) if isinstance(remote_id, str) else None)
+        status = state.get("status") if isinstance(state, dict) else None
+        if status != "Approved":
+            if status not in ("Pending", "Rejected", "Disconnected"):
+                unknown = True
+            continue
+        connection_id = row.get("id") if isinstance(row, dict) else None
+        if (details.get("provisioningState") not in ("Succeeded", "Ready") or not remote or not parent
+                or not isinstance(connection_id, str) or re.fullmatch(
+                    re.escape(str(data.get("id", ""))) + r"/privateEndpointConnections/[^/]+", connection_id, re.I) is None):
+            unknown = True
+            continue
+        if remote.group(1).casefold() == parent.group(1).casefold():
+            continue
+        name = connection_id.rsplit("/", 1)[-1].casefold()
+        allow, deny = by_name.get(name, (set(), set()))
+        permitted = (valid_types if acl["defaultAction"] == "Allow" else set()) | allow
+        permitted -= deny
+        if permitted:
+            external.append((remote_id, sorted(permitted)))
+    if external:
+        a.external_ids = sorted({rid for rid, _ in external})
+        a.step("private_link_share", "allow", external_connections=[{"id": rid, "request_types": types}
+                                                             for rid, types in external])
+        ports = [props.get(field) for field in ("publicPort", "serverPort")]
+        valid_ports = {port for port in ports if type(port) is int and 1 <= port <= 65535}
+        if valid_ports:
+            for port in valid_ports:
+                a.ports = union(a.ports or {}, pset("tcp", port, port))
+            a.explicit = "FAIL"
+        else:
+            a.gap("listener", "SignalR private endpoint service port unavailable")
+            a.explicit = "UNKNOWN"
+        if any(port is not None and port not in valid_ports for port in ports):
+            a.notes.append("Additional SignalR service port is malformed")
+    elif unknown:
+        a.gap("inventory", "SignalR approved private endpoint status unresolved")
+        return unresolved_private()
     return a
 
 

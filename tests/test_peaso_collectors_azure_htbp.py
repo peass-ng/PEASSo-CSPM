@@ -127,4 +127,5 @@ def test_cba_trust_store_drops_certificates():
 
 
 def test_web_pubsub_is_listed_like_signalr():
-    assert azure.ENDPOINTS["web_pubsub"] == ("Microsoft.SignalRService/webPubSub", azure.ENDPOINTS["signalr_service"][1])
+    assert azure.ENDPOINTS["web_pubsub"][0] == "Microsoft.SignalRService/webPubSub"
+    assert azure.ENDPOINTS["signalr_service"] == ("Microsoft.SignalRService/signalR", "2024-03-01")
