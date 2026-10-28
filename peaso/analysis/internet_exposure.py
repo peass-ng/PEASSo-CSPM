@@ -6194,6 +6194,43 @@ def _azure_public_edge(snapshot, inventory, resource):
     return a
 
 
+def _azure_apim_external_region_blocked(inventory, resource, location):
+    """Prove one classic regional gateway's subnet blocks public HTTPS ingress."""
+    sku = location.get("sku") or resource["data"].get("sku") or {}
+    if not isinstance(sku, dict) or sku.get("name") != "Premium":
+        return False
+    network_config = location.get("virtualNetworkConfiguration")
+    subnet_id = network_config.get("subnetResourceId") if isinstance(network_config, dict) else None
+    subnet, _ = _azure_subnet(inventory, subnet_id)
+    if subnet is None:
+        return False
+    nsg_ref = _props(subnet).get("networkSecurityGroup") or {}
+    if not isinstance(nsg_ref, dict):
+        return False
+    nsg_id = nsg_ref.get("id")
+    nsg = inventory.get("nsg", nsg_id) if nsg_id else None
+    # The gateway private DIP is not returned. A specific-destination allow
+    # could match it even if a broad-source evaluation finds no open port.
+    if nsg:
+        rules = _props(nsg).get("securityRules")
+        if not isinstance(rules, list):
+            return False
+        for rule in rules:
+            props = rule.get("properties") if isinstance(rule, dict) else None
+            if not isinstance(props, dict):
+                return False
+            if props.get("access") == "Allow" and (
+                    props.get("destinationApplicationSecurityGroups") or any(
+                        value not in ("*", "Any", "VirtualNetwork", "0.0.0.0/0", "::/0")
+                        for value in as_list(props.get("destinationAddressPrefixes")) +
+                                     as_list(props.get("destinationAddressPrefix")))):
+                return False
+    evidence = Assessment(resource, "api_gateway")
+    ports = _azure_nsg_path(inventory, evidence, None, subnet_id, pset("tcp", 443, 443),
+                            sku="standard", where="API Management regional gateway subnet")
+    return empty(ports) and evidence.blocked_by is not None and not evidence.unresolved
+
+
 def _azure_api_management(snapshot, inventory, resource):
     """Assess the managed gateway listener, independently of API authorization."""
     props = resource["data"].get("properties") or {}
@@ -6246,6 +6283,17 @@ def _azure_api_management(snapshot, inventory, resource):
     ports = pset("tcp", 443, 443)
     if network == "External":
         regional_only = not primary_enabled and len(regional) == 1
+        regional_subnets = [config.get("subnetResourceId") if isinstance(config, dict) else None
+                            for location in regional
+                            for config in [location.get("virtualNetworkConfiguration")]]
+        if (not primary_enabled and len(regional) > 1 and not a.unresolved and
+                len({str(subnet).casefold() for subnet in regional_subnets}) == len(regional) and
+                all(_azure_apim_external_region_blocked(inventory, resource, location)
+                    for location in regional)):
+            a.step("nsg", "block", reason="every enabled regional External VNet gateway subnet blocks public HTTPS ingress",
+                   regional_gateway_urls=list(a.addresses))
+            a.ports = {}
+            return a
         if regional and not regional_only:
             a.gap("nsg", "External VNet regional gateway subnet NSG paths are not resolved")
         if not primary_enabled and not regional_only:
@@ -7134,6 +7182,15 @@ def _observed(assessment, status):
             return (f"The Container App {name} has external ingress configured and recorded runningStatus {state}.\n"
                     "Its current public request path is unresolved while this state changes.\n"
                     "The endpoint could expose app responses if an active revision serves requests.")
+    if assessment.resource["type"] == "api_management" and status == "PASS":
+        regional_block = next((step for step in assessment.path if step.get("layer") == "nsg"
+                               and step.get("regional_gateway_urls") is not None), None)
+        if regional_block is not None:
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The API Management service {name} has its primary gateway disabled and "
+                    f"{len(regional_block['regional_gateway_urls'])} enabled regional gateways.\n"
+                    "Each regional gateway's collected External VNet subnet NSG blocks public HTTPS ingress.\n"
+                    "This blocks the recorded public gateway path; external proxies and backend health were not tested.")
     if assessment.resource["type"] == "api_management" and status in ("FAIL", "UNKNOWN"):
         props = _props(assessment.resource)
         if props.get("disableGateway") is True and assessment.addresses:

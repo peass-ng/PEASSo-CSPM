@@ -1766,6 +1766,52 @@ def test_api_management_single_external_region_uses_its_own_subnet_nsg():
                  "https://east.azure-api.net"}]).verdict() == "UNKNOWN"
 
 
+def test_api_management_distinct_external_regions_all_block_public_https():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    service_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.ApiManagement/service/apim"
+    regions = [{"location": name, "disableGateway": False,
+                "gatewayRegionalUrl": f"https://{name}.azure-api.net",
+                "virtualNetworkConfiguration": {"subnetResourceId": base +
+                    f"/virtualNetworks/{name}/subnets/gateway"}}
+               for name in ("west", "east")]
+
+    def check(*, east_subnet=True, east_access="Deny", east_destination="*"):
+        subnets = [{"id": region["virtualNetworkConfiguration"]["subnetResourceId"],
+                    "properties": {"networkSecurityGroup": {"id": base +
+                        f"/networkSecurityGroups/{region['location']}"}}}
+                   for region in regions if east_subnet or region["location"] != "east"]
+        nsgs = []
+        for region in regions:
+            name = region["location"]
+            nsgs.append({"id": base + f"/networkSecurityGroups/{name}",
+                         "properties": {"securityRules": [{"name": "https", "properties": {
+                             "priority": 100, "direction": "Inbound",
+                             "access": east_access if name == "east" else "Deny",
+                             "protocol": "Tcp", "sourceAddressPrefix": "*",
+                             "destinationAddressPrefix": east_destination if name == "east" else "*",
+                             "destinationPortRange": "443"}}]}})
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "api_management", "scope": SCOPE, "service": "apim", "status": "collected",
+             "items": [{"id": service_id, "sku": {"name": "Premium"}, "properties": {
+                 "publicNetworkAccess": "Enabled", "virtualNetworkType": "External",
+                 "disableGateway": True, "additionalLocations": regions}}]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": subnets},
+            {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": nsgs},
+        ])
+        return next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "api_management")
+
+    blocked = check()
+    assert blocked.verdict() == "PASS"
+    assert blocked.path[-1]["regional_gateway_urls"] == [
+        "https://west.azure-api.net", "https://east.azure-api.net"]
+    assert "Each regional gateway's collected External VNet subnet NSG blocks" in _observed(blocked, "PASS")
+    assert len(_observed(blocked, "PASS").splitlines()) == 3
+    assert check(east_subnet=False).verdict() == "UNKNOWN"
+    assert check(east_access="Allow", east_destination="10.0.0.4/32").verdict() == "UNKNOWN"
+
+
 def test_api_management_classic_external_vnet_subnet_nsg():
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/apim"
     nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/apim"
