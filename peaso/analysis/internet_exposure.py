@@ -4807,7 +4807,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
     port, rules_name = _AZURE_MANAGED_ENDPOINTS[kind]
     a = Assessment(resource, "database" if port != 443 else "managed_endpoint")
     a.authenticated = True
-    if kind == "servicebus_namespace":
+    if kind in ("servicebus_namespace", "eventhub_namespace"):
         local_auth = props.get("disableLocalAuth")
         coverage = (resource["data"].get("_coverage") or {}).get("authorizationRules") or {}
         rules = resource["data"].get("authorizationRules")
@@ -4824,7 +4824,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
         if local_auth is False:
             entity_rules = []
             complete = True
-            for field in ("queues", "topics"):
+            for field in (("queues", "topics") if kind == "servicebus_namespace" else ("eventHubs",)):
                 entities = resource["data"].get(field)
                 list_status = (resource["data"].get("_coverage") or {}).get(field, {}).get("status")
                 if list_status not in ("collected", "empty") or not isinstance(entities, list):
@@ -4842,7 +4842,9 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 a.step("sas_entity_authorization", "conditional", rules=entity_rules,
                        inventory_complete=complete)
             if not complete:
-                a.notes.append("Queue or topic SAS rule inventory is incomplete.")
+                a.notes.append("Queue or topic SAS rule inventory is incomplete."
+                               if kind == "servicebus_namespace"
+                               else "Event Hub entity SAS rule inventory is incomplete.")
     if kind == "container_registry":
         anonymous = props.get("anonymousPullEnabled")
         if anonymous is True:

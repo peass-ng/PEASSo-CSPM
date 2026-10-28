@@ -831,6 +831,37 @@ def _collect_servicebus_entity_rules(reader, request, parents):
                     entity["authorizationRules"] = rule_read["items"]
 
 
+def _collect_eventhub_entity_rules(reader, request, parents):
+    """Read SAS rights for Event Hubs already observed in a namespace."""
+    for kind, namespace in parents:
+        if kind != "eventhub_namespace":
+            continue
+        rid = namespace["id"]
+        for entity in namespace.get("eventHubs", []):
+            entity_id = entity.get("id") if isinstance(entity, dict) else None
+            if (not isinstance(entity_id, str) or re.fullmatch(
+                    re.escape(rid + "/eventhubs/") + r"[^/?#%\\\s]+", entity_id, re.I) is None
+                    or str(entity.get("type", "")).casefold() != "microsoft.eventhub/namespaces/eventhubs"
+                    or not isinstance(entity.get("name"), str)
+                    or entity["name"].casefold() != entity_id.rsplit("/", 1)[-1].casefold()):
+                namespace.setdefault("_coverage", {})["eventHubs"] = {"status": "malformed"}
+                continue
+            rule_url = ARM + entity_id + "/authorizationRules?api-version=2026-01-01"
+            def list_rules(rule_url=rule_url, entity_id=entity_id):
+                seen = set()
+                for page in reader.pages(request, rule_url):
+                    projected = _child_rows(page, entity_id, "authorizationRules")
+                    if any(row["id"].casefold() in seen for row in projected):
+                        raise ValueError("duplicate Event Hub rule across pages")
+                    seen.update(row["id"].casefold() for row in projected)
+                    yield projected
+            read = reader._read(("eventhub_entity_rules", entity_id, "Microsoft.Resources", list_rules))
+            entity.setdefault("_coverage", {})["authorizationRules"] = {
+                key: read[key] for key in ("status", "error") if key in read}
+            if read["status"] in ("collected", "empty") or read["items"]:
+                entity["authorizationRules"] = read["items"]
+
+
 def _collect_hsm_local_assignments(reader, request, transport, parents):
     """Read Managed HSM local RBAC at broad and observed key scopes."""
     for kind, hsm in parents:
@@ -3298,6 +3329,7 @@ def collect(connector, requirements=None, *, transport=None):
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
         _collect_servicebus_entity_rules(reader, request, embedded_parents)
+        _collect_eventhub_entity_rules(reader, request, embedded_parents)
         _collect_gallery_versions(reader, request, embedded_parents)
         if "managed_hsm" in wanted:
             _collect_hsm_local_assignments(reader, request, transport, embedded_parents)
