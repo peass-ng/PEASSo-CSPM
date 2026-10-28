@@ -53,13 +53,18 @@ def _collect(raw):
     return reader.collections[-1]
 
 
-def _assess(raw):
+def _assess(raw, *, group_member=False):
     row = _collect(raw)
     assert "PRIVATE_DESCRIPTION" not in str(row)
     collections = [row, {"type": "directory_user", "scope": "/tenants/" + TENANT,
                          "status": "collected", "items": [{"id": GUEST, "userType": "Guest"}]},
                    {"type": "directory_service_principal", "scope": "/tenants/" + TENANT,
                     "status": "empty", "items": []}]
+    if group_member:
+        collections.extend([{"type": "directory_group", "scope": "/tenants/" + TENANT,
+                             "status": "collected", "items": [{"id": GROUP}]},
+                            {"type": "directory_membership", "scope": "/tenants/" + TENANT + "/groups/" + GROUP,
+                             "status": "collected", "items": [{"id": GUEST}]}])
     snap = make_snapshot("azure", ["/subscriptions/" + TENANT], collections,
                          metadata={"tenant_id": TENANT, "tenant_verified": True})
     return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == native.KIND)
@@ -76,6 +81,12 @@ def test_group_grant_remains_unknown():
     assert _assess(_policy(GROUP, "principal.microsoft.groups")).verdict() == "UNKNOWN"
 
 
+def test_observed_foreign_group_member_is_exposed():
+    result = _assess(_policy(GROUP, "principal.microsoft.groups"), group_member=True)
+    assert result.verdict() == "FAIL"
+    assert result.external_ids == [GUEST]
+
+
 def test_conditional_direct_grant_remains_unknown():
     raw = _policy()
     raw["properties"]["attributeRules"][0]["dnfCondition"][0].append(
@@ -85,7 +96,7 @@ def test_conditional_direct_grant_remains_unknown():
 
 def test_selected_policy_reads_account_and_directory_once():
     selected = azure._selected({"inventories": [native.KIND]}, None)
-    assert {"purview_account", "directory_user", "directory_group", "directory_service_principal"} <= selected
+    assert {"purview_account", "directory_user", "directory_group", "directory_service_principal", "directory_membership"} <= selected
 
 
 def test_transport_rejects_unbound_purview_host_and_other_paths():
