@@ -267,6 +267,25 @@ def test_aws_ecr_registry_cross_account_image_replication():
     assert one(aws(coll("ecr_registry", [malformed], service="ecr")), "ecr_registry")["status"] == "UNKNOWN"
 
 
+def test_ecr_public_repository_declares_anonymous_pull_without_image_inventory():
+    from peaso.finding_observation import evidence_summary
+
+    repository = {"registryId": ACCOUNT, "repositoryName": "team/app",
+                  "repositoryArn": f"arn:aws:ecr-public::{ACCOUNT}:repository/team/app",
+                  "repositoryUri": "public.ecr.aws/example/team/app"}
+    found = one(aws(coll("ecr_public_repository", [repository], service="ecr-public")), "ecr_public_repository")
+    assert found["status"] == "FAIL" and found["evidence"]["exposure_kind"] == "public_registry"
+    assert found["evidence"]["data_exposure"] is False
+    assert "any published images can be pulled anonymously" in evidence_summary(found)
+    assert "migrate it" in found["remediation"]
+
+    malformed = {**repository, "registryId": "999988887777"}
+    unresolved = one(aws(coll("ecr_public_repository", [malformed], service="ecr-public")), "ecr_public_repository")
+    assert unresolved["status"] == "UNKNOWN"
+    assert "cannot be attributed" in evidence_summary(unresolved)
+    assert not exposure(aws(coll("ecr_public_repository", [], service="ecr-public")))
+
+
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
     (["es:DescribeDomain"], "/*", False, True),
     (["es:ESHttpGet"], "/other/*", False, False),

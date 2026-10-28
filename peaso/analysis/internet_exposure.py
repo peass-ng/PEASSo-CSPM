@@ -1924,6 +1924,25 @@ def _aws_ecr_registry_replication(snapshot, inventory, resource):
     return a
 
 
+def _aws_ecr_public_repository(snapshot, inventory, resource):
+    """An ECR Public repository is readable without a repository policy grant."""
+    data = resource["data"]
+    a = Assessment(resource, "public_registry")
+    account = str(resource.get("scope", "")).split("/", 1)[0]
+    name, arn, registry = data.get("repositoryName"), data.get("repositoryArn"), data.get("registryId")
+    if (resource.get("scope", "").split("/")[-1] != "us-east-1" or
+            not isinstance(name, str) or not re.fullmatch(r"(?:[a-z0-9]+(?:[._-][a-z0-9]+)*/)*[a-z0-9]+(?:[._-][a-z0-9]+)*", name) or
+            not isinstance(arn, str) or arn != f"arn:aws:ecr-public::{account}:repository/{name}" or
+            registry != account):
+        a.gap("inventory", "ECR Public repository identity or regional scope is incomplete")
+        return a
+    a.step("public_repository", "allow", repository_arn=arn, repository_name=name,
+           repository_uri=data.get("repositoryUri") if isinstance(data.get("repositoryUri"), str) else None)
+    a.explicit = "FAIL"
+    a.gap("content", "Published image inventory and successful pull were not tested")
+    return a
+
+
 def _aws_cloudfront(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("Config")
@@ -6892,7 +6911,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
+             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "ecr_public_repository", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
@@ -6911,7 +6930,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry", "vpc_peering", "transit_gateway_attachment"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry", "vpc_peering", "transit_gateway_attachment", "ecr_public_repository"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6958,6 +6977,7 @@ def assess(snapshot, resources):
                 "client_vpn_endpoint": _aws_client_vpn_endpoint,
                 "vpc_endpoint_service": _aws_vpc_endpoint_service,
                 "ecr_registry": _aws_ecr_registry_replication,
+                "ecr_public_repository": _aws_ecr_public_repository,
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
@@ -7024,6 +7044,8 @@ def assess(snapshot, resources):
 
 
 def _title(assessment, status):
+    if assessment.kind == "public_registry":
+        return "ECR Public repository is publicly readable" if status == "FAIL" else "ECR Public repository identity unresolved"
     if assessment.kind == "external_network":
         if assessment.resource["type"] == "transit_gateway_attachment":
             return ("Local route to foreign Transit Gateway attachment" if status == "FAIL" else
@@ -7066,6 +7088,16 @@ def _observed(assessment, status):
                 "The controller's treatment of that value is not recorded, so its public source rule is unclear.\n"
                 "The source rule may admit public requests if the controller ignores that range.\n"
                 f"That could expose data served through this {noun}.")
+    if assessment.kind == "public_registry":
+        if status == "FAIL":
+            return ("The ECR Public repository permits public image pulls.\n"
+                    "Its published image inventory was not recorded.\n"
+                    "People outside the account may download any images that are present.\n"
+                    "Those images could expose data used by people and services.")
+        return ("The ECR Public repository identity or regional scope is missing.\n"
+                "Its public pull setting cannot be resolved from those fields.\n"
+                "Images may be downloadable if public access is enabled.\n"
+                "Their contents could expose data outside the account.")
     if assessment.kind == "external_network":
         if assessment.resource["type"] == "transit_gateway_attachment":
             if status == "FAIL":
@@ -7246,10 +7278,12 @@ def internet_findings(snapshot, resources):
                     "collector_facts_needed": sorted({g["collector_fact"] for g in assessment.unresolved if g.get("collector_fact")}),
                     "source": source(snapshot, assessment.resource, "data"),
                     "risk_state": "observed" if status == "FAIL" else "reviewed" if status == "PASS" else "unknown",
-                    "semantics": ("Declared cross-account network connection and local route; return route and endpoint access are unverified."
+                    "semantics": ("ECR Public repository configuration permits anonymous image pulls; published images were not enumerated."
+                                  if assessment.kind == "public_registry" else
+                                  "Declared cross-account network connection and local route; return route and endpoint access are unverified."
                                   if assessment.kind == "external_network" else
                                   "Declared-configuration path model from 0.0.0.0/0; no traffic was sent.")}
-        severity = "high" if assessment.kind in ("external_share", "external_network") and status == "FAIL" else assessment.adjusted_severity()
+        severity = "high" if assessment.kind in ("external_share", "external_network", "public_registry") and status == "FAIL" else assessment.adjusted_severity()
         current = finding(snapshot, assessment.resource, "exposure", CHECK, _title(assessment, status), severity, evidence, status=status)
         current["remediation"] = exposure_action(evidence, status)
         current["id"] = stable_id("exposure", CHECK, node_id(assessment.resource), node_id(assessment.origin), assessment.kind)

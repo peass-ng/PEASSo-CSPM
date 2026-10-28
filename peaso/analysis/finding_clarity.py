@@ -392,7 +392,7 @@ _EXPOSURE_KINDS={
     'public_ip':'public IP path','load_balancer':'load-balancer frontend','database':'database endpoint',
     'managed_endpoint':'managed service endpoint','control_plane':'cluster control-plane endpoint',
     'function_url':'Lambda function URL','api':'API endpoint','data_share':'stored-data sharing',
-    'external_share':'external snapshot sharing','external_network':'external VPC peering route','serverless':'serverless endpoint','web_app':'web application endpoint',
+    'external_share':'external snapshot sharing','external_network':'external VPC peering route','public_registry':'public image registry','serverless':'serverless endpoint','web_app':'web application endpoint',
     'service':'Kubernetes service','ingress':'Kubernetes ingress','malformed':'internet path',
 }
 
@@ -403,6 +403,17 @@ def _internet_summary(finding):
         return _coverage_summary(e)
     if not isinstance(kind,str) or kind not in _EXPOSURE_KINDS:return None
     label=_EXPOSURE_KINDS[kind]
+    if kind=='public_registry':
+        path=e.get('path')
+        rows=[step for step in path if isinstance(step,dict) and step.get('layer')=='public_repository'] if isinstance(path,list) else []
+        if (status=='FAIL' and len(rows)==1 and rows[0].get('decision')=='allow' and
+                _text(rows[0].get('repository_arn')) and _text(rows[0].get('repository_name')) and
+                rows[0]['repository_arn'].startswith('arn:aws:ecr-public::') and
+                rows[0]['repository_arn'].endswith(':repository/'+rows[0]['repository_name'])):
+            return 'The ECR Public repository '+rows[0]['repository_name']+' is publicly readable; any published images can be pulled anonymously. Image contents were not enumerated.'
+        if status=='UNKNOWN' and isinstance(e.get('unresolved'),list) and e['unresolved']:
+            return 'The ECR Public repository identity or regional scope is incomplete; public image access cannot be attributed.'
+        return None
     if kind=='external_network':
         path=e.get('path')
         resource_type=(e.get('source') if isinstance(e.get('source'),dict) else {}).get('resource_type')
