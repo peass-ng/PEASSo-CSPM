@@ -1350,11 +1350,12 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
         _child_rows([{**route, "properties": {**route["properties"], "fqdn": None}}], env_id,
                     "httpRouteConfigs")
 
-    def decision(routes, status="collected", public="Enabled", app_rules=None, external=False):
+    def decision(routes, status="collected", public="Enabled", app_rules=None, external=False,
+                 runtime=None):
         ingress = {"external": external, "transport": "http"}
         if app_rules is not None:
             ingress["ipSecurityRestrictions"] = app_rules
-        snap = make_snapshot("azure", [SCOPE], [
+        collections = [
             {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": env_id, "properties": {"publicNetworkAccess": public,
                  "vnetConfiguration": {"internal": False}},
@@ -1362,7 +1363,11 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
             {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
                  "configuration": {"ingress": ingress}, "provisioningState": "Succeeded"}}]},
-        ])
+        ]
+        if runtime is not None:
+            collections.append({"type": "container_app_runtime", "scope": SCOPE,
+                                "service": "app", "status": "collected", "items": [runtime]})
+        snap = make_snapshot("azure", [SCOPE], collections)
         return [a for a in assess(snap, resources(snap)) if a.resource["type"] == "container_app"]
 
     exposed = decision([route])[0]
@@ -1378,6 +1383,23 @@ def test_container_app_internal_ingress_can_be_targeted_by_environment_http_rout
     assert decision([other]) == []
     private_rules = [{"action": "Allow", "ipAddressRange": "10.0.0.0/8"}]
     assert decision([route], app_rules=private_rules)[0].verdict() == "UNKNOWN"
+    targeted = {**route, "properties": {**route["properties"], "rules": [{"targets": [
+        {"containerApp": "app", "revision": "old"}]}]}}
+    runtime = {"id": app_id, "properties": {"runningStatus": "Running",
+               "provisioningState": "Succeeded"},
+               "revisions": [{"id": app_id + "/revisions/old", "properties": {"active": False}},
+                             {"id": app_id + "/revisions/current", "properties": {"active": True}}],
+               "_provenance": {"method": "GET+LIST", "read_only": True}}
+    assert decision([targeted], runtime=runtime) == []
+    unresolved_target = decision([targeted])[0]
+    assert unresolved_target.verdict() == "UNKNOWN"
+    assert "cannot be resolved to an active revision" in _observed(unresolved_target, "UNKNOWN")
+    active_target = {**targeted, "properties": {**targeted["properties"], "rules": [{"targets": [
+        {"containerApp": "app", "revision": "current"}]}]}}
+    assert decision([active_target], runtime=runtime)[0].verdict() == "FAIL"
+    labeled = {**targeted, "properties": {**targeted["properties"], "rules": [{"targets": [
+        {"containerApp": "app", "label": "preview"}]}]}}
+    assert decision([labeled], runtime=runtime)[0].verdict() == "UNKNOWN"
 
 
 def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():

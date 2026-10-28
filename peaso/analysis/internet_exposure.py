@@ -5205,9 +5205,22 @@ def _azure_container_app(snapshot, inventory, resource):
     ingress = (props.get("configuration") or {}).get("ingress") or {}
     env_id = props.get("environmentId") or props.get("managedEnvironmentId")
     environment = inventory.get("container_app_environment", env_id)
+    runtime = inventory.get("container_app_runtime", resource["data"].get("id"))
     route_hosts = []
     route_state = None
+    route_target_unresolved = False
     if ingress.get("external") is not True:
+        revisions = runtime["data"].get("revisions") if runtime is not None else None
+        complete_revisions = (runtime is not None and
+                              inventory.state("container_app_runtime", resource["scope"]) == "collected" and
+                              (runtime["data"].get("_provenance") or {}).get("method") == "GET+LIST" and
+                              (runtime["data"].get("_provenance") or {}).get("read_only") is True and
+                              isinstance(revisions, list))
+        revision_states = {str(revision["id"]).rsplit("/", 1)[-1].casefold():
+                           revision["properties"].get("active")
+                           for revision in revisions if isinstance(revision, dict) and
+                           isinstance(revision.get("id"), str) and
+                           isinstance(revision.get("properties"), dict)} if complete_revisions else {}
         if environment is not None:
             route_state = (environment["data"].get("_coverage") or {}).get("httpRouteConfigs", {}).get("status")
             app_name = str(resource["data"].get("id", "")).rsplit("/", 1)[-1].casefold()
@@ -5215,27 +5228,41 @@ def _azure_container_app(snapshot, inventory, resource):
                 route_props = route.get("properties") if isinstance(route, dict) else None
                 if not isinstance(route_props, dict) or route_props.get("provisioningState") != "Succeeded":
                     continue
-                if not any(isinstance(rule, dict) and any(
-                        isinstance(target, dict) and str(target.get("containerApp", "")).casefold() == app_name
-                        for target in as_list(rule.get("targets")))
-                        for rule in as_list(route_props.get("rules"))):
-                    continue
                 fqdn = route_props.get("fqdn")
-                if isinstance(fqdn, str) and fqdn:
-                    route_hosts.append(fqdn)
-        if ingress.get("external") is False and not route_hosts and route_state in ("collected", "empty"):
+                for rule in as_list(route_props.get("rules")):
+                    for target in as_list(rule.get("targets")) if isinstance(rule, dict) else []:
+                        if (not isinstance(target, dict) or
+                                str(target.get("containerApp", "")).casefold() != app_name):
+                            continue
+                        revision = target.get("revision")
+                        label = target.get("label")
+                        if revision is None and label is None:
+                            if isinstance(fqdn, str) and fqdn:
+                                route_hosts.append(fqdn)
+                            else:
+                                route_target_unresolved = True
+                        elif isinstance(revision, str) and revision and label is None and complete_revisions:
+                            active = revision_states.get(revision.rsplit("/", 1)[-1].casefold())
+                            if active is True and isinstance(fqdn, str) and fqdn:
+                                route_hosts.append(fqdn)
+                            elif active is not False:
+                                route_target_unresolved = True
+                        else:
+                            route_target_unresolved = True
+        if (ingress.get("external") is False and not route_hosts and not route_target_unresolved and
+                route_state in ("collected", "empty")):
             return None
     a = Assessment(resource, "container")
     if ingress.get("external") is not True:
         if not route_hosts:
             a.gap("inventory", "Container App ingress external setting is unavailable" if
                   ingress.get("external") is not False else
+                  "Container Apps HTTP route target revision or label is unresolved" if route_target_unresolved else
                   "Container Apps environment HTTP route inventory is incomplete")
             return a
         a.addresses = sorted(set(route_hosts))
         a.step("environment_http_route", "allow", route_fqdns=a.addresses,
                app_ingress_external=ingress.get("external"))
-    runtime = inventory.get("container_app_runtime", resource["data"].get("id"))
     runtime_status = _props(runtime).get("runningStatus") if runtime is not None else props.get("runningStatus")
     if runtime_status == "Stopped":
         a.step("app_state", "block", running_status="Stopped")
@@ -7170,6 +7197,12 @@ def _observed(assessment, status):
                 "An open path could expose workflow settings or data if IAM also grants access.")
     if assessment.resource["type"] == "container_app":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        if status == "UNKNOWN" and any(
+                "HTTP route target revision or label is unresolved" in gap["reason"]
+                for gap in assessment.unresolved):
+            return (f"The Container App {name} has internal ingress and a provisioned environment HTTP route that names it.\n"
+                    "The route's revision or label target cannot be resolved to an active revision from this snapshot.\n"
+                    "A public request path to app data remains possible if that target is active.")
         route = next((step for step in assessment.path if step["layer"] == "environment_http_route"), None)
         if route is not None and status in ("FAIL", "UNKNOWN"):
             return (f"The Container App {name} has internal ingress but an environment HTTP route "
