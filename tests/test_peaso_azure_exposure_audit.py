@@ -813,13 +813,16 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
                 next(a for a in rows if a.resource["type"] == "storage_container"))
 
     account, anonymous = account_and_container([rule])
-    assert account.verdict() == "FAIL" and anonymous.verdict() == "FAIL"
+    assert account.verdict() == "FAIL" and anonymous.verdict() == "PASS"
     assert account.path[0]["resource_instance_rules"] == [{"resource_id": rule["resourceId"],
                                                             "tenant_id": rule["tenantId"]}]
-    assert anonymous.path[-1]["resource_instance_rules"] == account.path[0]["resource_instance_rules"]
+    assert anonymous.path[-2]["resource_instance_rules"] == account.path[0]["resource_instance_rules"]
     assert len(_observed(account, "FAIL").splitlines()) == 3
-    assert "Reading data still requires separate authorization" in _observed(account, "FAIL")
-    assert "Anonymous blob reads could expose stored data" in _observed(anonymous, "FAIL")
+    assert "requires an appropriate role" in _observed(account, "FAIL")
+    assert any(step["layer"] == "resource_instance_exception" and
+               step["decision"] == "authenticated_only" for step in anonymous.path)
+    assert "does not establish an anonymous read path" in _observed(anonymous, "PASS")
+    assert len(_observed(anonymous, "PASS").splitlines()) == 3
     assert account_and_container([])[0].verdict() == "PASS"
     assert account_and_container([])[1].verdict() == "PASS"
     assert account_and_container([{"resourceId": rule["resourceId"]}])[0].verdict() == "UNKNOWN"
@@ -831,6 +834,10 @@ def test_storage_resource_instance_rule_admits_named_source_to_public_endpoint()
     assert account.path[0]["virtual_network_rules"] == [foreign_subnet]
     assert "Subnet ownership, data authorization" in _observed(account, "FAIL")
     assert "subnet ownership and successful access" in _observed(anonymous, "FAIL")
+    mixed_account, mixed_anonymous = account_and_container([rule], [{"id": foreign_subnet,
+                                                                      "state": "Succeeded"}])
+    assert mixed_account.verdict() == "FAIL" and mixed_anonymous.verdict() == "FAIL"
+    assert "permits subnet" in _observed(mixed_anonymous, "FAIL")
     assert account_and_container([], [{"id": foreign_subnet, "state": "Failed"}])[0].verdict() == "UNKNOWN"
     assert account_and_container([], [{"id": foreign_subnet}])[0].verdict() == "UNKNOWN"
     assert account_and_container([], [{"id": "malformed", "state": "Succeeded"}])[1].verdict() == "UNKNOWN"

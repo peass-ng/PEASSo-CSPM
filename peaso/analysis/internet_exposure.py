@@ -5037,11 +5037,16 @@ def _azure_storage_container(snapshot, inventory, resource):
         instances, unresolved_instances = _azure_storage_resource_instance_rules(acls)
         subnets, unresolved_subnets = _azure_storage_virtual_network_rules(acls)
         bypass = _azure_storage_bypass(acls)
-        if public or instances or subnets:
+        if public or subnets:
             a.step("firewall", "allow", default_action="Deny", public_ip_rules=public,
                    resource_instance_rules=instances, virtual_network_rules=subnets)
             if unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets:
                 a.notes.append("Other storage account network rule entries are malformed or incomplete")
+        elif instances and not (unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets or bypass is None):
+            a.step("resource_instance_exception", "authenticated_only", resource_instance_rules=instances)
+            a.step("firewall", "block", default_action="Deny", anonymous_public_sources=0)
+            a.ports = {}
+            return a
         elif unresolved or ipv6_unknown or unresolved_instances or unresolved_subnets or bypass is None:
             a.gap("firewall", "storage account IP, resource-instance, subnet or trusted-service bypass rules are malformed or incomplete")
         else:
@@ -7184,7 +7189,8 @@ def _observed(assessment, status):
                     "Data authorization and successful access were not tested.")
         instance_step = next((step for step in assessment.path
                               if step.get("resource_instance_rules") and not step.get("public_ip_rules")), None)
-        if instance_step is not None:
+        if instance_step is not None and (assessment.resource["type"] != "storage_container" or
+                                          not instance_step.get("virtual_network_rules")):
             instance = instance_step["resource_instance_rules"][0]
             if assessment.resource["type"] == "storage_container":
                 return (f"The blob container {assessment.resource['data'].get('name', native_id(assessment.resource))} "
@@ -7196,7 +7202,7 @@ def _observed(assessment, status):
                     f"permits resource instance {instance['resource_id']} in tenant {instance['tenant_id']} "
                     "through its public endpoint.\n"
                     "Requests from that instance may reach the storage endpoint if the service responds.\n"
-                    "Reading data still requires separate authorization or a public container ACL; neither was tested.")
+                    "Reading data still requires an appropriate role for the instance's managed identity.")
         subnet_step = next((step for step in assessment.path
                             if step.get("virtual_network_rules") and not step.get("public_ip_rules")), None)
         if subnet_step is not None:
@@ -7237,6 +7243,16 @@ def _observed(assessment, status):
                     f"trusted-service bypass {', '.join(exception['bypass'])}.\n"
                     "Those Azure services may use its public endpoint from outside the account network boundary.\n"
                     "Service identity, data authorization, and a successful request were not observed.")
+    if assessment.resource["type"] == "storage_container" and status == "PASS":
+        instance = next((step for step in assessment.path
+                         if step["layer"] == "resource_instance_exception"), None)
+        if instance is not None:
+            source = instance["resource_instance_rules"][0]["resource_id"]
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The blob container {name} allows anonymous reads, but its account denies unmatched "
+                    f"network sources and permits only resource instance {source}.\n"
+                    "That exception requires the source resource's managed identity and a Blob data role.\n"
+                    "The recorded exception does not establish an anonymous read path to this container.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":
