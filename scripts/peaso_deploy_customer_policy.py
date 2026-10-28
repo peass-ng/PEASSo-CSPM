@@ -306,6 +306,10 @@ GATEWAY_PATHS = {
     ("apigatewayv2", "get_authorizers"): ("/apis/*/authorizers",),
     ("apigateway", "get_client_certificate"): ("/clientcertificates/*",),
     ("apigateway", "get_deployment"): ("/restapis/*/deployments/*",),
+    # ExportApi is an HTTP GET on this exact OAS30 resource. The collector
+    # pins a stage and projects route authorization before caching the result.
+    # https://docs.aws.amazon.com/apigateway/latest/developerguide/arn-format-reference.html
+    ("apigatewayv2", "export_api"): ("/apis/*/exports/OAS30",),
 }
 # Reviewed companion permissions AWS documents for one SDK call (reference-verified like any action).
 DEPENDENT_ACTIONS = {("wafv2", "get_web_acl_for_resource"): ("cognito-idp:GetWebACLForResource",)}
@@ -393,7 +397,56 @@ VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(IAM_REPORT_READ_REFERENCES)
 # the AWS managed SecurityAudit policy (iam:GenerateServiceLastAccessedDetails explicitly).
 READ_OPERATION_EXCEPTIONS = frozenset({("cloudtrail", "lookup_events"), ("iam", "generate_service_last_accessed_details"),
     ("iam", "simulate_principal_policy"), ("ec2", "search_transit_gateway_routes"),
-    ("braket", "search_devices")})
+    ("braket", "search_devices"), ("apigatewayv2", "export_api")})
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | {"apigateway:ListPortals"}
+ACTION_ALIASES[("apigatewayv2", "list_portals")] = "apigateway:ListPortals"
+for _operation in ("describe_budgets", "describe_notifications_for_budget",
+                   "describe_subscribers_for_notification"):
+    # AWS maps these three read APIs to ViewBudget, not their SDK names.
+    ACTION_ALIASES[("budgets", _operation)] = "budgets:ViewBudget"
+    DEPENDENT_ACTIONS[("budgets", _operation)] = ("aws-portal:ViewBilling",)
+ACTION_ALIASES[("backupsearch", "get_search_result_export_job")] = "backup-search:GetSearchResultExportJob"
+ACTION_ALIASES[("backupsearch", "list_search_result_export_jobs")] = "backup-search:ListSearchResultExportJobs"
+# Reviewed exact read actions for the combined Exposure inventory. Each action is
+# tied to the AWS Service Authorization Reference; no action wildcard is admitted.
+BIG_WAVE_EXPOSURE_READ_REFERENCES = {
+    'appconfig:GetConfigurationProfile': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:GetExtension': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:GetExtensionAssociation': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:ListApplications': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:ListConfigurationProfiles': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appconfig:ListExtensionAssociations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appconfig.html',
+    'appflow:DescribeFlow': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appflow.html',
+    'appflow:ListFlows': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_appflow.html',
+    'athena:BatchGetQueryExecution': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_athena.html',
+    'athena:ListQueryExecutions': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_athena.html',
+    'auditmanager:GetAssessment': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_auditmanager.html',
+    'auditmanager:GetSettings': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_auditmanager.html',
+    'auditmanager:ListAssessments': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_auditmanager.html',
+    'autoscaling:DescribeLifecycleHooks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_autoscaling.html',
+    'autoscaling:DescribeNotificationConfigurations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_autoscaling.html',
+    'aws-portal:ViewBilling': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_aws-portal.html',
+    'backup-search:GetSearchResultExportJob': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_backupsearch.html',
+    'backup-search:ListSearchResultExportJobs': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_backupsearch.html',
+    'bedrock-agentcore:GetGateway': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html',
+    'budgets:ViewBudget': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_budgets.html',
+    'cloudsearch:DescribeDomainEndpointOptions': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudsearch.html',
+    'cloudtrail:DescribeQuery': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudtrail.html',
+    'cloudtrail:ListQueries': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudtrail.html',
+    'codepipeline:ListWebhooks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_codepipeline.html',
+    'codestar-notifications:DescribeNotificationRule': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_codestar-notifications.html',
+    'codestar-notifications:ListNotificationRules': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_codestar-notifications.html',
+    'cognito-idp:DescribeUserPoolDomain': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_cognito-idp.html',
+    'config:DescribeConfigRules': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_config.html',
+    'config:DescribeConformancePacks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_config.html',
+    'config:DescribeOrganizationConfigRules': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_config.html',
+    'config:DescribeOrganizationConformancePacks': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_config.html',
+    'ds:DescribeTrusts': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_ds.html',
+    'dsql:GetCluster': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_dsql.html',
+    'elasticfilesystem:DescribeReplicationConfigurations': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_efs.html',
+}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(BIG_WAVE_EXPOSURE_READ_REFERENCES)
+
 
 
 @lru_cache(maxsize=256)
@@ -579,6 +632,9 @@ NATIVE_METADATA_STATEMENTS = {
     ("lambda", "list_tags"): {"Sid": "NativeLambdaFunctionTagsRead", "Effect": "Allow", "Action": "lambda:ListTags", "Resource": {"Fn::Sub": "arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:*"}},
 }
 NATIVE_METADATA_STATEMENTS.update({
+    ("apigatewayv2", "list_portals"): {"Sid": "NativeApiGatewayPortalInventoryRead", "Effect": "Allow",
+        "Action": "apigateway:ListPortals",
+        "Resource": {"Fn::Sub": "arn:${AWS::Partition}:apigateway:*:${AWS::AccountId}:/portals/*"}},
     ("mediapackagev2", "list_harvest_jobs"): {"Sid":"NativeMediaPackageHarvestRead","Effect":"Allow","Action":"mediapackagev2:ListHarvestJobs","Resource":{"Fn::Sub":"arn:${AWS::Partition}:mediapackagev2:*:${AWS::AccountId}:channelGroup/*"}},
     ("route53resolver", "list_firewall_domain_lists"): {"Sid":"NativeResolverDomainListsRead","Effect":"Allow","Action":"route53resolver:ListFirewallDomainLists","Resource":"*"},
     ("sagemaker", "list_endpoints"): {"Sid":"NativeSageMakerEndpointInventoryRead","Effect":"Allow","Action":"sagemaker:ListEndpoints","Resource":"*"},
