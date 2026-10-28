@@ -74,7 +74,7 @@ OPTIONS.update({'selected_aws_workload_sources', 'selected_aws_build_deployment_
 AUTH = {
     "aws": {"method", "aws_access_key_id", "aws_secret_access_key", "aws_session_token", "role_arn", "external_id", "role_chain", "assume_roles", "region_name", "role_session_name"},
     "gcp": {"gke_image_kubernetes", "registry_auth", "method", "token", "sa_json", "quota_project", "external_account_json", "subject_token", "project_proof_label"},
-    "azure": {"devops_credentials", "aks_workloads", "registry_auth", "method", "token", "arm_token", "graph_token", "vault_token", "storage_token", "logs_token", "databricks_account_token", "tenant_id", "client_id", "client_secret", "certificate_data", "client_certificate", "certificate_password", "federated_token"},
+    "azure": {"devops_credentials", "aks_workloads", "registry_auth", "method", "token", "arm_token", "graph_token", "vault_token", "storage_token", "logs_token", "databricks_account_token", "databricks_workspace_token_secret", "tenant_id", "client_id", "client_secret", "certificate_data", "client_certificate", "certificate_password", "federated_token"},
     "k8s": {"method", "server", "token", "kubeconfig_data", "context", "cluster_id", "ca_cert_data", "client_cert_data", "client_key_data", "registry_auth"},
 }
 AWS_ROLE_ARN = re.compile(r"arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_/-]{1,512}\Z")
@@ -555,6 +555,14 @@ def validate_connector(provider, auth, options, settings, *, server_external_id=
             validate_auth(auth)
         except ValueError:
             raise HTTPException(422, "Invalid Databricks account credential") from None
+    if "databricks_workspace_token_secret" in auth:
+        try:
+            if provider != "azure":
+                raise ValueError("Databricks workspace credentials are Azure-only")
+            from peaso.collectors.azure_databricks_workspace_ip_native import validate_auth
+            validate_auth(auth)
+        except ValueError:
+            raise HTTPException(422, "Invalid Databricks workspace credential mapping") from None
     if "native_disclosure_metadata" in options:
         if provider != "azure" or type(options["native_disclosure_metadata"]) is not bool:
             raise HTTPException(422, "Invalid Azure native disclosure metadata selection")
@@ -872,7 +880,7 @@ def validate_connector(provider, auth, options, settings, *, server_external_id=
                 raise HTTPException(422, "Invalid hosted Kubernetes owner policy")
         else:
             raise HTTPException(422, "Unsupported hosted compliance policy")
-    structured = {"registry_auth", "gke_image_kubernetes", "devops_credentials", "aks_workloads", "sa_json", "external_account_json", "kubeconfig_data", "role_chain", "assume_roles"}
+    structured = {"registry_auth", "gke_image_kubernetes", "devops_credentials", "aks_workloads", "databricks_workspace_token_secret", "sa_json", "external_account_json", "kubeconfig_data", "role_chain", "assume_roles"}
     if any(key not in structured and (not isinstance(value, str) or len(value) > 1_000_000) for key, value in auth.items()):
         raise HTTPException(422, "Hosted authentication fields must contain strings or supported inline configuration")
     for key in ("max_resources", "max_calls", "max_pages"):

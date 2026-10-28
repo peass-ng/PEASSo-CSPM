@@ -34,6 +34,54 @@ def test_pat_mapping_and_secret_redaction():
             native.validate_auth({native.FIELD: bad})
 
 
+def test_hosted_pat_mapping_validation_and_resume_boundary():
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from peaso.auth.secrets import credential_values
+    from peaso.server.scan_resume import _boundary
+    from peaso.server.validation import validate_connector
+
+    auth = {'method': 'token', 'arm_token': 'controlled-arm-token', native.FIELD: {RID: PAT}}
+    validate_connector('azure', auth, {}, SimpleNamespace(auth_mode='cognito'), scopes=[SCOPE])
+    assert list(credential_values({native.FIELD: {RID: PAT}})) == [PAT]
+    assert _boundary(auth, 'azure')[native.FIELD] == [RID.casefold()]
+    assert PAT not in json.dumps(_boundary(auth, 'azure'))
+    assert _boundary({**auth, native.FIELD: {RID: 'dapi' + 'b' * 32}}, 'azure') == _boundary(auth, 'azure')
+    other = SCOPE + '/resourceGroups/rg/providers/Microsoft.Databricks/workspaces/two'
+    assert _boundary({**auth, native.FIELD: {other: PAT}}, 'azure') != _boundary(auth, 'azure')
+    for bad in ({RID: 'eyJ.bad.jwt'}, {RID + '/other': PAT}, {RID: PAT, RID.upper(): PAT}, {}):
+        with pytest.raises(HTTPException) as error:
+            validate_connector('azure', {**auth, native.FIELD: bad}, {},
+                               SimpleNamespace(auth_mode='cognito'), scopes=[SCOPE])
+        assert error.value.status_code == 422
+
+
+def test_hosted_connector_encrypts_pat_mapping(tmp_path, monkeypatch, caplog):
+    from fastapi.testclient import TestClient
+    from peaso.server import create_app
+    from peaso.server.config import Settings
+    from tests.connector_access_receipts import checked_create, mock_access_pass
+    from tests.test_peaso_api import TestIdentities
+
+    mock_access_pass(monkeypatch)
+    settings = Settings(state_dir=tmp_path / 'state', identity_dir=tmp_path / 'identity',
+                        local_token='controlled-local-api-token')
+    with TestClient(create_app(settings, authenticator=TestIdentities()),
+                    base_url='http://127.0.0.1:8000') as client:
+        client.headers['Authorization'] = 'Bearer alice'
+        body = {'name': 'Workspace IP fixture', 'provider': 'azure', 'scopes': [SCOPE],
+                'auth': {'method': 'token', 'arm_token': 'controlled-arm-token', native.FIELD: {RID: PAT}},
+                'options': {}}
+        response = client.post('/api/connectors', json=checked_create(client, body))
+        assert response.status_code == 201, response.text
+        assert native.FIELD in response.json()['auth']['fields']
+        assert PAT not in response.text
+        assert PAT not in client.get('/api/connectors').text
+        assert PAT not in client.get('/api/connectors/' + response.json()['id']).text
+    assert PAT not in caplog.text
+    assert PAT.encode() not in (settings.state_dir / 'peaso.sqlite3').read_bytes()
+
+
 def test_project_discards_labels_and_rejects_bad_policy():
     value = {'ip_access_lists': [{'list_id': 'abc', 'list_type': 'ALLOW', 'enabled': True,
               'ip_addresses': ['10.0.0.1/8'], 'address_count': 1, 'label': PAT}]}
