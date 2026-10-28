@@ -1449,6 +1449,36 @@ def test_nic_public_ip_reference_requires_assigned_global_address():
     assert mixed.verdict() == "FAIL" and mixed.addresses == ["8.8.8.8"]
 
 
+def test_nic_finding_lists_only_frontends_with_an_admitted_path():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    nic_id, subnet_id = base + "/networkInterfaces/nic", base + "/virtualNetworks/v/subnets/s"
+    nsg_id = base + "/networkSecurityGroups/nsg"
+    configs = [{"id": nic_id + "/ipConfigurations/" + name, "name": name,
+                "properties": {"privateIPAddress": private, "subnet": {"id": subnet_id},
+                               "publicIPAddress": {"id": base + "/publicIPAddresses/" + name}}}
+               for name, private in (("blocked", "10.0.0.4"), ("open", "10.0.0.5"))]
+    snap = make_snapshot("azure", [SCOPE], [
+        {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": nic_id, "properties": {"networkSecurityGroup": {"id": nsg_id},
+                                                   "ipConfigurations": configs}}]},
+        {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": base + "/publicIPAddresses/" + name, "sku": {"name": "Standard"},
+                    "properties": {"ipAddress": address}}
+                   for name, address in (("blocked", "8.8.8.8"), ("open", "9.9.9.9"))]},
+        {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": subnet_id, "properties": {}}]},
+        {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
+         "items": [{"id": nsg_id, "properties": {"securityRules": [{"name": "only-open",
+             "properties": {"priority": 100, "direction": "Inbound", "access": "Allow",
+                            "protocol": "Tcp", "sourceAddressPrefix": "Internet",
+                            "destinationAddressPrefix": "10.0.0.5/32", "destinationPortRange": "443"}}]}}]},
+    ])
+    row = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "nic")
+    assert row.verdict() == "FAIL"
+    assert row.addresses == ["9.9.9.9"]
+    assert row.ports == {"tcp": ((443, 443),)}
+
+
 def test_nsg_joins_cached_subscription_service_tag_prefixes():
     nic_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic"
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet"
