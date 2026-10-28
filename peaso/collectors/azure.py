@@ -1658,10 +1658,10 @@ def _validate_readonly_post(url, audience, body):
               r"/providers/Microsoft.PolicyInsights/policyStates/latest/queryResults", parsed.path) is not None and
               version_valid and set(query) <= {"api-version", "$filter", "$top", "$skiptoken", "$skipToken", "$select", "$orderby", "$apply", "$expand", "$from", "$to"} and
               body == {})
-    from . import azure_graph_batch
+    from . import azure_graph_batch_exposure as azure_graph_batch
     graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and not query and
                    (parsed.path == "/v1.0/$batch" and azure_graph_batch.valid_body(body) or
-                    parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_members_only=True)))
+                    parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_routes_only=True)))
     newrelic = azure_newrelic_native.monitored_route(url, body, ARM)
     if not (arg or logs or policy or graph_batch or newrelic):
         raise AzureReadError("cloud_mutation_prohibited")
@@ -5076,7 +5076,7 @@ def collect(connector, requirements=None, *, transport=None):
             elif not jobs:
                 reader.collections.append({"type": policy_kind, "scope": tenant_scope,
                                            "service": "Microsoft.Graph", "status": "empty", "items": [], "parent_inventory": "directory_group"})
-        from . import azure_graph_batch
+        from . import azure_graph_batch_exposure as azure_graph_batch
         graph_batching = (getattr(transport, "graph_batch", False) is True
                           and not reader.explicit_limits)
         if "directory_owner" in wanted or "directory_administrative_unit_member" in wanted:

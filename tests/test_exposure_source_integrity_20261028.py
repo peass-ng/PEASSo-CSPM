@@ -30,6 +30,8 @@ def test_repaired_exposure_functions_keep_service_bounded_source():
     definitions = {node.name: node for node in _definitions()}
     profiles = {
         "_aws_transfer_server": (("ServerId", "EndpointType"), ("BudgetName", "ApiId")),
+        "_aws_lambda_layer_share": (("LayerName", "GetLayerVersionPolicy"), ("PrincipalAssociations",)),
+        "_aws_ram_share": (("ResourceAssociations", "PrincipalAssociations"), ("GetLayerVersionPolicy",)),
         "_aws_elbv2": (("Scheme", "DNSName"), ("Notification Topic ARN", "lambda:getlayerversion")),
         "_aws_redshift": (("PubliclyAccessible",), ("BudgetName", "ApiId")),
         "_public_policy": (("Statement", "Principal"), ("StackSetId",)),
