@@ -192,11 +192,16 @@ def _small_pretty_tree(value):
         active.add(identity)
         try:
             if kind in (dict, _JSONFrozenDict):
-                keys = list(item)
-                if any(type(key) is not str for key in keys):
+                try:
+                    keys = sorted(item)
+                except (TypeError, ValueError):
                     raise _NotSmallJson
-                return {visit(key, depth + 1): visit(item[key], depth + 1)
-                        for key in sorted(keys)}
+                values = {}
+                for key in keys:
+                    if type(key) is not str:
+                        raise _NotSmallJson
+                    values[visit(key, depth + 1)] = visit(item[key], depth + 1)
+                return values
             return [visit(child, depth + 1) for child in item]
         finally:
             active.remove(identity)
@@ -219,10 +224,11 @@ class _MarkdownStream:
     Working memory is bounded by chunks, encoder depth/dictionary keys and the
     largest JSON scalar token, rather than the complete rendered document.
     """
-    def __init__(self, stream):
+    def __init__(self, stream, resource_section=None):
         self.stream = stream
         self.start = self.position = self.last_nonwhite = stream.tell()
         self.started = False
+        self.resource_section = resource_section
 
     def _write(self, body):
         written = self.stream.write(body)
@@ -287,8 +293,15 @@ class _MarkdownStream:
         with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", newline="") as block:
             longest = carry = 0
             encoder = json.JSONEncoder(indent=2, sort_keys=True, ensure_ascii=False)
+            pending = []
+            pending_chars = 0
             for token in encoder.iterencode(value):
-                block.write(token)
+                pending.append(token)
+                pending_chars += len(token)
+                if pending_chars >= _MARKDOWN_CHARS:
+                    block.write("".join(pending))
+                    pending.clear()
+                    pending_chars = 0
                 for offset in range(0, len(token), _MARKDOWN_CHARS):
                     part = token[offset:offset + _MARKDOWN_CHARS]
                     if "`" not in part:
@@ -298,6 +311,8 @@ class _MarkdownStream:
                     longest = max(longest, carry + prefix)
                     longest = max(longest, max((len(m.group()) for m in re.finditer(r"`+", part)), default=0))
                     carry = carry + len(part) if prefix == len(part) else len(part) - len(part.rstrip("`"))
+            if pending:
+                block.write("".join(pending))
             fence = "`" * max(3, longest + 1)
             self.append(fence + "json")
             self._begin_line()
@@ -308,6 +323,25 @@ class _MarkdownStream:
                     break
                 self._raw(part)
             self.extend([fence, ""])
+
+    def copy_resource_section(self, section):
+        source = section["source"]
+        previous = source.tell()
+        remaining = section["end"] - section["start"]
+        start = self.position
+        try:
+            source.seek(section["start"])
+            while remaining:
+                body = source.read(min(1024 * 1024, remaining))
+                if not body:
+                    raise OSError("cached Markdown resource section ended early")
+                self._write(body)
+                self.position += len(body)
+                remaining -= len(body)
+        finally:
+            source.seek(previous)
+        self.last_nonwhite = start + section["last_nonwhite_offset"]
+        self.started = True
 
     def finish(self):
         self.stream.seek(self.last_nonwhite)
@@ -395,14 +429,14 @@ def render_markdown(report):
     return _render_markdown(report, _MarkdownLines())
 
 
-def write_markdown(report, stream):
+def write_markdown(report, stream, *, _resource_section=None):
     """Write identical UTF-8 Markdown to a caller-owned seekable binary file.
 
     Output starts at the current file position and replaces the remainder of the
     file. Return the number of bytes written. The caller closes/removes the file
     and must not publish it if rendering raises; partial output is possible.
     """
-    return _render_markdown(report, _MarkdownStream(stream))
+    return _render_markdown(report, _MarkdownStream(stream, _resource_section))
 
 
 def _render_markdown(report, lines):
@@ -495,10 +529,18 @@ def _render_markdown(report, lines):
             lines.append("| " + " | ".join(_text(v) for v in (row.get("status"), row.get("check_id"), row.get("title"), row.get("count"),
                          len(row.get("scopes") or {}), ", ".join(str(x) for x in row.get("sample_resource_ids") or []))) + " |")
         lines.append("")
-    lines.extend(["## Resource inventory", "", "Native configuration facts are retained below. No data-plane secrets or object contents are collected.", ""])
-    for resource in report.get("resources", []):
-        lines.extend(["### " + _text(resource.get("type")) + ": " + _text(resource.get("id")), "", "Scope: " + _text(resource.get("scope")), ""])
-        lines.json(resource)
+    section = lines.resource_section if isinstance(lines, _MarkdownStream) else None
+    if section is not None and "source" in section:
+        lines.copy_resource_section(section)
+    else:
+        section_start = lines.position if section is not None else None
+        lines.extend(["## Resource inventory", "", "Native configuration facts are retained below. No data-plane secrets or object contents are collected.", ""])
+        for resource in report.get("resources", []):
+            lines.extend(["### " + _text(resource.get("type")) + ": " + _text(resource.get("id")), "", "Scope: " + _text(resource.get("scope")), ""])
+            lines.json(resource)
+        if section is not None:
+            section.update(start=section_start, end=lines.position,
+                           last_nonwhite_offset=lines.last_nonwhite - section_start)
     lines.extend(["## Defensive relationship graphs", "", "Edges record observed configuration references and declared IAM grants. They do not establish effective access or network reachability.", ""])
     for name, graph in report.get("graphs", {}).items():
         lines.extend(["### " + _text(name), ""])

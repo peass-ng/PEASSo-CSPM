@@ -20,6 +20,21 @@ from .contracts import validate_actions, validate_network
 from . import isolation
 
 
+def _priorities_have_evidence(report, reviews, network_input):
+    """Match action-reference eligibility, excluding unobserved network paths."""
+    metadata = report.get('check_meta') or {}
+    rejected = {row['finding_id'] for row in reviews if row['verdict'] != 'FAIL'}
+    for row in report.get('findings', []):
+        if row.get('id') in rejected:
+            continue
+        status = row.get('status')
+        category = row.get('category', (metadata.get(row.get('check_id')) or {}).get('category'))
+        if status == 'FAIL' or (status in ('MANUAL', 'UNKNOWN') and
+                                (category == 'privesc' or category == 'network' and network_input is not None)):
+            return True
+    return False
+
+
 def private_json(path, value):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as stream:
@@ -565,7 +580,10 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             'status': 'not_available', 'explanation': '', 'findings': [],
             'reason': 'network_inventory_unavailable'}
         priorities_report = with_findings(report, result['network']['findings'])
-        if 'priorities' in selected:
+        if 'priorities' in selected and not _priorities_have_evidence(priorities_report, reviewed, network):
+            result['limitations'].append(
+                'Prioritized recommendations were skipped because collected evidence supports no actionable finding.')
+        elif 'priorities' in selected:
             try:
                 if end - time.monotonic() <= 0:
                     raise TimeoutError()

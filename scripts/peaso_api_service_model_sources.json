@@ -1,5 +1,6 @@
 {
   "ai_agent_removal_wave2_review": "Five rebased commits on hotfix 112f1a5e remove Hardening and Exposure model dispatch and dormant progressive windows while retaining Network and Priorities for all four providers. Fourteen changed Python files reviewed; all 1718 source paths pinned. Thirty direct SDK client sites remain in the existing service allowlist. Native Exposure provenance and native_final/model_reviewed coverage stay explicit. The hotfix materialized catalog and remediation presentation bindings remain intact; no SDK service or credential path added.",
+  "analyze_native_ec306_review": "Selective qualified Analyze publication code from codex-opt-analyze-native-20261028 onto ec306486: only peaso/ai/pipeline.py, peaso/reports.py and peaso/storage/reports.py changed. Exact signed resource/graph reuse and bounded Markdown writes retain saved output digests; no new SDK client, service, credential path, native check or presentation source changed. AWS checkpoint and scanner fanout excluded. Hosted wall/RSS/cost remain unmeasured.",
   "aws_alias_function_url_review": "AWS Exposure alias-qualified Lambda Function URL: one read-only GetFunctionUrlConfig and GetPolicy per collected alias through the existing per-scan single-flight cache; collected alias ARN and URL FunctionArn are checked. Internet exposure adds lambda_alias handling with no new direct API SDK client call; 30 direct client sites and 15 reviewed API service names remain unchanged.",
   "aws_api_routing_review": "AWS Exposure REST custom-domain routing rules now retain priority and condition count from the existing cached read. The analyzer sorts rules, proves only an initial unconditional target with an active stage, and accounts for catch-all rule precedence over mappings. Conditional target satisfiability remains unknown. No new SDK call, service, credential source, or direct client site; 30 direct sites and 15 reviewed services remain.",
   "aws_deployed_rest_method_review": "AWS Exposure REST method authorization now uses the already cached read-only GetDeployment embed=apisummary inventory bound to a stage deployment. The collector retains only MethodSnapshot authorizationType and apiKeyRequired. Native analysis ignores mutable GetResources authorization for the public verdict and requires a reachable stage, matching deployment, and proven source join. No new SDK operation, service, direct client site, or credential source; 30 direct client sites in 15 reviewed services.",
@@ -42,7 +43,7 @@
     "peaso/ai/native_final_coverage.py": "a78aa8314c4875ccd1ae8c2277a2a7202c4cafc17d743ab324a20cb34ae8f578",
     "peaso/ai/network.py": "f8da3a90c6fbc0e2c2bb8fa40f2007bf45abdfa149b37c92d8b7b693f5ebd6fd",
     "peaso/ai/output_validation.py": "acc2290858e36cf0aaecaa441a6b6dfe70cbe55c545607865e30bc4c99a21614",
-    "peaso/ai/pipeline.py": "a875de70d36192b4eb20a44af70dea19a4a4ea0190b97cb2fc10368fbed0b0a3",
+    "peaso/ai/pipeline.py": "db2a960dc012b146bfcd058a8a4a15cb00d93049666d3ac788ed8b43c3d8584d",
     "peaso/ai/progressive_kinds.py": "de2d82a19d7777034a9f4e47e5165e99b6a371fab3eb6ad1ab8982e207d6ecb6",
     "peaso/ai/prompting.py": "5278f9a7187b4ea87a797dfdcea787f18369bbe330c4e4e6ef2d6ff2b2f9c1ce",
     "peaso/ai/providers.py": "d135f683a35d37936a2f213704f7af389bab741c479d4b4fcaf02e219bde56c0",
@@ -1632,7 +1633,7 @@
     "peaso/related_snapshots.py": "d408891d8f6898b02005eeb8e038dea2c91b8ee8e555e696977b8806f9c0f8e5",
     "peaso/remediation.py": "eec52bbff6d447f1512009bbb939656d22420a2d7f99622b0d183b05b5b54197",
     "peaso/report_quality.py": "ba7f39fd1695e7903deed1edff8d84e4cb511cbbf1ba82b955d822959b981726",
-    "peaso/reports.py": "70688f41beecc4e5d09e97877f046be02c35d1767777ce0104a787fdce15d12e",
+    "peaso/reports.py": "833f0bb968ac500a14a778d09e4fa687f8a0c5591f6d5b17d9647b062566997e",
     "peaso/runtime_metrics.py": "d956f21cf3b313c5e62cd2748a61f153ce51802941c9d2b2aab0c622b5e61ad9",
     "peaso/scan_sections.py": "747dc32217215773b7996b96d6d025f3827656cd574a667cad9f4c5a876188b6",
     "peaso/scheduling.py": "ec98899d130242472a81a746274478a94b1e6a3b3c6524f827940811313d275c",
@@ -1697,7 +1698,7 @@
     "peaso/storage/cost.py": "fd403b6fe4551d71943abd7acc51baef8c9c17a99af221f49a3365f22d8d5176",
     "peaso/storage/dynamodb.py": "dc9b739354054d8fcd859bfeb51394355559ed283151e35dc71914210ab15f56",
     "peaso/storage/report_reuse.py": "9cc16823341a59652001cc712e58b1b6fe08e0ec34cf5e822fe6ec645413c7ad",
-    "peaso/storage/reports.py": "d3ff67d5c8a579c58b1547f5a5aed6a1c28c64626d955f3de96e74a68633bab9",
+    "peaso/storage/reports.py": "b0ba3ee888d745557982fda70229bbff4af4a4537107aaf5052c4dd1a89f527e",
     "peaso/storage/runtime.py": "d879d3526723a8d7920ccb7f7706c026c08c5723829d8f239e6701095198d0fb",
     "peaso/storage/sqlite.py": "11a71018c1bcf4098e14fa42775dfff131b9166edc197408bac47bd9a13fdac8",
     "peaso/trivy_container_runner_20261020.py": "f4e43368ddd4fc4a74b5118d7618da60c1a0366bcef258b5f9a38b15dd3a90cc",
@@ -1836,7 +1837,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1720,
-  "python_source_sha256": "9d5df6f2ec794018b0852428df4deaaf9acd7922bc911b7789b018c41854caa9",
+  "python_source_sha256": "b384f42f7a6c02fe7e1869dcbc30a7e0836a0350d68e03c00672a119ac505964",
   "review_context": "Hosted production disables Hardening and Exposure model stages for all four providers. Native FAIL reviews are explicitly marked native_final in AI API and excluded from finding overlay; model_reviewed coverage remains zero for those stages. Network and Priorities model agents remain and progressive disabled stages do not launch. Three runtime Python files changed from pushed main: pipeline, progressive scheduler and review presentation; no SDK client or credential source change. 1717 Python files and 30 direct client sites across 12 used services in the reviewed 15-service allowlist. Next Exposure A/B wave adds one GCP GKE collector module and changes 12 existing Python files including generated privilege display source. Direct SDK client closure remains 30 literal sites within the existing 15-service allowlist; no new service, credential factory or dynamic client site. The Firebase App Hosting project route guard restricts previously accepted query parameters and paths; no new SDK client, service, operation or credential source. Second Exposure wave combines committed Azure A/B, AWS A/B safe subset and GCP A/B paths; collector receipt now pins their merged source bytes. Direct SDK client roster remains 30 literal sites. Analyze-native committed b4aee800 adds inventory index and report publication optimizations, scoped secret memoization, ECS privesc fact lookup indexing, and bounded S3 upload fanout. It changes no direct SDK client creation, service allowlist or credential factory; source review against merge parents c6ac4160 and 8fc73542. Rematerialization changed only generated native/API catalog bytes; display rebind changed only the loader pinned gzip digest. Check IDs and catalog source contract are validated by the materializer and display gate. Finding-detail hotfix on pushed 98b8: copied exposure_action AST exactly into native-free presentation, carried seven reviewed retired alias remediation templates in the signed materialized API catalog, refreshed four changed evidence-source hashes, and rebound privilege display. No SDK client, service, credential factory, native finding verdict, or AI stage switch changed. Direct API SDK closure remains 30 literal sites in the reviewed 15-service allowlist.",
   "source_commit": "98b8d34d7ef182078bedd41a5af9b48ab3b2810f",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

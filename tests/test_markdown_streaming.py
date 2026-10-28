@@ -70,6 +70,19 @@ def test_small_bounded_json_preserves_legacy_bytes():
     assert not reports._small_json(list(range(2000)))
 
 
+def test_small_json_non_string_keys_keep_legacy_fallback():
+    numeric = {1: "numeric key"}
+    stream = io.BytesIO()
+    sink = reports._MarkdownStream(stream)
+    sink.json(numeric)
+    sink.finish()
+    expected = "\n".join(reports._json_block(numeric)).rstrip() + "\n"
+    assert stream.getvalue() == expected.encode("utf-8")
+
+    with pytest.raises(TypeError):
+        reports._MarkdownStream(io.BytesIO()).json({"a": 1, 2: "mixed keys"})
+
+
 def test_large_json_avoids_full_pretty_encoding_and_bounds_writes(monkeypatch):
     value = {"nodes": [{"id": str(i), "label": "é" * 100} for i in range(2000)]}
     expected = "\n".join(reports._json_block(value)).rstrip() + "\n"
