@@ -2520,7 +2520,7 @@ def _selected(options, requirements):
         selected.add("key_metadata")
     if "sql_tde" in selected:
         selected.add("sql_database")
-    if "directory_app_role_assignment" in selected:
+    if selected.intersection(("directory_app_role_assignment", "directory_oauth2_permission_grant")):
         selected.add("directory_service_principal")
     if "directory_owner" in selected:
         selected.update(("directory_application", "directory_service_principal", "directory_group"))
