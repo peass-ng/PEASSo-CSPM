@@ -1144,6 +1144,50 @@ def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     assert firewall_decision([], policy="/policy").verdict() == "UNKNOWN"
 
 
+def test_firewall_dnat_unique_translated_vm_powered_off_blocks_current_backend():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    ip_id, nic_id = base + "/publicIPAddresses/fw", base + "/networkInterfaces/backend"
+    vm_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/backend"
+    firewall_id = base + "/azureFirewalls/fw"
+    rule = {"name": "web", "sourceAddresses": ["*"], "destinationAddresses": ["8.8.8.8"],
+            "destinationPorts": ["443"], "protocols": ["TCP"],
+            "translatedAddress": "10.0.0.4", "translatedPort": "8443"}
+
+    def check(power, *, duplicate=False, second_rule=False):
+        rules = [rule]
+        if second_rule:
+            rules.append({**rule, "name": "other", "destinationPorts": ["8443"],
+                          "translatedAddress": "10.0.0.5"})
+        nic = {"id": nic_id, "properties": {"virtualMachine": {"id": vm_id},
+            "ipConfigurations": [{"properties": {"privateIPAddress": "10.0.0.4"}}]}}
+        nics = [nic]
+        if duplicate:
+            nics.append({"id": base + "/networkInterfaces/duplicate",
+                         "properties": {"ipConfigurations": [{"properties": {
+                             "privateIPAddress": "10.0.0.4"}}]}})
+        snapshot = make_snapshot("azure", [SCOPE], [
+            {"type": "public_ip", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": ip_id, "properties": {"ipAddress": "8.8.8.8"}}]},
+            {"type": "azure_firewall", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": firewall_id, "properties": {"ipConfigurations": [{"properties": {
+                 "publicIPAddress": {"id": ip_id}}}], "natRuleCollections": [{"name": "nat",
+                 "properties": {"action": {"type": "Dnat"}, "rules": rules}}]}}]},
+            {"type": "nic", "scope": SCOPE, "service": "network", "status": "collected", "items": nics},
+            {"type": "vm", "scope": SCOPE, "service": "compute", "status": "collected",
+             "items": [{"id": vm_id, "properties": {"instanceView": {"statuses": [
+                 {"code": "PowerState/" + power}]}}}]}])
+        return next(row for row in assess(snapshot, resources(snapshot))
+                    if row.resource["type"] == "azure_firewall")
+
+    for power in ("stopped", "deallocated"):
+        blocked = check(power)
+        assert blocked.verdict() == "PASS" and blocked.ports == {}
+        assert "recorded PowerState/" + power in _observed(blocked, "PASS")
+    assert check("running").verdict() == "UNKNOWN"
+    assert check("deallocated", duplicate=True).verdict() == "UNKNOWN"
+    assert check("deallocated", second_rule=True).verdict() == "UNKNOWN"
+
+
 def test_firewall_policy_dnat_uses_collected_full_group():
     policy_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/firewallPolicies/p"
     public_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"

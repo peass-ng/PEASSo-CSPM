@@ -5202,6 +5202,35 @@ def _azure_container_app(snapshot, inventory, resource):
     return a
 
 
+def _azure_firewall_stopped_vm_backend(inventory, translated_address):
+    """A unique NIC-owned translated IP can prove an off VM cannot serve DNAT."""
+    try:
+        target = ipaddress.ip_address(translated_address)
+    except (TypeError, ValueError):
+        return None
+    matches = []
+    for nic in inventory.items("nic"):
+        for config in as_list(_props(nic).get("ipConfigurations")):
+            address = (config.get("properties") or {}).get("privateIPAddress") if isinstance(config, dict) else None
+            if address == str(target):
+                matches.append(nic)
+    if len(matches) != 1:
+        return None
+    nic = matches[0]
+    vm_id = (_props(nic).get("virtualMachine") or {}).get("id")
+    vm = inventory.get("vm", vm_id) if vm_id else None
+    view = _props(vm).get("instanceView") if vm is not None else None
+    statuses = view.get("statuses") if isinstance(view, dict) else None
+    if not isinstance(statuses, list):
+        return None
+    power = [row.get("code") for row in statuses if isinstance(row, dict)
+             and str(row.get("code", "")).startswith("PowerState/")]
+    if len(power) != 1 or power[0] not in ("PowerState/stopped", "PowerState/deallocated"):
+        return None
+    return {"nic": native_id(nic), "vm": native_id(vm), "power_state": power[0],
+            "translated_address": str(target)}
+
+
 def _azure_firewall(snapshot, inventory, resource):
     """Classic Firewall DNAT frontends; backend reachability remains explicit."""
     props = _props(resource)
@@ -5298,7 +5327,13 @@ def _azure_firewall(snapshot, inventory, resource):
                                 "translated_port": rule.get("translatedPort")})
     if matched:
         a.step("dnat", "allow", rules=matched)
-        a.gap("backend", "translated backend route and effective NSG are not resolved")
+        stopped = ([_azure_firewall_stopped_vm_backend(inventory, rule["translated_address"])
+                    for rule in matched] if not a.unresolved else [])
+        if stopped and all(stopped):
+            a.step("backend", "block", stopped_vm_backends=stopped)
+            a.ports = {}
+            return a
+        a.gap("backend", "translated backend route, runtime and effective NSG are not resolved")
     elif frontends and not a.unresolved:
         a.step("dnat", "block", reason="no collected public-source classic DNAT rule")
     else:
@@ -6772,6 +6807,17 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    if assessment.resource["type"] == "azure_firewall" and status == "PASS":
+        backend = next((step for step in assessment.path
+                        if step["layer"] == "backend" and step["decision"] == "block"), None)
+        if backend is not None:
+            item = backend["stopped_vm_backends"][0]
+            name = assessment.resource["data"].get("name", native_id(assessment.resource))
+            return (f"The Azure Firewall {name} has a public-source DNAT rule to private address "
+                    f"{item['translated_address']}.\n"
+                    f"That address uniquely matches NIC {item['nic']} on VM {item['vm']} with "
+                    f"recorded {item['power_state']}.\n"
+                    "The stopped VM cannot serve the current translated path; starting it could reopen the rule.")
     if assessment.resource["type"] == "application_gateway":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
         if status == "UNKNOWN" and any("public frontend address" in gap["reason"]
