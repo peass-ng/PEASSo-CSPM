@@ -4746,6 +4746,7 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.addresses = [host for host in as_list(props.get("defaultHostName"))
                        if isinstance(host, str) and host]
         scm_hosts = []
+    candidate_main_hosts = list(a.addresses)
     public_access = props.get("publicNetworkAccess")
     if str(public_access).lower() == "disabled":
         a.step("public_network_access", "block", public_network_access="Disabled")
@@ -4827,6 +4828,9 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.addresses.extend(scm_hosts)
     decision = ("allow" if "allow" in (main, scm) else
                 "block" if main == scm == "block" else "unknown")
+    if decision == "allow":
+        a.addresses = sorted(set((candidate_main_hosts if main == "allow" else []) +
+                                 (scm_hosts if scm == "allow" else [])))
     if main == "allow":
         https_only = props.get("httpsOnly")
         if https_only is not None and type(https_only) is not bool:
