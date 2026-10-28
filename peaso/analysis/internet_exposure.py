@@ -1572,6 +1572,32 @@ def _aws_cloudfront(snapshot, inventory, resource):
             a.gap("listener", "CloudFront viewer protocol policy unresolved")
     a.ports = ports
     a.step("listener", "allow" if ports else "block", viewer_protocol_policies=sorted({b.get("ViewerProtocolPolicy") for b in behaviors if isinstance(b.get("ViewerProtocolPolicy"), str)}))
+    signed_behaviors, unsigned_behaviors, unresolved_behaviors = [], [], []
+    for behavior in behaviors:
+        path = behavior.get("PathPattern", "<default>")
+        signed = False
+        for field in ("TrustedKeyGroups", "TrustedSigners"):
+            setting = behavior.get(field)
+            if not isinstance(setting, dict) or setting.get("Enabled") is not True:
+                continue
+            count, items = setting.get("Quantity"), setting.get("Items")
+            if type(count) is int and count > 0 and isinstance(items, list) and len(items) == count:
+                signed = True
+            else:
+                unresolved_behaviors.append(path)
+        methods = behavior.get("AllowedMethods")
+        allowed = methods.get("Items") if isinstance(methods, dict) else None
+        if not isinstance(allowed, list) or not all(isinstance(method, str) for method in allowed):
+            unresolved_behaviors.append(path)
+        elif signed and "OPTIONS" not in allowed:
+            signed_behaviors.append(path)
+        else:
+            unsigned_behaviors.append(path)
+    a.step("viewer_access", "allow", signed_request_paths=signed_behaviors,
+           unsigned_or_options_paths=unsigned_behaviors,
+           unresolved_paths=sorted(set(unresolved_behaviors)),
+           semantics="Signed URL/cookie settings apply per cache behavior; CloudFront can forward OPTIONS without a signature")
+    a.authenticated = bool(signed_behaviors) and not unsigned_behaviors and not unresolved_behaviors
     a.notes.append("CloudFront viewer reachability does not establish origin reachability or authorization")
     return a
 

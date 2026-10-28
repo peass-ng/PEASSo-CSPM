@@ -521,6 +521,31 @@ def test_aws_cloudfront_enabled_viewer_endpoint_and_missing_config():
     assert not exposure(aws(coll("cloudfront_distribution", [{**base, "Config": {**config, "DistributionConfig": {**config["DistributionConfig"], "Enabled": False}}}], service="cloudfront")))
 
 
+def test_aws_cloudfront_signed_viewer_access_is_per_behavior_and_options_exception():
+    base = {"ARN": f"arn:aws:cloudfront::{ACCOUNT}:distribution/D1", "Id": "D1",
+            "DomainName": "d123.cloudfront.net"}
+    signed = {"ViewerProtocolPolicy": "https-only",
+              "AllowedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"]},
+              "TrustedKeyGroups": {"Enabled": True, "Quantity": 1, "Items": ["key-group-1"]}}
+    config = {"collection_status": "collected", "DistributionConfig": {"Enabled": True,
+              "DefaultCacheBehavior": signed, "CacheBehaviors": {"Items": []}}}
+    def finding():
+        return one(aws(coll("cloudfront_distribution", [{**base, "Config": config}], service="cloudfront")),
+                   "cloudfront_distribution")
+    result = finding()
+    assert result["status"] == "FAIL" and result["evidence"]["authenticated_endpoint"] is True
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "viewer_access")["signed_request_paths"] == ["<default>"]
+    config["DistributionConfig"]["CacheBehaviors"]["Items"] = [{"PathPattern": "public/*", "ViewerProtocolPolicy": "https-only",
+                                                                     "AllowedMethods": {"Items": ["GET", "HEAD"]}}]
+    assert finding()["evidence"]["authenticated_endpoint"] is False
+    config["DistributionConfig"]["CacheBehaviors"]["Items"] = []
+    signed["AllowedMethods"]["Items"].append("OPTIONS")
+    assert finding()["evidence"]["authenticated_endpoint"] is False
+    signed["AllowedMethods"]["Items"] = ["GET", "HEAD"]
+    signed["TrustedKeyGroups"]["Quantity"] = 2
+    assert finding()["evidence"]["authenticated_endpoint"] is False
+
+
 def test_aws_global_accelerator_static_ips_and_public_listener():
     accelerator = {"AcceleratorArn": f"arn:aws:globalaccelerator::{ACCOUNT}:accelerator/a",
                    "Enabled": True, "Status": "DEPLOYED", "IpSets": [
