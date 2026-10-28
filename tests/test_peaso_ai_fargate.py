@@ -206,8 +206,10 @@ def test_archive_cannot_escape_or_inject_model_auth(tmp_path,name,kind):
 
 def test_pipeline_remote_branch_never_creates_model_auth_file(configured,monkeypatch):
     from peaso.ai import pipeline
-    def invoke(stage,root,token,timeout):
+    def invoke(stage,root,token,timeout,*,prepare):
         assert stage=='network' and token=='private-token'
+        assert not list(root.iterdir())
+        prepare()
         assert not (root/'codex-auth.json').exists()
         assert json.loads((root/'credentials.json').read_text())['entries']==[]
         assert not (root/'findings.json').exists()
