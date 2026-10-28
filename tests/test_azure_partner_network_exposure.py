@@ -1,7 +1,7 @@
 """Oracle SCAN ingress and Palo Alto Cloud NGFW public IP metadata."""
 
 from peaso.analysis.internet_exposure import assess
-from peaso.collectors.azure_partner_network_native import ORACLE, PALO, _safe
+from peaso.collectors.azure_partner_network_native import ORACLE, PALO, NEXUS, _safe
 from peaso.snapshot import make_snapshot, resources
 
 
@@ -32,3 +32,12 @@ def test_palo_alto_public_ip_is_surfaced():
     result = _finding(PALO, raw)
     assert result.verdict() == "UNKNOWN"
     assert result.addresses == ["20.22.92.11"]
+
+
+def test_operator_nexus_vm_public_attachment_is_surfaced():
+    raw = {"id": SCOPE + "/resourceGroups/rg/providers/Microsoft.NetworkCloud/virtualMachines/v",
+           "properties": {"networkAttachments": [{"attachedNetworkId": "network-id",
+                                                  "ipv4Address": "20.22.92.12"}]}}
+    result = _finding(NEXUS, raw)
+    assert result.verdict() == "UNKNOWN"
+    assert result.addresses == ["20.22.92.12"]

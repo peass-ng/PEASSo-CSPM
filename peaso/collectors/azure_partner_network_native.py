@@ -6,10 +6,12 @@ import re
 
 ORACLE = "oracle_cloud_vm_cluster"
 PALO = "palo_alto_firewall"
-KINDS = (ORACLE, PALO)
+NEXUS = "network_cloud_vm"
+KINDS = (ORACLE, PALO, NEXUS)
 SPECS = {
     ORACLE: ("Oracle.Database", "cloudVmClusters", "2024-06-01"),
     PALO: ("PaloAltoNetworks.Cloudngfw", "firewalls", "2026-06-01"),
+    NEXUS: ("Microsoft.NetworkCloud", "virtualMachines", "2026-07-01"),
 }
 
 
@@ -29,7 +31,7 @@ def _safe(raw, scope, kind):
                   "scanListenerPortTcp": props.get("scanListenerPortTcp"),
                   "scanListenerPortTcpSsl": props.get("scanListenerPortTcpSsl"),
                   "vnetId": props.get("vnetId"), "subnetId": props.get("subnetId")}
-    else:
+    elif kind == PALO:
         network = props.get("networkProfile")
         network = network if isinstance(network, dict) else {}
         ips = network.get("publicIps")
@@ -39,6 +41,14 @@ def _safe(raw, scope, kind):
                                                     "resourceId": ip.get("resourceId")}
                                                    for ip in ips if isinstance(ip, dict)]
                                                   if isinstance(ips, list) else None}}
+    else:
+        attachments = props.get("networkAttachments")
+        fields = {"provisioningState": props.get("provisioningState"),
+                  "networkAttachments": [{"attachedNetworkId": row.get("attachedNetworkId"),
+                                          "ipv4Address": row.get("ipv4Address"),
+                                          "ipv6Address": row.get("ipv6Address")}
+                                         for row in attachments if isinstance(row, dict)]
+                                        if isinstance(attachments, list) else None}
     return {"id": rid, "properties": fields,
             "_provenance": {"source_operation": "ListBySubscription", "api_version": version,
                             "read_only": True, "representation": "network_metadata"}}
