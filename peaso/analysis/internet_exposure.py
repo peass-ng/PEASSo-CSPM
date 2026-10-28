@@ -10258,7 +10258,33 @@ def _azure_function_triggers(assessment, inventory, resource):
 def _azure_app_service(snapshot, inventory, resource, configs):
     props = _props(resource)
     a = Assessment(resource, "web_app")
-    a.addresses = [h for h in as_list(props.get("defaultHostName")) if h]
+    enabled_hosts = props.get("enabledHostNames")
+    if isinstance(enabled_hosts, list):
+        host_types = {}
+        for state in as_list(props.get("hostNameSslStates")):
+            if not isinstance(state, dict) or not isinstance(state.get("name"), str):
+                continue
+            name = state["name"].casefold()
+            kind = state.get("hostType")
+            if name in host_types and host_types[name] != kind:
+                host_types[name] = None
+            else:
+                host_types[name] = kind
+        main_hosts, scm_hosts = [], []
+        for host in enabled_hosts:
+            if not isinstance(host, str) or not host:
+                continue
+            kind = host_types.get(host.casefold(), "Repository" if ".scm." in host.casefold() else "Standard")
+            if kind == "Standard":
+                main_hosts.append(host)
+            elif kind == "Repository":
+                scm_hosts.append(host)
+        a.addresses = sorted(set(main_hosts))
+    else:
+        a.addresses = [host for host in as_list(props.get("defaultHostName"))
+                       if isinstance(host, str) and host]
+        scm_hosts = []
+    candidate_main_hosts = list(a.addresses)
     public_access = props.get("publicNetworkAccess")
     if str(public_access).lower() == "disabled":
         a.step("public_network_access", "block", public_network_access="Disabled")
@@ -10336,6 +10362,9 @@ def _azure_app_service(snapshot, inventory, resource, configs):
         a.addresses.extend(scm_hosts)
     decision = ("allow" if "allow" in (main, scm) else
                 "block" if main == scm == "block" else "unknown")
+    if decision == "allow":
+        a.addresses = sorted(set((candidate_main_hosts if main == "allow" else []) +
+                                 (scm_hosts if scm == "allow" else [])))
     if main == "allow":
         https_only = props.get("httpsOnly")
         if https_only is not None and type(https_only) is not bool:
