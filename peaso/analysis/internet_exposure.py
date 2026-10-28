@@ -5103,13 +5103,16 @@ def _azure_storage_container(snapshot, inventory, resource):
     if props.get("publicNetworkAccess") not in (None, "Enabled", "Disabled", "SecuredByPerimeter"):
         a.gap("inventory", "storage publicNetworkAccess value is unrecognized")
         return a
-    if props.get("allowBlobPublicAccess") is False or str(props.get("publicNetworkAccess", "")).lower() == "disabled":
-        a.step("account_gate", "block", allow_blob_public_access=props.get("allowBlobPublicAccess"),
+    blob_public = props.get("allowBlobPublicAccess")
+    if blob_public is not None and type(blob_public) is not bool:
+        a.gap("inventory", "account allowBlobPublicAccess value is malformed")
+        return a
+    if blob_public is not True or str(props.get("publicNetworkAccess", "")).lower() == "disabled":
+        a.step("account_gate", "block", allow_blob_public_access=(
+               blob_public if blob_public is not None else "default(False)"),
                public_network_access=props.get("publicNetworkAccess"))
         a.ports = {}
         return a
-    if props.get("allowBlobPublicAccess") is not True:
-        a.gap("inventory", "account allowBlobPublicAccess setting is unavailable")
     if props.get("publicNetworkAccess") == "SecuredByPerimeter":
         a.gap("firewall", "storage network security perimeter rules are not collected")
         a.explicit = "UNKNOWN"

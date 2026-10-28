@@ -714,6 +714,11 @@ def test_anonymous_blob_requires_container_and_account_gates():
         "primaryEndpoints": {"blob": "https://a.blob.core.windows.net/"}}
     assert assess_container(open_account).verdict() == "FAIL"
     assert assess_container({**open_account, "allowBlobPublicAccess": False}).verdict() == "PASS"
+    omitted_public = {key: value for key, value in open_account.items()
+                      if key != "allowBlobPublicAccess"}
+    assert assess_container(omitted_public).verdict() == "PASS"
+    assert assess_container({**open_account, "allowBlobPublicAccess": None}).verdict() == "PASS"
+    assert assess_container({**open_account, "allowBlobPublicAccess": "false"}).verdict() == "UNKNOWN"
     assert assess_container({**open_account, "networkAcls": {"defaultAction": "Deny"}}).verdict() == "PASS"
     assert assess_container({**open_account, "networkAcls": {}}).verdict() == "FAIL"
     public_rule = {"value": "8.8.8.8/32", "action": "Allow"}
