@@ -911,13 +911,21 @@ def _index(snapshot, inventory):
     # verify that complete_items() matches the collection's exact items.
     # Keep wrappers and duplicate handling unchanged; only their index order
     # changes. Missing/conflicting rows still fail the inventory guards.
-    positions = {}
+    by_identity = {(row['type'], row['scope'], row['native_id']): row for row in inventory}
+    ordered = []
+    seen = set()
     for collection in snapshot['collections']:
         for item in collection['items']:
             key = (collection['type'], collection['scope'],
                    resource_id(snapshot['provider'], collection['type'], collection['scope'], item))
-            positions.setdefault(key, len(positions))
-    ordered = sorted(inventory, key=lambda row: positions.get((row['type'], row['scope'], row['native_id']), len(positions)))
+            if key not in seen:
+                seen.add(key)
+                row = by_identity.get(key)
+                if row is not None:
+                    ordered.append(row)
+    # Preserve the old stable-sort fallback for a caller supplying extra wrappers.
+    ordered.extend(row for row in inventory
+                   if (row['type'], row['scope'], row['native_id']) not in seen)
     for resource in ordered:
         index[resource["type"]].append(resource)
     collections = defaultdict(list)
