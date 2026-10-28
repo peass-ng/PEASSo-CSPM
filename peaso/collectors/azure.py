@@ -643,7 +643,15 @@ def _embed(reader, request, parents, diagnostics=None, skip=()):
                     return
                 backup_seen = {}
                 workspace_va_seen = {}
+                messaging_rule_seen = set()
                 for page in reader.pages(request, url):
+                    if field == "authorizationRules":
+                        projected = _child_rows(page, rid, field)
+                        if any(row["id"].casefold() in messaging_rule_seen for row in projected):
+                            raise ValueError("duplicate messaging rule across pages")
+                        messaging_rule_seen.update(row["id"].casefold() for row in projected)
+                        yield projected
+                        continue
                     if field == "workspaceVulnerabilityAssessments":
                         projected = []
                         for row in _child_rows(page, rid, field):
@@ -773,6 +781,54 @@ def _collect_gallery_versions(reader, request, parents):
             image.setdefault("_coverage", {})["versions"] = {key: read[key] for key in ("status", "error") if key in read}
             if read["status"] in ("collected", "empty") or read["items"]:
                 image["versions"] = read["items"]
+
+
+def _collect_servicebus_entity_rules(reader, request, parents):
+    """Read queue/topic SAS rule rights through bound, paged ARM LISTs."""
+    for kind, namespace in parents:
+        if kind != "servicebus_namespace":
+            continue
+        rid = namespace["id"]
+        for field in ("queues", "topics"):
+            list_url = ARM + rid + "/" + field + "?api-version=2024-01-01"
+            def list_entities(list_url=list_url, rid=rid, field=field):
+                seen = set()
+                for page in reader.pages(request, list_url):
+                    projected = []
+                    for row in page:
+                        entity_id = row.get("id") if isinstance(row, dict) else None
+                        if (not isinstance(entity_id, str) or not re.fullmatch(
+                                re.escape(rid + "/" + field + "/") + r"[^/?#%\\\s]+", entity_id, re.I)
+                                or str(row.get("type", "")).casefold() !=
+                                "microsoft.servicebus/namespaces/" + field
+                                or not isinstance(row.get("name"), str)
+                                or row["name"].casefold() != entity_id.rsplit("/", 1)[-1].casefold()
+                                or entity_id.casefold() in seen):
+                            raise ValueError("duplicate or malformed Service Bus entity")
+                        seen.add(entity_id.casefold())
+                        projected.append({"id": entity_id, "name": row["name"], "type": row["type"]})
+                    yield projected
+            read = reader._read(("servicebus_" + field, rid, "Microsoft.Resources", list_entities))
+            namespace.setdefault("_coverage", {})[field] = {key: read[key] for key in ("status", "error") if key in read}
+            if read["status"] in ("collected", "empty") or read["items"]:
+                namespace[field] = read["items"]
+            for entity in namespace.get(field, []):
+                entity_id = entity["id"]
+                rule_url = ARM + entity_id + "/authorizationRules?api-version=2024-01-01"
+                def list_rules(rule_url=rule_url, entity_id=entity_id):
+                    seen = set()
+                    for page in reader.pages(request, rule_url):
+                        projected = _child_rows(page, entity_id, "authorizationRules")
+                        if any(row["id"].casefold() in seen for row in projected):
+                            raise ValueError("duplicate Service Bus rule across pages")
+                        seen.update(row["id"].casefold() for row in projected)
+                        yield projected
+                rule_read = reader._read(("servicebus_" + field + "_rules", entity_id,
+                                          "Microsoft.Resources", list_rules))
+                entity.setdefault("_coverage", {})["authorizationRules"] = {
+                    key: rule_read[key] for key in ("status", "error") if key in rule_read}
+                if rule_read["status"] in ("collected", "empty") or rule_read["items"]:
+                    entity["authorizationRules"] = rule_read["items"]
 
 
 def _collect_hsm_local_assignments(reader, request, transport, parents):
@@ -3241,6 +3297,7 @@ def collect(connector, requirements=None, *, transport=None):
         if "batch_pool" not in wanted:
             skipped_embeds.add("pools")
         _embed(reader, request, embedded_parents, known_diagnostics, skipped_embeds)
+        _collect_servicebus_entity_rules(reader, request, embedded_parents)
         _collect_gallery_versions(reader, request, embedded_parents)
         if "managed_hsm" in wanted:
             _collect_hsm_local_assignments(reader, request, transport, embedded_parents)

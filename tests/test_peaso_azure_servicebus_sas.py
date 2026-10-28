@@ -84,6 +84,60 @@ def test_disabled_local_auth_does_not_claim_sas_recipient():
     assert assessment.verdict() == "FAIL"  # The network listener remains public.
 
 
+@pytest.mark.parametrize("field", ["queues", "topics"])
+def test_entity_sas_rule_rights_are_bound_to_observed_entity(field):
+    entity_id = RID + "/" + field + "/orders"
+    rule_id = entity_id + "/authorizationRules/reader"
+    class EntityTransport(Transport):
+        def request(self, url, *, body=None, audience=azure.ARM):
+            path = urlsplit(url).path
+            if path == RID + "/" + field:
+                self.calls.append((url, body, audience))
+                return {"value": [{"id": entity_id, "name": "orders",
+                                   "type": "Microsoft.ServiceBus/namespaces/" + field,
+                                   "properties": {"privateData": "PRIVATE_ENTITY_SENTINEL"}}]}
+            if path == entity_id + "/authorizationRules":
+                self.calls.append((url, body, audience))
+                return {"value": [{"id": rule_id, "name": "reader",
+                                   "type": "Microsoft.ServiceBus/namespaces/" + field + "/authorizationRules",
+                                   "properties": {"rights": ["Listen"], "primaryKey": "PRIVATE_RULE_SENTINEL"}}]}
+            return super().request(url, body=body, audience=audience)
+    transport = EntityTransport()
+    snapshot, item = _collect(transport)
+    assert item["_coverage"][field]["status"] == "collected"
+    entity = item[field][0]
+    assert entity["id"] == entity_id
+    assert entity["_coverage"]["authorizationRules"]["status"] == "collected"
+    assert entity["authorizationRules"][0]["properties"] == {"rights": ["Listen"]}
+    assert "PRIVATE_ENTITY_SENTINEL" not in repr(snapshot)
+    assert "PRIVATE_RULE_SENTINEL" not in repr(snapshot)
+    assert any(urlsplit(url).path == entity_id + "/authorizationRules" and body is None and audience == azure.ARM
+               for url, body, audience in transport.calls)
+    assessment = next(a for a in assess(snapshot, resources(snapshot)) if a.resource["type"] == "servicebus_namespace")
+    evidence = next(step for step in assessment.path if step["layer"] == "sas_entity_authorization")
+    assert evidence["inventory_complete"] is True
+    assert evidence["rules"] == [{"entity": entity_id, "name": "reader", "rights": ["Listen"]}]
+
+
+def test_entity_rule_denial_is_not_an_empty_inventory():
+    entity_id = RID + "/queues/orders"
+    class DeniedEntityTransport(Transport):
+        def request(self, url, *, body=None, audience=azure.ARM):
+            path = urlsplit(url).path
+            if path == RID + "/queues":
+                return {"value": [{"id": entity_id, "name": "orders",
+                                   "type": "Microsoft.ServiceBus/namespaces/queues"}]}
+            if path == entity_id + "/authorizationRules":
+                raise azure.AzureReadError("entity rules denied", status_code=403)
+            return super().request(url, body=body, audience=audience)
+    snapshot, item = _collect(DeniedEntityTransport())
+    entity = item["queues"][0]
+    assert entity["_coverage"]["authorizationRules"]["status"] not in ("collected", "empty")
+    assert "authorizationRules" not in entity
+    assessment = next(a for a in assess(snapshot, resources(snapshot)) if a.resource["type"] == "servicebus_namespace")
+    assert any("Queue or topic SAS rule inventory is incomplete" in note for note in assessment.notes)
+
+
 @pytest.mark.parametrize("rights", [["Owner"], "Send", ["Send", "Owner"]])
 def test_invalid_rule_rights_do_not_become_collected_evidence(rights):
     rule = {"id": RULE_ID, "name": "send", "type": "Microsoft.ServiceBus/namespaces/authorizationRules",

@@ -3247,7 +3247,7 @@
     "peaso/checks/compliance_new_sw33.py": "aee51ad51345776f5861f0f90e82d4bab862e00d41c0a017363df80404c48a15",
     "peaso/checks/facts.py": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
     "peaso/checks/hacktricks_bp_common.py": "a7f127c0ecd1a2876c4ea1124304709cf68feff80c5a9d8564b62193d0226b5e",
-    "peaso/collectors/azure.py": "bdae6e6a776990010634af7fb5e64633426a005bded7f61709f943b8a7f3d443",
+    "peaso/collectors/azure.py": "b433b0e8568497e108992ff09fb1303b6cb9c4fdbb104c36a1baeab53c888638",
     "peaso/unused_iam_azure.py": "23a89805c07a6ef8bc28f5b60f95b1f71779304599e183526b885c5213683be6",
     "peaso/unused_iam_azure_arm_roles.py": "3a67ae42f5b29a12ea65350e477e2b04597625361f87db643948f1fd4c5d2674",
     "peaso/unused_iam_azure_roles.py": "282d9d380c5cd7c9b20cd964351ef65a57a202ec0e24b802548e74bbf3bfffd8",

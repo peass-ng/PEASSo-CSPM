@@ -4821,6 +4821,28 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
                 a.notes.append("Namespace SAS rules grant capabilities to key holders; issued tokens and recipients are not inventoried.")
         else:
             a.notes.append("Namespace SAS authentication or authorization-rule inventory is incomplete.")
+        if local_auth is False:
+            entity_rules = []
+            complete = True
+            for field in ("queues", "topics"):
+                entities = resource["data"].get(field)
+                list_status = (resource["data"].get("_coverage") or {}).get(field, {}).get("status")
+                if list_status not in ("collected", "empty") or not isinstance(entities, list):
+                    complete = False
+                    continue
+                for entity in entities:
+                    rule_status = (entity.get("_coverage") or {}).get("authorizationRules", {}).get("status")
+                    if rule_status not in ("collected", "empty") or not isinstance(entity.get("authorizationRules"), list):
+                        complete = False
+                        continue
+                    for rule in entity["authorizationRules"]:
+                        entity_rules.append({"entity": entity["id"], "name": rule["name"],
+                                             "rights": rule["properties"]["rights"]})
+            if entity_rules:
+                a.step("sas_entity_authorization", "conditional", rules=entity_rules,
+                       inventory_complete=complete)
+            if not complete:
+                a.notes.append("Queue or topic SAS rule inventory is incomplete.")
     if kind == "container_registry":
         anonymous = props.get("anonymousPullEnabled")
         if anonymous is True:
