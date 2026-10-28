@@ -1141,7 +1141,7 @@ def test_container_app_recorded_stopped_runtime_blocks_external_ingress():
     app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
     env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
 
-    def app_decision(status, *, replicas=0):
+    def app_decision(status, *, replicas=0, active=True, proven=True):
         snap = make_snapshot("azure", [SCOPE], [
             {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
              "items": [{"id": env_id, "properties": {"publicNetworkAccess": "Enabled",
@@ -1151,9 +1151,11 @@ def test_container_app_recorded_stopped_runtime_blocks_external_ingress():
                  "configuration": {"ingress": {"external": True, "transport": "http",
                      "fqdn": "app.example.azurecontainerapps.io"}}, "provisioningState": "Succeeded"}}]},
             {"type": "container_app_runtime", "scope": SCOPE, "service": "app", "status": "collected",
-             "items": [{"id": app_id, "properties": {"runningStatus": status},
+             "items": [{"id": app_id, "properties": {"runningStatus": status,
+                 "provisioningState": "Succeeded"},
+                 **({"_provenance": {"method": "GET+LIST", "read_only": True}} if proven else {}),
                  "revisions": [{"id": app_id + "/revisions/current", "properties": {
-                     "active": True, "runningState": "Running", "replicas": replicas}}]}]},
+                     "active": active, "runningState": "Running", "replicas": replicas}}]}]},
         ])
         return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "container_app")
 
@@ -1161,6 +1163,9 @@ def test_container_app_recorded_stopped_runtime_blocks_external_ingress():
     assert stopped.verdict() == "PASS" and stopped.path[0]["running_status"] == "Stopped"
     assert len(_observed(stopped, "PASS").splitlines()) == 3
     assert app_decision("Running", replicas=0).verdict() == "FAIL"  # Scale to zero can resume.
+    inactive = app_decision("Running", active=False)
+    assert inactive.verdict() == "PASS" and "complete runtime revision list" in _observed(inactive, "PASS")
+    assert app_decision("Running", active=False, proven=False).verdict() == "FAIL"
     progressing = app_decision("Progressing")
     assert progressing.verdict() == "UNKNOWN"
     assert "public request path is unresolved" in _observed(progressing, "UNKNOWN")

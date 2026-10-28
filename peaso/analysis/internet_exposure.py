@@ -5151,6 +5151,23 @@ def _azure_container_app(snapshot, inventory, resource):
     if runtime_status in ("Progressing", "Suspended"):
         a.gap("inventory", "Container App running status is transitional or suspended")
         a.step("app_state", "unknown", running_status=runtime_status)
+    if (runtime is not None and runtime_status == "Running"
+            and _props(runtime).get("provisioningState") == "Succeeded"
+            and inventory.state("container_app_runtime", resource["scope"]) == "collected"
+            and (runtime["data"].get("_provenance") or {}).get("method") == "GET+LIST"
+            and (runtime["data"].get("_provenance") or {}).get("read_only") is True):
+        revisions = runtime["data"].get("revisions")
+        if (isinstance(revisions, list) and revisions and all(
+                isinstance(revision, dict) and
+                str(revision.get("id", "")).casefold().startswith(
+                    str(resource["data"].get("id", "")).casefold() + "/revisions/") and
+                isinstance(revision.get("properties"), dict) and
+                revision["properties"].get("active") is False
+                for revision in revisions)):
+            a.step("revisions", "block", inactive_revision_count=len(revisions),
+                   running_status=runtime_status)
+            a.ports = {}
+            return a
     env_id = props.get("environmentId") or props.get("managedEnvironmentId")
     environment = inventory.get("container_app_environment", env_id)
     if environment is None:
@@ -6917,6 +6934,13 @@ def _observed(assessment, status):
                 "An open path could expose workflow settings or data if IAM also grants access.")
     if assessment.resource["type"] == "container_app":
         name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        inactive = next((step for step in assessment.path
+                         if step["layer"] == "revisions" and step["decision"] == "block"), None)
+        if status == "PASS" and inactive is not None:
+            return (f"The Container App {name} has external ingress declared and a complete runtime "
+                    f"revision list of {inactive['inactive_revision_count']} inactive revisions.\n"
+                    "The snapshot has no active revision to serve that ingress path.\n"
+                    "Activating a revision could reopen the declared public endpoint.")
         state = next((step.get("running_status") for step in assessment.path
                       if step.get("layer") == "app_state"), None)
         if status == "PASS" and state == "Stopped":
