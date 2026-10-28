@@ -24446,7 +24446,7 @@ def _azure_managed_application_current(snapshot, inventory, resource):
 
 def _azure_attestation_provider(snapshot, inventory, resource):
     props = _props(resource)
-    if "attestUri" in props or (resource["data"].get("_provenance") or {}).get("representation") == "full":
+    if "attestUri" in props:
         return _azure_attestation_provider_recorded(snapshot, inventory, resource)
     return _azure_attestation_provider_current(snapshot, inventory, resource)
 
@@ -24460,7 +24460,7 @@ def _azure_cost_export(snapshot, inventory, resource):
 
 def _azure_managed_application(snapshot, inventory, resource):
     data = resource["data"]
-    if "jitRequests" in data or "_coverage" in data:
+    if "jitRequests" in data or "jitRequests" in (data.get("_coverage") or {}):
         return _azure_managed_application_recorded(snapshot, inventory, resource)
     return _azure_managed_application_current(snapshot, inventory, resource)
 
