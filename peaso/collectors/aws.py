@@ -1652,7 +1652,7 @@ def _sla_reports(requests, session, region, arns):
     return service_reports(requests, session, region, arns)
 
 
-def _buckets(requests, session, region):
+def _buckets(requests, session, region, account=None):
     result = requests.pages(session, "s3", region, "list_buckets", "Buckets")
     reads = [
         ("PublicAccessBlock", "get_public_access_block", ("NoSuchPublicAccessBlockConfiguration",)),
@@ -1684,7 +1684,8 @@ def _buckets(requests, session, region):
         targets.append(selected)
     pairs = [(item["Name"], selected, read) for item, selected in zip(items, targets) for read in reads]
     values = iter(ordered_map(requests, pairs, lambda pair: requests.detail(
-        session, "s3", pair[1], pair[2][1], Bucket=pair[0], absent=pair[2][2])))
+        session, "s3", pair[1], pair[2][1], Bucket=pair[0], absent=pair[2][2],
+        **({"ExpectedBucketOwner": account} if account and pair[2][1] == "get_bucket_policy" else {}))))
     for item, location in zip(items, locations):
         item["Location"] = location
         for field_name, _operation, _absent in reads:
@@ -2783,7 +2784,7 @@ def collect(connector, requirements=None):
                 from .aws_facts_gap import metric_alarm_rows
                 return metric_alarm_rows(regional_job, session, identity, regions_for(account))
             if kind == "bucket":
-                return _buckets(requests, session, region)
+                return _buckets(requests, session, region, account)
             if kind == "iam_customer_policy":
                 from .aws_customer_policies import collect as collect_customer_policies
                 return collect_customer_policies(requests, session, region, account)
