@@ -1219,6 +1219,40 @@ def test_gcp_authorized_resource_uses_scanned_project_id_and_number_boundary():
     assert result["status"] == "FAIL" and result["evidence"]["external_scope_ids"] == ["foreign"]
 
 
+def test_gcp_authorized_resources_join_public_destination_in_other_scanned_project():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
+    from peaso.snapshot import resources
+    source = {"name": "projects/p1/datasets/source", "access": [
+        {"view": {"projectId": "p2", "datasetId": "shared", "tableId": "v"}},
+        {"routine": {"projectId": "p2", "datasetId": "shared", "routineId": "r"}}]}
+    destination = {"name": "projects/p2/datasets/shared", "access": [
+        {"role": "READER", "specialGroup": "allUsers"}]}
+    project = {"name": "projects/p2", "projectId": "p2", "projectNumber": "222"}
+    view = {"name": "projects/p2/datasets/shared/tables/v", "type": "VIEW", "iamPolicy": {"bindings": []}}
+    routine = {"name": "projects/p2/datasets/shared/routines/r", "routineType": "PROCEDURE",
+               "iamPolicy": {"bindings": []}}
+    def assessment():
+        snap = make_snapshot("gcp", ["projects/p1", "projects/p2"], [
+            gcoll("bigquery_dataset", [source], service="bigquery"),
+            coll("project", [project], scope="projects/p2", service="cloudresourcemanager"),
+            coll("bigquery_dataset", [destination], scope="projects/p2", service="bigquery"),
+            coll("bigquery_table", [view], scope="projects/p2", service="bigquery"),
+            coll("bigquery_routine_metadata", [routine], scope="projects/p2", service="bigquery")],
+            created_at="2026-10-10T00:00:00+00:00")
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
+        return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    result = assessment()
+    assert result.verdict() == "FAIL"
+    assert result.external_ids == []
+    assert len(result.path[-1]["public_views"]) == len(result.path[-1]["public_routines"]) == 1
+    source["access"][0]["view"]["projectId"] = "222"
+    source["access"][1]["routine"]["projectId"] = "222"
+    assert assessment().verdict() == "FAIL"
+    destination["access"] = []
+    assert assessment().verdict() == "UNKNOWN"
+
+
 def test_gcp_authorized_view_with_public_reader_exposes_source_dataset():
     from peaso.analysis.internet_exposure import Inventory, _gcp_bigquery_dataset
     from peaso.snapshot import resources

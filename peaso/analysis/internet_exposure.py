@@ -2546,7 +2546,6 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     if not public and not delegated:
         return None
     a = Assessment(resource, "data_share")
-    source_project = resource["scope"].removeprefix("projects/")
     def destination_project(row):
         ref = row["reference"]
         if row["kind"] == "dataset" and isinstance(ref.get("dataset"), dict):
@@ -2554,6 +2553,17 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         return ref.get("projectId") or ref.get("project_id")
     from .trust import trusted_scopes
     trusted_project_ids = trusted_scopes(snapshot)["ids"]
+    def destination_scope(row):
+        project = destination_project(row)
+        if not isinstance(project, str) or not project:
+            return None
+        matches = {scope for scope in snapshot.get("scopes", []) if scope == f"projects/{project}"}
+        for candidate in inventory.items("project"):
+            detail = candidate["data"]
+            if project in {str(detail.get("projectId")), str(detail.get("projectNumber")),
+                           str(detail.get("name", "")).removeprefix("projects/")}:
+                matches.add(candidate["scope"])
+        return next(iter(matches)) if len(matches) == 1 else None
     external_projects = sorted({project for row in delegated
                                 if isinstance(project := destination_project(row), str)
                                 and project and project not in trusted_project_ids})
@@ -2607,10 +2617,11 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
     view_refs = []
     for row in delegated:
         ref = row["reference"]
-        if row["kind"] == "view" and destination_project(row) == source_project and all(
+        target_scope = destination_scope(row)
+        if row["kind"] == "view" and target_scope and all(
                 isinstance(ref.get(key), str) and ref[key] for key in ("datasetId", "tableId")):
-            view_refs.append((f"{resource['scope']}/datasets/{ref['datasetId']}/tables/{ref['tableId']}", "view"))
-        elif row["kind"] == "dataset" and destination_project(row) == source_project:
+            view_refs.append((f"{target_scope}/datasets/{ref['datasetId']}/tables/{ref['tableId']}", "view"))
+        elif row["kind"] == "dataset" and target_scope:
             target_types = ref.get("targetTypes", ref.get("target_types"))
             dataset_ref = ref.get("dataset")
             dataset_id = (dataset_ref.get("datasetId") or dataset_ref.get("dataset_id")) if isinstance(dataset_ref, dict) else None
@@ -2623,7 +2634,7 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
                     if isinstance(name, str) and "/tables/" in name:
                         grouped.setdefault(name.rsplit("/tables/", 1)[0], []).append(table)
                 inventory.network_cache["gcp_bigquery_views_by_dataset"] = grouped
-            dataset_name = f"{resource['scope']}/datasets/{dataset_id}"
+            dataset_name = f"{target_scope}/datasets/{dataset_id}"
             view_refs.extend((table["data"]["name"], "authorized_dataset")
                              for table in inventory.network_cache["gcp_bigquery_views_by_dataset"].get(dataset_name, ())
                              if table["data"].get("type") in ("VIEW", "MATERIALIZED_VIEW"))
@@ -2640,23 +2651,24 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         policy = view["data"].get("iamPolicy")
         table_public = direct_public(policy, "bigquery.tables.getData",
                                      {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner", "roles/bigquery.admin"})
-        if dataset_public or table_public or inherited_view_readers:
+        readers = inherited_view_readers if view_name.startswith(resource["scope"] + "/") else []
+        if dataset_public or table_public or readers:
             public_views.append({"view": view_name, "authorization": authorization,
                                  "dataset_public": bool(dataset_public),
                                  "table_public": bool(table_public),
-                                 "inherited_public": inherited_view_readers})
+                                 "inherited_public": readers})
     public_routines = []
     for row in delegated:
-        if row["kind"] != "routine" or destination_project(row) != source_project:
+        if row["kind"] != "routine" or not (target_scope := destination_scope(row)):
             continue
         ref = row["reference"]
         if not all(isinstance(ref.get(key), str) and ref[key] for key in ("datasetId", "routineId")):
             continue
-        routine_name = f"{resource['scope']}/datasets/{ref['datasetId']}/routines/{ref['routineId']}"
+        routine_name = f"{target_scope}/datasets/{ref['datasetId']}/routines/{ref['routineId']}"
         routine = inventory.get("bigquery_routine_metadata", routine_name)
         if routine is None:
             continue
-        target = inventory.get("bigquery_dataset", f"{resource['scope']}/datasets/{ref['datasetId']}")
+        target = inventory.get("bigquery_dataset", f"{target_scope}/datasets/{ref['datasetId']}")
         dataset_public = (target is not None and isinstance(target["data"].get("access"), list) and
             any(isinstance(entry, dict) and (entry.get("iamMember") or entry.get("specialGroup")) in
                 ("allUsers", "allAuthenticatedUsers") and entry.get("role") in ("READER", "OWNER", "WRITER")
@@ -2665,10 +2677,11 @@ def _gcp_bigquery_dataset(snapshot, inventory, resource):
         routine_public = direct_public(policy, "bigquery.routines.get",
                                        {"roles/bigquery.dataViewer", "roles/bigquery.dataOwner",
                                         "roles/bigquery.routineDataViewer", "roles/bigquery.routineDataEditor"})
-        if dataset_public or routine_public or inherited_routine_readers:
+        readers = inherited_routine_readers if target_scope == resource["scope"] else []
+        if dataset_public or routine_public or readers:
             public_routines.append({"routine": routine_name, "routine_type": routine["data"].get("routineType"),
                                     "dataset_public": bool(dataset_public), "routine_public": bool(routine_public),
-                                    "inherited_public": inherited_routine_readers})
+                                    "inherited_public": readers})
     a.external_ids = external_projects
     if public:
         a.data_exposure = True
