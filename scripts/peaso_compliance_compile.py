@@ -64,11 +64,13 @@ REVIEWED_RDS_CLUSTER_EQUIVALENT = {
     }),
 }
 # This reviewed native evidence successor retains the exact RDS callback and
-# strengthens the common raw-inventory identity guard. Preserve the original
-# frozen module pin and admit only this explicitly reviewed whole-file successor.
+# strengthens the common raw-inventory identity guard. The second successor
+# memoizes only the Secrets Manager inventory helper; the RDS callback and
+# its declaration remain byte-identical. Preserve the original frozen pin.
 REVIEWED_RDS_RUNTIME_SUCCESSORS = {
     "ded9f2aa60b562cc3db565a091434ad182e8ae8635d4b128549b827a39a6f5f9": frozenset({
         "2a87f6c990065271ae9eaa9c34582d64297554eaf183f81c5a566eeb0cd8ac72",
+        "4413ca3f9af2040ae68f43c683e5f7effa696b4018dc93d4da2e91b1f0b73542",
     }),
 }
 DESCRIPTION_FIELD_ORDER = ("description", "fail_when", "evaluated", "not_applicable_when", "pass_when")
