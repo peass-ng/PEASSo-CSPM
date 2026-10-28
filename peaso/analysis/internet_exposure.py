@@ -10467,6 +10467,40 @@ def _azure_notification_hub(snapshot, inventory, resource):
     return a
 
 
+def _azure_private_dns_link(snapshot, inventory, resource):
+    """A linked foreign VNet can resolve every record in a private DNS zone."""
+    a = Assessment(resource, "private_dns_share")
+    data = resource["data"]
+    props = data.get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "private DNS link properties missing")
+        return a
+    state = props.get("virtualNetworkLinkState")
+    provisioning = props.get("provisioningState")
+    if state in ("Disconnected", "Deleting") or provisioning in ("Deleting", "Failed", "Canceled"):
+        a.step("private_dns_link", "block", link_state=state, provisioning_state=provisioning)
+        a.ports = {}
+        return a
+    if state not in ("Completed", "Done") or provisioning != "Succeeded":
+        a.gap("inventory", "private DNS link is not confirmed operational")
+        return a
+    remote = props.get("virtualNetwork")
+    remote_id = remote.get("id") if isinstance(remote, dict) else None
+    local_id = data.get("id")
+    match = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/virtualNetworks/[^/]+", remote_id, re.I) if isinstance(remote_id, str) else None
+    local = re.match(r"/subscriptions/([^/]+)/", local_id, re.I) if isinstance(local_id, str) else None
+    if not match or not local:
+        a.gap("inventory", "private DNS link or virtual network identity is unavailable")
+        return a
+    a.step("private_dns_link", "allow", virtual_network_id=remote_id,
+           registration_enabled=props.get("registrationEnabled") is True)
+    a.ports = {}
+    if match.group(1).casefold() != local.group(1).casefold():
+        a.external_ids = [remote_id]
+        a.explicit = "FAIL"
+    return a
+
+
 def _azure_traffic_manager(snapshot, inventory, resource):
     """Detect a public DNS referral from one collected Traffic Manager profile."""
     a = Assessment(resource, "public_dns")
@@ -11246,7 +11280,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11262,7 +11296,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                       "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -11356,6 +11390,7 @@ def assess(snapshot, resources):
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "traffic_manager_profile": _azure_traffic_manager,
                   "notification_hub_namespace": _azure_notification_hub,
+                  "private_dns_link": _azure_private_dns_link,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,
