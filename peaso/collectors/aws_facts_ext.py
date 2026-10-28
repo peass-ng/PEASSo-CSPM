@@ -384,8 +384,13 @@ def _ecr_registry(requests, session, region, account):
     row = {"id": f"ecr-registry/{account}/{region}", "registryId": registry.get("registryId") or account}
     row["Replication"] = _status(registry)
     if registry.get("collection_status") == "collected":
-        rules = (registry.get("replicationConfiguration") or {}).get("rules") or []
-        row["Replication"]["rules"] = [_pick(rule, ("destinations", "repositoryFilters")) for rule in rules if isinstance(rule, dict)]
+        configuration = registry.get("replicationConfiguration")
+        rules = configuration.get("rules", []) if isinstance(configuration, dict) else ([] if configuration is None else None)
+        if not isinstance(rules, list) or any(not isinstance(rule, dict) for rule in rules):
+            row["Replication"]["collection_status"] = "malformed"
+            row["Replication"]["error"] = {"code": "malformed_replication_rules"}
+        else:
+            row["Replication"]["rules"] = [_pick(rule, ("destinations", "repositoryFilters")) for rule in rules]
     row["RegistryPolicy"] = _status(registry_policy)
     if registry_policy.get("collection_status") == "collected":
         row["RegistryPolicy"]["policyText"] = policy(registry_policy.get("policyText"))
