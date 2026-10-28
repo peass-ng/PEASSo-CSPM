@@ -492,10 +492,16 @@ class CheckpointSession:
                     if (self.pending and self.pending_since is not None and
                             self.clock() - self.pending_since >= self.batch_interval):
                         self._flush_pending()
-                self._maybe_publish(force=self.force)
+                    # A failed cumulative evaluator must not run again on
+                    # every wake, but an already buffered native batch still
+                    # needs its timed durable flush.
+                    publish = self.error is None
+                if publish:
+                    self._maybe_publish(force=self.force)
             except BaseException as exc:
                 with self.lock:
-                    self.error = exc
+                    if self.error is None:
+                        self.error = exc
 
     def _maybe_publish(self, *, force=False):
         if force:

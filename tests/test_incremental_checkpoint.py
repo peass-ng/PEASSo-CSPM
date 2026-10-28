@@ -192,6 +192,45 @@ def test_interrupted_later_analysis_keeps_earlier_category(monkeypatch, tmp_path
             session.close()
 
 
+def test_background_evaluation_failure_stops_retries_and_keeps_raw_batch(monkeypatch, tmp_path):
+    session, artifacts, refs, published = _session(monkeypatch, tmp_path, second=True,
+                                                   batch_interval=0.01)
+    try:
+        session.on_collection({"type": "bucket", "scope": SCOPE, "status": "collected",
+                               "items": [{"id": "b"}]})
+        assert published.wait(3)
+        first = next(report for _, _, report in refs if report)
+        from peaso import engine
+        attempted = []
+        def failed_later_evaluation(*args, **kwargs):
+            attempted.append(1)
+            # This envelope settles while the cumulative evaluator runs.
+            # The background thread must still flush it after the error.
+            session.on_collection({"type": "other", "scope": "later",
+                                   "status": "empty", "items": []})
+            raise RuntimeError("interrupted analysis")
+        monkeypatch.setattr(engine, "evaluate_snapshot", failed_later_evaluation)
+        session.on_collection({"type": "image", "scope": SCOPE, "status": "collected",
+                               "items": [{"id": "i"}]})
+        deadline = time.monotonic() + 3
+        while session.error is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert isinstance(session.error, RuntimeError)
+        assert str(session.error) == "interrupted analysis"
+        while not any(sequence == 3 and report is None for sequence, _, report in refs) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert artifacts.get(TENANT, first)["publication"]["state"] == "partial"
+        assert any(sequence == 3 and report is None for sequence, _, report in refs)
+        time.sleep(0.05)
+        assert attempted == [1]
+        with pytest.raises(RuntimeError, match="checkpoint publication failed"):
+            session.on_collection({"type": "other", "scope": SCOPE,
+                                   "status": "empty", "items": []})
+    finally:
+        with pytest.raises(RuntimeError, match="checkpoint publication failed"):
+            session.close()
+
+
 def test_real_native_hardening_evaluation_publishes_before_optional_image_phase(tmp_path):
     from peaso.incremental import CheckpointSession
 
