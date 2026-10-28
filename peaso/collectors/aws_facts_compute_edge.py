@@ -663,10 +663,33 @@ def _cloudfront_log_deliveries(requests, session, region, items):
     oac_reads = {}
     oai_reads = {}
     policy_reads = {}
+    connection_group_reads = {}
     for item in items:
         item = copy.deepcopy(item)
         config = item.get("Config")
         distribution = config.get("DistributionConfig") if isinstance(config, dict) else None
+        if isinstance(distribution, dict) and distribution.get("ConnectionMode") == "tenant-only" and isinstance(item.get("Id"), str):
+            tenants = requests.pages(session, "cloudfront", home, "list_distribution_tenants",
+                                     "DistributionTenantList", AssociationFilter={"DistributionId": item["Id"]})
+            item["DistributionTenants"] = _child(tenants, lambda row: _pick(row,
+                ("Id", "DistributionId", "ConnectionGroupId", "Enabled", "Status", "Domains")))
+            item["ConnectionGroups"] = {}
+            if _usable(tenants):
+                ids = {tenant.get("ConnectionGroupId") for tenant in tenants.items
+                       if isinstance(tenant, dict) and isinstance(tenant.get("ConnectionGroupId"), str)
+                       and tenant.get("ConnectionGroupId")}
+                for group_id in sorted(ids):
+                    if group_id not in connection_group_reads:
+                        read = requests.detail(session, "cloudfront", home, "get_connection_group",
+                                               Identifier=group_id, absent=("EntityNotFound",))
+                        group = read.get("ConnectionGroup") if isinstance(read, dict) else None
+                        if read.get("collection_status") == "collected" and isinstance(group, dict) and group.get("Id") == group_id:
+                            connection_group_reads[group_id] = {"collection_status": "collected", **_pick(group,
+                                ("Id", "RoutingEndpoint", "Enabled", "Status", "Ipv6Enabled", "IsDefault"))}
+                        else:
+                            connection_group_reads[group_id] = {"collection_status": "malformed" if read.get("collection_status") == "collected" else read.get("collection_status"),
+                                                                "error": read.get("error", {})}
+                    item["ConnectionGroups"][group_id] = connection_group_reads[group_id]
         policy_id = distribution.get("ContinuousDeploymentPolicyId") if isinstance(distribution, dict) else None
         if isinstance(policy_id, str) and policy_id:
             if policy_id not in policy_reads:

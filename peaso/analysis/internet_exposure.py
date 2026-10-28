@@ -733,6 +733,13 @@ def _aws_route(inventory, subnet_id, vpc_id, assessment, where, ipv6=False):
     routes = active_routes
     if routes:
         gateway_id = routes[0]["GatewayId"]
+        gateway_diversion = _aws_igw_appliance_route(inventory, gateway_id, subnet_id, vpc_id, ipv6)
+        if gateway_diversion is not False:
+            assessment.gap("inventory", "internet-gateway ingress route may divert through an appliance",
+                           "ec2:DescribeRouteTables.Associations[].GatewayId/Routes[] and appliance forwarding")
+            assessment.step("route", "unknown", route_table=native_id(table), subnet=subnet_id,
+                            internet_gateway=gateway_id, address_family=6 if ipv6 else 4, at=where)
+            return None
         gateway = inventory.get("internet_gateway", gateway_id)
         attachment_unresolved = False
         if gateway is not None:
@@ -755,7 +762,63 @@ def _aws_route(inventory, subnet_id, vpc_id, assessment, where, ipv6=False):
                         route_table=native_id(table), internet_gateway=routes[0]["GatewayId"],
                         subnet=subnet_id, address_family=6 if ipv6 else 4, at=where)
         return True
+    alternative = [row for row in route_rows if
+                   (row.get("DestinationIpv6CidrBlock") == "::/0" if ipv6 else
+                    row.get("DestinationCidrBlock") == "0.0.0.0/0") and
+                   row.get("State") != "blackhole" and
+                   (row.get("GatewayId") not in (None, "local") or any(row.get(key) for key in (
+                       "NetworkInterfaceId", "InstanceId", "NatGatewayId", "TransitGatewayId",
+                       "VpcPeeringConnectionId", "EgressOnlyInternetGatewayId", "IpAddress", "CoreNetworkArn")))]
+    if alternative:
+        assessment.gap("inventory", "alternate default-route forwarding or return path not established",
+                       "ec2:DescribeRouteTables.Routes[] and target forwarding")
+        assessment.step("route", "unknown", route_table=native_id(table), subnet=subnet_id,
+                        address_family=6 if ipv6 else 4, alternate_targets=sorted({
+                            str(row.get("GatewayId") or row.get("NetworkInterfaceId") or row.get("NatGatewayId") or
+                                row.get("TransitGatewayId") or row.get("InstanceId") or row.get("VpcPeeringConnectionId") or
+                                row.get("EgressOnlyInternetGatewayId") or row.get("IpAddress") or row.get("CoreNetworkArn"))
+                            for row in alternative}), at=where)
+        return None
     assessment.step("route", "block", route_table=native_id(table), subnet=subnet_id, address_family=6 if ipv6 else 4, reason="no active default route to an internet gateway", at=where)
+    return False
+
+
+def _aws_igw_appliance_route(inventory, gateway_id, subnet_id, vpc_id, ipv6):
+    """Whether an IGW-associated route table diverts this subnet to a middlebox."""
+    subnet = inventory.get("subnet", subnet_id)
+    cidr_key = "Ipv6CidrBlock" if ipv6 else "CidrBlock"
+    destination_key = "DestinationIpv6CidrBlock" if ipv6 else "DestinationCidrBlock"
+    if ipv6:
+        associations = subnet["data"].get("Ipv6CidrBlockAssociationSet") if subnet else None
+        subnet_cidrs = [_cidr(row.get("Ipv6CidrBlock")) for row in associations if isinstance(row, dict)] if isinstance(associations, list) else []
+    else:
+        subnet_cidrs = [_cidr(subnet["data"].get("CidrBlock"))] if subnet else []
+    for table in inventory.items("route_table"):
+        data = table["data"]
+        if data.get("VpcId") != vpc_id:
+            continue
+        associations = data.get("Associations")
+        if not isinstance(associations, list):
+            continue
+        gateway_rows = [row for row in associations if isinstance(row, dict) and row.get("GatewayId") == gateway_id]
+        if not gateway_rows:
+            continue
+        if not subnet_cidrs or any(cidr is None for cidr in subnet_cidrs) or any(not isinstance(row.get("AssociationState"), dict) or
+                                      row["AssociationState"].get("State") != "associated" for row in gateway_rows):
+            return None
+        routes = data.get("Routes")
+        if not isinstance(routes, list):
+            return None
+        for route in routes:
+            if not isinstance(route, dict):
+                return None
+            destination = _cidr(route.get(destination_key))
+            if destination is None or route.get("State") == "blackhole" or not any(
+                    subnet_cidr.version == destination.version and subnet_cidr.subnet_of(destination)
+                    for subnet_cidr in subnet_cidrs):
+                continue
+            if route.get("GatewayId") not in (None, "local") or route.get("NetworkInterfaceId"):
+                return True
     return False
 
 
@@ -1022,6 +1085,48 @@ def _aws_eni(snapshot, inventory, resource):
     return a
 
 
+def _aws_rds_endpoint_target_path(inventory, a, resource, instance, port):
+    """Evaluate one Aurora endpoint member on its observed AZ subnet path."""
+    if instance.get("PubliclyAccessible") is not True or instance.get("DBInstanceStatus") != "available":
+        a.gap("inventory", "Aurora endpoint target public/serving state unresolved",
+              "rds:DescribeDBInstances.PubliclyAccessible/DBInstanceStatus")
+        return a
+    subnet_group = instance.get("DBSubnetGroup")
+    az = instance.get("AvailabilityZone")
+    subnets = subnet_group.get("Subnets") if isinstance(subnet_group, dict) else None
+    selected = [subnet.get("SubnetIdentifier") for subnet in subnets
+                if isinstance(subnet, dict) and isinstance(subnet.get("SubnetAvailabilityZone"), dict)
+                and subnet["SubnetAvailabilityZone"].get("Name") == az] if isinstance(subnets, list) else []
+    if len(selected) != 1 or not isinstance(selected[0], str) or not selected[0]:
+        a.gap("inventory", "Aurora endpoint target subnet not uniquely observed in its AZ",
+              "rds:DescribeDBInstances.AvailabilityZone/DBSubnetGroup.Subnets")
+        return a
+    groups = [group.get("VpcSecurityGroupId") for group in as_list(instance.get("VpcSecurityGroups"))
+              if isinstance(group, dict) and group.get("Status") == "active"]
+    a.ports = _aws_vpc_path(inventory, a, selected, groups, pset("tcp", port, port), native_id(resource),
+                            vpc_id=subnet_group.get("VpcId"), narrow_public=True, public_host_witness=True)
+    return a
+
+
+def _aws_redshift_custom_dns(inventory, assessment, custom_host, service_host):
+    """Record a custom-name declaration without asserting live DNS resolution."""
+    if custom_host is None:
+        return
+    if not _dns_hostname(custom_host):
+        assessment.notes.append("Redshift custom hostname is malformed in the collected service response")
+        return
+    assessment.step("alternate_endpoint", "allow_declaration", custom_endpoint=custom_host,
+                    semantics="Custom hostname is configured; public DNS routing is separate")
+    records = [record for record in _aws_route53_cname_declaration(inventory, custom_host, service_host)
+               if record["record_type"] == "CNAME"]
+    if records:
+        assessment.step("dns", "allow_declaration", route53_records=records,
+                        semantics="Public Route 53 CNAME targets the service endpoint; delegation and current DNS answers are unobserved")
+        assessment.notes.append("Redshift custom hostname has an in-account DNS declaration; public delegation remains unverified")
+    else:
+        assessment.notes.append("Redshift custom hostname needs a public DNS CNAME to the service endpoint")
+
+
 def _listener_ports(protocol, port):
     proto = str(protocol or "TCP").upper()
     kind = "udp" if proto in ("UDP", "QUIC") else "all" if proto in ("TCP_UDP", "TCP_QUIC") else "tcp"
@@ -1075,7 +1180,7 @@ def _aws_elbv2(snapshot, inventory, resource):
               "elbv2:DescribeLoadBalancers.Scheme")
         return a
     a.endpoint = data.get("DNSName")
-    a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
+    a.addresses = [data["DNSName"]] if _dns_hostname(data.get("DNSName")) else []
     state = data.get("State") if isinstance(data.get("State"), dict) else {}
     code = state.get("Code") or data.get("LoadBalancerStateCode")
     if code == "failed":
@@ -1183,7 +1288,7 @@ def _aws_classic(snapshot, inventory, resource):
         a.gap("inventory", "Classic ELB scheme not collected or unsupported",
               "elasticloadbalancing:DescribeLoadBalancers.Scheme")
         return a
-    a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
+    a.addresses = [data["DNSName"]] if _dns_hostname(data.get("DNSName")) else []
     if not a.addresses:
         a.gap("inventory", "Classic ELB public DNS name not collected",
               "elasticloadbalancing:DescribeLoadBalancers.DNSName")
@@ -1403,6 +1508,25 @@ def _aws_rds_cluster_endpoint(snapshot, inventory, resource):
             if all(signature(row) == signature(public_rows[0]) for row in public_rows[1:]):
                 eligible = [public_rows[0]["DBInstanceIdentifier"]]
                 a.notes.append("All observed public endpoint targets share the same serving, AZ, subnet and security-group path")
+            else:
+                probes = []
+                for target in sorted(public_rows, key=lambda row: row["DBInstanceIdentifier"]):
+                    probe = Assessment(resource, "database")
+                    _aws_rds_endpoint_target_path(inventory, probe, resource, target, port)
+                    probes.append((target["DBInstanceIdentifier"], probe))
+                    if probe.verdict() == "FAIL":
+                        a.step("target", "allow", db_instance_identifier=target["DBInstanceIdentifier"],
+                               semantics="One eligible public endpoint target has a configured network path")
+                        a.path.extend(probe.path)
+                        a.unresolved.extend(probe.unresolved)
+                        a.ports = probe.ports
+                        a.notes.append("Endpoint selects among members; this observed public target has a configured network path")
+                        return a
+                if all(probe.verdict() == "PASS" for _, probe in probes):
+                    a.step("target", "block", db_instance_identifiers=[name for name, _ in probes],
+                           semantics="Every observed public endpoint target has a blocked configured network path")
+                    a.ports = EMPTY
+                    return a
     if len(eligible) != 1 or not eligible[0]:
         a.gap("inventory", "Aurora reader endpoint target membership ambiguous",
               "rds:DescribeDBClusters.DBClusterMembers")
@@ -1416,25 +1540,7 @@ def _aws_rds_cluster_endpoint(snapshot, inventory, resource):
     instance = instances[0]
     if instance.get("PubliclyAccessible") is False:
         return None
-    if instance.get("PubliclyAccessible") is not True or instance.get("DBInstanceStatus") != "available":
-        a.gap("inventory", "Aurora endpoint target public/serving state unresolved",
-              "rds:DescribeDBInstances.PubliclyAccessible/DBInstanceStatus")
-        return a
-    subnet_group = instance.get("DBSubnetGroup")
-    az = instance.get("AvailabilityZone")
-    subnets = subnet_group.get("Subnets") if isinstance(subnet_group, dict) else None
-    selected = [subnet.get("SubnetIdentifier") for subnet in subnets
-                if isinstance(subnet, dict) and isinstance(subnet.get("SubnetAvailabilityZone"), dict)
-                and subnet["SubnetAvailabilityZone"].get("Name") == az] if isinstance(subnets, list) else []
-    if len(selected) != 1 or not isinstance(selected[0], str) or not selected[0]:
-        a.gap("inventory", "Aurora endpoint target subnet not uniquely observed in its AZ",
-              "rds:DescribeDBInstances.AvailabilityZone/DBSubnetGroup.Subnets")
-        return a
-    groups = [group.get("VpcSecurityGroupId") for group in as_list(instance.get("VpcSecurityGroups"))
-              if isinstance(group, dict) and group.get("Status") == "active"]
-    a.ports = _aws_vpc_path(inventory, a, selected, groups, pset("tcp", port, port), native_id(resource),
-                            vpc_id=subnet_group.get("VpcId"), narrow_public=True, public_host_witness=True)
-    return a
+    return _aws_rds_endpoint_target_path(inventory, a, resource, instance, port)
 
 
 def _aws_redshift(snapshot, inventory, resource):
@@ -1462,6 +1568,7 @@ def _aws_redshift(snapshot, inventory, resource):
         a.gap("listener", "Redshift endpoint port not collected", "redshift:DescribeClusters")
         return a
     a.step("listener", "allow", port=port)
+    _aws_redshift_custom_dns(inventory, a, data.get("CustomDomainName"), endpoint["Address"])
     groups = [g.get("VpcSecurityGroupId") for g in as_list(data.get("VpcSecurityGroups")) if isinstance(g, dict)]
     name = data.get("ClusterSubnetGroupName")
     group = next((r["data"] for r in inventory.items("redshift_subnet_group") if r["scope"] == resource["scope"]
@@ -1509,6 +1616,7 @@ def _aws_redshift_serverless(snapshot, inventory, resource):
               "redshift-serverless:ListWorkgroups.workgroups[].endpoint.port")
         return a
     a.step("listener", "allow", port=port)
+    _aws_redshift_custom_dns(inventory, a, data.get("customDomainName"), host)
     subnets, groups = data.get("subnetIds"), data.get("securityGroupIds")
     if not isinstance(subnets, list) or not subnets or any(not isinstance(s, str) or not s for s in subnets):
         a.gap("inventory", "Redshift Serverless workgroup subnet IDs absent or malformed",
@@ -1543,7 +1651,15 @@ def _aws_redshift_serverless(snapshot, inventory, resource):
     selected = sorted(set(selected))
     a.ports = _aws_vpc_path(inventory, a, selected, groups, pset("tcp", port, port), native_id(resource),
                             narrow_public=True, public_host_witness=True)
-    if data.get("ipAddressType") == "dualstack":
+    ip_address_type = data.get("ipAddressType")
+    if ip_address_type not in ("ipv4", "dualstack"):
+        if empty(a.ports):
+            a.blocked_by = None
+            a.gap("inventory", "Redshift Serverless endpoint IP family not observed",
+                  "redshift-serverless:ListWorkgroups.workgroups[].ipAddressType")
+        else:
+            a.notes.append("Redshift Serverless endpoint IP family is unresolved; observed IPv4 path remains open")
+    if ip_address_type == "dualstack":
         v6_interfaces = [interface for vpc_endpoint in endpoints for interface in vpc_endpoint.get("networkInterfaces", [])
                          if isinstance(interface, dict) and interface.get("subnetId") in selected] if isinstance(endpoints, list) else []
         if not v6_interfaces or any(not _public_ip(interface.get("ipv6Address")) for interface in v6_interfaces):
@@ -1592,12 +1708,38 @@ def _opensearch_http_policy(document_value, domain_arn):
     from .trust import restrictive_conditions
     doc = document(document_value)
     if doc is None or not isinstance(domain_arn, str):
-        return None, [], True, []
+        return None, [], True, [], False, []
     methods = {f"es:eshttp{method}" for method in ("get", "head", "post", "put", "patch", "delete")}
     scope = f"{domain_arn}/*"
-    allowed, denied, restricted, uncertain, narrow = set(), set(), [], False, []
+    allowed, denied, secure_allowed, restricted, uncertain, narrow, source_hosts = set(), set(), set(), [], False, [], []
     statements = as_list(doc.get("Statement"))
     any_deny = any(isinstance(row, dict) and row.get("Effect") == "Deny" for row in statements)
+    def exact_path_survives_denies(action, path):
+        if any(char in path for char in "*?["):
+            return False
+        for deny in statements:
+            if not isinstance(deny, dict) or deny.get("Effect") != "Deny":
+                continue
+            if any(key in deny for key in ("NotAction", "NotResource", "NotPrincipal")):
+                return False
+            principal = deny.get("Principal")
+            if not isinstance(principal, (str, dict)):
+                return False
+            principals = [principal] if isinstance(principal, str) else [v for x in principal.values()
+                          for v in as_list(x)] if isinstance(principal, dict) else []
+            if "*" not in principals:
+                continue
+            patterns = [value.casefold() for value in as_list(deny.get("Action")) if isinstance(value, str)]
+            if not patterns:
+                return False
+            if not any(fnmatchcase(action, pattern) for pattern in patterns):
+                continue
+            resources = as_list(deny.get("Resource"))
+            if not resources or any(not isinstance(value, str) for value in resources):
+                return False
+            if any(fnmatchcase(path, value) for value in resources):
+                return False
+        return True
     for statement in statements:
         if not isinstance(statement, dict) or statement.get("Effect") not in ("Allow", "Deny"):
             uncertain = True
@@ -1618,19 +1760,44 @@ def _opensearch_http_policy(document_value, domain_arn):
             path_resources = [x for x in resources if isinstance(x, str) and x.startswith(f"{domain_arn}/")
                               and len(x) > len(domain_arn) + 1]
             if path_resources:
-                if statement["Effect"] == "Allow" and not statement.get("Condition") and not any_deny:
-                    narrow.extend((action, resource) for action in sorted(matched) for resource in path_resources)
+                if statement["Effect"] == "Allow" and not statement.get("Condition"):
+                    safe = [(action, resource) for action in sorted(matched) for resource in path_resources
+                            if not any_deny or exact_path_survives_denies(action, resource)]
+                    narrow.extend(safe)
+                    if len(safe) != len(matched) * len(path_resources):
+                        uncertain = True
                 else:
                     uncertain = True
             continue
         condition = statement.get("Condition") or {}
         if condition:
+            if (statement["Effect"] == "Allow" and not any_deny and
+                    condition == {"Bool": {"aws:SecureTransport": "true"}}):
+                secure_allowed.update(matched)
+                continue
+            if statement["Effect"] == "Allow" and not any_deny and set(condition) == {"IpAddress"}:
+                source = condition["IpAddress"]
+                values = source.get("aws:SourceIp") if isinstance(source, dict) and set(source) == {"aws:SourceIp"} else None
+                hosts = []
+                for value in as_list(values):
+                    try:
+                        network = ipaddress.ip_network(value, strict=True) if isinstance(value, str) else None
+                    except ValueError:
+                        network = None
+                    if (network is not None and network.version == 4 and
+                            network.prefixlen == network.max_prefixlen and network.network_address.is_global):
+                        hosts.append(str(network))
+                if hosts:
+                    source_hosts.extend(hosts)
+                    continue
             if statement["Effect"] == "Allow":
                 restricted.extend(restrictive_conditions(condition))
             uncertain = True
             continue
         (allowed if statement["Effect"] == "Allow" else denied).update(matched)
-    return bool(allowed - denied or narrow), restricted, uncertain, narrow
+    insecure = bool(allowed - denied or narrow)
+    return (bool(insecure or secure_allowed - denied or source_hosts), restricted, uncertain, narrow,
+            bool(secure_allowed - denied) and not insecure and not source_hosts, sorted(set(source_hosts)))
 
 
 def _aws_opensearch(snapshot, inventory, resource):
@@ -1701,12 +1868,17 @@ def _aws_opensearch(snapshot, inventory, resource):
                   "route53:ListResourceRecordSets or external DNS")
         return a
     a.step("route", "allow", reason="public (non-VPC) domain endpoint")
-    public, restricted, uncertain, narrow = _opensearch_http_policy(status.get("AccessPolicies"), status.get("ARN"))
+    public, restricted, uncertain, narrow, https_only, source_hosts = _opensearch_http_policy(status.get("AccessPolicies"), status.get("ARN"))
     ports = pset("tcp", 443, 443)
     if isinstance(endpoint_options, dict) and endpoint_options.get("EnforceHTTPS") is False:
         ports = union(ports, pset("tcp", 80, 80))
+    if https_only:
+        ports = pset("tcp", 443, 443)
     if public:
-        a.step("policy", "allow", reason="access policy grants Principal * an HTTP action on this domain without restrictive conditions",
+        a.step("policy", "allow", reason=("access policy grants Principal * an HTTP action only over HTTPS"
+               if https_only else "access policy grants Principal * an HTTP action from an observed public source host"
+               if source_hosts else "access policy grants Principal * an HTTP action on this domain without restrictive conditions"),
+               https_only=https_only, source_ip_hosts=source_hosts,
                narrow_resource_declarations=[{"action": action, "resource": resource} for action, resource in narrow],
                semantics="A granted domain path is a policy declaration; index existence and HTTP response are not established")
     elif uncertain:
@@ -1758,7 +1930,7 @@ def _aws_eks(snapshot, inventory, resource):
     try:
         parsed_endpoint = urlsplit(endpoint) if isinstance(endpoint, str) else None
         valid_endpoint = (parsed_endpoint is not None and parsed_endpoint.scheme == "https"
-                          and isinstance(parsed_endpoint.hostname, str) and "." in parsed_endpoint.hostname
+                          and _dns_hostname(parsed_endpoint.hostname)
                           and parsed_endpoint.port in (None, 443) and parsed_endpoint.username is None
                           and parsed_endpoint.password is None and parsed_endpoint.path in ("", "/")
                           and not parsed_endpoint.query and not parsed_endpoint.fragment)
@@ -1838,6 +2010,13 @@ def _aws_lambda_url(snapshot, inventory, resource):
     a = Assessment(resource, "function_url")
     a.addresses = [endpoint]
     a.ports = pset("tcp", 443, 443)
+    function = data if resource["type"] == "lambda_function" else next(
+        (row["data"] for row in inventory.items("lambda_function") if row["scope"] == resource["scope"]
+         and row["data"].get("FunctionArn") == data.get("FunctionArn")), {})
+    concurrency = function.get("Concurrency") if isinstance(function, dict) else None
+    if isinstance(concurrency, dict) and concurrency.get("collection_status") == "collected" and type(concurrency.get("ReservedConcurrentExecutions")) is int and concurrency["ReservedConcurrentExecutions"] == 0:
+        a.dormant = True
+        a.notes.append("Lambda reserved concurrency is zero; configured Function URL requests return HTTP 429")
     if url.get("AuthType") == "AWS_IAM":
         a.step("authorization", "allow", auth_type=url.get("AuthType"))
         a.authenticated = True
@@ -2206,6 +2385,9 @@ def _aws_rest_api(snapshot, inventory, resource):
     for domain in inventory.items("apigateway_domain_name"):
         if domain["scope"] != resource["scope"]:
             continue
+        if not _dns_hostname(domain["data"].get("domainName")):
+            unresolved_domains.append(native_id(domain))
+            continue
         domain_types = as_list((domain["data"].get("endpointConfiguration") or {}).get("types"))
         if not domain_types:
             unresolved_domains.append(domain["data"].get("domainName") or native_id(domain))
@@ -2294,7 +2476,14 @@ def _aws_rest_api(snapshot, inventory, resource):
         a.ports = {}
         return a
     if data.get("disableExecuteApiEndpoint") is not True:
-        a.addresses.append(f"https://{native_id(resource)}.execute-api.{resource['scope'].split('/')[-1]}.amazonaws.com")
+        api_id = native_id(resource)
+        region = resource["scope"].rsplit("/", 1)[-1]
+        if isinstance(api_id, str) and re.fullmatch(r"[a-z0-9]+", api_id):
+            suffix = "amazonaws.com.cn" if region.startswith("cn-") else "amazonaws.com"
+            a.addresses.append(f"https://{api_id}.execute-api.{region}.{suffix}")
+        else:
+            a.gap("inventory", "REST API identifier malformed for default invoke endpoint",
+                  "apigateway:GetRestApi.id")
     a.addresses.extend(f"https://{name}" for name in sorted(set(domains)))
     if data.get("disableExecuteApiEndpoint") is True:
         a.gap("default_route", "stage-applied default execute-api endpoint block is not observed",
@@ -2412,6 +2601,9 @@ def _aws_http_api(snapshot, inventory, resource):
         if domain["scope"] != resource["scope"]:
             continue
         domain_data = domain["data"]
+        if not _dns_hostname(domain_data.get("DomainName")):
+            unresolved_domains.append(native_id(domain))
+            continue
         configs = as_list(domain_data.get("DomainNameConfigurations"))
         if not configs or any(not isinstance(config, dict) or config.get("EndpointType") not in {"REGIONAL", "EDGE", "PRIVATE"}
                               for config in configs):
@@ -2445,8 +2637,23 @@ def _aws_http_api(snapshot, inventory, resource):
         a.explicit = "UNKNOWN"
         a.ports = {}
         return a
-    if data.get("DisableExecuteApiEndpoint") is not True and data.get("ApiEndpoint"):
-        a.addresses.append(data["ApiEndpoint"])
+    if data.get("DisableExecuteApiEndpoint") is not True:
+        endpoint = data.get("ApiEndpoint")
+        try:
+            parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+            region = resource["scope"].rsplit("/", 1)[-1]
+            suffix = "amazonaws.com.cn" if region.startswith("cn-") else "amazonaws.com"
+            valid_endpoint = (parsed is not None and parsed.scheme == "https" and
+                              parsed.hostname == f"{data.get('ApiId')}.execute-api.{region}.{suffix}" and
+                              parsed.port is None and parsed.username is None and parsed.password is None and
+                              parsed.path in ("", "/") and not parsed.query and not parsed.fragment)
+        except ValueError:
+            valid_endpoint = False
+        if valid_endpoint:
+            a.addresses.append(endpoint)
+        else:
+            a.gap("inventory", "HTTP API default endpoint missing or malformed",
+                  "apigatewayv2:GetApis.ApiEndpoint")
     a.addresses.extend(f"https://{name}" for name in sorted(set(domains)) if name)
     if data.get("DisableExecuteApiEndpoint") is True:
         a.gap("default_route", "stage-applied HTTP API default endpoint block not observed",
@@ -4288,7 +4495,7 @@ def _cloudfront_staging_primary(inventory, staging):
     """Observed active primary policy that can route a viewer request to this staging DNS name."""
     domain = staging.get("DomainName")
     arn = staging.get("ARN")
-    if not isinstance(domain, str) or not domain or not isinstance(arn, str):
+    if not _dns_hostname(domain) or not isinstance(arn, str):
         return None
     account = arn.split(":")[4] if len(arn.split(":")) > 4 else None
     matches = []
@@ -4317,7 +4524,7 @@ def _cloudfront_staging_primary(inventory, staging):
         routed = ((mode == "SingleWeight" and type(weight) in (int, float) and 0 < weight <= 1)
                   or (mode == "SingleHeader" and policy.get("HeaderConditionPresent") is True))
         host = data.get("DomainName")
-        if routed and isinstance(host, str) and host:
+        if routed and _dns_hostname(host):
             matches.append((host, mode, policy["Id"], primary_arn))
     return sorted(matches)[0] if matches else None
 
@@ -4367,17 +4574,74 @@ def _aws_cloudfront(snapshot, inventory, resource):
         return a
     if data.get("Status") != "Deployed":
         a = Assessment(resource, "cdn_endpoint")
-        if isinstance(data.get("DomainName"), str) and data["DomainName"]:
+        if _dns_hostname(data.get("DomainName")):
             a.addresses = [data["DomainName"]]
         a.gap("inventory", "CloudFront distribution configuration is not observed fully deployed",
               "cloudfront:ListDistributions")
         return a
     if distribution.get("ConnectionMode") == "tenant-only":
         a = Assessment(resource, "cdn_endpoint")
-        a.step("viewer_routing", "allow_declaration", connection_mode="tenant-only",
-               semantics="Multi-tenant distribution cannot serve viewers directly; tenant and connection-group routing are not collected")
-        a.gap("inventory", "CloudFront distribution tenant and connection-group routing not collected",
-              "cloudfront:ListDistributionTenants,cloudfront:GetConnectionGroup")
+        tenants = data.get("DistributionTenants")
+        if not isinstance(tenants, dict) or tenants.get("collection_status") != "collected" or not isinstance(tenants.get("items"), list):
+            a.gap("inventory", "CloudFront distribution tenants not completely collected",
+                  "cloudfront:ListDistributionTenants,cloudfront:GetConnectionGroup")
+            return a
+        if not tenants["items"]:
+            a.step("viewer_routing", "block", connection_mode="tenant-only", tenant_count=0)
+            a.ports = {}
+            return a
+        groups = data.get("ConnectionGroups")
+        candidates = []
+        for tenant in tenants["items"]:
+            if not isinstance(tenant, dict) or tenant.get("DistributionId") != data.get("Id"):
+                a.gap("inventory", "CloudFront tenant distribution identity missing or mismatched",
+                      "cloudfront:ListDistributionTenants.DistributionId")
+                continue
+            if tenant.get("Enabled") is not True or tenant.get("Status") != "Deployed":
+                if tenant.get("Enabled") is not False or tenant.get("Status") != "Deployed":
+                    a.gap("inventory", "CloudFront tenant enabled/deployment state unresolved",
+                          "cloudfront:ListDistributionTenants.Enabled/Status")
+                continue
+            group_id = tenant.get("ConnectionGroupId")
+            group = groups.get(group_id) if isinstance(groups, dict) and isinstance(group_id, str) else None
+            if not isinstance(group, dict) or group.get("collection_status") != "collected" or group.get("Id") != group_id:
+                a.gap("inventory", "CloudFront tenant connection group unavailable",
+                      "cloudfront:GetConnectionGroup,cloudfront:ListConnectionGroups")
+                continue
+            if group.get("Enabled") is not True or group.get("Status") != "Deployed":
+                a.gap("inventory", "CloudFront connection-group enabled/deployment state unresolved",
+                      "cloudfront:GetConnectionGroup.Enabled/Status")
+                continue
+            endpoint = group.get("RoutingEndpoint")
+            domains = tenant.get("Domains")
+            if not _dns_hostname(endpoint) or not isinstance(domains, list):
+                a.gap("inventory", "CloudFront tenant routing endpoint or domains missing",
+                      "cloudfront:GetConnectionGroup.RoutingEndpoint,cloudfront:ListDistributionTenants.Domains")
+                continue
+            for domain in domains:
+                if isinstance(domain, dict) and domain.get("Status") == "active" and _dns_hostname(domain.get("Domain")):
+                    candidates.append({"tenant_id": tenant.get("Id"), "domain": domain["Domain"],
+                                       "connection_group_id": group_id, "routing_endpoint": endpoint})
+        if candidates:
+            a.step("viewer_routing", "allow_declaration", connection_mode="tenant-only", tenants=candidates,
+                   semantics="Tenant and connection group are deployed; external DNS routing to the group is unobserved")
+            dns = [record for candidate in candidates for record in _aws_route53_cname_declaration(
+                inventory, candidate["domain"], candidate["routing_endpoint"])]
+            if dns:
+                a.step("dns", "allow_declaration", route53_records=dns,
+                       semantics="Public Route 53 zone has an exact target record; delegation and current DNS answers are unobserved")
+                a.gap("inventory", "CloudFront tenant domain delegation/current DNS answer not observed",
+                      "external authoritative DNS delegation and resolution")
+            else:
+                a.gap("inventory", "CloudFront tenant domain DNS CNAME/alias to connection-group endpoint not observed",
+                      "DNS CNAME/alias for tenant domain")
+        elif not a.unresolved and all(isinstance(t, dict) and t.get("Enabled") is False and t.get("Status") == "Deployed"
+                                      for t in tenants["items"]):
+            a.step("viewer_routing", "block", connection_mode="tenant-only", tenant_count=len(tenants["items"]))
+            a.ports = {}
+        else:
+            a.gap("inventory", "CloudFront tenant route is not established from collected facts",
+                  "cloudfront:ListDistributionTenants,cloudfront:GetConnectionGroup")
         return a
     if distribution.get("ConnectionMode") not in (None, "direct"):
         a = Assessment(resource, "cdn_endpoint")
@@ -4398,10 +4662,10 @@ def _aws_cloudfront(snapshot, inventory, resource):
         a.gap("inventory", "CloudFront distribution enabled state missing", "cloudfront:GetDistributionConfig")
         return a
     domain = staging_route[0] if staging_route else data.get("DomainName")
-    if isinstance(domain, str) and domain:
+    if _dns_hostname(domain):
         a.addresses = [domain]
     else:
-        a.gap("inventory", "CloudFront domain name missing", "cloudfront:ListDistributions")
+        a.gap("inventory", "CloudFront domain name missing or malformed", "cloudfront:ListDistributions.DomainName")
     if staging_route:
         a.step("viewer_routing", "allow_declaration", primary_distribution_arn=staging_route[3],
                policy_id=staging_route[2], traffic_type=staging_route[1],
