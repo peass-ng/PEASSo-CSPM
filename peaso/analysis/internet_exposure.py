@@ -3145,15 +3145,16 @@ def gcp_bigtable_external_reader_findings(snapshot, resources):
         unconditional = [grant for grant in grants if not grant["condition"]]
         status = "FAIL" if unconditional else "UNKNOWN"
         named_grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
         if unconditional:
             observed = (
-                f"This table's IAM policy grants roles/bigtable.reader to {named_grant['member']}.\n"
+                f"The Bigtable table {name} has an IAM grant of roles/bigtable.reader to {named_grant['member']}.\n"
                 "That grant may let the service account read rows in this table.\n"
                 "Those rows could contain data intended to stay within this project."
             )
         else:
             observed = (
-                f"This table's IAM policy has a conditional roles/bigtable.reader grant to {named_grant['member']}.\n"
+                f"The Bigtable table {name} has a conditional IAM grant of roles/bigtable.reader to {named_grant['member']}.\n"
                 "The recorded condition does not tell whether this account can read these rows.\n"
                 "If it allows access, the account could read data intended to stay within this project."
             )
@@ -3194,15 +3195,16 @@ def gcp_source_repository_external_reader_findings(snapshot, resources):
             continue
         unconditional = [grant for grant in grants if not grant["condition"]]
         named_grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
         if unconditional:
             observed = (
-                f"This source repository's IAM policy grants roles/source.reader to {named_grant['member']}.\n"
+                f"The source repository {name} has an IAM grant of roles/source.reader to {named_grant['member']}.\n"
                 "That grant may let the service account fetch source files.\n"
                 "Those files could contain code or data intended to stay within this project."
             )
         else:
             observed = (
-                f"This source repository's IAM policy has a conditional roles/source.reader grant to {named_grant['member']}.\n"
+                f"The source repository {name} has a conditional IAM grant of roles/source.reader to {named_grant['member']}.\n"
                 "The recorded condition leaves this account's source access unclear.\n"
                 "If it allows access, the account could fetch code or data from this project."
             )
@@ -3253,7 +3255,7 @@ def gcp_cloud_tasks_external_enqueuer_findings(snapshot, resources):
                 "The condition has no recorded request evaluation.",
                 "A service account from another GCP project may create tasks in this queue if other controls allow it." if unconditional else
                 "If the condition is satisfied, that service account may create tasks in this queue.",
-                "Project ownership, IAM denies, task payloads, and actual dispatch remain unresolved.")),
+                "Those tasks could trigger actions or send data if the queue's target accepts them.")),
             "direct_enqueuer_grants": grants,
             "permission": "cloudtasks.tasks.create",
             "queue_state": data.get("state"),
@@ -3307,7 +3309,7 @@ def gcp_scheduler_oidc_target_findings(snapshot, resources):
         name = data.get("name", native_id(resource))
         evidence = {
             "observed": (
-                f"The enabled Cloud Scheduler job is configured to send an OIDC token for {token['serviceAccountEmail']} to {origin}.\n"
+                f"The Cloud Scheduler job {name} is enabled and configured to send an OIDC token for {token['serviceAccountEmail']} to {origin}.\n"
                 "When the job runs, that target may receive the service account's identity token.\n"
                 "If the target is outside trusted control, the token could expose access tied to that identity."
             ),
@@ -3350,15 +3352,16 @@ def gcp_artifact_public_reader_findings(snapshot, resources):
             continue
         unconditional = [grant for grant in grants if not grant["condition"]]
         named_grant = (unconditional or grants)[0]
+        name = data.get("name", native_id(resource))
         if unconditional:
             observed = (
-                f"This Artifact Registry repository's IAM policy grants roles/artifactregistry.reader to {named_grant['member']}.\n"
+                f"The Artifact Registry repository {name} has an IAM grant of roles/artifactregistry.reader to {named_grant['member']}.\n"
                 "That grant may let the public principal download artifacts from this repository.\n"
                 "Those artifacts could contain software or data intended for a smaller audience."
             )
         else:
             observed = (
-                f"This Artifact Registry repository's IAM policy has a conditional roles/artifactregistry.reader grant to {named_grant['member']}.\n"
+                f"The Artifact Registry repository {name} has a conditional IAM grant of roles/artifactregistry.reader to {named_grant['member']}.\n"
                 "The recorded condition leaves public artifact access unclear.\n"
                 "If it allows access, artifacts could reach people outside the intended audience."
             )
@@ -5612,18 +5615,39 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    terminal = next((step for step in assessment.path
+                     if step.get("layer") == "effective_firewall"
+                     and step.get("basis") == "terminal hierarchical ingress rule"), None)
+    if terminal is not None and assessment.resource["type"] == "instance":
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        addresses = ", ".join(str(value) for value in assessment.addresses[:2])
+        first = f"The Compute instance {name} has external address {addresses}."
+        second = (f"Its effective hierarchical rule {terminal.get('rule')} has action "
+                  f"{terminal.get('action')} at priority {terminal.get('priority')}.")
+        if status == "FAIL":
+            return "\n".join((first, second,
+                "Internet clients may reach an allowed port if a guest listener accepts traffic.",
+                "That could expose software or data served by this instance."))
+        if status == "PASS":
+            return "\n".join((first, second,
+                "This rule may block internet requests to the instance on its public interface.",
+                "That limits a route to software or data served by this instance."))
+        return "\n".join((first, second,
+            "Another public interface may admit traffic if its firewall allows it.",
+            "That could expose software or data served by this instance."))
     if assessment.resource["type"] == "composer_environment":
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
         allowlist = next((step for step in assessment.path
                           if step["layer"] == "web_server_ip_allowlist"), {})
         if status == "FAIL":
             setting = ("has no webServerNetworkAccessControl setting"
                        if allowlist.get("mode") == "unrestricted" else
                        "has a webServerNetworkAccessControl range that allows a public source")
-            return (f"The RUNNING Composer environment {setting} for its Airflow web UI.\n"
+            return (f"The Composer environment {name} is RUNNING and {setting} for its Airflow web UI.\n"
                     "A public source may reach that UI if the service responds.\n"
                     "If IAM also grants access, workflow settings or data could become visible.")
         if status == "PASS":
-            return ("The Composer environment's webServerNetworkAccessControl lists no public source range.\n"
+            return (f"The Composer environment {name} has webServerNetworkAccessControl with no public source range.\n"
                     "That setting may block internet clients from its Airflow web UI.\n"
                     "This limits a route to workflow settings and data.")
         reason = assessment.unresolved[0]["reason"] if assessment.unresolved else ""
@@ -5635,7 +5659,7 @@ def _observed(assessment, status):
             missing = "RUNNING state"
         else:
             missing = "webServerNetworkAccessControl.allowedIpRanges"
-        return (f"The Composer environment has no complete recorded {missing} for its Airflow web UI.\n"
+        return (f"The Composer environment {name} has no complete recorded {missing} for its Airflow web UI.\n"
                 "Its public access setting remains unclear.\n"
                 "An open path could expose workflow settings or data if IAM also grants access.")
     if assessment.kind == "web_app":
