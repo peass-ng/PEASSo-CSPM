@@ -10892,6 +10892,72 @@ def _azure_nginx(snapshot, inventory, resource):
     return a
 
 
+def _azure_openshift(snapshot, inventory, resource):
+    """Azure Red Hat OpenShift public API and router frontends from ARM GET."""
+    a = Assessment(resource, "cluster")
+    a.ports = {}
+    props = resource["data"].get("properties")
+    if not isinstance(props, dict):
+        a.gap("inventory", "OpenShift cluster detail unavailable")
+        return a
+    state = props.get("provisioningState")
+    if state in ("Deleting", "Deleted", "Failed"):
+        a.step("cluster_state", "block", state=state)
+        return a
+    if state not in ("Succeeded", None):
+        a.gap("inventory", "OpenShift cluster provisioning state unresolved")
+    api = props.get("apiserverProfile")
+    ingresses = props.get("ingressProfiles")
+    if not isinstance(api, dict) or not isinstance(ingresses, list):
+        a.gap("inventory", "OpenShift API or ingress profile missing")
+        return a
+    visibility = api.get("visibility")
+    if visibility == "Public":
+        endpoint = api.get("url")
+        parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+        try:
+            port = ((parsed.port or 443) if parsed and parsed.scheme == "https" and parsed.hostname
+                    and not (parsed.username or parsed.password or parsed.query or parsed.fragment) else None)
+        except ValueError:
+            port = None
+        if port is None:
+            a.gap("listener", "OpenShift public API URL or port unavailable")
+        else:
+            a.ports = union(a.ports, pset("tcp", port, port))
+            a.addresses.append(endpoint)
+            a.endpoint = endpoint
+            a.step("api_server", "allow", endpoint=endpoint, port=port)
+            a.authenticated = True
+    elif visibility == "Private":
+        a.step("api_server", "block", visibility=visibility)
+    else:
+        a.gap("listener", "OpenShift API server visibility unresolved")
+    for ingress in ingresses:
+        if not isinstance(ingress, dict):
+            a.gap("inventory", "OpenShift ingress profile malformed")
+            continue
+        visibility = ingress.get("visibility")
+        if visibility == "Public":
+            a.ports = union(a.ports, union(pset("tcp", 80, 80), pset("tcp", 443, 443)))
+            address = ingress.get("ip")
+            if isinstance(address, str) and address:
+                a.addresses.append(address)
+            a.step("ingress_router", "allow", name=ingress.get("name"), ip=address, ports=[80, 443])
+            a.authenticated = False
+        elif visibility == "Private":
+            a.step("ingress_router", "block", name=ingress.get("name"), visibility=visibility)
+        else:
+            a.gap("listener", "OpenShift ingress visibility unresolved")
+    if not a.ports and not a.unresolved:
+        a.step("public_frontend", "block", reason="API and ingress profiles are private")
+    elif not a.ports and a.unresolved:
+        a.explicit = "UNKNOWN"
+    if a.ports:
+        a.notes.append("ARM does not enumerate OpenShift workload Routes, Services, or their access policies")
+    a.addresses = sorted(set(a.addresses))
+    return a
+
+
 def _azure_traffic_manager(snapshot, inventory, resource):
     """Detect a public DNS referral from one collected Traffic Manager profile."""
     a = Assessment(resource, "public_dns")
@@ -11671,7 +11737,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -11687,7 +11753,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
              "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server",
-                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
+                     "container_group", "container_app", "azure_firewall", "frontdoor_and_cdn_endpoint", "traffic_manager_profile", "notification_hub_namespace", "private_dns_link", "relay_namespace", "mongo_cluster", "lighthouse_delegation", "nginx_deployment", "openshift_cluster", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -11786,6 +11852,7 @@ def assess(snapshot, resources):
                   "mongo_cluster": _azure_mongo_cluster,
                   "lighthouse_delegation": _azure_lighthouse,
                   "nginx_deployment": _azure_nginx,
+                  "openshift_cluster": _azure_openshift,
                   "api_management": _azure_api_management,
                   "redis_cache": _azure_redis,
                   "redis_enterprise_cluster": _azure_redis_enterprise,

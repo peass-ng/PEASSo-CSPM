@@ -341,6 +341,9 @@ def full_detail(value, kind, version):
 
 def list_detail(value, kind):
     """Attest alert LISTs; retain action-group configuration as metadata only."""
+    if kind == "openshift_cluster":
+        from .azure import _metadata_only
+        return _metadata_only(value)
     if kind not in ("scheduled_query_rule", "action_group"):
         return value
     source = {"scheduled_query_rule": "scheduled_query_rules_list_by_subscription",

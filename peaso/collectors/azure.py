@@ -1140,7 +1140,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment"})
+                            "integration_service_environment", "openshift_cluster"})
 
 
 def _canonicalize_embedded(collections):
@@ -1860,7 +1860,7 @@ def _metadata_only(value, secret=False):
         "userdata", "protectedsettings", "protectedsettingsfromkeyvault", "appsettings",
         "machinekey", "decryptionkey", "validationkey", "sourceuri", "accesssas",
         "redisconfiguration", "tenantsettings", "apiproperties", "globalparameters",
-        "migrationtoken", "secrettext", "webhookproperties", "storageaccountaccesskey", "storagecontainersaskey", "workspacekey", "securevalue", "pfx", "certificatepassword", "certificate", "privatekeybytes", "sharedaccesskey", "sharedaccesspolicykey", "accountkey", "storageaccountkey", "accesskey", "accesskeys", "sasuri", "sasurl", "sastoken", "secretvalue", "apikey", "apikeys", "administratorloginpassword", "settings")}
+        "migrationtoken", "secrettext", "webhookproperties", "storageaccountaccesskey", "storagecontainersaskey", "workspacekey", "securevalue", "pfx", "certificatepassword", "certificate", "privatekeybytes", "sharedaccesskey", "sharedaccesspolicykey", "accountkey", "storageaccountkey", "accesskey", "accesskeys", "sasuri", "sasurl", "sastoken", "secretvalue", "pullsecret", "apikey", "apikeys", "administratorloginpassword", "settings")}
     if isinstance(value.get("environmentVariables"), list):
         result["environmentVariables"] = [{key: ("[REDACTED]" if data is not None else None) if key in ("value", "secureValue") else _metadata_only(data, secret) for key, data in variable.items() if key in ("name", "value", "secureValue")} if isinstance(variable, dict) else _metadata_only(variable, secret) for variable in value["environmentVariables"]]
     for field in ("passwordCredentials", "keyCredentials"):
