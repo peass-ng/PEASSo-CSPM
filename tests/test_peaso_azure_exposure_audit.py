@@ -1220,6 +1220,43 @@ def test_api_management_enabled_secondary_gateway_survives_primary_disable():
     assert decision("api_management", {**base, "virtualNetworkType": "External"}).verdict() == "UNKNOWN"
 
 
+def test_api_management_single_external_region_uses_its_own_subnet_nsg():
+    base = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network"
+    subnet_id = base + "/virtualNetworks/v/subnets/regional"
+    nsg_id = base + "/networkSecurityGroups/regional"
+    region = {"location": "west", "disableGateway": False,
+              "gatewayRegionalUrl": "https://west.azure-api.net",
+              "virtualNetworkConfiguration": {"subnetResourceId": subnet_id}}
+    props = {"publicNetworkAccess": "Enabled", "virtualNetworkType": "External",
+             "disableGateway": True, "gatewayUrl": "https://primary.azure-api.net",
+             "virtualNetworkConfiguration": {"subnetResourceId": base + "/virtualNetworks/v/subnets/primary"},
+             "additionalLocations": [region]}
+
+    def check(access, regions=None, *, collected_subnet=True):
+        collections = [{"type": "api_management", "scope": SCOPE, "service": "apim", "status": "collected",
+            "items": [{"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.ApiManagement/service/apim",
+                       "sku": {"name": "Premium"}, "properties": {**props,
+                           "additionalLocations": regions if regions is not None else [region]}}]},
+            {"type": "nsg", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": nsg_id, "properties": {"securityRules": [{"name": "regional-https",
+                 "properties": {"priority": 100, "direction": "Inbound", "access": access,
+                                "protocol": "Tcp", "sourceAddressPrefix": "*",
+                                "destinationAddressPrefix": "*", "destinationPortRange": "443"}}]}}]},
+            {"type": "subnet", "scope": SCOPE, "service": "network", "status": "collected",
+             "items": [{"id": subnet_id, "properties": {"networkSecurityGroup": {"id": nsg_id}}}]
+             if collected_subnet else []}]
+        snapshot = make_snapshot("azure", [SCOPE], collections)
+        return next(row for row in assess(snapshot, resources(snapshot))
+                    if row.resource["type"] == "api_management")
+
+    allowed = check("Allow")
+    assert allowed.verdict() == "FAIL" and allowed.addresses == [region["gatewayRegionalUrl"]]
+    assert check("Deny").verdict() == "PASS"
+    assert check("Allow", collected_subnet=False).verdict() == "UNKNOWN"
+    assert check("Deny", regions=[region, {**region, "location": "east", "gatewayRegionalUrl":
+                 "https://east.azure-api.net"}]).verdict() == "UNKNOWN"
+
+
 def test_api_management_classic_external_vnet_subnet_nsg():
     subnet_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/apim"
     nsg_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/apim"

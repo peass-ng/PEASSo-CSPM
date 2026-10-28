@@ -5971,12 +5971,16 @@ def _azure_api_management(snapshot, inventory, resource):
            virtual_network_type=network or "None (service default)")
     ports = pset("tcp", 443, 443)
     if network == "External":
-        if regional:
+        regional_only = not primary_enabled and len(regional) == 1
+        if regional and not regional_only:
             a.gap("nsg", "External VNet regional gateway subnet NSG paths are not resolved")
-        sku = (resource["data"].get("sku") or {}).get("name")
+        if not primary_enabled and not regional_only:
+            return a
+        gateway_location = regional[0] if regional_only else props
+        sku = ((gateway_location.get("sku") or resource["data"].get("sku") or {}).get("name"))
         if sku not in ("Developer", "Premium"):
             a.gap("nsg", "External VNet NSG semantics require a recorded classic Developer or Premium SKU")
-        network_config = props.get("virtualNetworkConfiguration")
+        network_config = gateway_location.get("virtualNetworkConfiguration")
         subnet_id = network_config.get("subnetResourceId") if isinstance(network_config, dict) else None
         subnet, _ = _azure_subnet(inventory, subnet_id)
         if subnet is None:
@@ -6000,6 +6004,8 @@ def _azure_api_management(snapshot, inventory, resource):
                 a.gap("nsg", "destination-specific NSG allow needs the gateway's private DIP")
             if not empty(ports) and (_props(subnet).get("routeTable") or {}).get("id"):
                 a.gap("inventory", "External VNet gateway return route through the associated route table is unresolved")
+        if regional and not regional_only and empty(ports):
+            a.blocked_by = None
     a.ports = ports
     a.notes.append("Gateway listener exposure does not establish anonymous API access or a healthy backend")
     return a
