@@ -9744,6 +9744,83 @@ def _azure_attestation_provider(snapshot, inventory, resource):
     return a
 
 
+def _azure_dns_zone(snapshot, inventory, resource):
+    """Public zones answer anonymous queries on Azure's authoritative DNS servers."""
+    a = Assessment(resource, "dns_zone")
+    if (resource["data"].get("_provenance") or {}).get("representation") != "full":
+        a.gap("inventory", "DNS zone full GET is unavailable")
+        return a
+    props = _props(resource)
+    zone_type = props.get("zoneType", "Public")
+    if zone_type == "Private":
+        a.step("listener", "block", zone_type=zone_type)
+        a.ports = {}
+        return a
+    if zone_type != "Public":
+        a.gap("inventory", "DNS zone type is unrecognized")
+        return a
+    nameservers = props.get("nameServers")
+    if (not isinstance(nameservers, list) or not nameservers or
+            any(not isinstance(host, str) or len(host) > 253 or
+                re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.?", host) is None
+                for host in nameservers)):
+        a.gap("inventory", "Public DNS zone name servers are unavailable or malformed")
+        return a
+    a.addresses = sorted(set(host.rstrip(".").lower() for host in nameservers))
+    a.step("listener", "allow", zone_type=zone_type, authoritative_nameservers=a.addresses)
+    a.ports = union(pset("udp", 53, 53), pset("tcp", 53, 53))
+    a.notes.append("Public DNS records are queryable anonymously; this does not establish that a named workload is reachable")
+    return a
+
+
+def _azure_private_dns_zone(snapshot, inventory, resource):
+    """A completed VNet link grants that network access to private zone answers."""
+    a = Assessment(resource, "external_share")
+    a.ports = {}
+    zone_id = str(native_id(resource))
+    state = inventory.status.get("private_dns_link", {}).get(zone_id)
+    if state not in ("collected", "empty"):
+        a.gap("inventory", "Private DNS zone virtual network links are unavailable")
+        return a
+    source = re.match(r"^/subscriptions/([^/]+)/", zone_id, re.I)
+    if source is None:
+        a.gap("inventory", "Private DNS zone subscription is malformed")
+        return a
+    selected = {str(scope).casefold() for scope in snapshot.get("scopes", [])}
+    links = [row for row in inventory.items("private_dns_link")
+             if str(row.get("scope", "")).casefold() == zone_id.casefold()]
+    for link in links:
+        link_id = str(native_id(link))
+        if not link_id.casefold().startswith(zone_id.casefold() + "/virtualnetworklinks/"):
+            a.gap("inventory", "Private DNS zone link identity is malformed")
+            continue
+        props = _props(link)
+        target = props.get("virtualNetwork")
+        target_id = target.get("id") if isinstance(target, dict) else None
+        match = re.fullmatch(r"/subscriptions/([^/]+)/resourceGroups/[^/]+/providers/Microsoft\.Network/virtualNetworks/[^/]+", target_id, re.I) if isinstance(target_id, str) else None
+        if match is None:
+            a.gap("inventory", "Private DNS zone linked virtual network identity is unavailable")
+            continue
+        status = props.get("virtualNetworkLinkState")
+        provisioning = props.get("provisioningState")
+        if status == "Completed" and provisioning == "Succeeded":
+            target_scope = "/subscriptions/" + match.group(1)
+            if target_scope.casefold() not in selected:
+                a.data_exposure = True
+                a.external_ids.append(match.group(1))
+                a.step("virtual_network_link", "allow", destination_subscription=match.group(1),
+                       virtual_network=target_id)
+            else:
+                a.step("virtual_network_link", "same_source", virtual_network=target_id)
+        elif status in ("InProgress", "Deleting") or provisioning in ("Creating", "Updating", "Deleting"):
+            a.gap("inventory", "Private DNS zone virtual network link is transitioning")
+        else:
+            a.gap("inventory", "Private DNS zone virtual network link state is unavailable")
+    if not links:
+        a.step("virtual_network_link", "block", reason="no linked virtual networks")
+    return a
+
+
 def _azure_vpn_gateway(snapshot, inventory, resource):
     """Assess configured VPN tunnel listeners on observed gateway public IPs."""
     a = Assessment(resource, "vpn_gateway")
@@ -12173,7 +12250,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "attestation_provider", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "bastion_host", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "analysis_server", "private_link_service", "redis_cache", "redis_enterprise_cluster", "redis_enterprise_database", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -12188,7 +12265,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "attestation_provider", "private_link_service",
+             "azure": {"nic", "load_balancer", "application_gateway", "app_service", "app_service_slot", "aks_cluster", "storage_account", "storage_container", "sql_server", "data_share_invitation", "data_share_provider_subscription", "lighthouse_assignment", "managed_application", "managed_grafana", "acat_report", "acat_webhook", "cost_export", "app_configuration_private_connection", "app_configuration_event_subscription", "analysis_server", "virtual_network_gateway", "attestation_provider", "dns_zone", "private_dns_zone", "private_link_service",
                        "container_group", "container_app", "azure_firewall", "bastion_host", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "redis_enterprise_cluster", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
@@ -12283,6 +12360,8 @@ def assess(snapshot, resources):
                   "bastion_host": _azure_bastion,
                   "virtual_network_gateway": _azure_vpn_gateway,
                   "attestation_provider": _azure_attestation_provider,
+                  "dns_zone": _azure_dns_zone,
+                  "private_dns_zone": _azure_private_dns_zone,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "api_management": _azure_api_management,
                   "analysis_server": _azure_analysis_server,

@@ -1311,7 +1311,7 @@ FULL_GET_KINDS = frozenset({"load_balancer", "public_ip", "recovery_vault", "vm"
                             "image_template", "compute_gallery",
                             "postgresql_single_server", "mysql_single_server", "mariadb_server", "aks_cluster",
                             "action_group", "bot_service", "databox_job", "purview_account", "mongo_cluster",
-                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration", "bastion_host", "signalr_service", "attestation_provider"})
+                            "integration_service_environment", "analysis_server", "private_link_service", "app_configuration", "bastion_host", "signalr_service", "attestation_provider", "dns_zone"})
 
 
 def _canonicalize_embedded(collections):
