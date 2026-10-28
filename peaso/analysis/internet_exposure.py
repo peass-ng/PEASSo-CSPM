@@ -8561,18 +8561,53 @@ def gcp_default_object_acl_findings(snapshot, resources):
     if snapshot["provider"] != "gcp":
         return []
     output = []
+    buckets_by_key = {}
+    prevention_by_scope = {}
+    for row in resources:
+        detail = row.get("data")
+        if not isinstance(detail, dict):
+            continue
+        if row["type"] == "bucket":
+            buckets_by_key.setdefault((row.get("scope"), detail.get("name")), []).append(detail)
+        elif row["type"] == "org_policy_effective":
+            scope = row.get("scope")
+            if (isinstance(scope, str)
+                    and detail.get("name") == scope + "/policies/storage.publicAccessPrevention"
+                    and detail.get("constraint") == "storage.publicAccessPrevention"):
+                prevention_by_scope.setdefault(scope, []).append(detail)
+    policy_coverage = {}
+    for row in snapshot.get("collections", []):
+        if row.get("type") == "org_policy_effective":
+            policy_coverage.setdefault(row.get("scope"), []).append(row.get("status"))
     for resource in resources:
         if resource["type"] != "default_object_acl" or not isinstance(resource.get("data"), dict):
             continue
         data = resource["data"]
         if data.get("entity") not in ("allUsers", "allAuthenticatedUsers") or data.get("role") not in ("READER", "OWNER"):
             continue
-        evidence = {"observed": "The bucket's default object ACL grants public read access to future uploads.",
+        buckets = buckets_by_key.get((resource.get("scope"), data.get("bucket")), [])
+        prevention = ((buckets[0].get("iamConfiguration") or {}).get("publicAccessPrevention")
+                      if len(buckets) == 1 else None)
+        if prevention == "inherited":
+            scope = resource.get("scope")
+            policies = prevention_by_scope.get(scope, [])
+            if policy_coverage.get(scope) == ["collected"] and len(policies) == 1:
+                rules = (policies[0].get("spec") or {}).get("rules", [])
+                if (isinstance(rules, list) and all(isinstance(rule, dict) and
+                        set(rule) == {"enforce"} and type(rule.get("enforce")) is bool for rule in rules)
+                        and len({rule["enforce"] for rule in rules}) <= 1):
+                    prevention = "enforced" if rules and rules[0]["enforce"] else "not_enforced"
+        blocked = prevention == "enforced"
+        evidence = {"observed": "The bucket's default object ACL contains a public grant for future uploads.",
                     "bucket": data.get("bucket"), "principal": data["entity"], "role": data["role"],
-                    "source": source(snapshot, resource, "entity"), "risk_state": "observed_configuration",
-                    "semantics": "Future object ACL template only; existing object access and effective public access prevention are assessed separately."}
+                    "source": source(snapshot, resource, "entity"),
+                    "risk_state": "unknown" if blocked else "observed_configuration",
+                    "public_access_prevention": prevention,
+                    "semantics": "Future object ACL template only; bucket-level public access prevention currently overrides this grant. Existing object access is assessed separately."
+                    if blocked else "Future object ACL template only; existing object access and effective public access prevention are assessed separately."}
         output.append(finding(snapshot, resource, "exposure", "analysis.gcp_public_default_object_acl",
-                              "Public default object ACL", "high", evidence, status="FAIL"))
+                              "Public default object ACL", "info" if blocked else "high", evidence,
+                              status="UNKNOWN" if blocked else "FAIL"))
     return output
 
 
