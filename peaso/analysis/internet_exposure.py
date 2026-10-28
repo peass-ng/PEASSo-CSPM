@@ -211,7 +211,7 @@ class Inventory:
     def _keys(self, resource):
         data = resource["data"]
         keys = {str(native_id(resource))}
-        for field in ("id", "selfLink", "name", "GroupId", "SubnetId", "VpcId", "InternetGatewayId", "PrefixListId", "NetworkAclId", "RouteTableId", "InstanceId",
+        for field in ("id", "selfLink", "name", "GroupId", "SubnetId", "VpcId", "InternetGatewayId", "PrefixListId", "NetworkAclId", "RouteTableId", "TransitGatewayRouteTableId", "InstanceId",
                       "NetworkInterfaceId", "LoadBalancerArn", "LoadBalancerName"):
             value = data.get(field) if isinstance(data, dict) else None
             if isinstance(value, str):
@@ -1652,6 +1652,81 @@ def _aws_vpc_peering(snapshot, inventory, resource):
         a.ports = {}
     else:
         a.gap("peering_route", "Local route-table inventory is incomplete", "ec2:DescribeRouteTables")
+    return a
+
+
+def _aws_tgw_foreign_attachment(snapshot, inventory, resource):
+    """Join a local VPC route and TGW route to an available foreign VPC attachment."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    if data.get("ResourceType") != "vpc" or data.get("State") in ("deleted", "deleting", "failed", "rejected"):
+        return None
+    account = str(resource.get("scope", "")).split("/", 1)[0]
+    owner = str(data.get("ResourceOwnerId", ""))
+    gateway = data.get("TransitGatewayId")
+    attachment = data.get("TransitGatewayAttachmentId")
+    if owner in trusted_scopes(snapshot)["ids"]:
+        return None
+    a = Assessment(resource, "external_network")
+    if (data.get("State") != "available" or data.get("TransitGatewayOwnerId") != account or
+            not re.fullmatch(r"[0-9]{12}", owner) or not all(isinstance(value, str) and value for value in (gateway, attachment))):
+        a.gap("inventory", "Foreign VPC attachment state or owner is unresolved")
+        return a
+    local = [row for row in inventory.items("transit_gateway_attachment")
+             if row["scope"] == resource["scope"] and row["data"].get("TransitGatewayId") == gateway
+             and row["data"].get("TransitGatewayOwnerId") == account
+             and row["data"].get("ResourceOwnerId") == account and row["data"].get("ResourceType") == "vpc"
+             and row["data"].get("State") == "available"]
+    for near in local:
+        info = near["data"]
+        assoc = info.get("Association")
+        table_id = assoc.get("TransitGatewayRouteTableId") if isinstance(assoc, dict) and assoc.get("State") == "associated" else None
+        table = inventory.get("transit_gateway_route_table", table_id)
+        if table is None or table["scope"] != resource["scope"] or table["data"].get("TransitGatewayId") != gateway or table["data"].get("State") != "available":
+            continue
+        route_inventory = table["data"].get("RouteInventory")
+        associations = table["data"].get("AssociationInventory")
+        if (not isinstance(route_inventory, dict) or route_inventory.get("collection_status") not in ("collected", "empty") or
+                route_inventory.get("queries") != ["type=static", "type=propagated"] or not isinstance(route_inventory.get("items"), list) or
+                not isinstance(associations, dict) or associations.get("collection_status") not in ("collected", "empty") or
+                not isinstance(associations.get("items"), list) or not any(isinstance(row, dict) and
+                row.get("TransitGatewayAttachmentId") == info.get("TransitGatewayAttachmentId") and row.get("State") == "associated"
+                for row in associations["items"])):
+            continue
+        target_routes = []
+        for route in route_inventory["items"]:
+            if not isinstance(route, dict) or route.get("State") != "active" or route.get("Type") not in ("static", "propagated"):
+                continue
+            targets = route.get("TransitGatewayAttachments")
+            if (not isinstance(targets, list) or len(targets) != 1 or not isinstance(targets[0], dict) or
+                    targets[0].get("TransitGatewayAttachmentId") != attachment or
+                    targets[0].get("ResourceType") != "vpc" or targets[0].get("ResourceId") != data.get("ResourceId")):
+                continue
+            destination = _cidr(route.get("DestinationCidrBlock"))
+            if destination is not None:
+                target_routes.append(destination)
+        for vpc_table in inventory.items("route_table"):
+            if vpc_table["scope"] != resource["scope"] or vpc_table["data"].get("VpcId") != info.get("ResourceId"):
+                continue
+            vpc_routes = vpc_table["data"].get("Routes")
+            if not isinstance(vpc_routes, list):
+                continue
+            for vpc_route in vpc_routes:
+                if not isinstance(vpc_route, dict) or vpc_route.get("TransitGatewayId") != gateway or vpc_route.get("State") != "active":
+                    continue
+                local_destination = _cidr(vpc_route.get("DestinationCidrBlock") or vpc_route.get("DestinationIpv6CidrBlock"))
+                for foreign_destination in target_routes:
+                    if local_destination is None or not local_destination.overlaps(foreign_destination):
+                        continue
+                    a.step("transit_route", "allow", local_vpc=info.get("ResourceId"), foreign_attachment=attachment,
+                           foreign_account=owner, vpc_route_table=vpc_table["data"].get("RouteTableId"),
+                           gateway_route_table=table_id, destination=str(foreign_destination))
+                    a.external_ids = [owner]
+                    a.explicit = "FAIL"
+                    a.gap("backend", "Foreign return route, subnet ACL, security group and application access are not established")
+                    return a
+    a.gap("transit_route", "A complete route from a local VPC through this gateway to the foreign attachment was not established")
     return a
 
 
@@ -6814,7 +6889,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 
 # --------------------------------------------------------------- dispatcher
 
-AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
+AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
@@ -6836,7 +6911,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry", "vpc_peering"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry", "vpc_peering", "transit_gateway_attachment"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6878,7 +6953,8 @@ def assess(snapshot, resources):
                 "rds_cluster_snapshot": lambda s, i, r: _aws_snapshot_share(s, i, r, ("DBClusterSnapshotAttributesResult", "DBClusterSnapshotAttributes"), "cluster snapshot"),
                 "ec2_image": lambda s, i, r: _aws_ec2_share(s, i, r, "LaunchPermissions", "LaunchPermissions", "DescribeImageAttribute"),
                 "ebs_snapshot": lambda s, i, r: _aws_ec2_share(s, i, r, "CreateVolumePermissions", "CreateVolumePermissions", "DescribeSnapshotAttribute"),
-                "ram_resource_share": _aws_ram_share, "vpc_peering": _aws_vpc_peering, "vpn_connection": _aws_vpn_connection,
+                "ram_resource_share": _aws_ram_share, "vpc_peering": _aws_vpc_peering,
+                "transit_gateway_attachment": _aws_tgw_foreign_attachment, "vpn_connection": _aws_vpn_connection,
                 "client_vpn_endpoint": _aws_client_vpn_endpoint,
                 "vpc_endpoint_service": _aws_vpc_endpoint_service,
                 "ecr_registry": _aws_ecr_registry_replication,
@@ -6949,6 +7025,9 @@ def assess(snapshot, resources):
 
 def _title(assessment, status):
     if assessment.kind == "external_network":
+        if assessment.resource["type"] == "transit_gateway_attachment":
+            return ("Local route to foreign Transit Gateway attachment" if status == "FAIL" else
+                    "Foreign Transit Gateway attachment route unresolved")
         return ("Active route to external VPC peer" if status == "FAIL" else
                 "No active route to external VPC peer" if status == "PASS" else
                 "External VPC peering route unresolved")
@@ -6988,6 +7067,11 @@ def _observed(assessment, status):
                 "The source rule may admit public requests if the controller ignores that range.\n"
                 f"That could expose data served through this {noun}.")
     if assessment.kind == "external_network":
+        if assessment.resource["type"] == "transit_gateway_attachment":
+            if status == "FAIL":
+                return ("A local VPC route and associated Transit Gateway route select a foreign VPC attachment owned by "
+                        + assessment.external_ids[0] + ". Return routing and endpoint access remain unverified.")
+            return "The route from a local VPC to the foreign Transit Gateway attachment is unresolved."
         if status == "FAIL":
             return ("An active VPC peering connection has a local route to account "
                     + assessment.external_ids[0] + ".\n"
@@ -7162,7 +7246,7 @@ def internet_findings(snapshot, resources):
                     "collector_facts_needed": sorted({g["collector_fact"] for g in assessment.unresolved if g.get("collector_fact")}),
                     "source": source(snapshot, assessment.resource, "data"),
                     "risk_state": "observed" if status == "FAIL" else "reviewed" if status == "PASS" else "unknown",
-                    "semantics": ("Declared cross-account VPC peering and local route; peer route and endpoint access are unverified."
+                    "semantics": ("Declared cross-account network connection and local route; return route and endpoint access are unverified."
                                   if assessment.kind == "external_network" else
                                   "Declared-configuration path model from 0.0.0.0/0; no traffic was sent.")}
         severity = "high" if assessment.kind in ("external_share", "external_network") and status == "FAIL" else assessment.adjusted_severity()

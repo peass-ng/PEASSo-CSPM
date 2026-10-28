@@ -373,6 +373,9 @@ def exposure_action(evidence, status):
     if status == "PASS":
         return "Keep the access restrictions in place."
     if evidence.get("exposure_kind") == "external_network":
+        source = evidence.get("source") if isinstance(evidence.get("source"), dict) else {}
+        if source.get("resource_type") == "transit_gateway_attachment":
+            return "Review whether the route to this foreign Transit Gateway attachment is needed; remove unnecessary routes or attachments."
         return "Review whether this VPC peering route and external account connection are needed; remove unnecessary routes or peering."
     if evidence.get("exposure_kind") == "external_share" or evidence.get("external_scope_ids"):
         return "Restrict snapshot restore access to the accounts that need it."

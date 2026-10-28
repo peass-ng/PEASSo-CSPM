@@ -106,6 +106,47 @@ def test_foreign_vpc_peering_requires_active_connection_and_local_route():
     assert not exposure(aws(coll("vpc_peering", [{**peer, "AccepterVpcInfo": {"OwnerId": ACCOUNT, "VpcId": "vpc-peer"}}]), table))
 
 
+def test_foreign_transit_gateway_attachment_requires_joined_routes():
+    from peaso.finding_observation import evidence_summary
+
+    gateway = "tgw-1"
+    foreign = {"TransitGatewayAttachmentId": "tgw-attach-foreign", "TransitGatewayId": gateway,
+               "TransitGatewayOwnerId": ACCOUNT, "ResourceOwnerId": "444455556666",
+               "ResourceType": "vpc", "ResourceId": "vpc-foreign", "State": "available"}
+    local = {"TransitGatewayAttachmentId": "tgw-attach-local", "TransitGatewayId": gateway,
+             "TransitGatewayOwnerId": ACCOUNT, "ResourceOwnerId": ACCOUNT,
+             "ResourceType": "vpc", "ResourceId": "vpc-local", "State": "available",
+             "Association": {"TransitGatewayRouteTableId": "tgw-rtb-1", "State": "associated"}}
+    table = {"TransitGatewayRouteTableId": "tgw-rtb-1", "TransitGatewayId": gateway, "State": "available",
+             "AssociationInventory": {"collection_status": "collected", "items": [
+                 {"TransitGatewayAttachmentId": "tgw-attach-local", "State": "associated"}]},
+             "RouteInventory": {"collection_status": "collected", "queries": ["type=static", "type=propagated"], "items": [
+                 {"DestinationCidrBlock": "10.8.0.0/16", "Type": "static", "State": "active",
+                  "TransitGatewayAttachments": [{"TransitGatewayAttachmentId": "tgw-attach-foreign",
+                                                 "ResourceType": "vpc", "ResourceId": "vpc-foreign"}]}]}}
+    vpc_table = {"RouteTableId": "rtb-local", "VpcId": "vpc-local", "Routes": [
+        {"TransitGatewayId": gateway, "State": "active", "DestinationCidrBlock": "10.8.0.0/16"}]}
+
+    def scan(foreign_row=foreign, gateway_table=table, local_table=vpc_table):
+        return aws(coll("transit_gateway_attachment", [local, foreign_row]),
+                   coll("transit_gateway_route_table", [gateway_table]), coll("route_table", [local_table]))
+
+    finding = one(scan(), "transit_gateway_attachment")
+    assert finding["status"] == "FAIL"
+    assert finding["evidence"]["external_scope_ids"] == ["444455556666"]
+    assert "Return routing and endpoint access remain unverified" in evidence_summary(finding)
+    assert "foreign Transit Gateway attachment" in finding["remediation"]
+    partial = {**table, "RouteInventory": {**table["RouteInventory"], "collection_status": "partial"}}
+    assert one(scan(gateway_table=partial), "transit_gateway_attachment")["status"] == "UNKNOWN"
+    assert one(scan(local_table={**vpc_table, "Routes": []}), "transit_gateway_attachment")["status"] == "UNKNOWN"
+    unrelated = {**vpc_table, "Routes": [{**vpc_table["Routes"][0], "DestinationCidrBlock": "192.0.2.0/24"}]}
+    assert one(scan(local_table=unrelated), "transit_gateway_attachment")["status"] == "UNKNOWN"
+    blackhole = {**table, "RouteInventory": {**table["RouteInventory"], "items": [
+        {**table["RouteInventory"]["items"][0], "State": "blackhole"}]}}
+    assert one(scan(gateway_table=blackhole), "transit_gateway_attachment")["status"] == "UNKNOWN"
+    assert not exposure(scan(foreign_row={**foreign, "State": "deleted"}))
+
+
 def deployed_rest(api, *, stage="prod", authorization=None, api_key_required=None):
     methods = api.get("Methods") or []
     row = methods[0] if methods else {}

@@ -405,6 +405,15 @@ def _internet_summary(finding):
     label=_EXPOSURE_KINDS[kind]
     if kind=='external_network':
         path=e.get('path')
+        resource_type=(e.get('source') if isinstance(e.get('source'),dict) else {}).get('resource_type')
+        if resource_type=='transit_gateway_attachment':
+            routes=[step for step in path if isinstance(step,dict) and step.get('layer')=='transit_route'] if isinstance(path,list) else []
+            external=e.get('external_scope_ids')
+            if status=='FAIL' and len(routes)==1 and routes[0].get('decision')=='allow' and _strings(external) and external and routes[0].get('foreign_account')==external[0] and _text(routes[0].get('foreign_attachment')):
+                return 'A local VPC route and associated Transit Gateway route select a VPC attachment owned by external account '+external[0]+'. Return routing and endpoint access remain unverified.'
+            if status=='UNKNOWN' and isinstance(e.get('unresolved'),list) and e['unresolved']:
+                return 'The route from a local VPC to the foreign Transit Gateway attachment is unresolved.'
+            return None
         routes=[step for step in path if isinstance(step,dict) and step.get('layer')=='peering_route'] if isinstance(path,list) else []
         external=e.get('external_scope_ids')
         if status=='FAIL' and len(routes)==1 and routes[0].get('decision')=='allow' and _strings(external) and external and routes[0].get('peer_account')==external[0] and isinstance(routes[0].get('routes'),list) and routes[0]['routes']:
