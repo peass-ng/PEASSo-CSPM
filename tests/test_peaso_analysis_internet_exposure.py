@@ -1861,6 +1861,31 @@ def test_gcp_collected_bucket_acl_public_read_and_pap():
     assert not any(row["check_id"] == "analysis.principal_exposure" and row["status"] == "FAIL" for row in rows)
 
 
+def test_gcp_live_gke_service_inventory_candidates_and_missing_cluster():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    assert "gke_exposure_service" in GCP_TYPES
+    assert "gke_exposure_service" in plan_collection({
+        "connector": {"provider": "gcp"}, "categories": ["exposure"]})
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "spec": {"type": "LoadBalancer", "ports": [{"port": 443, "protocol": "TCP"}],
+                        "loadBalancerSourceRanges": ["0.0.0.0/0"]},
+               "status": {"loadBalancer": {"ingress": [{"ip": "34.1.2.3"}]}}}
+    result = one(gcp(gcoll("gke_exposure_service", [service], service="kubernetes")), "gke_exposure_service")
+    assert result["status"] == "UNKNOWN"
+    assert "34.1.2.3" in str(result["evidence"])
+    service["spec"] = {"type": "NodePort", "ports": [{"nodePort": 30080, "protocol": "TCP"}]}
+    result = one(gcp(gcoll("gke_exposure_service", [service], service="kubernetes")), "gke_exposure_service")
+    assert result["status"] == "UNKNOWN" and "30080" in str(result["evidence"])
+    marker = {"name": cluster + "/serviceInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable", "reason": "gke_cluster_endpoint_or_ca_unproved"}
+    assert one(gcp(gcoll("gke_exposure_service", [marker], service="kubernetes")),
+               "gke_exposure_service")["status"] == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    assert not exposure(gcp(gcoll("gke_exposure_service", [marker], service="kubernetes")))
+
+
 def test_gcp_nonuniform_bucket_missing_acl_inventory_is_unknown():
     bucket = {"name": "sample-bucket", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False},
               "publicAccessPrevention": "not_enforced"}, "iamPolicy": {"bindings": []}}

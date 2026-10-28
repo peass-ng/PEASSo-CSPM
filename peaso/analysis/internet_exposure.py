@@ -2390,6 +2390,44 @@ def _gcp_gke(snapshot, inventory, resource):
     return a
 
 
+def _gcp_gke_exposure_service(snapshot, inventory, resource):
+    """Preserve a live Service exposure candidate until the cloud path is joined."""
+    data = resource["data"]
+    state = data.get("inventoryStatus")
+    if state == "collected":
+        return None
+    if state is not None:
+        a = Assessment(resource, "gke_workload")
+        a.explicit = "UNKNOWN"
+        a.step("kubernetes_inventory", "unknown", cluster=data.get("cluster"), status=state,
+               reason=data.get("reason"))
+        a.gap("inventory", "GKE Kubernetes Service inventory was not completely read")
+        return a
+    spec = data.get("spec") if isinstance(data.get("spec"), dict) else {}
+    kind = spec.get("type")
+    external = [value for value in as_list(spec.get("externalIPs")) if _public_ip(value)]
+    if kind not in ("LoadBalancer", "NodePort") and not external:
+        return None
+    a = Assessment(resource, "gke_workload")
+    a.explicit = "UNKNOWN"
+    ingress = ((data.get("status") or {}).get("loadBalancer") or {}).get("ingress") or []
+    a.addresses = list(dict.fromkeys(external + [item["ip"] for item in ingress
+        if isinstance(item, dict) and _public_ip(item.get("ip"))]))
+    ports = {}
+    for item in as_list(spec.get("ports")):
+        if not isinstance(item, dict):
+            continue
+        port = item.get("nodePort") if kind == "NodePort" else item.get("port")
+        if isinstance(port, int) and 1 <= port <= 65535:
+            ports = union(ports, pset(item.get("protocol", "TCP"), port, port) or {})
+    a.ports = ports
+    a.step("kubernetes_service", "unknown", cluster=data.get("cluster"), service_type=kind,
+           addresses=a.addresses, ports=describe(ports), source_ranges=spec.get("loadBalancerSourceRanges"),
+           annotations=data.get("annotations"))
+    a.gap("firewall", "GKE Service listener, cloud forwarding rule, node firewall and backend path need an effective join")
+    return a
+
+
 def _gcp_bucket(snapshot, inventory, resource):
     data = resource["data"]
     policy = data.get("iamPolicy")
@@ -6183,7 +6221,7 @@ AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "n
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
              "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
-             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
              "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
              "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6201,7 +6239,7 @@ EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
                      "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app"},
-             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
+             "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
                      "media_cdn_service",
@@ -6246,7 +6284,8 @@ def assess(snapshot, resources):
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,
-                "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke, "bucket": _gcp_bucket,
+                "sql_instance": _gcp_sql, "alloydb_instance": _gcp_alloydb, "gke_cluster": _gcp_gke,
+                "gke_exposure_service": _gcp_gke_exposure_service, "bucket": _gcp_bucket,
                 "bigquery_dataset": _gcp_bigquery_dataset, "firebase_rules_release": _gcp_firebase_rules,
                 "firebase_database_rules": _gcp_firebase_rules,
                 "vpn_gateway": _gcp_vpn_gateway,
