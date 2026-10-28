@@ -3522,6 +3522,11 @@ EXTENSION_MODULES += ("peaso.collectors.aws_quicksight_dashboard_shares",)
 for _extension in EXTENSION_MODULES:
     _load_metadata_extension(_extension)
 
+# Preserve the immutable reviewed Scheduler fetcher and select its finite
+# recipient-only successor, which uses the same list/detail API calls.
+from .aws_scheduler_recipient_projection import schedules as _scheduler_recipient_schedules
+FETCHERS["scheduler_schedule"] = _scheduler_recipient_schedules
+
 _load_metadata_extension("peaso.collectors.unused_iam_aws_completion")
 
 # Explicit selected S3 source profile; never a generic listing/read fallback.

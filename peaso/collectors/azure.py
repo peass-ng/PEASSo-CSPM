@@ -353,9 +353,6 @@ def _arm_parent_native_type(row, kind):
     # The official 2016-03-01 LogProfiles List example explicitly returns "".
     if kind == "monitor_log_profile" and value == "":
         return
-    # The Security Contacts LIST example returns the singular resource type.
-    if kind == "security_contact" and isinstance(value, str) and value.casefold() == "microsoft.security/securitycontact":
-        return
     if not isinstance(value, str) or value.casefold() != expected.casefold():
         raise ValueError("native ARM parent type contradicts selected endpoint")
 
@@ -1664,7 +1661,7 @@ def _validate_readonly_post(url, audience, body):
     from . import azure_graph_batch
     graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and not query and
                    (parsed.path == "/v1.0/$batch" and azure_graph_batch.valid_body(body) or
-                    parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_routes_only=True)))
+                    parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_members_only=True)))
     newrelic = azure_newrelic_native.monitored_route(url, body, ARM)
     if not (arg or logs or policy or graph_batch or newrelic):
         raise AzureReadError("cloud_mutation_prohibited")
@@ -1989,9 +1986,6 @@ class AzureTransport:
         self.tenant = auth.get("tenant_id")
         self.vault_hosts = set()
         self.storage_hosts = set()
-        self.grafana_hosts = set()
-        self.purview_hosts = set()
-        self.foundry_hosts = set()
         self.verified_tenant = None
         from .scan_cache import RawResponseCache
         # Per-scan, per-credential single-flight cache of complete read bodies.
@@ -2107,12 +2101,8 @@ class AzureTransport:
             if actual and actual not in aliases.get(expected, {expected, expected + "/"}):
                 raise AzureReadError("token_audience_mismatch", 401)
             from peaso.ai.access import bearer
-            endpoints = (["https://api.purview-service.microsoft.com"] + ["https://" + host for host in self.purview_hosts] if audience == "https://purview.azure.net" else
-                         ["https://" + host for host in self.foundry_hosts] if audience == azure_foundry_agent_native.AUDIENCE else
-                         ["https://api.powerbi.com"] if audience == azure_powerbi_public_share_native.AUDIENCE else
-                         ["https://" + host for host in self.vault_hosts] if audience == VAULT else
-                         ["https://" + host for host in self.storage_hosts] if audience == STORAGE else
-                         ["https://" + host for host in self.grafana_hosts] if audience == GRAFANA else [audience])
+            endpoints = (["https://" + host for host in self.vault_hosts] if audience == VAULT else
+                         ["https://" + host for host in self.storage_hosts] if audience == STORAGE else [audience])
             bearer("azure", audience, token, context_id=self.ai_context_id, tenant_id=self.tenant,
                    expires_at=None if direct else cached.expires_on, endpoints=endpoints)
             return token
@@ -2303,12 +2293,12 @@ def _metadata_only(value, secret=False):
     if not isinstance(value, dict):
         return value
     result = {key: _metadata_only(item, secret) for key, item in value.items() if not (secret and key.lower() == "value") and key.lower() not in (
-        "password", "adminpassword", "clientsecret", "radiusserversecret", "accesstoken", "token",
+        "password", "adminpassword", "clientsecret", "accesstoken", "token",
         "connectionstring", "primarykey", "secondarykey", "privatekey", "customdata",
         "userdata", "protectedsettings", "protectedsettingsfromkeyvault", "appsettings",
         "machinekey", "decryptionkey", "validationkey", "sourceuri", "accesssas",
         "redisconfiguration", "tenantsettings", "apiproperties", "globalparameters",
-        "migrationtoken", "secrettext", "webhookproperties", "storageaccountaccesskey", "storagecontainersaskey", "workspacekey", "securevalue", "pfx", "certificatepassword", "certificate", "privatekeybytes", "sharedaccesskey", "sharedaccesspolicykey", "accountkey", "storageaccountkey", "accesskey", "accesskeys", "sasuri", "sasurl", "sastoken", "secretvalue", "pullsecret", "apikey", "apikeys", "administratorloginpassword", "settings")}
+        "migrationtoken", "secrettext", "webhookproperties", "storageaccountaccesskey", "storagecontainersaskey", "workspacekey", "securevalue", "pfx", "certificatepassword", "certificate", "privatekeybytes", "sharedaccesskey", "sharedaccesspolicykey", "accountkey", "storageaccountkey", "accesskey", "accesskeys", "sasuri", "sasurl", "sastoken", "secretvalue", "apikey", "apikeys", "administratorloginpassword", "settings")}
     if isinstance(value.get("environmentVariables"), list):
         result["environmentVariables"] = [{key: ("[REDACTED]" if data is not None else None) if key in ("value", "secureValue") else _metadata_only(data, secret) for key, data in variable.items() if key in ("name", "value", "secureValue")} if isinstance(variable, dict) else _metadata_only(variable, secret) for variable in value["environmentVariables"]]
     for field in ("passwordCredentials", "keyCredentials"):
@@ -2653,7 +2643,7 @@ class _Reader:
         kind, scope, service, fetch = job
         items = {}
         status, error = "collected", None
-        scoped_types = set(ENDPOINTS) | {"key_vault_certificate", "resource_graph", "subnet", "vnet_peering", "diagnostic_setting", "storage_service", "sql_database", "sql_firewall_rule", "sql_ipv6_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record", "private_dns_link", "app_service_config", "app_service_identity_detail", "sql_tde", "managed_identity_federated_credential", "key_metadata", "key_rotation_policy", "key_vault_certificate_policy", "sql_vulnerability_assessment", "sql_encryption_protector", "storage_container", "storage_encryption_scope"}
+        scoped_types = set(ENDPOINTS) | {"key_vault_certificate", "resource_graph", "subnet", "vnet_peering", "diagnostic_setting", "storage_service", "sql_database", "sql_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record", "private_dns_link", "app_service_config", "app_service_identity_detail", "sql_tde", "managed_identity_federated_credential", "key_metadata", "key_rotation_policy", "key_vault_certificate_policy", "sql_vulnerability_assessment", "sql_encryption_protector", "storage_container", "storage_encryption_scope"}
         try:
             self.check_cancelled()
             for page in fetch():
@@ -2669,12 +2659,7 @@ class _Reader:
                     normalized = identifier.lower() if service != "kubernetes" else identifier
                     if normalized not in items and self.budget.max_items is not None and len(items) >= self.budget.max_items:
                         raise AzureReadError("resource_limit")
-                    projected = item if service == "kubernetes" else _metadata_only(
-                        _managed_application_metadata(item) if kind == "managed_application" else
-                        _managed_grafana_metadata(item) if kind == "managed_grafana" else
-                        _analysis_server_metadata(item) if kind == "analysis_server" else
-                        _private_link_service_metadata(item) if kind == "private_link_service" else item,
-                        kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
+                    projected = item if service == "kubernetes" else _metadata_only(item, kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
                     if kind == "app_service":
                         projected = azure_functions_runtime_native.safe_site_inventory(projected)
                     if kind in azure_alert_routing_native.CONTRACTS:
@@ -2740,6 +2725,144 @@ class _Reader:
                 "concurrency": self.workers, "retries": self.retries,
                 "explicit_limits": dict(self.explicit_limits), "collection_deadline_seconds": self.deadline_seconds,
                 "intentional_partial": any(c.get("error", {}).get("code") in ("resource_limit", "page_limit", "call_limit", "scope_limit", "deadline_exceeded", "collection_cancelled") for c in self.collections)}
+
+
+
+class AzureTransportExposure(AzureTransport):
+
+    def __init__(self, auth, credential=None):
+        self.auth = auth
+        import uuid
+        self.ai_context_id = uuid.uuid4().hex
+        self.credential = credential
+        self.owned = credential is None
+        self.direct = auth.get("method", "auto") in ("auto", "token", "arm-token") and bool(auth.get("arm_token") or auth.get("token") or auth.get("graph_token") or auth.get("vault_token") or auth.get("storage_token") or auth.get("logs_token"))
+        if self.credential is None and not self.direct:
+            self.credential = credential_for(auth)
+        self.tokens = {}
+        self.lock = threading.Lock()
+        self.tenant = auth.get("tenant_id")
+        self.vault_hosts = set()
+        self.storage_hosts = set()
+        self.grafana_hosts = set()
+        self.purview_hosts = set()
+        self.foundry_hosts = set()
+        self.verified_tenant = None
+        from .scan_cache import RawResponseCache
+        # Per-scan, per-credential single-flight cache of complete read bodies.
+        self.response_cache = RawResponseCache()
+
+    def token(self, audience):
+        direct = (self.auth.get("arm_token") or self.auth.get("token")) if self.direct and audience == ARM else self.auth.get("graph_token") if audience == GRAPH else self.auth.get("vault_token") if audience == VAULT else self.auth.get("storage_token") if audience == STORAGE else self.auth.get("logs_token") if audience == LOGS else None
+        with self.lock:
+            if direct:
+                token = direct
+            else:
+                if self.credential is None:
+                    raise AzureReadError("audience_token_unavailable", 401)
+                cached = self.tokens.get(audience)
+                if cached is None or cached.expires_on < time.time() + 60:
+                    cached = self.credential.get_token(audience + "/.default")
+                    self.tokens[audience] = cached
+                token = cached.token
+            claims = _claims(token)
+            tenant = claims.get("tid")
+            if self.tenant and tenant and self.tenant.lower() != tenant.lower():
+                raise AzureReadError("tenant_mismatch", 401)
+            if tenant:
+                self.verified_tenant = tenant
+            if tenant and not self.tenant:
+                self.tenant = tenant
+            expected = audience
+            actual = claims.get("aud")
+            aliases = {ARM: {ARM, ARM + "/", "https://management.core.windows.net/"},
+                       GRAPH: {GRAPH, GRAPH + "/", "00000003-0000-0000-c000-000000000000"},
+                       VAULT: {VAULT, VAULT + "/", "cfa8b339-82a2-471a-a3c9-0fc0be7a4093"}}
+            if actual and actual not in aliases.get(expected, {expected, expected + "/"}):
+                raise AzureReadError("token_audience_mismatch", 401)
+            from peaso.ai.access import bearer
+            endpoints = (["https://api.purview-service.microsoft.com"] + ["https://" + host for host in self.purview_hosts] if audience == "https://purview.azure.net" else
+                         ["https://" + host for host in self.foundry_hosts] if audience == azure_foundry_agent_native.AUDIENCE else
+                         ["https://api.powerbi.com"] if audience == azure_powerbi_public_share_native.AUDIENCE else
+                         ["https://" + host for host in self.vault_hosts] if audience == VAULT else
+                         ["https://" + host for host in self.storage_hosts] if audience == STORAGE else
+                         ["https://" + host for host in self.grafana_hosts] if audience == GRAFANA else [audience])
+            bearer("azure", audience, token, context_id=self.ai_context_id, tenant_id=self.tenant,
+                   expires_at=None if direct else cached.expires_on, endpoints=endpoints)
+            return token
+
+
+class _ReaderExposure(_Reader):
+
+    def _read(self, job):
+        kind, scope, service, fetch = job
+        items = {}
+        status, error = "collected", None
+        scoped_types = set(ENDPOINTS) | {"key_vault_certificate", "resource_graph", "subnet", "vnet_peering", "diagnostic_setting", "storage_service", "sql_database", "sql_firewall_rule", "sql_ipv6_firewall_rule", "sql_audit", "sql_security", "secret_metadata", "dns_record", "private_dns_link", "app_service_config", "app_service_identity_detail", "sql_tde", "managed_identity_federated_credential", "key_metadata", "key_rotation_policy", "key_vault_certificate_policy", "sql_vulnerability_assessment", "sql_encryption_protector", "storage_container", "storage_encryption_scope"}
+        try:
+            self.check_cancelled()
+            for page in fetch():
+                self.check_cancelled()
+                if not isinstance(page, list) or any(not isinstance(item, dict) for item in page):
+                    raise ValueError("malformed page")
+                for item in page:
+                    identifier = item.get("id")
+                    if not isinstance(identifier, str) or not identifier:
+                        raise ValueError("missing authoritative resource identity")
+                    if service != "kubernetes" and kind in scoped_types and scope.startswith("/subscriptions/") and not _policy_assignment_scope_allowed(kind, scope, identifier):
+                        raise ValueError("resource outside selected ARM scope")
+                    normalized = identifier.lower() if service != "kubernetes" else identifier
+                    if normalized not in items and self.budget.max_items is not None and len(items) >= self.budget.max_items:
+                        raise AzureReadError("resource_limit")
+                    if kind in ("virtual_network_gateway", "hub_vpn_gateway", "openshift_cluster", "openshift_hcp_cluster"):
+                        from .azure_radius_secret_redaction import without_added_secrets
+                        item = without_added_secrets(item)
+                    projected = item if service == "kubernetes" else _metadata_only(
+                        _managed_application_metadata(item) if kind == "managed_application" else
+                        _managed_grafana_metadata(item) if kind == "managed_grafana" else
+                        _analysis_server_metadata(item) if kind == "analysis_server" else
+                        _private_link_service_metadata(item) if kind == "private_link_service" else item,
+                        kind == "secret_metadata" or str(item.get("type", "")).lower().endswith("/secrets"))
+                    if kind == "app_service":
+                        projected = azure_functions_runtime_native.safe_site_inventory(projected)
+                    if kind in azure_alert_routing_native.CONTRACTS:
+                        try:
+                            projected = azure_alert_routing_native.project(kind, scope, projected, ENDPOINTS[kind][1])
+                        except ValueError:
+                            # Preserve native metadata for other controls while
+                            # making unavailable routing interpretation explicit.
+                            projected = {**projected, '_routing_provenance': {
+                                'status': 'unavailable', 'code': 'native_routing_unresolved'}}
+                    if kind in ('storage_account', 'embedded_blobContainers', 'embedded_encryptionScopes') and normalized in items:
+                        raise ValueError('duplicate native storage identity')
+                    if kind == 'subscription' and normalized in items and items[normalized] != projected:
+                        raise ValueError('conflicting subscription tenant identity')
+                    if kind in ('aks_cluster', 'embedded_localUsers', 'embedded_extensions', 'embedded_backupShortTermRetentionPolicies', 'embedded_eventSubscriptions') and normalized in items:
+                        raise ValueError('duplicate native child identity')
+                    if kind in ('conditional_access_policy', 'named_location') and normalized in items:
+                        raise ValueError('duplicate native Conditional Access policy or location identity')
+                    if kind in azure_alert_routing_native.CONTRACTS and normalized in items:
+                        raise ValueError('duplicate native alert identity')
+                    if kind == 'security_assessment' and normalized in items and items[normalized] != projected:
+                        raise ValueError('conflicting native security assessment identity')
+                    if kind == 'embedded_guestConfigurationAssignments' and normalized in items and items[normalized] != projected:
+                        raise ValueError('conflicting guest assignment identity')
+                    if kind == 'embedded_backupProtectedItems' and normalized in items and items[normalized] != projected:
+                        raise ValueError('conflicting backup protected item identity')
+                    if kind == 'policy_assignment' and normalized in items:
+                        raise ValueError('duplicate native policy assignment identity')
+                    items.setdefault(normalized, projected)
+        except Exception as exc:
+            status, error = _safe_error(exc)
+            if items or getattr(exc, "code", "") in ("resource_limit", "page_limit", "call_limit", "graph_truncated", "scope_limit", "collection_cancelled"):
+                status = "partial"
+        if status == "collected" and not items:
+            status = "empty"
+        result = {"type": kind, "scope": scope, "service": service, "status": status, "items": list(items.values())}
+        if error:
+            result["error"] = error
+        self.progress(scope=scope, settled=result)
+        return result
 
 
 def _selected(options, requirements):
@@ -3172,7 +3295,7 @@ def collect(connector, requirements=None, *, transport=None):
     lifecycle_owner = azure_storage_lifecycle_native.normalize(options)
     from . import azure_swc, azure_appservice_identity_followup
     trusted_scopes = _trusted_scopes(options)
-    reader = _Reader(options)
+    reader = _ReaderExposure(options)
     reader.progress_callback = options.get("_progress_callback")
     from peaso.collection_events import SettledCollections
     deferred = {"subscription", "network_interface"}
@@ -3241,9 +3364,9 @@ def collect(connector, requirements=None, *, transport=None):
         if owned:
             if function_targets:
                 with azure_function_settings_declarations_20261020.private_native_logs():
-                    transport = AzureTransport(auth)
+                    transport = AzureTransportExposure(auth)
             else:
-                transport = AzureTransport(auth)
+                transport = AzureTransportExposure(auth)
         cache, cache_locks, cache_guard = {}, {}, threading.Lock()
         def request(url, *, body=None, audience=ARM):
             key = (audience, url, json.dumps(body, sort_keys=True) if body is not None else None)
@@ -3580,7 +3703,9 @@ def collect(connector, requirements=None, *, transport=None):
                             rid = item.get("id") if isinstance(item, dict) else None
                             if not isinstance(rid, str) or not _policy_assignment_scope_allowed(kind, scope, rid):
                                 raise ValueError("resource outside selected subscription")
-                            _arm_parent_native_type(item, kind)
+                            if not (kind == "security_contact" and
+                                    str(item.get("type", "")).casefold() == "microsoft.security/securitycontact"):
+                                _arm_parent_native_type(item, kind)
                             if kind == "managed_application":
                                 expected = re.escape(scope) + r"/resourceGroups/[^/?#%\\\s]+/providers/Microsoft\.Solutions/applications/[^/?#%\\\s]+"
                                 if (re.fullmatch(expected, rid, re.I) is None
@@ -3626,7 +3751,9 @@ def collect(connector, requirements=None, *, transport=None):
                             result = reader.call(request, detail_url)
                             if not isinstance(result, dict) or str(result.get("id", "")).lower() != rid.lower() or (kind in FULL_GET_KINDS and not isinstance(result.get("properties"), dict)):
                                 raise ValueError("malformed resource detail")
-                            _arm_parent_native_type(result, kind)
+                            if not (kind == "security_contact" and
+                                    str(result.get("type", "")).casefold() == "microsoft.security/securitycontact"):
+                                _arm_parent_native_type(result, kind)
                             _network_platform_native_identity(result, scope, kind)
                             if kind in ("vm", "nsg", "storage_account", "container_group", "vm_scale_set", "security_pricing") and str(result.get("type", "")).casefold() != ENDPOINTS[kind][0].casefold():
                                 raise ValueError("native resource detail type differs from selected inventory")

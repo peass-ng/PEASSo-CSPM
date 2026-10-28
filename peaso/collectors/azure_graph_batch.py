@@ -29,10 +29,6 @@ ROUTES = tuple(re.compile(pattern) for pattern in (
     r"/servicePrincipals/" + _OBJECT + r"/appRoleAssignments",
     r"/groups/" + _OBJECT + r"/members\?\$select=id",
 ))
-BETA_ROUTES = tuple(re.compile(pattern) for pattern in (
-    r"/groups/" + _OBJECT + r"/members\?\$select=id",
-    r"/applications/" + _OBJECT + r"/federatedIdentityCredentials\?\$select=id,name,issuer,subject,audiences,claimsMatchingExpression",
-))
 _MISSING = object()
 
 
@@ -44,12 +40,12 @@ def relative(url):
     if prefix is None:
         return None
     path = url[len(prefix):]
-    if prefix == BETA_PREFIX and not any(route.fullmatch(path) for route in BETA_ROUTES):
+    if prefix == BETA_PREFIX and not re.fullmatch(r"/groups/" + _OBJECT + r"/members\?\$select=id", path):
         return None
-    return path if any(route.fullmatch(path) for route in (BETA_ROUTES if prefix == BETA_PREFIX else ROUTES)) else None
+    return path if any(route.fullmatch(path) for route in ROUTES) else None
 
 
-def valid_body(body, *, beta_routes_only=False):
+def valid_body(body, *, beta_members_only=False):
     """A $batch body that contains only reviewed directory GETs."""
     if not isinstance(body, dict) or set(body) != {"requests"}:
         return False
@@ -61,7 +57,8 @@ def valid_body(body, *, beta_routes_only=False):
         if (not isinstance(row, dict) or set(row) != {"id", "method", "url"} or row["method"] != "GET"
                 or not isinstance(row["id"], str) or not re.fullmatch(r"[0-9]{1,2}", row["id"]) or row["id"] in seen
                 or not isinstance(row["url"], str) or not (
-                    any(route.fullmatch(row["url"]) for route in (BETA_ROUTES if beta_routes_only else ROUTES)))):
+                    re.fullmatch(r"/groups/" + _OBJECT + r"/members\?\$select=id", row["url"])
+                    if beta_members_only else any(route.fullmatch(row["url"]) for route in ROUTES))):
             return False
         seen.add(row["id"])
     return True
